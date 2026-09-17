@@ -431,14 +431,34 @@ func buildRepairPrompt(compilerOutput string) string {
 		"The compiler names the file and line of each error; edit those lines."
 }
 
-// repairRound sends one repair prompt through the working request path, runs
-// the batch the model answers with, and reports whether that batch wrote
-// anything. Under commit the read tools are withheld from the catalog and a
-// read asked for anyway is answered with the regime (see working_regime); the
-// first round is open, so a model that wants one look at the reported lines
-// gets it, and only a round that read without editing is followed by a closed
-// one. The round's own calls and results are appended to history so the next
-// round sees them.
+// repairRound sends one repair prompt through the working request path and
+// runs up to repairRoundsPerAttempt model calls for the one attempt, executing
+// each response's batch and appending that round's assistant message and tool
+// results to history so the next round sees them. One attempt is allowed
+// several model calls because an attempt whose single call spends itself
+// reading ends with no edit and the loop cannot converge on even a one-line
+// compile error (F-REPAIR-1): a round that only read is followed by another
+// round carrying that read in its history. The attempt ends early when the
+// model answers with no tool calls, or when a round's batch performed a
+// successful write — the write hands control back to the outer loop, which
+// rechecks before another call is spent. Under commit the read tools are
+// withheld from the catalog and a read asked for anyway is answered with the
+// regime (see working_regime); the first round of an open attempt stays open,
+// so a model that wants one look at the reported lines gets it, and a round
+// that executed tools without writing is followed by a closed one: the
+// attempt enters the commit regime (lasting to the end of the attempt) and
+// appends the failing prompt plus the regime text so the next call carries
+// both. An attempt that already started closed re-appends the same prompt
+// plus regime text when the previous round read without writing, so the
+// model is told again to edit. The deferral covers the whole attempt, across
+// every round.
+//
+// It returns the last response (its Usage holds the sum across every round, so
+// the attempt's cost counts each call rather than only the last one), the
+// number of model calls actually completed, the tool calls of every round
+// (repair_loop's toolRunsFor needs the calls of all rounds), the collected
+// repair errors, every round's tool results in order, and whether any round
+// wrote.
 func (e *Executor) repairRound(
 	ctx context.Context,
 	trp types.ToolResultsProvider,
@@ -449,31 +469,68 @@ func (e *Executor) repairRound(
 	result *ExecutionResult,
 	prompt string,
 	commit bool,
-) (*types.LLMToolResponse, []string, []types.ToolResult, bool, error) {
+) (*types.LLMToolResponse, int, [][]types.ToolCall, []string, []types.ToolResult, bool, error) {
 	*history = append(*history, types.Message{Role: "user", Text: prompt})
-	if commit {
+	closed := commit
+	if closed {
 		defer e.enterCommitRegime(ctx)()
-	}
-	repaired, err := e.completeWithWorkingContext(ctx, trp, systemPrompt, *history, toolDefs)
-	if err != nil {
-		return nil, nil, nil, false, err
-	}
-	before := 0
-	if result != nil {
-		before = result.SuccessfulWriteTools
 	}
 	var repairErrs []string
 	var toolResults []types.ToolResult
-	if repaired != nil && len(repaired.ToolCalls) > 0 {
+	var allCalls [][]types.ToolCall
+	var last *types.LLMToolResponse
+	llmCalls := 0
+	wrote := false
+	for round := 0; round < repairRoundsPerAttempt; round++ {
+		before := 0
+		if result != nil {
+			before = result.SuccessfulWriteTools
+		}
+		repaired, err := e.completeWithWorkingContext(ctx, trp, systemPrompt, *history, toolDefs)
+		if err != nil {
+			return nil, llmCalls, allCalls, repairErrs, toolResults, wrote, err
+		}
+		llmCalls++
+		if repaired == nil {
+			break
+		}
+		if last != nil {
+			// The caller charges the attempt for the returned response's
+			// usage, so fold the earlier rounds' accumulated tokens into
+			// the newest response before it becomes the one returned.
+			repaired.Usage.InputTokens += last.Usage.InputTokens
+			repaired.Usage.OutputTokens += last.Usage.OutputTokens
+			repaired.Usage.TotalTokens += last.Usage.TotalTokens
+			repaired.Usage.ThinkingTokens += last.Usage.ThinkingTokens
+			repaired.Usage.CachedContentTokens += last.Usage.CachedContentTokens
+		}
+		last = repaired
+		if len(repaired.ToolCalls) == 0 {
+			break
+		}
+		allCalls = append(allCalls, repaired.ToolCalls)
 		results, errs := e.executeToolBatch(ctx, repaired.ToolCalls, cfg, result)
 		repairErrs = append(repairErrs, errs...)
-		toolResults = results
+		toolResults = append(toolResults, results...)
 		*history = append(*history,
 			types.AssistantMessageFrom(repaired),
 			types.Message{Role: "user", ToolResults: results})
+		wrote = result != nil && result.SuccessfulWriteTools > before
+		if wrote {
+			break
+		}
+		if round+1 < repairRoundsPerAttempt {
+			if !closed {
+				defer e.enterCommitRegime(ctx)()
+				closed = true
+			}
+			// Either freshly closed, or already closed where the previous
+			// round executed tools without writing (read without writing):
+			// carry the failing output plus the regime text into the next call.
+			*history = append(*history, types.Message{Role: "user", Text: prompt + "\n\n" + workingRegimeText(commitRegime)})
+		}
 	}
-	wrote := result != nil && result.SuccessfulWriteTools > before
-	return repaired, repairErrs, toolResults, wrote, nil
+	return last, llmCalls, allCalls, repairErrs, toolResults, wrote, nil
 }
 
 // verifyAndUpliftWithCritic runs one adversarial review of the code this turn
