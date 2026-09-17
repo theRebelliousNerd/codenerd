@@ -3,6 +3,7 @@ package campaign
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -413,6 +414,35 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	}
 	logging.CampaignDebug("Executing file task %s: path=%s", task.ID, targetPath)
 
+	// F-CAMP-1: resolve the target exactly as the success path verifies it and
+	// record whether it is an existing directory. Recurse tasks carry a
+	// DIRECTORY as their target (subsystem Paths, e.g. "internal/mangle"), and
+	// the fallback below is a creator that writes one file: for a directory
+	// target or a modify task its refusal must surface as the task's real
+	// error, not a misleading kernel write refusal over a directory.
+	fullPath := ""
+	if filepath.IsAbs(targetPath) {
+		fullPath = filepath.Clean(targetPath)
+	} else {
+		fullPath = filepath.Join(o.workspace, targetPath)
+	}
+	isDirectoryTarget := false
+	if info, statErr := os.Stat(fullPath); statErr == nil && info.IsDir() {
+		isDirectoryTarget = true
+	}
+	// For a directory target, success means the workspace changed under it, so
+	// take the evidence snapshot before the shard runs (same mechanism
+	// executeTestRunTask uses). A directory never stats as a regular file, so
+	// the post-shard stat check can never verify it on its own.
+	var before string
+	if isDirectoryTarget {
+		snap, snapErr := evidence.Snapshot(ctx, o.workspace)
+		if snapErr != nil {
+			return nil, fmt.Errorf("evidence snapshot before shard for directory target %s: %w", targetPath, snapErr)
+		}
+		before = snap
+	}
+
 	// Build task string for coder shard
 	// NOTE: Don't use "instruction:<value>" format because strings.Fields() splits on spaces,
 	// causing multi-word instructions to be truncated. Use simpler format where bare words
@@ -427,6 +457,23 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	// Delegate to coder shard
 	result, err := o.spawnTask(ctx, "/fix", shardTask)
 	if err != nil {
+		// F-CAMP-3: once the context is expired or cancelled, any fallback's
+		// LLM call can only fail with a bare "context deadline exceeded" that
+		// hides the real shard failure. Surface the shard error, wrapped with
+		// the task identity, instead of falling back.
+		if ctxErr := ctx.Err(); ctxErr != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			logging.Get(logging.CategoryCampaign).Warn("Shard failed for task %s with an expired context; surfacing shard error instead of falling back: %v", task.ID, err)
+			return nil, fmt.Errorf("coder shard failed for %s task %s on %s: %w", task.Type, task.ID, targetPath, err)
+		}
+		// F-CAMP-1: the fallback is a creator, never an editor. For a directory
+		// target it would generate content and try to write it over the
+		// directory (kernel refusal that hides the real failure); for a modify
+		// task it would clobber the existing file with generated content. Keep
+		// the fallback only for task types it was built for.
+		if isDirectoryTarget || task.Type == TaskTypeFileModify {
+			logging.Get(logging.CategoryCampaign).Warn("Coder shard failed for %s task %s on %s; refusing create-style fallback so the real failure stays visible", task.Type, task.ID, targetPath)
+			return nil, fmt.Errorf("coder shard failed for %s task %s on %s: %w", task.Type, task.ID, targetPath, err)
+		}
 		logging.Get(logging.CategoryCampaign).Warn("Coder shard failed for task %s, using fallback: %v", task.ID, err)
 		// Fallback to direct LLM if shard fails
 		return o.executeFileTaskFallback(ctx, task, targetPath)
@@ -439,20 +486,30 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	// An empty target or a directory must never count as success: an empty
 	// target joins to the workspace root itself, which always stats.
 	verified := false
-	var fullPath string
 	if targetPath != "" {
-		if filepath.IsAbs(targetPath) {
-			fullPath = filepath.Clean(targetPath)
-		} else {
-			fullPath = filepath.Join(o.workspace, targetPath)
-		}
 		if info, statErr := os.Stat(fullPath); statErr == nil && !info.IsDir() && info.Mode().IsRegular() {
 			verified = true
 		}
 	}
+	// F-CAMP-1: a directory target is modified in place, so the success
+	// criterion is that the workspace changed under it — measured by the
+	// before/after evidence snapshot, never by the stat of the directory
+	// itself, which existed before the shard ran.
+	if !verified && isDirectoryTarget {
+		after, snapErr := evidence.Snapshot(ctx, o.workspace)
+		if snapErr != nil {
+			return nil, fmt.Errorf("evidence snapshot after shard for directory target %s: %w", targetPath, snapErr)
+		}
+		verified = after != before
+	}
 	if !verified {
-		if fullPath == "" {
-			fullPath = filepath.Join(o.workspace, targetPath)
+		if isDirectoryTarget {
+			// F-CAMP-1: a hollow success on a directory target must not fall
+			// back to the creator path; that path generates a file and tries to
+			// write it over the directory, turning "shard broke the tests" into
+			// a kernel write refusal.
+			logging.Get(logging.CategoryCampaign).Warn("Coder shard reported success for task %s but changed nothing under %s", task.ID, targetPath)
+			return nil, fmt.Errorf("coder shard reported success for %s but changed nothing under %s", task.ID, targetPath)
 		}
 		logging.Get(logging.CategoryCampaign).Warn("Coder shard returned but file not created or not a regular file: %s, using fallback", fullPath)
 		// Shard didn't write file - fall back to direct LLM
@@ -501,11 +558,19 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 	// The fallback is a creator, never an editor. Refuse to overwrite an
 	// existing file before generating anything: a hollow coder result must fail
 	// the task (retry -> attempt-cap re-plan), never truncate real work through
-	// this back door.
+	// this back door. An existing DIRECTORY is refused too (F-CAMP-1): this
+	// path can only write one file, and aiming it at a directory previously
+	// produced a misleading kernel write refusal instead of the real failure.
 	statPath := filepath.Join(o.workspace, targetPath)
-	if info, statErr := os.Stat(statPath); statErr == nil && info.Mode().IsRegular() {
-		logging.Get(logging.CategoryCampaign).Warn("Fallback refused for task %s: target %s already exists; modify tasks need the coder path", task.ID, targetPath)
-		return nil, fmt.Errorf("fallback refused for %s: target %s exists (%d bytes); modify tasks need the coder path", task.ID, targetPath, info.Size())
+	if info, statErr := os.Stat(statPath); statErr == nil {
+		if info.IsDir() {
+			logging.Get(logging.CategoryCampaign).Warn("Fallback refused for task %s: target %s is an existing directory; the fallback writes a single file, not a directory", task.ID, targetPath)
+			return nil, fmt.Errorf("fallback refused for %s: target %s is an existing directory and the fallback cannot write a directory", task.ID, targetPath)
+		}
+		if info.Mode().IsRegular() {
+			logging.Get(logging.CategoryCampaign).Warn("Fallback refused for task %s: target %s already exists; modify tasks need the coder path", task.ID, targetPath)
+			return nil, fmt.Errorf("fallback refused for %s: target %s exists (%d bytes); modify tasks need the coder path", task.ID, targetPath, info.Size())
+		}
 	}
 
 	// Front door only: repository writes go through the VirtualStore so
@@ -616,6 +681,13 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 	// Delegate to tester shard
 	result, err := o.spawnTask(ctx, "/test", shardTask)
 	if err != nil {
+		// F-CAMP-3: an expired or cancelled context makes any downstream
+		// fallback's LLM call fail with a bare "context deadline exceeded" that
+		// hides the real tester failure. Surface the shard error instead.
+		if ctxErr := ctx.Err(); ctxErr != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			logging.Get(logging.CategoryCampaign).Warn("Tester shard failed for test write task %s with an expired context; surfacing shard error instead of falling back: %v", task.ID, err)
+			return nil, fmt.Errorf("tester shard failed for test_write task %s on %s: %w", task.ID, targetPath, err)
+		}
 		logging.Get(logging.CategoryCampaign).Warn("Tester shard failed for test write task %s, falling back to coder: %v", task.ID, err)
 		// Fallback to coder shard for test generation
 		return o.executeFileTask(ctx, task)
