@@ -22,7 +22,7 @@ func TestRouterMissingRouteEmitsFailure(t *testing.T) {
 	router.Kernel = kernel
 
 	actionID := "action-missing-route"
-	payload := map[string]any{"intent_id": "/current_intent"}
+	payload := encodeActionPayload(map[string]any{"intent_id": "/current_intent"})
 	if err := kernel.Assert(core.Fact{
 		Predicate: "permitted_action",
 		Args:      []any{actionID, "/nonexistent_action", "", payload, time.Now().Unix()},
@@ -111,7 +111,7 @@ func TestRouterAllowedUnmappedActionIsRecordedAndConsumed(t *testing.T) {
 
 	fact := core.Fact{
 		Predicate: "permitted_action",
-		Args:      []any{"action-learn-route", "/novel_action", "target", map[string]any{}, time.Now().Unix()},
+		Args:      []any{"action-learn-route", "/novel_action", "target", encodeActionPayload(map[string]any{}), time.Now().Unix()},
 	}
 	if err := kernel.Assert(fact); err != nil {
 		t.Fatalf("assert permitted_action: %v", err)

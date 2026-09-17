@@ -60,8 +60,8 @@ func TestReviewerCapabilities(t *testing.T) {
 
 	// --- Scenario C: Layer Leakage ---
 	setupLayerLeakage := []core.Fact{
-		{Predicate: "symbol_graph", Args: []any{"ID_Lib", "function", "public", "internal/lib/lib.go", int64(1)}},
-		{Predicate: "symbol_graph", Args: []any{"ID_App", "function", "public", "cmd/app/main.go", int64(1)}},
+		{Predicate: "symbol_graph", Args: []any{"ID_Lib", "function", "public", "internal/lib/lib.go", "func ID_Lib()"}},
+		{Predicate: "symbol_graph", Args: []any{"ID_App", "function", "public", "cmd/app/main.go", "func ID_App()"}},
 		{Predicate: "dependency_link", Args: []any{"ID_Lib", "ID_App", "call"}},
 
 		// Mock string_contains because it's not virtual in this test environment
@@ -73,7 +73,7 @@ func TestReviewerCapabilities(t *testing.T) {
 	setupZombie := []core.Fact{
 		// file_topology(Path, Hash, Language, LastModified, IsTestFile)
 		{Predicate: "file_topology", Args: []any{"test_zombie.go", "hash", core.MangleAtom("/go"), int64(0), core.MangleAtom("/true")}},
-		{Predicate: "symbol_graph", Args: []any{"ID_Test", "function", "public", "test_zombie.go", int64(1)}},
+		{Predicate: "symbol_graph", Args: []any{"ID_Test", "function", "public", "test_zombie.go", "func ID_Test()"}},
 	}
 
 	// Assert All

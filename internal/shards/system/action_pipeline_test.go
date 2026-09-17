@@ -45,9 +45,10 @@ func TestPendingActionPipelineProducesRoutingResult(t *testing.T) {
 	router.VirtualStore = virtualStore
 
 	actionID := "action-test"
+	payload := encodeActionPayload(map[string]any{})
 	if err := kernel.Assert(core.Fact{
 		Predicate: "pending_action",
-		Args:      []any{actionID, "/read_file", "hello.txt", map[string]any{}, time.Now().Unix()},
+		Args:      []any{actionID, "/read_file", "hello.txt", payload, time.Now().Unix()},
 	}); err != nil {
 		t.Fatalf("assert pending_action: %v", err)
 	}
