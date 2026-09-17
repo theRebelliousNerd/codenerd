@@ -26,7 +26,9 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 					result.BuildCheck = fresh
 				}
 				if e.configSnapshot().VerifyTestsAfterEdits {
-					fresh := attributeTestFailures(ctx, workspace, packagesForPaths(result.WrittenPaths), result.WrittenPaths, result.PreWriteContents, verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths)))
+					// Must stay the same helper the post-edit gate uses (gateTests),
+					// or a tag-gated package fails the turn twice over.
+					fresh, _ := gateTests(ctx, workspace, result, false)
 					fresh.Repair = inheritRepair(fresh.Verdict(), result.TestCheck.Repair)
 					result.TestCheck = fresh
 				}
