@@ -48,6 +48,13 @@ type Command struct {
 	// Arguments are the command-line arguments.
 	Arguments []string `json:"arguments"`
 
+	// CommandLine, when set on Windows, is the exact command line the process
+	// receives, bypassing Go's per-argument quoting. cmd.exe parses its /C
+	// command itself, so MSVC-quoting the command as one argument corrupts
+	// every double quote in it. Binary and Arguments must still describe the
+	// same command: they are what other platforms run and what audit logs show.
+	CommandLine string `json:"command_line,omitempty"`
+
 	// WorkingDirectory is the directory to execute in.
 	// If empty, uses the executor's default working directory.
 	WorkingDirectory string `json:"working_directory,omitempty"`

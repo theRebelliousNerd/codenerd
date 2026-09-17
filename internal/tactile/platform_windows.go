@@ -221,6 +221,16 @@ func setupProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.HideWindow = true
 }
 
+// applyCommandLine hands cmd.CommandLine to the process verbatim (see Command.CommandLine).
+func applyCommandLine(execCmd *exec.Cmd, cmd Command) {
+	if cmd.CommandLine != "" {
+		if execCmd.SysProcAttr == nil {
+			execCmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		execCmd.SysProcAttr.CmdLine = cmd.CommandLine
+	}
+}
+
 // createRlimits is a no-op on Windows since we use Job Objects.
 // Returns nil as Windows doesn't use rlimits.
 func createRlimits(limits *ResourceLimits) map[int]uint64 {
@@ -519,6 +529,7 @@ func (e *LimitedExecutorWindows) Execute(ctx context.Context, cmd Command) (*Exe
 		execCmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	execCmd.SysProcAttr.HideWindow = true
+	applyCommandLine(execCmd, cmd)
 
 	// Set up stdin if provided
 	if cmd.Stdin != "" {
