@@ -3852,3 +3852,56 @@ returned prose analysis. Two causes found in logs+code:
 run2 delegate+pre-call-fail -> F-OR-1; run3 essay+/partial (exit 1, honest) ->
 F-OR-2 + F-DELEG-1; run4 re-exercises B2 end to end.
 
+
+---
+
+## Dogfood loop 2026-09-17 — `nerd campaign recurse` wave on mangle, then three `nerd fix` lanes
+
+Branch: dogfood/c2-closure (integration), lanes on worktrees codeNERD-fix / codeNERD-fix2 and the main tree.
+Stack at start: main + planner Meta muse-spark-1.3-contributor, worker OpenRouter stealth/union-alpha (xhigh).
+Exercise: `nerd campaign recurse --waves 1 --subsystem mangle --yolo --timeout 3h` (run1), stopped after ~57 min once it
+was repeating diagnosed failures; every finding below was then briefed to `nerd fix` in parallel worktree lanes, each
+lane rebuilt from the previous lane's fixes (the self-sharpening loop).
+
+**What run1 surfaced before any task ran**
+- F-REC-1 world cache leak: campaign intelligence scanned `internal/mangle` as the scanner root and wrote
+  `internal/mangle/.nerd/cache/manifest.json` into the source tree (open; brief_rec1a).
+- F-REC-2 the risk preflight's Gather runs four tool-loop shard consults under the 45 s risk sample; all were cancelled
+  every wave, their only consumer (AdvisorySignals) is never scored, and the timeout raised the risk score; adapters and
+  gatherShardAdvice also discard partial consult successes (open; brief_rec2a/2b).
+- F-ID-1 servingIdentity type-asserts ModelIdentifier on the outermost decorator (sessionLLMAdapter) so provider/model
+  pinned atoms are skipped on every campaign/shard turn (open; brief_id1).
+
+**Executor gaps the lanes hit and fixed (commit)**
+- F-EXEC-1 (2676dbf4) a failed run_build/run_tests reached the model as "exit status 1" — output dropped twice on the
+  way. Every blind repair before this commit traces here (GetFactCount undefined never seen). The authoring run's
+  edit_lines overran and deleted the post-execution interactive-gate validation block; the whole session suite still
+  passed — that gate is unpinned (restored by hand; pin brief queued).
+- F-MOD-1 (eadf4ab9, hand) modularity too_many_params blocked test fakes of six-parameter interface methods.
+- F-CAMP-1/3 (6fff8633) coder-shard failure on a directory-scoped recurse task fell back to "create a file" over the
+  directory; the kernel refusal became the task error. This is what the 2026-09-15 wave's "write_file not permitted by
+  kernel policy" actually was. Dead-context fallbacks likewise hid the real failure.
+- F-OR-3 (+177bb052) OpenRouter 200-with-error bodies carry a numeric code; decode failed, message lost, not retried.
+- F-WC-1 (704f20f4) recall_context search serialized "body":"" on every hit; the model concluded its archive was empty
+  and re-read files to budget exhaustion.
+- F-OR-4 (d4b8ccc8) one tool call with truncated JSON arguments killed the whole turn; now an error tool result.
+- F-TOOL-2 (1c214e08) line edits now echo the replaced/deleted lines; range overruns were invisible.
+- F-RL-1 (b0f77207) ExecuteOpenAIRequest ignored llm_timeouts and retried 429 at 1/2/4 s.
+
+**Open, briefed, not yet landed:** F-REPAIR-1 (a repair attempt is one model call; reads-first never edits — WIP in lane 1),
+F-VERIFY-1 (test gate charges pre-existing failures to the turn — the six Windows ClaudeCLI/CodexExec failures sent three
+repair loops chasing unrelated tests), F-VAL-1 (syntax validation failure omits parser position), F-TOOL-1 (line tools
+write unparseable Go), F-REC-1a/2a/2b/3, F-TEST-1 (run_tests' declared 600 s timeout silently capped at 5 m), F-REC-6
+(recurse test task has no target), F-REC-4 (test-file sprawl named after wave steps), F-FINAL-1 (forced final answer at
+xhigh can exceed its reserve), F-RL-2 (daily quota treated as transient), F-DUP-1 (three Retry-After helpers), F-FMT-1
+(written Go not gofmt'd), F-ART-1 (incoherent surfaced answer on a correct change), F-GIT-1.
+
+**Operational lessons**
+- The worker tier hit OpenRouter's free daily cap (1000 req) at 03:23 after three parallel lanes; worker block removed
+  from config (Steve's call) so shards run on Meta until reset.
+- Latency profile on union-alpha xhigh: 38 calls avg 51 s (max 6 m), 36 K in / 534 out per call, ~1 tool call per
+  round; multi-file briefs need 60-75 m timeouts. Three of five lane runs hit a 40-45 m timeout before this was known.
+- When a lane's own gate only fails on known pre-existing tests, stop the run and commit — its repair loop otherwise
+  spends the budget "fixing" unrelated tests (until F-VERIFY-1 lands).
+- Review every codeNERD diff line by line: two runs silently deleted or duplicated code while their summaries claimed
+  purely additive changes.
