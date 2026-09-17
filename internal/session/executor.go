@@ -537,6 +537,10 @@ func (e *Executor) intentRequiresReasoningModel(verb string) bool {
 	if cached, ok := e.reasoningVerbCache.Load(verb); ok {
 		return cached.(bool)
 	}
+	if isConsultIntentVerb(verb) {
+		e.reasoningVerbCache.Store(verb, false)
+		return false
+	}
 	if e.kernel == nil {
 		return false
 	}
@@ -546,6 +550,7 @@ func (e *Executor) intentRequiresReasoningModel(verb string) bool {
 	// reject anything unexpected rather than interpolate it.
 	if !validMangleVerb(verb) {
 		logging.SessionDebug("intentRequiresReasoningModel: %q is not an atom, defaulting to false", verb)
+		e.reasoningVerbCache.Store(verb, false)
 		return false
 	}
 
