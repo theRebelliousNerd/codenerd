@@ -47,6 +47,7 @@ func diffBoot(t *testing.T) (*RealKernel, *store.LocalStore) {
 	if err != nil {
 		t.Fatalf("NewLocalStore: %v", err)
 	}
+	t.Cleanup(func() { _ = ls.Close() })
 	k.SetVirtualStore(&VirtualStore{localDB: ls})
 	return k, ls
 }
