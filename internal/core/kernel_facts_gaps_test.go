@@ -953,3 +953,44 @@ func TestAssertWithoutEval_WhenFollowedByEvaluate_ShouldWork(t *testing.T) {
 		t.Errorf("Expected 2 batch_item facts, got %d", len(results))
 	}
 }
+
+func TestAssertWithoutEval_RefusesFactTheOtherWritePathsRefuse(t *testing.T) {
+	k := setupMockKernel(t)
+	k.AppendPolicy("Decl k1_pred(Number) bound [/number].")
+	if err := k.Evaluate(); err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+
+	bad := Fact{Predicate: "k1_pred", Args: []any{"not_a_number"}}
+	if err := k.Assert(bad); err == nil {
+		t.Error("Assert should refuse k1_pred(\"not_a_number\")")
+	}
+	if err := k.AssertBatch([]Fact{bad}); err == nil {
+		t.Error("AssertBatch should refuse k1_pred(\"not_a_number\")")
+	}
+	if err := k.AssertWithoutEval(bad); err == nil {
+		t.Error("AssertWithoutEval should refuse k1_pred(\"not_a_number\")")
+	}
+
+	results, err := k.Query("k1_pred")
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Expected 0 k1_pred facts after refusals, got %d", len(results))
+	}
+
+	if err := k.AssertWithoutEval(Fact{Predicate: "k1_pred", Args: []any{7}}); err != nil {
+		t.Fatalf("AssertWithoutEval of good fact failed: %v", err)
+	}
+	if err := k.Evaluate(); err != nil {
+		t.Fatalf("Evaluate after AssertWithoutEval failed: %v", err)
+	}
+	results, err = k.Query("k1_pred")
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Expected 1 staged k1_pred fact, got %d", len(results))
+	}
+}

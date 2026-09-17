@@ -24,12 +24,12 @@ type DreamResult struct {
 
 // Dreamer simulates the impact of actions before execution.
 type Dreamer struct {
-	mu                sync.RWMutex
-	kernel            *RealKernel
-	criticalPathsReady bool // every critical_path_prefix fact landed in kernel; SimulateAction refuses to run blind without them
-	router            *DreamRouter            // Routes confirmed learnings to persistence stores
-	planManager       *DreamPlanManager       // Manages dream plan lifecycle and execution state
-	learningCollector *DreamLearningCollector // Extracts learnings from dream consultations
+	mu                 sync.RWMutex
+	kernel             *RealKernel
+	criticalPathsReady bool                    // every critical_path_prefix fact landed in kernel; SimulateAction refuses to run blind without them
+	router             *DreamRouter            // Routes confirmed learnings to persistence stores
+	planManager        *DreamPlanManager       // Manages dream plan lifecycle and execution state
+	learningCollector  *DreamLearningCollector // Extracts learnings from dream consultations
 }
 
 // NewDreamer creates a Dreamer backed by the provided kernel.
@@ -141,7 +141,7 @@ func (d *Dreamer) assertCriticalPathFactsLocked() {
 		return
 	}
 	for _, prefix := range criticalPathPrefixes {
-		if err := d.kernel.assertWithoutEvalChecked(Fact{
+		if err := d.kernel.AssertWithoutEval(Fact{
 			Predicate: "critical_path_prefix",
 			Args:      []any{prefix},
 		}); err != nil {
@@ -297,7 +297,7 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 	// Assert projected facts into the sandbox clone so panic_state rules can fire.
 	// Without this, the clone has no projected_action facts for rules to match against.
 	for _, fact := range projected {
-		if err := clone.assertWithoutEvalChecked(fact); err != nil {
+		if err := clone.AssertWithoutEval(fact); err != nil {
 			logging.Get(logging.CategoryDream).Error(
 				"evaluateProjection: failed to stage projected fact %s: %v",
 				fact.Predicate, err)
