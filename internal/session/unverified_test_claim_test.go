@@ -104,6 +104,24 @@ func TestUnverifiedClaimPassesWithTool(t *testing.T) {
 	}
 }
 
+// The post-edit gate ran the tests and the model quoted their output: that
+// is not a fabricated claim (live 2026-09-17, the F-VERIFY-1b run failed
+// here). A gate that did not run still leaves the claim unbacked.
+func TestUnverifiedClaimPassesWithGateTestRun(t *testing.T) {
+	e := newUnverifiedExec(t)
+	result := unverifiedResult("ok  \tcodenerd/internal/session\t5.657s", 0)
+	result.TestCheck = TestVerification{Ran: true, OK: true, Outcome: VerifyPassed}
+	if err := e.checkHollowSuccess(result); err != nil {
+		t.Fatalf("output the gate's own test run produced must pass, got: %v", err)
+	}
+
+	skipped := unverifiedResult("ok  \tcodenerd/internal/session\t5.657s", 0)
+	skipped.TestCheck = TestVerification{Ran: false}
+	if err := e.checkHollowSuccess(skipped); !isHollowSuccessError(err) {
+		t.Fatalf("a gate that never ran backs no claim; want hollow success, got: %v", err)
+	}
+}
+
 func TestUnverifiedClaimProseDoesNotFail(t *testing.T) {
 	e := newUnverifiedExec(t)
 	result := unverifiedResult("make sure the tests pass", 0)

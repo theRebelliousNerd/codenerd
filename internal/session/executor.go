@@ -2347,11 +2347,18 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 	if e.sessionContext != nil && e.sessionContext.DreamMode {
 		dreamMode = types.MangleAtom("/true")
 	}
+	// A test run by the executor's own post-edit gate is execution, not a
+	// claim: the model may quote that output in its answer. Only a run that
+	// actually ran counts; a skipped gate produced nothing to quote.
+	testRuns := result.SuccessfulTestTools
+	if result.TestCheck.Ran {
+		testRuns++
+	}
 	evidence := types.Fact{Predicate: "turn_evidence", Args: []any{
 		types.MangleAtom(verb),
 		result.SuccessfulToolCalls,
 		result.SuccessfulWriteTools,
-		result.SuccessfulTestTools,
+		testRuns,
 		claimedOutput,
 		dreamMode,
 	}}
@@ -2373,7 +2380,7 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 			logging.Get(logging.CategorySession).Debug("asserted claimed_test_output(%q)", verb)
 		}
 	}
-	if result.SuccessfulTestTools > 0 {
+	if testRuns > 0 {
 		fact := types.Fact{Predicate: "executed_test_tool", Args: []any{types.MangleString(verb)}}
 		if err := e.kernel.Assert(fact); err != nil {
 			logging.Get(logging.CategorySession).Warn("failed to assert executed_test_tool for %s: %v", verb, err)
