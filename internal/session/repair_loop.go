@@ -23,6 +23,12 @@ const DefaultRepairMaxAttempts = 3
 // an unattended run stall: repair that has not converged by then will not.
 const DefaultRepairWallClock = 5 * time.Minute
 
+// repairRoundsPerAttempt bounds one attempt's read-diagnose-edit cycle: each
+// attempt is allowed multiple model calls so it can read, then edit, before
+// the loop rechecks. Without it a single-call attempt that spends its only
+// model call reading ends with no edit and the loop cannot converge.
+const repairRoundsPerAttempt = 6
+
 // repairRetainedOutputCap caps each OLDER attempt's retained output in later
 // prompts. The latest failing output always goes back whole (a repair prompt
 // built from truncated errors repairs whatever sorted first); only history
@@ -143,7 +149,7 @@ func repairEpisodeContext(parent context.Context, wallClock time.Duration) (cont
 // repairSpec describes one gate's repair episode: how to prompt from failing
 // output, how to recheck, and what follow-ups to record on give-up.
 type repairSpec struct {
-	kind      string
+	kind string
 	// brokenPhrase is the gate's contract phrase for failure errors
 	// ("edits broke the build"). The loop's errors keep the wording the
 	// single-round repair used so existing consumers keep matching; the
@@ -225,7 +231,7 @@ func (e *Executor) repairLoop(
 		logging.Get(logging.CategorySession).Warn(
 			"Repair attempt %d/%d (%s)%s", attempt, budget.MaxAttempts, spec.kind, regimeNote)
 
-		repaired, repairErrs, toolResults, wrote, err := e.repairRound(epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime)
+		repaired, llmCalls, allCalls, repairErrs, toolResults, wrote, err := e.repairRound(epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime)
 		allErrs = append(allErrs, repairErrs...)
 		if err != nil {
 			att.Verdict = VerifyIndeterminate
@@ -240,14 +246,17 @@ func (e *Executor) repairLoop(
 				strings.Join(rec.Followups, "; "), seed)
 		}
 		last = repaired
-		att.LLMCalls = 1
-		rec.Cost.LLMCalls++
+		// One attempt may span several model calls (its read-diagnose-edit
+		// rounds), so the cost counts every call, not just the last response.
+		// The returned response's Usage already folds in all rounds' tokens.
+		att.LLMCalls = llmCalls
+		rec.Cost.LLMCalls += llmCalls
 		if repaired != nil {
 			rec.Cost.TokensIn += repaired.Usage.InputTokens
 			rec.Cost.TokensOut += repaired.Usage.OutputTokens
 			att.TokensIn = repaired.Usage.InputTokens
 			att.TokensOut = repaired.Usage.OutputTokens
-			att.ToolRuns = toolRunsFor(repaired.ToolCalls, toolResults)
+			att.ToolRuns = toolRunsFor(flattenRepairCalls(allCalls), toolResults)
 			rec.Cost.ToolCalls += len(att.ToolRuns)
 		}
 		att.Wrote = wrote
@@ -339,6 +348,16 @@ func toolRunsFor(calls []types.ToolCall, results []types.ToolResult) []RepairToo
 		runs = append(runs, RepairToolRun{Tool: name, OK: ok})
 	}
 	return runs
+}
+
+// flattenRepairCalls concatenates each round's tool calls in order, so repair
+// accounting sees every call the attempt made. Nil when there are no rounds.
+func flattenRepairCalls(rounds [][]types.ToolCall) []types.ToolCall {
+	var all []types.ToolCall
+	for _, round := range rounds {
+		all = append(all, round...)
+	}
+	return all
 }
 
 // editedFilesFor snapshots the turn's written paths for the record, sorted

@@ -26,13 +26,13 @@ import (
 // module workspace. The mock routes by history content: repair prompts (which
 // carry failing output) get fix responses, post-batch turns conclude.
 type repairHarness struct {
-	executor  *Executor
-	ws        string
-	calls     int
-	sysCalls  int
+	executor   *Executor
+	ws         string
+	calls      int
+	sysCalls   int
 	toolsCalls int
-	onRepair  func(call int, history []types.Message) *types.LLMToolResponse
-	initial   func() *types.LLMToolResponse
+	onRepair   func(call int, history []types.Message) *types.LLMToolResponse
+	initial    func() *types.LLMToolResponse
 }
 
 func newRepairHarness(t *testing.T, configure func(*Executor)) *repairHarness {
@@ -53,24 +53,24 @@ func newRepairHarness(t *testing.T, configure func(*Executor)) *repairHarness {
 	}
 	mockLLM := &MockToolResultsLLM{
 		MockLLMClient: &MockLLMClient{
-		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
-			h.sysCalls++
-			return "", nil
-		},
-		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-			h.toolsCalls++
-			// Initial generation lands here (no working world in tests);
-			// follow-ups and repair go through CompleteWithToolResults.
-			if strings.Contains(user, "FAIL") || strings.Contains(user, "repair") {
-				if h.onRepair != nil {
-					return h.onRepair(h.toolsCalls, []types.Message{{Role: "user", Text: user}}), nil
+			CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+				h.sysCalls++
+				return "", nil
+			},
+			CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+				h.toolsCalls++
+				// Initial generation lands here (no working world in tests);
+				// follow-ups and repair go through CompleteWithToolResults.
+				if strings.Contains(user, "FAIL") || strings.Contains(user, "repair") {
+					if h.onRepair != nil {
+						return h.onRepair(h.toolsCalls, []types.Message{{Role: "user", Text: user}}), nil
+					}
 				}
-			}
-			if h.initial != nil {
-				return h.initial(), nil
-			}
-			return &types.LLMToolResponse{Text: "done"}, nil
-		},
+				if h.initial != nil {
+					return h.initial(), nil
+				}
+				return &types.LLMToolResponse{Text: "done"}, nil
+			},
 		},
 		CompleteWithToolResultsFunc: func(ctx context.Context, sys string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 			h.calls++
@@ -223,6 +223,105 @@ func TestRepairLoop_FixesFailingTests(t *testing.T) {
 	}
 	if len(rec.Followups) != 0 {
 		t.Fatalf("Followups=%v on success, want none", rec.Followups)
+	}
+}
+
+// F-REPAIR-1 regression: one repair attempt is a bounded read→diagnose→edit
+// cycle, not a single model call. A model that spends its first call in the
+// attempt reading the broken file must get a second call to edit, and the
+// episode must converge on that ONE attempt with the cost ledger covering
+// every round (llm_calls=2, both tool runs recorded, tokens summed).
+func TestRepairLoop_ReadThenEditConverges(t *testing.T) {
+	h := newRepairHarness(t, nil)
+	h.initial = func() *types.LLMToolResponse {
+		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
+			h.writeCall("c1", "write_file", filepath.Join(h.ws, "main.go"), repairMainGo),
+			h.writeCall("c2", "write_file", filepath.Join(h.ws, "main_test.go"), repairTestBroken),
+		}}
+	}
+	turns := 0
+	var repairPrompts []string
+	h.onRepair = func(call int, history []types.Message) *types.LLMToolResponse {
+		turns++
+		// Record the user prompt seen by each repair round so the test can
+		// pin the commit-regime rule: a read-without-write round is followed
+		// by a closed round carrying the regime text.
+		var sb strings.Builder
+		for _, m := range history {
+			sb.WriteString(m.Text)
+			sb.WriteString("\n")
+		}
+		repairPrompts = append(repairPrompts, sb.String())
+		if turns == 1 {
+			// Round 1 of the attempt: the model reads before it edits.
+			return &types.LLMToolResponse{
+				Text:  "inspecting the failure",
+				Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 5},
+				ToolCalls: []types.ToolCall{
+					{ID: "r0", Name: "read_file", Input: map[string]any{"path": filepath.Join(h.ws, "main_test.go")}},
+				},
+			}
+		}
+		// Round 2: the fixing write ends the round loop so the recheck runs.
+		return &types.LLMToolResponse{
+			Text:  "fixed",
+			Usage: types.UsageMetadata{InputTokens: 250, OutputTokens: 50},
+			ToolCalls: []types.ToolCall{
+				h.writeCall("r1", "write_file", filepath.Join(h.ws, "main_test.go"), repairTestFixed),
+			},
+		}
+	}
+	result, err := h.drive(t, "fix make the failing test pass")
+	if err != nil {
+		t.Fatalf("ProcessWithIntent: %v", err)
+	}
+	if turns != 2 {
+		t.Fatalf("repair llm turns=%d, want 2 (read round then write round)", turns)
+	}
+	// F-REPAIR-1: the second round runs closed — a read-without-write round
+	// escalates to the commit regime instead of staying open, so the model
+	// is told again to edit with the failing output attached.
+	if len(repairPrompts) != 2 {
+		t.Fatalf("repair prompts=%d, want 2 rounds", len(repairPrompts))
+	}
+	if !strings.Contains(repairPrompts[1], "Reading is closed") {
+		t.Fatalf("second repair prompt missing closed-regime text; got %q", repairPrompts[1])
+	}
+	if !result.TestCheck.OK || result.TestCheck.Verdict() != VerifyPassed {
+		t.Fatalf("TestCheck = %+v, want passed", result.TestCheck)
+	}
+	rec := result.TestCheck.Repair
+	if rec == nil || !rec.Passed {
+		t.Fatalf("repair record = %+v, want passed", rec)
+	}
+	if rec.Cost.Attempts != 1 {
+		t.Fatalf("attempts=%d, want 1: a read-only round must not consume an attempt", rec.Cost.Attempts)
+	}
+	att := rec.Attempts[len(rec.Attempts)-1]
+	if att.LLMCalls != 2 {
+		t.Fatalf("attempt llm_calls=%d, want 2 (one read round + one write round)", att.LLMCalls)
+	}
+	if att.TokensIn != 350 || att.TokensOut != 55 {
+		t.Fatalf("attempt tokens=%d/%d, want 350/55 summed across rounds (100 + 250)", att.TokensIn, att.TokensOut)
+	}
+	if rec.Cost.LLMCalls != 2 {
+		t.Fatalf("cost llm_calls=%d, want 2", rec.Cost.LLMCalls)
+	}
+	if rec.Cost.TokensIn != 350 || rec.Cost.TokensOut != 55 {
+		t.Fatalf("cost tokens=%d/%d, want 350/55", rec.Cost.TokensIn, rec.Cost.TokensOut)
+	}
+	if len(att.ToolRuns) != 2 {
+		t.Fatalf("tool runs=%d, want the read and the write from both rounds", len(att.ToolRuns))
+	}
+	for _, r := range att.ToolRuns {
+		if !r.OK {
+			t.Fatalf("tool run %+v not OK after convergence", r)
+		}
+	}
+	if disk, rerr := os.ReadFile(filepath.Join(h.ws, "main_test.go")); rerr != nil {
+		t.Fatalf("reading repaired file: %v", rerr)
+	} else if string(disk) != repairTestFixed {
+		t.Fatalf("disk main_test.go=%q, want the fixed content", string(disk))
 	}
 }
 
