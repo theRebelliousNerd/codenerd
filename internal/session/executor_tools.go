@@ -2176,6 +2176,11 @@ func effectiveToolTimeout(configured time.Duration) time.Duration {
 	return configured
 }
 
+// toolTimeoutGrace lets a tool's own deadline fire first, so its partial
+// output and its own timeout message reach the model instead of a bare
+// "context deadline exceeded". The parent ctx still bounds everything.
+const toolTimeoutGrace = 30 * time.Second
+
 // executeToolCall routes a tool call through the appropriate registry with safety checks.
 // It checks both registries in order:
 // 1. Modular tools (tools.Global()) - Go function handlers
@@ -2345,8 +2350,16 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		}()
 	}
 
-	// Apply timeout to tool execution
-	toolCtx, cancel := context.WithTimeout(ctx, effectiveToolTimeout(executorCfg.ToolTimeout))
+	// Compute the call budget: a tool that reports its own Timeout gets at
+	// least that long plus a grace period, so the executor never cuts a call
+	// off before the tool's own deadline fires.
+	budget := effectiveToolTimeout(executorCfg.ToolTimeout)
+	if tool := tools.Global().Get(call.Name); tool != nil && tool.Timeout != nil {
+		if requested := tool.Timeout(call.Args) + toolTimeoutGrace; requested > budget {
+			budget = requested
+		}
+	}
+	toolCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	toolCtx = tools.WithWorkspaceRoot(toolCtx, e.workspaceForVerification())
 

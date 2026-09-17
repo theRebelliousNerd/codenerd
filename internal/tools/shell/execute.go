@@ -114,6 +114,9 @@ func RunCommandTool() *tools.Tool {
 		Category:      tools.CategoryCode,
 		Priority:      70,
 		Execute:       executeRunCommand,
+		Timeout: func(args map[string]any) time.Duration {
+			return time.Duration(runCommandTimeoutSeconds(args)) * time.Second
+		},
 		Schema: tools.ToolSchema{
 			Required: []string{"command"},
 			Properties: map[string]tools.Property{
@@ -136,6 +139,15 @@ func RunCommandTool() *tools.Tool {
 	}
 }
 
+func runCommandTimeoutSeconds(args map[string]any) int {
+	command, _ := args["command"].(string)
+	timeout := defaultCommandTimeout(command)
+	if t, ok := coerceInt(args["timeout_seconds"]); ok && t > 0 {
+		timeout = t
+	}
+	return timeout
+}
+
 func executeRunCommand(ctx context.Context, args map[string]any) (string, error) {
 	command, _ := args["command"].(string)
 	if command == "" {
@@ -151,10 +163,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		return "", err
 	}
 
-	timeout := defaultCommandTimeout(command)
-	if t, ok := coerceInt(args["timeout_seconds"]); ok && t > 0 {
-		timeout = t
-	}
+	timeout := runCommandTimeoutSeconds(args)
 
 	logging.ToolsDebug("run_command: cmd=%s, dir=%s, timeout=%ds", command, workingDir, timeout)
 
@@ -367,6 +376,9 @@ func BashTool() *tools.Tool {
 		Category:      tools.CategoryCode,
 		Priority:      70,
 		Execute:       executeBash,
+		Timeout: func(args map[string]any) time.Duration {
+			return time.Duration(bashTimeoutSeconds(args)) * time.Second
+		},
 		Schema: tools.ToolSchema{
 			Required: []string{"script"},
 			Properties: map[string]tools.Property{
@@ -388,6 +400,17 @@ func BashTool() *tools.Tool {
 	}
 }
 
+func bashTimeoutSeconds(args map[string]any) int {
+	script, _ := args["script"].(string)
+	// A bash script's first line is the best available signal of what it
+	// runs; a script that starts with `go test` deserves the toolchain default.
+	timeout := defaultCommandTimeout(strings.SplitN(strings.TrimSpace(script), "\n", 2)[0])
+	if t, ok := coerceInt(args["timeout_seconds"]); ok && t > 0 {
+		timeout = t
+	}
+	return timeout
+}
+
 func executeBash(ctx context.Context, args map[string]any) (string, error) {
 	script, _ := args["script"].(string)
 	if script == "" {
@@ -400,12 +423,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 		return "", err
 	}
 
-	// A bash script's first line is the best available signal of what it
-	// runs; a script that starts with `go test` deserves the toolchain default.
-	timeout := defaultCommandTimeout(strings.SplitN(strings.TrimSpace(script), "\n", 2)[0])
-	if t, ok := coerceInt(args["timeout_seconds"]); ok && t > 0 {
-		timeout = t
-	}
+	timeout := bashTimeoutSeconds(args)
 
 	// Build the timeout context BEFORE constructing the command so the
 	// process is actually bound to the deadline.
@@ -492,6 +510,12 @@ func RunBuildTool() *tools.Tool {
 		Category:    tools.CategoryCode,
 		Priority:    75,
 		Execute:     executeRunBuild,
+		Timeout: func(args map[string]any) time.Duration {
+			if seconds, err := verificationTimeoutSeconds(args, false); err == nil {
+				return time.Duration(seconds) * time.Second
+			}
+			return 300 * time.Second
+		},
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{
@@ -523,6 +547,12 @@ func RunTestsTool() *tools.Tool {
 		Category:      tools.CategoryTest,
 		Priority:      75,
 		Execute:       executeRunTests,
+		Timeout: func(args map[string]any) time.Duration {
+			if seconds, err := verificationTimeoutSeconds(args, true); err == nil {
+				return time.Duration(seconds) * time.Second
+			}
+			return 600 * time.Second
+		},
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{

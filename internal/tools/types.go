@@ -11,6 +11,7 @@ package tools
 
 import (
 	"context"
+	"time"
 )
 
 // ToolCategory classifies tools for intent-based filtering.
@@ -115,6 +116,12 @@ type Tool struct {
 
 	// RequiresContext indicates if the tool needs session context.
 	RequiresContext bool
+
+	// Timeout, when set, reports how long this call may run given its
+	// arguments. The session executor never cuts a call off before this, so a
+	// tool that runs builds or tests gets the budget it advertises. Nil means
+	// the executor's default tool timeout applies.
+	Timeout func(args map[string]any) time.Duration
 }
 
 // Validate checks if the tool definition is valid.

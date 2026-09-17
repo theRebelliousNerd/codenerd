@@ -11,6 +11,25 @@ import (
 	"codenerd/internal/tools"
 )
 
+// verificationTimeoutSeconds reports how long a typed verification call may
+// run. The default is 300s for builds and 600s for tests; timeout_seconds
+// overrides it when valid. An invalid value is reported so the tool itself
+// still fails; Timeout hooks fall back to the default instead.
+func verificationTimeoutSeconds(args map[string]any, tests bool) (int, error) {
+	seconds := 300
+	if tests {
+		seconds = 600
+	}
+	if value, exists := args["timeout_seconds"]; exists && value != nil {
+		n, ok := coerceInt(value)
+		if !ok || n <= 0 || n > 86400 {
+			return 0, fmt.Errorf("invalid timeout_seconds")
+		}
+		seconds = n
+	}
+	return seconds, nil
+}
+
 // executeTypedVerification maps a typed request to a known project runner.
 // Model strings are never interpreted by a shell or treated as executable flags.
 func executeTypedVerification(ctx context.Context, args map[string]any, tests bool) (string, error) {
@@ -109,16 +128,9 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 			}
 		}
 	}
-	seconds := 300
-	if tests {
-		seconds = 600
-	}
-	if value, exists := args["timeout_seconds"]; exists && value != nil {
-		n, ok := coerceInt(value)
-		if !ok || n <= 0 || n > 86400 {
-			return "", fmt.Errorf("invalid timeout_seconds")
-		}
-		seconds = n
+	seconds, err := verificationTimeoutSeconds(args, tests)
+	if err != nil {
+		return "", err
 	}
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
 	defer cancel()
