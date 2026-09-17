@@ -393,6 +393,20 @@ func (e *Executor) verifyAndRepairTests(
 	return repaired, repairErrs, nil
 }
 
+// testBuildFailed reports whether go test output shows a package whose
+// test binary did not compile ("FAIL <pkg> [build failed]" or
+// "[setup failed]"): no test ran, so there is no test verdict to honour.
+func testBuildFailed(output string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "FAIL") &&
+			(strings.HasSuffix(trimmed, "[build failed]") || strings.HasSuffix(trimmed, "[setup failed]")) {
+			return true
+		}
+	}
+	return false
+}
+
 // testRepairPrompt is the turn handed back to the model when its edits broke
 // the tests.
 //
@@ -401,6 +415,9 @@ func (e *Executor) verifyAndRepairTests(
 // the thing that made the suite worth running. The failing test is the
 // specification until proven otherwise.
 func testRepairPrompt(testOutput string) string {
+	if testBuildFailed(testOutput) {
+		return testCompileRepairPrompt(testOutput)
+	}
 	return "Your edits compile but the tests fail. This is the test output:\n\n" +
 		"```\n" + testOutput + "\n```\n\n" +
 		"Fix the code so these tests pass, then stop. Do not explain, do not summarise, " +
@@ -410,6 +427,12 @@ func testRepairPrompt(testOutput string) string {
 		"does not meet it yet. If — and only if — you can show the test itself asserts something " +
 		"incorrect, say so explicitly and explain why before changing it.\n\n" +
 		"Read the failing test and the code under test before editing either."
+}
+func testCompileRepairPrompt(output string) string {
+	return "The tests do not compile, so no test ran. This is the compiler's output:\n\n```\n" + output + "\n```\n\n" +
+		"Each error names a file and line. When the file is a _test.go file, the test file is what is wrong: fix its imports, identifiers and types so it compiles against the code as it is. " +
+		"Do NOT add, alias or re-export declarations in non-test code to make a test compile, and do NOT create new non-test files for it — that bends working code around a broken test. " +
+		"When the error is in a non-test file, fix that file. Fix every error above using the edit tools, then stop; the tests will be run again."
 }
 
 // buildRepairPrompt is the turn handed back to the model when its edits broke

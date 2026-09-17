@@ -476,6 +476,11 @@ func (e *Executor) verifyCompletedToolTurn(
 	if repaired != nil {
 		current = repaired
 	}
+	if result != nil && result.SuccessfulWriteTools > 0 && touchedGoFiles(result.WrittenPaths) {
+		if formatted := formatWrittenGoFiles(e.workspaceForVerification(), result.WrittenPaths); len(formatted) > 0 {
+			logging.Get(logging.CategorySession).Info("gofmt: formatted %d written file(s): %s", len(formatted), strings.Join(formatted, ", "))
+		}
+	}
 
 	// Compile first: test output wrapped around compiler errors is a worse
 	// repair signal than the compiler's direct output.

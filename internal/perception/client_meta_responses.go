@@ -689,5 +689,14 @@ func metaToolResponseFromReply(reply *metaResponsesReply) *LLMToolResponse {
 	if len(out.ToolCalls) > 0 {
 		out.StopReason = "tool_use"
 	}
+	if reply.Usage != nil {
+		out.Usage = types.UsageMetadata{
+			InputTokens:         reply.Usage.InputTokens,
+			OutputTokens:        reply.Usage.OutputTokens,
+			TotalTokens:         reply.Usage.TotalTokens,
+			ThinkingTokens:      reply.Usage.OutputTokensDetails.ReasoningTokens,
+			CachedContentTokens: reply.Usage.InputTokensDetails.CachedTokens,
+		}
+	}
 	return out
 }

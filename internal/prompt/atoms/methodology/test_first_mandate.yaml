@@ -25,7 +25,8 @@
 #
 # It is deliberately short. A mandatory atom is paid for on every write turn, so
 # it states the rule and the two ways agents evade it, and leaves the detailed
-# Go workflow to methodology/tdd/go_workflow.
+# Go workflow to methodology/tdd/go_workflow. The test-placement rule lives here
+# for the same reason (it must reach every write turn).
 
 - id: "methodology/tdd/coverage_mandate"
   category: "methodology"
@@ -70,3 +71,11 @@
     Table-driven tests with named cases are the house style. Cover the boundary
     and the error path, not only the happy path -- the happy path is the case
     least likely to be wrong.
+
+    ### WHERE A TEST GOES
+    - Extend the existing `<file>_test.go` for the file under test. Create a new
+      test file only when that file has none.
+    - Name tests and test files for the behaviour they pin
+      (`TestParseAtom_RejectsTrailingDot`), never for the process that wrote them:
+      no step, wave, phase, shard, task, campaign or finding ids in a file or
+      test name.

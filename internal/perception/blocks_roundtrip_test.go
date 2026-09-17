@@ -400,6 +400,22 @@ func TestMetaResponsesTextOnlyTurnReplaysNoReasoning(t *testing.T) {
 	}
 }
 
+func TestMetaToolResponseFromReply_CarriesUsage(t *testing.T) {
+	u := &metaResponsesUsage{InputTokens: 100, OutputTokens: 40, TotalTokens: 140}
+	u.OutputTokensDetails.ReasoningTokens = 30
+	u.InputTokensDetails.CachedTokens = 60
+	resp := metaToolResponseFromReply(&metaResponsesReply{Usage: u})
+	want := types.UsageMetadata{InputTokens: 100, OutputTokens: 40, TotalTokens: 140, ThinkingTokens: 30, CachedContentTokens: 60}
+	if resp.Usage != want {
+		t.Fatalf("resp.Usage = %#v, want %#v", resp.Usage, want)
+	}
+
+	respNil := metaToolResponseFromReply(&metaResponsesReply{})
+	if respNil.Usage != (types.UsageMetadata{}) {
+		t.Fatalf("nil usage resp.Usage = %#v, want zero value", respNil.Usage)
+	}
+}
+
 // =============================================================================
 // GEMINI — ordered parts, per-part signatures, and no tool ids on the wire
 // =============================================================================
