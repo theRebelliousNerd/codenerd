@@ -84,34 +84,51 @@ func OpenWorkingStore(workspace, scope string) (*WorkingStore, error) {
 
 func (s *WorkingStore) Close() error { return s.db.Close() }
 
+// WorkingSearchHit is a Search result row: metadata plus body_chars so a
+// caller can tell an empty observation from a body it has not read yet. It
+// deliberately omits Body — Search discovers handles, and recall_context with
+// the id returns the body by page.
+type WorkingSearchHit struct {
+	ID        string `json:"id"`
+	Entity    string `json:"entity"`
+	Revision  string `json:"revision"`
+	Kind      string `json:"kind"`
+	Step      int64  `json:"step"`
+	Failed    bool   `json:"failed"`
+	BodyChars int64  `json:"body_chars"`
+	Start     int64  `json:"start,omitempty"`
+	End       int64  `json:"end,omitempty"`
+}
+
 // Search discovers handles even after they leave the bounded candidate slice.
 // Search is literal, paginated and scope-local; it grants no execution authority.
 func (s *WorkingStore) Search(ctx context.Context, query string, offset, limit int) (string, error) {
 	if query == "" || len(query) > 4096 || offset < 0 || offset > 1<<30 || limit < 1 || limit > 50 {
 		return "", fmt.Errorf("invalid context search bounds")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,entity,revision,kind,step,failed FROM working_records
+	rows, err := s.db.QueryContext(ctx, `SELECT id,entity,revision,kind,step,failed,length(body),span_start,span_end FROM working_records
 		WHERE scope=? AND (instr(entity,?)>0 OR instr(kind,?)>0 OR instr(body,?)>0)
 		ORDER BY step DESC,id LIMIT ? OFFSET ?`, s.scope, query, query, query, limit, offset)
 	if err != nil {
 		return "", err
 	}
 	defer rows.Close()
-	result := []WorkingRecord{}
+	result := []WorkingSearchHit{}
 	for rows.Next() {
-		var r WorkingRecord
-		if err := rows.Scan(&r.ID, &r.Entity, &r.Revision, &r.Kind, &r.Step, &r.Failed); err != nil {
+		var h WorkingSearchHit
+		if err := rows.Scan(&h.ID, &h.Entity, &h.Revision, &h.Kind, &h.Step, &h.Failed, &h.BodyChars, &h.Start, &h.End); err != nil {
 			return "", err
 		}
-		result = append(result, r)
+		result = append(result, h)
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
 	data, err := json.Marshal(struct {
-		Records []WorkingRecord `json:"historical_records"`
-		Next    int             `json:"next_offset"`
-	}{result, offset + len(result)})
+		Records  []WorkingSearchHit `json:"historical_records"`
+		Next     int                `json:"next_offset"`
+		ReadWith string             `json:"read_with"`
+	}{result, offset + len(result), `recall_context {"id": "<id>"} returns the observation body`})
 	return string(data), err
 }
 
