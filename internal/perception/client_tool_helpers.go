@@ -234,7 +234,16 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 		}
 
 		if openAIResp.Error != nil {
-			return nil, fmt.Errorf("API error: %s", openAIResp.Error.Message)
+			// OpenRouter returns HTTP 200 with an error object when the
+			// upstream provider fails mid-request. A numeric code inside a
+			// 200 body (e.g. 502, 429) is exactly as transient as the same
+			// HTTP status, which the loop above already retries.
+			code := openAIResp.Error.Code
+			if status, ok := code.HTTPStatus(); ok && (status == http.StatusTooManyRequests || isTransientHTTPStatus(status)) {
+				lastErr = fmt.Errorf("transient in-body error %s: %s", code, openAIResp.Error.Message)
+				continue
+			}
+			return nil, fmt.Errorf("API error (code %s): %s", code, openAIResp.Error.Message)
 		}
 
 		return &openAIResp, nil
