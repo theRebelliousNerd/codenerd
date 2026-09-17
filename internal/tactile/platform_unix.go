@@ -39,6 +39,9 @@ func setupProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
+// applyCommandLine is a no-op on Unix; Command.CommandLine only affects Windows.
+func applyCommandLine(execCmd *exec.Cmd, cmd Command) {}
+
 // killProcessGroup kills the process and all its children on Unix.
 func killProcessGroup(cmd *exec.Cmd) error {
 	if cmd.Process == nil {

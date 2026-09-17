@@ -165,6 +165,7 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 	execCmd.Stderr = stderrLimited
 
 	setupProcessGroup(execCmd)
+	applyCommandLine(execCmd, cmd)
 	// Kill the whole process group on timeout/cancel: the real work is
 	// usually a grandchild of the spawned shell, and killing only the shell
 	// leaves the grandchild holding the output pipes open, which blocks

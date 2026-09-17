@@ -417,10 +417,11 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 
 	logging.VirtualStore("Running tests: %s", testCmd)
 
-	hostBinary, hostArgs := verificationShell(testCmd)
+	hostBinary, hostArgs, hostCommandLine := verificationShell(testCmd)
 	cmd := tactile.Command{
 		Binary:           hostBinary,
 		Arguments:        hostArgs,
+		CommandLine:      hostCommandLine,
 		WorkingDirectory: v.workingDir,
 		Environment:      v.buildToolEnv(),
 		Limits: &tactile.ResourceLimits{
@@ -467,10 +468,11 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 
 	logging.VirtualStore("Building project: %s", buildCmd)
 
-	hostBinary, hostArgs := verificationShell(buildCmd)
+	hostBinary, hostArgs, hostCommandLine := verificationShell(buildCmd)
 	cmd := tactile.Command{
 		Binary:           hostBinary,
 		Arguments:        hostArgs,
+		CommandLine:      hostCommandLine,
 		WorkingDirectory: v.workingDir,
 		Environment:      v.buildToolEnv(),
 		Limits: &tactile.ResourceLimits{
@@ -1277,9 +1279,11 @@ func (v *VirtualStore) buildToolEnv() []string {
 
 // Keep verification in the host workspace and toolchain. On Windows, bash may
 // be the WSL launcher, which silently changes OS, paths, and environment.
-func verificationShell(command string) (string, []string) {
+// The command line is passed raw so cmd.exe receives the /C command verbatim
+// instead of Go's MSVC-quoted form.
+func verificationShell(command string) (binary string, args []string, commandLine string) {
 	if runtime.GOOS == "windows" {
-		return "cmd.exe", []string{"/D", "/S", "/C", command}
+		return "cmd.exe", []string{"/D", "/S", "/C", command}, `cmd.exe /D /S /C "` + command + `"`
 	}
-	return "bash", []string{"-c", command}
+	return "bash", []string{"-c", command}, ""
 }
