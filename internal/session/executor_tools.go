@@ -773,9 +773,18 @@ func (e *Executor) executeToolBatch(
 		if execErr != nil {
 			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
 			toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
+			content := execErr.Error()
+			if out != "" {
+				// The tool's captured output travels with the error. A failing
+				// run_build must reach the model as "exit status 1" plus the
+				// compiler's actual diagnostics, or the model can only re-run
+				// the build blind. Goes back whole: the working context pages
+				// large results rather than cutting them.
+				content = execErr.Error() + "\n\n" + out
+			}
 			toolResults = append(toolResults, types.ToolResult{
 				ToolUseID: call.ID,
-				Content:   execErr.Error(),
+				Content:   content,
 				IsError:   true,
 			})
 			continue
@@ -2319,9 +2328,24 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		logging.Session("Executing modular tool: %s with %d args", call.Name, len(call.Args))
 		result, err := modularRegistry.Execute(toolCtx, call.Name, call.Args)
 		if err != nil {
+			// The tool may still have produced output (e.g. compiler or test
+			// stdout alongside a nonzero exit). Discarding it here is what made
+			// a failing run_build visible to the model only as "exit status 1",
+			// so return the output string together with the wrapped error.
+			if result != nil {
+				return result.Result, fmt.Errorf("modular tool execution failed: %w", err)
+			}
 			return "", fmt.Errorf("modular tool execution failed: %w", err)
 		}
+		if result == nil {
+			return "", fmt.Errorf("modular tool %s returned nil result", call.Name)
+		}
 		if result.Error != nil {
+			// Same rule as above: output captured before the failure goes back
+			// with the error, never thrown away.
+			if result.Result != "" {
+				return result.Result, fmt.Errorf("modular tool returned error: %w", result.Error)
+			}
 			return "", fmt.Errorf("modular tool returned error: %w", result.Error)
 		}
 
