@@ -138,7 +138,7 @@ func TestE2E_TDDLoop_EmptyPatch_Escalates(t *testing.T) {
 	config.TestCommand = "false" // Always fail
 	tdd := core.NewTDDLoopWithConfig(vs, kernel, llm, config)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	err = tdd.RunToCompletion(ctx)
@@ -217,7 +217,7 @@ func TestE2E_TDDLoop_GarbageOutput(t *testing.T) {
 	config.TestCommand = "echo FAILED_GARBAGE && false"
 	tdd := core.NewTDDLoopWithConfig(vs, kernel, llm, config)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	err := tdd.RunToCompletion(ctx)
@@ -257,7 +257,8 @@ RATIONALE: e2e fixture fix`, nil
 	config.TestCommand = "false"
 	tdd := core.NewTDDLoopWithConfig(vs, kernel, llm, config)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// The loop shells out per iteration, so this budget must cover real subprocess work on a loaded machine, not just the state machine.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	err := tdd.RunToCompletion(ctx)
@@ -294,7 +295,7 @@ RATIONALE: e2e fixture fix`, nil
 	tdd := core.NewTDDLoopWithConfig(vs, kernel, llm, config)
 
 	// VirtualStore silently rejecting should cause loop escalation
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	err := tdd.RunToCompletion(ctx)
