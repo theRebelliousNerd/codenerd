@@ -15,6 +15,8 @@ import (
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
 	"codeberg.org/TauCeti/mangle-go/parse"
+
+	"codenerd/internal/mangle"
 )
 
 func TestE2E_ShardManager_JITExecutor_GhostFactsOnPanic(t *testing.T) {
@@ -23,7 +25,7 @@ func TestE2E_ShardManager_JITExecutor_GhostFactsOnPanic(t *testing.T) {
 
 	rules := "Decl task_intent(TaskID, Intent).\nDecl route_decision(TaskID, Lane).\nroute_decision(ID, /delegate) :- task_intent(ID, /complex_task)."
 
-	parsed, err := parse.Unit(strings.NewReader(rules))
+	parsed, err := mangle.ParseUnit(strings.NewReader(rules))
 	if err != nil {
 		t.Fatalf("Syntax Error: %v", err)
 	}

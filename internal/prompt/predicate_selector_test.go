@@ -120,13 +120,13 @@ func createTestCorpus(t *testing.T) *core.PredicateCorpus {
 	// Create the corpus wrapper
 	corpus, err := core.NewPredicateCorpusFromPath(dbPath)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = corpus.Close() })
 
 	return corpus
 }
 
 func TestPredicateSelector_Select(t *testing.T) {
 	corpus := createTestCorpus(t)
-	defer corpus.Close()
 
 	selector := NewPredicateSelector(corpus)
 
@@ -230,7 +230,6 @@ func TestPredicateSelector_Select(t *testing.T) {
 
 func TestPredicateSelector_FormatForPrompt(t *testing.T) {
 	corpus := createTestCorpus(t)
-	defer corpus.Close()
 
 	selector := NewPredicateSelector(corpus)
 
@@ -255,7 +254,6 @@ func TestPredicateSelector_FormatForPrompt(t *testing.T) {
 
 func TestPredicateSelector_MaxPredicates(t *testing.T) {
 	corpus := createTestCorpus(t)
-	defer corpus.Close()
 
 	selector := NewPredicateSelector(corpus)
 	selector.SetMaxPredicates(2) // Very low limit
@@ -272,7 +270,6 @@ func TestPredicateSelector_MaxPredicates(t *testing.T) {
 
 func TestPredicateSelector_SelectForMangleGeneration(t *testing.T) {
 	corpus := createTestCorpus(t)
-	defer corpus.Close()
 
 	selector := NewPredicateSelector(corpus)
 

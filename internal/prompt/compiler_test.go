@@ -1419,6 +1419,7 @@ func TestJITPromptCompiler_GetStats_TracksCompilesAndProjectAtoms(t *testing.T) 
 	// zero. A repeated compile is a cache hit (served, not compiled), so the
 	// lifetime counters must move exactly once for two identical compiles.
 	ctx := context.Background()
+	dbDir := t.TempDir()
 	atoms := []*PromptAtom{NewPromptAtom("a", CategoryIdentity, "A")}
 	compiler, err := NewJITPromptCompiler(
 		WithEmbeddedCorpus(NewEmbeddedCorpus(atoms)),
@@ -1427,7 +1428,7 @@ func TestJITPromptCompiler_GetStats_TracksCompilesAndProjectAtoms(t *testing.T) 
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = compiler.Close() })
 
-	dbPath := filepath.Join(t.TempDir(), "proj.db")
+	dbPath := filepath.Join(dbDir, "proj.db")
 	db, err := sql.Open("sqlite3", dbPath)
 	require.NoError(t, err)
 	loader := NewAtomLoader(nil)
