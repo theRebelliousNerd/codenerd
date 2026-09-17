@@ -1,10 +1,12 @@
 # Evaluation atoms for LLM-as-Judge pattern in prompt evolution.
 # These atoms enable structured evaluation of task executions with explanations.
+# Scoped to /prompt_judge: with no selector these reached every compile (task_evaluator: 150 of 150), putting "You are an expert evaluator" inside coder prompts.
 
 - id: "eval/judge/task_evaluator"
   category: "eval"
   priority: 100
   is_mandatory: true
+  shard_types: ["/prompt_judge"]
   description: "System prompt for evaluating AI coding agent task executions"
   content: |
     You are an expert evaluator for an AI coding agent. Your job is to assess whether the agent successfully completed its task.
@@ -68,6 +70,7 @@
   category: "eval"
   priority: 90
   is_mandatory: false
+  shard_types: ["/prompt_judge"]
   description: "Guidance for evaluating multiple executions in a batch"
   content: |
     ## Batch Evaluation Mode
@@ -91,6 +94,7 @@
   category: "eval"
   priority: 80
   is_mandatory: false
+  shard_types: ["/prompt_judge"]
   description: "Guidelines for confidence scoring in verdicts"
   content: |
     ## Confidence Scoring

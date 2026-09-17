@@ -1,10 +1,12 @@
 # Meta-prompt atoms for automatic prompt evolution.
 # These atoms guide the LLM in generating new prompt atoms from failure patterns.
+# Scoped to /prompt_evolver: with no selector these reached every compile (atom_generator: 150 of 150), teaching every shard how to author prompt atoms.
 
 - id: "autopoiesis/meta/atom_generator"
   category: "autopoiesis"
   priority: 100
   is_mandatory: true
+  shard_types: ["/prompt_evolver"]
   description: "Meta-prompt for generating prompt atoms from failure analysis"
   content: |
     You are improving an AI coding agent's prompt system by generating new prompt atoms.
@@ -73,6 +75,7 @@
   category: "autopoiesis"
   priority: 95
   is_mandatory: false
+  shard_types: ["/prompt_evolver"]
   description: "Meta-prompt for refining problem-solving strategies"
   content: |
     You are improving a problem-solving strategy for an AI coding agent.
@@ -110,6 +113,7 @@
   category: "autopoiesis"
   priority: 90
   is_mandatory: false
+  shard_types: ["/prompt_evolver"]
   description: "Guidance for analyzing failure patterns across executions"
   content: |
     ## Failure Pattern Analysis
