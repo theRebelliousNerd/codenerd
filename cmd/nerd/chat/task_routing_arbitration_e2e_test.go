@@ -228,16 +228,47 @@ func assertRoutingIdle(t *testing.T, outcome routingOutcome) {
 }
 
 // assertKernelClean checks that stale routing/action facts are absent.
+// delegate_task is derived from the persisting current intent, so the check
+// is that it tracks the intent, not that it is gone.
 func assertKernelClean(t *testing.T, m Model) {
 	t.Helper()
 	if m.kernel == nil {
 		return
 	}
-	for _, pred := range []string{"pending_action", "delegate_task"} {
+	for _, pred := range []string{"pending_action"} {
 		facts, err := m.kernel.Query(pred)
 		if err == nil && len(facts) > 0 {
 			t.Errorf("stale kernel fact: %s has %d facts (should be retracted)", pred, len(facts))
 		}
+	}
+	intentFacts, _ := m.kernel.Query("user_intent")
+	delegateFacts, _ := m.kernel.Query("delegate_task")
+	for _, f := range delegateFacts {
+		if len(f.Args) < 2 {
+			t.Errorf("delegate_task %v does not come from the current intent", f.Args)
+			continue
+		}
+		task := f.Args[1]
+		found := false
+		for _, inf := range intentFacts {
+			if len(inf.Args) < 4 {
+				continue
+			}
+			if s, _ := inf.Args[0].(string); s != "/current_intent" {
+				continue
+			}
+			if inf.Args[3] == task {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("delegate_task %v does not come from the current intent", f.Args)
+		}
+	}
+	_ = m.kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []any{"/current_intent"}})
+	if facts, err := m.kernel.Query("delegate_task"); err == nil && len(facts) > 0 {
+		t.Errorf("delegate_task survived its intent: %v", facts)
 	}
 }
 

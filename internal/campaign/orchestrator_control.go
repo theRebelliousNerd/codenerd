@@ -71,6 +71,29 @@ func (o *Orchestrator) Stop() {
 	}
 }
 
+// Close releases what the orchestrator holds for its lifetime — the
+// Northstar observer's guardian reference. Call it when the
+// orchestrator is discarded; it does not stop a running campaign (Stop
+// does). Safe to call more than once.
+func (o *Orchestrator) Close() error {
+	o.mu.Lock()
+	configured := o.configuredNorthstarObserver
+	runtime := o.northstarObserver
+	o.mu.Unlock()
+	var firstErr error
+	if configured != nil {
+		if err := configured.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if runtime != nil && runtime != configured {
+		if err := runtime.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // GetProgress returns current campaign progress.
 func (o *Orchestrator) GetProgress() Progress {
 	o.mu.RLock()

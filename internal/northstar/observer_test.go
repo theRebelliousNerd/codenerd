@@ -2,6 +2,8 @@ package northstar
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -510,5 +512,36 @@ func TestObserverEvent_Fields(t *testing.T) {
 	}
 	if event.Timestamp != now {
 		t.Errorf("Timestamp mismatch: got %v, want %v", event.Timestamp, now)
+	}
+}
+
+func TestCampaignObserver_CloseReleasesGuardian(t *testing.T) {
+	ws := t.TempDir()
+	nerdDir := filepath.Join(ws, ".nerd")
+	obs := BuildCampaignObserver(ws, nil, nil)
+	if obs == nil {
+		t.Fatal("expected non-nil observer from BuildCampaignObserver")
+	}
+	if got := GuardianRefCount(nerdDir); got != 1 {
+		t.Fatalf("GuardianRefCount after build = %d, want 1", got)
+	}
+	if err := obs.Close(); err != nil {
+		t.Fatalf("first Close returned error: %v", err)
+	}
+	if got := GuardianRefCount(nerdDir); got != 0 {
+		t.Fatalf("GuardianRefCount after Close = %d, want 0", got)
+	}
+	if err := os.Remove(filepath.Join(nerdDir, "northstar_knowledge.db")); err != nil {
+		t.Fatalf("removing northstar_knowledge.db after Close failed: %v", err)
+	}
+	if err := obs.Close(); err != nil {
+		t.Fatalf("second Close returned error: %v", err)
+	}
+	if got := GuardianRefCount(nerdDir); got != 0 {
+		t.Fatalf("GuardianRefCount after second Close = %d, want 0", got)
+	}
+	var nilObs *CampaignObserver
+	if err := nilObs.Close(); err != nil {
+		t.Fatalf("nil observer Close returned error: %v", err)
 	}
 }

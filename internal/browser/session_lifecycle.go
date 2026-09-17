@@ -336,8 +336,20 @@ func (m *SessionManager) CreateTab(ctx context.Context, browserID, url string, i
 	if url == "" {
 		url = "about:blank"
 	}
-	if err := page.Context(ctx).Timeout(m.cfg.NavigationTimeout()).Navigate(url); err != nil {
+	p := page.Context(ctx).Timeout(m.cfg.NavigationTimeout())
+	if err := p.Navigate(url); err != nil {
 		logging.BrowserWarn("Initial navigation failed for %s: %v", m.SanitizeForEvidence(url), err)
+	} else {
+		// Rod's Navigate returns as soon as Chrome answers Page.navigate; it
+		// does not wait for the new document to load. Chrome swaps the page's
+		// frame for the new document, and Page-domain calls issued in that
+		// window (e.g. captureScreenshot) race the frame swap and fail with
+		// "Not attached to an active page". Wait for load before returning so
+		// an observe right after creation sees the live frame.
+		// The navigation itself was accepted, so a WaitLoad failure only warns.
+		if waitErr := p.WaitLoad(); waitErr != nil {
+			logging.BrowserWarn("Wait for page load failed for %s: %v", m.SanitizeForEvidence(url), waitErr)
+		}
 	}
 	actualURL := url
 	title := ""

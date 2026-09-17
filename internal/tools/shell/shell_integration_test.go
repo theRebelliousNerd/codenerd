@@ -4,6 +4,7 @@ package shell_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -220,10 +221,16 @@ func main() {
 	s.Require().NoError(os.WriteFile(filepath.Join(projectDir, "main.go"), []byte(mainGo), 0644))
 
 	// Execute RunBuildTool (auto-detects go.mod -> go build ./...)
-	_, err := tool.Execute(s.ctx, map[string]any{
+	result, err := tool.Execute(s.ctx, map[string]any{
 		"working_dir": projectDir,
 	})
 	s.Require().NoError(err, "Build should succeed for valid code")
+	var buildResult struct {
+		ExitCode int    `json:"exit_code"`
+		Output   string `json:"output"`
+	}
+	s.Require().NoError(json.Unmarshal([]byte(result), &buildResult))
+	s.Equal(0, buildResult.ExitCode)
 
 	// 2. Invalid Code (Syntax Error)
 	brokenGo := `package main
@@ -233,11 +240,13 @@ func main() {
 	// Overwrite main.go with broken code
 	s.Require().NoError(os.WriteFile(filepath.Join(projectDir, "main.go"), []byte(brokenGo), 0644))
 
-	_, err = tool.Execute(s.ctx, map[string]any{
+	result, err = tool.Execute(s.ctx, map[string]any{
 		"working_dir": projectDir,
 	})
 	s.Require().Error(err, "Build should fail for invalid code")
-	s.Contains(err.Error(), "undefined: undefinedFunc")
+	s.Require().NoError(json.Unmarshal([]byte(result), &buildResult))
+	s.Equal(1, buildResult.ExitCode)
+	s.Contains(buildResult.Output, "undefined: undefinedFunc")
 }
 
 func (s *ShellIntegrationSuite) TestRunTestsTool_Integration() {
@@ -261,8 +270,14 @@ func TestHello(t *testing.T) {
 		"working_dir": projectDir,
 	})
 	s.Require().NoError(err, "Tests should pass")
+	var testResult struct {
+		ExitCode int    `json:"exit_code"`
+		Output   string `json:"output"`
+	}
+	s.Require().NoError(json.Unmarshal([]byte(result), &testResult))
+	s.Equal(0, testResult.ExitCode)
 	// go test output depends on flags, but 'ok' is consistent for passing package
-	s.Contains(result, "ok")
+	s.Contains(testResult.Output, "ok")
 
 	// 2. Failure case
 	failTestGo := `package main
@@ -273,11 +288,14 @@ func TestFail(t *testing.T) {
 	// Add a failing test file
 	s.Require().NoError(os.WriteFile(filepath.Join(projectDir, "fail_test.go"), []byte(failTestGo), 0644))
 
-	_, err = tool.Execute(s.ctx, map[string]any{
+	result, err = tool.Execute(s.ctx, map[string]any{
 		"working_dir": projectDir,
 	})
 	s.Require().Error(err, "Tests should fail")
-	s.Contains(err.Error(), "FAIL")
+	s.Require().NoError(json.Unmarshal([]byte(result), &testResult))
+	s.Equal(1, testResult.ExitCode)
+	s.Contains(testResult.Output, "--- FAIL: TestFail")
+	s.Contains(testResult.Output, "This should fail")
 }
 
 func TestShellIntegrationSuite(t *testing.T) {

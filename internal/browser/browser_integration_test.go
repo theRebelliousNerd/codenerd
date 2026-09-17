@@ -71,7 +71,7 @@ func TestSessionManager_Navigation_Integration(t *testing.T) {
 	session, err := sm.CreateSession(ctx, ts.URL)
 	require.NoError(t, err, "Failed to create session")
 	require.NotEmpty(t, session.ID)
-	require.Equal(t, ts.URL, session.URL)
+	require.Equal(t, ts.URL+"/", session.URL)
 
 	// 4. Verify Session State
 	retrieved, ok := sm.GetSession(session.ID)
@@ -106,7 +106,7 @@ func TestSessionManager_Navigation_Integration(t *testing.T) {
 			if f.Predicate == "navigation_event" || f.Predicate == "current_url" {
 				if len(f.Args) >= 2 {
 					urlArg, _ := f.Args[1].(string)
-					if urlArg == ts.URL || urlArg == targetURL {
+					if urlArg == ts.URL+"/" || urlArg == targetURL {
 						foundNav = true
 					}
 				}
@@ -183,4 +183,51 @@ func TestSessionManager_Interaction_Integration(t *testing.T) {
 		}
 		return foundClick && foundInput
 	}, 10*time.Second, 100*time.Millisecond, "Expected interaction facts not found")
+}
+
+func TestSessionManager_NavigateThenScreenshot_NoFrameRace(t *testing.T) {
+	// 1. Setup local server (same shape as TestSessionManager_Navigation_Integration:
+	// any path serves a simple page so ts.URL+"/page?i=<n>" loads a new document).
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "<html><body><h1>Hello World</h1></body></html>")
+	}))
+	defer ts.Close()
+
+	// 2. Setup SessionManager (same as TestSessionManager_Navigation_Integration)
+	sink := &TestEngineSink{}
+	cfg := browser.DefaultConfig()
+	cfg.Headless = true
+	// Faster timeouts for testing
+	cfg.NavigationTimeoutMs = 10000
+	cfg.EventThrottleMs = 10
+
+	sm := browser.NewSessionManagerWithSink(cfg, sink)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Ensure shutdown to clean up browser process
+	defer func() {
+		if err := sm.Shutdown(context.Background()); err != nil {
+			t.Logf("Shutdown error: %v", err)
+		}
+	}()
+
+	err := sm.Start(ctx)
+	require.NoError(t, err, "Failed to start browser")
+
+	// 3. Create Session
+	session, err := sm.CreateSession(ctx, ts.URL)
+	require.NoError(t, err, "Failed to create session")
+	require.NotEmpty(t, session.ID)
+
+	// 4. Navigate then immediately screenshot, 10 times.
+	// Before the Navigate WaitLoad fix, the screenshot raced the frame swap and
+	// failed with "Not attached to an active page" on the first few iterations.
+	for i := 0; i < 10; i++ {
+		targetURL := fmt.Sprintf("%s/page?i=%d", ts.URL, i)
+		require.NoError(t, sm.Navigate(ctx, session.ID, targetURL), "Failed to navigate to %s", targetURL)
+		data, err := sm.Screenshot(ctx, session.ID, false)
+		require.NoError(t, err, "Screenshot immediately after Navigate to %s failed", targetURL)
+		require.NotEmpty(t, data, "Screenshot immediately after Navigate to %s returned empty bytes", targetURL)
+	}
 }

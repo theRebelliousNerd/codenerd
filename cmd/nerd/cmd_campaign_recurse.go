@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"codenerd/internal/campaign"
+	"codenerd/internal/northstar"
 	coresys "codenerd/internal/system"
 
 	"github.com/spf13/cobra"
@@ -96,6 +97,18 @@ func checkRecurseYolo(cfg campaign.RecurseConfig, yolo bool) error {
 	return nil
 }
 
+// recurseWaveConfig returns the orchestrator config for one recurse wave.
+// Wave 0 uses base as built; every later wave gets a fresh Northstar
+// observer, because the previous wave's orchestrator closed its own.
+func recurseWaveConfig(base campaign.OrchestratorConfig, wave int, newObserver func() *northstar.CampaignObserver) campaign.OrchestratorConfig {
+	if wave == 0 {
+		return base
+	}
+	waveCfg := base
+	waveCfg.NorthstarObserver = newObserver()
+	return waveCfg
+}
+
 func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	cfg, err := resolveRecurseConfig(recurseWaves, recurseAngles, recurseSubsystems, recurseStallWaves, recurseContextSize)
 	if err != nil {
@@ -170,7 +183,7 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 				return nil, err
 			}
 			fmt.Printf("\n%s Recurse wave %d: %s\n", waveBanner(wave), wave, planned.Title)
-			runErr := executeCampaignPlan(ctx, cmd, orchCfg, promptProvider, planned)
+			runErr := executeCampaignPlan(ctx, cmd, recurseWaveConfig(orchCfg, wave, func() *northstar.CampaignObserver { return campaignNorthstarObserver(cortex, cwd) }), promptProvider, planned)
 			return planned, runErr
 		},
 	}

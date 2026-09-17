@@ -221,15 +221,7 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 
 	advisoryBoard := campaign.NewShardAdvisoryBoard(consultationProvider)
 
-	var kernForNorthstar types.Kernel
-	if realKern != nil {
-		kernForNorthstar = realKern
-	} else if cortex.Kernel != nil {
-		if tk, ok := any(cortex.Kernel).(types.Kernel); ok {
-			kernForNorthstar = tk
-		}
-	}
-	northstarObserver := buildNorthstarObserver(cwd, cortex.LLMClient, kernForNorthstar)
+	northstarObserver := campaignNorthstarObserver(cortex, cwd)
 
 	edgeCaseDetector := campaign.NewEdgeCaseDetector(realKern, worldScanner)
 
@@ -271,6 +263,33 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 	}
 
 	return cfg, promptProvider
+}
+
+// campaignNorthstarObserver builds the vision-guardian observer for one
+// campaign orchestrator. Each orchestrator owns and closes its own
+// observer, so a command that runs several orchestrators (recurse waves)
+// builds one per orchestrator.
+func campaignNorthstarObserver(cortex *coresys.Cortex, cwd string) *northstar.CampaignObserver {
+	if cortex == nil {
+		return nil
+	}
+	var realKern *core.RealKernel
+	if cortex.RealKernel != nil {
+		realKern = cortex.RealKernel
+	} else if cortex.Kernel != nil {
+		if rk, ok := any(cortex.Kernel).(*core.RealKernel); ok {
+			realKern = rk
+		}
+	}
+	var kernForNorthstar types.Kernel
+	if realKern != nil {
+		kernForNorthstar = realKern
+	} else if cortex.Kernel != nil {
+		if tk, ok := any(cortex.Kernel).(types.Kernel); ok {
+			kernForNorthstar = tk
+		}
+	}
+	return northstar.BuildCampaignObserver(cwd, cortex.LLMClient, kernForNorthstar)
 }
 
 // runCampaignStart starts a new campaign
@@ -461,6 +480,7 @@ func executeCampaignPlan(ctx context.Context, cmd *cobra.Command, orchCfg campai
 	if err != nil {
 		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
 	}
+	defer func() { _ = orchestrator.Close() }()
 	if promptProvider != nil {
 		orchestrator.SetPromptProvider(promptProvider)
 	}
@@ -471,7 +491,6 @@ func executeCampaignPlan(ctx context.Context, cmd *cobra.Command, orchCfg campai
 
 	fmt.Println("\n🚀 Starting campaign execution...")
 	fmt.Println("   Press Ctrl+C to pause")
-
 
 	// Run campaign
 	if err := orchestrator.Run(ctx); err != nil {
@@ -491,8 +510,6 @@ func executeCampaignPlan(ctx context.Context, cmd *cobra.Command, orchCfg campai
 	fmt.Println("\n✨ Campaign completed successfully!")
 	return nil
 }
-
-
 
 // startCampaignEventPrinter streams orchestrator events to stdout until the
 // channel closes. One printer serves a whole command; recurse waves share the
@@ -730,6 +747,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
 	}
+	defer func() { _ = orchestrator.Close() }()
 	if campaignPromptProvider != nil {
 		orchestrator.SetPromptProvider(campaignPromptProvider)
 	}
@@ -1364,11 +1382,4 @@ func applyCampaignExecutorBudget(
 		spawner.SetExecutorConfig(&execCfg)
 	}
 	return execCfg
-}
-
-// buildNorthstarObserver is a thin wrapper around northstar.BuildCampaignObserver
-// kept for backwards compatibility and to avoid duplicating the construction
-// logic. The canonical implementation lives in internal/northstar/campaign_observer.go.
-func buildNorthstarObserver(cwd string, llmClient perception.LLMClient, kern types.Kernel) *northstar.CampaignObserver {
-	return northstar.BuildCampaignObserver(cwd, llmClient, kern)
 }
