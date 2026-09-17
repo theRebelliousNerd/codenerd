@@ -2,6 +2,8 @@ package mangle
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,9 +41,14 @@ func TestEngineQuery_SynthesizesModesWhenMissing(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil QueryResult")
 	}
-	// Bindings may be empty depending on store/mode eval path; the critical
-	// contract is: no "no modes declared" error.
-	t.Logf("bindings=%d", len(result.Bindings))
+	// The stored fact must be returned: no "no modes declared" error and
+	// exactly one row binding Var0 to "/scan".
+	if len(result.Bindings) != 1 {
+		t.Fatalf("next_action(Var0) returned %d bindings, want 1: %v", len(result.Bindings), result.Bindings)
+	}
+	if got, want := result.Bindings[0]["Var0"], "/scan"; got != want {
+		t.Fatalf("next_action(Var0) returned %v, want [{Var0:%q}]", result.Bindings, want)
+	}
 }
 
 // TestProofTreeTracer_NoModesDeclaredRegression exercises TraceQuery path.
@@ -68,5 +75,12 @@ func TestProofTreeTracer_NoModesDeclaredRegression(t *testing.T) {
 	}
 	if trace == nil {
 		t.Fatal("expected non-nil trace")
+	}
+	if len(trace.RootNodes) != 1 {
+		t.Fatalf("expected 1 root node, got %d: %+v", len(trace.RootNodes), trace)
+	}
+	root := trace.RootNodes[0]
+	if dump := fmt.Sprintf("%+v", root); !strings.Contains(dump, "/read") {
+		t.Fatalf("root node does not mention /read: %s", dump)
 	}
 }

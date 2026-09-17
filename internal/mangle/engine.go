@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -542,9 +543,10 @@ func (e *Engine) replaceFactsForFileImpl(file string, facts []Fact, contentHash 
 // entry in the store, until an evaluation runs. Proved 2026-09-11: the
 // working policy's constants and a learned exemplar loaded from
 // .nerd/mangle/learned.mg were both invisible to QueryFacts (and to Query,
-// which serves derived predicates only) until something evaluated, and the
-// only exported ways to make that happen were fact insertion and
-// ReplaceControlFacts(nil), neither of which says what it is doing.
+// which then served derived predicates only; Query now also scans stored
+// facts) until something evaluated, and the only exported ways to make that
+// happen were fact insertion and ReplaceControlFacts(nil), neither of which
+// says what it is doing.
 func (e *Engine) Evaluate() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -852,7 +854,9 @@ func convertValueToTypedTerm(value any, expectedType ast.ConstantType) (ast.Base
 	}
 }
 
-// Query evaluates a query expressed in Mangle notation.
+// Query evaluates a query expressed in Mangle notation. Rows come back in a
+// stable order so callers that take the first row get the same answer every
+// time.
 func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) {
 	logging.KernelDebug("Query: %s", query)
 	shape, err := parseQueryShape(query)
@@ -909,7 +913,8 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 
 	go func() {
 		var results []map[string]any
-		err := queryContext.EvalQuery(shape.atom, mode, unionfind.New(), func(fact ast.Atom) error {
+		seen := make(map[string]bool)
+		emit := func(fact ast.Atom) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -925,11 +930,63 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 			}
 			results = append(results, row)
 			return nil
-		})
-		if err != nil {
+		}
+		accept := func(fact ast.Atom) error {
+			// Constants in the query filter the rows. EvalQuery only
+			// binds args whose mode is input, and the modes in play
+			// here are all output, so without this an unfiltered
+			// derivation would ignore query constants entirely.
+			if !factstore.Matches(shape.atom.Args, fact.Args) {
+				return nil
+			}
+			if !repeatedVariablesAgree(shape.atom.Args, fact.Args) {
+				return nil
+			}
+			key := fmt.Sprintf("%v", fact)
+			if seen[key] {
+				return nil
+			}
+			seen[key] = true
+			return emit(fact)
+		}
+		// Stored facts first. EvalQuery only iterates PredToRules, so
+		// a predicate with no rules (EDB) never yields rows from
+		// evaluation alone.
+		if err := queryContext.Store.GetFacts(ast.NewQuery(shape.atom.Predicate), accept); err != nil {
 			errChan <- err
 			return
 		}
+		// Rule derivations not already materialised in the store
+		// (e.g. AutoEval off). With AutoEval on these duplicate the
+		// stored rows and are dropped by the dedup above.
+		if len(queryContext.PredToRules[shape.atom.Predicate]) > 0 {
+			if err := queryContext.EvalQuery(shape.atom, mode, unionfind.New(), accept); err != nil {
+				errChan <- err
+				return
+			}
+		}
+		// Sort once after both sources are collected so store and
+		// derived rows interleave by value rather than by source.
+		varNames := make([]string, 0, len(shape.variables))
+		seenVar := make(map[string]bool, len(shape.variables))
+		for _, arg := range shape.atom.Args {
+			if v, ok := arg.(ast.Variable); ok {
+				if !seenVar[v.Symbol] {
+					seenVar[v.Symbol] = true
+					varNames = append(varNames, v.Symbol)
+				}
+			}
+		}
+		rowKey := func(row map[string]any) string {
+			parts := make([]string, len(varNames))
+			for i, name := range varNames {
+				parts[i] = fmt.Sprint(row[name])
+			}
+			return strings.Join(parts, "\x00")
+		}
+		sort.SliceStable(results, func(i, j int) bool {
+			return rowKey(results[i]) < rowKey(results[j])
+		})
 		resultChan <- results
 	}()
 
@@ -1112,6 +1169,31 @@ func parseQueryShape(query string) (*queryShape, error) {
 		atom:      atom,
 		variables: variables,
 	}, nil
+}
+
+// repeatedVariablesAgree enforces that a variable appearing more than once
+// in the query binds equal values, so pair(X, X) keeps only diagonal rows.
+// The wildcard "_" is exempt: each occurrence binds independently.
+func repeatedVariablesAgree(queryArgs, factArgs []ast.BaseTerm) bool {
+	if len(queryArgs) != len(factArgs) {
+		return false
+	}
+	seen := make(map[string]string, len(queryArgs))
+	for i, qarg := range queryArgs {
+		variable, ok := qarg.(ast.Variable)
+		if !ok || variable.Symbol == "_" {
+			continue
+		}
+		key := factArgs[i].String()
+		if prev, dup := seen[variable.Symbol]; dup {
+			if prev != key {
+				return false
+			}
+			continue
+		}
+		seen[variable.Symbol] = key
+	}
+	return true
 }
 
 // isIdentifier checks if a string is a valid Mangle identifier.

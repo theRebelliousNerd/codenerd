@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -332,9 +333,115 @@ func TestEngineQuery(t *testing.T) {
 		t.Fatalf("Query() error = %v", err)
 	}
 
-	// Note: Query returns bindings based on mode evaluation
-	// GetFacts is the primary API for retrieving facts
-	t.Logf("Query returned %d bindings", len(result.Bindings))
+	// Stored (EDB) facts must be returned, keyed by variable name, in any order.
+	want := map[string]int64{"Alice": 30, "Bob": 25}
+	if len(result.Bindings) != len(want) {
+		t.Fatalf("Query() returned %d bindings, want %d: %v", len(result.Bindings), len(want), result.Bindings)
+	}
+	for _, binding := range result.Bindings {
+		name, ok := binding["X"].(string)
+		if !ok {
+			t.Fatalf("binding X has type %T, want string: %v", binding["X"], binding)
+		}
+		age, ok := binding["Y"].(int64)
+		if !ok {
+			t.Fatalf("binding Y has type %T, want int64: %v", binding["Y"], binding)
+		}
+		wantAge, ok := want[name]
+		if !ok || wantAge != age {
+			t.Fatalf("unexpected binding %v, want %v", binding, want)
+		}
+		delete(want, name)
+	}
+
+	// Constants in the query must filter: only Alice's age is returned,
+	// keyed by the remaining variable.
+	constResult, err := engine.Query(ctx, `person("Alice", Y)`)
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(constResult.Bindings) != 1 {
+		t.Fatalf("Query() with constant returned %d bindings, want 1: %v", len(constResult.Bindings), constResult.Bindings)
+	}
+	if age, ok := constResult.Bindings[0]["Y"].(int64); !ok || age != 30 {
+		t.Fatalf("Query() with constant returned %v, want [{Y:30}]", constResult.Bindings)
+	}
+	if _, present := constResult.Bindings[0]["X"]; present {
+		t.Fatalf("constant-filtered query must only bind Y, got %v", constResult.Bindings[0])
+	}
+}
+
+func TestEngineQuery_DerivedFiltersConstants(t *testing.T) {
+	cfg := DefaultConfig()
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	schema := `
+Decl person(Name, Age) descr [mode("-", "-")].
+Decl older(Name, Age) descr [mode("-", "-")].
+Decl pair(A, B) descr [mode("-", "-")].
+older(N, A) :- person(N, A), A > 26.
+pair(A, B) :- person(A, AgeA), person(B, AgeB).
+`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	if err := engine.AddFacts([]Fact{
+		{Predicate: "person", Args: []any{"Alice", int64(30)}},
+		{Predicate: "person", Args: []any{"Bob", int64(25)}},
+	}); err != nil {
+		t.Fatalf("AddFacts() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Rule-derived rows are returned...
+	derived, err := engine.Query(ctx, "older(X, Y)")
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(derived.Bindings) != 1 {
+		t.Fatalf("older(X, Y) returned %d bindings, want 1: %v", len(derived.Bindings), derived.Bindings)
+	}
+	if derived.Bindings[0]["X"] != "Alice" || derived.Bindings[0]["Y"] != int64(30) {
+		t.Fatalf("older(X, Y) returned %v, want [{X:Alice Y:30}]", derived.Bindings)
+	}
+
+	// ...and constants filter rule derivations: Bob is 25, not older.
+	filtered, err := engine.Query(ctx, `older("Bob", Y)`)
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(filtered.Bindings) != 0 {
+		t.Fatalf(`older("Bob", Y) returned %v, want no bindings`, filtered.Bindings)
+	}
+
+	// A repeated variable binds equal values only: the diagonal.
+	diag, err := engine.Query(ctx, "pair(X, X)")
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(diag.Bindings) != 2 {
+		t.Fatalf("pair(X, X) returned %d bindings, want 2: %v", len(diag.Bindings), diag.Bindings)
+	}
+	seen := map[string]bool{}
+	for _, binding := range diag.Bindings {
+		name, ok := binding["X"].(string)
+		if !ok {
+			t.Fatalf("pair(X, X) binding X has type %T, want string: %v", binding["X"], binding)
+		}
+		if name != "Alice" && name != "Bob" {
+			t.Fatalf("pair(X, X) returned unexpected binding %v", binding)
+		}
+		if seen[name] {
+			t.Fatalf("pair(X, X) returned duplicate binding %v", binding)
+		}
+		seen[name] = true
+	}
 }
 
 func TestEngineGetFacts(t *testing.T) {
@@ -1593,4 +1700,97 @@ func TestResetDerivedFactCount(t *testing.T) {
 	if engine.GetDerivedFactCount() != 0 {
 		t.Errorf("Expected derived count to be 0 after reset, got %d", engine.GetDerivedFactCount())
 	}
+}
+
+func TestEngineQuery_OrderIsStable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	t.Run("stored", func(t *testing.T) {
+		cfg := DefaultConfig()
+		engine, err := NewEngine(cfg, nil)
+		if err != nil {
+			t.Fatalf("NewEngine() error = %v", err)
+		}
+
+		schema := `Decl stable_item(Name, Val) descr [mode("-", "-")].`
+		if err := engine.LoadSchemaString(schema); err != nil {
+			t.Fatalf("LoadSchemaString() error = %v", err)
+		}
+
+		facts := []Fact{
+			{Predicate: "stable_item", Args: []any{"Echo", int64(5)}},
+			{Predicate: "stable_item", Args: []any{"Alpha", int64(1)}},
+			{Predicate: "stable_item", Args: []any{"Delta", int64(4)}},
+			{Predicate: "stable_item", Args: []any{"Charlie", int64(3)}},
+			{Predicate: "stable_item", Args: []any{"Bravo", int64(2)}},
+		}
+		if err := engine.AddFacts(facts); err != nil {
+			t.Fatalf("AddFacts() error = %v", err)
+		}
+
+		var want []map[string]any
+		for i := 0; i < 10; i++ {
+			result, err := engine.Query(ctx, "stable_item(X, Y)")
+			if err != nil {
+				t.Fatalf("Query() run %d error = %v", i, err)
+			}
+			if len(result.Bindings) != len(facts) {
+				t.Fatalf("Query() run %d returned %d bindings, want %d: %v", i, len(result.Bindings), len(facts), result.Bindings)
+			}
+			if i == 0 {
+				want = result.Bindings
+				continue
+			}
+			if !reflect.DeepEqual(want, result.Bindings) {
+				t.Fatalf("Query() run 0 vs run %d differ:\nfirst=%v\nnow=%v", i, want, result.Bindings)
+			}
+		}
+	})
+
+	t.Run("derived", func(t *testing.T) {
+		cfg := DefaultConfig()
+		engine, err := NewEngine(cfg, nil)
+		if err != nil {
+			t.Fatalf("NewEngine() error = %v", err)
+		}
+
+		schema := `
+Decl person(Name, Age) descr [mode("-", "-")].
+Decl adult(Name, Age) descr [mode("-", "-")].
+adult(N, A) :- person(N, A), A > 26.
+`
+		if err := engine.LoadSchemaString(schema); err != nil {
+			t.Fatalf("LoadSchemaString() error = %v", err)
+		}
+
+		facts := []Fact{
+			{Predicate: "person", Args: []any{"Eve", int64(22)}},
+			{Predicate: "person", Args: []any{"Alice", int64(30)}},
+			{Predicate: "person", Args: []any{"Dave", int64(24)}},
+			{Predicate: "person", Args: []any{"Carol", int64(28)}},
+			{Predicate: "person", Args: []any{"Bob", int64(35)}},
+		}
+		if err := engine.AddFacts(facts); err != nil {
+			t.Fatalf("AddFacts() error = %v", err)
+		}
+
+		var want []map[string]any
+		for i := 0; i < 10; i++ {
+			result, err := engine.Query(ctx, "adult(X, Y)")
+			if err != nil {
+				t.Fatalf("Query() run %d error = %v", i, err)
+			}
+			if len(result.Bindings) != 3 {
+				t.Fatalf("Query() run %d returned %d bindings, want 3: %v", i, len(result.Bindings), result.Bindings)
+			}
+			if i == 0 {
+				want = result.Bindings
+				continue
+			}
+			if !reflect.DeepEqual(want, result.Bindings) {
+				t.Fatalf("Query() run 0 vs run %d differ:\nfirst=%v\nnow=%v", i, want, result.Bindings)
+			}
+		}
+	})
 }
