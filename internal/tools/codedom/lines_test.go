@@ -98,6 +98,37 @@ func TestEditLinesTool_Execute_Success(t *testing.T) {
 	}
 }
 
+func TestEditLinesTool_Execute_ResultShowsOriginalLines(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "test.txt")
+	content := "alpha\nline2\nline3\ndelta\necho\nfoxtrot"
+	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	result, err := executeEditLines(wsCtxFor(t, tmpFile), map[string]any{
+		"path":        tmpFile,
+		"start_line":  float64(2),
+		"end_line":    float64(3),
+		"new_content": "replaced2\nreplaced3",
+	})
+	if err != nil {
+		t.Fatalf("executeEditLines error: %v", err)
+	}
+
+	for _, want := range []string{
+		"Replaced (old lines 2-3):",
+		"2| line2",
+		"3| line3",
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("result missing %q:\n%s", want, result)
+		}
+	}
+}
+
 func TestEditLinesTool_Execute_InvalidRange(t *testing.T) {
 	t.Parallel()
 
@@ -270,6 +301,36 @@ func TestDeleteLinesTool_Execute_Success(t *testing.T) {
 	lines := strings.Split(string(newContent), "\n")
 	if len(lines) != 2 {
 		t.Errorf("expected 2 lines after deletion, got %d", len(lines))
+	}
+}
+
+func TestDeleteLinesTool_Execute_ResultShowsOriginalLines(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "test.txt")
+	content := "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot"
+	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	result, err := executeDeleteLines(wsCtxFor(t, tmpFile), map[string]any{
+		"path":       tmpFile,
+		"start_line": float64(4),
+		"end_line":   float64(5),
+	})
+	if err != nil {
+		t.Fatalf("executeDeleteLines error: %v", err)
+	}
+
+	for _, want := range []string{
+		"Deleted (old lines 4-5):",
+		"4| delta",
+		"5| echo",
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("result missing %q:\n%s", want, result)
+		}
 	}
 }
 

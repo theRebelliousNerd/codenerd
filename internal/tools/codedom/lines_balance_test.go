@@ -51,6 +51,16 @@ func TestEditLines_RefusesEditThatDropsClosingBrace(t *testing.T) {
 	if !strings.Contains(err.Error(), "delimiter balance") {
 		t.Errorf("error does not name the cause: %v", err)
 	}
+	// The refusal must echo the replaced range with its original numbered
+	// lines, so the agent can see exactly what it was about to destroy.
+	for _, want := range []string{
+		"Replaced lines 3-6 were:",
+		"6| }",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%v", want, err)
+		}
+	}
 
 	after, _ := os.ReadFile(path)
 	if string(before) != string(after) {

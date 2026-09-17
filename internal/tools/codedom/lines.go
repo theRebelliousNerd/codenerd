@@ -134,7 +134,7 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	// content omits it, and the file silently stops parsing several
 	// declarations later. Failing here costs one retry; not failing costs a
 	// corrupted file that looks like a successful write.
-	if err := checkDelimiterBalance(path, lines[startIdx:endIdx], newLines); err != nil {
+	if err := checkDelimiterBalance(path, startLine, lines[startIdx:endIdx], newLines); err != nil {
 		return "", err
 	}
 
@@ -146,10 +146,12 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 
 	linesReplaced := endLine - startLine + 1
 	logging.Tools("edit_lines completed: %s (replaced %d lines with %d)", path, linesReplaced, len(newLines))
-	return fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s%s",
+	return fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s%s\nReplaced (old lines %d-%d):\n%s",
 		startLine, endLine, linesReplaced, len(newLines), path,
 		lineShiftNotice(startLine, len(newLines)-linesReplaced, len(result)),
-		staleNotice(staleWarning)), nil
+		staleNotice(staleWarning),
+		startLine, endLine,
+		numberedLines(lines[startIdx:endIdx], startLine)), nil
 }
 
 // checkDelimiterBalance refuses a replacement whose net brace/bracket/paren
@@ -163,7 +165,7 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 //
 // Only applied to source files whose delimiters are structural. Comments and
 // string literals are skipped so a brace inside them cannot trip the check.
-func checkDelimiterBalance(path string, oldLines, newLines []string) error {
+func checkDelimiterBalance(path string, startLine int, oldLines, newLines []string) error {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go", ".java", ".c", ".h", ".cpp", ".hpp", ".cs", ".rs", ".js", ".jsx", ".ts", ".tsx", ".kt", ".swift", ".scala":
 	default:
@@ -193,10 +195,12 @@ func checkDelimiterBalance(path string, oldLines, newLines []string) error {
 		"refusing edit: it changes delimiter balance in %s (%s).\n"+
 			"The lines you replaced were holding a delimiter your new content does not reproduce, "+
 			"which would leave the file unparseable below the edit.\n"+
+			"Replaced lines %d-%d were:\n%s\n"+
 			"Re-read the exact range with get_element or read_file, include every closing delimiter "+
 			"the range contained, and retry. If the imbalance is intentional (you are deliberately "+
 			"moving a block), make the matching edit in the same call or widen the range to cover both ends",
-		path, strings.Join(offenders, "; "))
+		path, strings.Join(offenders, "; "),
+		startLine, startLine+len(oldLines)-1, numberedLines(oldLines, startLine))
 }
 
 // netDelimiters counts opens minus closes per delimiter, ignoring anything
@@ -509,10 +513,12 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 
 	linesDeleted := endLine - startLine + 1
 	logging.Tools("delete_lines completed: %s (deleted %d lines)", path, linesDeleted)
-	return fmt.Sprintf("Deleted lines %d-%d (%d lines) from %s.%s%s",
+	return fmt.Sprintf("Deleted lines %d-%d (%d lines) from %s.%s%s\nDeleted (old lines %d-%d):\n%s",
 		startLine, endLine, linesDeleted, path,
 		lineShiftNotice(startLine, -linesDeleted, len(result)),
-		staleNotice(staleWarning)), nil
+		staleNotice(staleWarning),
+		startLine, endLine,
+		numberedLines(lines[startIdx:endIdx], startLine)), nil
 }
 
 // preconditionWarning checks a caller-supplied precondition against the bytes
@@ -540,4 +546,20 @@ func staleNotice(warning string) string {
 		return ""
 	}
 	return " " + warning
+}
+
+// numberedLines renders lines as "<n>| <text>" joined with "\n", numbered from
+// firstLineNo. It returns the whole text, without truncation: the working
+// context pages large tool results, and a refusal or a success notice that
+// silently elides the replaced lines is exactly what sent the model off to
+// guess the range a second time.
+func numberedLines(lines []string, firstLineNo int) string {
+	var sb strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		fmt.Fprintf(&sb, "%d| %s", firstLineNo+i, line)
+	}
+	return sb.String()
 }
