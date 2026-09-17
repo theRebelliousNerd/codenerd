@@ -508,7 +508,12 @@ func (o *Orchestrator) gatherRiskIntelligence(ctx context.Context, targetPaths [
 	if len(targetPaths) == 0 && strings.TrimSpace(o.workspace) != "" {
 		targetPaths = []string{o.workspace}
 	}
-	report, err := o.intelligenceGatherer.Gather(sampleCtx, o.campaign.Goal, targetPaths)
+	// Risk snapshot reads no shard advice; consults cannot finish inside the
+	// 45s sample and their timeout inflated the risk score via errorNorm.
+	// Copy the gatherer so the decomposer's shared config keeps EnableShardConsult.
+	riskGatherer := *o.intelligenceGatherer
+	riskGatherer.config.EnableShardConsult = false
+	report, err := riskGatherer.Gather(sampleCtx, o.campaign.Goal, targetPaths)
 	if err != nil {
 		o.emitRiskAudit(EventRiskIntelligenceError, "Failed to gather intelligence for risk scoring", map[string]any{
 			"error": err.Error(),
