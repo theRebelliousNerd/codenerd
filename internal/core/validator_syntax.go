@@ -126,7 +126,7 @@ func (v *SyntaxValidator) Validate(ctx context.Context, req ActionRequest, resul
 			Verified:   false,
 			Confidence: 1.0,
 			Method:     ValidationMethodSyntax,
-			Error:      "syntax validation failed",
+			Error:      "syntax validation failed: " + firstLine(err.Error()),
 			Details: map[string]any{
 				"parse_error": err.Error(),
 				"extension":   ext,
