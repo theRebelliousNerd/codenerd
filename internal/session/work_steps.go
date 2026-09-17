@@ -23,7 +23,8 @@ import (
 // narrow pass with the file named, the way a repair round already runs: the
 // model plans, the harness sequences. A step that makes no edit gets one more
 // pass with reading closed; a step that still makes none is reported, and
-// the turn fails rather than claiming the task.
+// the turn fails rather than claiming the task. A step may instead conclude,
+// with evidence, that its change is not needed, and that is reported, not failed.
 
 // ErrStepsIncomplete marks a planned task some of whose steps made no edit.
 // Wrapped so errors.Is can tell it from a provider failure.
@@ -60,6 +61,10 @@ type workStep struct {
 	CoveredBy int
 	Calls     int
 	Note      string // the model's closing sentence, or the pass error
+	// NoChange is the evidence the model gave, on the step's last pass, that
+	// the step's change is already in place or its condition does not hold;
+	// empty unless the step made no edit.
+	NoChange string
 }
 
 // toolLoopPass is how one pass of the tool loop is run. verify runs the
@@ -179,6 +184,21 @@ func hasWriteTool(names []string) bool {
 	return false
 }
 
+// noChangeEvidence reads the evidence for a step whose change is not needed
+// out of the model's closing note: the first line starting
+// "NO CHANGE NEEDED:" yields the trimmed text after it, and anything else
+// yields nothing.
+func noChangeEvidence(note string) string {
+	for _, line := range strings.Split(note, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "NO CHANGE NEEDED:") {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimPrefix(trimmed, "NO CHANGE NEEDED:"))
+	}
+	return ""
+}
+
 // workStepAnchor is the user turn one step's pass runs against: the whole
 // task, so nothing the brief said is lost, then the executive's note of
 // where this pass sits in the plan and what it must do. retry is the second
@@ -197,7 +217,7 @@ func workStepAnchor(task string, steps []workStep, current int, retry bool) stri
 	}
 	fmt.Fprintf(&b, "Step %d of %d: %s :: %s\n", current+1, len(steps), steps[current].File, steps[current].Change)
 	if retry {
-		b.WriteString("This step's first pass made no edit. Reading is closed: the observations already gathered are in the working section, and recall_context recovers any of them whole. Make this step's edit now with the edit tools, or say in one sentence what is missing.")
+		b.WriteString("This step's first pass made no edit. Reading is closed: the observations already gathered are in the working section, and recall_context recovers any of them whole. Make this step's edit now with the edit tools. If the change is already in place, or the task's own condition for it does not hold, make no edit and reply with one line starting \"NO CHANGE NEEDED:\" followed by the evidence (the file and line you checked and what is there).")
 	} else {
 		b.WriteString("Make exactly this step's change now with the edit tools; the remaining steps run after it, so do not make them here. When the edit is made, reply with one sentence saying what changed.")
 	}
@@ -225,6 +245,9 @@ func markCoveredSteps(steps []workStep) {
 func unfinishedSteps(steps []workStep) []string {
 	var missing []string
 	for i, s := range steps {
+		if s.NoChange != "" {
+			continue
+		}
 		if !s.Edited && s.CoveredBy == 0 {
 			missing = append(missing, fmt.Sprintf("[%d] %s", i+1, s.File))
 		}
@@ -248,6 +271,8 @@ func workStepReport(steps []workStep) string {
 		switch {
 		case s.Edited:
 			status = "edited"
+		case s.NoChange != "":
+			status = "no change needed"
 		case s.CoveredBy > 0:
 			status = fmt.Sprintf("no edit (file edited in step %d)", s.CoveredBy)
 		}
@@ -321,6 +346,9 @@ func (e *Executor) runPlannedSteps(
 				step.Note = text
 			}
 			last = resp
+		}
+		if !step.Edited {
+			step.NoChange = noChangeEvidence(step.Note)
 		}
 		logging.Session("Step %d/%d %s: edited=%v, %d tool call(s)", i+1, len(steps), step.File, step.Edited, step.Calls)
 	}

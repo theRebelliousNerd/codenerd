@@ -26,6 +26,7 @@ type stepScriptProvider struct {
 	played   map[string]int
 	anchors  []string
 	catalogs [][]string
+	finals   map[string]string
 }
 
 func newStepScriptProvider(plan string, script map[string][]types.ToolCall) *stepScriptProvider {
@@ -80,6 +81,9 @@ func (p *stepScriptProvider) CompleteWithToolResults(_ context.Context, _ string
 		if offered {
 			return &types.LLMToolResponse{ToolCalls: []types.ToolCall{call}}, nil
 		}
+	}
+	if final, ok := p.finals[file]; ok {
+		return &types.LLMToolResponse{Text: final}, nil
 	}
 	return &types.LLMToolResponse{Text: "finished " + file}, nil
 }
@@ -249,6 +253,90 @@ func TestRunToolLoop_PlannedSteps_ReportsAStepThatNeverEdited(t *testing.T) {
 		t.Fatalf("the turn must surface the incomplete plan as itself, got %v", wrapped)
 	}
 }
+
+// A step whose condition does not hold is reported, not failed: the model
+// closes its second pass with NO CHANGE NEEDED evidence and the turn succeeds,
+// after the other steps ran.
+func TestRunToolLoop_PlannedSteps_AStepThatNeedsNoChangeIsReportedNotFailed(t *testing.T) {
+	_, writeTool := registerStepTools(t)
+	plan := "STEP a.txt :: move tests only if needed\nSTEP b.txt :: create it\n"
+	client := newStepScriptProvider(plan, map[string][]types.ToolCall{
+		"b.txt": {{ID: "w-b", Name: writeTool, Input: map[string]any{"path": "b.txt", "content": "bye"}}},
+	})
+	client.finals = map[string]string{"a.txt": "NO CHANGE NEEDED: a.txt has no test calling the unexported name"}
+	e := newPlannedStepsExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+
+	_, toolErrs, err := e.runToolLoop(context.Background(), "system", "create both files",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if err != nil {
+		t.Fatalf("runToolLoop: %v (tool errors: %q); report:\n%s", err, toolErrs, result.StepReport)
+	}
+	if result.SuccessfulWriteTools != 1 {
+		t.Fatalf("writes = %d, want the second step's edit", result.SuccessfulWriteTools)
+	}
+	if !strings.Contains(result.StepReport, "[1] a.txt :: move tests only if needed — no change needed") {
+		t.Fatalf("report = %q", result.StepReport)
+	}
+	if !strings.Contains(result.StepReport, "[2] b.txt :: create it — edited") {
+		t.Fatalf("report = %q", result.StepReport)
+	}
+}
+
+// A NO CHANGE NEEDED line without evidence still fails: the step made no
+// edit and gave no reason, so the turn is incomplete after the other steps ran.
+func TestRunToolLoop_PlannedSteps_NoChangeWithoutEvidenceStillFails(t *testing.T) {
+	_, writeTool := registerStepTools(t)
+	plan := "STEP a.txt :: move tests only if needed\nSTEP b.txt :: create it\n"
+	client := newStepScriptProvider(plan, map[string][]types.ToolCall{
+		"b.txt": {{ID: "w-b", Name: writeTool, Input: map[string]any{"path": "b.txt", "content": "bye"}}},
+	})
+	client.finals = map[string]string{"a.txt": "NO CHANGE NEEDED:"}
+	e := newPlannedStepsExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+
+	_, _, err := e.runToolLoop(context.Background(), "system", "create both files",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if !errors.Is(err, ErrStepsIncomplete) {
+		t.Fatalf("err = %v, want ErrStepsIncomplete", err)
+	}
+}
+
+func TestNoChangeEvidence(t *testing.T) {
+	tests := []struct {
+		name string
+		note string
+		want string
+	}{
+		{"simple", "NO CHANGE NEEDED: x", "x"},
+		{"second line indented", "done.\n  NO CHANGE NEEDED: already at line 4", "already at line 4"},
+		{"lowercase prefix is not evidence", "no change needed: x", ""},
+		{"empty evidence", "NO CHANGE NEEDED:   ", ""},
+		{"empty note", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := noChangeEvidence(tt.note); got != tt.want {
+				t.Errorf("noChangeEvidence(%q) = %q, want %q", tt.note, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWorkStepAnchor_NoChangeOfferedOnlyOnRetry(t *testing.T) {
+	task := "fix it"
+	steps := []workStep{{File: "a.txt", Change: "move tests only if needed"}}
+	if got := workStepAnchor(task, steps, 0, true); !strings.Contains(got, "NO CHANGE NEEDED:") {
+		t.Fatalf("retry anchor = %q, want it to offer NO CHANGE NEEDED", got)
+	}
+	if got := workStepAnchor(task, steps, 0, false); strings.Contains(got, "NO CHANGE NEEDED:") {
+		t.Fatalf("first-pass anchor = %q, want no NO CHANGE NEEDED offer", got)
+	}
+}
+
 
 // A planner that splits an import out of the change that needs it produces
 // a step the earlier step has already done. Such a step is reported, not
