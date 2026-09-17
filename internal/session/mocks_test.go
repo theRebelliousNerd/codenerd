@@ -138,6 +138,24 @@ func (m *MockLLMClient) CompleteWithTools(ctx context.Context, sys, user string,
 	return &types.LLMToolResponse{Text: "default response"}, nil
 }
 
+// MockToolResultsLLM extends MockLLMClient with ToolResultsProvider for tests
+// that drive multi-round tool loops (repair episodes). It is a separate
+// type because existing tests rely on MockLLMClient NOT implementing
+// ToolResultsProvider: adding the method to MockLLMClient silently flips
+// every test double onto the multi-round path (observed: the sub-agent
+// soft-error test lost its empty final response to the mock default).
+type MockToolResultsLLM struct {
+	*MockLLMClient
+	CompleteWithToolResultsFunc func(ctx context.Context, sys string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
+}
+
+func (m *MockToolResultsLLM) CompleteWithToolResults(ctx context.Context, sys string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if m.CompleteWithToolResultsFunc != nil {
+		return m.CompleteWithToolResultsFunc(ctx, sys, history, tools)
+	}
+	return &types.LLMToolResponse{Text: "default response"}, nil
+}
+
 // --- MockTransducer ---
 
 type MockTransducer struct {

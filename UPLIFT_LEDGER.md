@@ -2321,7 +2321,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/cli_client_identity_test.go`
 - [x] `internal/perception/client.go`
 - [x] `internal/perception/client_anthropic.go`
-- [x] `internal/perception/client_fallback.go`
+- [x] `internal/perception/client_fallback.go` (F-CLASS-2 follow-up: Unwrap for broker chain walks)
 - [x] `internal/perception/client_fallback_test.go`
 - [x] `internal/perception/client_factory.go`
 - [x] `internal/perception/client_factory_extra_test.go`
@@ -2631,16 +2631,16 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
 ### internal/session (95)
 - [x] `internal/session/build_repair_regime_test.go`
-- [x] `internal/session/build_verify.go` (post-uplift B1: explicit Outcome gates, retain failure until affirmative pass)
+- [x] `internal/session/build_verify.go` (post-uplift B1: explicit Outcome gates, retain failure until affirmative pass; C1: repairLoop specs, uplift re-verify inherits Repair)
 - [x] `internal/session/build_verify_test.go`
-- [x] `internal/session/change_evidence.go` (post-uplift B1: checks_passed/fail branch on Verdict)
+- [x] `internal/session/change_evidence.go` (post-uplift B1: checks_passed/fail branch on Verdict; C1: final re-verify inherits Repair)
 - [x] `internal/session/check_safety_real_kernel_test.go`
 - [x] `internal/session/check_safety_write_large_test.go`
 - [x] `internal/session/coverage_profile.go`
 - [x] `internal/session/coverage_profile_test.go`
 - [x] `internal/session/critic.go`
 - [x] `internal/session/critic_test.go`
-- [x] `internal/session/executor.go` (post-uplift: config-factory panic recovery fail-closed to empty config/catalog)
+- [x] `internal/session/executor.go` (post-uplift: config-factory panic recovery fail-closed to empty config/catalog; C1: RepairMaxAttempts/RepairWallClock)
 - [x] `internal/session/executor_boundary_test.go`
 - [x] `internal/session/executor_budget_exhaustion_test.go`
 - [x] `internal/session/executor_capability_test.go`
@@ -2672,7 +2672,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/session/journey_planned_steps_test.go`
 - [x] `internal/session/lsp_diagnostics.go`
 - [x] `internal/session/lsp_diagnostics_test.go`
-- [x] `internal/session/mocks_test.go`
+- [x] `internal/session/mocks_test.go` (C1: MockToolResultsLLM split, MockLLMClient stays single-batch)
 - [x] `internal/session/modularity.go`
 - [x] `internal/session/modularity_guard_verify_test.go`
 - [x] `internal/session/modularity_test.go`
@@ -2684,6 +2684,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/session/piggyback_promotion.go`
 - [x] `internal/session/piggyback_promotion_test.go`
 - [x] `internal/session/placeholder_test_guard_test.go`
+- [x] `internal/session/repair_loop.go` (C1: bounded evidence-driven repair episode, cost/attempt ledger, inheritRepair)
+- [x] `internal/session/repair_loop_test.go` (C1: 6 behavioral repair tests incl. real go build/test convergence)
 - [x] `internal/session/semantic_compressor.go`
 - [x] `internal/session/semantic_compressor_test.go`
 - [x] `internal/session/session_uplift_test.go`
@@ -2702,7 +2704,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/session/task_executor.go`
 - [x] `internal/session/task_executor_test.go`
 - [x] `internal/session/test_output_detector.go`
-- [x] `internal/session/test_verify.go` (post-uplift B1: explicit Outcome + supervisor wiring)
+- [x] `internal/session/test_verify.go` (post-uplift B1: explicit Outcome + supervisor wiring; C1: TestVerification.Repair)
 - [x] `internal/session/test_verify_test.go`
 - [x] `internal/session/testtool_test.go`
 - [x] `internal/session/tool_budget_controller.go`

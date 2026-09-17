@@ -280,6 +280,16 @@ type ExecutorConfig struct {
 	// ToolTimeout is the maximum time for a single tool execution.
 	ToolTimeout time.Duration
 
+	// RepairMaxAttempts bounds one build/test repair episode. Zero falls
+	// back to DefaultRepairMaxAttempts; repair is always bounded.
+	RepairMaxAttempts int
+
+	// RepairWallClock bounds one build/test repair episode in wall time.
+	// Zero falls back to DefaultRepairWallClock; the episode keeps this
+	// budget even when the turn's own deadline already expired, while an
+	// explicit cancel still kills it immediately.
+	RepairWallClock time.Duration
+
 	// FinalAnswerReserve keeps the tail of a deadline-bound turn available for
 	// one tool-free completion. Ordinary tool exploration is cancelled at the
 	// deadline minus this reserve so a progressing review cannot consume its
@@ -404,6 +414,8 @@ func DefaultExecutorConfig() ExecutorConfig {
 		MaxToolIterationExtensions: defaultMaxToolIterationExtensions,
 		ToolLoopRepeatThreshold:    defaultToolLoopRepeatThreshold,
 		ToolTimeout:                defaultToolTimeout,
+		RepairMaxAttempts:          DefaultRepairMaxAttempts,
+		RepairWallClock:            DefaultRepairWallClock,
 		FinalAnswerReserve:         defaultFinalAnswerReserve,
 		EnableSafetyGate:           true,
 		TokenBudget:                DefaultTokenBudget(),

@@ -73,6 +73,11 @@ type BuildVerification struct {
 
 	// Reason explains a non-pass outcome without overloading Output.
 	Reason string
+
+	// Repair is the episode record when a repair loop ran for this gate:
+	// outcome, cost, per-attempt evidence, edited files, follow-ups. Nil
+	// when the gate passed (or was skipped/canceled) without repair.
+	Repair *RepairRecord
 }
 
 // Verdict returns the authoritative outcome, deriving one for hand-built
@@ -182,14 +187,18 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 }
 
 // verifyAndRepairBuild compiles the workspace after a turn's edits and, if the
-// build is broken, gives the model exactly one round to fix it with the
-// compiler's own output in hand.
+// build is broken, runs a bounded repair episode with the compiler's own
+// output in hand.
 //
-// One round, not a loop: a model that cannot fix its own syntax with the errors
-// in front of it will not fix it on the fourth attempt either, and an unbounded
-// repair loop is how an unattended run burns a budget going nowhere. If the
-// second build still fails, the turn fails — loudly, with the errors — rather
-// than reporting the success that started this whole problem.
+// This used to be exactly one round, on the theory that a model that cannot
+// fix its own breakage with the errors in front of it will not fix it on the
+// fourth attempt either. C1 keeps the hard bound but makes it a loop: attempt
+// and wall-clock ceilings (RepairMaxAttempts/RepairWallClock) make iteration
+// safe where an unbounded loop was not, and real failures — a fix that
+// addresses the first error but exposes the second — need more than one shot.
+// If the budget exhausts, the turn fails loudly with the errors, the cost
+// ledger, and follow-ups, rather than reporting the success that started this
+// whole problem.
 //
 // Returns the model's post-repair response when a repair happened, nil when no
 // repair was needed, and an error when the build is still broken. When a
@@ -231,71 +240,39 @@ func (e *Executor) verifyAndRepairBuild(
 		return nil, nil, nil
 	}
 
-	logging.Get(logging.CategorySession).Warn(
-		"Edits broke the build; giving the model one repair round with the compiler output")
-
 	if trp == nil {
 		return nil, nil, fmt.Errorf(
 			"%w: edits broke the build and no repair is possible (client cannot accept tool results):\n%s",
 			ErrVerificationFailed, verification.Output)
 	}
 
-	repaired, repairErrs, wrote, err := e.repairRound(ctx, trp, systemPrompt, &history, toolDefs, cfg, result,
-		buildRepairPrompt(verification.Output), false)
+	spec := repairSpec{
+		kind:         "build",
+		brokenPhrase: "edits broke the build",
+		promptFor: buildRepairPrompt,
+		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
+			r := verifyBuild(epCtx, workspace, nil)
+			// Only affirmative verdicts move the check: an indeterminate
+			// recheck leaves the original failure standing.
+			if r.Verdict() == VerifyPassed || r.Verdict() == VerifyFailed {
+				result.BuildCheck = r
+			}
+			return r.Verdict() == VerifyPassed, r.Output, r.Verdict()
+		},
+		followups: func() []string {
+			return repairFollowups(workspace, nil, result, "build")
+		},
+	}
+	repaired, repairErrs, rec, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, verification.Output, spec)
+	result.BuildCheck.Repair = rec
 	if err != nil {
-		return nil, nil, fmt.Errorf(
-			"%w: edits broke the build and the repair round failed (%v). Compiler output:\n%s",
-			ErrVerificationFailed, err, verification.Output)
+		return nil, repairErrs, err
 	}
-
-	recheck := verifyBuild(ctx, workspace, nil)
-	if recheck.Verdict() == VerifyFailed && !wrote {
-		// The round read instead of editing. Observed 2026-09-11: handed
-		// `"context" imported and not used` with the line number, the model
-		// spent its round on twenty reads and no edit, and the turn ended on
-		// a broken build. One more round, with the compiler output again and
-		// reading closed: the output names the lines, and what the first
-		// round read is in the transcript.
-		logging.Get(logging.CategorySession).Warn(
-			"Repair round read without editing; one more under the commit regime")
-		second, errs, _, err := e.repairRound(ctx, trp, systemPrompt, &history, toolDefs, cfg, result,
-			buildRepairPrompt(recheck.Output)+"\n\n"+workingRegimeText(commitRegime), true)
-		repairErrs = append(repairErrs, errs...)
-		if err != nil {
-			return nil, repairErrs, fmt.Errorf(
-				"%w: edits broke the build and the second repair round failed (%v). Compiler output:\n%s",
-				ErrVerificationFailed, err, recheck.Output)
-		}
-		repaired = second
-		recheck = verifyBuild(ctx, workspace, nil)
-	}
-	switch recheck.Verdict() {
-	case VerifyPassed:
-		// An affirmative pass on the final workspace clears the failure.
-		result.BuildCheck = recheck
-		logging.Get(logging.CategorySession).Info("Build repaired successfully after one round")
-		return repaired, repairErrs, nil
-	case VerifyFailed:
-		result.BuildCheck = recheck
-		return nil, repairErrs, fmt.Errorf(
-			"%w: edits broke the build and the repair round did not fix it. Compiler output:\n%s",
-			ErrVerificationFailed, recheck.Output)
-	case VerifyCanceled:
-		return nil, repairErrs, fmt.Errorf("build re-verification canceled: %w", context.Canceled)
-	default: // VerifyIndeterminate, VerifySkipped
-		// The recheck produced no verdict: the original failure stands until
-		// an affirmative pass clears it. The turn completes unverified — a
-		// timeout is not proof of recovery — and closeChangeEvidence gets
-		// the final word on the workspace with a fresh check.
-		logging.Get(logging.CategorySession).Warn(
-			"Build re-verification produced no verdict (%s); original failure retained, recovery NOT verified",
-			recheck.Verdict())
-		return repaired, repairErrs, nil
-	}
+	return repaired, repairErrs, nil
 }
 
 // verifyAndRepairTests runs the tests for the packages this turn touched and,
-// when they fail, gives the model one repair round with the test output in
+// when they fail, runs a bounded repair episode with the test output in
 // hand — the same contract as verifyAndRepairBuild, one level up.
 //
 // Compiling is a low bar. A turn can write code that builds cleanly, was never
@@ -383,73 +360,36 @@ func (e *Executor) verifyAndRepairTests(
 			ErrVerificationFailed, verification.Output)
 	}
 
-	repaired, repairErrs, wrote, err := e.repairRound(ctx, trp, systemPrompt, &history, toolDefs, cfg, result,
-		testRepairPrompt(verification.Output), false)
+	spec := repairSpec{
+		kind:         "tests",
+		brokenPhrase: "edits broke the tests",
+		promptFor: testRepairPrompt,
+		// A test repair can break the build, so re-check both, cheapest
+		// first. Only an affirmative failure verdict fails here: a recheck
+		// that produced no verdict cannot prove the repair broke anything.
+		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
+			if rb := verifyBuild(epCtx, workspace, nil); rb.Verdict() == VerifyFailed {
+				result.BuildCheck = rb
+				return false, rb.Output, VerifyFailed
+			} else if rb.Verdict() == VerifyCanceled {
+				return false, "", VerifyCanceled
+			}
+			rt := verifyTests(epCtx, workspace, packagesForPaths(result.WrittenPaths))
+			if rt.Verdict() == VerifyPassed || rt.Verdict() == VerifyFailed {
+				result.TestCheck = rt
+			}
+			return rt.Verdict() == VerifyPassed, rt.Output, rt.Verdict()
+		},
+		followups: func() []string {
+			return repairFollowups(workspace, packagesForPaths(result.WrittenPaths), result, "tests")
+		},
+	}
+	repaired, repairErrs, rec, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, verification.Output, spec)
+	result.TestCheck.Repair = rec
 	if err != nil {
-		return nil, nil, fmt.Errorf(
-			"%w: edits broke the tests and the repair round failed (%v). Test output:\n%s",
-			ErrVerificationFailed, err, verification.Output)
+		return nil, repairErrs, err
 	}
-
-	// A test repair can break the build, so re-check both, cheapest first.
-	// Only an affirmative failure verdict fails here: a recheck that
-	// produced no verdict cannot prove the repair broke anything.
-	if recheckBuild := verifyBuild(ctx, workspace, nil); recheckBuild.Verdict() == VerifyFailed {
-		result.BuildCheck = recheckBuild
-		return nil, repairErrs, fmt.Errorf(
-			"%w: the test repair round broke the build. Compiler output:\n%s",
-			ErrVerificationFailed, recheckBuild.Output)
-	} else if recheckBuild.Verdict() == VerifyCanceled {
-		return nil, repairErrs, fmt.Errorf("build re-verification canceled: %w", context.Canceled)
-	}
-	recheck := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
-	if recheck.Verdict() == VerifyFailed && !wrote {
-		// Same escalation as the build repair: a round that only read gets
-		// one more with reading closed.
-		logging.Get(logging.CategorySession).Warn(
-			"Test repair round read without editing; one more under the commit regime")
-		second, errs, _, err := e.repairRound(ctx, trp, systemPrompt, &history, toolDefs, cfg, result,
-			testRepairPrompt(recheck.Output)+"\n\n"+workingRegimeText(commitRegime), true)
-		repairErrs = append(repairErrs, errs...)
-		if err != nil {
-			return nil, repairErrs, fmt.Errorf(
-				"%w: edits broke the tests and the second repair round failed (%v). Test output:\n%s",
-				ErrVerificationFailed, err, recheck.Output)
-		}
-		repaired = second
-		if recheckBuild := verifyBuild(ctx, workspace, nil); recheckBuild.Verdict() == VerifyFailed {
-			result.BuildCheck = recheckBuild
-			return nil, repairErrs, fmt.Errorf(
-				"%w: the test repair round broke the build. Compiler output:\n%s",
-				ErrVerificationFailed, recheckBuild.Output)
-		} else if recheckBuild.Verdict() == VerifyCanceled {
-			return nil, repairErrs, fmt.Errorf("build re-verification canceled: %w", context.Canceled)
-		}
-		recheck = verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
-	}
-	switch recheck.Verdict() {
-	case VerifyPassed:
-		// An affirmative pass on the final workspace clears the failure.
-		result.TestCheck = recheck
-		logging.Get(logging.CategorySession).Info("Tests repaired successfully after one round")
-		return repaired, repairErrs, nil
-	case VerifyFailed:
-		result.TestCheck = recheck
-		return nil, repairErrs, fmt.Errorf(
-			"%w: edits broke the tests and the repair round did not fix them. Test output:\n%s",
-			ErrVerificationFailed, recheck.Output)
-	case VerifyCanceled:
-		return nil, repairErrs, fmt.Errorf("test re-verification canceled: %w", context.Canceled)
-	default: // VerifyIndeterminate, VerifySkipped
-		// The recheck produced no verdict: the original failure stands until
-		// an affirmative pass clears it. The turn completes unverified — a
-		// timeout is not proof of recovery — and closeChangeEvidence gets
-		// the final word on the workspace with a fresh check.
-		logging.Get(logging.CategorySession).Warn(
-			"Test re-verification produced no verdict (%s); original failure retained, recovery NOT verified",
-			recheck.Verdict())
-		return repaired, repairErrs, nil
-	}
+	return repaired, repairErrs, nil
 }
 
 // testRepairPrompt is the turn handed back to the model when its edits broke
@@ -509,29 +449,31 @@ func (e *Executor) repairRound(
 	result *ExecutionResult,
 	prompt string,
 	commit bool,
-) (*types.LLMToolResponse, []string, bool, error) {
+) (*types.LLMToolResponse, []string, []types.ToolResult, bool, error) {
 	*history = append(*history, types.Message{Role: "user", Text: prompt})
 	if commit {
 		defer e.enterCommitRegime(ctx)()
 	}
 	repaired, err := e.completeWithWorkingContext(ctx, trp, systemPrompt, *history, toolDefs)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
 	before := 0
 	if result != nil {
 		before = result.SuccessfulWriteTools
 	}
 	var repairErrs []string
+	var toolResults []types.ToolResult
 	if repaired != nil && len(repaired.ToolCalls) > 0 {
 		results, errs := e.executeToolBatch(ctx, repaired.ToolCalls, cfg, result)
 		repairErrs = append(repairErrs, errs...)
+		toolResults = results
 		*history = append(*history,
 			types.Message{Role: "assistant", Text: repaired.Text, ToolCalls: repaired.ToolCalls},
 			types.Message{Role: "user", ToolResults: results})
 	}
 	wrote := result != nil && result.SuccessfulWriteTools > before
-	return repaired, repairErrs, wrote, nil
+	return repaired, repairErrs, toolResults, wrote, nil
 }
 
 // verifyAndUpliftWithCritic runs one adversarial review of the code this turn
@@ -681,6 +623,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		// them to indeterminate rather than leaving a stale green behind.
 		// closeChangeEvidence then re-verifies the final workspace anyway.
 		if verification := verifyBuild(ctx, workspace, nil); verification.Verdict() == VerifyFailed {
+			verification.Repair = inheritRepair(verification.Verdict(), result.BuildCheck.Repair)
 			result.BuildCheck = verification
 			return upliftErrs, fmt.Errorf(
 				"%w: the adversarial review's uplift round broke the build. Compiler output:\n%s",
@@ -688,6 +631,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		} else if verification.Verdict() == VerifyCanceled {
 			return upliftErrs, fmt.Errorf("uplift build re-verification canceled: %w", context.Canceled)
 		} else {
+			verification.Repair = inheritRepair(verification.Verdict(), result.BuildCheck.Repair)
 			result.BuildCheck = verification
 			if verification.Verdict() == VerifyIndeterminate {
 				logging.Get(logging.CategorySession).Warn(
@@ -695,6 +639,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 			}
 		}
 		if tv := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths)); tv.Verdict() == VerifyFailed {
+			tv.Repair = inheritRepair(tv.Verdict(), result.TestCheck.Repair)
 			result.TestCheck = tv
 			return upliftErrs, fmt.Errorf(
 				"%w: the adversarial review's uplift round broke the tests. Test output:\n%s",
@@ -702,6 +647,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		} else if tv.Verdict() == VerifyCanceled {
 			return upliftErrs, fmt.Errorf("uplift test re-verification canceled: %w", context.Canceled)
 		} else {
+			tv.Repair = inheritRepair(tv.Verdict(), result.TestCheck.Repair)
 			result.TestCheck = tv
 			if tv.Verdict() == VerifyIndeterminate {
 				logging.Get(logging.CategorySession).Warn(

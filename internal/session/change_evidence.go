@@ -20,10 +20,14 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 			after, err := evidence.Snapshot(ctx, workspace)
 			if err == nil && after != before {
 				if e.configSnapshot().VerifyBuildAfterEdits {
-					result.BuildCheck = verifyBuild(ctx, workspace, nil)
+					fresh := verifyBuild(ctx, workspace, nil)
+					fresh.Repair = inheritRepair(fresh.Verdict(), result.BuildCheck.Repair)
+					result.BuildCheck = fresh
 				}
 				if e.configSnapshot().VerifyTestsAfterEdits {
-					result.TestCheck = verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
+					fresh := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
+					fresh.Repair = inheritRepair(fresh.Verdict(), result.TestCheck.Repair)
+					result.TestCheck = fresh
 				}
 			}
 			current, currentErr := evidence.Snapshot(ctx, workspace)

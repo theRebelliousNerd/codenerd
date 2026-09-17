@@ -68,6 +68,10 @@ type TestVerification struct {
 
 	// Reason explains a non-pass outcome without overloading Output.
 	Reason string
+
+	// Repair is the episode record when a repair loop ran for this gate.
+	// Nil when the gate passed (or was skipped/canceled) without repair.
+	Repair *RepairRecord
 }
 
 // Verdict returns the authoritative outcome, deriving one for hand-built
