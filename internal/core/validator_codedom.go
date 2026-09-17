@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -186,6 +187,12 @@ func (v *CodeDOMValidator) extractFilePath(req ActionRequest, result ActionResul
 	// successful handler is authoritative for the concrete file it edited.
 	if path, ok := result.Metadata["file"].(string); ok && path != "" {
 		return path
+	}
+
+	// An absolute OS path is a file path even when it contains ":" (a Windows
+	// drive letter); only a relative target with ":" can be a Ref.
+	if req.Target != "" && (filepath.IsAbs(req.Target) || filepath.VolumeName(req.Target) != "") {
+		return req.Target
 	}
 
 	// Target might be a direct file path
