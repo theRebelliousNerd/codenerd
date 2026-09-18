@@ -1062,14 +1062,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 			}
 
-			if len(warnings) > 0 {
-				var warnStr strings.Builder
-				warnStr.WriteString("\n\n**System Warnings:**\n")
-				for _, w := range warnings {
-					warnStr.WriteString(fmt.Sprintf("- %s\n", w))
-				}
-				response += warnStr.String()
-			}
+			response += renderSystemWarnings(warnings)
 
 			thoughtSummary := ""
 			if artOutput.Envelope.Control.ReasoningTrace != "" {

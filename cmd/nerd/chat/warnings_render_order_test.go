@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"strings"
 	"testing"
 )
 
@@ -34,10 +33,12 @@ func TestWarningsAreAppendedBeforeTheyAreRendered(t *testing.T) {
 	var appends []token.Pos
 	ast.Inspect(parsed, func(n ast.Node) bool {
 		switch node := n.(type) {
-		case *ast.BasicLit:
-			// The header the render writes. Matched on the literal because
-			// that is the thing a reader recognises as "this is the render".
-			if node.Kind == token.STRING && strings.Contains(node.Value, "System Warnings:") {
+		case *ast.CallExpr:
+			// The render is the call that turns the slice into the block the
+			// user reads (and logs each entry): renderSystemWarnings in
+			// system_warnings.go. Matched on the call because that is the
+			// thing a reader recognises as "this is the render".
+			if fn, ok := node.Fun.(*ast.Ident); ok && fn.Name == "renderSystemWarnings" {
 				if renderPos == token.NoPos || node.Pos() < renderPos {
 					renderPos = node.Pos()
 				}
