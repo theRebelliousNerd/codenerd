@@ -167,6 +167,7 @@ func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 	case "turn_acceptance", "turn_evidence", "turn_executed", "turn_done", "turn_cost",
 		"turn_verified", "turn_unverified", "turn_wrote", "turn_build_failed",
 		"turn_missing_evidence", "turn_created_source", "has_turn_acceptance",
+		"turn_gate", "turn_build_green", "turn_build_red", "turn_tests_green", "turn_tests_red",
 		"build_state", "test_state":
 		return false
 	}

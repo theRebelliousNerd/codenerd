@@ -1,10 +1,8 @@
 package projectdoc
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"codenerd/internal/types"
 )
@@ -240,7 +238,7 @@ func (d *Document) PromptSection() string {
 			b.WriteString(rule.Reason)
 			b.WriteString("\n")
 		}
-		b.WriteString(listTruncationNotice(shown, len(d.Spec.Forbid), "forbidden paths (still ENFORCED by the kernel)"))
+		b.WriteString("- " + types.TruncationNotice(shown, len(d.Spec.Forbid), "forbidden paths (still ENFORCED by the kernel)") + "\n")
 		b.WriteString("\n")
 	}
 
@@ -252,7 +250,7 @@ func (d *Document) PromptSection() string {
 			b.WriteString(req)
 			b.WriteString("\n")
 		}
-		b.WriteString(listTruncationNotice(shownReq, len(d.Spec.Require), "required steps"))
+		b.WriteString("- " + types.TruncationNotice(shownReq, len(d.Spec.Require), "required steps") + "\n")
 		b.WriteString("\n")
 	}
 
@@ -266,16 +264,16 @@ func (d *Document) PromptSection() string {
 			b.WriteString(c.Rule)
 			b.WriteString("\n")
 		}
-		b.WriteString(listTruncationNotice(shownConv, len(d.Spec.Conventions), "conventions"))
+		b.WriteString("- " + types.TruncationNotice(shownConv, len(d.Spec.Conventions), "conventions") + "\n")
 		b.WriteString("\n")
 	}
 
 	if body := strings.TrimSpace(d.Body); body != "" {
-		b.WriteString(clampDocText(body, maxPromptBodyChars, "nerd.md body"))
+		b.WriteString(types.ClampText(body, maxPromptBodyChars, "nerd.md body"))
 		b.WriteString("\n")
 	}
 
-	return clampDocText(b.String(), maxPromptSectionChars, "nerd.md")
+	return types.ClampText(b.String(), maxPromptSectionChars, "nerd.md")
 }
 
 // Bounds on the rendered project-instruction section.
@@ -309,53 +307,3 @@ const (
 	// protection — the tool call is still denied.
 	maxPromptListEntries = 50
 )
-
-// clampDocText bounds text keeping head and tail, leaving a visible marker.
-//
-// Duplicated from internal/prompt rather than imported: internal/prompt
-// already imports this package, so the dependency cannot run the other way.
-func clampDocText(text string, maxChars int, label string) string {
-	if maxChars <= 0 {
-		return ""
-	}
-	if len(text) <= maxChars {
-		return text
-	}
-	tail := maxChars / 3
-	head := maxChars - tail
-	marker := fmt.Sprintf("\n\n[codenerd: truncated %d of %d chars from %s] …\n\n",
-		len(text)-maxChars, len(text), label)
-	return trimPartialRuneSuffix(text[:head]) + marker + trimPartialRunePrefix(text[len(text)-tail:])
-}
-
-// listTruncationNotice renders the marker for a capped frontmatter list.
-func listTruncationNotice(shown, total int, unit string) string {
-	if total <= shown {
-		return ""
-	}
-	return fmt.Sprintf("- [codenerd: truncated %d of %d %s] …\n", total-shown, total, unit)
-}
-
-func trimPartialRuneSuffix(s string) string {
-	for len(s) > 0 {
-		r, size := utf8.DecodeLastRuneInString(s)
-		if r == utf8.RuneError && size <= 1 {
-			s = s[:len(s)-1]
-			continue
-		}
-		break
-	}
-	return s
-}
-
-func trimPartialRunePrefix(s string) string {
-	for len(s) > 0 {
-		r, size := utf8.DecodeRuneInString(s)
-		if r == utf8.RuneError && size <= 1 {
-			s = s[1:]
-			continue
-		}
-		break
-	}
-	return s
-}

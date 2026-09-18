@@ -155,3 +155,32 @@ outstanding, and it is cosmetic.
    satisfied in substance by tests under different names, so the registry cannot be read as a
    checklist. Reconciling names to landed tests is cheap and would make the registry usable as the
    gate it was written to be.
+
+## Disposition (merger, 2026-09-18, on `097d59ac` and after)
+
+Read against the code before acting on any of it. The reviewer's transcript stopped at 10:55
+(a `git add` that never returned); everything above was harvested from its worktree.
+
+| # | Disposition | What was done / why not |
+|---|---|---|
+| F1 | **Confirmed, open** | `ProjectReturn` still ignores `Return.Outcome`. Test `internal/observation/return_verdict_test.go` is in the tree and fails; the fix is the next dogfood run (`nerd fix`, one file, one symptom, the failing test named). |
+| F2 | **Confirmed, fixed** | `turn_gate(Verb, Gate, Verdict)` is asserted by `recordBuildState` beside the session-global `build_state`/`test_state`, hard-blocked from the model, owned in the world manifest, and is the only gate evidence `turn_verified` / `turn_executed` / `turn_build_failed` / `turn_missing_evidence` read. Both sides guarded (green present, red absent). **Decision on F2(b):** the reviewer proposed that a red `test_state` from any producer should block; the decision taken is that THIS turn's gate is the evidence and the fresher measurement, so a red left by the TDD loop or an earlier `run_tests` does not outrank a gate that ran green after the edit, while this turn's own red does block. Pinned both ways in `turn_verified_evidence_is_this_turns_test.go`. The globals still have no producer contract (S24 candidate: `test_state` must be invalidated by a source change for `commit_gate.mg` and friends). |
+| F3 | **REFUTED** | The compiler's "embedded corpus" is the go:embedded YAML under `internal/prompt/atoms/` (`internal/prompt/embedded.go:26`, `LoadEmbeddedCorpus` walks `atoms/`), not `prompt_corpus.db`; it wins duplicate IDs (`compiler.go:1221-1223`), and boot reconciles the runtime DB to it (`ReconcilePromptCorpus`, called from `internal/system/factory.go:1596` and `internal/init/profile.go:1041`; embedded IDs win, obsolete rows deleted, embeddings nulled when the input changed). `prompt_corpus.db` is the first-boot seed only (`MaterializeDefaultPromptCorpus` never clobbers an existing DB). So S4's atom edit IS live. What is true: the seed is 42 atoms behind, and a fresh init serves those atoms with no embedding until `nerd embedding reembed`. The reviewer's mandatory-agreement test is not adopted: it would go red on every atom edit that is not followed by regenerating a 14 MB binary that needs a Gemini key. `TestShippedPromptCorpus_ProtocolAtomsTeachNoHardBlockedPredicate` is worth keeping once pointed at the embedded YAML corpus, the source the runtime serves; left in the working tree, not committed, until then. |
+| F4 | **Not a defect** | `registration.go:140` / `:327` are fact-ROUTING ownership (which shard's store holds a fact so rule joins fire), not assertion authority. `recordBuildState` still asserts `build_state` and it needs an owner; `test_state` is shared because routing rules join it. Different surface from `ModelObservationPolicy`; nothing dead. `turn_gate` was added to the same manifest. |
+| F5 | **Confirmed, fixed** (with open item 7) | `checkHollowSuccess` now runs on every path; a real error outranks the hollow reason (`captureTurnOutcome` orders `result.Error` first); the per-turn facts are retracted on an errored turn. `TestErroredTurnStillClosesAndRetractsItsFacts` failed before on both counts (empty `TurnOutcome`, one leaked `created_source`). |
+| F6 | **Open, by decision** | Agreed that a build cannot answer for a test. But `turnRecoveredFromToolErrors` sees tool errors as strings; making recovery depend on which tool failed means parsing tool names out of error text, which is the substring class this program deletes. The right shape is a typed tool-error fact from the loop (name, kind) and a derived `tool_error_answered`; that belongs with the working-set progress facts (S3's territory). Not patched. |
+| F7 | **Confirmed, fixed** | `projectdoc` now calls `types.ClampText` / `types.TruncationNotice`; its four duplicated helpers are deleted. The comment that justified the copy ("internal/prompt already imports this package") was true before S15 moved the helpers to `internal/types`, which imports nothing. |
+| F8 | **Confirmed, fixed** (`097d59ac`) | Obligation-keyed continuation, discharge by the acting shard's result, one retry for an incomplete step, `pending_review` -> `pending_fix` routed to the coder, `/code_generated` and `max_continuation_steps` deleted, vocabulary test reads the policy file. |
+
+Open items 1-8 above: 1 is F2's disposition; 2 is refuted with F3 (no gate is owed on the seed; the
+seed needs regenerating when a Gemini-keyed session is available, or deleting); 3 is F1 (open) and
+F8 (fixed); 4 (campaign path returns a string) stands and is queued behind F1; 5 (`context_budget`
+reachable through the planner's `context_` prefix) is folded into S12, which makes the compiler the
+producer and must hard-block the model in the same change; 6 stands; 7 is fixed with F5; 8 (registry
+names stale) stands and is cheap.
+
+Found while landing F8: the kernel's differential evaluation path is unsound under negation and
+aggregation (a fact derived under `!p` survives `p` arriving; a count is never replaced). This
+workspace has `features.diff_eval` on and the system shards' kernels take that path. Seam **S23**
+deletes it; log at `Docs/journeys/impl/S23-differential-path.md` when it lands.
+

@@ -33,13 +33,17 @@ func assertTurnEvidence(t *testing.T, e *Executor, verb string, c turnCounts) {
 	}
 }
 
-func assertBuildFailing(t *testing.T, e *Executor) {
+// assertBuildFailing records a red build gate for the turn under test, the
+// way recordBuildState does: turn_gate is the turn's own measurement, which is
+// the only gate evidence the verdict reads (a session-global build_state left
+// by another producer is not this turn's evidence).
+func assertBuildFailing(t *testing.T, e *Executor, verb string) {
 	t.Helper()
 	if err := e.kernel.Assert(types.Fact{
-		Predicate: "build_state",
-		Args:      []any{types.MangleAtom("/failing")},
+		Predicate: "turn_gate",
+		Args:      []any{types.MangleAtom(verb), types.MangleAtom("/build"), types.MangleAtom("/failing")},
 	}); err != nil {
-		t.Fatalf("assert build_state(/failing): %v", err)
+		t.Fatalf("assert turn_gate(%s, /build, /failing): %v", verb, err)
 	}
 }
 
@@ -72,13 +76,16 @@ func TestTurnDone_NoWriteCannotDeriveDone(t *testing.T) {
 // even though no hollow_success fires.
 func TestTurnDone_FailedBuildCannotDeriveDone(t *testing.T) {
 	e := newObligationExec(t)
-	assertBuildFailing(t, e)
+	assertBuildFailing(t, e, "/create")
 	assertTurnEvidence(t, e, "/create", turnCounts{tools: 1, writes: 1})
 
+	if got := queryCount(t, e, "turn_executed"); got != 0 {
+		t.Fatalf("turn_executed must not derive while this turn's build gate is red, got %d", got)
+	}
 	if facts, err := e.kernel.Query("turn_done"); err != nil {
 		t.Fatalf("query turn_done: %v", err)
 	} else if len(facts) != 0 {
-		t.Fatalf("turn_done must not derive while build_state(/failing) holds, got %v", facts)
+		t.Fatalf("turn_done must not derive while turn_gate(/create, /build, /failing) holds, got %v", facts)
 	}
 }
 

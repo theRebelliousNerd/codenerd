@@ -200,8 +200,8 @@ type Executor struct {
 
 	// perTurnCreatedSourceFacts tracks created_source facts asserted this turn.
 	// perTurnTestFileForFacts tracks test_file_for facts asserted this turn.
-	// Both are managed under mu and cleared by checkHollowSuccess on every path
-	// to prevent stale facts from failing later turns.
+	// Both are managed under mu and cleared by checkHollowSuccess, which runs
+	// on every path including an errored turn (TestErroredTurnStillClosesAndRetractsItsFacts).
 	perTurnCreatedSourceFacts []types.Fact
 	perTurnTestFileForFacts   []types.Fact
 
@@ -1071,19 +1071,27 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// the closing evidence, not by the shape of the final response.
 	surfaceToolErrors(result, toolErrs)
 
+	// Close the turn on every path: checkHollowSuccess asserts the turn's
+	// evidence, reads the kernel's verdict once and retracts the per-turn
+	// facts. Until 2026-09-18 it sat behind `if result.Error == nil`, so a
+	// turn whose tool error survived never had its verdict captured and never
+	// had the facts its tool loop asserted (created_source) retracted -- one
+	// errored turn could raise "new source was created without a test file"
+	// against every later turn (REVIEW-wave1 F5 / open item 7).
+	//
 	// Block hollow success: mutation intents that require real side effects
 	// must not report completion when the model only returned planning prose
-	// (or only non-mutating tools). Dream/shadow runs skip this gate.
+	// (or only non-mutating tools). Dream/shadow runs skip this gate. A real
+	// error already on the result outranks the hollow reason.
 	//
 	// Hollow failures are hard errors (non-nil return) so CLI one-shots exit
 	// non-zero. Other soft tool failures stay on result.Error with a nil
 	// return for interactive chat compatibility; TaskExecutor still surfaces
 	// result.Error for SpawnTask callers.
 	e.closeAcceptanceEvidence(ctx, result)
-	if result.Error == nil {
-		if hollowErr := e.checkHollowSuccess(result); hollowErr != nil {
-			result.Error = hollowErr
-		}
+	hollowErr := e.checkHollowSuccess(result)
+	if result.Error == nil && hollowErr != nil {
+		result.Error = hollowErr
 	}
 	// The closing evidence sentence comes LAST, because it is a function of
 	// the verdict checkHollowSuccess just captured. Written before it (where
@@ -2367,8 +2375,8 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 	}
 	// The mechanical gates are evidence about the workspace, and the policy
 	// corpus already asks for them by name. Assert them before turn_evidence
-	// so !build_state(/failing) can exclude turn_executed on the same pass.
-	e.recordBuildState(result)
+	// so !turn_build_red(Verb) can exclude turn_executed on the same pass.
+	e.recordBuildState(verb, result)
 	if result.Acceptance != nil && result.Acceptance.Status == "verified" {
 		fact := types.Fact{Predicate: "turn_acceptance", Args: []any{types.MangleAtom(verb), result.Acceptance.ContractID, result.Acceptance.After}}
 		if err := e.kernel.Assert(fact); err == nil {
@@ -2478,11 +2486,30 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 // indeterminate gate proves nothing about the workspace, and asserting
 // /passing for it would be the same guess this seam exists to delete —
 // while asserting /failing would fail turns on a missing Go toolchain.
-func (e *Executor) recordBuildState(result *ExecutionResult) {
+//
+// Two facts per gate. build_state/1 and test_state/1 are the session-global
+// workspace state the rest of the corpus reads (commit_gate.mg, tdd_loop.mg,
+// context_compilation.mg) and other producers also write. turn_gate/3 is the
+// same measurement keyed by this turn's verb, and it is the only gate evidence
+// the turn verdict (coder_safety.mg turn_verified / turn_executed /
+// turn_build_failed) reads: a global left behind by an earlier turn's tool
+// call is not this turn's evidence (REVIEW-wave1 F2). Both are retracted with
+// the turn's other evidence.
+func (e *Executor) recordBuildState(verb string, result *ExecutionResult) {
 	if e.kernel == nil || result == nil {
 		return
 	}
-	assert := func(pred string, verdict VerifyOutcome) {
+	assert := func(fact types.Fact) {
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Warn("failed to assert %s%v: %v", fact.Predicate, fact.Args, err)
+			return
+		}
+		e.mu.Lock()
+		e.perTurnBuildStateFacts = append(e.perTurnBuildStateFacts, fact)
+		e.mu.Unlock()
+		logging.Get(logging.CategorySession).Debug("asserted %s%v", fact.Predicate, fact.Args)
+	}
+	record := func(global string, gate types.MangleAtom, verdict VerifyOutcome) {
 		var state types.MangleAtom
 		switch verdict {
 		case VerifyPassed:
@@ -2492,18 +2519,11 @@ func (e *Executor) recordBuildState(result *ExecutionResult) {
 		default:
 			return
 		}
-		fact := types.Fact{Predicate: pred, Args: []any{state}}
-		if err := e.kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategorySession).Warn("failed to assert %s(%s): %v", pred, state, err)
-			return
-		}
-		e.mu.Lock()
-		e.perTurnBuildStateFacts = append(e.perTurnBuildStateFacts, fact)
-		e.mu.Unlock()
-		logging.Get(logging.CategorySession).Debug("asserted %s(%s)", pred, state)
+		assert(types.Fact{Predicate: global, Args: []any{state}})
+		assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom(verb), gate, state}})
 	}
-	assert("build_state", result.BuildCheck.Verdict())
-	assert("test_state", result.TestCheck.Verdict())
+	record("build_state", types.MangleAtom("/build"), result.BuildCheck.Verdict())
+	record("test_state", types.MangleAtom("/test"), result.TestCheck.Verdict())
 }
 
 // consumeHollowSuccessVerdict is the Go consumer of the policy-derived

@@ -87,6 +87,26 @@ Decl turn_build_failed(Verb) bound [/name].
 Decl turn_missing_evidence(Verb, Missing) bound [/name, /name].
 Decl turn_acceptance(Verb, Contract, Snapshot) bound [/name, /string, /string].
 Decl has_turn_acceptance(Verb) bound [/name].
+# turn_gate is THIS turn's post-edit gate as the session executor measured it
+# (recordBuildState): Gate is /build or /test, Verdict is /passing or /failing,
+# and only an affirmative verdict is ever asserted. It is keyed by the verb so
+# the verdict rules below read the evidence of the turn they judge and nothing
+# else. build_state/1 and test_state/1 are the session-global workspace state
+# -- written by the same gates, but also by the run_tests tool the model
+# invokes, the TDD loop's state machine and the log reader, none of them
+# per-turn -- and until 2026-09-18 turn_verified read test_state(/passing) as
+# if it were this turn's gate: a green run left behind by a tool call in turn
+# N verified a write in turn N+k whose own test gate was skipped
+# (REVIEW-wave1 F2). Retracted with turn_evidence at the end of the turn.
+Decl turn_gate(Verb, Gate, Verdict) bound [/name, /name, /name].
+Decl turn_build_green(Verb) bound [/name].
+Decl turn_build_red(Verb) bound [/name].
+Decl turn_tests_green(Verb) bound [/name].
+Decl turn_tests_red(Verb) bound [/name].
+turn_build_green(Verb) :- turn_gate(Verb, /build, /passing).
+turn_build_red(Verb) :- turn_gate(Verb, /build, /failing).
+turn_tests_green(Verb) :- turn_gate(Verb, /test, /passing).
+turn_tests_red(Verb) :- turn_gate(Verb, /test, /failing).
 Decl has_turn_tools(Verb) bound [/name].
 Decl has_turn_write(Verb) bound [/name].
 Decl has_turn_test(Verb) bound [/name].
@@ -121,7 +141,7 @@ hollow_success("new source was created without a test file") :-
 # came back affirmative. They are separate questions about the same turn, which
 # is why turn_verified does not carry turn_executed in its body — conjoining
 # them is turn_done's job and nothing else's.
-turn_executed(Verb) :- turn_evidence(Verb, _, _, _, _, _), !has_hollow_success(), !build_state(/failing).
+turn_executed(Verb) :- turn_evidence(Verb, _, _, _, _, _), !has_hollow_success(), !turn_build_red(Verb).
 turn_done(Verb) :- turn_executed(Verb), turn_verified(Verb).
 
 # ONE host emits verification, through two mechanisms. This block used to say
@@ -131,7 +151,7 @@ turn_done(Verb) :- turn_executed(Verb), turn_verified(Verb).
 #   1. turn_acceptance — the acceptance transaction: an immutable caller
 #      contract with current, executed behavioral witnesses. Strongest, and
 #      still the only thing that can speak for REQUESTED BEHAVIOUR.
-#   2. build_state / test_state — the session executor's own post-edit gates
+#   2. turn_gate — the session executor's own post-edit gates for THIS turn
 #      (recordBuildState, from BuildCheck/TestCheck). These are not the model's
 #      word for anything: the executor ran the compiler and the test runner
 #      itself and recorded what they returned, and only an affirmative verdict
@@ -140,9 +160,16 @@ turn_done(Verb) :- turn_executed(Verb), turn_verified(Verb).
 # So the evidence arms below do not weaken the contract path. They are the same
 # host reporting what it mechanically measured, rather than what it was asked to
 # prove — a weaker claim about the workspace, not a weaker claim about who is
-# entitled to make it. The model can reach neither: build_state, test_state and
-# every predicate in this block are hard-blocked in core.FilterMangleUpdates
-# (predicateAllowed), ahead of any caller allowlist.
+# entitled to make it. The model can reach neither: turn_gate, build_state,
+# test_state and every predicate in this block are hard-blocked in
+# core.FilterMangleUpdates (predicateAllowed), ahead of any caller allowlist.
+#
+# The write arm reads this turn's gates and nothing older: a red test_state
+# left in the session by another producer does not block a turn whose own gate
+# ran green after the edit, because the gate is the fresher measurement; and a
+# green one left behind does not verify a turn whose own gate was skipped. The
+# arm is guarded on both sides (green present, red absent) so a turn that
+# somehow recorded both is not verified on the strength of the green.
 #
 # A turn that changed nothing has no workspace claim to verify, so execution is
 # the whole of what it can owe. A turn that wrote owes both gates green: the
@@ -152,7 +179,7 @@ turn_done(Verb) :- turn_executed(Verb), turn_verified(Verb).
 # wrong in, which is the same argument test_coverage makes at the top of this
 # file.
 turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), !turn_wrote(Verb).
-turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), turn_wrote(Verb), build_state(/passing), test_state(/passing).
+turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), turn_wrote(Verb), turn_build_green(Verb), turn_tests_green(Verb), !turn_build_red(Verb), !turn_tests_red(Verb).
 turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), has_turn_acceptance(Verb).
 
 # has_turn_acceptance projects turn_acceptance/3 to a single argument, matching
@@ -178,13 +205,13 @@ turn_wrote(Verb) :- turn_evidence(Verb, _, _, _, _, _), write_oriented_intent(Ve
 # for a turn that wrote nothing (those verify), so no spurious reason is
 # produced for a read-only turn.
 turn_unverified(Verb) :- turn_executed(Verb), !turn_verified(Verb).
-turn_missing_evidence(Verb, /build_not_green) :- turn_unverified(Verb), !build_state(/passing).
-turn_missing_evidence(Verb, /tests_not_green) :- turn_unverified(Verb), !test_state(/passing).
+turn_missing_evidence(Verb, /build_not_green) :- turn_unverified(Verb), !turn_build_green(Verb).
+turn_missing_evidence(Verb, /tests_not_green) :- turn_unverified(Verb), !turn_tests_green(Verb).
 
 # A red build is a failed turn, not merely an unverified one. turn_executed
 # already excludes it; this names it so the outcome can say /failed instead of
 # leaving Go to re-check BuildCheck itself.
-turn_build_failed(Verb) :- turn_evidence(Verb, _, _, _, _, _), build_state(/failing).
+turn_build_failed(Verb) :- turn_evidence(Verb, _, _, _, _, _), turn_build_red(Verb).
 # Helper: any pending edit is implementation
 Decl has_implementation_edit() bound [].
 has_implementation_edit() :-

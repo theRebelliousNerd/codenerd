@@ -108,8 +108,10 @@ func turnRecoveredFromToolErrors(result *ExecutionResult) bool {
 
 // closeAcceptanceEvidence verifies, persists and arbitrates the acceptance
 // report, and re-arbitrates the checks snapshot for a write turn with no
-// contract. It runs BEFORE the hollow gate because it can set result.Error, and
-// checkHollowSuccess only runs on a turn that has not already errored.
+// contract. It runs BEFORE the hollow gate because it can set result.Error,
+// and an error already on the result outranks the hollow reason when the turn
+// closes (checkHollowSuccess runs on every path; its verdict is /failed for an
+// errored turn).
 //
 // It used to also write the closing sentence, and that is why the sentence was
 // a constant: at this point in the turn the kernel has not been asked anything

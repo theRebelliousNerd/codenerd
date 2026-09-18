@@ -8,8 +8,8 @@ import (
 
 // The verification rules S4 adds to policy/coder_safety.mg negate each other in
 // a chain — turn_unverified negates turn_verified, which negates turn_wrote —
-// and they join predicates declared in three other files (turn_evidence and
-// build_state from the shipped schemas, write_oriented_intent from
+// and they join predicates declared in other files (turn_evidence and
+// turn_gate in coder_safety.mg itself, write_oriented_intent from
 // delegation.mg). A stratification cycle or a missing Decl in that chain does
 // not fail loudly at the rule: it fails when the whole corpus is loaded.
 //
@@ -39,6 +39,8 @@ func TestCorpus_TurnVerificationRulesLoadAndDerive(t *testing.T) {
 		{"turn_verified", 1}, {"turn_unverified", 1}, {"turn_wrote", 1},
 		{"turn_build_failed", 1}, {"turn_missing_evidence", 2},
 		{"has_turn_acceptance", 1}, {"turn_done", 1}, {"turn_executed", 1},
+		{"turn_gate", 3}, {"turn_build_green", 1}, {"turn_build_red", 1},
+		{"turn_tests_green", 1}, {"turn_tests_red", 1},
 	} {
 		if ok, reason := validatePredicateDeclaration(k, pred.name, pred.arity); !ok {
 			t.Fatalf("%s/%d must be declared in the shipped corpus: %s", pred.name, pred.arity, reason)
@@ -60,9 +62,14 @@ func TestCorpus_TurnVerificationRulesLoadAndDerive(t *testing.T) {
 		return len(facts)
 	}
 
-	// A write-oriented turn that wrote, with both gates measured green.
+	// A write-oriented turn that wrote, with both of ITS gates measured green.
+	// The verdict reads turn_gate (this turn's measurement), not the
+	// session-global build_state/test_state; those are asserted too, as
+	// recordBuildState does, and prove nothing on their own (F2).
 	assert(types.Fact{Predicate: "build_state", Args: []any{types.MangleAtom("/passing")}})
 	assert(types.Fact{Predicate: "test_state", Args: []any{types.MangleAtom("/passing")}})
+	assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom("/create"), types.MangleAtom("/build"), types.MangleAtom("/passing")}})
+	assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom("/create"), types.MangleAtom("/test"), types.MangleAtom("/passing")}})
 	assert(types.Fact{Predicate: "turn_evidence", Args: []any{
 		types.MangleAtom("/create"), 1, 1, 1,
 		types.MangleAtom("/false"), types.MangleAtom("/false"),

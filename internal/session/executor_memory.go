@@ -143,13 +143,18 @@ func (e *Executor) captureTurnOutcome(result *ExecutionResult, hollowErr error) 
 	result.MissingEvidence = verdict.Missing
 
 	switch {
+	case result.Error != nil:
+		// An error that survived the turn (an unrecovered tool failure) is
+		// the turn's outcome whatever else the kernel derived; the hollow
+		// reason, if any, does not overwrite a real error. On the ordinary
+		// path result.Error is still nil here -- the caller sets it from
+		// hollowErr after this returns -- so the next arm decides.
+		result.TurnOutcome = types.MangleAtom("/failed")
 	case hollowErr != nil:
 		// /hollow is a failure with a reason, and it stays its own atom:
 		// TurnRecord.Failed() counts it, and the chat routes it back to the
 		// same shard as /incomplete, which /failed does not do.
 		result.TurnOutcome = types.MangleAtom("/hollow")
-	case result.Error != nil:
-		result.TurnOutcome = types.MangleAtom("/failed")
 	case verdict.BuildFailed:
 		result.TurnOutcome = types.MangleAtom("/failed")
 	case verdict.Done:
