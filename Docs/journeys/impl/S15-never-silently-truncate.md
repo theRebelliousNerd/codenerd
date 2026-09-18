@@ -115,12 +115,22 @@ updated to the new contract (see Tests).
 
 ## Changes
 
+Branch `worktree-agent-a0fe46d265c393352`, five commits on `9443b8a0`:
+
 - `516f800c` `refactor(elide)` — `internal/prompt/limits.go` → `internal/types/elide.go`
   (+ `limits_test.go` → `elide_test.go`), package header rewritten to say why it lives
   there; 12 callers across `internal/prompt`, `internal/perception`,
   `internal/articulation`, `internal/session`, `internal/context` repointed.
 - `a3b7b5f4` `fix(elide)` — inventory rows 1–12.
-- (tests commit) — the nine named tests and the invariant test.
+- `97df9a39` `test(elide)` — the named per-site tests, the invariant test, and this document.
+- `d5810687` `test(elide)` — the five pre-existing tests that asserted a silent cut, plus the
+  contract-registry and study updates.
+- `e47c0a00` `test(elide)` — direct coverage for `ClampInline`, `DroppedNotice`,
+  `TruncationMarker`.
+
+The shared base branch `dogfood/c2-closure` advanced to `09b278c7` (S4) during this work. This
+branch is not rebased onto it and is not merged; the merge base is still `9443b8a0`. S4 also
+edits `internal/session/executor.go`, so that file is where the two will meet.
 
 ## Tests
 
@@ -195,7 +205,26 @@ Both are contract changes the seam makes deliberately, not numbers moved until g
 
 ## Full test run
 
-See the report accompanying this branch.
+- `go build ./...` — clean.
+- `go vet` on every changed package (`internal/types`, `internal/tactile`, `internal/context`,
+  `internal/session`, `internal/core/...`, `internal/prompt/...`, `internal/articulation`,
+  `internal/perception`, `cmd/nerd/chat`) — clean.
+- The seam's packages: `go test ./internal/context/... ./internal/session/ ./internal/prompt/...
+  ./internal/tactile/... ./cmd/nerd/chat/ ./internal/core/shards/ ./internal/types/...` — all
+  `ok`. `internal/context` 139s, `internal/session` 92s.
+- `go test ./...` — **all packages `ok`, no failures.** The known load flakes
+  (`internal/autopoiesis` Thunderdome, `internal/tactile` `Direct*`, `internal/perception`
+  codex probe) all passed in this run.
+
+One infrastructure note, not a code result: the first full run aborted with
+`could not import internal/byteorder (open …go-build\14\…-d: The system cannot find the file
+specified)` across stdlib packages. That is the shared Go build cache losing entries under a
+sibling worktree's concurrent `go` process, not a defect here — C: had 66.8 GB free, so it was
+not the disk guard. A plain re-run rebuilt the entries and passed.
+
+`gofmt -l` reports 2419 files under `internal/` and `cmd/`, including many this branch never
+touched; `gofmt -d` on one shows the whole file as a diff. That is the repo's CRLF working tree
+on Windows, pre-existing and unrelated.
 
 ## Open
 

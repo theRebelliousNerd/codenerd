@@ -2074,6 +2074,13 @@ func (e *Executor) GetHistory() []perception.ConversationTurn {
 // many messages and characters left, and the evicted messages themselves are
 // retained on the executor (recoverHistoryEviction) so what was dropped can
 // be brought back rather than reconstructed.
+//
+// The notice rides inside that message rather than arriving as a message of
+// its own, which would put two user turns in a row and break the alternation
+// strict providers require. When the oldest survivor is an assistant turn the
+// notice therefore sits in assistant text, and the marker's bracketed prefix
+// is what keeps it from reading as something the assistant said — that
+// distinctive prefix is the reason the convention has one.
 func (e *Executor) priorTurnMessages() []types.Message {
 	cfg := e.configSnapshot()
 	window := cfg.HistoryTurnWindow
