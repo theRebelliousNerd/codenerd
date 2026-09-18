@@ -129,6 +129,30 @@ func minCompletionTokensFor(vendor Provider) int {
 	}
 }
 
+// defaultMaxOutputTokensFor is the completion ceiling a slot gets when it does
+// not configure max_output_tokens. A ceiling is not a charge -- the vendor bills
+// the tokens actually emitted -- so it should reflect what the model can
+// produce, not a cautious fraction of it.
+//
+// It matters most for a reasoning model, which spends this same budget on
+// thinking before emitting anything, so too small a ceiling yields an EMPTY
+// reply rather than a truncated one (see the floor clamp in
+// NewOpenAICompatClient). Measured 2026-09-17: every unconfigured slot -- main,
+// worker, and therefore every shard -- sat at 16384 on Meta, while this
+// project's own planner slot gives the same muse-spark model 131072. Step
+// planning failed twice with finish_reason "stop" and no content before falling
+// back to a single pass.
+func defaultMaxOutputTokensFor(vendor Provider) int {
+	switch vendor {
+	case ProviderMeta:
+		// muse-spark's capability, and the figure this project already declares
+		// for the same model on the planner slot.
+		return 131072
+	default:
+		return 16384
+	}
+}
+
 func isValidMetaReasoningEffort(v string) bool {
 	switch strings.TrimSpace(v) {
 	case "minimal", "low", "medium", "high", "xhigh":
@@ -150,7 +174,7 @@ func DefaultOpenAICompatConfig(vendor Provider, apiKey string) OpenAICompatConfi
 		Model:   d.model,
 		// Million-token-context models routinely exceed a short client timeout.
 		Timeout:         10 * time.Minute,
-		MaxOutputTokens: 16384,
+		MaxOutputTokens: defaultMaxOutputTokensFor(vendor),
 	}
 
 	switch vendor {
@@ -182,7 +206,7 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 		cfg.Timeout = 10 * time.Minute
 	}
 	if cfg.MaxOutputTokens <= 0 {
-		cfg.MaxOutputTokens = 16384
+		cfg.MaxOutputTokens = defaultMaxOutputTokensFor(cfg.Vendor)
 	}
 	if cfg.Model == "" {
 		cfg.Model = openAICompatVendorDefaults[cfg.Vendor].model
