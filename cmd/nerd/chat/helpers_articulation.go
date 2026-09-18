@@ -103,16 +103,6 @@ type ArticulationOutput struct {
 	GroundingSources  []string // URLs used to ground the response (from Google Search/URL Context)
 }
 
-// articulateWithContext performs the articulation phase and returns the surface response.
-// This is the original signature for backward compatibility.
-func articulateWithContext(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string) (string, error) {
-	output, err := articulateWithContextFull(ctx, client, intent, payload, contextFacts, warnings, systemPrompt)
-	if err != nil {
-		return "", err
-	}
-	return output.Surface, nil
-}
-
 // ConversationContext holds recent conversation history for LLM context injection.
 // This enables fluid conversation by providing the LLM with recent turns.
 // Implements the Blackboard Pattern for cross-shard and cross-turn context propagation.
@@ -124,13 +114,6 @@ type ConversationContext struct {
 	CompressedCtx   string         // Semantically compressed session context from compressor
 }
 
-// articulateWithContextFull performs articulation and returns full structured output.
-// This enhanced version properly extracts all control packet data for the compressor.
-func articulateWithContextFull(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string) (*ArticulationOutput, error) {
-	// Use the new version with nil conversation context for backward compatibility
-	return articulateWithConversation(ctx, client, intent, payload, contextFacts, warnings, systemPrompt, nil, nil, nil)
-}
-
 // articulateWithConversation performs articulation with full conversation context.
 // This is the new entry point that enables fluid conversational follow-ups.
 //
@@ -139,14 +122,17 @@ func articulateWithContextFull(ctx context.Context, client perception.LLMClient,
 // to thoughtsChan in arrival order; otherwise thoughtsChan is left
 // untouched (and the function silently falls back to 2-channel streaming).
 // Callers own closing thoughtsChan, just like streamChan.
-func articulateWithConversation(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string, convCtx *ConversationContext, streamChan chan<- string, thoughtsChan chan<- string) (*ArticulationOutput, error) {
+// The system prompt is NOT echoed into the user message here, and that is a
+// deletion rather than an omission. This function used to open `sb` — the USER
+// message — with "System Instructions:" followed by the whole systemPrompt, and
+// then pass the identical string as the system argument to every one of the
+// three completion calls below. The same bytes, twice, in one request. It cost
+// a doubled 1,616-token persona on every chat turn, and once the chat turn began
+// compiling a JIT skeleton (see persona.go) it would have doubled that too —
+// the budget the compiler was fitted to would have been spent twice and the
+// second copy would have been invisible to it.
+func articulateWithConversation(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, warnings []string, systemPrompt string, convCtx *ConversationContext, streamChan chan<- string, thoughtsChan chan<- string) (*ArticulationOutput, error) {
 	var sb strings.Builder
-
-	if systemPrompt != "" {
-		sb.WriteString("System Instructions:\n")
-		sb.WriteString(systemPrompt)
-		sb.WriteString("\n\n")
-	}
 
 	// =========================================================================
 	// CONVERSATION HISTORY INJECTION (Critical for fluid chat)
@@ -249,29 +235,14 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		sb.WriteString("\n\n")
 	}
 
-	if len(contextFacts) > 0 {
-		// Capped: spreading activation can derive hundreds of context_to_inject
-		// facts on a large workspace; an unbounded dump starves the model's
-		// output budget and buries the relevant facts.
-		const (
-			maxContextFactsInPrompt = 80
-			maxContextFactChars     = 12 * 1024
-		)
-		sb.WriteString("Context Facts:\n")
-		written := 0
-		chars := 0
-		for _, f := range contextFacts {
-			if written >= maxContextFactsInPrompt || chars >= maxContextFactChars {
-				sb.WriteString(fmt.Sprintf("- ... (%d more context facts omitted)\n", len(contextFacts)-written))
-				break
-			}
-			line := "- " + f.String() + "\n"
-			sb.WriteString(line)
-			written++
-			chars += len(line)
-		}
-		sb.WriteString("\n")
-	}
+	// The kernel's contribution to this prompt used to be rendered here, from a
+	// context_to_inject query in process.go that returned zero rows in every
+	// build of this repository — the predicate had a Decl and no producer. It
+	// now arrives through the compiler instead: collectKernelInjectedAtoms reads
+	// injectable_context(ShardID, Atom) and places it in the SYSTEM prompt as a
+	// mandatory atom, inside the same budget as the rest of the skeleton. A
+	// kernel fact is context the harness decided to inject, so it belongs where
+	// the rest of that decision lands, not appended to the user's turn.
 
 	if len(warnings) > 0 {
 		sb.WriteString("Warnings:\n")

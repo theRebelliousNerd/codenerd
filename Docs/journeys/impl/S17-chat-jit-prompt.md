@@ -118,11 +118,101 @@ compile inside it, using `m.shutdownCtx` (with a `context.Background()` fallback
 
 ## Measurement
 
-_(pending)_
+`TestChatSkeleton_CompiledAtomInventory` (`cmd/nerd/chat/chat_jit_prompt_test.go`) compiles the
+chat's compilation context against the **shipped** embedded corpus (`prompt.LoadEmbeddedCorpus`,
+914 candidates) with a real Mangle kernel doing selection. Not a stub corpus — the question is what
+the real corpus yields for this context, and four hand-built atoms answer a different question.
+
+Run at `jit.token_budget` 200000 / reserve 8000, verb `/explain`:
+
+```
+chat compilation context: mode=/active shard=/chat intent=/explain budget(available)=190384
+budget: 198384 tokens (persona 1616 already subtracted, reserve 8000)
+selected: 17 atoms (17 flagged mandatory), 4451 tokens, 0.0% of budget
+skeleton/flesh by category: skeleton=14 flesh=3
+candidates=914 selected=18 included=17
+```
+
+The 17 atoms:
+
+| Category | Atoms |
+|---|---|
+| identity | `identity/base/core` |
+| protocol | `protocol/piggyback/{envelope,mangle_updates,thought_first}`, `protocol/reasoning/{format,requirements}` |
+| safety | `safety/constitution/{prime_directive,forbidden_actions,dangerous_actions}`, `safety/constitutional/{core,permissions}` |
+| methodology | `methodology/ooda/core` |
+| capability | `capability/{tool_thinking,tool_request_protocol,knowledge_discovery,knowledge_protocol}` |
+| intent | `intent/explain/core` |
+
+**Baseline being beaten: 0 atoms, 0 tokens.** The pre-S17 chat turn compiled nothing at all, so
+every one of these 17 is new information the harness now places. The interesting ones:
+
+- **`protocol/piggyback/*`.** The chat turn *already demands* a piggyback envelope — the JSON
+  schema, the THOUGHT-FIRST ordering and the "DO NOT speak to the user until AFTER you have written
+  the complete control_packet" line are hand-written prose in `helpers_articulation.go:284-300`,
+  sent in the user message. The corpus has authored, evolvable atoms for exactly that protocol and
+  the chat turn was not receiving them.
+- **`safety/constitution*` — five atoms.** The prime directive, the forbidden-action list and the
+  permission model were reaching every shard and not the interactive turn. The turn a human types
+  into was the one with no constitution in its window.
+- **`intent/explain/core` — one, not eight.** `/intent` is permissive, so an *unset* verb admits all
+  eight of `intent/{brainstorm,create,design,explain,refactor,research,review,test}/core` (all
+  mandatory, all shard-agnostic) and hands the model eight task framings to choose between. Setting
+  the verb is worth seven atoms of contradiction avoided.
+
+Cost: 4,451 tokens of a 198,384-token budget — **2.2%**. Assembled system prompt 24,271 bytes =
+6,461 persona + 17,810 skeleton. One compile, ~0.5 s cold in test (S19 measured ~344 ms for a
+compile clone), and the prompt cache keys on `cc.Hash()` so a repeated context is a hit.
+
+`candidates=914 selected=18 included=17` — one atom was selected and did not make the final
+prompt. Not budget (2.2% used); noted in `## Open`.
 
 ## Design
 
-_(pending)_
+**Shape of the main-chat system prompt, in order, under one budget:**
+
+1. `architectPersona` at byte offset 0, byte-for-byte, always.
+2. the JIT-compiled chat skeleton.
+3. the kernel-derived context — which is *inside* (2), not a third concatenation: the compiler's
+   `collectKernelInjectedAtoms` turns `injectable_context(ShardID, Atom)` rows into a mandatory
+   `kernel/context/<hash>` atom at priority 95 and the selector places it. So kernel context is
+   budgeted, ordered and deduplicated like everything else rather than appended past the budget.
+
+**The budget is one sum.** `buildChatCompilationContext` sets
+`cc.TokenBudget = GetEffectiveJITConfig().TokenBudget - architectPersonaTokens()`. The selector
+spends `TokenBudget - ReservedTokens`, so `persona + skeleton ≤ jit.token_budget - reserve`. The
+persona stopped being a free rider; it is the first line item.
+
+**The chat is `/chat`, a shard type no atom declares — deliberately.** `/shard` is fail-closed
+(`jit_compiler.mg:143-146`), so this decides by itself which half of the corpus the turn can see.
+The main chat turn is the *orchestrator* that routes work to shards; the persona's own SHARD ROUTING
+table says so. Giving it `/coder` would hand it the Coder's INVESTIGATE FIRST protocol for work it
+never performs. Leaving it empty is worse — that is the recorded 114-atom / 25-identity failure.
+`/chat` yields precisely the shard-agnostic corpus: the atoms whose authors declared no shard
+because they belong to whoever is speaking. Derived from the corpus, not picked from it.
+
+**Every fail-closed dimension is named** (`/shard`, `/mode`, `/provider`, `/model`), because an
+unnamed one silently retires a whole population of atoms with no error and no log line.
+`servingIdentity()` unwraps the broker layers around `m.client` for provider/model, mirroring
+`Executor.servingIdentity`.
+
+**The retrieval query is the user's own words**, read off `m.history` — `handleSubmit`
+(`model_handlers.go:153`) appends the user message before `processInput` runs, so this turn's
+utterance is already on the model. `AtomSelector` gates vector search on a non-empty
+`SemanticQuery`, so an empty one turns the probabilistic half of the architecture off entirely.
+
+**No signature changed.** `articulationSystemPrompt()` stays the production entry point that
+`persona_test.go` pins, takes the deadline from `m.shutdownCtx`, and the verb travels on the model
+as `turnIntentVerb` (set by `processInput` on its own copy after perception).
+
+**Degradation is always toward identity, never away from it.** No compiler, no budget, or a failed
+compile ⇒ the persona alone, logged. The persona is never the thing that gets shed.
+
+**The persona stays a Go constant.** The file header used to justify that with "no atom of any kind
+reaches this prompt", which this change falsifies, so the justification was rewritten to the real
+one: an atom's position is the selector's decision and a mandatory atom can be superseded
+(`mandatory_superseded/1`). "First, always, whole, byte for byte" is a stronger guarantee than the
+corpus offers anything. Publishing the persona as an atom would trade a guarantee for a ranking.
 
 ## Implementation
 

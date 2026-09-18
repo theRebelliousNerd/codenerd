@@ -274,8 +274,20 @@ type Model struct {
 	renderedCache    map[int]string // Maps message index to rendered output
 	cacheInvalidFrom int            // Index from which cache needs refresh (-1 = all valid)
 
-	// JIT Compiler (Observability)
+	// JIT Compiler — compiles this turn's chat skeleton (see persona.go).
 	jitCompiler *prompt.JITPromptCompiler
+
+	// turnIntentVerb is this turn's classified verb, set by processInput on its
+	// own copy of the model once perception has run and read by
+	// buildChatCompilationContext.
+	//
+	// It is carried on the model rather than passed as an argument because
+	// articulationSystemPrompt's signature is pinned by persona_test.go as the
+	// production entry point. Perception runs before articulation on every path
+	// that reaches it, so an empty verb here means "not classified", which
+	// buildChatCompilationContext reads as "admit every intent-gated atom" —
+	// the permissive reading jit_compiler.mg intends for /intent.
+	turnIntentVerb string
 
 	// Clarification Loop State (Pause/Resume Protocol)
 	clarificationState    *ClarificationState

@@ -1,8 +1,10 @@
 package chat
 
 import (
+	"context"
 	"strings"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
@@ -19,28 +21,21 @@ import (
 //
 // WHY IT IS A GO CONSTANT AND NOT A JIT PROMPT ATOM.
 //
-// The obvious home for a "mandatory, positioned, counted" piece of prompt is
-// the JIT atom corpus: internal/prompt/atoms/**.yaml compiled into
-// internal/core/defaults/prompt_corpus.db, selected by
-// internal/core/defaults/jit_compiler.mg's mandatory_selection/1, placed in the
-// /skeleton tier, with the compiler refusing outright rather than cutting a
-// mandatory atom (internal/prompt/compiler.go:1753).
+// The rest of the chat system prompt IS compiled from the JIT atom corpus —
+// see compileChatSkeleton below, which is what every main-chat turn now runs.
+// The persona is the one piece that is not, and the reason is position rather
+// than provenance.
 //
-// That machinery never runs on the main chat turn. cmd/nerd/chat's articulation
-// takes its system prompt from the kernel predicate final_system_prompt
-// (see articulationSystemPrompt below), and NOTHING IN THIS REPOSITORY PRODUCES
-// final_system_prompt. It is carried in the repo's own never-produced baseline,
-// internal/core/defaults/testdata/query_only_predicates.txt, gated by
-// TestGoQueriedPredicateBudget; its only other appearance is the Decl at
-// internal/core/defaults/schemas_reviewer.mg:144. The query returns zero rows on
-// every turn, the base prompt is always "", and the persona below is the whole
-// system prompt the model sees.
+// An atom's place in the window is the compiler's decision: the selector orders
+// the skeleton by category and priority, and a mandatory atom can be superseded
+// by another mandatory atom (jit_compiler.mg's mandatory_superseded/1). Neither
+// is wrong for atoms; both are wrong for this. The persona is the chat's whole
+// identity and the architect's own words, and "first, always, whole, byte for
+// byte" is a stronger guarantee than the corpus offers anything. Publishing it
+// as an atom would trade a guarantee for a ranking.
 //
-// So publishing the persona as a mandatory atom would not move it to the top of
-// the chat prompt — it would delete it from the chat prompt, because no atom of
-// any kind reaches that prompt. Until final_system_prompt has a producer, the
-// constant is the delivery, and this file is the single place it is delivered
-// from.
+// So it stays a constant, delivered here, and the compiled skeleton is placed
+// AFTER it by withArchitectPersona — one budget, two provenances, one order.
 //
 // WHAT IS GUARANTEED HERE.
 //
@@ -53,10 +48,10 @@ import (
 //     anyone, including by accident.
 //   - Delivery is pinned by TestMainChatSystemPrompt_AlwaysCarriesArchitectPersona
 //     under both a normal and the tightest configurable budget.
-//   - The cost is counted: architectPersonaTokens uses the same estimator the
-//     JIT budget uses, and recordArchitectPersonaDelivery logs the count and the
-//     offset every time a chat system prompt is built. The broker charges the
-//     same bytes again at the outbound boundary (internal/broker/types.go:78).
+//   - The cost is counted AND charged: architectPersonaTokens uses the same
+//     estimator the JIT budget is fitted with, and buildChatCompilationContext
+//     subtracts it from the compile's budget. The persona is not a free rider on
+//     top of a full prompt; it is the first line item of one budget.
 //
 // DO NOT edit the text below. DO NOT add a second delivery path.
 const architectPersona = `## codeNERD Agent Persona
@@ -236,11 +231,10 @@ func withArchitectPersona(base string) string {
 // estimator the JIT budget is fitted with (internal/prompt.EstimateTokens), so
 // the number here and a number in a prompt budget mean the same thing.
 //
-// No persona-carrying path compiles a JIT prompt today (see the file header), so
-// there is no compilation budget to subtract this from. It is computed and
-// recorded anyway: the cost of an unconditional append is exactly the thing that
-// goes unnoticed when nobody counts it, and the first budget that does reach
-// this prompt needs a number to start from.
+// buildChatCompilationContext subtracts it from the compile's TokenBudget, which
+// is the whole reason it must be the same estimator: the persona and the
+// skeleton are two halves of one budget, and they can only be added together if
+// they are counted in the same units.
 func architectPersonaTokens() int {
 	return prompt.EstimateTokens(architectPersona)
 }
@@ -258,27 +252,249 @@ func recordArchitectPersonaDelivery(where, systemPrompt string) {
 	)
 }
 
-// articulationSystemPrompt builds the system prompt for a main-chat articulation
-// turn: the kernel's final_system_prompt, with the architect's persona in front
-// of it.
+// =============================================================================
+// THE CHAT SKELETON — WHAT THE HARNESS DECIDES THE CHAT TURN SHOULD KNOW
+// =============================================================================
+
+// chatShardType and chatShardID name the main chat turn's regime dimension.
+//
+// /shard is fail-closed in internal/core/defaults/jit_compiler.mg: an atom that
+// declares shard_types is blocked unless the compile names one of them. So this
+// value decides, by itself, which half of the corpus the chat turn can see.
+//
+// "/chat" is deliberately a shard type that NO atom in internal/prompt/atoms
+// declares, and that is the point rather than an oversight. The main chat turn
+// is not a shard — it is the orchestrator that routes work TO shards (the
+// persona's own SHARD ROUTING table says so). Handing it /coder would give it
+// the Coder's INVESTIGATE FIRST protocol and its editing discipline for work it
+// never performs; handing it /reviewer would give it a findings format for
+// findings it does not produce. Naming a shard it is not is how the "25+
+// contradictory identities" failure recorded in jit_compiler.mg happened, only
+// with one wrong identity instead of twenty-five.
+//
+// What /chat yields is the shard-AGNOSTIC corpus: identity/base, the piggyback
+// protocol the chat's own response envelope is written in, the constitution,
+// the OODA methodology, the capability atoms, the world-state atoms. Those are
+// the atoms whose authors declared no shard because they belong to whoever is
+// speaking. That is exactly the orchestrator's share, and it is derived from
+// the corpus rather than picked from it.
+//
+// chatShardID additionally selects the kernel-derived context: the compiler's
+// collectKernelInjectedAtoms admits an injectable_context(ShardID, Atom) row
+// only when arg0 matches this. Nothing produces those rows for "chat" yet —
+// see the Open section of Docs/journeys/impl/S17-chat-jit-prompt.md.
+const (
+	chatShardType = "/chat"
+	chatShardID   = "chat"
+)
+
+// buildChatCompilationContext describes the main chat turn to the JIT compiler.
+//
+// Every regime dimension this sets is fail-closed, so each line here is a
+// decision about what the chat turn is allowed to be told, not a hint:
+//
+//   - OperationalMode /active — an interactive turn is not a dream, a shadow
+//     run or a TDD repair, and the atoms written for those must not fire.
+//   - ShardType/ShardID — see the constants above.
+//   - Provider/Model — a vendor-pinned atom encodes a workaround for ONE
+//     vendor's defect. Naming the serving client is what lets the pinned atoms
+//     this chat's model actually needs through, and keeps every other vendor's
+//     workarounds out.
+//   - IntentVerb — /intent is deliberately permissive in jit_compiler.mg, which
+//     means an UNSET verb admits every intent-gated atom at once: all eight of
+//     intent/{brainstorm,create,design,explain,refactor,research,review,test}/core
+//     are mandatory and shard-agnostic, so leaving it empty hands the model
+//     eight task framings and lets it choose. Setting it admits the one.
+//
+// The budget is the whole point of the exercise: TokenBudget is the effective
+// JIT budget MINUS the persona, so persona + skeleton + kernel context is one
+// sum bounded by jit.token_budget rather than a compiled prompt with an
+// uncounted 1,616-token prefix stapled to it.
+//
+// Returns nil when there is no budget left to compile into — a configured
+// budget smaller than the persona, which the config schema permits. The persona
+// is never the thing that gets shed, so the compile is.
+func (m Model) buildChatCompilationContext() *prompt.CompilationContext {
+	if m.Config == nil {
+		return nil
+	}
+	effective := m.Config.GetEffectiveJITConfig()
+
+	budget := effective.TokenBudget - architectPersonaTokens()
+	reserved := effective.ReservedTokens
+	if budget <= 0 || reserved >= budget {
+		// Validate() would reject this anyway; refusing here means the reason
+		// reaches the log as a sentence rather than as a generic compile error.
+		logging.Get(logging.CategoryJIT).Warn(
+			"Chat JIT skeleton skipped: effective budget %d tokens (reserve %d) cannot hold the %d-token persona; "+
+				"the turn runs on the persona alone",
+			effective.TokenBudget, reserved, architectPersonaTokens())
+		return nil
+	}
+
+	cc := prompt.NewCompilationContext()
+	cc.OperationalMode = "/active"
+	cc.ShardType = chatShardType
+	cc.ShardID = chatShardID
+	cc.ShardName = "codeNERD Chat"
+	cc.TokenBudget = budget
+	cc.ReservedTokens = reserved
+	cc.ReservedTokensFallbackRatio = effective.ReservedTokensFallbackRatio
+	if effective.SemanticTopK > 0 {
+		cc.SemanticTopK = effective.SemanticTopK
+	}
+
+	cc.Provider, cc.Model = m.servingIdentity()
+	cc.IntentVerb = m.turnIntentVerb
+
+	// Drive the vector tier. AtomSelector gates semantic search on a non-empty
+	// SemanticQuery, so an empty one turns the probabilistic half of the
+	// skeleton/flesh architecture off entirely. The user's own words are the
+	// best query available on a chat turn and they are already on the model:
+	// handleSubmit appends the user message to history before processInput runs.
+	cc.SemanticQuery = m.lastUserUtterance()
+
+	// Language and framework are relevance hints, not regime dimensions, but
+	// they are free: the world model already asserted them.
+	if m.kernel != nil {
+		if langFacts, err := m.kernel.Query("project_language"); err == nil &&
+			len(langFacts) > 0 && len(langFacts[0].Args) > 0 {
+			if lang := types.ExtractString(langFacts[0].Args[0]); lang != "" {
+				if !strings.HasPrefix(lang, "/") {
+					lang = "/" + lang
+				}
+				cc.Language = lang
+			}
+		}
+		if fwFacts, err := m.kernel.Query("project_framework"); err == nil {
+			seen := make(map[string]struct{}, len(fwFacts))
+			for _, f := range fwFacts {
+				if len(f.Args) == 0 {
+					continue
+				}
+				fw := types.ExtractString(f.Args[0])
+				if fw == "" {
+					continue
+				}
+				if !strings.HasPrefix(fw, "/") {
+					fw = "/" + fw
+				}
+				if _, ok := seen[fw]; !ok {
+					seen[fw] = struct{}{}
+					cc.Frameworks = append(cc.Frameworks, fw)
+				}
+			}
+		}
+	}
+
+	return cc
+}
+
+// lastUserUtterance returns this turn's user input, read back off the history
+// the submit handler already appended it to (model_handlers.go:153).
+//
+// Bounded, because it becomes an embedding query: a pasted stack trace is not a
+// better retrieval query than its first paragraph, and it is a much more
+// expensive one.
+func (m Model) lastUserUtterance() string {
+	const maxRetrievalQueryRunes = 4096
+	for i := len(m.history) - 1; i >= 0; i-- {
+		if m.history[i].Role != "user" {
+			continue
+		}
+		utterance := strings.TrimSpace(m.history[i].Content)
+		if utterance == "" {
+			return ""
+		}
+		if runes := []rune(utterance); len(runes) > maxRetrievalQueryRunes {
+			return string(runes[:maxRetrievalQueryRunes])
+		}
+		return utterance
+	}
+	return ""
+}
+
+// servingIdentity names the vendor and model about to consume this prompt, by
+// unwrapping the broker layers around the chat client until one reports its
+// identity. Empty when nothing does, which is the fail-closed direction: a
+// pinned atom sits out rather than a Gemini workaround landing in a Claude
+// prompt.
+func (m Model) servingIdentity() (provider, model string) {
+	if m.client == nil {
+		return "", ""
+	}
+	var identifier types.ModelIdentifier
+	broker.Walk(m.client, func(layer types.LLMClient) bool {
+		if id, ok := layer.(types.ModelIdentifier); ok {
+			identifier = id
+			return false
+		}
+		return true
+	})
+	if identifier == nil {
+		return "", ""
+	}
+	return identifier.ModelIdentity()
+}
+
+// compileChatSkeleton runs the one JIT compile of a main chat turn and returns
+// the compiled prompt body — the atoms the harness decided this turn should
+// carry, plus whatever the kernel injected through injectable_context.
+//
+// Returns "" when there is no compiler, no budget, or the compile fails. The
+// caller then ships the persona alone, which is what every turn shipped before
+// this seam existed: a degraded prompt, never a missing identity.
+func (m Model) compileChatSkeleton(ctx context.Context) string {
+	if m.jitCompiler == nil {
+		return ""
+	}
+	cc := m.buildChatCompilationContext()
+	if cc == nil {
+		return ""
+	}
+
+	result, err := m.jitCompiler.Compile(ctx, cc)
+	if err != nil {
+		// Not fatal and not silent. A refused compile is the compiler declining
+		// to serve a cut constitution (compiler.go's mandatory-skeleton refusal);
+		// the chat turn's answer to that is the persona alone rather than a
+		// half-constitution, and the reason belongs in the log either way.
+		logging.Get(logging.CategoryJIT).Warn(
+			"Chat JIT compilation failed, turn runs on the architect persona alone: %v", err)
+		return ""
+	}
+	if result == nil {
+		return ""
+	}
+
+	logging.Get(logging.CategoryJIT).Info(
+		"Chat skeleton compiled: %d atoms, %d tokens of a %d-token skeleton budget "+
+			"(persona %d + skeleton %d of %d total)",
+		len(result.IncludedAtoms), result.TotalTokens, cc.TokenBudget,
+		architectPersonaTokens(), result.TotalTokens,
+		architectPersonaTokens()+cc.TokenBudget)
+
+	return result.Prompt
+}
+
+// articulationSystemPrompt builds the system prompt for a main-chat
+// articulation turn: the architect's persona at offset 0, then the JIT-compiled
+// chat skeleton, under one budget.
 //
 // This is the production path — cmd/nerd/chat/process.go calls exactly this — so
 // a test that calls it is testing what ships, not a reconstruction of it.
 //
-// The kernel query returns zero rows in every build of this repository (see the
-// file header), which is why the persona is not merely first here but the entire
-// prompt. If somebody ever gives final_system_prompt a producer, this function
-// keeps the persona in front of it rather than behind it, and
-// TestMainChatSystemPrompt_AlwaysCarriesArchitectPersona keeps that true.
+// It takes no context parameter on purpose. The compile's deadline is the
+// session's, which the model already carries; threading a per-call context
+// through here would change a signature that two tests in persona_test.go pin
+// as the production entry point, for no behaviour the shutdown context does not
+// already give.
 func (m Model) articulationSystemPrompt() string {
-	base := ""
-	if m.kernel != nil {
-		if systemPrompts, err := m.kernel.Query("final_system_prompt"); err == nil &&
-			len(systemPrompts) > 0 && len(systemPrompts[0].Args) > 0 {
-			base = types.ExtractString(systemPrompts[0].Args[0])
-		}
+	ctx := m.shutdownCtx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	systemPrompt := withArchitectPersona(base)
+	systemPrompt := withArchitectPersona(m.compileChatSkeleton(ctx))
 	recordArchitectPersonaDelivery("main chat articulation", systemPrompt)
 	return systemPrompt
 }

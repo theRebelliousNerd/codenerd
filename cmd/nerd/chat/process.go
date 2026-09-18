@@ -814,18 +814,17 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
-		// 5. CONTEXT SELECTION (Spreading Activation)
-		var contextFacts []core.Fact
-		if m.kernel != nil {
-			contextFacts, _ = m.kernel.Query("context_to_inject")
-		}
-
-		// 6. ARTICULATION (Response Generation)
+		// 5. ARTICULATION (Response Generation)
 		//
-		// The kernel's final_system_prompt with the architect's persona in front
-		// of it. Both halves live in cmd/nerd/chat/persona.go so there is exactly
-		// one place the persona can be lost from, and one test that says it
-		// cannot be.
+		// The architect's persona at offset 0, then the JIT-compiled chat
+		// skeleton, under one budget. Both halves live in
+		// cmd/nerd/chat/persona.go so there is exactly one place the persona can
+		// be lost from, one place the compile happens, and one test for each.
+		//
+		// The verb travels on the model because the compile reads it: /intent is
+		// permissive in jit_compiler.mg, so an unset verb admits every
+		// intent-gated atom in the corpus at once.
+		m.turnIntentVerb = intent.Verb
 		systemPrompt := m.articulationSystemPrompt()
 
 		// Build conversation context for fluid chat experience
@@ -877,7 +876,7 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		go func() {
 			defer streamCancel()
-			artOutput, err := articulateWithConversation(streamCtx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt, convCtx, streamChan, thoughtsChan)
+			artOutput, err := articulateWithConversation(streamCtx, m.client, intent, payloadForArticulation(intent, mangleUpdates), warnings, systemPrompt, convCtx, streamChan, thoughtsChan)
 			close(streamChan)
 			close(thoughtsChan)
 			if err != nil {
