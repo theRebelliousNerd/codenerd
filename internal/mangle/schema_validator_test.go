@@ -559,3 +559,9 @@ Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, 
 		})
 	}
 }
+
+// TODO: Vector Null/Undefined/Empty: Test ValidateRule behavior with empty strings and strings containing only null bytes.
+// TODO: Vector User request Extremes: Test ValidateRules with massive 10 million line Mangle programs to test memory constraints.
+// TODO: Vector User request Extremes: Test ValidateRule with predicate names exceeding maximum allowable string lengths.
+// TODO: Vector State Conflicts: Concurrently invoking LoadDeclaredPredicates to verify if map state is corrupted.
+// TODO: Vector Null/Undefined/Empty: Test LoadDeclaredPredicates behavior when initialized with entirely whitespace-only schemas.
