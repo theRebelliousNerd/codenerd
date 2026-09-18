@@ -4224,3 +4224,33 @@ was prose gets one derived re-prompt before the hollow verdict stands. q1's repa
 names another: the repair attempt's JIT compile hit its deadline, so the 5-minute repair clock is
 being spent on the compile, not the repair.
 
+
+## The same symptoms after the kernel had room: the agent acts, the verdicts are honest, nothing was keepable (2026-09-18, 17:29-19:10)
+
+Binary from `6ec80601` (boot no longer loads the 307k-row knowledge graph into the kernel; before
+that fix every run had zero tools and a 1.6k-token prompt, see the entry above). Same symptom-only
+briefs as before, run back to back on `main` by the queue script, each run's tree committed as a WIP
+commit for the merger to review. All three WIP commits were reverted by the merger; the reasons are
+the finding.
+
+| run | symptom | minutes | verdict | what it wrote | why it was not kept |
+|---|---|---|---|---|---|
+| q3 | no `tool_capability` fact in the corpus vocabulary is asserted for any registered tool (S21 slice) | 25.7 | `/unverified`, rc=0 | `internal/core/tool_registry.go` +170, and a 133-line test file -- **the first time the coder wrote tests without being told** | it produced the facts by guessing: a bank of substring matches over the tool's name and description (`"creat"` -> `/generation`, `"docs"` -> `/knowledge`, no match -> `/inspection`). That is a decision computed in Go from prose, the drift the vision names; the capability belongs on the tool's registration as a declared field |
+| q4 | a turn that wrote production Go with no test beside it can be `/done` (S6 slice) | 18.9 | `/unverified`, rc=0 | one line: `turn_untested` added to the model hard block in `internal/core/mangle_updates.go` (94 successful tool calls for it) | the predicate it blocked exists nowhere else -- the policy rule and the Go assertion its own summary describes were never written -- and the file it did edit is the safety gate, which is off-limits to codeNERD by the repo contract |
+| q5 | a write-oriented turn whose first round is prose is failed as hollow instead of being pushed to act | 27.2 | rc=1: "planned steps incomplete: 2 of 3 step(s) made no edit" | `internal/session/executor_tools.go` +39: on a zero-tool round it asks the working policy for `working_nudge(/implement)` and re-prompts once -- the right shape, the decision is asked of the policy | the policy only derives that nudge after `working_nudge_rounds(8)` rounds, so on round zero it never fires: dead code without the policy step (its step 2) and untested without its step 3. Its own verdict said so |
+| q1b | the test pinning the `/clarify` lane fails for the wrong reason ("test model has no transducer wired") | 16.4 | rc=1: "edits broke the tests and the repair loop did not converge after 3 attempts" (18 LLM calls, **1.5M tokens in**, 4.3k out) | a 169-line `cmd/nerd/chat/process_clarify_test.go` | the test it wrote fails, by its own verdict; a red test cannot sit on `main`. The cost line is the finding: three repair attempts re-sent ~83k tokens per call to produce 240 tokens of output each |
+
+**Reading.** Three things changed against the 16:20 runs, and they are the measurement. (1) The
+agent acts: 27-94 tool calls per run instead of zero. (2) The verdicts are true: two `/unverified`
+and one `rc=1` with per-step accounting, each matching what the merger found on review -- S1/S4/F2
+doing their job. (3) It wrote tests unprompted once. What did not change: none of the three landed
+a fix a reviewer would keep. The plans were right (q5's three steps are the correct three steps);
+the execution completes one step of N and spends 19-27 minutes and up to 94 tool calls doing it.
+That is the next seam, stated as a symptom: **a multi-step plan whose later steps make no edit ends
+the turn instead of continuing to the next step** -- the obligation exists (the verdict names the
+incomplete steps) and nothing forces its discharge.
+
+**Milestone gate adopted from this (architect: "get the system stable or hit the next milestone").**
+`nerd fix` lands a one-file fix with a test and a truthful verdict in 8 of 10 runs, each under 10
+minutes. Everything not on that journey is frozen until the gate passes.
+
