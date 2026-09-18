@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -466,6 +467,26 @@ func toAtomOrString(v any) any {
 	return v
 }
 
+// learnedArgsValue is the /string value the Args slot of a learned_* fact
+// carries: the bare value when the stored row has exactly one string argument
+// (the common case -- a preference is one sentence), "" when it has none, and
+// otherwise the arguments JSON-encoded so nothing is lost.
+func learnedArgsValue(args []any) string {
+	switch len(args) {
+	case 0:
+		return ""
+	case 1:
+		if s, ok := args[0].(string); ok {
+			return s
+		}
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		return fmt.Sprint(args)
+	}
+	return string(encoded)
+}
+
 // HydrateKnowledgeGraph loads knowledge graph entries from LocalStore and hydrates
 // the kernel with knowledge_link facts. This can be called independently or as part
 // of HydrateLearnings for targeted knowledge graph updates.
@@ -538,20 +559,18 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	count := 0
 	var hydrationErrs []error
 
-	// Helper to assert with atom conversion
+	// learned_preference, learned_fact and learned_constraint are declared
+	// (Predicate, Args) bound [/string, /string] in schemas_memory.mg, and the
+	// rules that read them treat Args as one value: knowledge.mg binds it
+	// straight into a Reason and into fn:pair. A stored row's args are a
+	// []any, and asserting that slice into the /string slot was rejected the
+	// moment Decl type checks went live -- every preference, fact and
+	// constraint in the store, on every boot: "hydrate learnings incomplete
+	// after 249 facts: ... arg 1 declared /string, got []interface {}".
 	assertLearned := func(metaPred string, fact Fact) error {
-		// Convert args
-		safeArgs := make([]any, len(fact.Args))
-		for i, arg := range fact.Args {
-			safeArgs[i] = toAtomOrString(arg)
-		}
-
-		// The predicate itself might be an atom if referenced as data
-		predArg := toAtomOrString(fact.Predicate)
-
 		return kernel.Assert(Fact{
 			Predicate: metaPred,
-			Args:      []any{predArg, safeArgs},
+			Args:      []any{toAtomOrString(fact.Predicate), learnedArgsValue(fact.Args)},
 		})
 	}
 

@@ -162,7 +162,10 @@ func TestTimeoutSecondsFromActionRequest_DefaultAndOverrides(t *testing.T) {
 	}
 }
 
-func TestHydrateLearningsPreservesArgs(t *testing.T) {
+// The Args slot of a learned_* fact is declared /string (schemas_memory.mg) and
+// the rules that read it bind it as one value. This pins the shape hydration
+// asserts: a one-argument row carries its value bare, a longer row is JSON.
+func TestHydrateLearnings_ArgsSlotIsOneString(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "knowledge.db")
 	db, err := store.NewLocalStore(dbPath)
@@ -174,7 +177,10 @@ func TestHydrateLearningsPreservesArgs(t *testing.T) {
 		_ = os.RemoveAll(dir)
 	}()
 
-	if err := db.StoreFact("pref_pred", []any{"a", "b"}, "preference", 10); err != nil {
+	if err := db.StoreFact("codedom_alias", []any{"codedom means internal/tools/codedom"}, "preference", 10); err != nil {
+		t.Fatalf("failed to store fact: %v", err)
+	}
+	if err := db.StoreFact("pair_pred", []any{"a", "b"}, "preference", 10); err != nil {
 		t.Fatalf("failed to store fact: %v", err)
 	}
 
@@ -187,24 +193,88 @@ func TestHydrateLearningsPreservesArgs(t *testing.T) {
 		t.Fatalf("hydrate learnings failed: %v", err)
 	}
 
-	if len(k.asserted) == 0 {
-		t.Fatalf("expected assertions into kernel")
+	want := map[string]string{
+		"codedom_alias": "codedom means internal/tools/codedom",
+		"pair_pred":     `["a","b"]`,
+	}
+	for _, f := range k.asserted {
+		if f.Predicate != "learned_preference" || len(f.Args) != 2 {
+			continue
+		}
+		key, _ := f.Args[0].(string)
+		expected, ok := want[key]
+		if !ok {
+			continue
+		}
+		got, isString := f.Args[1].(string)
+		if !isString {
+			t.Errorf("learned_preference(%q, _): Args slot is %T, want string -- the Decl is /string", key, f.Args[1])
+		} else if got != expected {
+			t.Errorf("learned_preference(%q, _): Args = %q, want %q", key, got, expected)
+		}
+		delete(want, key)
+	}
+	for key := range want {
+		t.Errorf("learned_preference(%q, _) was never asserted", key)
+	}
+}
+
+// The store held preferences, facts and constraints that the real kernel
+// rejected on every boot once Decl type checks went live -- "hydrate learnings
+// incomplete after 249 facts: assert preference codedom_alias: type error
+// asserting learned_preference: arg 1 declared /string, got []interface {}",
+// seen in a live chat session 2026-09-17. Nothing the user had taught the
+// system reached the kernel. This drives the real kernel with its real Decls.
+func TestHydrateLearnings_RealKernelAcceptsEveryLearnedShape(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.NewLocalStore(filepath.Join(dir, "knowledge.db"))
+	if err != nil {
+		t.Fatalf("failed to create local store: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	sentence := "When user says 'codedom', they mean the internal tool at internal/tools/codedom"
+	if err := db.StoreFact("codedom_alias", []any{sentence}, "preference", 10); err != nil {
+		t.Fatalf("store preference: %v", err)
+	}
+	if err := db.StoreFact("project_language", []any{"go", "1.25"}, "user_fact", 10); err != nil {
+		t.Fatalf("store user fact: %v", err)
+	}
+	if err := db.StoreFact("never_force_push", []any{}, "constraint", 10); err != nil {
+		t.Fatalf("store constraint: %v", err)
 	}
 
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
+	vs.SetLocalDB(db)
+	vs.SetKernel(kernel)
+
+	count, err := vs.HydrateLearnings(context.Background())
+	if err != nil {
+		t.Fatalf("the real kernel rejected hydration: %v", err)
+	}
+	if count < 3 {
+		t.Fatalf("hydrated %d facts, want at least the 3 stored", count)
+	}
+
+	prefs, err := kernel.Query("learned_preference")
+	if err != nil {
+		t.Fatalf("query learned_preference: %v", err)
+	}
 	found := false
-	for _, f := range k.asserted {
-		if f.Predicate == "learned_preference" {
-			if len(f.Args) != 2 {
-				t.Fatalf("expected learned_preference to have 2 args, got %d", len(f.Args))
-			}
-			if _, ok := f.Args[1].([]any); !ok {
-				t.Fatalf("expected second arg to be []interface{}, got %T", f.Args[1])
-			}
+	for _, f := range prefs {
+		if len(f.Args) == 2 && f.Args[0] == "codedom_alias" {
 			found = true
+			if got, _ := f.Args[1].(string); got != sentence {
+				t.Errorf("learned_preference(codedom_alias, Args): Args = %#v, want the stored sentence", f.Args[1])
+			}
 		}
 	}
 	if !found {
-		t.Fatalf("learned_preference assertion not found")
+		t.Errorf("learned_preference(codedom_alias, _) is not in the kernel after hydration; got %d learned_preference facts", len(prefs))
 	}
 }
 
