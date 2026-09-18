@@ -352,6 +352,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// preserves the legacy Go gates below.
 		route := m.decideRoute(input, intent, shardType)
 		answerDirectly := route.Kind == RouteRespondDirectly
+		routeWantsClarify := route.Kind == RouteClarify
 		logging.Routing("[processInput] ROUTE decision: %s shard=%q | verb=%s category=%s question=%v confidence=%.2f | elapsed=%dms",
 			route.Kind, route.Shard, intent.Verb, intent.Category, intent.IsQuestion, intent.Confidence, time.Since(oodaStart).Milliseconds())
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -366,7 +367,7 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// 1.4 AUTO-CLARIFICATION: If the request looks like a campaign/plan ask, run the clarifier shard
 		logging.Routing("[processInput] DECIDE phase starting at %dms", time.Since(oodaStart).Milliseconds())
-		if !answerDirectly && m.shouldAutoClarify(&intent, input) {
+		if routeWantsClarify || (!answerDirectly && m.shouldAutoClarify(&intent, input)) {
 			logging.Routing("[processInput] DECIDE: auto-clarify triggered")
 			m.ReportStatus("Clarifier: generating questions...")
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
@@ -389,7 +390,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1.4.1 GENERAL CLARIFICATION: Guard ambiguous intents before delegation.
-		if question, options, ok := m.shouldClarifyFromKernel(&intent, input); ok && !answerDirectly {
+		if question, options, ok := m.shouldClarifyFromKernel(&intent, input); ok && (routeWantsClarify || !answerDirectly) {
 			return clarificationMsg{
 				Question:      question,
 				Options:       options,
@@ -399,7 +400,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1.4.2 FALLBACK CLARIFICATION: Heuristic-only check if kernel has no question.
-		if !answerDirectly && m.shouldClarifyIntent(&intent, input) {
+		if (routeWantsClarify || !answerDirectly) && m.shouldClarifyIntent(&intent, input) {
 			logging.Routing("[processInput] DECIDE: fallback clarification triggered | verb=%s target=%q confidence=%.2f isConversational=%v | REASON: actionable intent with low confidence or missing target",
 				intent.Verb, intent.Target, intent.Confidence, isConversationalIntent(intent))
 			m.ReportStatus("Clarifier: resolving ambiguity...")
@@ -459,7 +460,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
-		delegateNow := route.Kind == RouteDelegate
+		delegateNow := route.Kind == RouteDelegate && !routeWantsClarify
 		if route.Kind == RouteLegacy {
 			delegateNow = m.shouldDelegate(shardType, intent.Confidence)
 		}
