@@ -27,8 +27,10 @@ import (
 //   - Failure is acceptable (degraded but safe)
 // =========================================================================
 
-// skeletonCategories defines categories that MUST always be included.
-// These form the deterministic "skeleton" of every prompt.
+// skeletonCategories defines the categories forming the deterministic
+// "skeleton" tier of every prompt. Only mandatory atoms in these categories
+// are guaranteed selection; every non-mandatory atom, whatever its category,
+// competes in the flesh tier (see filterFleshAtoms).
 var skeletonCategories = map[AtomCategory]bool{
 	CategoryIdentity:    true,
 	CategoryProtocol:    true,
@@ -202,6 +204,107 @@ func vectorScoreToPercent(score float64) int64 {
 		return 100
 	}
 	return int64(pct)
+}
+
+// topKEligibleVectorScores reduces a whole-corpus vector score map to the k
+// highest scores among flesh-eligible atoms, so the vector channel spends its
+// slots on atoms the kernel can actually select.
+//
+// An atom is eligible when it is in the flesh set, is not mandatory
+// (mandatory atoms are selected regardless and need no vector slot), carries
+// no RetrievedContext witness (retrieved context reaches selection through
+// its own fact, not through vector_hit), matches the fail-closed context
+// matcher, and has a non-NaN score in the map.
+//
+// Of the eligible scores, only those at or above both floors survive: the
+// relative floor (eligible mean plus 1.5 population standard deviations,
+// skipped when fewer than 8 atoms are eligible) and s.minScoreThreshold as
+// the absolute lower bound. The relative floor is needed because embedding
+// models differ in range (nomic-embed-text: median ~0.52, best ~0.70), which
+// makes any fixed absolute threshold meaningless on its own. Survivors are
+// ordered by score descending with ties broken by atom ID ascending, and the
+// first k are returned; k <= 0 means 10.
+func (s *AtomSelector) topKEligibleVectorScores(
+	scores map[string]float64,
+	fleshAtoms []*PromptAtom,
+	cc *CompilationContext,
+	k int,
+) map[string]float64 {
+	if len(scores) == 0 || len(fleshAtoms) == 0 {
+		return nil
+	}
+	if k <= 0 {
+		k = 10
+	}
+	absoluteFloor := 0.0
+	if s != nil {
+		absoluteFloor = s.minScoreThreshold
+	}
+
+	type candidate struct {
+		id    string
+		score float64
+	}
+	var eligible []candidate
+	for _, atom := range fleshAtoms {
+		if atom == nil || atom.IsMandatory || atom.RetrievedContext {
+			continue
+		}
+		score, ok := scores[atom.ID]
+		if !ok || math.IsNaN(score) {
+			continue
+		}
+		if !atom.MatchesContext(cc) {
+			continue
+		}
+		eligible = append(eligible, candidate{id: atom.ID, score: score})
+	}
+
+	floor := absoluteFloor
+	if len(eligible) >= 8 {
+		var sum float64
+		for _, c := range eligible {
+			sum += c.score
+		}
+		mean := sum / float64(len(eligible))
+		var variance float64
+		for _, c := range eligible {
+			d := c.score - mean
+			variance += d * d
+		}
+		variance /= float64(len(eligible))
+		floor = mean + 1.5*math.Sqrt(variance)
+	}
+
+	kept := make([]candidate, 0, len(eligible))
+	for _, c := range eligible {
+		if c.score >= absoluteFloor && c.score >= floor {
+			kept = append(kept, c)
+		}
+	}
+	sort.Slice(kept, func(i, j int) bool {
+		if kept[i].score != kept[j].score {
+			return kept[i].score > kept[j].score
+		}
+		return kept[i].id < kept[j].id
+	})
+	if len(kept) > k {
+		kept = kept[:k]
+	}
+
+	logging.Get(logging.CategoryJIT).Debug(
+		"Vector tier: %d scored, %d eligible, floor=%.3f, kept %d",
+		len(scores), len(eligible), floor, len(kept),
+	)
+
+	if len(kept) == 0 {
+		return nil
+	}
+	reduced := make(map[string]float64, len(kept))
+	for _, c := range kept {
+		reduced[c.id] = c.score
+	}
+	return reduced
 }
 
 func mangleQuoteString(s string) string {
@@ -626,15 +729,23 @@ func (s *AtomSelector) runSelection(
 			if s.vectorSearcher == nil || cc.SemanticQuery == "" {
 				return nil
 			}
-			return s.getVectorScores(ctx, cc.SemanticQuery, cc.SemanticTopK)
+			// Fetch scores for the whole corpus, not just the global top-K:
+			// the global top-K is dominated by atoms that are already
+			// mandatory or gated to another shard or language, whose slots
+			// are then discarded, while the relevant eligible atom ranked
+			// just below never receives a vector_hit. Reduction to the k
+			// highest eligible scores happens below.
+			return s.getVectorScores(ctx, cc.SemanticQuery, len(atoms))
 		}
+		var rawScores map[string]float64
 		if wantTiming {
 			vectorStart := time.Now()
-			vectorScores = vectorSearch()
+			rawScores = vectorSearch()
 			vectorMs = time.Since(vectorStart).Milliseconds()
 		} else {
-			vectorScores = vectorSearch()
+			rawScores = vectorSearch()
 		}
+		vectorScores = s.topKEligibleVectorScores(rawScores, fleshAtoms, cc, cc.SemanticTopK)
 		var err error
 		fleshFacts, err = s.buildFleshFacts(cc, fleshAtoms, forcedMandatory, vectorScores)
 		if err != nil {
@@ -824,11 +935,14 @@ func (s *AtomSelector) loadSkeletonAtomsKernel(
 }
 
 // filterSkeletonAtoms keeps the skeleton-category atoms whose world state
-// matches and whose required tools are all present. An explicit requires_tools
-// entry means the same thing here as in flesh: the atom is omitted when the
-// effective catalog lacks any required tool. Tool-agnostic constitutional,
-// evidence and general identity atoms carry no requires_tools and are always
-// retained.
+// matches and whose required tools are all present. The skeleton tier is the
+// set of mandatory atoms in skeleton categories; this filter is unchanged and
+// keeps non-mandatory skeleton-category atoms here too so depends_on
+// resolution is unaffected (mergeAtoms de-duplicates by ID, skeleton first).
+// An explicit requires_tools entry means the same thing here as in flesh:
+// the atom is omitted when the effective catalog lacks any required tool.
+// Tool-agnostic constitutional, evidence and general identity atoms carry no
+// requires_tools and are always retained.
 func filterSkeletonAtoms(atoms []*PromptAtom, cc *CompilationContext) []*PromptAtom {
 	available := availableToolSet(cc)
 	var skeletonAtoms []*PromptAtom
@@ -1012,17 +1126,28 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 	return s.queryFleshAtoms(kernel, fleshAtoms, true, forcedMandatory, vectorScores, cc), nil
 }
 
-// filterFleshAtoms keeps the non-skeleton atoms whose world state matches and
-// whose required tools are all present. An explicit requires_tools entry omits
-// the atom when the effective catalog lacks any required tool, the same rule
-// skeleton selection enforces.
+// filterFleshAtoms keeps the atoms whose world state matches and whose
+// required tools are all present, excluding only mandatory atoms in skeleton
+// categories (those are already guaranteed by the skeleton tier). Every
+// non-mandatory atom, whatever its category, competes in the flesh tier, so a
+// non-mandatory skeleton-category atom appears in both the skeleton set (for
+// depends_on resolution) and the flesh set (for vector-hit relevance). An
+// explicit requires_tools entry omits the atom when the effective catalog
+// lacks any required tool, the same rule skeleton selection enforces.
 func filterFleshAtoms(atoms []*PromptAtom, cc *CompilationContext) []*PromptAtom {
 	available := availableToolSet(cc)
 	var fleshAtoms []*PromptAtom
 	for _, atom := range atoms {
-		if atom != nil && !isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) && atomToolSatisfied(atom, available) {
-			fleshAtoms = append(fleshAtoms, atom)
+		if atom == nil {
+			continue
 		}
+		if !atomMatchesActiveWorldState(atom, cc) || !atomToolSatisfied(atom, available) {
+			continue
+		}
+		if isSkeletonCategory(atom.Category) && atom.IsMandatory {
+			continue
+		}
+		fleshAtoms = append(fleshAtoms, atom)
 	}
 	return fleshAtoms
 }
