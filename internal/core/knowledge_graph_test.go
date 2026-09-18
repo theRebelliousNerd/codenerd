@@ -101,15 +101,22 @@ func TestKnowledgeGraphHydration(t *testing.T) {
 		}
 	}
 
-	// Test integration with HydrateLearnings (should include knowledge graph)
-	count2, err := vs.HydrateLearnings(ctx)
+	// HydrateLearnings must NOT load the graph: on a real repository it is
+	// larger than the kernel's EDB ceiling (307k rows on 2026-09-18 against a
+	// 250k limit), and loading it at boot left no room for the turn's own
+	// facts. The rules read it through query_knowledge_graph instead.
+	fresh, err := NewRealKernel()
 	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	vs2 := NewVirtualStore(nil)
+	vs2.SetLocalDB(db)
+	vs2.SetKernel(fresh)
+	if _, err := vs2.HydrateLearnings(ctx); err != nil {
 		t.Fatalf("Failed to hydrate learnings: %v", err)
 	}
-
-	// Count should include at least the knowledge graph links
-	if count2 < len(testLinks) {
-		t.Errorf("HydrateLearnings should include knowledge graph (%d links), got %d total facts", len(testLinks), count2)
+	if got, _ := fresh.Query("knowledge_link"); len(got) != 0 {
+		t.Errorf("HydrateLearnings loaded %d knowledge_link facts into the kernel; the graph must stay in the store", len(got))
 	}
 }
 

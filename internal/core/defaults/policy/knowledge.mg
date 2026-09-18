@@ -40,7 +40,23 @@ context_atom(fn:pair(Pred, Args)) :-
     user_intent(/current_intent, _, _, _, Intent).
 
 # 4. Knowledge graph links spread activation
-# Entity relationships from knowledge_graph propagate energy
+# Entity relationships propagate energy along knowledge_link facts that were
+# asserted LIVE this session (the ingest and document paths: /has_file,
+# /has_chunk, /has_source_doc, and memory operations that record /related_to
+# or /depends_on). The stored knowledge graph itself is NOT resident: it is the
+# whole world's symbol map (307k rows on this repository, 2026-09-18) and
+# loading it at boot filled the kernel's EDB ceiling before the turn began, so
+# HydrateLearnings no longer loads it. Its dependency edges are the same
+# information as the world model's dependency_link facts, which activation.mg
+# rule 4 already spreads along.
+#
+# Reading the store from here through the external query_knowledge_graph is
+# not possible on the pinned engine: an external premise whose input argument
+# is a variable bound by an earlier atom panics in EvalExternalQuery
+# (topdown.go:99 asserts the input is a Constant; seminaivebottomup.go:831
+# passes the premise without applying the substitution). Externals join only
+# with constant inputs written in the rule text. Recorded as an engine
+# limitation for the M2 "mount SQLite as virtual predicates" pattern.
 activation(EntityB, 60) :-
     knowledge_link(EntityA, /related_to, EntityB),
     activation(EntityA, Score),

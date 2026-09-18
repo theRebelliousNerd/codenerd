@@ -487,9 +487,13 @@ func learnedArgsValue(args []any) string {
 	return string(encoded)
 }
 
-// HydrateKnowledgeGraph loads knowledge graph entries from LocalStore and hydrates
-// the kernel with knowledge_link facts. This can be called independently or as part
-// of HydrateLearnings for targeted knowledge graph updates.
+// HydrateKnowledgeGraph loads EVERY knowledge graph entry from LocalStore into
+// the kernel as knowledge_link facts. It is not on the boot path (see
+// HydrateLearnings): on a real repository the graph is larger than the EDB
+// ceiling, and the rules that read the graph go through the external
+// query_knowledge_graph instead. It remains for callers that hold a small,
+// bounded graph and want it resident; a caller with an unbounded one gets the
+// EDB limit error the kernel returns.
 func (v *VirtualStore) HydrateKnowledgeGraph(ctx context.Context) (int, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateKnowledgeGraph")
 	defer timer.Stop()
@@ -616,13 +620,16 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 		}
 	}
 
-	// 4. Load knowledge graph links (now delegates to dedicated method)
-	kgCount, err := v.HydrateKnowledgeGraph(ctx)
-	if err != nil {
-		hydrationErrs = append(hydrationErrs, err)
-	} else {
-		count += kgCount
-	}
+	// The knowledge graph is NOT hydrated here. It is the world's symbol map
+	// (defined_in, depends_on: 307,455 rows on this repository on 2026-09-18)
+	// and loading it whole filled the kernel's EDB ceiling (250,000 facts) at
+	// boot, so the turn's own facts -- user_intent, the allowed tools -- were
+	// rejected and every `nerd fix` that day ran with zero tools and a 1.6k
+	// token prompt, then failed as hollow. The graph is served on demand by
+	// the external predicate query_knowledge_graph(EntityA, Relation, EntityB)
+	// (external_predicates.go, mode +,-,-), which policy/knowledge.mg's
+	// activation rules read with EntityA already bound. Domain knowledge is
+	// mounted, not bulk-loaded: that is what the deductive database is for.
 
 	// 5. Load recent activations (top 50 with score > 0.3)
 	activations, err := v.QueryActivations(50, 0.3)
