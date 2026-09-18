@@ -479,9 +479,9 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input any) 
 		shown := min(len(contextAtoms), maxInjectedContextAtoms)
 		for _, atom := range contextAtoms[:shown] {
 			sb.WriteString(fmt.Sprintf("- %s\n",
-				prompt.ClampHead(atom, maxInjectedContextAtomChars, "injectable_context row")))
+				types.ClampHead(atom, maxInjectedContextAtomChars, "injectable_context row")))
 		}
-		if notice := prompt.TruncationNotice(shown, len(contextAtoms), "injectable_context rows"); notice != "" {
+		if notice := types.TruncationNotice(shown, len(contextAtoms), "injectable_context rows"); notice != "" {
 			sb.WriteString(notice)
 			sb.WriteString("\n")
 		}
@@ -881,7 +881,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// head carries diagnostics and failing tests (what is broken), the tail
 	// carries safety constraints and compressed history (what must not be
 	// done). Cutting either end blind loses one of those.
-	return prompt.ClampText(sb.String(), maxSessionContextChars, "session context")
+	return types.ClampText(sb.String(), maxSessionContextChars, "session context")
 }
 
 // Bounds on the legacy blackboard block.
@@ -913,7 +913,7 @@ const (
 
 // sessionContextLine bounds one blackboard line with a visible marker.
 func sessionContextLine(s string) string {
-	return prompt.ClampHead(s, maxSessionContextLineChars, "session context line")
+	return types.ClampHead(s, maxSessionContextLineChars, "session context line")
 }
 
 // buildIntentContext formats the user intent for prompt injection.

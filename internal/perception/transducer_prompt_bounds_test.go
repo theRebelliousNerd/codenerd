@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -110,8 +109,8 @@ func TestBuildPrompt_Bounds(t *testing.T) {
 			if len(got) > ceiling {
 				t.Errorf("classification prompt is %d chars, want <= %d", len(got), ceiling)
 			}
-			if prompt.IsClamped(got) != tt.wantMarker {
-				t.Errorf("IsClamped = %v, want %v", prompt.IsClamped(got), tt.wantMarker)
+			if types.IsClamped(got) != tt.wantMarker {
+				t.Errorf("IsClamped = %v, want %v", types.IsClamped(got), tt.wantMarker)
 			}
 			for _, want := range tt.mustKeep {
 				if !strings.Contains(got, want) {

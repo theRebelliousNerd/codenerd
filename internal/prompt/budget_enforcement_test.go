@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"codenerd/internal/types"
 )
 
 // mkAtom builds an OrderedAtom with a content body of roughly the requested
@@ -332,7 +334,7 @@ func TestCompile_ResultAlwaysFitsBudget(t *testing.T) {
 					used, effective)
 			}
 			// Nothing is ever cut: an atom that does not fit is omitted whole.
-			if IsClamped(result.Prompt) || strings.Contains(result.Prompt, "truncated") {
+			if types.IsClamped(result.Prompt) || strings.Contains(result.Prompt, "truncated") {
 				t.Error("the compiled prompt carries a truncation marker; atoms are omitted whole, never cut")
 			}
 			if result.AtomsIncluded == len(tt.atoms) {

@@ -14,7 +14,6 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
-	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -282,16 +281,16 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 		}
 		if sessionCtx.Ambient.SelectedText != "" {
 			sb.WriteString(fmt.Sprintf("- **Selected Text:**\n```\n%s\n```\n",
-				prompt.ClampText(sessionCtx.Ambient.SelectedText, maxAmbientSelectionChars, "editor selection")))
+				types.ClampText(sessionCtx.Ambient.SelectedText, maxAmbientSelectionChars, "editor selection")))
 		}
 		if len(sessionCtx.Ambient.Diagnostics) > 0 {
 			sb.WriteString("- **Diagnostics:**\n")
 			shown := min(len(sessionCtx.Ambient.Diagnostics), maxAmbientDiagnostics)
 			for _, diag := range sessionCtx.Ambient.Diagnostics[:shown] {
 				sb.WriteString(fmt.Sprintf("  - %s\n",
-					prompt.ClampHead(diag, maxAmbientDiagnosticChars, "diagnostic")))
+					types.ClampHead(diag, maxAmbientDiagnosticChars, "diagnostic")))
 			}
-			if notice := prompt.TruncationNotice(shown, len(sessionCtx.Ambient.Diagnostics), "diagnostics"); notice != "" {
+			if notice := types.TruncationNotice(shown, len(sessionCtx.Ambient.Diagnostics), "diagnostics"); notice != "" {
 				sb.WriteString("  - " + notice + "\n")
 			}
 		}
@@ -301,7 +300,7 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 	// Incorporate Strategic Context
 	if strategicContext != "" {
 		sb.WriteString("## Strategic Context\n\n")
-		sb.WriteString(prompt.ClampText(strategicContext, maxStrategicContextChars, "strategic context"))
+		sb.WriteString(types.ClampText(strategicContext, maxStrategicContextChars, "strategic context"))
 		sb.WriteString("\n\n---\n\n")
 	}
 
@@ -325,11 +324,11 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 			}
 			written++
 			sb.WriteString(fmt.Sprintf("- **User Input:** \"%s\"\n",
-				prompt.ClampHead(match.TextContent, maxSemanticExemplarChars, "exemplar")))
+				types.ClampHead(match.TextContent, maxSemanticExemplarChars, "exemplar")))
 			sb.WriteString(fmt.Sprintf("  **Mapped Intent:** Verb=%s, Target=%s, Constraint=%s (Similarity: %.2f)\n\n",
 				match.Verb, match.Target, match.Constraint, match.Similarity))
 		}
-		if notice := prompt.TruncationNotice(written, eligible, "exemplars"); notice != "" {
+		if notice := types.TruncationNotice(written, eligible, "exemplars"); notice != "" {
 			sb.WriteString(notice + "\n\n")
 		}
 		sb.WriteString("---\n\n")
@@ -346,10 +345,10 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 		for _, turn := range history[start:] {
 			if turn.ThoughtSummary != "" {
 				sb.WriteString(fmt.Sprintf("**%s (Previous Thoughts)**:\n```\n%s\n```\n\n", turn.Role,
-					prompt.ClampHead(turn.ThoughtSummary, maxClassificationThoughtChars, "thought summary")))
+					types.ClampHead(turn.ThoughtSummary, maxClassificationThoughtChars, "thought summary")))
 			}
 			sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", turn.Role,
-				prompt.ClampText(turn.Content, maxClassificationTurnChars, "prior turn")))
+				types.ClampText(turn.Content, maxClassificationTurnChars, "prior turn")))
 		}
 		sb.WriteString("---\n\n")
 	}

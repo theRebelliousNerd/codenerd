@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"codenerd/internal/types"
 )
 
 // injectable_context and specialist_knowledge become ONE synthetic atom each,
@@ -45,8 +47,8 @@ func TestRenderKernelContextBlock(t *testing.T) {
 			if len(got) > maxKernelInjectedAtomChars+512 {
 				t.Errorf("block is %d chars, cap is %d", len(got), maxKernelInjectedAtomChars)
 			}
-			if IsClamped(got) != tt.wantMarker {
-				t.Errorf("IsClamped = %v, want %v", IsClamped(got), tt.wantMarker)
+			if types.IsClamped(got) != tt.wantMarker {
+				t.Errorf("IsClamped = %v, want %v", types.IsClamped(got), tt.wantMarker)
 			}
 			if !strings.Contains(got, "KERNEL-INJECTED CONTEXT") {
 				t.Error("block header was lost")
@@ -117,7 +119,7 @@ func TestFormatSpecialists_IsBounded(t *testing.T) {
 			if lines > maxSpecialistEntries+2 {
 				t.Errorf("roster has %d lines, cap is %d", lines, maxSpecialistEntries)
 			}
-			if tt.wantMarker && !IsClamped(got) {
+			if tt.wantMarker && !types.IsClamped(got) {
 				t.Error("a capped roster must say so")
 			}
 			if got == "" {

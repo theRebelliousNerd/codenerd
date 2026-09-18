@@ -1958,7 +1958,7 @@ func boundToolLoopHistory(history []types.Message) []types.Message {
 				continue
 			}
 			total -= len(results[j].Content)
-			results[j].Content = prompt.ClampText(results[j].Content, share, "tool result")
+			results[j].Content = types.ClampText(results[j].Content, share, "tool result")
 			total += len(results[j].Content)
 			clamped++
 		}
@@ -2015,8 +2015,8 @@ const maxHistoryThoughtChars = 2000
 // appendToHistory adds a turn to conversation history, bounding the turn's text
 // so one oversized turn cannot evict the rest of the window.
 func (e *Executor) appendToHistory(turn perception.ConversationTurn) {
-	turn.Content = prompt.ClampText(turn.Content, maxHistoryTurnChars, "conversation turn")
-	turn.ThoughtSummary = prompt.ClampHead(turn.ThoughtSummary, maxHistoryThoughtChars, "thought summary")
+	turn.Content = types.ClampText(turn.Content, maxHistoryTurnChars, "conversation turn")
+	turn.ThoughtSummary = types.ClampHead(turn.ThoughtSummary, maxHistoryThoughtChars, "thought summary")
 
 	e.mu.Lock()
 	defer e.mu.Unlock()

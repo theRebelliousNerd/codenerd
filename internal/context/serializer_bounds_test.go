@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
-	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 )
 
 func bigFacts(n int, argLen int) []core.Fact {
@@ -113,8 +113,8 @@ func TestSerializeCompressedContext_Bounds(t *testing.T) {
 			if len(got) > maxContextBlockChars+512 {
 				t.Errorf("context block is %d chars, cap is %d", len(got), maxContextBlockChars)
 			}
-			if prompt.IsClamped(got) != tt.wantMarker {
-				t.Errorf("IsClamped = %v, want %v", prompt.IsClamped(got), tt.wantMarker)
+			if types.IsClamped(got) != tt.wantMarker {
+				t.Errorf("IsClamped = %v, want %v", types.IsClamped(got), tt.wantMarker)
 			}
 			for _, want := range tt.mustKeep {
 				if !strings.Contains(got, want) {

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"codenerd/internal/perception"
-	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -70,7 +69,7 @@ func TestAppendToHistory_BoundsTurnText(t *testing.T) {
 				t.Errorf("stored thought summary is %d chars, cap is %d",
 					len(stored.ThoughtSummary), maxHistoryThoughtChars)
 			}
-			marked := prompt.IsClamped(stored.Content) || prompt.IsClamped(stored.ThoughtSummary)
+			marked := types.IsClamped(stored.Content) || types.IsClamped(stored.ThoughtSummary)
 			if marked != tt.wantMarker {
 				t.Errorf("truncation marker present = %v, want %v", marked, tt.wantMarker)
 			}
@@ -176,7 +175,7 @@ func TestBoundToolLoopHistory(t *testing.T) {
 			}
 
 			rendered := renderTranscript(got)
-			bounded := strings.Contains(rendered, "evicted from the transcript") || prompt.IsClamped(rendered)
+			bounded := strings.Contains(rendered, "evicted from the transcript") || types.IsClamped(rendered)
 			if bounded != tt.wantEvicted {
 				t.Errorf("bounding marker present = %v, want %v", bounded, tt.wantEvicted)
 			}
@@ -190,7 +189,7 @@ func TestBoundToolLoopHistory(t *testing.T) {
 			}
 			// Eviction must not mutate the caller's slice.
 			original := renderTranscript(tt.history)
-			if strings.Contains(original, "evicted from the transcript") || prompt.IsClamped(original) {
+			if strings.Contains(original, "evicted from the transcript") || types.IsClamped(original) {
 				t.Error("boundToolLoopHistory mutated its input")
 			}
 		})

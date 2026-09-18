@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // specialistCache stores cached specialist strings to avoid re-reading agents.json.
@@ -104,7 +105,7 @@ func formatSpecialists(registry agentRegistry) string {
 			desc = fmt.Sprintf("%s domain specialist", agent.Type)
 		}
 		specialists = append(specialists,
-			ClampHead(fmt.Sprintf("- **%s**: %s", agent.Name, desc), maxSpecialistEntryChars, "specialist entry"))
+			types.ClampHead(fmt.Sprintf("- **%s**: %s", agent.Name, desc), maxSpecialistEntryChars, "specialist entry"))
 	}
 
 	specialistNames := make([]string, 0, len(shards.CoreShardDescriptions))
@@ -116,7 +117,7 @@ func formatSpecialists(registry agentRegistry) string {
 	for _, name := range specialistNames {
 		desc := shards.CoreShardDescriptions[name]
 		specialists = append(specialists,
-			ClampHead(fmt.Sprintf("- **%s**: %s", name, desc), maxSpecialistEntryChars, "specialist entry"))
+			types.ClampHead(fmt.Sprintf("- **%s**: %s", name, desc), maxSpecialistEntryChars, "specialist entry"))
 	}
 
 	if len(specialists) == 0 {
@@ -126,7 +127,7 @@ func formatSpecialists(registry agentRegistry) string {
 	// Core shards sort into the same list as user agents, so a truncated
 	// roster still names the built-ins the routing layer depends on.
 	if len(specialists) > maxSpecialistEntries {
-		notice := TruncationNotice(maxSpecialistEntries, len(specialists), "specialists")
+		notice := types.TruncationNotice(maxSpecialistEntries, len(specialists), "specialists")
 		specialists = append(specialists[:maxSpecialistEntries], notice)
 	}
 	return strings.Join(specialists, "\n")

@@ -1,4 +1,4 @@
-package prompt
+package types
 
 import (
 	"fmt"
@@ -7,7 +7,21 @@ import (
 )
 
 // Text bounding primitives shared by every stage that can put text into an
-// outbound prompt.
+// outbound prompt, a tool result, or a message the model reads.
+//
+// They live in types, not in the prompt compiler that first needed them,
+// because the rule they implement is the pipeline's and not one package's.
+// The shell backend that caps a 40 MB build log, the compressor that folds a
+// history segment, the fact serializer and the prompt compiler all cut
+// model-bound content, and a marker only means anything if every one of them
+// leaves the same one. types is the lowest package all of them already import.
+//
+// This is the second half of a two-part rule. The first half lives next door
+// in truncation.go: when the MODEL's own output is cut at the provider's
+// ceiling, the broker sends it back to be restated whole within the limit
+// (OutputTruncated, internal/broker/compression.go) rather than keeping the
+// partial. Content is restated when it can be, and elided with a marker when
+// it cannot. It is never quietly shortened.
 //
 // The governing rule is that truncation is never silent. A model that is
 // handed the first 4 KB of a 40 MB build log and no marker will reason about

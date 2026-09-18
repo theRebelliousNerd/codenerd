@@ -1,16 +1,17 @@
 package context
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
-	"codenerd/internal/perception"
-	"codenerd/internal/prompt"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/perception"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -273,7 +274,7 @@ func (fs *FactSerializer) SerializeCompressedContext(ctx *CompressedContext) str
 
 	sb.WriteString("# ═══════════════════════════════════════════════════════════\n")
 
-	return prompt.ClampText(sb.String(), maxContextBlockChars, "mangle context block")
+	return types.ClampText(sb.String(), maxContextBlockChars, "mangle context block")
 }
 
 // Bounds on the injected context block.

@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -88,7 +87,7 @@ func TestBuildSessionContext_Bounds(t *testing.T) {
 			if len(got) > maxSessionContextChars+512 {
 				t.Errorf("blackboard block is %d chars, cap is %d", len(got), maxSessionContextChars)
 			}
-			if got != "" && !prompt.IsClamped(got) {
+			if got != "" && !types.IsClamped(got) {
 				t.Error("an over-cap blackboard block must carry a visible truncation marker")
 			}
 		})
@@ -110,7 +109,7 @@ func TestBuildSessionContext_OrdinarySessionIsUnchanged(t *testing.T) {
 			t.Errorf("ordinary session lost %q", want)
 		}
 	}
-	if prompt.IsClamped(got) {
+	if types.IsClamped(got) {
 		t.Error("ordinary session must not be truncated")
 	}
 }
@@ -128,8 +127,8 @@ func TestSessionContextLine(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := sessionContextLine(tt.in)
-			if prompt.IsClamped(got) != tt.wantMarker {
-				t.Fatalf("IsClamped = %v, want %v", prompt.IsClamped(got), tt.wantMarker)
+			if types.IsClamped(got) != tt.wantMarker {
+				t.Fatalf("IsClamped = %v, want %v", types.IsClamped(got), tt.wantMarker)
 			}
 			if !tt.wantMarker && got != tt.in {
 				t.Errorf("in-bounds line was modified: %q", got)

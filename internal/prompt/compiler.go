@@ -17,6 +17,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/transparency"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 
 	"golang.org/x/sync/errgroup"
@@ -1040,14 +1041,14 @@ func renderKernelContextBlock(rows []string) string {
 	}
 	for _, row := range rows[:shown] {
 		sb.WriteString("- ")
-		sb.WriteString(ClampHead(row, maxKernelContextRowChars, "injectable_context row"))
+		sb.WriteString(types.ClampHead(row, maxKernelContextRowChars, "injectable_context row"))
 		sb.WriteString("\n")
 	}
-	if notice := TruncationNotice(shown, len(rows), "injectable_context rows"); notice != "" {
+	if notice := types.TruncationNotice(shown, len(rows), "injectable_context rows"); notice != "" {
 		sb.WriteString(notice)
 		sb.WriteString("\n")
 	}
-	return ClampText(sb.String(), maxKernelInjectedAtomChars, "injectable_context")
+	return types.ClampText(sb.String(), maxKernelInjectedAtomChars, "injectable_context")
 }
 
 func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) ([]*PromptAtom, error) {
@@ -1133,16 +1134,16 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			}
 			for _, b := range blocks[:shown] {
 				sb.WriteString("## ")
-				sb.WriteString(ClampHead(b.topic, maxSpecialistTopicChars, "specialist_knowledge topic"))
+				sb.WriteString(types.ClampHead(b.topic, maxSpecialistTopicChars, "specialist_knowledge topic"))
 				sb.WriteString("\n")
-				sb.WriteString(ClampText(b.content, maxSpecialistBlockChars, "specialist_knowledge body"))
+				sb.WriteString(types.ClampText(b.content, maxSpecialistBlockChars, "specialist_knowledge body"))
 				sb.WriteString("\n\n")
 			}
-			if notice := TruncationNotice(shown, len(blocks), "specialist_knowledge blocks"); notice != "" {
+			if notice := types.TruncationNotice(shown, len(blocks), "specialist_knowledge blocks"); notice != "" {
 				sb.WriteString(notice)
 				sb.WriteString("\n")
 			}
-			content := ClampText(strings.TrimRight(sb.String(), "\n"), maxKernelInjectedAtomChars, "specialist_knowledge")
+			content := types.ClampText(strings.TrimRight(sb.String(), "\n"), maxKernelInjectedAtomChars, "specialist_knowledge")
 			id := "kernel/knowledge/" + HashContent(content)[:8]
 			pa := NewPromptAtom(id, CategoryKnowledge, content)
 			pa.IsMandatory = true
