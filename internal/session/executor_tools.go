@@ -129,17 +129,51 @@ func (e *Executor) runToolLoopPass(
 				// the original planning text discards the entire retry.
 				llmResponse = retried
 				e.promotePiggybackToolRequests(llmResponse)
-				if len(retried.ToolCalls) == 0 {
-					return llmResponse, nil, nil
-				}
 			} else {
 				if retryErr != nil {
 					logging.Get(logging.CategorySession).Warn("runToolLoop: no-tool-retry path failed: %v", retryErr)
 				}
+			}
+		}
+		if len(llmResponse.ToolCalls) == 0 {
+			// A prose-only round on a write-oriented intent must be pushed to act
+			// before the turn closes and the hollow verdict stands. The decision
+			// is derived by the working policy: query it for this zero-tool
+			// round and only re-prompt when it derives
+			// working_nudge(/implement). The text is the same working nudge the
+			// loop appends to a tool result between rounds.
+			if e.writeOrientedIntent(result.Intent.Verb) && result.ToolCallsExecuted == 0 {
+				if loop := activeWorkingLoop(ctx); loop != nil {
+					if threshold, thresholdErr := loop.set.RepeatThreshold(ctx); thresholdErr == nil {
+						meter := newWorkingMeter(threshold)
+						progress := meter.workingProgress(true, 0)
+						progress.Regime = loop.regime
+						if decision, policyErr := loop.set.Continue(ctx, progress); policyErr == nil && decision.Nudge == "/implement" {
+							nudgeText := workingNudgeText(decision.Nudge, progress)
+							prior := e.priorTurnMessages()
+							nudgeHistory := make([]types.Message, 0, len(prior)+3)
+							nudgeHistory = append(nudgeHistory, prior...)
+							nudgeHistory = append(nudgeHistory,
+								types.Message{Role: "user", Text: userInput},
+								types.AssistantMessageFrom(llmResponse),
+								types.Message{Role: "user", Text: nudgeText},
+							)
+							if trp, supportsLoop := client.(types.ToolResultsProvider); supportsLoop {
+								if nudged, nudgeErr := e.completeWithWorkingContext(ctx, trp, systemPrompt, nudgeHistory, e.buildToolDefinitions(cfg)); nudgeErr == nil && nudged != nil {
+									llmResponse = nudged
+									e.promotePiggybackToolRequests(llmResponse)
+								}
+							} else if nudged, nudgeErr := e.generateResponse(ctx, client, systemPrompt, userInput+"\n\n"+nudgeText, cfg); nudgeErr == nil && nudged != nil {
+								llmResponse = nudged
+								e.promotePiggybackToolRequests(llmResponse)
+							}
+						}
+					}
+				}
+			}
+			if len(llmResponse.ToolCalls) == 0 {
 				return llmResponse, nil, nil
 			}
-		} else {
-			return llmResponse, nil, nil
 		}
 	}
 
