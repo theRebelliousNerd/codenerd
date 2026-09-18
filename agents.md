@@ -14,6 +14,14 @@ This repo exists to make that split real in production: creative power with dete
 - **Logic as executive**: planning, memory, orchestration, safety, and policy.
 - **Transduction interface**: natural language and code are converted into formal atoms that the kernel can reason over.
 
+### How This Shapes Runtime Changes
+
+- The world model, durable facts, and CodeDOM are the model's primary codebase context. Use targeted, revision-aware source views when those representations need detail or refresh.
+- Mangle manages the active working context throughout execution: relevance, retention, eviction, retrieval, and ordering. A growing tool transcript with occasional summarization does not fulfill this design. Evicted context must remain recoverable; stale evidence must not survive a source change as current truth.
+- Models use typed, policy-mediated operations. Do not give codeNERD models free-form CLI/shell access by default or use it to bypass missing tool wiring. Build/test tools must constrain their inputs and expose structured results. Development agents may use their own shell to build and verify codeNERD.
+- Bound each model request's context while allowing a task to continue as long as it makes progress within the user's constraints. Arbitrary tool-call counts are not task-completion criteria; detect stalls and repeated failures explicitly.
+- Validate this architecture through the normal production entry paths with CodeDOM and world-model context enabled. Restricted-tool benchmarks are supplementary evidence.
+
 ## The Vision (Steve, 2026-09-18) — read before any architectural change
 
 - This is an experimental project and a different paradigm. Mangle — a deductive database
@@ -48,38 +56,30 @@ This repo exists to make that split real in production: creative power with dete
   judged, not a request to restore. `Docs/architecture/` (July 2026) is orientation, not the
   original, and not authoritative.
 
-## Use codeNERD. Do Not Hand-Write This Repo.
+## Use codeNERD Where It Can Do the Job (a suggestion, not a mandate — for now)
 
-**Default: every change to `internal/`, `cmd/`, `pkg/` goes through codeNERD.**
+codeNERD is meant to fix codeNERD, and every change routed through it is a measurement of
+how close it is to that. So *prefer* aiming it at work it can plausibly land, and hand-edit
+freely where it can't yet — this is a dogfood signal to collect, not a gate to pass.
 
 ```powershell
-.\nerd.exe fix "<symptom, file:line, root cause, what to change, how to verify>"
+.\nerd.exe fix "<symptom, with the evidence: log lines, file:line, what was observed>"
 ```
 
-Then review the diff, build, test, and commit. Your job is to *aim* codeNERD and
-*verify* it, not to write the Go yourself. Hand-editing is the failure mode this
-repo exists to eliminate: when you edit by hand, the system under test never
-runs, no defect in it is discovered, and the session quietly becomes "an
-assistant writes Go" — which teaches us nothing about codeNERD.
+What tends to land: one file, one named symptom, the evidence quoted, no diagnosis handed
+over (a brief that carries the answer produces a stenographer). What tends not to: multi-file
+causes, anything upstream of the file the symptom names, and tests — as of 2026-09-18 the
+coder shard does not write them unless told, and its verdict can contradict its own evidence.
 
-This is the working agreement, not a mechanical block. The `settings.json`
-deny rules and the `block-direct-codebase-edits.py` hook that used to enforce
-it were removed by the architect on 2026-09-03 ("that was for your dumber
-predecessor"). The rule stands on judgment now: aim codeNERD first, and when
-you hand-edit, say so in the commit and say why codeNERD could not do it.
+When you try it, record the outcome in the dogfood ledger
+(`.claude/skills/codenerd-dogfood/references/component-ledger.md`): brief, minutes, tool
+calls, what landed, what it missed. When you hand-edit instead, say so in the commit; if
+codeNERD *couldn't* do it, say why — that is the finding, and fixing that blocker is the
+highest-value dogfood there is.
 
-**What a good brief looks like.** Vague briefs fail and burn tokens; precise
-ones land. Name the file and line, the exact symptom, the root cause, the change
-you want, what must NOT change, and the verification command. Size it to one
-turn — multi-file tasks hit the tool-iteration ceiling, so split them.
-
-**When codeNERD genuinely cannot do it**, that is itself the finding. File the
-defect, fix the *blocker* so codeNERD can proceed, and say so explicitly. Fixing
-the blocker is dogfooding; doing its job for it is not.
-
-**Legitimate exceptions**, which still deserve a sentence of justification:
-safety-gate and permission logic (the model should not widen the rule that
-constrains it), and a broken build that prevents codeNERD from running at all.
+Two things stay off-limits for codeNERD regardless: safety-gate and permission logic (the
+model should not widen the rule that constrains it), and a broken build that stops it from
+running at all.
 
 ## Repo Contract
 
@@ -185,6 +185,10 @@ If you see `debug_program_ERROR.mg`, the system crashed and dumped combined `.mg
 - Keep new LLM systems JIT-first.
 - Prefer adding prompt atoms and selection logic over hardcoding prose in shards.
 - When in doubt, preserve the architectural north star and trim encyclopedic detail.
+
+## Grok Harness
+
+Grok Build project wiring lives under `.grok/` (rules, agents, personas, roles, skills). Domain skills remain under `.agents/skills/`. Orient with `/codenerd-session` or `grok inspect`.
 
 ## Deep References
 
