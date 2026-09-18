@@ -98,6 +98,35 @@ func activeWorkingLoop(ctx context.Context) *workingLoop {
 	return value
 }
 
+// workingLoopWorkspace is the workspace a working set persists this turn's
+// observations into. It is the *declared* root only, never the one
+// workspaceForVerification discovers from the process's working directory:
+// discovery is the right answer to "which tree do I compile" and the wrong
+// one to "where do I write durable state", which must be the workspace the
+// caller named. Every production boot declares one (internal/system/factory.go
+// resolves it before SetConfig), so every production tool-loop path — chat and
+// shard alike — has a working set and therefore a policy over it.
+func (e *Executor) workingLoopWorkspace() string {
+	root := strings.TrimSpace(e.configSnapshot().WorkspaceRoot)
+	if root == "" {
+		return ""
+	}
+	canonical, err := tools.CanonicalWorkspaceRoot(root)
+	if err != nil {
+		return ""
+	}
+	return canonical
+}
+
+// workingLoopAvailable reports whether beginWorkingLoop will install a working
+// set for this turn. A declared workspace root is the whole requirement: the
+// working policy reads no world, so a turn without one still gets its stops.
+// Callers that must decide before beginWorkingLoop runs ask here instead of
+// re-deriving the condition and drifting from it.
+func (e *Executor) workingLoopAvailable() bool {
+	return e.workingLoopWorkspace() != ""
+}
+
 func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *prompt.CompilationContext) (context.Context, func(), error) {
 	e.mu.Lock()
 	world, sessionID := e.workingWorld, e.sessionID
@@ -106,19 +135,36 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 	}
 	scopeID := e.workingScope
 	e.mu.Unlock()
-	if world == nil {
-		return ctx, func() {}, nil
-	}
-	root := e.workspaceForVerification()
+	root := e.workingLoopWorkspace()
 	if root == "" {
+		if world == nil {
+			// No declared workspace and no world: nothing to build a working
+			// set on. runToolLoopPass refuses rather than running a tool loop
+			// with no policy over it.
+			return ctx, func() {}, nil
+		}
+		// A world with no workspace is a misconfiguration, not a degraded mode.
 		return ctx, func() {}, fmt.Errorf("working context requires a workspace")
 	}
-	scope := sessionID + "/" + cc.ShardID + "/" + scopeID
+	// A nil world costs the dependency hops in Select and nothing else:
+	// Continue — the policy call, and every stop the loop can derive — reads
+	// no world at all. Refusing the working set here left those turns running
+	// a tool loop with no policy over it, which is a forcing decision made by
+	// a Go nil check.
+	// A turn can reach the loop with no compilation context (the Piggyback
+	// and forced-final paths build one later, or not at all). Its shard and
+	// intent target only name the scope and the focus, so their absence costs
+	// a narrower working set — never the policy.
+	shardID, intentTarget := "", ""
+	if cc != nil {
+		shardID, intentTarget = cc.ShardID, cc.IntentTarget
+	}
+	scope := sessionID + "/" + shardID + "/" + scopeID
 	set, err := working.NewWorkingSet(world, root, scope)
 	if err != nil {
 		return ctx, func() {}, err
 	}
-	focus := normalizeWorkingEntity(cc.IntentTarget, root)
+	focus := normalizeWorkingEntity(intentTarget, root)
 	loop := &workingLoop{set: set, focus: focus, anchor: input, prior: e.priorTurnMessages(), observations: make(map[string]string)}
 	ctx = context.WithValue(ctx, workingLoopKey{}, loop)
 	ctx = tools.WithContextRecall(ctx, set)

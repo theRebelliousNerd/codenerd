@@ -5,6 +5,7 @@ import (
 
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -172,6 +173,9 @@ func TestExecutor_Process_ToolExecution(t *testing.T) {
 		&MockTransducer{},
 	)
 	executor.config.EnableSafetyGate = true // Ensure gate is on
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
 
 	// Execute
 	result, err := executor.Process(context.Background(), "Read /test/file.txt")
@@ -246,6 +250,9 @@ func TestExecutor_Process_SafetyGate(t *testing.T) {
 		&MockTransducer{},
 	)
 	executor.config.EnableSafetyGate = true
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
 
 	// Execute
 	result, err := executor.Process(context.Background(), "Delete everything")
@@ -407,6 +414,10 @@ func TestExecutor_Process_EmptyToolCallArgs(t *testing.T) {
 		},
 	})
 
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
+
 	_, err := executor.Process(context.Background(), "do it")
 	if err != nil {
 		t.Fatalf("Process failed with empty tool calls: %v", err)
@@ -479,13 +490,19 @@ func TestExecutor_TypeCoercion(t *testing.T) {
 // Marathon 13: User Request Extremes and State Conflicts Gap Implementations
 // -----------------------------------------------------------------------------
 
-func TestExecutor_Process_MaxToolCallsExceeded(t *testing.T) {
+// A model that asks for a large batch gets the whole batch executed. Until
+// 2026-09-18 this asserted the opposite: that core_limits.max_tool_calls cut
+// the batch off at a count. A count is not a fact about whether the task is
+// done, so nothing here refuses work — the working policy decides when the
+// turn ends, from what the trace shows.
+func TestExecutor_Process_LargeToolBatchIsNotCutOffByACount(t *testing.T) {
+	// Past the 50 that was defaultMaxToolCalls, small enough to stay fast.
+	const batch = 120
 	mockLLM := &MockLLMClient{
 		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, toolsDef []types.ToolDefinition) (*types.LLMToolResponse, error) {
-			// Return 10,000 tool calls!
-			calls := make([]types.ToolCall, 10000)
+			calls := make([]types.ToolCall, batch)
 			for i := range calls {
-				calls[i] = types.ToolCall{ID: "id", Name: "valid_name"}
+				calls[i] = types.ToolCall{ID: fmt.Sprintf("batch-%d", i), Name: "valid_name"}
 			}
 			return &types.LLMToolResponse{
 				ToolCalls: calls,
@@ -509,8 +526,6 @@ func TestExecutor_Process_MaxToolCallsExceeded(t *testing.T) {
 			},
 		},
 	)
-	executor.config.MaxToolCalls = 5 // low limit for testing
-
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   "valid_name",
@@ -519,10 +534,16 @@ func TestExecutor_Process_MaxToolCallsExceeded(t *testing.T) {
 		},
 	})
 
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
+
 	result, _ := executor.Process(context.Background(), "hello")
-	// Should execute up to 5 and then stop
-	if result != nil && result.ToolCallsExecuted > executor.config.MaxToolCalls {
-		t.Errorf("Executed %d tool calls, expected max %d", result.ToolCallsExecuted, executor.config.MaxToolCalls)
+	if result == nil {
+		t.Fatal("Process returned no result")
+	}
+	if result.ToolCallsExecuted < batch {
+		t.Errorf("executed %d of %d tool calls: something refused work on a count", result.ToolCallsExecuted, batch)
 	}
 }
 

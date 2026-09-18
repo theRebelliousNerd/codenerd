@@ -64,6 +64,20 @@ func (s *scriptedProvider) CompleteWithToolResults(ctx context.Context, sys stri
 	return &types.LLMToolResponse{Text: "default"}, nil
 }
 
+// historyCarriesToolResults distinguishes the initial generation from a
+// tool-result follow-up. Both arrive through CompleteWithToolResults: a
+// working loop is active on every tool-loop turn, so the initial generation
+// is sent as a one-message working request rather than through
+// CompleteWithTools.
+func historyCarriesToolResults(history []types.Message) bool {
+	for _, m := range history {
+		if len(m.ToolResults) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func ensureGeneralProbe(t *testing.T, name string, execFn tools.ExecuteFunc) {
 	t.Helper()
 	if tools.Global().Has(name) {
@@ -89,12 +103,13 @@ func TestRunToolLoop_PiggybackInitialEnvelopeIsPromoted(t *testing.T) {
 	followUpCalls := 0
 	provider := &scriptedProvider{
 		completeWithTools: func(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
-			return &types.LLMToolResponse{
-				Text:      envelope,
-				ToolCalls: nil,
-			}, nil
+			t.Fatal("the initial generation must go through the working request, not CompleteWithTools")
+			return nil, nil
 		},
-		completeWithToolResults: func(_ context.Context, _ string, _ []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+		completeWithToolResults: func(_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			if !historyCarriesToolResults(history) {
+				return &types.LLMToolResponse{Text: envelope, ToolCalls: nil}, nil
+			}
 			followUpCalls++
 			return &types.LLMToolResponse{Text: "terminal done"}, nil
 		},
@@ -155,12 +170,16 @@ func TestRunToolLoop_PiggybackSecondTurnPromoted(t *testing.T) {
 	callIdx := 0
 	provider := &scriptedProvider{
 		completeWithTools: func(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
-			return &types.LLMToolResponse{
-				ToolCalls: []types.ToolCall{{ID: "native-1", Name: firstProbe, Input: map[string]any{}}},
-				Text:      "initial native",
-			}, nil
+			t.Fatal("the initial generation must go through the working request, not CompleteWithTools")
+			return nil, nil
 		},
-		completeWithToolResults: func(_ context.Context, _ string, _ []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+		completeWithToolResults: func(_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			if !historyCarriesToolResults(history) {
+				return &types.LLMToolResponse{
+					ToolCalls: []types.ToolCall{{ID: "native-1", Name: firstProbe, Input: map[string]any{}}},
+					Text:      "initial native",
+				}, nil
+			}
 			callIdx++
 			if callIdx == 1 {
 				return &types.LLMToolResponse{

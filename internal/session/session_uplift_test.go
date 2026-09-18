@@ -11,16 +11,17 @@ import (
 	"codenerd/internal/types"
 )
 
-// A nil budget controller must deny extension, not panic: every other method
-// on the controller is nil-safe, and the deny path is the fail-closed answer.
-func TestToolBudgetController_NilDeniesWithoutPanic(t *testing.T) {
-	var c *toolBudgetController
-	decision := c.maybeExtend(true)
-	if decision.Granted {
-		t.Error("nil controller must not grant an extension")
+// A nil meter must measure nothing rather than panic. It has nothing to
+// grant or deny any more: the extension arithmetic went with the ceilings on
+// 2026-09-18, and what is left is measurement the policy reads.
+func TestWorkingMeter_NilIsSafeToObserve(t *testing.T) {
+	var m *workingMeter
+	m.observe(nil, nil)
+	if m.repeatedTailCycle() {
+		t.Error("a nil meter must claim no cycle")
 	}
-	if decision.Reason == "" {
-		t.Error("nil controller must explain the denial")
+	if got := m.workingProgress(true, 0); got.Rounds != 0 || got.Cycle {
+		t.Errorf("progress = %+v, want no counts from a nil meter", got)
 	}
 }
 

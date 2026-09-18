@@ -70,22 +70,13 @@ func TestLoadUserConfig_ValidExplicitLimitsLoadUnchanged(t *testing.T) {
 		"max_concurrent_api_calls": 3,
 		"max_session_duration_min": 60,
 		"max_facts_in_kernel": 50000,
-		"max_derived_facts_limit": 20000,
-		"max_tool_calls": 25,
-		"max_tool_iterations": 6,
-		"adaptive_tool_budget": false,
-		"tool_iteration_extension_size": 4,
-		"max_tool_iteration_extensions": 1,
-		"tool_loop_repeat_threshold": 3
+		"max_derived_facts_limit": 20000
 	}}`)
 	cfg, err := LoadUserConfig(path)
 	if err != nil {
 		t.Fatalf("LoadUserConfig error: %v", err)
 	}
 	limits := cfg.GetCoreLimits()
-	if limits.AdaptiveToolBudget == nil || *limits.AdaptiveToolBudget {
-		t.Fatal("explicit adaptive_tool_budget=false was lost")
-	}
 	names := []string{
 		"max_total_memory_mb",
 		"max_concurrent_shards",
@@ -93,11 +84,6 @@ func TestLoadUserConfig_ValidExplicitLimitsLoadUnchanged(t *testing.T) {
 		"max_session_duration_min",
 		"max_facts_in_kernel",
 		"max_derived_facts_limit",
-		"max_tool_calls",
-		"max_tool_iterations",
-		"tool_iteration_extension_size",
-		"max_tool_iteration_extensions",
-		"tool_loop_repeat_threshold",
 	}
 	got := []int{
 		limits.MaxTotalMemoryMB,
@@ -106,16 +92,75 @@ func TestLoadUserConfig_ValidExplicitLimitsLoadUnchanged(t *testing.T) {
 		limits.MaxSessionDurationMin,
 		limits.MaxFactsInKernel,
 		limits.MaxDerivedFactsLimit,
-		limits.MaxToolCalls,
-		limits.MaxToolIterations,
-		limits.ToolIterationExtensionSize,
-		limits.MaxToolIterationExtensions,
-		limits.ToolLoopRepeatThreshold,
 	}
-	want := []int{8192, 4, 3, 60, 50000, 20000, 25, 6, 4, 1, 3}
+	want := []int{8192, 4, 3, 60, 50000, 20000}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("%s = %d, want %d", names[i], got[i], want[i])
 		}
 	}
+}
+
+// The six tool-budget keys were deleted on 2026-09-18 with the count ceilings
+// they configured. A config that still sets one must fail to load, and the
+// failure must name the key and say why it is gone — the strict decoder's own
+// "unknown field" names the key but leaves the user guessing whether it was
+// renamed, moved or removed, and a user who believes they still have a
+// ceiling is worse off than one whose config will not start.
+func TestRemovedConfigKeys_FailLoudly(t *testing.T) {
+	cases := map[string]string{
+		"max_tool_calls":                `25`,
+		"max_tool_iterations":           `6`,
+		"adaptive_tool_budget":          `false`,
+		"tool_iteration_extension_size": `4`,
+		"max_tool_iteration_extensions": `1`,
+		"tool_loop_repeat_threshold":    `3`,
+	}
+	for key, value := range cases {
+		t.Run(key, func(t *testing.T) {
+			path := writeCoreLimitsTestConfig(t,
+				`{"core_limits": {"max_concurrent_shards": 4, "`+key+`": `+value+`}}`)
+			_, err := LoadUserConfig(path)
+			if err == nil {
+				t.Fatalf("core_limits.%s still loads; a removed key must not be silently ignored", key)
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Fatalf("error does not name the removed key %q: %v", key, err)
+			}
+			if !strings.Contains(err.Error(), "removed tool-budget key") {
+				t.Fatalf("error does not say the key was removed: %v", err)
+			}
+			if !strings.Contains(err.Error(), "delete the key") {
+				t.Fatalf("error does not say what to do about it: %v", err)
+			}
+		})
+	}
+
+	t.Run("all six at once are all named", func(t *testing.T) {
+		fields := make([]string, 0, len(cases))
+		for key, value := range cases {
+			fields = append(fields, `"`+key+`": `+value)
+		}
+		path := writeCoreLimitsTestConfig(t, `{"core_limits": {`+strings.Join(fields, ", ")+`}}`)
+		_, err := LoadUserConfig(path)
+		if err == nil {
+			t.Fatal("a config of nothing but removed keys still loads")
+		}
+		for key := range cases {
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("error does not name %q, so the user must fix them one boot at a time: %v", key, err)
+			}
+		}
+	})
+
+	t.Run("the replacement for the repeat threshold is named", func(t *testing.T) {
+		path := writeCoreLimitsTestConfig(t, `{"core_limits": {"tool_loop_repeat_threshold": 3}}`)
+		_, err := LoadUserConfig(path)
+		if err == nil {
+			t.Fatal("tool_loop_repeat_threshold still loads")
+		}
+		if !strings.Contains(err.Error(), "working_repeat_threshold") {
+			t.Fatalf("the key that became a policy fact must say where it went: %v", err)
+		}
+	})
 }

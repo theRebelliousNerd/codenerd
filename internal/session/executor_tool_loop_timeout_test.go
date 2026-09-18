@@ -171,9 +171,18 @@ func (c *deadlineToolLoopClient) CompleteWithTools(
 func (c *deadlineToolLoopClient) CompleteWithToolResults(
 	ctx context.Context,
 	_ string,
-	_ []types.Message,
+	history []types.Message,
 	availableTools []types.ToolDefinition,
 ) (*types.LLMToolResponse, error) {
+	// The initial generation arrives here too: a working loop is active on
+	// every tool-loop turn, so the turn is sent as a working request rather
+	// than through CompleteWithTools.
+	if !historyCarriesToolResults(history) {
+		return &types.LLMToolResponse{
+			ToolCalls:  []types.ToolCall{{ID: "deadline-read-1", Name: c.toolName}},
+			StopReason: "tool_use",
+		}, nil
+	}
 	if len(availableTools) > 0 {
 		c.ordinaryFollowups.Add(1)
 		<-ctx.Done()
@@ -203,8 +212,10 @@ func TestRunToolLoop_ReservesTimeForFinalVerdict(t *testing.T) {
 	executor := NewExecutor(
 		nil, &MockVirtualStore{}, client, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	executor.config.EnableSafetyGate = false
-	executor.config.MaxToolIterations = 24
-	executor.config.MaxToolCalls = 10
+	// No count bounds the loop; the wall clock is the user's constraint and
+	// is the only reason this turn ends. The loop still runs under the working
+	// policy, which needs a declared workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
 	executor.config.ToolTimeout = time.Second
 	executor.config.FinalAnswerReserve = 120 * time.Millisecond
 

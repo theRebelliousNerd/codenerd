@@ -118,10 +118,10 @@ func TestExecutor_CheckSafety_NilAgentConfigGracefulRejection(t *testing.T) {
 func TestExecutorConfigSnapshotConcurrentSet(t *testing.T) {
 	executor := &Executor{config: DefaultExecutorConfig()}
 	first := DefaultExecutorConfig()
-	first.MaxToolCalls = 11
+	first.RepairMaxAttempts = 11
 	first.TokenBudget = 111
 	second := DefaultExecutorConfig()
-	second.MaxToolCalls = 22
+	second.RepairMaxAttempts = 22
 	second.TokenBudget = 222
 
 	var wg sync.WaitGroup
@@ -140,9 +140,9 @@ func TestExecutorConfigSnapshotConcurrentSet(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < 2_000; i++ {
 			got := executor.configSnapshot()
-			if (got.MaxToolCalls == first.MaxToolCalls && got.TokenBudget != first.TokenBudget) ||
-				(got.MaxToolCalls == second.MaxToolCalls && got.TokenBudget != second.TokenBudget) {
-				t.Errorf("torn config snapshot: MaxToolCalls=%d TokenBudget=%d", got.MaxToolCalls, got.TokenBudget)
+			if (got.RepairMaxAttempts == first.RepairMaxAttempts && got.TokenBudget != first.TokenBudget) ||
+				(got.RepairMaxAttempts == second.RepairMaxAttempts && got.TokenBudget != second.TokenBudget) {
+				t.Errorf("torn config snapshot: RepairMaxAttempts=%d TokenBudget=%d", got.RepairMaxAttempts, got.TokenBudget)
 				return
 			}
 		}

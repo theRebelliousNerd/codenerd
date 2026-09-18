@@ -2024,41 +2024,18 @@ func initFinalExecutors(bctx *bootContext) error {
 		configFactory,
 		bctx.transducer,
 	)
-	// Tool-loop budget from core_limits. Both ceilings used to be hardcoded in
-	// DefaultExecutorConfig with no way to raise them, and 8 iterations is low
-	// for research-heavy work: a `nerd create <architecture doc>` turn spent its
-	// whole budget reading source and reached the ceiling before writing
-	// anything.
+	// Executor config for every boot. It carries no tool-call or tool-round
+	// ceiling: the tool loop runs while the working policy derives no stop
+	// (internal/context/working_set.mg), and until 2026-09-18 this block
+	// forwarded six core_limits keys that only ever narrowed that.
 	//
-	// Applied unconditionally now, because it also carries WorkspaceRoot for
+	// Applied unconditionally, because it also carries WorkspaceRoot for
 	// post-edit build verification. Gating the whole config behind "did the user
 	// set a core limit?" left verification without a tree to compile on any
 	// workspace that took the defaults — a guard that is off by default for most
 	// users is not a guard.
 	execCfg := session.DefaultExecutorConfig()
-	execCfg.ProgressDrivenTools = true
-	execCfg.MaxToolCalls = 0
-	execCfg.MaxToolIterations = 0
 	execCfg.WorkspaceRoot = bctx.workspace
-	limits := bctx.appCfg.GetCoreLimits()
-	if limits.MaxToolCalls > 0 {
-		execCfg.MaxToolCalls = limits.MaxToolCalls
-	}
-	if limits.MaxToolIterations > 0 {
-		execCfg.MaxToolIterations = limits.MaxToolIterations
-	}
-	if limits.AdaptiveToolBudget != nil {
-		execCfg.AdaptiveToolBudget = *limits.AdaptiveToolBudget
-	}
-	if limits.ToolIterationExtensionSize > 0 {
-		execCfg.ToolIterationExtensionSize = limits.ToolIterationExtensionSize
-	}
-	if limits.MaxToolIterationExtensions > 0 {
-		execCfg.MaxToolIterationExtensions = limits.MaxToolIterationExtensions
-	}
-	if limits.ToolLoopRepeatThreshold > 0 {
-		execCfg.ToolLoopRepeatThreshold = limits.ToolLoopRepeatThreshold
-	}
 	bctx.sessionExecutor.SetConfig(execCfg)
 	// The shard profile's enable_learning gates what the executor records
 	// for prompt evolution, per persona.
@@ -2067,10 +2044,8 @@ func initFinalExecutors(bctx *bootContext) error {
 			return appCfg.GetShardProfile(shardType).EnableLearning
 		})
 	}
-	logging.Boot("Tool loop budget: %d calls / %d base iterations; adaptive=%v extension=%dx%d repeat_threshold=%d; build verification after edits: %v (workspace %s)",
-		execCfg.MaxToolCalls, execCfg.MaxToolIterations, execCfg.AdaptiveToolBudget,
-		execCfg.MaxToolIterationExtensions, execCfg.ToolIterationExtensionSize,
-		execCfg.ToolLoopRepeatThreshold, execCfg.VerifyBuildAfterEdits, execCfg.WorkspaceRoot)
+	logging.Boot("Tool loop: continuation derived by the working policy, no call or round ceiling; build verification after edits: %v (workspace %s)",
+		execCfg.VerifyBuildAfterEdits, execCfg.WorkspaceRoot)
 
 	// Every boot mints one process-unique session identity in the same form
 	// the headless chat path uses (`session-<unixnano>`), unless the caller

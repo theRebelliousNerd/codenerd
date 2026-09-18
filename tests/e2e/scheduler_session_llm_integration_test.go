@@ -405,7 +405,10 @@ func TestE2E_SchedulerSession_ResourceExhaustion_ThunderingHerd(t *testing.T) {
 }
 
 // TestE2E_SchedulerSession_ResourceExhaustion_InfiniteToolLoop
-// Scenario 2: MaxToolIterations limit must break infinite tool requests
+// Scenario 2: a model that only ever asks for more tools must not run
+// forever. No count bounds the loop; the working policy does — this client
+// calls one unknown tool per round, so every round fails and
+// working_stop(/tool_failures) ends the turn at the third.
 func TestE2E_SchedulerSession_ResourceExhaustion_InfiniteToolLoop(t *testing.T) {
 	t.Parallel()
 
@@ -420,27 +423,27 @@ func TestE2E_SchedulerSession_ResourceExhaustion_InfiniteToolLoop(t *testing.T) 
 
 	exec, _ := setupTestExecutorLLM(t, llm, 5)
 
-	// Pin the iteration ceiling on the executor itself: the "5" in the setup
-	// helper is scheduler slots, not the tool-loop cap (which defaults to 8).
+	// The "5" in the setup helper is scheduler slots, not a tool-loop cap;
+	// there is no tool-loop cap. The executor needs a declared workspace so
+	// the working policy has a working set to run in.
 	execCfg := session.DefaultExecutorConfig()
-	execCfg.MaxToolIterations = 5
+	execCfg.WorkspaceRoot = t.TempDir()
 	exec.SetConfig(execCfg)
 	res, err := exec.ProcessWithIntent(context.Background(), "start loop", &perception.Intent{Verb: "/general"})
 
-	// It should NOT run forever. It runs the 5 configured iterations, then the
-	// forced-final path runs the one pending batch (so a late verification
-	// call is not lost) and generates the conclusion: 1 initial + 5
-	// follow-ups + 1 final = 7 LLM calls, 5 + 1 = 6 executions. Bounded,
-	// with exactly one post-ceiling batch.
-	if err != nil {
-		// It's acceptable for the executor to return the accumulated error
-		// when budget is blown.
+	// It must NOT run forever. Every round calls a tool that does not exist,
+	// so every round fails, and working_stop(/tool_failures) fires at three
+	// consecutive failed rounds. The turn ends unresolved, which is the
+	// honest verdict for a model that never did anything.
+	if err == nil {
+		t.Errorf("a turn that only failed tools reported success: %+v", res)
+	} else if !strings.Contains(err.Error(), "tool_failures") {
+		t.Errorf("err = %v, want the derivation that ended the turn to be named", err)
 	}
-
-	if atomic.LoadInt32(&llm.callCount) > 7 {
-		t.Errorf("Executor failed to cap tool iterations, called LLM %d times", llm.callCount)
+	if got := atomic.LoadInt32(&llm.callCount); got > 4 {
+		t.Errorf("the loop was not ended by the policy, called LLM %d times", got)
 	}
-	if res != nil && res.ToolCallsExecuted > 6 {
+	if res != nil && res.ToolCallsExecuted > 3 {
 		t.Errorf("Executed too many tool calls: %d", res.ToolCallsExecuted)
 	}
 }

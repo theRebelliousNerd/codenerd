@@ -88,6 +88,10 @@ func TestSubAgent_Execute_SurfacesToolExecutionError(t *testing.T) {
 	agent.executor.config.VerifyBuildAfterEdits = false
 	agent.executor.config.VerifyTestsAfterEdits = false
 	agent.executor.config.CriticReviewAfterEdits = false
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in — a shard gets one from the
+	// spawner in production.
+	agent.executor.config.WorkspaceRoot = t.TempDir()
 
 	// Sanity-check the executor contract first: soft tool failures stay on
 	// result.Error with a nil return.

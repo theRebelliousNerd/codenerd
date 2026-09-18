@@ -533,6 +533,13 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		return nil, fmt.Errorf("failed to read user config: %w", err)
 	}
 
+	// Before the strict decoder, so a config that still carries a deleted
+	// tool-budget key is told which key and why rather than getting the
+	// decoder's bare "unknown field".
+	if err := rejectRemovedCoreLimitKeys(coreLimitsKeysPresent(data)); err != nil {
+		return nil, fmt.Errorf("config %s: %w", path, err)
+	}
+
 	if err := decodeStrictJSON(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse user config: %w", err)
 	}

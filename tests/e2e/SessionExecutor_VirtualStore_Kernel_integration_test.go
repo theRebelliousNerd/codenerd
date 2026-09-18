@@ -291,9 +291,12 @@ func TestE2E_ContractViolation_ToolSpamming(t *testing.T) {
 	// and PAUSE blocks these tests from running when sequential tests exceed timeout.
 	exec, _, llm := setupTestExecutor(t)
 
+	// No per-turn call ceiling exists any more: every call the model asks for
+	// is executed, and the turn ends when the working policy says so or the
+	// context does. This turn is bounded by the 2s context below.
 	cfg := session.DefaultExecutorConfig()
-	cfg.MaxToolCalls = 2
 	cfg.EnableSafetyGate = false
+	cfg.WorkspaceRoot = t.TempDir()
 	exec.SetConfig(cfg)
 
 	callCount := 0
@@ -448,8 +451,8 @@ func TestE2E_ResourceExhaustion_GiganticToolResult(t *testing.T) {
 	}})
 
 	cfg := session.DefaultExecutorConfig()
-	cfg.MaxToolCalls = 2
 	cfg.EnableSafetyGate = false
+	cfg.WorkspaceRoot = t.TempDir()
 	exec.SetConfig(cfg)
 
 	_, err := exec.Process(context.Background(), "get huge data")

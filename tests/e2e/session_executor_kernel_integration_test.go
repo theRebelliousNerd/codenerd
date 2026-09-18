@@ -758,8 +758,8 @@ func TestE2E_SessionKernel_InvalidConfigRejection(t *testing.T) {
 
 	// Create with config that has impossible constraints
 	cfg := session.DefaultExecutorConfig()
-	cfg.MaxToolCalls = -1 // Invalid
-	cfg.ToolTimeout = 0   // Invalid
+	cfg.ToolTimeout = 0 // Invalid
+	_ = cfg
 
 	executor := session.NewExecutor(kernel, nil, llm, nil, nil, transducer)
 	// Apply bad config conceptually here (NewExecutor doesn't take config directly in current refactor)

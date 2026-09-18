@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,31 +64,91 @@ func TestWriteOnlyToolDefinitions_EmptyInputIsEmptyOutput(t *testing.T) {
 
 // The two nudges must differ in the one way that matters: the write nudge has to
 // forbid the specific failure it exists to prevent, which is answering with a
-// description of the artifact instead of writing it.
-func TestBudgetExhaustedNudges_TellTheModelDifferentThings(t *testing.T) {
-	if readOnlyBudgetExhaustedNudge == writeBudgetExhaustedNudge {
+// description of the artifact instead of writing it. Neither may tell the
+// model about a budget — exploration closed because the policy said so or the
+// turn's wall clock ran out, not because a counter reached a number.
+func TestExplorationClosedNudges_TellTheModelDifferentThings(t *testing.T) {
+	if readOnlyExplorationClosedNudge == writeExplorationClosedNudge {
 		t.Fatal("a write turn and a query turn need different final instructions")
 	}
-	if !containsAll(writeBudgetExhaustedNudge, "write tool", "NOW") {
+	if !containsAll(writeExplorationClosedNudge, "write tool", "NOW") {
 		t.Error("the write nudge must demand the artifact now, not a plan to produce it")
 	}
-	if !containsAll(readOnlyBudgetExhaustedNudge, "could not verify") {
+	if !containsAll(readOnlyExplorationClosedNudge, "could not verify") {
 		t.Error("the read-only nudge must ask for an honest account of gaps rather than more tools")
+	}
+	for _, banned := range budgetVocabulary {
+		for _, nudge := range []string{readOnlyExplorationClosedNudge, writeExplorationClosedNudge} {
+			if strings.Contains(nudge, banned) {
+				t.Errorf("forced-final nudge %q still uses budget vocabulary %q", nudge, banned)
+			}
+		}
 	}
 }
 
+// The Piggyback path has no channel to return tool results, so a call it
+// cannot run must still come back as a named error. Cancellation is the only
+// reason a call is skipped now: the per-turn ceiling that used to skip them
+// ("<name>: budget exceeded") is gone with the rest of the counting.
 func TestExecuteToolBatchPiggyback_ReportsEverySkippedCall(t *testing.T) {
-	executor := &Executor{config: ExecutorConfig{MaxToolCalls: 1}}
-	result := &ExecutionResult{ToolCallsExecuted: 1}
-	calls := []types.ToolCall{{Name: "first"}, {Name: "second"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	executor := &Executor{config: ExecutorConfig{}}
+	result := &ExecutionResult{}
+	calls := []types.ToolCall{{ID: "skip-1", Name: "first"}, {ID: "skip-2", Name: "second"}}
 
-	errs := executor.executeToolBatchPiggyback(context.Background(), calls, nil, result)
+	errs := executor.executeToolBatchPiggyback(ctx, calls, nil, result)
 	if len(errs) != len(calls) {
-		t.Fatalf("errors = %v, want one budget error for each skipped call", errs)
+		t.Fatalf("errors = %v, want one error for each skipped call", errs)
 	}
 	for i, name := range []string{"first", "second"} {
-		if !strings.Contains(errs[i], name) || !strings.Contains(errs[i], "budget exceeded") {
-			t.Errorf("error %d = %q, want %s budget exceeded", i, errs[i], name)
+		if !strings.Contains(errs[i], name) {
+			t.Errorf("error %d = %q, want it to name %s", i, errs[i], name)
+		}
+		if strings.Contains(errs[i], "budget") {
+			t.Errorf("error %d = %q still blames a budget", i, errs[i])
+		}
+	}
+	if result.ToolCallsExecuted != 0 {
+		t.Errorf("executed = %d, want 0", result.ToolCallsExecuted)
+	}
+}
+
+// Every call the model asks for is executed. The per-turn ceiling that used
+// to refuse calls past a count, handing back "tool call budget exceeded for
+// this turn", was deleted on 2026-09-18: whether a turn is finished is
+// derived from what the trace shows, never counted.
+func TestExecuteToolBatch_ExecutesEveryCallPastTheOldCeiling(t *testing.T) {
+	const toolName = "uncapped_batch_probe"
+	executions := 0
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			executions++
+			return "ran", nil
+		},
+	})
+	// 60 in one batch, past the 50 that was defaultMaxToolCalls.
+	const batch = 60
+	calls := make([]types.ToolCall, 0, batch)
+	for i := 0; i < batch; i++ {
+		calls = append(calls, types.ToolCall{ID: fmt.Sprintf("uncapped-%d", i), Name: toolName})
+	}
+	executor := &Executor{config: ExecutorConfig{}, virtualStore: &MockVirtualStore{}}
+	result := &ExecutionResult{}
+
+	results, errs := executor.executeToolBatch(context.Background(), calls,
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}, result)
+
+	if len(errs) != 0 {
+		t.Fatalf("errors = %v, want none", errs)
+	}
+	if len(results) != batch || executions != batch || result.ToolCallsExecuted != batch {
+		t.Fatalf("results=%d executions=%d accounted=%d, want %d each", len(results), executions, result.ToolCallsExecuted, batch)
+	}
+	for _, r := range results {
+		if r.IsError || strings.Contains(r.Content, "budget") {
+			t.Fatalf("result = %#v, want every call executed with no budget refusal", r)
 		}
 	}
 }
@@ -190,20 +251,35 @@ type piggybackStaticClient struct{ *MockLLMClient }
 
 func (*piggybackStaticClient) ShouldUsePiggybackTools() bool { return true }
 
+// forcedFinalVerificationClient wrote once on the initial call and then only
+// reads, each round a different file so the trace never repeats. That is the
+// shape working_finalize(/verify_after_write) exists for: a change task that
+// wrote and then neither wrote nor verified for the finalize span. When the
+// exploration tools are gone it answers with text.
 type forcedFinalVerificationClient struct {
 	*MockLLMClient
-	toolName string
+	writeTool string
+	readTool  string
+	rounds    int
 }
 
 func (c *forcedFinalVerificationClient) CompleteWithToolResults(
 	_ context.Context, _ string, _ []types.Message, available []types.ToolDefinition,
 ) (*types.LLMToolResponse, error) {
-	if len(available) > 0 {
+	if len(available) == 0 {
+		return &types.LLMToolResponse{Text: "forced final"}, nil
+	}
+	c.rounds++
+	if c.rounds == 1 {
 		return &types.LLMToolResponse{ToolCalls: []types.ToolCall{{
-			ID: "pending-write", Name: c.toolName, Input: map[string]any{"path": "broken.go"},
+			ID: "initial-write", Name: c.writeTool, Input: map[string]any{"path": "broken.go"},
 		}}}, nil
 	}
-	return &types.LLMToolResponse{Text: "forced final"}, nil
+	return &types.LLMToolResponse{ToolCalls: []types.ToolCall{{
+		ID:    fmt.Sprintf("drift-%d", c.rounds),
+		Name:  c.readTool,
+		Input: map[string]any{"path": fmt.Sprintf("probe-%d.go", c.rounds)},
+	}}}, nil
 }
 
 func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
@@ -251,6 +327,10 @@ func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
 	}
 }
 
+// The forced-final path is reached because the working policy derived a
+// working_finalize, not because a round counter ran out — and it still runs
+// the post-edit build gate. Until 2026-09-18 this test forced the path by
+// setting MaxToolIterations=1; there is no such field, and no count, any more.
 func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
 	workspace := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/forcedfinal\n\ngo 1.25\n"), 0o600); err != nil {
@@ -260,26 +340,28 @@ func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
 		t.Fatalf("write broken.go: %v", err)
 	}
 
-	const toolName = "multi_edit"
+	// EffectWrite, so the commit regime keeps it on offer when it closes
+	// reading at working_commit_rounds; a write tool registered as a read is
+	// withdrawn with everything else and the turn has no legal move left.
+	const writeTool = "multi_edit"
 	registerTestTool(t, &tools.Tool{
-		Effect: tools.EffectRead,
-		Name:   toolName, Category: tools.CategoryCode,
+		Effect: tools.EffectWrite,
+		Name:   writeTool, Category: tools.CategoryCode,
 		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
 	})
-	base := &MockLLMClient{CompleteWithToolsFunc: func(
-		context.Context, string, string, []types.ToolDefinition,
-	) (*types.LLMToolResponse, error) {
-		return &types.LLMToolResponse{ToolCalls: []types.ToolCall{{
-			ID: "initial-write", Name: toolName, Input: map[string]any{"path": "broken.go"},
-		}}}, nil
-	}}
-	client := &forcedFinalVerificationClient{MockLLMClient: base, toolName: toolName}
+	const readTool = "forced_final_drift_probe"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead, Name: readTool, Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) { return "observed", nil },
+	})
+	client := &forcedFinalVerificationClient{MockLLMClient: &MockLLMClient{}, writeTool: writeTool, readTool: readTool}
 	executor := &Executor{
-		kernel: &MockKernel{}, virtualStore: &MockVirtualStore{}, llmClient: client,
+		// An effectful tool needs the executive gate; without one the write is
+		// refused and this becomes the read-only stall test instead.
+		kernel: &MockKernel{}, virtualStore: &testExecutiveStore{}, llmClient: client,
 		config: DefaultExecutorConfig(),
 	}
 	executor.config.EnableSafetyGate = false
-	executor.config.MaxToolIterations = 1
 	executor.config.VerifyTestsAfterEdits = false
 	executor.config.CriticReviewAfterEdits = false
 	executor.config.WorkspaceRoot = workspace
@@ -287,10 +369,17 @@ func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/create"}}
 	_, _, err := executor.runToolLoop(
 		context.Background(), "system", "create it",
-		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}, nil, result,
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool, readTool}}, nil, result,
 	)
 	if err == nil || !strings.Contains(err.Error(), "edits broke the build") {
 		t.Fatalf("forced final bypassed the build gate: %v", err)
+	}
+	if result.SuccessfulWriteTools != 1 {
+		t.Fatalf("successful writes = %d, want 1: the write must have landed before the drift", result.SuccessfulWriteTools)
+	}
+	// working_finalize_rounds(16) after the write, not a round ceiling.
+	if client.rounds < 17 {
+		t.Fatalf("only %d follow-up rounds: something ended the turn before the finalize span", client.rounds)
 	}
 }
 
@@ -462,7 +551,7 @@ func TestForceFinalAnswer_PendingCallPairedBeforeNudge(t *testing.T) {
 				resultIdx = i
 			}
 		}
-		if m.Role == "user" && m.Text != "" && (strings.Contains(m.Text, "tool budget") || strings.Contains(m.Text, "exploration budget")) {
+		if m.Role == "user" && m.Text != "" && strings.Contains(m.Text, "Exploration is closed for this turn") {
 			nudgeIdx = i
 		}
 	}

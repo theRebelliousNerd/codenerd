@@ -64,10 +64,9 @@ func TestJourney_PlannedSteps_WritesBothFilesAndLedgers(t *testing.T) {
 	}
 	executor := NewExecutor(kernel, &testExecutiveStore{}, client, &MockJITCompiler{}, journeyConfigFactory(writeTool), journeyIntent("/create", "/mutation"))
 	cfg := journeyConfig(t)
+	// Step planning requires a working loop, which a workspace root is now the
+	// whole requirement for.
 	cfg.WorkspaceRoot = root
-	// Step planning requires the progress-driven working loop; the call and
-	// iteration ceilings above stay on, so the journey is still bounded.
-	cfg.ProgressDrivenTools = true
 	executor.SetConfig(cfg)
 	executor.workingWorld = &MockKernel{}
 	executor.SetSessionID("journey-planned-steps")

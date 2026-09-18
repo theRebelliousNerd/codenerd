@@ -49,8 +49,8 @@ func (p *roundScriptProvider) CompleteWithToolResults(_ context.Context, _ strin
 }
 
 // newWorkingLoopExecutor is the production shape of the loop after boot: a
-// working world is set, so every turn runs inside a working loop, and the
-// count limits are zero unless core_limits says otherwise.
+// workspace root, so every turn runs inside a working loop, and no count
+// limits anywhere — there are none left to set.
 func newWorkingLoopExecutor(t *testing.T, client types.LLMClient) *Executor {
 	t.Helper()
 	e := &Executor{kernel: &MockKernel{}, virtualStore: &MockVirtualStore{}, llmClient: client, config: DefaultExecutorConfig()}
@@ -58,9 +58,6 @@ func newWorkingLoopExecutor(t *testing.T, client types.LLMClient) *Executor {
 	e.config.VerifyTestsAfterEdits = false
 	e.config.CriticReviewAfterEdits = false
 	e.config.WorkspaceRoot = t.TempDir()
-	e.config.ProgressDrivenTools = true
-	e.config.MaxToolCalls = 0
-	e.config.MaxToolIterations = 0
 	e.workingWorld = &MockKernel{}
 	return e
 }
@@ -86,59 +83,93 @@ func anyContains(items []string, needle string) bool {
 	return false
 }
 
-// The count nudge is keyed to a count ceiling, not to the progress-driven
-// flag. A user who keeps core_limits.max_tool_iterations on a progress-driven
-// loop has a hard stop at that round; the model must still be told how much
-// is left. A genuinely open loop, where policy is the sole ceiling, has no
-// count to report; its steering comes from the working policy instead and
-// only after the nudge span (see the tests below).
-func TestRunToolLoop_ProgressDriven_NudgesOnlyWhenACeilingExists(t *testing.T) {
-	const toolName = "working_loop_probe"
+// modelFacingText is everything a provider was handed across a run: the text
+// of every message and the content of every tool result, including the
+// orchestrator's appended steering.
+func modelFacingText(histories [][]types.Message) []string {
+	var out []string
+	for _, history := range histories {
+		for _, m := range history {
+			if strings.TrimSpace(m.Text) != "" {
+				out = append(out, m.Text)
+			}
+			for _, r := range m.ToolResults {
+				out = append(out, r.Content)
+			}
+		}
+	}
+	return out
+}
+
+// budgetVocabulary is the wording the model used to be handed when the loop
+// was bounded by counts: the per-round nudge ("Orchestrator budget: N tool
+// calls and M rounds remain"), the refused call ("tool call budget exceeded
+// for this turn", "<name>: budget exceeded") and the forced-final prose.
+// None of it describes a fact about the task, and a model told how many calls
+// remain optimizes for the count.
+var budgetVocabulary = []string{
+	"budget",
+	"Budget",
+	"calls remain",
+	"rounds remain",
+	"tool calls left",
+	"exploration budget",
+	"iterations left",
+}
+
+func assertNoBudgetVocabulary(t *testing.T, histories [][]types.Message) {
+	t.Helper()
+	seen := modelFacingText(histories)
+	for _, banned := range budgetVocabulary {
+		for _, text := range seen {
+			if strings.Contains(text, banned) {
+				t.Fatalf("the model was handed budget vocabulary %q: %q", banned, text)
+			}
+		}
+	}
+}
+
+// No count of calls or rounds ends a turn. This run makes 60 tool calls over
+// 60 rounds, each round novel and successful — comfortably past the 50 calls
+// and 8 rounds that were DefaultExecutorConfig's ceilings until 2026-09-18,
+// and past the 16-round extension arithmetic that used to sit on top of them.
+// The loop must simply keep going until the model stops asking for tools, and
+// the model must never be told anything about a budget.
+func TestToolLoop_NeverStopsOnCallCount(t *testing.T) {
+	const toolName = "working_loop_uncounted_probe"
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
 		Execute: func(context.Context, map[string]any) (string, error) { return "observed", nil },
 	})
+	const rounds = 60
+	client := &roundScriptProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName, rounds: rounds}
+	e := newWorkingLoopExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/explain"}}
 
-	run := func(t *testing.T, iterations int) *roundScriptProvider {
-		t.Helper()
-		client := &roundScriptProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName, rounds: 1}
-		e := newWorkingLoopExecutor(t, client)
-		e.config.MaxToolIterations = iterations
-		result := &ExecutionResult{Intent: perception.Intent{Verb: "/explain"}}
-		resp, _, err := e.runToolLoop(context.Background(), "system", "probe it",
-			&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
-			&prompt.CompilationContext{ShardID: "probe"}, result)
-		if err != nil {
-			t.Fatalf("runToolLoop: %v", err)
-		}
-		if resp == nil || resp.Text != "done" {
-			t.Fatalf("response = %+v, want the scripted final answer", resp)
-		}
-		if result.ToolCallsExecuted != 1 {
-			t.Fatalf("executed = %d, want 1", result.ToolCallsExecuted)
-		}
-		return client
+	resp, _, err := e.runToolLoop(context.Background(), "system", "probe it",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if err != nil {
+		t.Fatalf("runToolLoop: %v — %d rounds of progress is not a reason to stop", err, rounds)
 	}
-
-	t.Run("a ceiling from core_limits keeps the nudge", func(t *testing.T) {
-		client := run(t, 1)
-		if !anyContains(toolResultContents(client.histories), "[orchestrator] Orchestrator budget:") {
-			t.Fatalf("max_tool_iterations=1 on a progress-driven loop is a hard stop the model was never warned about; tool results seen: %q", toolResultContents(client.histories))
-		}
-	})
-	t.Run("an open loop has nothing to warn about", func(t *testing.T) {
-		client := run(t, 0)
-		if anyContains(toolResultContents(client.histories), "[orchestrator]") {
-			t.Fatalf("no count ceiling, yet the model was nudged about one; tool results seen: %q", toolResultContents(client.histories))
-		}
-	})
+	if resp == nil || resp.Text != "done" {
+		t.Fatalf("response = %+v, want the scripted final answer after %d rounds", resp, rounds)
+	}
+	if result.ToolCallsExecuted != rounds {
+		t.Fatalf("executed = %d, want %d: the loop was cut short by a count", result.ToolCallsExecuted, rounds)
+	}
+	if client.rounds != 0 {
+		t.Fatalf("%d scripted rounds were never reached: something bounded the loop before the model was done", client.rounds)
+	}
+	assertNoBudgetVocabulary(t, client.histories)
 }
 
 // With no count ceiling the loop ends only when the working policy says so.
 // Three consecutive rounds in which every tool failed derive
 // working_stop(/tool_failures); the turn then ends as unresolved, not as a
-// success and not by running the model out of script.
-func TestRunToolLoop_ProgressDriven_StopsOnRepeatedToolFailures(t *testing.T) {
+// success and not by running the model out of script, and the message names
+// the rule and the facts that satisfied it.
+func TestToolLoop_StopsOnDerivedToolFailures(t *testing.T) {
 	const toolName = "working_loop_failing_probe"
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
@@ -151,8 +182,11 @@ func TestRunToolLoop_ProgressDriven_StopsOnRepeatedToolFailures(t *testing.T) {
 	_, _, err := e.runToolLoop(context.Background(), "system", "probe it",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
-	if err == nil || !strings.Contains(err.Error(), "stopped by policy") || !strings.Contains(err.Error(), "tool_failures") {
-		t.Fatalf("err = %v, want the working policy to stop the turn for repeated tool failures", err)
+	if err == nil || !strings.Contains(err.Error(), "working_stop(/tool_failures)") {
+		t.Fatalf("err = %v, want the working policy to stop the turn for repeated tool failures, by name", err)
+	}
+	if !strings.Contains(err.Error(), "working_control(_, 3)") {
+		t.Fatalf("err = %v, want the facts that satisfied the rule", err)
 	}
 	if result.ToolCallsExecuted != 3 {
 		t.Fatalf("executed = %d, want 3: the third failed round is the stop, not the script running out", result.ToolCallsExecuted)
@@ -160,6 +194,61 @@ func TestRunToolLoop_ProgressDriven_StopsOnRepeatedToolFailures(t *testing.T) {
 	if client.rounds == 0 {
 		t.Fatal("the script ran out: the loop was bounded by the mock, not by policy")
 	}
+}
+
+// sameCallProvider asks for the identical tool call every round: same name,
+// same arguments, and (because the tool is deterministic) the same result
+// bytes. That is a period-1 trace cycle.
+type sameCallProvider struct {
+	*MockLLMClient
+	toolName  string
+	histories [][]types.Message
+	requests  int
+}
+
+func (p *sameCallProvider) CompleteWithToolResults(_ context.Context, _ string, history []types.Message, defs []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	p.histories = append(p.histories, append([]types.Message(nil), history...))
+	p.requests++
+	if len(defs) == 0 {
+		return &types.LLMToolResponse{Text: "done"}, nil
+	}
+	return &types.LLMToolResponse{ToolCalls: []types.ToolCall{{
+		// The ID differs per round because providers require unique IDs; the
+		// trace signature is name + arguments + status + returned bytes, so
+		// the cycle is visible regardless.
+		ID: fmt.Sprintf("same-%d", p.requests), Name: p.toolName,
+		Input: map[string]any{"path": "probe.txt"},
+	}}}, nil
+}
+
+// working_stop(/repeated_cycle) fires from working_control(/yes, _), which the
+// loop asserts when the tail of the trace repeats for working_repeat_threshold
+// cycles. With the policy's threshold of 2, the second identical round is the
+// stop — measured in Go because only the loop can see the trace, decided in
+// Mangle because only the policy says what a repeat means.
+func TestToolLoop_StopsOnDerivedRepeatedCycle(t *testing.T) {
+	const toolName = "working_loop_cycle_probe"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) { return "observed", nil },
+	})
+	client := &sameCallProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName}
+	e := newWorkingLoopExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/explain"}}
+
+	_, _, err := e.runToolLoop(context.Background(), "system", "probe it",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if err == nil || !strings.Contains(err.Error(), "working_stop(/repeated_cycle)") {
+		t.Fatalf("err = %v, want the working policy to stop an identically repeating trace, by name", err)
+	}
+	if !strings.Contains(err.Error(), "working_repeat_threshold") {
+		t.Fatalf("err = %v, want the span that made it a cycle named as policy's", err)
+	}
+	if result.ToolCallsExecuted != 2 {
+		t.Fatalf("executed = %d, want 2: working_repeat_threshold(2) makes the second identical round the cycle", result.ToolCallsExecuted)
+	}
+	assertNoBudgetVocabulary(t, client.histories)
 }
 
 // scriptedCallsProvider answers each model call with the next scripted tool
@@ -194,9 +283,12 @@ func readCalls(toolName string, n int) []types.ToolCall {
 }
 
 // A change task that only reads is stopped by policy at the stall span, as
-// unresolved. Observed 2026-09-11: 300 reads in 25 minutes before a one-line
-// edit the brief had named by file and line.
-func TestRunToolLoop_ProgressDriven_StopsAChangeTaskThatOnlyReads(t *testing.T) {
+// unresolved — and one round short of it is not stopped at all. That pair is
+// the whole claim: the boundary is working_stall_rounds in working_set.mg,
+// derived over the rounds the loop asserted, not a ceiling in Go.
+// Observed 2026-09-11: 300 reads in 25 minutes before a one-line edit the
+// brief had named by file and line.
+func TestToolLoop_StopsOnDerivedReadOnlyStall(t *testing.T) {
 	const toolName = "working_loop_stall_probe"
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
@@ -209,26 +301,55 @@ func TestRunToolLoop_ProgressDriven_StopsAChangeTaskThatOnlyReads(t *testing.T) 
 		Effect: tools.EffectWrite, Name: writerName, Category: tools.CategoryCode,
 		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
 	})
-	client := &scriptedCallsProvider{MockLLMClient: &MockLLMClient{}, calls: readCalls(toolName, 60)}
-	e := newWorkingLoopExecutor(t, client)
-	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+	// working_stall_rounds(24) in internal/context/working_set.mg.
+	const stallRounds = 24
 
-	_, _, err := e.runToolLoop(context.Background(), "system", "fix it",
-		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName, writerName}},
-		&prompt.CompilationContext{ShardID: "probe"}, result)
-	if err == nil || !strings.Contains(err.Error(), "stopped by policy") || !strings.Contains(err.Error(), "read_only_stall") {
-		t.Fatalf("err = %v, want the working policy to stop a change task that never wrote", err)
+	run := func(t *testing.T, scripted int) (*scriptedCallsProvider, *ExecutionResult, error) {
+		t.Helper()
+		client := &scriptedCallsProvider{MockLLMClient: &MockLLMClient{}, calls: readCalls(toolName, scripted)}
+		e := newWorkingLoopExecutor(t, client)
+		result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+		_, _, err := e.runToolLoop(context.Background(), "system", "fix it",
+			&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName, writerName}},
+			&prompt.CompilationContext{ShardID: "probe"}, result)
+		return client, result, err
 	}
-	if result.ToolCallsExecuted != 24 {
-		t.Fatalf("executed = %d, want 24: the stall span is the stop, not the script running out", result.ToolCallsExecuted)
-	}
-	if client.next >= len(client.calls) {
-		t.Fatal("the script ran out: the loop was bounded by the mock, not by policy")
-	}
-	seen := toolResultContents(client.histories)
-	if !anyContains(seen, "[orchestrator] 8 rounds of reading and no file written") {
-		t.Fatalf("the model was never told to implement before the stop; tool results seen: %q", seen)
-	}
+
+	t.Run("the stall span derives the stop", func(t *testing.T) {
+		client, result, err := run(t, stallRounds+36)
+		if err == nil || !strings.Contains(err.Error(), "working_stop(/read_only_stall)") {
+			t.Fatalf("err = %v, want the working policy to stop a change task that never wrote, by name", err)
+		}
+		if !strings.Contains(err.Error(), "working_progress(/write, 24, 0, _, _)") ||
+			!strings.Contains(err.Error(), "working_stall_rounds") {
+			t.Fatalf("err = %v, want the rule and the facts that satisfied it", err)
+		}
+		if result.ToolCallsExecuted != stallRounds {
+			t.Fatalf("executed = %d, want %d: the stall span is the stop, not the script running out", result.ToolCallsExecuted, stallRounds)
+		}
+		if client.next >= len(client.calls) {
+			t.Fatal("the script ran out: the loop was bounded by the mock, not by policy")
+		}
+		seen := toolResultContents(client.histories)
+		if !anyContains(seen, "[orchestrator] 8 rounds of reading and no file written") {
+			t.Fatalf("the model was never told to implement before the stop; tool results seen: %q", seen)
+		}
+		assertNoBudgetVocabulary(t, client.histories)
+	})
+
+	t.Run("one round short of it is not a stop", func(t *testing.T) {
+		client, result, err := run(t, stallRounds-1)
+		if err != nil {
+			t.Fatalf("err = %v, want no stop at %d rounds: the span is %d", err, stallRounds-1, stallRounds)
+		}
+		if result.ToolCallsExecuted != stallRounds-1 {
+			t.Fatalf("executed = %d, want %d", result.ToolCallsExecuted, stallRounds-1)
+		}
+		if client.next != len(client.calls) {
+			t.Fatalf("the script did not run out (%d of %d used): the turn ended for some other reason", client.next, len(client.calls))
+		}
+		assertNoBudgetVocabulary(t, client.histories)
+	})
 }
 
 // A read task is steered to conclude after the nudge span; policy never stops

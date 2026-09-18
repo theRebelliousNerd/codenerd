@@ -253,36 +253,16 @@ type Executor struct {
 }
 
 // ExecutorConfig holds configuration for the executor.
+//
+// It carries no count of tool calls or tool-loop rounds. Until 2026-09-18 it
+// held MaxToolCalls, MaxToolIterations, ProgressDrivenTools,
+// AdaptiveToolBudget, ToolIterationExtensionSize, MaxToolIterationExtensions
+// and ToolLoopRepeatThreshold. The tool loop now continues while the working
+// policy derives no stop, so the only turn-level ceilings left here are the
+// user's wall-clock constraints (ToolTimeout, FinalAnswerReserve,
+// RepairWallClock) — a count of calls was never a fact about whether the task
+// was done.
 type ExecutorConfig struct {
-	// MaxToolCalls limits tool calls per turn to prevent runaway execution.
-	MaxToolCalls int
-
-	// MaxToolIterations limits the number of LLM → tools → LLM loop iterations
-	// in a single Process() call. Without this cap, a model that keeps requesting
-	// tools could spin forever. 0 falls back to the default.
-	MaxToolIterations int
-
-	// ProgressDrivenTools uses Mangle working-state decisions for continuation.
-	// Zero call/round limits then mean no caller-imposed count ceiling.
-	ProgressDrivenTools bool
-
-	// AdaptiveToolBudget permits bounded iteration extensions when the
-	// deterministic trace shows intent-appropriate progress and no repeated
-	// cycle or write-task read-only stall. The total remains bounded by
-	// MaxToolCalls, timeout, extension size, and extension count.
-	AdaptiveToolBudget bool
-
-	// ToolIterationExtensionSize is the number of rounds granted by one
-	// progress extension.
-	ToolIterationExtensionSize int
-
-	// MaxToolIterationExtensions caps progress extensions in one turn.
-	MaxToolIterationExtensions int
-
-	// ToolLoopRepeatThreshold is the repeated trace-cycle count that blocks an
-	// extension and forces convergence.
-	ToolLoopRepeatThreshold int
-
 	// ToolTimeout is the maximum time for a single tool execution.
 	ToolTimeout time.Duration
 
@@ -385,13 +365,8 @@ func DefaultTokenBudget() int {
 }
 
 const (
-	defaultMaxToolCalls               = 50
-	defaultMaxToolIterations          = 8
-	defaultToolIterationExtensionSize = 8
-	defaultMaxToolIterationExtensions = 2
-	defaultToolLoopRepeatThreshold    = 2
-	defaultToolTimeout                = 5 * time.Minute
-	defaultFinalAnswerReserve         = 5 * time.Minute
+	defaultToolTimeout        = 5 * time.Minute
+	defaultFinalAnswerReserve = 5 * time.Minute
 )
 
 // DefaultHistoryTurnWindow is the number of prior conversation messages that
@@ -413,12 +388,6 @@ const defaultSemanticTopK = 20
 // DefaultExecutorConfig returns sensible defaults.
 func DefaultExecutorConfig() ExecutorConfig {
 	return ExecutorConfig{
-		MaxToolCalls:               defaultMaxToolCalls,
-		MaxToolIterations:          defaultMaxToolIterations,
-		AdaptiveToolBudget:         true,
-		ToolIterationExtensionSize: defaultToolIterationExtensionSize,
-		MaxToolIterationExtensions: defaultMaxToolIterationExtensions,
-		ToolLoopRepeatThreshold:    defaultToolLoopRepeatThreshold,
 		ToolTimeout:                defaultToolTimeout,
 		RepairMaxAttempts:          DefaultRepairMaxAttempts,
 		RepairWallClock:            DefaultRepairWallClock,

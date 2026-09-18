@@ -71,7 +71,17 @@ func (c *recordingLLMClient) CompleteWithTools(ctx context.Context, sys, user st
 }
 
 func (c *recordingLLMClient) CompleteWithToolResults(ctx context.Context, sys string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	c.record()
+	n := c.record()
+	// The initial generation arrives here too: a working loop is active on
+	// every tool-loop turn, so the turn is sent as a working request rather
+	// than through CompleteWithTools. Only a history carrying tool results is
+	// a genuine follow-up.
+	if !historyCarriesToolResults(history) {
+		if n == 1 && len(c.firstTurnToolCalls) > 0 {
+			return &types.LLMToolResponse{Text: c.name, ToolCalls: c.firstTurnToolCalls, StopReason: "tool_use"}, nil
+		}
+		return &types.LLMToolResponse{Text: c.name, StopReason: "end_turn"}, nil
+	}
 	c.mu.Lock()
 	c.toolResultRuns++
 	c.mu.Unlock()
@@ -91,6 +101,9 @@ func newRoutingExecutor(t *testing.T) (*Executor, *recordingLLMClient, *recordin
 
 	e := NewExecutor(k, &MockVirtualStore{}, worker, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	e.SetPlannerClient(planner)
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	e.config.WorkspaceRoot = t.TempDir()
 	return e, worker, planner
 }
 

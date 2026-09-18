@@ -75,16 +75,13 @@ func journeyConfigFactory(toolNames ...string) *MockConfigFactory {
 	}
 }
 
-// journeyConfig is a bounded turn: iteration and call ceilings on, adaptive
-// extensions off, all post-edit gates off. Journeys about the loop must not
-// depend on compilers, test runners, or critic models.
+// journeyConfig is a production-shaped turn with all post-edit gates off:
+// journeys about the loop must not depend on compilers, test runners, or
+// critic models. There are no count ceilings to set — what bounds the turn is
+// the working policy, which is exactly what these journeys exercise.
 func journeyConfig(t *testing.T) ExecutorConfig {
 	t.Helper()
 	cfg := DefaultExecutorConfig()
-	cfg.MaxToolCalls = 40
-	cfg.MaxToolIterations = 10
-	cfg.AdaptiveToolBudget = false
-	cfg.ProgressDrivenTools = false
 	cfg.VerifyBuildAfterEdits = false
 	cfg.VerifyTestsAfterEdits = false
 	cfg.CriticReviewAfterEdits = false
@@ -96,8 +93,10 @@ func journeyConfig(t *testing.T) ExecutorConfig {
 
 // TestJourney_InfiniteReaderEndsBoundedAndHonest is the read-only stall in its
 // purest form: a /fix turn whose model reads the same file forever and never
-// writes, never verifies, never stops. The loop must end the turn by its own
-// ceilings, and the ending must not read as success.
+// writes, never verifies, never stops. The turn must end because the kernel
+// derived working_stop(/read_only_stall) over the rounds the loop asserted —
+// until 2026-09-18 it ended at MaxToolCalls=40 instead — and the ending must
+// not read as success.
 func TestJourney_InfiniteReaderEndsBoundedAndHonest(t *testing.T) {
 	const toolName = "journey_read_alpha"
 	var calls atomic.Int64
@@ -159,13 +158,20 @@ func TestJourney_InfiniteReaderEndsBoundedAndHonest(t *testing.T) {
 		t.Fatalf("generations = %d, want >= 3: the model gave up before the loop had anything to bound", generations.Load())
 	}
 
+	// working_stall_rounds(24) in internal/context/working_set.mg. One tool
+	// call per round, so the stall span is the bound — and it is a derivation
+	// over asserted facts, not a number in Go.
+	const stallRounds = 24
 	if got := calls.Load(); got == 0 {
 		t.Fatal("the scripted reader never executed a tool: the journey tested nothing")
-	} else if got > 40 {
-		t.Fatalf("tool calls = %d, want <= 40 (MaxToolCalls): the loop is unbounded", got)
+	} else if got > stallRounds {
+		t.Fatalf("tool calls = %d, want <= %d (working_stall_rounds): the policy never stopped it", got, stallRounds)
 	}
-	if result != nil && result.ToolCallsExecuted > 40 {
-		t.Fatalf("result ToolCallsExecuted = %d, want <= 40", result.ToolCallsExecuted)
+	if result != nil && result.ToolCallsExecuted > stallRounds {
+		t.Fatalf("result ToolCallsExecuted = %d, want <= %d", result.ToolCallsExecuted, stallRounds)
+	}
+	if err != nil && !strings.Contains(err.Error(), "read_only_stall") {
+		t.Fatalf("err = %v, want the derivation that ended the turn to be named", err)
 	}
 	// Honesty: a turn that read forever and wrote nothing must not succeed.
 	if err == nil {

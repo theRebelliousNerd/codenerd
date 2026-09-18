@@ -188,10 +188,10 @@ func (s *Spawner) currentFileContext() FileContextProvider {
 	return s.fileContext
 }
 
-// SetExecutorConfig installs the tool-loop budget every subagent spawned from
+// SetExecutorConfig installs the executor config every subagent spawned from
 // here on will inherit. Already-spawned subagents keep the config they were
-// built with. A nil cfg is a no-op, preserving the existing DefaultExecutorConfig
-// behaviour when the caller never sets a budget.
+// built with. A nil cfg is a no-op, preserving the existing
+// DefaultExecutorConfig behaviour when the caller never sets one.
 func (s *Spawner) SetExecutorConfig(cfg *ExecutorConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -367,9 +367,11 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	s.mu.RLock()
 	agent.executor.SetWorkingWorld(s.workingWorld)
 	s.mu.RUnlock()
-	// Forward the parent session's tool-loop budget. Guard on whether a config
-	// was actually supplied: a zero ExecutorConfig would zero MaxToolIterations
-	// rather than preserve the default 8.
+	// Forward the parent session's executor config — the workspace the shard
+	// works in, its wall-clock constraints, its gates. Guard on whether one
+	// was actually supplied: a zero ExecutorConfig would clear the workspace
+	// root rather than preserve the defaults, and a shard with no declared
+	// workspace has no working set and so no continuation policy.
 	if cfg := s.currentExecutorConfig(); cfg != nil {
 		agent.executor.SetConfig(*cfg)
 	}

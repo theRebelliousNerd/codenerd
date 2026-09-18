@@ -33,7 +33,9 @@ type ToolCall struct {
 
 // runToolLoop drives the LLM ↔ tools cycle. It performs the initial generation
 // and, when the model requests tools, executes them and feeds the results back
-// via ToolResultsProvider for as many turns as needed (up to MaxToolIterations).
+// via ToolResultsProvider for as long as the working policy derives no stop
+// and the user's wall-clock constraints allow. No count of rounds or calls
+// ends it: a count is not a fact about whether the task is done.
 //
 // Returns the final LLM response, a slice of tool error messages encountered
 // across all iterations, and any fatal error.
@@ -178,9 +180,26 @@ func (e *Executor) runToolLoopPass(
 		types.AssistantMessageFrom(llmResponse),
 	)
 
-	budget := newToolBudgetController(executorCfg)
-	progressDriven := activeWorkingLoop(ctx) != nil && executorCfg.ProgressDrivenTools
-	openRounds := progressDriven && executorCfg.MaxToolIterations == 0
+	// The loop is bounded by what the working policy derives and by the user's
+	// own wall-clock constraints, never by a count of rounds or calls. When a
+	// working loop exists the meter measures the turn's shape for the policy;
+	// its repeat span is the policy's working_repeat_threshold, not a config
+	// key and not a Go constant.
+	workingLoop := activeWorkingLoop(ctx)
+	if workingLoop == nil {
+		// Nothing derives continuation, so there is nothing to keep this loop
+		// honest and nothing to end it. Refusing is the fail-closed answer;
+		// running an unbounded loop with no policy over it is the failure the
+		// count ceilings used to paper over.
+		return nil, nil, errors.New(
+			"tool loop requires a working continuation policy and this turn has none " +
+				"(no workspace root, so no working set could be built)")
+	}
+	threshold, thresholdErr := workingLoop.set.RepeatThreshold(ctx)
+	if thresholdErr != nil {
+		return nil, nil, fmt.Errorf("working continuation policy: %w", thresholdErr)
+	}
+	meter := newWorkingMeter(threshold)
 	failedRounds := 0
 	writeOriented := e.writeOrientedIntent(result.Intent.Verb)
 	// Set when the working policy ends exploration at a boundary; the loop
@@ -204,7 +223,11 @@ func (e *Executor) runToolLoopPass(
 		return verified, verifyErr
 	}
 
-	for iter := 0; openRounds || iter < budget.iterationLimit; iter++ {
+	// No count bounds this loop. It ends when the kernel derives a
+	// working_stop or a working_finalize, when the model stops asking for
+	// tools, when the turn's wall-clock reserve for a final answer is reached,
+	// or when the context is cancelled.
+	for iter := 0; ; iter++ {
 		if ctx.Err() != nil {
 			return currentResponse, toolErrs, ctx.Err()
 		}
@@ -219,9 +242,10 @@ func (e *Executor) runToolLoopPass(
 			break
 		}
 
-		// A deadline is a second budget, independent of MaxToolIterations. Keep
-		// its tail for a conclusion instead of starting another open-ended
-		// provider call that can only end in context deadline exceeded.
+		// The turn's wall clock is a user constraint, not a completion
+		// criterion. Keep its tail for a conclusion instead of starting
+		// another open-ended provider call that can only end in context
+		// deadline exceeded.
 		if hasFinalizationCutoff && !time.Now().Before(finalizationCutoff) {
 			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
 				ctx, trp, systemPrompt, &history, currentResponse, cfg, result,
@@ -243,63 +267,42 @@ func (e *Executor) runToolLoopPass(
 		// Execute all tool calls from this turn and collect tool_result blocks.
 		toolResults, batchErrs := e.executeToolBatch(explorationCtx, currentResponse.ToolCalls, cfg, result)
 		toolErrs = append(toolErrs, batchErrs...)
-		budget.observe(currentResponse.ToolCalls, toolResults)
-		// The nudge tells the model how much of a count ceiling is left. It is
-		// keyed to the ceiling, not to the progress-driven flag: a user who sets
-		// core_limits.max_tool_iterations on a progress-driven loop still has a
-		// hard stop at that round, and a hard stop the model was never warned
-		// about is the worst of both designs. Only a genuinely open loop, where
-		// policy is the sole ceiling, has nothing to warn about.
-		if !openRounds {
-			toolResults = appendToolBudgetNudge(toolResults, budget.nudge(
-				iter+1,
-				result.ToolCallsExecuted,
-				writeOriented,
-				hasToolDefinition(toolDefs, "apply_edits"),
-			))
+		meter.observe(currentResponse.ToolCalls, toolResults)
+		failedRounds++
+		for _, r := range toolResults {
+			if !r.IsError {
+				failedRounds = 0
+				break
+			}
 		}
-		if progressDriven {
-			failedRounds++
-			for _, r := range toolResults {
-				if !r.IsError {
-					failedRounds = 0
-					break
-				}
+		// The policy sees the whole-turn shape (write intent, rounds,
+		// writes, rounds since the last write and verification) and answers
+		// with a stop, a finalize, a nudge, or plain continuation. Before
+		// this it saw only a repeated-trace flag and a failure count, so an
+		// open loop on a change task could read for half an hour, write one
+		// line, and read on without ever running the test the task named.
+		progress := meter.workingProgress(writeOriented, failedRounds)
+		progress.Regime = workingLoop.regime
+		decision, policyErr := workingLoop.set.Continue(ctx, progress)
+		if policyErr != nil {
+			cancelExploration()
+			return currentResponse, toolErrs, fmt.Errorf("working continuation policy: %w", policyErr)
+		}
+		if !decision.Continue {
+			cancelExploration()
+			return currentResponse, toolErrs, errors.New(describeWorkingStop(decision.Stop, progress, result.ToolCallsExecuted))
+		}
+		finalizeReason = decision.Finalize
+		if decision.Nudge != "" {
+			toolResults = appendWorkingNudge(toolResults, workingNudgeText(decision.Nudge, progress))
+		}
+		if decision.Regime != workingLoop.regime {
+			workingLoop.regime = decision.Regime
+			if decision.Regime == commitRegime {
+				logging.Get(logging.CategorySession).Warn(
+					"Working policy closed exploration (commit regime) after %d executed tool call(s)", result.ToolCallsExecuted)
 			}
-			// The policy sees the whole-turn shape (write intent, rounds,
-			// writes, rounds since the last write and verification) and answers
-			// with a stop, a finalize, a nudge, or plain continuation. Before
-			// this it saw only a repeated-trace flag and a failure count, so an
-			// open loop on a change task could read for half an hour, write one
-			// line, and read on without ever running the test the task named.
-			progress := budget.workingProgress(writeOriented, failedRounds)
-			progress.Regime = activeWorkingLoop(ctx).regime
-			decision, policyErr := activeWorkingLoop(ctx).set.Continue(ctx, progress)
-			if policyErr != nil {
-				cancelExploration()
-				return currentResponse, toolErrs, fmt.Errorf("working continuation policy: %w", policyErr)
-			}
-			if !decision.Continue {
-				reason := decision.Stop
-				if reason == "" {
-					reason = "no continuation derived"
-				}
-				cancelExploration()
-				return currentResponse, toolErrs, fmt.Errorf("task unresolved: working continuation stopped by policy %s after %d executed tools", reason, result.ToolCallsExecuted)
-			}
-			finalizeReason = decision.Finalize
-			if decision.Nudge != "" {
-				toolResults = appendToolBudgetNudge(toolResults,
-					workingNudgeText(decision.Nudge, budget.workingProgress(writeOriented, failedRounds)))
-			}
-			if loop := activeWorkingLoop(ctx); loop != nil && decision.Regime != loop.regime {
-				loop.regime = decision.Regime
-				if decision.Regime == commitRegime {
-					logging.Get(logging.CategorySession).Warn(
-						"Working policy closed exploration (commit regime) after %d executed tool call(s)", result.ToolCallsExecuted)
-				}
-				toolResults = appendToolBudgetNudge(toolResults, workingRegimeText(decision.Regime))
-			}
+			toolResults = appendWorkingNudge(toolResults, workingRegimeText(decision.Regime))
 		}
 		if ctx.Err() != nil {
 			cancelExploration()
@@ -385,26 +388,13 @@ func (e *Executor) runToolLoopPass(
 			return verified, toolErrs, verifyErr
 		}
 
-		// The model still has executable work at the current boundary. The
-		// orchestrator may extend only when the trace since the prior boundary
-		// contains intent-appropriate material progress and no deterministic
-		// repeat cycle or write-task read-only stall. Like the nudge, this is
-		// keyed to the ceiling: an open loop has no limit to extend.
-		if !openRounds && iter+1 >= budget.iterationLimit {
-			decision := budget.maybeExtend(writeOriented)
-			if decision.Granted {
-				logging.Get(logging.CategorySession).Warn(
-					"Adaptive tool budget extended by %d rounds to %d after %d executed tool call(s): %s",
-					decision.AddedRounds, decision.NewLimit, result.ToolCallsExecuted, decision.Reason)
-			} else {
-				logging.Get(logging.CategorySession).Warn(
-					"Adaptive tool budget refused extension at %d rounds after %d executed tool call(s): %s",
-					budget.iterationLimit, result.ToolCallsExecuted, decision.Reason)
-			}
-		}
+		// The model still has executable work at the current boundary and the
+		// policy derived no stop: the loop simply goes round again. There is
+		// nothing to extend, because there is no ceiling to extend from.
 	}
 
-	// Iteration budget exhausted. currentResponse still holds UNEXECUTED tool
+	// The working policy finalized the turn — the only way out of the loop
+	// that is not a return. currentResponse still holds UNEXECUTED tool
 	// calls and, on every provider observed, no assistant text at all — a model
 	// that is still calling tools has not written its answer yet.
 	//
@@ -425,19 +415,14 @@ func (e *Executor) runToolLoopPass(
 	// hollow-success guard then correctly failed. "You have explored enough,
 	// now do the thing" is the instruction that turn needed; "you have explored
 	// enough, now describe the thing" is not.
-	if finalizeReason == "" {
-		logging.Get(logging.CategorySession).Warn(
-			"Tool iteration budget reached: %d rounds (base %d, hard %d, extensions %d/%d); forcing a final answer from %d executed tool call(s)",
-			budget.iterationLimit, budget.baseLimit, budget.hardLimit, budget.extensions,
-			budget.maxExtensions, result.ToolCallsExecuted)
-	}
-
 	final, finalErrs, finalErr := e.forceFinalAnswer(ctx, trp, systemPrompt, &history, currentResponse, cfg, result)
 	toolErrs = append(toolErrs, finalErrs...)
 	if finalErr != nil {
 		logging.Get(logging.CategorySession).Error(
-			"Forced final answer failed after exhausting tool iterations: %v", finalErr)
-		return currentResponse, toolErrs, fmt.Errorf("tool iteration budget exhausted (%d iterations, %d tool calls executed): forced final answer failed: %w", budget.iterationLimit, result.ToolCallsExecuted, finalErr)
+			"Forced final answer failed after the working policy finalized the turn (%s): %v", finalizeReason, finalErr)
+		return currentResponse, toolErrs, fmt.Errorf(
+			"working policy finalized the turn (%s) after %d executed tool call(s): forced final answer failed: %w",
+			strings.TrimPrefix(finalizeReason, "/"), result.ToolCallsExecuted, finalErr)
 	}
 	verified, verifyErr := verifyTerminal(final)
 	return verified, toolErrs, verifyErr
@@ -591,23 +576,29 @@ func (e *Executor) forceDeadlineFinalAnswer(
 	return final, toolErrs, nil
 }
 
-// Nudges appended as the final user turn when the loop runs out of iterations.
-// Both are explicit that partial evidence is acceptable — the alternative the
-// model would otherwise pick is another exploration call, which is exactly what
-// it can no longer make.
+// Nudges appended as the final user turn when exploration closes — because
+// the working policy derived a working_finalize, or because the turn's
+// wall-clock reserve for a final answer was reached. Both are explicit that
+// partial evidence is acceptable: the alternative the model would otherwise
+// pick is another exploration call, which is exactly what it can no longer
+// make.
+//
+// Neither says "budget". They used to, and a count of remaining calls is not
+// a fact about the task — a model told what it has left optimizes for the
+// count instead of the work.
 const (
-	readOnlyBudgetExhaustedNudge = "Your tool budget for this turn is exhausted; no further tools are available. " +
+	readOnlyExplorationClosedNudge = "Exploration is closed for this turn; no further tools are available. " +
 		"Write your final answer now using only the evidence you have already gathered. " +
 		"State explicitly what you could not verify rather than requesting more tools."
 
-	writeBudgetExhaustedNudge = "Your exploration budget for this turn is exhausted. Only write tools remain: " +
+	writeExplorationClosedNudge = "Exploration is closed for this turn. Only write tools remain: " +
 		"you cannot read, search, or list anything further. Produce the deliverable NOW with the write tool, " +
 		"using only the evidence you have already gathered. Note any uncertainty inside the artifact itself " +
 		"rather than deferring the write — describing what you would have written does not count as doing it."
 )
 
-// A turn that ran out of budget still has to report what it did. Left to
-// the transcript alone the model has twice claimed "No changes were
+// A turn whose exploration has closed still has to report what it did. Left
+// to the transcript alone the model has twice claimed "No changes were
 // applied" after writing a file, so the facts go in the prompt.
 func turnFactsForFinalAnswer(result *ExecutionResult) string {
 	if result == nil {
@@ -662,10 +653,10 @@ func (e *Executor) forceFinalAnswer(
 	// their only final capability would not let them complete correctly.
 	needsWrite := e.writeOrientedIntent(result.Intent.Verb) && result.SuccessfulWriteTools == 0
 
-	nudge := readOnlyBudgetExhaustedNudge
+	nudge := readOnlyExplorationClosedNudge
 	var finalTools []types.ToolDefinition
 	if needsWrite {
-		nudge = writeBudgetExhaustedNudge
+		nudge = writeExplorationClosedNudge
 		finalTools = writeOnlyToolDefinitions(e.buildToolDefinitions(cfg))
 		logging.Get(logging.CategorySession).Warn(
 			"Retaining %d write tool(s) for the final call: %s requires a side effect and none has landed yet",
@@ -780,7 +771,12 @@ func writeOnlyToolDefinitions(defs []types.ToolDefinition) []types.ToolDefinitio
 // executeToolBatch runs one turn's worth of tool calls and returns the
 // tool_result blocks plus any error strings. Extracted from runToolLoop so the
 // forced-final-answer path produces byte-identical tool_result framing; a
-// hand-rolled second copy would drift on budget handling or ID pairing.
+// hand-rolled second copy would drift on cancellation handling or ID pairing.
+//
+// It executes every call the model asked for. Until 2026-09-18 it refused
+// calls past a per-turn ceiling with "tool call budget exceeded for this
+// turn"; the ceiling is gone, because whether a turn is finished is derived
+// from what the trace shows, never counted.
 func (e *Executor) executeToolBatch(
 	ctx context.Context,
 	calls []types.ToolCall,
@@ -789,9 +785,6 @@ func (e *Executor) executeToolBatch(
 ) ([]types.ToolResult, []string) {
 	toolResults := make([]types.ToolResult, 0, len(calls))
 	var toolErrs []string
-	maxToolCalls := effectiveMaxToolCalls(e.configSnapshot().MaxToolCalls)
-	execCfg := e.configSnapshot()
-	openCalls := activeWorkingLoop(ctx) != nil && execCfg.ProgressDrivenTools && execCfg.MaxToolCalls == 0
 
 	for _, call := range calls {
 		if err := ctx.Err(); err != nil {
@@ -805,17 +798,6 @@ func (e *Executor) executeToolBatch(
 			}
 			break
 		}
-		if !openCalls && result.ToolCallsExecuted >= maxToolCalls {
-			logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", maxToolCalls)
-			toolResults = append(toolResults, types.ToolResult{
-				ToolUseID: call.ID,
-				Content:   "tool call budget exceeded for this turn",
-				IsError:   true,
-			})
-			toolErrs = append(toolErrs, fmt.Sprintf("%s: budget exceeded", call.Name))
-			continue
-		}
-
 		if call.ArgsError != "" {
 			// The provider mapper could not decode this call's argument text, so
 			// there is nothing to execute. Hand the failure back to the model as a
@@ -2199,17 +2181,10 @@ func (e *Executor) executeToolBatchPiggyback(
 	result *ExecutionResult,
 ) []string {
 	// Piggyback does not feed results back to the provider, but execution,
-	// cancellation, budget handling, and accounting must still be identical to
-	// the native path. Discard only the transport-specific result frames.
+	// cancellation, and accounting must still be identical to the native
+	// path. Discard only the transport-specific result frames.
 	_, toolErrs := e.executeToolBatch(ctx, calls, cfg, result)
 	return toolErrs
-}
-
-func effectiveMaxToolCalls(configured int) int {
-	if configured <= 0 {
-		return defaultMaxToolCalls
-	}
-	return configured
 }
 
 func effectiveToolTimeout(configured time.Duration) time.Duration {

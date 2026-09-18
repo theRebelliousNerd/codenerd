@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestSpawner_Spawn_InheritsExecutorConfig(t *testing.T) {
@@ -16,10 +17,12 @@ func TestSpawner_Spawn_InheritsExecutorConfig(t *testing.T) {
 		DefaultSpawnerConfig(),
 	)
 
-	// Build a non-default budget mirroring .nerd/config.json core_limits.
+	// A non-default executor config. It carries no tool-call or round
+	// ceilings — there are none — so what has to survive the spawn is the
+	// workspace and the wall-clock constraints.
 	cfg := DefaultExecutorConfig()
-	cfg.MaxToolIterations = 24
-	cfg.MaxToolCalls = 120
+	cfg.RepairMaxAttempts = 24
+	cfg.ToolTimeout = 120 * time.Second
 	cfg.WorkspaceRoot = "/tmp/test-workspace"
 
 	spawner.SetExecutorConfig(&cfg)
@@ -38,11 +41,11 @@ func TestSpawner_Spawn_InheritsExecutorConfig(t *testing.T) {
 	}
 
 	got := agent.executor.config
-	if got.MaxToolIterations != 24 {
-		t.Errorf("MaxToolIterations = %d, want 24 (inherited from spawner)", got.MaxToolIterations)
+	if got.RepairMaxAttempts != 24 {
+		t.Errorf("RepairMaxAttempts = %d, want 24 (inherited from spawner)", got.RepairMaxAttempts)
 	}
-	if got.MaxToolCalls != 120 {
-		t.Errorf("MaxToolCalls = %d, want 120 (inherited from spawner)", got.MaxToolCalls)
+	if got.ToolTimeout != 120*time.Second {
+		t.Errorf("ToolTimeout = %v, want 120s (inherited from spawner)", got.ToolTimeout)
 	}
 	if got.WorkspaceRoot != "/tmp/test-workspace" {
 		t.Errorf("WorkspaceRoot = %q, want %q", got.WorkspaceRoot, "/tmp/test-workspace")
@@ -76,14 +79,14 @@ func TestSpawner_Spawn_DefaultExecutorConfig_WhenUnconfigured(t *testing.T) {
 
 	want := DefaultExecutorConfig()
 	got := agent.executor.config
-	if got.MaxToolIterations != want.MaxToolIterations {
-		t.Errorf("MaxToolIterations = %d, want default %d when spawner has no config", got.MaxToolIterations, want.MaxToolIterations)
+	if got.ToolTimeout != want.ToolTimeout {
+		t.Errorf("ToolTimeout = %v, want default %v when spawner has no config", got.ToolTimeout, want.ToolTimeout)
 	}
-	if got.MaxToolIterations != 8 {
-		t.Errorf("MaxToolIterations = %d, want exactly 8 as DefaultExecutorConfig", got.MaxToolIterations)
+	if got.RepairMaxAttempts != want.RepairMaxAttempts {
+		t.Errorf("RepairMaxAttempts = %d, want default %d", got.RepairMaxAttempts, want.RepairMaxAttempts)
 	}
-	if got.MaxToolCalls != want.MaxToolCalls {
-		t.Errorf("MaxToolCalls = %d, want default %d", got.MaxToolCalls, want.MaxToolCalls)
+	if got.FinalAnswerReserve != want.FinalAnswerReserve {
+		t.Errorf("FinalAnswerReserve = %v, want default %v", got.FinalAnswerReserve, want.FinalAnswerReserve)
 	}
 }
 
@@ -113,7 +116,7 @@ func TestSpawner_SetExecutorConfig_NilIsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
-	if agent.executor.config.MaxToolIterations != DefaultExecutorConfig().MaxToolIterations {
-		t.Errorf("MaxToolIterations = %d, want default %d after nil config", agent.executor.config.MaxToolIterations, DefaultExecutorConfig().MaxToolIterations)
+	if agent.executor.config.ToolTimeout != DefaultExecutorConfig().ToolTimeout {
+		t.Errorf("ToolTimeout = %v, want default %v after nil config", agent.executor.config.ToolTimeout, DefaultExecutorConfig().ToolTimeout)
 	}
 }

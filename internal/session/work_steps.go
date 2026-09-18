@@ -155,10 +155,9 @@ func emptyCompletionError(err error) bool {
 // with fewer than two steps is a single pass too: the planning call then
 // cost one short answer and changed nothing.
 func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, task string, cfg *config.EffectiveAgentRuntimeConfig, result *ExecutionResult) []workStep {
-	e.mu.RLock()
-	hasWorld := e.workingWorld != nil
-	e.mu.RUnlock()
-	if !hasWorld || !e.configSnapshot().ProgressDrivenTools || result == nil {
+	// This runs before beginWorkingLoop installs the loop, so it asks whether
+	// one will exist rather than reading it off the context.
+	if !e.workingLoopAvailable() || result == nil {
 		return nil
 	}
 	if !e.writeOrientedIntent(result.Intent.Verb) {

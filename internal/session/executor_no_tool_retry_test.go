@@ -142,6 +142,9 @@ func TestRunToolLoop_RejectsNilFollowupResponse(t *testing.T) {
 		nil, &MockVirtualStore{}, client,
 		&MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	executor.config.EnableSafetyGate = false
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
 	_, _, err := executor.runToolLoop(
 		context.Background(), "system", "review", &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
 		nil, &ExecutionResult{Intent: perception.Intent{Verb: "/review"}})

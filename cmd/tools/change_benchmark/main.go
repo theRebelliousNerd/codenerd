@@ -90,7 +90,9 @@ var catalog = []string{"read_file", "list_files", "write_file", "edit_file", "ru
 type comparison struct {
 	Mode             string            `json:"mode"`
 	Model            string            `json:"model"`
-	MaxLLMCalls      int               `json:"max_llm_calls"`
+	MaxLLMCalls int `json:"max_llm_calls"`
+	// MaxToolCalls is the minimal baseline's own per-turn cap. The codeNERD
+	// mode has no such cap; its loop ends when the working policy says so.
 	MaxToolCalls     int               `json:"max_tool_calls"`
 	MaxOutputTokens  int               `json:"max_output_tokens"`
 	LLMCalls         int32             `json:"llm_calls"`
@@ -164,9 +166,11 @@ func run() error {
 		if err == nil {
 			cfg := session.DefaultExecutorConfig()
 			cfg.WorkspaceRoot = *root
-			cfg.MaxToolCalls = maxTools
-			cfg.MaxToolIterations = maxCalls
-			cfg.AdaptiveToolBudget = false
+			// No tool-call or round pins on the codeNERD side: its loop
+			// continues while the working policy derives no stop, and pinning
+			// it to the minimal baseline's caps would be benchmarking the pin.
+			// The LLM-call bound in boundedClient still caps the harness's own
+			// spend for both modes.
 			cortex.SessionExecutor.SetConfig(cfg)
 			cortex.SessionExecutor.SetAgentConfig(&jitconfig.EffectiveAgentRuntimeConfig{IdentityPrompt: "Go bug-fix task", AllowedTools: catalog, Policies: []string{"policy/validation.mg"}})
 			if *mode == "evidence" {
