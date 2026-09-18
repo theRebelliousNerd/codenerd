@@ -209,8 +209,15 @@ func TestExecutor_HistoryTurnWindowBoundsPriorMessages(t *testing.T) {
 	if len(lastHistory) != 3 {
 		t.Fatalf("expected 3 messages (latest exchange + current), got %d: %+v", len(lastHistory), lastHistory)
 	}
-	if lastHistory[0].Role != "user" || lastHistory[0].Text != "second question" {
+	// The oldest surviving message also carries the eviction marker: the two
+	// dropped turns are announced where the model reads first, so the window
+	// is not mistaken for the whole conversation. Its turn text is intact
+	// behind the notice.
+	if lastHistory[0].Role != "user" || !strings.HasSuffix(lastHistory[0].Text, "second question") {
 		t.Fatalf("history[0] = %+v, want latest exchange user turn", lastHistory[0])
+	}
+	if !types.IsClamped(lastHistory[0].Text) {
+		t.Fatalf("two turns were evicted with no marker: %+v", lastHistory[0])
 	}
 	if lastHistory[1].Role != "assistant" || lastHistory[1].Text != "second answer" {
 		t.Fatalf("history[1] = %+v, want latest exchange assistant turn", lastHistory[1])
@@ -317,7 +324,14 @@ func TestPriorTurnMessages_CharBudgetNeverSplitsPair(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("expected oldest pair dropped leaving 2 messages, got %d: %+v", len(msgs), msgs)
 	}
-	if msgs[0].Text != "cccc" || msgs[1].Text != "dddd" {
+	if !strings.HasSuffix(msgs[0].Text, "cccc") || msgs[1].Text != "dddd" {
 		t.Fatalf("expected latest pair, got %+v", msgs)
+	}
+	// The dropped pair is announced on the oldest survivor, and recoverable.
+	if !types.IsClamped(msgs[0].Text) {
+		t.Fatalf("the oldest pair was dropped with no marker: %+v", msgs)
+	}
+	if got := e2.recoverHistoryEviction(); len(got) != 2 {
+		t.Fatalf("recovered %d evicted messages, want the 2 that were dropped", len(got))
 	}
 }

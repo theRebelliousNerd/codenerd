@@ -150,7 +150,11 @@ func TestPrepareWorkingRequest_ArchivesOnlyWhatTheWindowCannotCarry(t *testing.T
 	if got == body {
 		t.Fatalf("a %d-character result was sent whole into a 3000-token window", len(body))
 	}
-	if !strings.HasPrefix(got, archivedResultPrefix) || !strings.Contains(got, fmt.Sprintf("%d-character", len(body))) || !strings.Contains(got, "recall_context id=") {
+	// The pointer names the size and the record, and says it in the pipeline's
+	// own marker so an audit of the assembled messages can recognise this cut
+	// alongside every other one.
+	if !strings.HasPrefix(got, archivedResultPrefix) || !types.IsClamped(got) ||
+		!strings.Contains(got, fmt.Sprintf("%d chars", len(body))) || !strings.Contains(got, "recall_context id=") {
 		t.Fatalf("archived pointer must name the size and the record; got:\n%s", got)
 	}
 	if strings.Contains(provider.system, "needle-line-437") {

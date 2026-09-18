@@ -533,3 +533,23 @@ Section 1 and line 224 describe the chat turn's window as kernel-relayed JIT out
 0 bytes and the persona constant was the whole system prompt. `context_to_inject` has no
 producer either. The shard-path description stands; the chat-turn description does not. This is
 seam S17. Evidence and tests: `Docs/journeys/impl/S14-persona-atom.md`.
+
+### Post-implementation resolution (S15, 2026-09-18)
+
+Section 5's open item — *"whether shell/tool-output `Truncated`/`TruncatedBytes`
+(`internal/tactile`) ever surfaces as a visible marker in the model-facing `ToolResult.Content`,
+or is silently shortened"* — is resolved: **silently shortened**. `ExecutionResult.Output()`
+(`internal/tactile/types.go`) returned `Combined`, or `Stdout`+`Stderr`, and read neither flag;
+`VirtualStore.Exec` returned the pair and dropped them; `executor_tools.go` passed the result
+through whole and so had nothing to announce. The flags were set by all six backends, logged for
+an operator, and never left the struct.
+
+Section 5's other three named paths (`priorTurnMessages` eviction, `trimToTokens`,
+`collectKeyAtoms`, the unmasked-turn atom cap) held exactly as described, and re-deriving the
+list by grep found eight more — including the fact serializer's per-argument `"..."`, chat's
+`truncateSummary`, and `shard_output`/`recent_shard_context`. All twelve now carry the marker;
+`internal/prompt/limits.go` moved to `internal/types/elide.go` so `internal/tactile` and
+`internal/core` can reach the convention at all. `withProjectInstructions`'s unbudgeted `nerd.md`
+is confirmed still unbudgeted and is *not* a silent cut — nothing is dropped — so it was left
+alone and recorded as open. Seam S15. Evidence, the full inventory and tests:
+`Docs/journeys/impl/S15-never-silently-truncate.md`.

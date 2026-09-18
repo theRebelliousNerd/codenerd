@@ -145,14 +145,21 @@ func TestKeyAtomShed_MarksTheCut(t *testing.T) {
 
 	c.rebuildRollingSummaryText()
 
-	if len(c.rollingSummary.Segments[0].KeyAtoms) != 0 {
-		t.Skip("the reserve did not force a shed on this estimator; the shed path is covered by the reserve loop test")
+	seg := c.rollingSummary.Segments[0]
+	if len(seg.KeyAtoms) != 0 {
+		t.Fatalf("the reserve did not force a shed (%d atoms still attached); this test asserts nothing unless it does",
+			len(seg.KeyAtoms))
 	}
-	if c.rollingSummary.Segments[0].DroppedAtoms < 20 {
-		t.Errorf("shed %d atoms but recorded DroppedAtoms=%d", len(atoms), c.rollingSummary.Segments[0].DroppedAtoms)
+	if seg.DroppedAtoms < 20 {
+		t.Errorf("shed %d atoms but recorded DroppedAtoms=%d", len(atoms), seg.DroppedAtoms)
 	}
-	if !types.IsClamped(c.rollingSummary.Text) {
-		t.Errorf("the block lost every key atom with no marker:\n%s", c.rollingSummary.Text)
+	// The count has to reach the block, and the assertion names the atom notice
+	// rather than asking whether any marker is present anywhere: the summary
+	// beside it is trimmed by the same rebuild and carries a marker of its own,
+	// so a bare IsClamped passes with the atom shed still silent. Verified —
+	// with the shed's marker blinded, IsClamped alone still passed.
+	if !strings.Contains(c.rollingSummary.Text, "key atoms from these turns") {
+		t.Errorf("the block lost every key atom and never said so:\n%s", c.rollingSummary.Text)
 	}
 }
 

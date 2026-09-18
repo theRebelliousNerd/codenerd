@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 )
 
 // The atom parser is the control packet's front door: numbers must keep their
@@ -82,8 +83,18 @@ func TestTruncateFact_RuneSafe(t *testing.T) {
 	if !utf8.ValidString(out) {
 		t.Errorf("truncated fact is invalid UTF-8: %q", out)
 	}
-	if !strings.Contains(out, "...") || len([]rune(out)) > 60 {
-		t.Errorf("long arg was not truncated to ~50 runes: %q", out)
+	if !types.IsClamped(out) {
+		t.Errorf("long arg was cut with no marker: %q", out)
+	}
+	// The argument body is bounded at maxFactArgChars runes; the marker that
+	// follows it is not part of the body and is the point of the exercise.
+	body, _, found := strings.Cut(out, " [codenerd:")
+	if !found {
+		t.Fatalf("no marker to measure the body against: %q", out)
+	}
+	if got := len([]rune(body)); got > maxFactArgChars+10 {
+		t.Errorf("long arg was not truncated to ~%d runes: body is %d runes in %q",
+			maxFactArgChars, got, out)
 	}
 	if got := NewFactSerializer().SerializeCompressedContext(nil); got != "" {
 		t.Errorf("SerializeCompressedContext(nil) = %q, want empty", got)

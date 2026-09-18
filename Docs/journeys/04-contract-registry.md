@@ -420,23 +420,29 @@ input document.
 #### `C-17` — compression always leaves a marker
 
 - **Shared thing:** "the model was given less than there was".
-- **Side A:** `internal/prompt/limits.go:30-32` — `clampMarkerPrefix = "[codenerd:
-  truncated"`, described as *"the visible truncation marker's stable prefix. Tests and log
-  scrapers match on it"*, with a 2:1 head/tail split (`clampTailDivisor = 3`) and
-  `TruncationNotice` for dropped rows.
-- **Side B:** `internal/session/executor.go:2082-2093` — `priorTurnMessages` drops whole
-  turns off the front of the history (`msgs = msgs[len(msgs)-window:]`, then pairs until the
-  char budget fits) and leaves nothing behind. `cmd/nerd/chat/process_continuation.go:244-251`
+- **Side A:** `internal/types/elide.go` — `clampMarkerPrefix = "[codenerd: truncated"`,
+  described as *"the visible truncation marker's stable prefix. Tests and log scrapers match
+  on it"*, with a 2:1 head/tail split (`clampTailDivisor = 3`) and `TruncationNotice` for
+  dropped rows. It lived in `internal/prompt/limits.go` until S15 and could not be reached
+  from `internal/tactile` or `internal/core`, which is most of why side B existed.
+- **Side B (as found):** `internal/session/executor.go:2082-2093` — `priorTurnMessages` drops
+  whole turns off the front of the history (`msgs = msgs[len(msgs)-window:]`, then pairs until
+  the char budget fits) and leaves nothing behind. `cmd/nerd/chat/process_continuation.go`
   `truncateSummary` appends `"..."` with no label or count;
   `internal/core/shards/manager_spawn.go:675-677` appends `"... (truncated)"` at 4000 chars.
+  Eight more sites found by re-derivation, including `tactile.ExecutionResult.Output`, whose
+  `Truncated`/`TruncatedBytes` never reached the model-facing text at all — the study's own
+  open question, answered: silently shortened.
 - **Contract:** every elision in a model-facing string is announced, with what was cut and how
-  much.
-- **Break observed:** latent for the history path; the pattern it violates is the one the same
-  binary enforces two packages away.
-- **Invariant test:** TO WRITE — `TestHistoryEvictionLeavesAMarker` (`internal/session`) and a
-  package-level `TestEveryModelFacingTruncatorUsesClampMarker` (`internal/prompt`) that fails
-  when a new truncation site ships without the prefix.
-- **Seam:** S15. Later.
+  much, plus a handle where the dropped content still exists.
+- **Break observed:** latent for the history path; real and measurable for tool output.
+- **Invariant test:** LANDED — `TestNoSilentCutsInAssembledMessages` (`internal/session`)
+  walks the assembled messages of a tool-loop turn and a chat turn and fails when any emitted
+  segment is shorter than its source without the marker, including a segment that left the
+  request entirely. It replaces the planned `TestEveryModelFacingTruncatorUsesClampMarker`,
+  which would have checked call sites rather than the window: a site-level scan passes for a
+  cutter nobody thought to scan, and the window does not.
+- **Seam:** S15. Landed — `Docs/journeys/impl/S15-never-silently-truncate.md`.
 
 #### `C-18` — `ActivatedFacts` is populated with a cache-safe key, or it is deleted
 
@@ -817,7 +823,7 @@ registry found that the program does not currently own.
 | **S12** `context_budget` / `final_injectable` wired per turn | the pruning decision | C-11, C-12, C-13 | `TestEveryCompileAssertsAContextBudget`, `TestStageShardToolAllowedDerivesForALiveShard`, `TestCompilerReadsFinalInjectable`, `TestInjectableContextSlotOneIsSelectable` | `internal/core/defaults/policy/prompt_context.mg`, `internal/core/defaults/policy/stage_context.mg`, `internal/core/defaults/policy/prompt_northstar.mg`, `internal/prompt/compiler.go`, `internal/articulation/prompt_assembler.go`, `internal/session/executor.go` |
 | **S13** CodeDOM facts reach the window; the tool-loop `WorkingSet` loads the full corpus | delivered knowledge | C-19, C-20, C-14, C-15 | `TestCodeDOMFactsReachTheWindow`, `TestStampedAtomsAreSearchableByTheSameEngine`, `TestPromptAtomsSchemaMatchesAcrossPackages` | `internal/core/virtual_store_codedom.go`, `internal/world/`, `internal/prompt/compiler.go`, `internal/prompt/loader.go`, `internal/store/local_core.go`, `internal/store/migrations.go`, `internal/prompt/vector_searcher.go` |
 | **S14** the chat persona as a counted atom | prompt accounting | C-16 | `TestSystemPromptIsExactlyTheCompiledAtoms` | `cmd/nerd/chat/process.go`, `cmd/nerd/chat/process_knowledge.go`, `cmd/nerd/chat/process_dream_delegation.go`, `internal/prompt/compiler.go`, `internal/prompt/atoms/` |
-| **S15** never silently truncate | elision policy | C-17 | `TestHistoryEvictionLeavesAMarker`, `TestEveryModelFacingTruncatorUsesClampMarker` | `internal/prompt/limits.go`, `internal/session/executor.go`, `cmd/nerd/chat/process_continuation.go`, `internal/core/shards/manager_spawn.go` |
+| **S15** never silently truncate | elision policy | C-17 | **landed:** `TestNoSilentCutsInAssembledMessages` (the invariant, through the real assembly), plus one test per site — `TestHistoryEviction_MarksAndRetains`, `TestToolResult_TruncationVisibleToModel`, `TestTrimToTokens_MarksTheCut`, `TestCollectKeyAtoms_MarksDroppedAtoms`, `TestUnmaskedTurnAtomCap_MarksTheCut`, `TestKeyAtomShed_MarksTheCut`, `TestFactSerializer_MarksDroppedArgChars`, `TestTruncateSummary_MarksTheCut`, `TestExtractSummary_MarksTheCut` | `internal/types/elide.go` (was `internal/prompt/limits.go`), `internal/tactile/types.go`, `internal/session/executor.go`, `internal/session/working_context.go`, `internal/context/compressor_metrics.go`, `internal/context/compressor_turns.go`, `internal/context/serializer.go`, `cmd/nerd/chat/process_continuation.go`, `internal/core/shards/manager_spawn.go`, `internal/core/virtual_store_actions.go` — see `Docs/journeys/impl/S15-never-silently-truncate.md` |
 | **S16** `ActivatedFacts` populated | the activation bridge | C-18 | `TestActivationScoresReachAtomSelection` (or deletion) | `internal/prompt/context.go`, `internal/context/activation.go`, `internal/prompt/selector.go` |
 | *(no S-id)* | the September archetypes, already landed | C-21, C-22, C-23, C-24, C-25, C-26 | `TestObserverHandlerHonoursShouldCheckNow`, `TestEveryHydratorAssertsItsDeclaredShape`, `TestUnconfiguredSlotGetsTheVendorCeiling`, `TestEmptyCompletionIsRetriedWhenTokensWereBilled` | `internal/core/shards/manager_tools.go`, `internal/shards/system/executive.go`, `internal/core/virtual_store.go`, `internal/core/virtual_store_predicates.go`, `internal/shards/observer_manager.go`, `internal/northstar/observer.go`, `internal/store/reembed_all.go`, `cmd/nerd/chat/system_warnings.go`, `internal/perception/client_openai_compat.go` |
 | *(no S-id)* | standing costs | C-30, C-31 | `BenchmarkCompilationScopeClone`, `TestMaxFactsInKernelBindsTheKernelCeiling`, `TestEveryValidatedCoreLimitHasAConsumer` | `internal/system/factory_adapters.go`, `internal/core/kernel_eval.go`, `internal/prompt/compiler.go`, `internal/core/limits.go`, `internal/core/kernel_init.go`, `internal/config/limits.go` |

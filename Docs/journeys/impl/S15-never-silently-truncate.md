@@ -124,10 +124,38 @@ updated to the new contract (see Tests).
 
 ## Tests
 
-Fail-before evidence was taken by blinding the marker emission at each site while keeping
-every signature intact (so the tests still compile), running the new tests, and restoring.
-The shared stash was not used: a temporary WIP commit held the work and
-`git checkout HEAD -- <paths>` restored it.
+Fail-before evidence was taken by blinding the marker emission at all twelve sites while
+keeping every signature intact (so the tests still compile), running the new tests, and
+restoring with `git checkout HEAD -- internal/ cmd/` against the committed work. The shared
+stash was not used.
+
+Restoring `internal/prompt/limits.go` from `dogfood/c2-closure` was not an option for this:
+the package move means the pre-change files reference `prompt.ClampText`, which no longer
+exists, so a checkout of the base version does not compile. Blinding the emission in place
+tests the same thing more precisely — the marker's absence, not the whole revision's.
+
+Observed failures with every marker blinded:
+
+| Test | Failure |
+|------|---------|
+| `TestToolResult_TruncationVisibleToModel` | 3 of 5 subtests: `marker present = false, want true`; output lost `41943040` / `2048` / `not reported` |
+| `TestHistoryEviction_MarksAndRetains` | `history eviction left no marker; the window reads as a whole conversation` |
+| `TestTrimToTokens_MarksTheCut` | `trimToTokens dropped 8149 chars with no marker` |
+| `TestCollectKeyAtoms_MarksDroppedAtoms` | `40 result atoms collapsed to 6 and nothing was reported dropped` |
+| `TestUnmaskedTurnAtomCap_MarksTheCut` | `3 of 30 result atoms rendered with no marker` |
+| `TestKeyAtomShed_MarksTheCut` | `the block lost every key atom and never said so` |
+| `TestFactSerializer_MarksDroppedArgChars` | `a 240-char fact argument was cut with no marker: modified("internal/core/defaults/policy/internal/core/de...)` |
+| `TestTruncateSummary_MarksTheCut` | `cut 1413 chars with no marker` |
+| `TestResultToFacts` | `oversized shard_output cut with no marker`; also `shard_output lost "TAILMARK"` (head-only) |
+| `TestExtractSummary_MarksTheCut` | `extractSummary cut 100 chars with no marker` |
+| **`TestNoSilentCutsInAssembledMessages`** | both halves: `tool result call-1 was shortened from 19681 to 267 chars with no marker`, and `8 of 14 conversation turns left the window and nothing in it says so` |
+
+One finding came out of this pass rather than out of writing the test. `TestKeyAtomShed_MarksTheCut`
+originally asserted `IsClamped(rollingSummary.Text)` and **passed while blinded**: the summary
+beside the shed atoms is trimmed by the same rebuild and carries its own marker, so "is there a
+marker anywhere in this block" was satisfied by a different cut. The assertion now names the
+atom notice specifically. A marker-presence assertion over a block that contains more than one
+cut is not an assertion about either of them.
 
 | Test | Package | Pins |
 |------|---------|------|

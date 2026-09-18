@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/broker"
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 )
 
 // TestCountFactsAndScoredFacts verifies the aggregate token counters sum their
@@ -76,18 +77,29 @@ func TestEstimateCompressionRatio(t *testing.T) {
 // the predicate/args are rendered in Datalog form.
 func TestTruncateFact(t *testing.T) {
 	fs := NewFactSerializer()
-	long := strings.Repeat("x", 100)
+	long := strings.Repeat("x", 1000)
 	out := fs.truncateFact(core.Fact{Predicate: "note", Args: []any{long}})
 	if !strings.HasPrefix(out, "note(") || !strings.HasSuffix(out, ").") {
 		t.Errorf("truncateFact rendering malformed: %q", out)
 	}
-	if !strings.Contains(out, "...") {
-		t.Errorf("truncateFact should clip a 100-char arg with an ellipsis: %q", out)
+	if !types.IsClamped(out) {
+		t.Errorf("truncateFact should clip a 1000-char arg and say so: %q", out)
 	}
-	// A short arg is left intact (no ellipsis).
+
+	// A short arg is left intact.
 	short := fs.truncateFact(core.Fact{Predicate: "p", Args: []any{"ok"}})
-	if strings.Contains(short, "...") {
+	if types.IsClamped(short) {
 		t.Errorf("short arg should not be clipped: %q", short)
+	}
+
+	// So is an argument the cut would not actually shorten. The marker costs
+	// more characters than a 100-char argument has to give: dropping 55 of
+	// them to append 56 leaves the block larger and the fact less complete,
+	// which is worse on both counts than carrying the argument whole.
+	modest := strings.Repeat("x", 100)
+	kept := fs.truncateFact(core.Fact{Predicate: "note", Args: []any{modest}})
+	if !strings.Contains(kept, modest) {
+		t.Errorf("a 100-char arg should be carried whole rather than traded for a longer marker: %q", kept)
 	}
 }
 
