@@ -52,6 +52,11 @@ This repo exists to make that split real in production: creative power with dete
 - Complexity is not a defect. This may be a highly complex system; what is scored is whether
   a decision is derived and whether an obligation is forced.
 - It hunts its own bugs and intelligently extends its own tooling, in Mangle and in Go.
+- The north star is a final state, not a goal to be hit. It describes the behavior the
+  finished system exhibits; the harness continuously derives the distance between what the
+  evidence shows and that state, and applies that distance as pressure on every agent it
+  runs. Nothing achieves the north star; every turn moves toward it, and the pressure never
+  lets go.
 - The original bet lives in `.codex/skills/codenerd-builder/references/` — an input to be
   judged, not a request to restore. `Docs/architecture/` (July 2026) is orientation, not the
   original, and not authoritative.
