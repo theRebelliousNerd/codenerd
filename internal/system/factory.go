@@ -457,6 +457,45 @@ func (c *Cortex) SpawnTaskWithTarget(ctx context.Context, shardType string, task
 	return c.TaskExecutor.Execute(ctx, req)
 }
 
+// SpawnTaskObservedWithTarget is SpawnTaskWithTarget returning what the
+// executor measured about the run instead of only its prose — in particular
+// Outcome, the kernel's verdict for the turn.
+//
+// It exists so the direct CLI verbs read the SAME verdict the chat, the
+// learner and turn_cost read, rather than deciding for themselves from an error
+// string whether the work landed. A `nerd fix` that built green and ran its
+// tests green is /done; one that wrote and could not show a green gate is
+// /unverified, which is not a failure; only /failed is.
+//
+// An executor that does not implement ObservedTaskExecutor still runs the task;
+// the observation then carries the output and nothing else, and Outcome is
+// empty — which every consumer must read as "no verdict was taken", never as
+// "not done".
+func (c *Cortex) SpawnTaskObservedWithTarget(ctx context.Context, shardType string, task, target string) (observation.Return, error) {
+	normalized := normalizeShardTypeName(shardType)
+
+	if !config.IsImageShardType(normalized) && c.TaskExecutor != nil {
+		systemShard := false
+		if c.ShardManager != nil {
+			if cfg, ok := c.ShardManager.GetProfile(normalized); ok && cfg.Type == types.ShardTypeSystem {
+				systemShard = true
+			}
+		}
+		if !systemShard {
+			if observed, ok := c.TaskExecutor.(session.ObservedTaskExecutor); ok {
+				return observed.ExecuteObserved(ctx, session.TaskRequest{
+					IntentVerb: shardType,
+					Task:       task,
+					Target:     target,
+				})
+			}
+		}
+	}
+
+	out, err := c.SpawnTaskWithTarget(ctx, shardType, task, target)
+	return observation.Return{Agent: shardType, Task: task, Output: out}, err
+}
+
 // SpawnTaskWithContext spawns a task with additional session context and priority.
 // This is used for dream mode, shadow mode, and other speculative execution scenarios.
 func (c *Cortex) SpawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -125,43 +126,53 @@ func compilationAtomsJSON(compileResult *prompt.CompilationResult) string {
 // per-turn facts are retracted: checkHollowSuccess calls this between the
 // verdict and the deferred cleanup, while turn_done is still derivable. After
 // cleanup the derivation is gone and turn_cost could never record /done.
+//
+// This is the ONLY place the outcome is decided. The switch below maps derived
+// facts onto atoms; it does not re-check the build, re-read the response, or
+// gate the kernel read behind a Go precondition. It used to do the last of
+// those — the turn_done query sat inside `if result.Acceptance != nil &&
+// result.Acceptance.Status == "verified"`, which is the acceptance conjunct of
+// the rule restated in Go, in front of the rule. On a turn without a contract
+// the kernel was never asked, so /done was unreachable whatever the corpus
+// derived.
 func (e *Executor) captureTurnOutcome(result *ExecutionResult, hollowErr error) {
 	if result == nil {
 		return
 	}
+	verdict := e.consumeTurnDoneSignal(strings.TrimSpace(result.Intent.Verb))
+	result.MissingEvidence = verdict.Missing
+
 	switch {
 	case hollowErr != nil:
+		// /hollow is a failure with a reason, and it stays its own atom:
+		// TurnRecord.Failed() counts it, and the chat routes it back to the
+		// same shard as /incomplete, which /failed does not do.
 		result.TurnOutcome = types.MangleAtom("/hollow")
 	case result.Error != nil:
 		result.TurnOutcome = types.MangleAtom("/failed")
+	case verdict.BuildFailed:
+		result.TurnOutcome = types.MangleAtom("/failed")
+	case verdict.Done:
+		result.TurnOutcome = types.MangleAtom("/done")
 	default:
-		outcome := types.MangleAtom("/unverified")
-		if e.kernel != nil && result.Acceptance != nil && result.Acceptance.Status == "verified" {
-			doneFacts, err := e.kernel.Query("turn_done")
-			if err == nil && len(doneFacts) > 0 {
-				outcome = types.MangleAtom("/done")
-			}
-		}
-		result.TurnOutcome = outcome
+		result.TurnOutcome = types.MangleAtom("/unverified")
 	}
 }
 
-// resolveTurnOutcome maps a finished turn to its turn_cost VerifiedOutcome:
-// /done when the kernel derived turn_done, /hollow when hollow_success fired,
-// /failed when the turn errored, /unverified otherwise.
+// resolveTurnOutcome returns the verdict captureTurnOutcome recorded.
+//
+// It does not re-derive. The kernel re-query that used to live here ran from
+// persistTurn, long after cleanupPerTurnCoverageFacts had retracted this turn's
+// evidence — it was asking a kernel that had already forgotten the turn — and a
+// second derivation path for the same question is exactly the "two truths
+// coexist" the no-shims rule forbids.
+//
+// The error classification below is not a second path: it is the answer for a
+// turn that never reached the verdict at all, because something threw before
+// checkHollowSuccess ran and TurnOutcome was never set.
 func (e *Executor) resolveTurnOutcome(result *ExecutionResult) types.MangleAtom {
 	if result != nil && result.TurnOutcome != "" {
 		return result.TurnOutcome
-	}
-	if e.kernel != nil && result != nil && result.Acceptance != nil && result.Acceptance.Status == "verified" {
-		doneFacts, err := e.kernel.Query("turn_done")
-		if err == nil && len(doneFacts) > 0 {
-			return types.MangleAtom("/done")
-		}
-		hollowFacts, herr := e.kernel.Query("hollow_success")
-		if herr == nil && len(hollowFacts) > 0 {
-			return types.MangleAtom("/hollow")
-		}
 	}
 	if result != nil && result.Error != nil {
 		if isHollowSuccessError(result.Error) {

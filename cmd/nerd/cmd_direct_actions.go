@@ -391,7 +391,12 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		rootBefore := snapshotDirectRoot(wsRoot)
 
 		shardStart := time.Now()
-		result, err := cortex.SpawnTaskWithTarget(ctx, verb, target, target)
+		// The observed spawn, not the prose one: the direct verbs read the
+		// SAME kernel verdict the chat, the learner and turn_cost read. The
+		// exit code is a function of that verdict below, not of a guess about
+		// what the result text means.
+		observed, err := cortex.SpawnTaskObservedWithTarget(ctx, verb, target, target)
+		result := observed.Output
 		stopHeartbeat()
 		rootAfter := snapshotDirectRoot(wsRoot)
 		shardDuration := time.Since(shardStart)
@@ -435,6 +440,18 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		fmt.Println("📋 Result:")
 		fmt.Println(result)
 		reportUndeclaredRootWrites(newEntries)
+
+		// The kernel's verdict, stated plainly and exactly once. /unverified
+		// is reported and exits zero: the turn ran, it simply could not show
+		// the evidence that would make it done, and calling that a failure
+		// would erase the distinction the third state exists to carry.
+		if outcome := strings.TrimSpace(observed.Outcome); outcome != "" {
+			fmt.Printf("🧾 Turn outcome: %s\n", outcome)
+			tracer.Trace("VERDICT", "turn outcome %s", outcome)
+			if outcome == "/failed" {
+				return fmt.Errorf("turn outcome %s: the workspace did not pass its mechanical checks", outcome)
+			}
+		}
 
 		tracer.TracePhase("COMPLETE")
 		return nil

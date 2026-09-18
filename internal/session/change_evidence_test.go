@@ -16,7 +16,8 @@ func TestCloseChangeEvidence_ResponseNamesWrittenFiles(t *testing.T) {
 	result.WrittenPaths = []string{"x.go"}
 	result.Response = "did stuff"
 
-	e.appendEvidenceReport(context.Background(), result)
+	e.closeAcceptanceEvidence(context.Background(), result)
+	e.appendEvidenceSummary(result)
 
 	if !strings.Contains(result.Response, "Wrote 1 file(s): x.go") {
 		t.Fatalf("response lacks written file ledger: %q", result.Response)

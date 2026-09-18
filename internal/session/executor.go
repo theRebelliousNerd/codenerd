@@ -813,6 +813,13 @@ type ExecutionResult struct {
 	// /failed, /unverified), captured by checkHollowSuccess before per-turn
 	// facts are retracted so turn_cost can record it. Empty until determined.
 	TurnOutcome types.MangleAtom
+
+	// MissingEvidence are the turn_missing_evidence atoms the corpus derived
+	// for an /unverified turn (/build_not_green, /tests_not_green). It is why
+	// the turn is not done, in the kernel's words rather than the executor's,
+	// and it is what the closing evidence sentence names. Empty for a verified
+	// turn and for a turn that changed nothing.
+	MissingEvidence []string
 }
 
 // Process handles user input through the clean loop.
@@ -1097,12 +1104,17 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// non-zero. Other soft tool failures stay on result.Error with a nil
 	// return for interactive chat compatibility; TaskExecutor still surfaces
 	// result.Error for SpawnTask callers.
-	e.appendEvidenceReport(ctx, result)
+	e.closeAcceptanceEvidence(ctx, result)
 	if result.Error == nil {
 		if hollowErr := e.checkHollowSuccess(result); hollowErr != nil {
 			result.Error = hollowErr
 		}
 	}
+	// The closing evidence sentence comes LAST, because it is a function of
+	// the verdict checkHollowSuccess just captured. Written before it (where
+	// it used to live) the only thing it could say was "unverified", and it
+	// said so on every write turn regardless of what the gates measured.
+	e.appendEvidenceSummary(result)
 
 	// Update conversation history
 	e.appendToHistory(perception.ConversationTurn{
@@ -2599,17 +2611,112 @@ func (e *Executor) consumeHollowSuccessVerdict(verb string, result *ExecutionRes
 	return nil
 }
 
-// consumeTurnDoneSignal is the Go consumer of the single turn_done
-// completion signal. Exactly one turn_done is expected per turn_evidence;
-// any deviation is logged for diagnosis without changing the verdict
-// hollow_success already determined.
-func (e *Executor) consumeTurnDoneSignal(verb string) {
+// turnVerdict is what the kernel says about the turn whose evidence is still
+// asserted. It is read once, in consumeTurnDoneSignal, and every surface that
+// wants to know how the turn went reads the atom that read produced —
+// result.TurnOutcome — rather than asking the kernel again or inspecting the
+// checks itself.
+type turnVerdict struct {
+	// Answered is false when there was no kernel to ask (MockKernel unit
+	// tests, degraded runtime). A consumer must not read "no verdict" as
+	// "not done": it means nothing was asked.
+	Answered bool
+
+	// Done is turn_done — executed AND verified.
+	Done bool
+
+	// BuildFailed is turn_build_failed: build_state(/failing) this turn.
+	BuildFailed bool
+
+	// Missing are the turn_missing_evidence atoms (/build_not_green,
+	// /tests_not_green). Empty for a verified turn and for a turn that
+	// changed nothing.
+	Missing []string
+}
+
+// consumeTurnDoneSignal is THE read of the turn's verdict from the kernel.
+//
+// It used to query turn_done, compare the row count to one, and write two Debug
+// lines — the single completion signal had no consumer at all, and could not
+// have had one: turn_done needed turn_acceptance, which only `nerd fix
+// --acceptance` ever produced, so on every chat turn, campaign task and
+// observer run the query was answered "no" by construction.
+//
+// Now the corpus derives verification from the mechanical gates
+// (turn_verified, coder_safety.mg) and this is where that lands. It must be
+// called while the per-turn facts are still asserted — cleanup retracts them
+// and the derivation goes with them.
+func (e *Executor) consumeTurnDoneSignal(verb string) turnVerdict {
+	var v turnVerdict
 	if e.kernel == nil {
-		return
+		logging.Get(logging.CategorySession).Debug("turn verdict: no kernel to ask for verb %s", verb)
+		return v
 	}
+	v.Answered = true
+
 	if doneFacts, derr := e.kernel.Query("turn_done"); derr != nil {
-		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: turn_done query failed: %v", derr)
-	} else if len(doneFacts) != 1 {
-		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: turn_done count=%d for verb %s (expected exactly one per turn_evidence)", len(doneFacts), verb)
+		logging.Get(logging.CategorySession).Debug("turn verdict: turn_done query failed: %v", derr)
+		v.Answered = false
+	} else {
+		v.Done = len(doneFacts) > 0
+		if len(doneFacts) > 1 {
+			logging.Get(logging.CategorySession).Debug("turn verdict: turn_done count=%d for verb %s (expected at most one per turn_evidence)", len(doneFacts), verb)
+		}
 	}
+
+	if failFacts, ferr := e.kernel.Query("turn_build_failed"); ferr != nil {
+		logging.Get(logging.CategorySession).Debug("turn verdict: turn_build_failed query failed: %v", ferr)
+	} else {
+		v.BuildFailed = len(failFacts) > 0
+	}
+
+	if missingFacts, merr := e.kernel.Query("turn_missing_evidence"); merr != nil {
+		logging.Get(logging.CategorySession).Debug("turn verdict: turn_missing_evidence query failed: %v", merr)
+	} else {
+		seen := make(map[string]struct{}, len(missingFacts))
+		for _, f := range missingFacts {
+			if len(f.Args) < 2 {
+				continue
+			}
+			atom := types.ExtractString(f.Args[1])
+			if atom == "" {
+				continue
+			}
+			if _, dup := seen[atom]; dup {
+				continue
+			}
+			seen[atom] = struct{}{}
+			v.Missing = append(v.Missing, atom)
+		}
+		sort.Strings(v.Missing)
+	}
+
+	logging.Get(logging.CategorySession).Debug("turn verdict for %s: done=%t build_failed=%t missing=%v", verb, v.Done, v.BuildFailed, v.Missing)
+	return v
+}
+
+// missingEvidenceSentence renders one turn_missing_evidence atom as the clause
+// a human reads. The corpus decides WHICH atoms hold; this only spells them.
+func missingEvidenceSentence(atom string) string {
+	switch atom {
+	case "/build_not_green":
+		return "the build was not verified green"
+	case "/tests_not_green":
+		return "the tests were not verified green"
+	default:
+		return strings.TrimPrefix(atom, "/")
+	}
+}
+
+// missingEvidenceClause joins the derived reasons into the phrase that follows
+// "Unverified: ". Empty when nothing is missing.
+func missingEvidenceClause(missing []string) string {
+	if len(missing) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(missing))
+	for _, atom := range missing {
+		parts = append(parts, missingEvidenceSentence(atom))
+	}
+	return strings.Join(parts, "; ")
 }

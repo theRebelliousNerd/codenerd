@@ -238,10 +238,17 @@ func TestExecutorTurnCost_AssertedPerTurn(t *testing.T) {
 	requireTurnCostOutcome(t, fact, "/done", "/hollow", "/failed", "/unverified")
 }
 
-// A read-only turn earns turn_done like any other (it used to return before
-// asserting evidence, so every /explain landed as /unverified), and is never
-// failed for hollowness even when a verb-agnostic hollow rule fires.
-func TestExecutorTurnCost_ReadOnlyTurnIsUnverifiedNotFailed(t *testing.T) {
+// A read-only turn earns turn_done like any other, and is never failed for
+// hollowness even when a verb-agnostic hollow rule fires.
+//
+// This test used to assert /unverified for the clean case, which contradicted
+// the sentence above it. Both were right about their own moment: evidence IS
+// asserted for read-only turns now, but until S4 turn_done also needed a
+// turn_acceptance witness that only `nerd fix --acceptance` ever produced, so
+// the verdict a read-only turn "earned" was unreachable and /unverified was
+// what actually landed. A turn that changed nothing has no workspace claim to
+// verify (turn_verified's no-write arm, coder_safety.mg), so it is now /done.
+func TestExecutorTurnCost_ReadOnlyTurnIsDoneNotFailed(t *testing.T) {
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -255,8 +262,8 @@ func TestExecutorTurnCost_ReadOnlyTurnIsUnverifiedNotFailed(t *testing.T) {
 	if err := executor.checkHollowSuccess(clean); err != nil {
 		t.Fatalf("read-only turn must never fail hollow checks: %v", err)
 	}
-	if clean.TurnOutcome != types.MangleAtom("/unverified") {
-		t.Fatalf("clean read-only TurnOutcome = %q, want /unverified", clean.TurnOutcome)
+	if clean.TurnOutcome != types.MangleAtom("/done") {
+		t.Fatalf("clean read-only TurnOutcome = %q, want /done — a turn that changed nothing owes no gate", clean.TurnOutcome)
 	}
 
 	// Claimed test-runner output with no test tool: the verb-agnostic rule

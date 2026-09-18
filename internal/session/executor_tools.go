@@ -1952,9 +1952,12 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 	// work as verified at all (seen live on both chat probes).
 	e.assertTurnEvidence(verb, result)
 	hollowErr := e.consumeHollowSuccessVerdict(verb, result)
-	// Capture the kernel's verdict (turn_done/hollow_success) BEFORE the
-	// deferred cleanup retracts turn_evidence — after that the derivation is
-	// gone and turn_cost could never record /done.
+	// Capture the kernel's verdict BEFORE the deferred cleanup retracts
+	// turn_evidence — after that the derivation is gone and turn_cost could
+	// never record /done. captureTurnOutcome performs the single kernel read
+	// (consumeTurnDoneSignal) for turn_done, turn_build_failed and
+	// turn_missing_evidence; it runs on EVERY path, read-only verbs included,
+	// so no surface is left to invent an outcome of its own.
 	e.captureTurnOutcome(result, hollowErr)
 	if !requiresTools {
 		// A read-only intent is measured but never failed for hollowness: an
@@ -1969,10 +1972,6 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 	if hollowErr != nil {
 		return hollowErr
 	}
-	// Single turn_done completion signal: exactly one is expected per
-	// turn_evidence. The consumer logs any deviation for diagnosis without
-	// changing the verdict hollow_success already determined.
-	e.consumeTurnDoneSignal(verb)
 	return nil
 }
 

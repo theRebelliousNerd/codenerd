@@ -106,7 +106,18 @@ func turnRecoveredFromToolErrors(result *ExecutionResult) bool {
 	return strings.TrimSpace(result.Response) != ""
 }
 
-func (e *Executor) appendEvidenceReport(ctx context.Context, result *ExecutionResult) {
+// closeAcceptanceEvidence verifies, persists and arbitrates the acceptance
+// report, and re-arbitrates the checks snapshot for a write turn with no
+// contract. It runs BEFORE the hollow gate because it can set result.Error, and
+// checkHollowSuccess only runs on a turn that has not already errored.
+//
+// It used to also write the closing sentence, and that is why the sentence was
+// a constant: at this point in the turn the kernel has not been asked anything
+// yet — assertTurnEvidence and the verdict read both happen inside
+// checkHollowSuccess, afterwards — so the only thing this function could
+// truthfully say was "unverified", and it said it unconditionally. The sentence
+// now lives in appendEvidenceSummary, which runs after the verdict.
+func (e *Executor) closeAcceptanceEvidence(ctx context.Context, result *ExecutionResult) {
 	if result == nil {
 		return
 	}
@@ -128,27 +139,78 @@ func (e *Executor) appendEvidenceReport(ctx context.Context, result *ExecutionRe
 		if result.Acceptance.Status != "verified" && result.Error == nil {
 			result.Error = fmt.Errorf("%w: acceptance remains unverified", ErrVerificationFailed)
 		}
+		return
+	}
+	if result.SuccessfulWriteTools > 0 && result.ChangeStage == "checks_passed" {
+		current, err := evidence.Snapshot(ctx, e.workspaceForVerification())
+		if err != nil || current != result.ChecksSnapshot {
+			result.ChangeStage = "artifact_changed"
+			result.ChecksSnapshot = ""
+		}
+	}
+}
+
+// appendEvidenceSummary writes the turn's closing evidence sentence. It runs
+// after checkHollowSuccess, so result.TurnOutcome and result.MissingEvidence
+// carry the kernel's verdict and the sentence is a function of it.
+//
+// Before this seam the sentence was the constant "Evidence: <stage>. Requested
+// behavior remains unverified (no acceptance contract)." on every write turn.
+// It was accidentally true — turn_done needed a contract, so nothing without
+// one ever WAS verified — and it would have become a lie the moment the corpus
+// could verify a turn from its gates. There are three states now, and the
+// sentence names which one the turn reached and, when it did not reach done,
+// which evidence the kernel found missing.
+func (e *Executor) appendEvidenceSummary(result *ExecutionResult) {
+	if result == nil {
+		return
+	}
+	if result.Acceptance != nil {
 		result.Response += "\n\n" + result.Acceptance.Summary()
-	} else if result.SuccessfulWriteTools > 0 {
-		if result.ChangeStage == "checks_passed" {
-			current, err := evidence.Snapshot(ctx, e.workspaceForVerification())
-			if err != nil || current != result.ChecksSnapshot {
-				result.ChangeStage = "artifact_changed"
-				result.ChecksSnapshot = ""
-			}
+		return
+	}
+	if result.SuccessfulWriteTools == 0 {
+		return
+	}
+	stage := result.ChangeStage
+	if stage == "" {
+		stage = "artifact_changed"
+	}
+	written := "none"
+	if len(result.WrittenPaths) > 0 {
+		if len(result.WrittenPaths) > 10 {
+			written = strings.Join(result.WrittenPaths[:10], ", ") + fmt.Sprintf(" and %d more", len(result.WrittenPaths)-10)
+		} else {
+			written = strings.Join(result.WrittenPaths, ", ")
 		}
-		stage := result.ChangeStage
-		if stage == "" {
-			stage = "artifact_changed"
+	}
+	result.Response += fmt.Sprintf("\n\nWrote %d file(s): %s\nEvidence: %s. %s",
+		len(result.WrittenPaths), written, stage, verdictSentence(result))
+}
+
+// verdictSentence states the turn's verification in one sentence, derived from
+// the outcome the kernel produced. No branch here decides anything: each one
+// spells out an atom captureTurnOutcome already recorded.
+func verdictSentence(result *ExecutionResult) string {
+	if result == nil {
+		return "Unverified: the turn produced no verdict."
+	}
+	if result.Acceptance != nil && result.Acceptance.Status == "verified" {
+		return "Verified by contract " + result.Acceptance.ContractID + "."
+	}
+	switch result.TurnOutcome {
+	case "/done":
+		return "Verified by evidence: the build and the tests were both measured green after the final edit."
+	case "/hollow":
+		return "Not verified: the turn claimed work it has no evidence for."
+	case "/failed":
+		return "Failed: the workspace did not pass its mechanical checks."
+	case "/unverified":
+		if clause := missingEvidenceClause(result.MissingEvidence); clause != "" {
+			return "Unverified: " + clause + "."
 		}
-		written := "none"
-		if len(result.WrittenPaths) > 0 {
-			if len(result.WrittenPaths) > 10 {
-				written = strings.Join(result.WrittenPaths[:10], ", ") + fmt.Sprintf(" and %d more", len(result.WrittenPaths)-10)
-			} else {
-				written = strings.Join(result.WrittenPaths, ", ")
-			}
-		}
-		result.Response += fmt.Sprintf("\n\nWrote %d file(s): %s\nEvidence: %s. Requested behavior remains unverified (no acceptance contract).", len(result.WrittenPaths), written, stage)
+		return "Unverified: the evidence this turn owed was not produced."
+	default:
+		return "Unverified: the turn produced no verdict."
 	}
 }
