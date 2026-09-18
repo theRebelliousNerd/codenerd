@@ -43,6 +43,7 @@ func TestShardResultStatus_DerivedFromOutcomeNotProse(t *testing.T) {
 			// not a verdict about the turn.
 			name: "proseSaysTODOButOutcomeIsDone",
 			ret: observation.Return{
+				Agent:   "coder",
 				Output:  "Added the handler. TODO in the tracker: document the new flag.",
 				Outcome: "/done",
 			},
@@ -51,6 +52,7 @@ func TestShardResultStatus_DerivedFromOutcomeNotProse(t *testing.T) {
 		{
 			name: "proseSaysFIXMEButOutcomeIsDone",
 			ret: observation.Return{
+				Agent:   "coder",
 				Output:  "Done. Left a FIXME comment where the vendor API is flaky.",
 				Outcome: "/done",
 			},
@@ -61,6 +63,7 @@ func TestShardResultStatus_DerivedFromOutcomeNotProse(t *testing.T) {
 			// prose sounds.
 			name: "unverifiedIsNeverComplete",
 			ret: observation.Return{
+				Agent:   "coder",
 				Output:  "All done — everything works perfectly and is fully tested.",
 				Outcome: "/unverified",
 				Changed: []string{"internal/core/kernel.go"},
@@ -70,6 +73,7 @@ func TestShardResultStatus_DerivedFromOutcomeNotProse(t *testing.T) {
 		{
 			name: "unverifiedWithNoChangeIsUnverified",
 			ret: observation.Return{
+				Agent:   "coder",
 				Output:  "Reviewed the package; it looks fine.",
 				Outcome: "/unverified",
 			},
@@ -78,6 +82,7 @@ func TestShardResultStatus_DerivedFromOutcomeNotProse(t *testing.T) {
 		{
 			name: "hollowOwesTheWorkToTheSameShard",
 			ret: observation.Return{
+				Agent:   "coder",
 				Output:  "Here is the plan for the change.",
 				Outcome: "/hollow",
 			},
@@ -85,12 +90,12 @@ func TestShardResultStatus_DerivedFromOutcomeNotProse(t *testing.T) {
 		},
 		{
 			name: "failedOutcome",
-			ret:  observation.Return{Output: "partial", Outcome: "/failed"},
+			ret:  observation.Return{Agent: "coder", Output: "partial", Outcome: "/failed"},
 			want: "/failed",
 		},
 		{
 			name: "errorBeatsEverything",
-			ret:  observation.Return{Output: "looks great", Outcome: "/done"},
+			ret:  observation.Return{Agent: "coder", Output: "looks great", Outcome: "/done"},
 			err:  errors.New("shard execution failed"),
 			want: "/failed",
 		},
@@ -98,7 +103,7 @@ func TestShardResultStatus_DerivedFromOutcomeNotProse(t *testing.T) {
 			// A producer with no structure has observed no verdict. That is
 			// not completion.
 			name: "absentVerdictIsUnverifiedNotComplete",
-			ret:  observation.Return{Output: "Finished successfully."},
+			ret:  observation.Return{Agent: "coder", Output: "Finished successfully."},
 			want: "/unverified",
 		},
 	}
@@ -129,6 +134,7 @@ func TestPendingTestOwed_DerivedFromEvidenceNotVocabulary(t *testing.T) {
 			// a test run was observed and it passed.
 			name: "noTestWordButTestsRanAndPassed",
 			ret: observation.Return{
+				Agent:   "coder",
 				Output:  "Reworked the parser so the offsets line up.",
 				Changed: []string{"internal/parser/parser.go"},
 				Tests:   passedVerification("tests"),
@@ -138,6 +144,7 @@ func TestPendingTestOwed_DerivedFromEvidenceNotVocabulary(t *testing.T) {
 		{
 			name: "goSourceChangedAndNothingRanTheTests",
 			ret: observation.Return{
+				Agent:   "coder",
 				Output:  "Reworked the parser; the tests should still pass.",
 				Changed: []string{"internal/parser/parser.go"},
 			},
@@ -148,6 +155,7 @@ func TestPendingTestOwed_DerivedFromEvidenceNotVocabulary(t *testing.T) {
 			// That list IS the obligation, whatever else ran.
 			name: "untestedPathsAlwaysOweATest",
 			ret: observation.Return{
+				Agent:    "coder",
 				Output:   "Added the helper.",
 				Changed:  []string{"internal/parser/parser.go"},
 				Tests:    passedVerification("tests"),
@@ -158,6 +166,7 @@ func TestPendingTestOwed_DerivedFromEvidenceNotVocabulary(t *testing.T) {
 		{
 			name: "markdownOnlyTurnOwesNothing",
 			ret: observation.Return{
+				Agent:   "coder",
 				Output:  "Documented the flag.",
 				Changed: []string{"README.md"},
 			},
@@ -166,6 +175,7 @@ func TestPendingTestOwed_DerivedFromEvidenceNotVocabulary(t *testing.T) {
 		{
 			name: "testFileOnlyTurnOwesNothing",
 			ret: observation.Return{
+				Agent:   "coder",
 				Output:  "Added coverage.",
 				Changed: []string{"internal/parser/parser_test.go"},
 			},
@@ -173,7 +183,7 @@ func TestPendingTestOwed_DerivedFromEvidenceNotVocabulary(t *testing.T) {
 		},
 		{
 			name: "noChangeOwesNothing",
-			ret:  observation.Return{Output: "Nothing to change."},
+			ret:  observation.Return{Agent: "coder", Output: "Nothing to change."},
 			want: false,
 		},
 	}
