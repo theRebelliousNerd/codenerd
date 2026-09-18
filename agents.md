@@ -58,8 +58,9 @@ This repo exists to make that split real in production: creative power with dete
   runs. Nothing achieves the north star; every turn moves toward it, and the pressure never
   lets go.
 - The original bet lives in `.codex/skills/codenerd-builder/references/` — an input to be
-  judged, not a request to restore. `Docs/architecture/` (July 2026) is orientation, not the
-  original, and not authoritative.
+  judged, not a request to restore. `Docs/architecture/` (July 2026) is not the original and
+  not authoritative: it was generated one package at a time by a weak model and its claims
+  have been found stale or never true; never cite it as evidence of anything. Read the code.
 
 ## Use codeNERD Where It Can Do the Job (a suggestion, not a mandate — for now)
 
