@@ -983,3 +983,37 @@ scores turn the cache off. `cmd/nerd/chat/process.go:832` is the mirror image: a
 wiring test or a compile failure on a removed field — but "delivered knowledge is a decision"
 and "every atom is counted" are the same sentence pointing in opposite directions for these
 two, and which one the architect means decides both.
+
+## Reconciliation: cited test names vs the tree (2026-09-18 15:30)
+
+The wave-1 review (open item 8) found 36 of the names above absent as functions. Measured at
+`0225c695`: 54 names cited, 21 present, 33 absent. Most of the absent ones were satisfied in
+substance under other names by the seams that landed; the table maps them so the registry can be
+read as a checklist again. "TO WRITE" below means exactly that. Names in the entries above are
+left as written (they date the plan); this table is the current truth.
+
+| Cited name (contract) | Status | Landed as (package) |
+|---|---|---|
+| `TestObservedReturnCarriesTheTurnVerdict` (C-01, C-04) | landed | `TestObservedReturn_CarriesKernelVerdict`, `TestObservedReturn_AbsentVerdictStaysAbsent` (`internal/session`) |
+| `TestProjectReturnStatusAgreesWithTurnOutcome` (C-02) | written, **failing** | `internal/observation/return_verdict_test.go` (reviewer); held out of the tree until F1 lands (in a `nerd fix` run as of 15:20) |
+| `TestShardResultStatusVocabularyIsClosed` (C-03) | landed | itself, reading the consumed set from `codedom_continuation.mg`; plus `TestPendingTestOnAVerifiedTurnStillReachesTheTester`, `TestTestObligationIsDischargedByTheTestersResult`, `TestFindingsOweAFixToTheCoderOnce`, `TestIncompleteStepIsRetriedOnce`, `TestObligationDescriptionsDoNotNest` (`cmd/nerd/chat`, `097d59ac`) |
+| `TestPendingTestFollowsTheWriteSetNotTheProse` (C-05) | landed | `TestPendingTestOwed_DerivedFromEvidenceNotVocabulary`, `TestInjectShardResultFacts_DerivesContinuationThroughRealKernel` (`cmd/nerd/chat`) |
+| `TestFormatShardTaskTargetIsALocation` (C-06) | landed | `TestFormatShardTask_FixPreservesFileAndBrief`, `_FixWithoutConstraintStillNamesFile`, `_RefactorPreservesFileAndBrief`, `TestSplitSlashTarget_*` x3 (`cmd/nerd/chat`) |
+| `TestTurnDoneIsReachableFromAChatTurn` (C-07) | landed | `TestTurnDone_DerivesFromEvidenceWithoutAcceptance`, `TestTurnDone_ReadOnlyTurnIsDoneWithoutGates`, `TestTurnDone_AcceptancePathStillSufficient` (`internal/session`); `TestCorpus_TurnVerificationRulesLoadAndDerive` (`internal/core`); sharpened by F2: `TestTurnVerified_DoesNotReuseAnEarlierTurnsTestState`, `TestTurnVerified_ReadsThisTurnsGateNotTheSessionsRed` (`acb15309`) |
+| `TestBuildStateIsAssertedByTheTurn` (C-08) | landed | `TestBuildFailure_ExcludesTurnExecuted`, `TestPassingBuildDerivesTurnExecuted`, `TestSkippedGateAssertsNoState`, `TestPerTurnBuildStateIsRetracted` (`internal/session`) |
+| `TestWorkingProgressSlotsMatchTheDecl`, `TestDeletingTheCountCeilingKeepsThePolicyStops`, `TestToolLoopEndsForExactlyOneReason` (C-09, C-10) | landed | `TestWorkingMeter_CountsWhatThePolicyReads`, `_FailedCallIsNotProgress`, `_RepeatedTailCycleUsesThePolicySpan`, `TestDescribeWorkingStop_NamesTheDerivation`, `_UnnamedStopIsAPolicyBug`, `TestExecutor_Process_LargeToolBatchIsNotCutOffByACount` (`internal/session`); `TestRemovedConfigKeys_FailLoudly` (`internal/config`) |
+| `TestModelAssertablePredicatesDoNotFeedTheVerdict` (S4) | floor landed; general form TO WRITE | `TestModelCannotAssertTurnDone`, `TestPlannerPrefixPolicyCannotReachBuildState`, `TestModelObservationPolicyNamesNoHostWitness` (`internal/core`); the general test (every predicate a verdict rule reads is hard-blocked) is review open item 6 and would have caught `context_budget` (S12) |
+| `TestRegistryAndDispatcherAgree` (C-29) | landed | `TestCommandSurface_RegistryAndDispatcherAgree` (`cmd/nerd/chat`, `7c59a848`) |
+| `TestNoTestNamesAnUndispatchedCommand` (C-27/C-28) | landed in substance | the hardened `TestCommand_Shards`, `TestCommand_Autopoiesis`, `TestCommand_Facts` and `TestLive_*Command` fail on "Unknown command"; no single test of that name |
+| `TestEveryModelFacingTruncatorUsesClampMarker` (C-25) | replaced | `TestNoSilentCutsInAssembledMessages` (as the entry says) |
+| `TestPiggybackAtomMatchesTheFilter` (C-28, S11) | TO WRITE | the reviewer's `TestShippedPromptCorpus_ProtocolAtomsTeachNoHardBlockedPredicate` is the right shape once pointed at the embedded YAML corpus (not the seed DB); held in the merger's scratchpad |
+| `TestCompilerReadsFinalInjectable`, `TestEveryCompileAssertsAContextBudget`, `TestInjectableContextSlotOneIsSelectable` (S12) | TO WRITE | after S17 |
+| `TestSystemPromptIsExactlyTheCompiledAtoms` (S17) | in flight | S17 agent, third launch |
+| `TestStageShardToolAllowedDerivesForALiveShard` (S21) | in flight | S21 agent, second launch |
+| `TestCodeDOMFactsReachTheWindow` (S13), `TestActivationScoresReachAtomSelection` (S16), `TestEveryDerivedLaneHasAConsumer`, `TestGoAddsNoRoutingOpinion` (S5), `TestWorkingSetCorpusIsClosedUnderItsRuleBodies` (S9), `TestEveryNegatedVerdictPredicateHasAProducer`, `TestEveryHydratorAssertsItsDeclaredShape`, `TestPromptAtomsSchemaMatchesAcrossPackages`, `TestEveryValidatedCoreLimitHasAConsumer`, `TestMaxFactsInKernelBindsTheKernelCeiling`, `TestUnconfiguredSlotGetsTheVendorCeiling`, `TestEmptyCompletionIsRetriedWhenTokensWereBilled`, `TestObserverHandlerHonoursShouldCheckNow`, `TestStampedAtomsAreSearchableByTheSameEngine` | TO WRITE | by their seams |
+| `TestCheck` | not a test | a false match on prose |
+
+Added by the merges, not in the entries above: `TestErroredTurnStillClosesAndRetractsItsFacts`
+(`internal/session`, F5: the turn closes on every path); the S23 pin for the differential path
+(in flight).
+
