@@ -334,3 +334,136 @@ func TestToolRegistry_ExecuteRegisteredTool_Validation(t *testing.T) {
 		t.Errorf("Expected security violation error, got: %v", err)
 	}
 }
+
+func TestToolRegistry_ProductionToolsCarryVocabularyCapabilities(t *testing.T) {
+	registry := NewToolRegistry(".")
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
+	registry.SetKernel(kernel)
+
+	// Production-like tools through the plain registration path, which
+	// previously set no Capabilities at all. Names/commands carry distinct
+	// effects so the single mapping must yield distinct vocabulary caps.
+	plainTools := []struct {
+		name     string
+		command  string
+		affinity string
+	}{
+		{"prod_generate", "prod_generate_cmd", "/all"},
+		{"prod_debug_test", "prod_debug_test_cmd", "/all"},
+		{"prod_inspect", "prod_inspect_cmd", "/all"},
+	}
+	for _, pt := range plainTools {
+		if err := registry.RegisterTool(pt.name, pt.command, pt.affinity); err != nil {
+			t.Fatalf("RegisterTool(%s) failed: %v", pt.name, err)
+		}
+	}
+
+	// Production-like tool through the info path with a legacy raw category
+	// string ("build") instead of vocabulary caps. The single mapping must
+	// translate it into the routing vocabulary.
+	legacyTool := &Tool{
+		Name:          "prod_build_tool",
+		Command:       "prod_build_cmd",
+		ShardAffinity: "/all",
+		Description:   "Builds the project binary",
+		Capabilities:  []string{"build"},
+		RegisteredAt:  time.Now(),
+	}
+	if err := registry.RegisterToolWithInfo(legacyTool); err != nil {
+		t.Fatalf("RegisterToolWithInfo failed: %v", err)
+	}
+
+	expectedTools := []string{"prod_generate", "prod_debug_test", "prod_inspect", "prod_build_tool"}
+
+	if err := kernel.Evaluate(); err != nil {
+		t.Fatalf("Kernel evaluation failed: %v", err)
+	}
+
+	allowed := map[string]bool{
+		"/generation": true, "/debugging": true, "/transformation": true,
+		"/inspection": true, "/validation": true, "/execution": true,
+		"/analysis": true, "/knowledge": true,
+	}
+
+	capFacts, err := kernel.Query("tool_capability")
+	if err != nil {
+		t.Fatalf("Query tool_capability failed: %v", err)
+	}
+	if len(capFacts) == 0 {
+		t.Fatal("No tool_capability facts found for registered production tools")
+	}
+	capsByTool := map[string]map[string]bool{}
+	for _, f := range capFacts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		name, ok := f.Args[0].(string)
+		if !ok {
+			t.Fatalf("tool_capability first arg has unexpected type %T, want string", f.Args[0])
+		}
+		cap, ok := f.Args[1].(string)
+		if !ok {
+			t.Fatalf("tool_capability second arg has unexpected type %T, want string", f.Args[1])
+		}
+		if !allowed[cap] {
+			t.Errorf("tool_capability(%q, %q) not in routing vocabulary", name, cap)
+		}
+		if capsByTool[name] == nil {
+			capsByTool[name] = map[string]bool{}
+		}
+		capsByTool[name][cap] = true
+	}
+	for _, name := range expectedTools {
+		if len(capsByTool[name]) == 0 {
+			t.Errorf("registered tool %q carries no tool_capability fact in routing vocabulary", name)
+		}
+	}
+
+	relFacts, err := kernel.Query("relevant_tool")
+	if err != nil {
+		t.Fatalf("Query relevant_tool failed: %v", err)
+	}
+	byShard := map[string]map[string]bool{
+		"/coder": {}, "/tester": {}, "/reviewer": {},
+	}
+	for _, f := range relFacts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		shard, ok := f.Args[0].(string)
+		if !ok {
+			continue
+		}
+		tool, ok := f.Args[1].(string)
+		if !ok {
+			continue
+		}
+		if _, want := byShard[shard]; !want {
+			continue
+		}
+		byShard[shard][tool] = true
+	}
+	for shard, set := range byShard {
+		if len(set) == 0 {
+			t.Errorf("relevant_tool(%s, _) derived nothing on a real kernel with the shipped corpus", shard)
+		}
+	}
+	equalSets := func(a, b map[string]bool) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for k := range a {
+			if !b[k] {
+				return false
+			}
+		}
+		return true
+	}
+	if equalSets(byShard["/coder"], byShard["/tester"]) && equalSets(byShard["/tester"], byShard["/reviewer"]) {
+		t.Errorf("relevant_tool sets for /coder, /tester, /reviewer are identical; routing never differs (coder=%v tester=%v reviewer=%v)",
+			byShard["/coder"], byShard["/tester"], byShard["/reviewer"])
+	}
+}

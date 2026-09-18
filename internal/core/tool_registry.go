@@ -89,6 +89,7 @@ func (tr *ToolRegistry) RegisterTool(name, command, shardAffinity string) error 
 		Command:       command,
 		ShardAffinity: shardAffinity,
 		RegisteredAt:  time.Now(),
+		Capabilities:  vocabularyCapabilities(name, command, "", nil),
 	}
 
 	tr.tools[name] = tool
@@ -249,6 +250,170 @@ func (tr *ToolRegistry) UnregisterTool(name string) error {
 	return nil
 }
 
+// toolCapabilityVocabulary is the corpus vocabulary accepted by
+// policy/tool_routing.mg (shard_capability_affinity) for tool_capability
+// facts. Keep in sync with tool_routing.mg; do not assert raw registration
+// categories such as "build", "test" or "lint".
+var toolCapabilityVocabulary = map[string]bool{
+	"/generation":     true,
+	"/debugging":      true,
+	"/transformation": true,
+	"/inspection":     true,
+	"/validation":     true,
+	"/execution":      true,
+	"/analysis":       true,
+	"/knowledge":      true,
+}
+
+// legacyToolCapabilityMap maps raw registration categories to the corpus
+// vocabulary. It handles the exact category strings production registrations
+// have historically carried.
+var legacyToolCapabilityMap = map[string][]string{
+	"build":     {"/generation", "/execution"},
+	"compile":   {"/generation", "/execution"},
+	"test":      {"/validation", "/execution"},
+	"testing":   {"/validation", "/execution"},
+	"lint":      {"/inspection", "/validation"},
+	"vet":       {"/inspection", "/validation"},
+	"check":     {"/validation"},
+	"verify":    {"/validation"},
+	"run":       {"/execution"},
+	"exec":      {"/execution"},
+	"execution": {"/execution"},
+	"review":    {"/inspection", "/analysis"},
+	"search":    {"/inspection"},
+	"read":      {"/inspection"},
+	"write":     {"/generation"},
+	"edit":      {"/transformation"},
+	"generate":  {"/generation"},
+	"refactor":  {"/transformation"},
+	"debug":     {"/debugging"},
+	"fix":       {"/debugging"},
+	"analyze":   {"/analysis"},
+	"analysis":  {"/analysis"},
+	"research":  {"/knowledge"},
+	"knowledge": {"/knowledge"},
+}
+
+// vocabularyCapabilities maps a tool's effect (command) and purpose
+// (name, description, declared categories) to the corpus vocabulary. It is
+// the single place where that mapping lives; every registration path funnels
+// through it via collectToolFacts (and struct construction), so every
+// registered tool carries at least one tool_capability fact in vocabulary.
+func vocabularyCapabilities(name, command, description string, declared []string) []string {
+	seen := make(map[string]bool)
+	add := func(caps ...string) {
+		for _, c := range caps {
+			if toolCapabilityVocabulary[c] {
+				seen[c] = true
+			}
+		}
+	}
+	for _, d := range declared {
+		norm := strings.ToLower(strings.TrimSpace(d))
+		noSlash := strings.TrimPrefix(norm, "/")
+		if toolCapabilityVocabulary["/"+noSlash] {
+			add("/" + noSlash)
+			continue
+		}
+		if mapped, ok := legacyToolCapabilityMap[noSlash]; ok {
+			add(mapped...)
+			continue
+		}
+		inferToolCapabilitiesFromText(d, add)
+	}
+	combined := strings.ToLower(name + " " + command + " " + description + " " + strings.Join(declared, " "))
+	inferToolCapabilitiesFromText(combined, add)
+	tokens := strings.FieldsFunc(combined, func(r rune) bool { return r < 'a' || r > 'z' })
+	tokenSet := make(map[string]bool, len(tokens))
+	for _, t := range tokens {
+		tokenSet[t] = true
+	}
+	hasToken := func(words ...string) bool {
+		for _, w := range words {
+			if tokenSet[w] {
+				return true
+			}
+		}
+		return false
+	}
+	if hasToken("write", "writes", "writing", "implement", "implements", "implementation") {
+		add("/generation")
+	}
+	if hasToken("edit", "edits", "editing", "refactor", "refactors", "refactoring") {
+		add("/transformation")
+	}
+	if hasToken("fix", "fixes", "fixed", "fixing", "bugfix", "hotfix") {
+		add("/debugging")
+	}
+	if hasToken("read", "reads", "reading", "list", "lists", "listing", "glob", "globs", "grep", "search", "searches", "review", "reviews", "lint", "lints", "linting", "linter", "vet", "inspect", "inspects", "inspection", "snapshot", "snapshots") {
+		add("/inspection")
+	}
+	if hasToken("test", "tests", "testing", "tested", "check", "checks", "checking", "lint", "lints", "linting", "linter", "vet", "validate", "validates", "verify", "verifies") {
+		add("/validation")
+	}
+	if hasToken("run", "runs", "running", "runner", "exec", "executes", "command", "commands") {
+		add("/execution")
+	}
+	if hasToken("web", "query", "queries", "docs") {
+		add("/knowledge")
+	}
+	if len(seen) == 0 {
+		add("/inspection")
+	}
+	out := make([]string, 0, len(seen))
+	for c := range seen {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// inferToolCapabilitiesFromText adds vocabulary capabilities based on
+// distinctive substrings in free text (effect and purpose). Short generic
+// words are handled via token matching in vocabularyCapabilities to avoid
+// substring false positives; this helper only uses long distinctive stems.
+func inferToolCapabilitiesFromText(text string, add func(...string)) {
+	lower := strings.ToLower(text)
+	hasSub := func(subs ...string) bool {
+		for _, s := range subs {
+			if strings.Contains(lower, s) {
+				return true
+			}
+		}
+		return false
+	}
+	if hasSub("generat", "scaffold", "creat", "compil", "build") {
+		add("/generation")
+	}
+	if hasSub("refactor", "transform", "migrat", "rewrit") {
+		add("/transformation")
+	}
+	if hasSub("debug", "diagnos", "troubleshoot", "breakpoint", "stack trace") {
+		add("/debugging")
+	}
+	if hasSub("inspect", "snapshot", "explor") {
+		add("/inspection")
+	}
+	if hasSub("validat", "verif", "assert") {
+		add("/validation")
+	}
+	if hasSub("execut", "launch", "deploy", "shell", "compil", "build") {
+		add("/execution")
+	}
+	if hasSub("analy", "explain", "profil", "metric", "complex", "summar") {
+		add("/analysis")
+	}
+	if hasSub("research", "knowledge", "document", "fetch", "lookup") {
+		add("/knowledge")
+	}
+	// Lint/vet imply both inspection and validation; keep the pair together
+	// so historically categorized tools stay truthful to what they do.
+	if hasSub("lint") {
+		add("/inspection", "/validation")
+	}
+}
+
 // collectToolFacts returns the kernel facts for a tool WITHOUT asserting them.
 // Use this when batching facts across multiple tools to avoid per-tool evaluation.
 func collectToolFacts(tool *Tool) []Fact {
@@ -272,7 +437,8 @@ func collectToolFacts(tool *Tool) []Fact {
 		})
 	}
 
-	for _, cap := range tool.Capabilities {
+	caps := vocabularyCapabilities(tool.Name, tool.Command, tool.Description, tool.Capabilities)
+	for _, cap := range caps {
 		facts = append(facts, Fact{
 			Predicate: "tool_capability",
 			Args:      []any{tool.Name, cap},
@@ -440,7 +606,7 @@ func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
 			Command:       def.Command,
 			ShardAffinity: affinity,
 			Description:   def.Description,
-			Capabilities:  []string{def.Category},
+			Capabilities:  vocabularyCapabilities(def.Name, def.Command, def.Description, []string{def.Category}),
 			RegisteredAt:  now,
 		}
 
