@@ -244,6 +244,26 @@ func (w *WorkingSet) TranscriptRounds(context.Context) (int, error) {
 	return n, nil
 }
 
+// RepeatThreshold is the policy's span for a deterministic trace cycle
+// (working_repeat_threshold). The loop is the only side that can see the tool
+// trace, so it does the measuring and reports the verdict as working_control/2;
+// the span it measures against is policy's to set, like the nudge, commit,
+// finalize and stall spans beside it. Read through QueryFacts for the same
+// reason TranscriptRounds is: a constant in the policy is a base fact.
+func (w *WorkingSet) RepeatThreshold(context.Context) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	facts := w.engine.QueryFacts("working_repeat_threshold")
+	if len(facts) == 0 || len(facts[0].Args) != 1 {
+		return 0, fmt.Errorf("working policy declares no working_repeat_threshold")
+	}
+	n, err := strconv.Atoi(fmt.Sprint(facts[0].Args[0]))
+	if err != nil || n < 2 {
+		return 0, fmt.Errorf("working_repeat_threshold must be at least 2, got %v", facts[0].Args[0])
+	}
+	return n, nil
+}
+
 // Select chooses the observations for this round's system prompt. shown
 // names the observations whose native call/result pair the request already
 // carries in the transcript; they are neither selected nor reported omitted.

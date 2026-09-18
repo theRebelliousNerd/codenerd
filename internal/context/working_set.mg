@@ -34,6 +34,13 @@ Decl working_control(Cycle, FailedRounds) bound [/name, /number].
 Decl working_progress(Intent, Rounds, Writes, SinceWrite, SinceVerify) bound [/name, /number, /number, /number, /number].
 Decl working_nudge_rounds(N) bound [/number].
 Decl working_stall_rounds(N) bound [/number].
+# How many identical deterministic trace cycles make a loop. The loop measures
+# the cycle (it is the only side that can see the tool trace) and reports the
+# verdict as working_control/2; this is the span it measures against, and it
+# lives here because it is a threshold, not a resource. It was a config key
+# (core_limits.tool_loop_repeat_threshold) until 2026-09-18, which made a
+# policy constant something a user could tune into a count ceiling.
+Decl working_repeat_threshold(N) bound [/number].
 Decl working_stop(Reason) bound [/name].
 Decl working_finalize(Reason) descr [doc("Exploration is over; the harness asks for the conclusion and runs verification. Not a stop and not a completion witness.")].
 Decl working_nudge(Kind) descr [doc("Steering the loop appends to the round's last tool result: /implement, /verify or /conclude.")].
@@ -56,6 +63,7 @@ working_nudge_rounds(8).
 working_commit_rounds(16).
 working_finalize_rounds(16).
 working_stall_rounds(24).
+working_repeat_threshold(2).
 
 working_regime(/commit) :-
     working_progress(/write, Rounds, 0, _, _),
