@@ -389,6 +389,41 @@ var CommandRegistry = []CommandInfo{
 		Category:    CategoryAdvanced,
 		ShowInHelp:  true,
 	},
+	{
+		Name:        "/shards",
+		Description: "List active shards and their status",
+		Usage:       "/shards",
+		Category:    CategoryBasic,
+		ShowInHelp:  true,
+	},
+	{
+		Name:        "/autopoiesis",
+		Description: "Show autopoiesis status",
+		Usage:       "/autopoiesis",
+		Category:    CategoryExpert,
+		ShowInHelp:  true,
+	},
+	{
+		Name:        "/facts",
+		Description: "Show kernel facts",
+		Usage:       "/facts",
+		Category:    CategoryExpert,
+		ShowInHelp:  true,
+	},
+	{
+		Name:        "/explain",
+		Description: "Explain the last response or decision",
+		Usage:       "/explain",
+		Category:    CategoryAdvanced,
+		ShowInHelp:  true,
+	},
+	{
+		Name:        "/explain-off",
+		Description: "Disable explanation mode",
+		Usage:       "/explain-off",
+		Category:    CategoryAdvanced,
+		ShowInHelp:  true,
+	},
 
 	// ==========================================================================
 	// EXPERT COMMANDS - Internals and debugging

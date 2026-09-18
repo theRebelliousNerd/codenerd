@@ -11,17 +11,17 @@
 //
 // Command Categories (within handleCommand switch):
 //
-//	Session:    /quit, /exit, /continue, /usage, /clear, /reset, /new-session, /sessions
-//	Help:       /help, /status
+//	Session:    /quit, /exit, /continue, /usage, /clear, /reset, /new-session, /sessions, /model, /load-session
+//	Help:       /help, /status, /reflection, /knowledge
 //	Init:       /init, /scan, /refresh-docs, /scan-path, /scan-dir
 //	Config:     /config, /embedding, /features
 //	Files:      /read, /mkdir, /write, /search, /patch, /edit, /append, /pick
-//	Agents:     /define-agent, /northstar, /learn, /agents, /spawn, /ingest
+//	Agents:     /define-agent, /northstar, /learn, /agents, /spawn, /ingest, /alignment
 //	Analysis:   /review, /security, /analyze, /test, /fix, /refactor
-//	Campaigns:  /legislate, /clarify, /launchcampaign, /campaign
-//	Query:      /query, /why, /logic, /glassbox, /transparency, /shadow, /whatif
+//	Campaigns:  /legislate, /clarify, /launchcampaign, /campaign, /recurse, /yolo
+//	Query:      /query, /why, /explain, /explain-off, /logic, /glassbox, /transparency, /shadow, /whatif, /browser
 //	Review:     /approve, /reject-finding, /accept-finding, /review-accuracy
-//	Tools:      /tool, /jit, /cleanup-tools
+//	Tools:      /tool, /jit, /cleanup-tools, /shards, /autopoiesis, /facts
 //	Evolution:  /evolve, /evolution-stats, /evolved-atoms, /promote-atom, /reject-atom, /strategies
 package chat
 
@@ -228,6 +228,15 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		return m.handleToolCommand(input, parts)
 	case "/jit":
 		return m.handleCmdJit(input, parts)
+
+	case "/shards":
+		return m.handleCmdShards(input, parts)
+
+	case "/autopoiesis":
+		return m.handleCmdAutopoiesis(input, parts)
+
+	case "/facts":
+		return m.handleCmdFacts(input, parts)
 
 	case "/cleanup-tools":
 		return m.handleCmdCleanupTools(input, parts)

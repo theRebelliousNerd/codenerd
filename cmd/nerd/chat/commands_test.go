@@ -448,26 +448,44 @@ func TestCommand_JIT(t *testing.T) {
 func TestCommand_Shards(t *testing.T) {
 	t.Parallel()
 	m := NewTestModel()
-
 	newModel, _ := m.handleCommand("/shards")
 	result := newModel.(Model)
-
-	// Should switch to shard page or show message
-	if result.viewMode != ShardPage && len(result.history) == 0 {
-		t.Error("Expected shard view or message")
+	if len(result.history) == 0 {
+		t.Fatal("expected /shards to produce output, got no history")
+	}
+	last := result.history[len(result.history)-1]
+	if len(last.Content) >= 15 && last.Content[:15] == "Unknown command" {
+		t.Errorf("/shards returned Unknown command, want real shard status: %q", last.Content)
 	}
 }
 
 func TestCommand_Autopoiesis(t *testing.T) {
 	t.Parallel()
 	m := NewTestModel()
-
 	newModel, _ := m.handleCommand("/autopoiesis")
 	result := newModel.(Model)
+	if len(result.history) == 0 && result.viewMode != AutopoiesisPage {
+		t.Fatal("expected /autopoiesis to switch view or produce output, got neither")
+	}
+	if len(result.history) > 0 {
+		last := result.history[len(result.history)-1]
+		if len(last.Content) >= 15 && last.Content[:15] == "Unknown command" {
+			t.Errorf("/autopoiesis returned Unknown command, want real autopoiesis status: %q", last.Content)
+		}
+	}
+}
 
-	// Should switch to autopoiesis page or show message
-	if result.viewMode != AutopoiesisPage && len(result.history) == 0 {
-		t.Log("May show message if no autopoiesis data")
+func TestCommand_Facts(t *testing.T) {
+	t.Parallel()
+	m := NewTestModel()
+	newModel, _ := m.handleCommand("/facts")
+	result := newModel.(Model)
+	if len(result.history) == 0 {
+		t.Fatal("expected /facts to produce output, got no history")
+	}
+	last := result.history[len(result.history)-1]
+	if len(last.Content) >= 15 && last.Content[:15] == "Unknown command" {
+		t.Errorf("/facts returned Unknown command, want real kernel facts: %q", last.Content)
 	}
 }
 

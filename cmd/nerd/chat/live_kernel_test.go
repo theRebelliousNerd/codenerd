@@ -85,8 +85,63 @@ func TestLive_FactsCommand(t *testing.T) {
 		result = newModel.(Model)
 	})
 
-	// Check that we got some kind of response
+	// /facts is a real command, not unknown.
+	if len(result.history) == 0 {
+		t.Fatal("Expected response message after /facts")
+	}
+	last := result.history[len(result.history)-1].Content
+	if strings.Contains(last, "Unknown command") {
+		t.Errorf("/facts returned Unknown command, expected real facts output, got %q", last)
+	}
 	t.Logf("Model has %d messages after /facts", len(result.history))
+}
+
+func TestLive_ShardsCommand(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping live kernel test in short mode")
+	}
+
+	m, perf := SetupLiveModel(t)
+	defer perf.Report(t)
+
+	var result Model
+	perf.Track("shards_command", func() {
+		newModel, _ := m.handleCommand("/shards")
+		result = newModel.(Model)
+	})
+
+	if len(result.history) == 0 {
+		t.Fatal("Expected response message after /shards")
+	}
+	last := result.history[len(result.history)-1].Content
+	if strings.Contains(last, "Unknown command") {
+		t.Errorf("/shards returned Unknown command, expected real shards output, got %q", last)
+	}
+	t.Logf("Model has %d messages after /shards", len(result.history))
+}
+
+func TestLive_AutopoiesisCommand(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping live kernel test in short mode")
+	}
+
+	m, perf := SetupLiveModel(t)
+	defer perf.Report(t)
+
+	var result Model
+	perf.Track("autopoiesis_command", func() {
+		newModel, _ := m.handleCommand("/autopoiesis")
+		result = newModel.(Model)
+	})
+
+	if len(result.history) == 0 {
+		t.Fatal("Expected response message after /autopoiesis")
+	}
+	last := result.history[len(result.history)-1].Content
+	if strings.Contains(last, "Unknown command") {
+		t.Errorf("/autopoiesis returned Unknown command, expected real autopoiesis output, got %q", last)
+	}
+	t.Logf("Model has %d messages after /autopoiesis", len(result.history))
 }
 
 func TestLive_ResetCommand(t *testing.T) {
