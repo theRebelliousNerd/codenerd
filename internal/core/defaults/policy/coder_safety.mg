@@ -80,7 +80,13 @@ Decl turn_evidence(Verb, ToolCount, WriteCount, TestCount, ClaimedOutput, DreamM
 Decl hollow_success(Reason) bound [/string].
 Decl turn_done(Verb) bound [/name].
 Decl turn_executed(Verb) bound [/name].
+Decl turn_verified(Verb) bound [/name].
+Decl turn_unverified(Verb) bound [/name].
+Decl turn_wrote(Verb) bound [/name].
+Decl turn_build_failed(Verb) bound [/name].
+Decl turn_missing_evidence(Verb, Missing) bound [/name, /name].
 Decl turn_acceptance(Verb, Contract, Snapshot) bound [/name, /string, /string].
+Decl has_turn_acceptance(Verb) bound [/name].
 Decl has_turn_tools(Verb) bound [/name].
 Decl has_turn_write(Verb) bound [/name].
 Decl has_turn_test(Verb) bound [/name].
@@ -109,10 +115,70 @@ hollow_success("new source was created without a test file") :-
 # hollow_success (a no-write / no-tool / unverified turn is not done) nor
 # while the build is red (a failed build is not done). Deriving done in
 # either case is hollow success with a policy stamp on it.
-# Execution is weaker than completion. Only the host verifier emits acceptance
-# for an immutable caller contract with current, executed behavioral witnesses.
+#
+# Execution is weaker than completion. Execution asks whether the turn really
+# acted; verification asks whether the mechanical evidence THIS intent requires
+# came back affirmative. They are separate questions about the same turn, which
+# is why turn_verified does not carry turn_executed in its body — conjoining
+# them is turn_done's job and nothing else's.
 turn_executed(Verb) :- turn_evidence(Verb, _, _, _, _, _), !has_hollow_success(), !build_state(/failing).
-turn_done(Verb) :- turn_executed(Verb), turn_acceptance(Verb, _, _).
+turn_done(Verb) :- turn_executed(Verb), turn_verified(Verb).
+
+# Two hosts emit verification, and both are the host verifying the workspace:
+#
+#   1. turn_acceptance — the acceptance transaction, an immutable caller
+#      contract with current, executed behavioral witnesses. Strongest, and
+#      still the only thing that can speak for REQUESTED BEHAVIOUR.
+#   2. build_state / test_state — the session executor's own post-edit gates
+#      (recordBuildState, from BuildCheck/TestCheck). These are not the model's
+#      word for anything: the executor ran the compiler and the test runner
+#      itself and recorded what they returned, and only an affirmative verdict
+#      is ever asserted. A skipped or indeterminate gate asserts nothing.
+#
+# So the evidence arms below do not weaken the contract path — they are the same
+# host, reporting what it mechanically measured instead of what it was asked to
+# prove. The model cannot reach either: build_state, test_state and every
+# predicate in this block are hard-blocked in core.FilterMangleUpdates
+# (predicateAllowed), ahead of any caller allowlist.
+#
+# A turn that changed nothing has no workspace claim to verify, so execution is
+# the whole of what it can owe. A turn that wrote owes both gates green: the
+# fact space records turn_created_source (files CREATED this turn) but has no
+# evidence predicate for a file MODIFIED this turn, so the corpus cannot tell a
+# markdown write from a Go one. Owing both gates is the cautious direction to be
+# wrong in, which is the same argument test_coverage makes at the top of this
+# file.
+turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), !turn_wrote(Verb).
+turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), turn_wrote(Verb), build_state(/passing), test_state(/passing).
+turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), has_turn_acceptance(Verb).
+
+# has_turn_acceptance projects turn_acceptance/3 to a single argument so the
+# rules above and below can negate it. Negating the 3-ary literal directly
+# (!turn_acceptance(Verb, _, _)) does NOT exclude on this engine — the wildcard
+# negation trap documented in internal/mangle/agents.md — and would fail
+# silently, deriving nothing and erroring nowhere.
+has_turn_acceptance(Verb) :- turn_acceptance(Verb, _, _).
+
+# turn_wrote is "this turn made a claim about the workspace". The second arm
+# exists for dream mode: every hollow_success rule is guarded by DreamMode
+# /false, so a dream-mode /create that wrote nothing derives no hollow_success
+# and reaches turn_executed. With only the write-count arm it would then look
+# like a read-only turn and verify for free.
+turn_wrote(Verb) :- has_turn_write(Verb).
+turn_wrote(Verb) :- turn_evidence(Verb, _, _, _, _, _), write_oriented_intent(Verb).
+
+# turn_unverified and turn_missing_evidence exist so the turn's outcome can NAME
+# what is missing rather than Go guessing at it. turn_unverified never derives
+# for a turn that wrote nothing (those verify), so no spurious reason is
+# produced for a read-only turn.
+turn_unverified(Verb) :- turn_executed(Verb), !turn_verified(Verb).
+turn_missing_evidence(Verb, /build_not_green) :- turn_unverified(Verb), !build_state(/passing).
+turn_missing_evidence(Verb, /tests_not_green) :- turn_unverified(Verb), !test_state(/passing).
+
+# A red build is a failed turn, not merely an unverified one. turn_executed
+# already excludes it; this names it so the outcome can say /failed instead of
+# leaving Go to re-check BuildCheck itself.
+turn_build_failed(Verb) :- turn_evidence(Verb, _, _, _, _, _), build_state(/failing).
 # Helper: any pending edit is implementation
 Decl has_implementation_edit() bound [].
 has_implementation_edit() :-
