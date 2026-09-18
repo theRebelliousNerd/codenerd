@@ -4029,3 +4029,83 @@ Selector fix landed after this A/B (af736619, merged 13b1e452): non-mandatory at
 the vector tier ranks among eligible atoms with a relative floor. Not yet validated live: a rebuilt binary skips every
 unstamped vector until `nerd embedding reembed` runs, so the first live check is reembed -> `nerd fix` -> read
 "Vector tier: N scored, M eligible, floor=..., kept K" in jit.log and confirm the kept atoms fit the task.
+
+## TUI dogfood from the user's seat, and six fixes (2026-09-17, late)
+
+Method: the architect drove the chat TUI in Windows Terminal; this session watched through computer-use screenshots
+(terminals are granted at click tier: view and scroll, no typing -- the architect is the keyboard) and verified every
+on-screen claim against the session's own logs (`.nerd/logs/*_030000_*`). Session pid 30000, booted 20:57 in 20.8 s,
+binary built 20:50 from 125f74b9.
+
+**Boot screen, before any turn.** The scan table says `Facts generated 0 / Duration 0.07s`; the prose around it says
+"The kernel has been updated with fresh codebase facts" and the welcome line brags "I scanned everything in just 0.07s"
+-- a cached no-op narrated as work. `Ctx: 23%` at zero turns. A second nerd.exe from 17:40 (pid 57064, 834 MB) was
+still alive.
+
+**Turn 1 (/query/analyze -> reviewer).** The model refused to hallucinate a file:line -- self-correction fired twice and
+it said so in plain language; that part works. It then announced "Spinning up ResearcherShard" and no shard spawned; the
+turn ended Ready. Two causes, both real: (a) it tried `next_action(spawn, ResearcherShard).` as a mangle_update, dropped
+on parse -- and `next_action` is kernel-derived, so perfect syntax would have been dropped too: there is no channel from
+"I'll spawn a shard" to a spawned shard in a conversational turn; (b) `[ExecutivePolicy] Boot guard active: suppressing 3
+actions until user interaction` at 21:10:25, thirteen minutes after boot, on the user's own turn. Three mangle_updates
+were dropped for bare words and unlisted predicates -- exactly what dee70489's mandatory priority-99 atom forbids. That
+is the second prompt-side fix in a row (after the CodeDOM A/B) whose text changed and whose behaviour did not. Perception
+took 22.8 s (`Perceive completed in 22.767s`; the TUI's "(440ms)" is the JIT compile); target resolution logged
+`resolved=, confidence=30` while the TUI showed the raw target at 90%.
+
+**Turn 2 (/instruction/fix -> coder; the brief carried the diagnosis, which was a mistake -- see process).** A real spawn,
+via routing arbitration. Step planning failed twice (~40 s) with `finish_reason="stop"`, 0 content, 2177/2668 output
+tokens, reasoning_chars=0; the retry-without-thinking path requires reasoning content and so never fires for Meta; the
+executive fell back to a single pass. The coder hunted: search_code -> search_expand -> read_file on a hallucinated path
+(`internal/executive/executive.go`) -> list_files -> read_file -> grep; the HolographicProvider's first offer, for ".",
+was 0 siblings, 0 signatures. It found the true cause, better than the brief's: `ShardManager.DisableExecutiveBootGuard`
+called `DisableSystemShard("executive_policy")` -- right trigger, right name, wrong body. Its own report said "Requested
+behavior remains unverified (no acceptance contract)"; the executive printed "All 1 steps complete. Completed 1 steps
+successfully." A tester shard compiled (64 atoms, 15K tokens) and wrote nothing; the existing test
+`TestDisableExecutiveBootGuard_ShouldDisablePolicy` pinned the bug by name and had an `if sm.disabled == nil { return }`
+escape -- it passed against the bug and against the fix. The northstar tick at 21:27 scored the session 10/100 thirty
+seconds after the fix landed on disk. RAM 854 -> 1746 MB across the session. Every JIT compile of the night:
+`sources: embedded=914 project=0 shard=0 evolved=0 strategy=1`.
+
+**Fixes** (hand-edited: nerd.exe was locked by the live session and Codex is down; every test was run against HEAD's
+implementation and fails there, then passes):
+- c1c50cf9 -- the boot-guard release reaches the shard that holds it (the coder's fix, plus three tests replacing the one
+  that could not fail).
+- b8b0c637 -- an unconfigured OpenAI-compat slot on Meta gets 131072, not 16384. Main, worker and therefore every shard
+  sat at 16384 while the planner slot for the same model had 131072. The ceiling is output-side (live calls ran in=35315
+  against 16384) and not a charge.
+- 3a7a7265 -- every warning the user sees is logged, at the render (32 append sites in the package; the test reads the
+  real session log back). The render-order guard now finds the render by the call.
+- b3a9ae67 -- learned_preference/fact/constraint hydrate as one /string; the real-kernel test reproduces "arg 1 declared
+  /string, got []interface {}" against HEAD. Until this, nothing the user had taught the system reached the kernel.
+- 4e0aac61 -- a periodic alignment check fires only when an event arrived since the last one (HEAD: 9 checks in 200 ms
+  idle at a 20 ms interval; now 0, then exactly 1 after one event).
+- 781d032b -- the vector tier logs "nothing to rank" on its early return; the validation line for af736619 never printed
+  in the pre-reembed state and could not be told from the tier never running.
+
+**Corrections to this session's own earlier claims.** The northstar vision is loaded: kernel_init appends `res.Logic`,
+the "0 data facts" count is only TAXONOMY/INTENT/PROMPT directives, and the alignment fields say `has_vision:true`;
+"Vision: Empty periodic trigger..." on screen is the assessment's text about the trigger. `shard_profiles.*.model =
+stealth/union-alpha` never appearing in llm_io is intended: normalizeMetaModel clamps every override to the contributor
+tier. The comment in client_meta_responses.go that max_output_tokens "shares its budget with input tokens" is
+contradicted by live calls.
+
+**Open, in dependency order:**
+1. Hollow success is structural. `types.ShardResult{Result string, Error}` and `spawnTaskWithContext` return prose;
+   `ExecutionResult.TurnOutcome` (/done, /hollow, /unverified) and `ChangeStage` never cross the shard boundary;
+   `injectShardResultFacts` infers status from substrings ("TODO", "test"). Carry the outcome in the result type and have
+   the continuation summary read it instead of asserting "successfully".
+2. Empty completions on Meta: the retry condition `msg.ReasoningContent != ""` never holds there (reasoning_chars=0);
+   and the step planner is sent the 48-character task title, not the brief.
+3. Tool budget. The TUI path is already open: factory.go sets MaxToolCalls=0, MaxToolIterations=0,
+   ProgressDrivenTools=true, and no ceiling or stall fired this session. The "(budget expired)" on screen is the sparse
+   retriever's 5 s scan budget (retrieval/facts.go; it scanned 2.9M tokens for tiers 2/20/0/0). Removing the iteration
+   ceiling for every path touches 17-18 files (MaxToolIterations, MaxToolCalls, AdaptiveToolBudget, the extension fields,
+   toolBudgetController); none of those keys are in the architect's config, so strict decode is safe.
+4. `project=0 shard=0 evolved=0` in every compile: the learned, project and shard atom sources contribute nothing. Not
+   traced yet.
+5. Rebuild: the running binary predates all six fixes. Then `/embedding reembed`, then read the Vector tier line.
+
+**Process.** Handing the model the diagnosis produced a stenographer. The architect's standing instruction now: one
+prompt, symptoms only, and the model hunts, generalises to the class, fixes upstream and downstream, and writes tests that
+fail before the change -- "be proactive in fixing, not just me telling it what to do."
