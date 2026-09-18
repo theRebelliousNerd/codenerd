@@ -4254,3 +4254,31 @@ incomplete steps) and nothing forces its discharge.
 `nerd fix` lands a one-file fix with a test and a truthful verdict in 8 of 10 runs, each under 10
 minutes. Everything not on that journey is frozen until the gate passes.
 
+
+## First run on the binary with config-driven fact ceilings: it finished, said /done, and the test it wrote had never run (2026-09-18, 19:34-19:47)
+
+Binary from `57cf3b64` (kernel ceilings from `core_limits`, 2M EDB / 5M derived; zero-tools guard;
+`turn_untested`). Brief: q1b, unchanged (write the test that pins the `/clarify` lane; symptom and
+the failing earlier attempt quoted, no diagnosis).
+
+| minutes | tool calls | limit errors | verdict | what it wrote |
+|---|---|---|---|---|
+| 13.2 (was 16.4 and rc=1 on the old binary) | 36 (was 103 before the wall clock ended it) | 0 (the old run hit `fact size limit ... 500016 > 500000` on every kernel query and had `git_operation` refused by the dreamer) | `/done`, rc=0 | `cmd/nerd/chat/process_clarify_test.go`, 62 lines, modelled on `task_routing_arbitration_e2e_test.go` |
+
+**The /done was false, and the harness could not have known.** The file opens with
+`//go:build integration`, copied from the sibling it was modelled on. The post-edit gate ran
+`go test ./cmd/nerd/chat` with the default tags, which do not compile the file, so "tests green"
+was a statement about every test except the one the turn wrote. Run with the tag it fails at its
+own precondition (`decideRoute("fix it") = legacy, want RouteClarify`). Fixed by hand in
+`f8290327`: after a green default run the gate runs each written, tag-gated `_test.go`'s Test
+functions under their own tags, and that verdict is the gate's. The test itself was removed; the
+lane still has no pinning test (open).
+
+**Reading.** The ceilings were the difference between a run that could not finish and one that
+could: a third of the tool calls, no refused tools, inside the clock. What the run then exposed is
+the next layer down, and it is the same shape as everything else this week: a green that did not
+mean what it said. Also landed by hand in this window, from the architect's direction: every
+planned step now compiles its own prompt for its own file and language (`e434033b`), so a step on
+a `.mg` file gets the corpus's 119 `/mangle` atoms when it starts instead of the Go prompt the
+turn began with.
+
