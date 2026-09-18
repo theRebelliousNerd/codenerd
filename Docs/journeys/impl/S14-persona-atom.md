@@ -45,6 +45,15 @@ taken from `Docs/architecture/`.
 So adding a mandatory atom is: write the YAML, run `go run ./cmd/tools/prompt_builder`, commit
 both the YAML and the regenerated 14 MB `prompt_corpus.db`.
 
+> **Correction (2026-09-18, merger, on reading the loader):** the second half is wrong. The runtime
+> serves the go:embedded YAML directly: `LoadEmbeddedCorpus` (`internal/prompt/embedded.go`) walks
+> `atoms/`, that corpus wins duplicate IDs in the compiler's merge (`compiler.go:1221`), and boot
+> reconciles `.nerd/prompts/corpus.db` to it (`ReconcilePromptCorpus`, from `factory.go:1596` and
+> `init/profile.go:1041`). `prompt_corpus.db` is only the first-boot seed
+> (`MaterializeDefaultPromptCorpus` never clobbers an existing DB); regenerating it refreshes seeded
+> embeddings for a fresh init, nothing more. An atom edit is live on the next boot. The wave-1
+> reviewer's F3 was built on this sentence and is refuted in `REVIEW-wave1.md`.
+
 ### (2) How the chat path's `final_system_prompt` is compiled — it is not
 
 This is the finding the decision turns on.
