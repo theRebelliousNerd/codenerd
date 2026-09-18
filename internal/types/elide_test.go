@@ -281,3 +281,75 @@ func TestClampText_ShouldPreserveShortTextExactly(t *testing.T) {
 		t.Errorf("text under budget was modified: %q", got)
 	}
 }
+
+// ClampInline is the variant for a position where a newline cannot go: a
+// Mangle fact argument, a status line, one rendered row. Three properties
+// matter there — the marker stays on the line, the cut is UTF-8 safe, and
+// short input is untouched.
+func TestClampInline(t *testing.T) {
+	long := strings.Repeat("x", 500)
+	got := ClampInline(long, 50, "fact arg")
+
+	if !IsClamped(got) {
+		t.Fatalf("ClampInline cut %d chars with no marker: %q", len(long)-len(got), got)
+	}
+	if strings.Contains(got, "\n") {
+		t.Errorf("ClampInline put a newline in an inline position: %q", got)
+	}
+	if !strings.Contains(got, "450 of 500 chars from fact arg") {
+		t.Errorf("ClampInline does not name the count and kind: %q", got)
+	}
+	if !strings.HasPrefix(got, strings.Repeat("x", 50)) {
+		t.Errorf("ClampInline did not keep the head: %q", got)
+	}
+
+	if got := ClampInline("short", 50, "label"); got != "short" {
+		t.Errorf("ClampInline altered text under the budget: %q", got)
+	}
+	if got := ClampInline("anything", 0, "label"); got != "" {
+		t.Errorf("ClampInline(_, 0, _) = %q, want empty", got)
+	}
+}
+
+// A byte cut that splits a rune injects invalid UTF-8 into the window, which
+// is corruption rather than compression.
+func TestClampInline_UTF8Boundaries(t *testing.T) {
+	multi := strings.Repeat("界", 100) // three bytes per rune
+	for _, budget := range []int{10, 11, 12, 13, 50, 101} {
+		got := ClampInline(multi, budget, "runes")
+		if !utf8.ValidString(got) {
+			t.Errorf("budget %d produced invalid UTF-8: %q", budget, got)
+		}
+	}
+}
+
+// DroppedNotice is for content that left a message whole rather than being
+// shortened in place. A handle rides with it only when a verb resolves one.
+func TestDroppedNotice(t *testing.T) {
+	if got := DroppedNotice(0, 10, "rows", ""); got != "" {
+		t.Errorf("DroppedNotice with nothing dropped = %q, want empty", got)
+	}
+	got := DroppedNotice(4, 12, "older conversation messages", "")
+	if !IsClamped(got) || !strings.Contains(got, "4 of 12 older conversation messages") {
+		t.Errorf("DroppedNotice = %q", got)
+	}
+	if strings.HasSuffix(got, " ") {
+		t.Errorf("DroppedNotice left a dangling separator for an absent handle: %q", got)
+	}
+	const handle = "recall_context id=abc"
+	if withHandle := DroppedNotice(1, 2, "tool results", handle); !strings.HasSuffix(withHandle, handle) {
+		t.Errorf("DroppedNotice dropped the handle: %q", withHandle)
+	}
+}
+
+// TruncationMarker is the escape hatch for the one case where the source did
+// not report a size. It still carries the prefix every scraper matches on.
+func TestTruncationMarker(t *testing.T) {
+	got := TruncationMarker("command output at the output ceiling; bytes discarded not reported")
+	if !IsClamped(got) {
+		t.Fatalf("TruncationMarker does not carry the prefix: %q", got)
+	}
+	if !strings.Contains(got, "bytes discarded not reported") {
+		t.Errorf("TruncationMarker lost its detail: %q", got)
+	}
+}
