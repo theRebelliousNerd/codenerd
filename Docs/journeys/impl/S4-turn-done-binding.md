@@ -246,13 +246,15 @@ Three edits, one change:
 
 ## Changes
 
-Three commits on `worktree-agent-a7ff0d3dc5dfdc0b9`, each built standalone (see below):
+Five commits on `worktree-agent-a7ff0d3dc5dfdc0b9`, each built standalone (see below):
 
 | commit | subject |
 |---|---|
 | `fc2db654` | `feat(policy): a turn is verified by the gates the host ran, not only by a contract` |
 | `c15b76d4` | `fix(core): the model cannot report the state of the build or the test suite` |
 | `37e8b0bd` | `feat(session): the turn's outcome is the kernel's verdict, read once and binding` |
+| `0764e25d` | `docs(journeys): S4 implementation log; say plainly why the gates are the host verifying` |
+| `9476553c` | `refactor(session): delete the unreachable acceptance branch in verdictSentence` |
 
 | file | change |
 |---|---|
