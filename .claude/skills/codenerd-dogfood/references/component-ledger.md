@@ -4109,3 +4109,34 @@ contradicted by live calls.
 **Process.** Handing the model the diagnosis produced a stenographer. The architect's standing instruction now: one
 prompt, symptoms only, and the model hunts, generalises to the class, fixes upstream and downstream, and writes tests that
 fail before the change -- "be proactive in fixing, not just me telling it what to do."
+
+
+## S2 through `nerd fix`: the task string, from a symptom-only brief (2026-09-18, 05:06-05:22)
+
+**Setup.** Binary rebuilt from HEAD (`a3657ab2` + docs) at 03:30; `.nerd/northstar.json` rewritten
+from the architect's vision and imported at 03:06; run detached from the main checkout while three
+implementers (S1, S3, S14) worked in worktrees. Brief: the observed symptom only -- a `/fix` with a
+target and a sentence reached the coder as "fix issue in <file>" and nothing else; the CLI path does
+not lose the brief; find the root, fix similar verbs, add tests that fail before. No diagnosis, no
+file named.
+
+**Measured.** 15.6 minutes, exit 0, 60 tool calls, 3 writes. Landed: `withTaskConstraint` applied
+to every verb in `formatShardTask`, `/fix` and `/refactor` re-labelled `file:<target>` to match the
+reviewer-context and campaign conventions, and `delegation_fix_brief_test.go` with three tests --
+all three proven by hand to fail against HEAD's formatter and pass after. It found `/refactor`
+losing the constraint the same way without being told. It did NOT run `go build` or `go test`:
+"tool budget was exhausted after the 60 prior tool calls / 3 writes. Do not treat this as green."
+It said so plainly, which is the right behaviour under the wrong ceiling -- that ceiling is what
+seam S3 is deleting. Its result line still ended "Evidence: checks_passed. Requested behavior
+remains unverified (no acceptance contract)" (seam S1, in flight).
+
+**Missed.** The mirror defect in the slash handlers (`commands_handlers_evolution.go:19,48`
+joined everything after the command into the target with an empty constraint) -- it named that
+join in its own summary and did not fix it. Finished by hand: `splitSlashTarget` plus three tests.
+Commit `aeefc45e`.
+
+**Reading.** Root cause found from the symptom, class generalised across verbs, tests that can
+fail: the brief shape works when the cause is one file. The two remaining gaps are the system's,
+not the model's: a count ceiling stopped it before verification (S3), and the verdict printer
+cannot tell "checks passed" from "behaviour verified" (S1).
+
