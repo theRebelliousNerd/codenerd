@@ -408,10 +408,10 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 	if withCoverage {
 		v, uncovered := verifyTestsWithCoverage(ctx, workspace, runnable, result.WrittenPaths)
 		v = attributeTestFailures(ctx, workspace, runnable, result.WrittenPaths, result.PreWriteContents, v)
-		return v, uncovered
+		return withWrittenTagGatedTests(ctx, workspace, result.WrittenPaths, v), uncovered
 	}
 	v := attributeTestFailures(ctx, workspace, runnable, result.WrittenPaths, result.PreWriteContents, verifyTests(ctx, workspace, runnable))
-	return v, nil
+	return withWrittenTagGatedTests(ctx, workspace, result.WrittenPaths, v), nil
 }
 
 // testBuildFailed reports whether go test output shows a package whose

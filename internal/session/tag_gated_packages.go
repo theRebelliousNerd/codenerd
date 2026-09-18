@@ -9,6 +9,7 @@ import (
 	"go/build/constraint"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -196,4 +197,56 @@ func vetTagGatedPackages(ctx context.Context, workspace string, gated map[string
 		}
 	}
 	return TestVerification{}, true
+}
+
+// testFuncDecl matches a top-level Go test function's name.
+var testFuncDecl = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(`)
+
+// withWrittenTagGatedTests closes the hole a build tag opens in a green gate:
+// a test file THIS turn wrote that the default tags exclude is not compiled by
+// the package's `go test`, so the gate reported green over a test that never
+// ran. Observed 2026-09-18: a turn asked for one test wrote it under
+// //go:build integration (copied from the sibling it modelled), the gate ran
+// the package without the tag, the turn was recorded /done, and the test failed
+// the first time anyone ran it. A green verdict now also requires the written
+// tag-gated tests to pass under their own tags; any other verdict stands as is.
+func withWrittenTagGatedTests(ctx context.Context, workspace string, written []string, v TestVerification) TestVerification {
+	if v.Verdict() != VerifyPassed {
+		return v
+	}
+	for _, rel := range written {
+		if !strings.HasSuffix(rel, "_test.go") {
+			continue
+		}
+		abs := rel
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workspace, rel)
+		}
+		tags := tagsForFile(abs)
+		if len(tags) == 0 {
+			continue
+		}
+		body, err := os.ReadFile(abs)
+		if err != nil {
+			continue
+		}
+		var names []string
+		for _, m := range testFuncDecl.FindAllStringSubmatch(string(body), -1) {
+			names = append(names, m[1])
+		}
+		if len(names) == 0 {
+			continue
+		}
+		pkgs := packagesForPaths([]string{rel})
+		if len(pkgs) == 0 {
+			continue
+		}
+		logging.Session("Test gate: %s is gated by build tag(s) %v; running its %d test(s) under them", rel, tags, len(names))
+		gated := verifyTests(ctx, workspace, pkgs,
+			"-count=1", "-tags", strings.Join(tags, ","), "-run", "^("+strings.Join(names, "|")+")$")
+		if gated.Verdict() != VerifyPassed {
+			return gated
+		}
+	}
+	return v
 }
