@@ -26,7 +26,7 @@
 // Architectural Context:
 // - Component Type: Autopoiesis Core / State Machine
 // - Deployment: Part of the Autopoiesis Orchestrator.
-// - Communication: Uses Mangle Engine (Differential) for logic simulation.
+// - Communication: Uses a throwaway Mangle Engine for logic simulation.
 // - Database Interaction: Loads state rules from `state.mg`.
 //
 // Dependencies & Dependents:
@@ -671,18 +671,48 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 	return result
 }
 
-// simulateTransition performs Phase 3 simulation using the DifferentialEngine.
+// simulateTransition performs Phase 3 simulation.
+//
+// It runs on a throwaway mangle.Engine rather than o.engine for two reasons,
+// and the way it drives that engine matters for correctness:
+//
+//   - Isolation: the hypothetical state/proposed/base_stability/history facts
+//     asserted here must never reach the loop's real state machine.
+//   - Soundness: schemas_state.mg derives cumulative_penalty and the
+//     valid_transition fallback through NEGATED premises (!has_retry_penalty,
+//     !has_penalty, !has_effective_stability). Mangle evaluation is monotone
+//     over a retained store, so asserting these facts one at a time with
+//     AutoEval on evaluates each negation against a partial EDB and KEEPS
+//     whatever it concluded. Asserting base_stability(Next) after proposed(Next)
+//     made has_effective_stability(Next) true a step too late, leaving a
+//     valid_transition derived from its own absence. Every fact therefore goes
+//     in as one batch with AutoEval off, followed by exactly one Evaluate over
+//     an EDB-only store.
+//
+// See Docs/journeys/impl/S23-differential-path.md.
 func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, need *ToolNeed, tool *GeneratedTool, result *LoopResult) bool {
 	logging.AutopoiesisDebug("Starting simulation for stepID=%s", stepID)
 
-	// Spin up Differential Engine
-	diffEngine, err := mangle.NewDifferentialEngine(o.engine)
+	simConfig := mangle.DefaultConfig()
+	simConfig.AutoEval = false
+	simEngine, err := mangle.NewEngine(simConfig, nil)
 	if err != nil {
-		logging.Get(logging.CategoryAutopoiesis).Error("Differential engine init failed: %v", err)
-		result.Error = fmt.Sprintf("differential engine init failed: %v", err)
+		logging.Get(logging.CategoryAutopoiesis).Error("Simulation engine init failed: %v", err)
+		result.Error = fmt.Sprintf("simulation engine init failed: %v", err)
 		return false
 	}
-	logging.AutopoiesisDebug("Differential engine initialized")
+	stateContent, err := core.GetDefaultContent("schemas_state.mg")
+	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Simulation engine schema load failed: %v", err)
+		result.Error = fmt.Sprintf("simulation engine schema load failed: %v", err)
+		return false
+	}
+	if err := simEngine.LoadSchemaString(stateContent); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Simulation engine schema parse failed: %v", err)
+		result.Error = fmt.Sprintf("simulation engine schema parse failed: %v", err)
+		return false
+	}
+	logging.AutopoiesisDebug("Simulation engine initialized")
 
 	// Calculate Stability Score
 	stability := need.Confidence
@@ -697,43 +727,36 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 	locStr := strconv.Itoa(loc)
 	zeroLocStr := "0"
 
-	// Assert Current State (baseline stability 0.0 for new tool)
-	_ = diffEngine.AddFactIncremental(mangle.Fact{
-		Predicate: "state",
-		Args:      []any{stepID, stabilityScore(0.0), zeroLocStr},
-	})
-	// Assert base_stability for penalty calculations
-	_ = diffEngine.AddFactIncremental(mangle.Fact{
-		Predicate: "base_stability",
-		Args:      []any{stepID, stabilityScore(0.0)},
-	})
-
-	// Assert Proposed State
-	_ = diffEngine.AddFactIncremental(mangle.Fact{
-		Predicate: "state",
-		Args:      []any{nextStepID, stabilityScore(stability), locStr},
-	})
-	_ = diffEngine.AddFactIncremental(mangle.Fact{
-		Predicate: "proposed",
-		Args:      []any{nextStepID},
-	})
-	_ = diffEngine.AddFactIncremental(mangle.Fact{
-		Predicate: "base_stability",
-		Args:      []any{nextStepID, stabilityScore(stability)},
-	})
-
-	// Check Halting Oracle (Stagnation)
+	// Halting-oracle input (stagnation): the code hash of this proposal.
 	h := sha256.Sum256([]byte(tool.Code))
 	hashStr := hex.EncodeToString(h[:])
 	logging.AutopoiesisDebug("Code hash for stagnation check: %s", hashStr[:16])
 
-	_ = diffEngine.AddFactIncremental(mangle.Fact{
-		Predicate: "history",
-		Args:      []any{nextStepID, hashStr},
-	})
+	// One batch, one evaluation. See the function comment: every negated
+	// premise in schemas_state.mg must see the complete EDB.
+	simFacts := []mangle.Fact{
+		// Current state (baseline stability 0.0 for a new tool).
+		{Predicate: "state", Args: []any{stepID, stabilityScore(0.0), zeroLocStr}},
+		{Predicate: "base_stability", Args: []any{stepID, stabilityScore(0.0)}},
+		// Proposed state.
+		{Predicate: "state", Args: []any{nextStepID, stabilityScore(stability), locStr}},
+		{Predicate: "proposed", Args: []any{nextStepID}},
+		{Predicate: "base_stability", Args: []any{nextStepID, stabilityScore(stability)}},
+		{Predicate: "history", Args: []any{nextStepID, hashStr}},
+	}
+	if err := simEngine.AddFacts(simFacts); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Simulation fact load failed: %v", err)
+		result.Error = fmt.Sprintf("simulation fact load failed: %v", err)
+		return false
+	}
+	if err := simEngine.Evaluate(); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Simulation evaluation failed: %v", err)
+		result.Error = fmt.Sprintf("simulation evaluation failed: %v", err)
+		return false
+	}
 
 	// Check ?stagnation_detected
-	stagnant, err := diffEngine.Query(ctx, "stagnation_detected")
+	stagnant, err := simEngine.Query(ctx, "stagnation_detected")
 	if err == nil && len(stagnant.Bindings) > 0 {
 		logging.Get(logging.CategoryAutopoiesis).Warn("Stagnation detected: solution repeats history")
 		result.Error = "stagnation detected: solution repeats history"
@@ -743,7 +766,14 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 
 	// Check ?valid_transition(nextStepID)
 	logging.AutopoiesisDebug("Checking valid_transition for %s", nextStepID)
-	validRes, err := diffEngine.Query(ctx, fmt.Sprintf("valid_transition(%s)", nextStepID))
+	// %q, not %s: state/proposed are declared bound [/string] (schemas_state.mg:27-29),
+	// so nextStepID is stored as a /string. An unquoted /step_x_next in query
+	// position parses as a /name constant and matches nothing. This went unnoticed
+	// because the DifferentialEngine.Query this used to call never filtered by the
+	// query constant at all -- it emitted every valid_transition row, so the gate
+	// passed whenever ANY transition was valid. See
+	// Docs/journeys/impl/S23-differential-path.md.
+	validRes, err := simEngine.Query(ctx, fmt.Sprintf("valid_transition(%q)", nextStepID))
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Error("Transition query failed: %v", err)
 		result.Error = fmt.Sprintf("transition query failed: %v", err)

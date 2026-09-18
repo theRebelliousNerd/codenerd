@@ -136,38 +136,3 @@ func TestStep2cParseUnitRepeatedFailuresStable(t *testing.T) {
 		t.Fatalf("ParseUnit(empty) after failures dishonest error: %#v", err)
 	}
 }
-
-func TestStep2cDifferentialCopyAllFactsToNilFailsClosed(t *testing.T) {
-	var de DifferentialEngine
-	err := step2cMustNotPanic(t, "CopyAllFactsTo(nil)", func() error {
-		return de.CopyAllFactsTo(nil)
-	})
-	if err == nil {
-		t.Fatal("CopyAllFactsTo(nil) succeeded, want fail-closed error for nil dest")
-	}
-	if !step2cHonest(err) {
-		t.Fatalf("CopyAllFactsTo(nil) dishonest error: %#v", err)
-	}
-}
-
-func TestStep2cDifferentialZeroValueStaysUsable(t *testing.T) {
-	var de DifferentialEngine
-	_ = step2cMustNotPanic(t, "ApplyDelta(nil)", func() error {
-		return de.ApplyDelta(nil)
-	})
-	if err := step2cMustNotPanic(t, "ApplyDelta(empty) after nil", func() error {
-		return de.ApplyDelta([]Fact{})
-	}); err != nil && !step2cHonest(err) {
-		t.Fatalf("ApplyDelta(empty) after nil dishonest error: %#v", err)
-	}
-	if err := step2cMustNotPanic(t, "AddFactIncremental(zero) after deltas", func() error {
-		return de.AddFactIncremental(Fact{})
-	}); err != nil && !step2cHonest(err) {
-		t.Fatalf("AddFactIncremental(zero) dishonest error: %#v", err)
-	}
-	if err := step2cMustNotPanic(t, "EnableUnifiedFastPath", func() error {
-		return de.EnableUnifiedFastPath()
-	}); err != nil && !step2cHonest(err) {
-		t.Fatalf("EnableUnifiedFastPath dishonest error: %#v", err)
-	}
-}
