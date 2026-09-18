@@ -139,6 +139,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// build state their negations read.
 				"turn_evidence", "turn_acceptance", "turn_created_source", "build_state",
 				"turn_gate",
+				"turn_untested",
 			},
 		},
 		{

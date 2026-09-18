@@ -107,6 +107,17 @@ turn_build_green(Verb) :- turn_gate(Verb, /build, /passing).
 turn_build_red(Verb) :- turn_gate(Verb, /build, /failing).
 turn_tests_green(Verb) :- turn_gate(Verb, /test, /passing).
 turn_tests_red(Verb) :- turn_gate(Verb, /test, /failing).
+
+# turn_untested is THIS turn's coverage debt as the session executor measured it
+# on disk: a production Go file the turn wrote with no test file beside it
+# (build_verify.go, untestedWithoutCoverageOnDisk). Until 2026-09-18 that list
+# went to the log and the subagent return and nowhere else, so a turn that wrote
+# production code and no test derived turn_verified on a green build and a green
+# run of the tests that already existed, and was recorded /done. Asserted by the
+# executor with the turn's gates, retracted with them, unreachable by the model.
+Decl turn_untested(Verb, Path) bound [/name, /string].
+Decl turn_has_untested(Verb) bound [/name].
+turn_has_untested(Verb) :- turn_untested(Verb, _).
 Decl has_turn_tools(Verb) bound [/name].
 Decl has_turn_write(Verb) bound [/name].
 Decl has_turn_test(Verb) bound [/name].
@@ -179,7 +190,7 @@ turn_done(Verb) :- turn_executed(Verb), turn_verified(Verb).
 # wrong in, which is the same argument test_coverage makes at the top of this
 # file.
 turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), !turn_wrote(Verb).
-turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), turn_wrote(Verb), turn_build_green(Verb), turn_tests_green(Verb), !turn_build_red(Verb), !turn_tests_red(Verb).
+turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), turn_wrote(Verb), turn_build_green(Verb), turn_tests_green(Verb), !turn_build_red(Verb), !turn_tests_red(Verb), !turn_has_untested(Verb).
 turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), has_turn_acceptance(Verb).
 
 # has_turn_acceptance projects turn_acceptance/3 to a single argument, matching
@@ -207,6 +218,7 @@ turn_wrote(Verb) :- turn_evidence(Verb, _, _, _, _, _), write_oriented_intent(Ve
 turn_unverified(Verb) :- turn_executed(Verb), !turn_verified(Verb).
 turn_missing_evidence(Verb, /build_not_green) :- turn_unverified(Verb), !turn_build_green(Verb).
 turn_missing_evidence(Verb, /tests_not_green) :- turn_unverified(Verb), !turn_tests_green(Verb).
+turn_missing_evidence(Verb, /tests_not_written) :- turn_unverified(Verb), turn_has_untested(Verb).
 
 # A red build is a failed turn, not merely an unverified one. turn_executed
 # already excludes it; this names it so the outcome can say /failed instead of

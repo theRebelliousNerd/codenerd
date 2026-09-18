@@ -85,7 +85,7 @@ func hardBlockedPredicates(t *testing.T) []string {
 	// The candidate set bounds what is probed; the probe decides what is
 	// blocked, so this list can never claim something the filter does not.
 	candidates := []string{
-		"build_state", "test_state", "turn_gate",
+		"build_state", "test_state", "turn_gate", "turn_untested", "turn_has_untested",
 		"turn_build_green", "turn_build_red", "turn_tests_green", "turn_tests_red",
 		"turn_evidence", "turn_acceptance", "turn_executed", "turn_done", "turn_cost",
 		"turn_verified", "turn_unverified", "turn_wrote", "turn_build_failed",

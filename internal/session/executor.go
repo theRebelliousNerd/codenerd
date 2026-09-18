@@ -2524,6 +2524,12 @@ func (e *Executor) recordBuildState(verb string, result *ExecutionResult) {
 	}
 	record("build_state", types.MangleAtom("/build"), result.BuildCheck.Verdict())
 	record("test_state", types.MangleAtom("/test"), result.TestCheck.Verdict())
+	// Coverage debt rides with the gates: asserted here, retracted with them.
+	// The corpus withholds turn_verified while any holds and names it as
+	// turn_missing_evidence(Verb, /tests_not_written).
+	for _, path := range result.UntestedPaths {
+		assert(types.Fact{Predicate: "turn_untested", Args: []any{types.MangleAtom(verb), path}})
+	}
 }
 
 // consumeHollowSuccessVerdict is the Go consumer of the policy-derived
@@ -2750,6 +2756,8 @@ func missingEvidenceSentence(atom string) string {
 		return "the build was not verified green"
 	case "/tests_not_green":
 		return "the tests were not verified green"
+	case "/tests_not_written":
+		return "production code was written with no test beside it"
 	default:
 		return strings.TrimPrefix(atom, "/")
 	}
