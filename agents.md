@@ -14,14 +14,6 @@ This repo exists to make that split real in production: creative power with dete
 - **Logic as executive**: planning, memory, orchestration, safety, and policy.
 - **Transduction interface**: natural language and code are converted into formal atoms that the kernel can reason over.
 
-### How This Shapes Runtime Changes
-
-- The world model, durable facts, and CodeDOM are the model's primary codebase context. Use targeted, revision-aware source views when those representations need detail or refresh.
-- Mangle manages the active working context throughout execution: relevance, retention, eviction, retrieval, and ordering. A growing tool transcript with occasional summarization does not fulfill this design. Evicted context must remain recoverable; stale evidence must not survive a source change as current truth.
-- Models use typed, policy-mediated operations. Do not give codeNERD models free-form CLI/shell access by default or use it to bypass missing tool wiring. Build/test tools must constrain their inputs and expose structured results. Development agents may use their own shell to build and verify codeNERD.
-- Bound each model request's context while allowing a task to continue as long as it makes progress within the user's constraints. Arbitrary tool-call counts are not task-completion criteria; detect stalls and repeated failures explicitly.
-- Validate this architecture through the normal production entry paths with CodeDOM and world-model context enabled. Restricted-tool benchmarks are supplementary evidence.
-
 ## The Vision (Steve, 2026-09-18) — read before any architectural change
 
 - This is an experimental project and a different paradigm. Mangle — a deductive database
@@ -56,6 +48,39 @@ This repo exists to make that split real in production: creative power with dete
   judged, not a request to restore. `Docs/architecture/` (July 2026) is orientation, not the
   original, and not authoritative.
 
+## Use codeNERD. Do Not Hand-Write This Repo.
+
+**Default: every change to `internal/`, `cmd/`, `pkg/` goes through codeNERD.**
+
+```powershell
+.\nerd.exe fix "<symptom, file:line, root cause, what to change, how to verify>"
+```
+
+Then review the diff, build, test, and commit. Your job is to *aim* codeNERD and
+*verify* it, not to write the Go yourself. Hand-editing is the failure mode this
+repo exists to eliminate: when you edit by hand, the system under test never
+runs, no defect in it is discovered, and the session quietly becomes "an
+assistant writes Go" — which teaches us nothing about codeNERD.
+
+This is the working agreement, not a mechanical block. The `settings.json`
+deny rules and the `block-direct-codebase-edits.py` hook that used to enforce
+it were removed by the architect on 2026-09-03 ("that was for your dumber
+predecessor"). The rule stands on judgment now: aim codeNERD first, and when
+you hand-edit, say so in the commit and say why codeNERD could not do it.
+
+**What a good brief looks like.** Vague briefs fail and burn tokens; precise
+ones land. Name the file and line, the exact symptom, the root cause, the change
+you want, what must NOT change, and the verification command. Size it to one
+turn — multi-file tasks hit the tool-iteration ceiling, so split them.
+
+**When codeNERD genuinely cannot do it**, that is itself the finding. File the
+defect, fix the *blocker* so codeNERD can proceed, and say so explicitly. Fixing
+the blocker is dogfooding; doing its job for it is not.
+
+**Legitimate exceptions**, which still deserve a sentence of justification:
+safety-gate and permission logic (the model should not widen the rule that
+constrains it), and a broken build that prevents codeNERD from running at all.
+
 ## Repo Contract
 
 - JIT is the standard for all new LLM-facing behavior.
@@ -82,14 +107,22 @@ if (Test-Path .\nerd.exe) {
     Remove-Item .\nerd.exe -ErrorAction SilentlyContinue
 }
 $env:CGO_CFLAGS = "-IC:/CodeProjects/codeNERD/sqlite_headers"
-go build -o nerd.exe ./cmd/nerd
+go build -tags sqlite_vec -o nerd.exe ./cmd/nerd
 ```
+
+**`-tags sqlite_vec` is required, not optional.** `internal/store/vec_support_enabled.go`
+is behind `//go:build sqlite_vec && cgo`; without the tag the binary takes
+`vec_support_disabled.go`, `defaultRequireVec` is false, and every boot logs
+`sqlite-vec not available; falling back from ANN to lexical search` four times.
+Nothing fails — the JIT selector's vector half just quietly degrades to lexical
+matching. Setting `CGO_CFLAGS` alone does not enable it. Measured 2026-08-10:
+four warnings per boot without the tag, zero with it.
 
 ### Build With sqlite-vec Support (bash)
 
 ```bash
 rm -f ./nerd.exe
-CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go build -o nerd.exe ./cmd/nerd
+CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go build -tags sqlite_vec -o nerd.exe ./cmd/nerd
 ```
 
 SQLite headers live at `sqlite_headers/sqlite3.h`.
@@ -152,10 +185,6 @@ If you see `debug_program_ERROR.mg`, the system crashed and dumped combined `.mg
 - Keep new LLM systems JIT-first.
 - Prefer adding prompt atoms and selection logic over hardcoding prose in shards.
 - When in doubt, preserve the architectural north star and trim encyclopedic detail.
-
-## Grok Harness
-
-Grok Build project wiring lives under `.grok/` (rules, agents, personas, roles, skills). Domain skills remain under `.agents/skills/`. Orient with `/codenerd-session` or `grok inspect`.
 
 ## Deep References
 
