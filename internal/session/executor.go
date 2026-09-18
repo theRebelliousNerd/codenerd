@@ -165,6 +165,12 @@ type Executor struct {
 	conversationHistory []perception.ConversationTurn
 	sessionContext      *types.SessionContext
 
+	// evictedHistory holds the messages the last priorTurnMessages call
+	// dropped from the generation window. The window is a view, not a
+	// deletion: what leaves it is announced in the window's own text and
+	// kept here so it can be brought back.
+	evictedHistory []types.Message
+
 	// Session persistence
 	sessionPersister SessionPersister
 	sessionID        string
@@ -2057,6 +2063,17 @@ func (e *Executor) GetHistory() []perception.ConversationTurn {
 // the character cap then drops the oldest first, two at a time, so a trimmed
 // window never splits a user/assistant pair. Turns with empty Content are
 // skipped. Role mapping is "user" -> "user", anything else -> "assistant".
+//
+// Eviction is announced, not silent. Whole turns leaving the window is the
+// same event as a tool result being clamped — the model is given less than
+// there was — and it used to leave nothing behind but a debug line the model
+// never sees. A model whose first six turns were dropped answers "as I said
+// earlier" questions from a transcript that no longer contains what it said,
+// and has no way to tell that from a conversation that started here. The
+// surviving oldest message now opens with the pipeline's marker naming how
+// many messages and characters left, and the evicted messages themselves are
+// retained on the executor (recoverHistoryEviction) so what was dropped can
+// be brought back rather than reconstructed.
 func (e *Executor) priorTurnMessages() []types.Message {
 	cfg := e.configSnapshot()
 	window := cfg.HistoryTurnWindow
@@ -2086,23 +2103,57 @@ func (e *Executor) priorTurnMessages() []types.Message {
 	if len(msgs) == 0 {
 		return nil
 	}
+	eligible := len(msgs)
+	var evicted []types.Message
 	if len(msgs) > window {
+		evicted = append(evicted, msgs[:len(msgs)-window]...)
 		msgs = msgs[len(msgs)-window:]
 	}
 	total := historyMessageChars(msgs)
 	for total > budget && len(msgs) > 0 {
-		if len(msgs) >= 2 {
-			total -= len(msgs[0].Text) + len(msgs[1].Text)
-			msgs = msgs[2:]
-		} else {
-			total -= len(msgs[0].Text)
-			msgs = msgs[1:]
-		}
+		drop := min(2, len(msgs))
+		total -= historyMessageChars(msgs[:drop])
+		evicted = append(evicted, msgs[:drop]...)
+		msgs = msgs[drop:]
 	}
+	e.recordHistoryEviction(evicted)
 	if len(msgs) == 0 {
+		// Nothing survived the budget, so there is no surviving message to
+		// carry the marker. The window is empty and the caller renders no
+		// history at all, which is honest on its own: the model is not shown
+		// a partial transcript it could mistake for the whole one.
 		return nil
 	}
+	if len(evicted) > 0 {
+		notice := types.DroppedNotice(len(evicted), eligible,
+			fmt.Sprintf("older conversation messages (%d chars) evicted from this window; the session still holds them",
+				historyMessageChars(evicted)), "")
+		msgs[0].Text = notice + "\n\n" + msgs[0].Text
+	}
 	return msgs
+}
+
+// recordHistoryEviction stores the messages priorTurnMessages dropped so the
+// window's contents are recoverable rather than merely gone. It replaces the
+// record each call because each call recomputes the window from the whole
+// history: what is evicted now is what is evicted, not the union of every
+// pass.
+func (e *Executor) recordHistoryEviction(evicted []types.Message) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(evicted) == 0 {
+		e.evictedHistory = nil
+		return
+	}
+	e.evictedHistory = append([]types.Message(nil), evicted...)
+}
+
+// recoverHistoryEviction returns the messages the last window computation
+// evicted, oldest first. Empty means nothing was dropped.
+func (e *Executor) recoverHistoryEviction() []types.Message {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return append([]types.Message(nil), e.evictedHistory...)
 }
 
 // historyMessageChars totals the text carried by prior messages.

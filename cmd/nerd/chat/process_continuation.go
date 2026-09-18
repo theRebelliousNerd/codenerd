@@ -398,12 +398,17 @@ func isMutationOperation(shardType string) bool {
 	return true
 }
 
-// truncateSummary truncates a string for fact storage
+// truncateSummary flattens a string onto one line and bounds it for fact
+// storage, leaving the pipeline's marker where it cuts.
+//
+// These strings are not private: shard_result/5, pending_test and
+// pending_review carry them into the kernel, and the kernel's facts are what
+// injectable_context renders into a later turn's window. A shard output cut
+// at 200 characters with a bare "..." reaches the model as a complete short
+// answer with the author's own trailing ellipsis. The marker names how much
+// went, so a reader can tell the difference.
 func truncateSummary(s string, maxLen int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", "")
-	if len(s) > maxLen {
-		return s[:maxLen] + "..."
-	}
-	return s
+	return types.ClampInline(s, maxLen, "shard summary")
 }

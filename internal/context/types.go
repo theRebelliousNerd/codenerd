@@ -366,6 +366,13 @@ type HistorySegment struct {
 	// can tell kernel-driven masking from an empty summary.
 	MaskedTurns int
 
+	// DroppedAtoms counts the atoms the per-turn and per-segment caps kept out
+	// of KeyAtoms, plus any shed later to fit the history reserve. It is
+	// carried on the segment rather than logged because the renderer turns it
+	// into the marker the model reads: without it, a segment showing 64 atoms
+	// out of 400 is indistinguishable from one that had exactly 64.
+	DroppedAtoms int
+
 	// Timestamp
 	CompressedAt time.Time
 }

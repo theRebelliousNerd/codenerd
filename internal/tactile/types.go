@@ -20,6 +20,8 @@ package tactile
 import (
 	"strings"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 // SandboxMode defines the isolation level for command execution.
@@ -223,8 +225,28 @@ func (r *ExecutionResult) IsNonZeroExit() bool {
 	return r.Success && r.ExitCode != 0
 }
 
-// Output returns Combined if available, otherwise Stdout+Stderr.
+// Output returns Combined if available, otherwise Stdout+Stderr, with the
+// pipeline's truncation marker appended when the capture hit MaxOutputBytes.
+//
+// This is the one place that has both the shortened text and the fact that it
+// was shortened. Every backend sets Truncated/TruncatedBytes (direct, docker,
+// the two Linux platforms, firejail, Windows) and logs an operator-facing
+// warning, and until this marker existed that was the end of it: the flags
+// stayed on the struct, ActionResult carried only the string, and the model
+// received the first N bytes of a build log with nothing to distinguish it
+// from a build that printed exactly that much. A model handed a truncated
+// `go test` run reports the package list it can see as the whole run.
+//
+// The marker goes at the end because that is where the cut is — everything
+// before it is verbatim, and the reader reaches the notice at the moment the
+// evidence stops. No handle: nothing retained the discarded bytes, and a
+// handle that resolves to nothing is worse than an honest count.
 func (r *ExecutionResult) Output() string {
+	return r.withTruncationMarker(r.rawOutput())
+}
+
+// rawOutput is the captured text without the marker.
+func (r *ExecutionResult) rawOutput() string {
 	if r.Combined != "" {
 		return r.Combined
 	}
@@ -235,6 +257,35 @@ func (r *ExecutionResult) Output() string {
 		return r.Stderr
 	}
 	return r.Stdout + "\n" + r.Stderr
+}
+
+// withTruncationMarker appends the elision marker to text when this result's
+// capture was cut at the output ceiling. Shared by Output and by the callers
+// that hand back stdout and stderr separately, so a command's truncation is
+// announced whichever projection of it the model is given.
+func (r *ExecutionResult) withTruncationMarker(text string) string {
+	if !r.Truncated {
+		return text
+	}
+	dropped := int(r.TruncatedBytes)
+	notice := types.DroppedNotice(dropped, dropped+len(text), "bytes of command output", "")
+	if notice == "" {
+		// Truncated with no byte count. The cut is still real and still has to
+		// be announced; inventing a number would be worse than saying the
+		// backend did not report one.
+		notice = types.TruncationMarker("command output at the output ceiling; bytes discarded not reported")
+	}
+	if text == "" {
+		return notice
+	}
+	return text + "\n\n" + notice
+}
+
+// MarkTruncated returns text with this result's truncation marker appended.
+// Exported for the callers that project stdout and stderr separately instead
+// of through Output.
+func (r *ExecutionResult) MarkTruncated(text string) string {
+	return r.withTruncationMarker(text)
 }
 
 // ResourceUsage contains metrics about resource consumption.

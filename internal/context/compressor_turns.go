@@ -1,14 +1,16 @@
 package context
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
-	"codenerd/internal/perception"
 	"context"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/perception"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -303,8 +305,8 @@ func (c *Compressor) compress(ctx context.Context) error {
 	turnsToCompress := c.recentTurns[:cutoff]
 	logging.Context("Compressing %d turns (keeping %d recent)", cutoff, c.config.RecentTurnWindow)
 
-	keyAtoms := c.collectKeyAtoms(turnsToCompress, 64)
-	logging.ContextDebug("Collected %d key atoms for compression segment", len(keyAtoms))
+	keyAtoms, droppedAtoms := c.collectKeyAtoms(turnsToCompress, 64)
+	logging.ContextDebug("Collected %d key atoms for compression segment (%d dropped by the caps)", len(keyAtoms), droppedAtoms)
 
 	// NERD-EVOLVE-START: c3_observation_mask
 	// C3: Use observation masking instead of LLM summarization.
@@ -364,6 +366,7 @@ func (c *Compressor) compress(ctx context.Context) error {
 		CompressionRatio: ratio,
 		CompressedAt:     time.Now(),
 		MaskedTurns:      maskedCount,
+		DroppedAtoms:     droppedAtoms,
 	}
 
 	// Update rolling summary
@@ -484,10 +487,7 @@ func (c *Compressor) generateObservationMaskedSummary(turns []CompressedTurn, ma
 				turn.TurnNumber, len(turn.ResultAtoms)))
 			continue
 		}
-		for _, atom := range turn.ResultAtoms[:min(3, len(turn.ResultAtoms))] {
-			sb.WriteString(atom.String())
-			sb.WriteString("\n")
-		}
+		writeCappedResultAtoms(&sb, turn)
 	}
 
 	if maskedCount > 0 {
@@ -509,13 +509,38 @@ func (c *Compressor) generateSimpleSummary(turns []CompressedTurn) string {
 			sb.WriteString(turn.IntentAtom.String())
 			sb.WriteString("\n")
 		}
-		for _, atom := range turn.ResultAtoms[:min(3, len(turn.ResultAtoms))] {
-			sb.WriteString(atom.String())
-			sb.WriteString("\n")
-		}
+		writeCappedResultAtoms(&sb, turn)
 	}
 
 	return sb.String()
+}
+
+// maxSummaryResultAtoms is how many of a turn's result atoms a compressed
+// segment carries. The cap is old and deliberate — the first few results
+// capture the state the later ones refine — but it used to be applied by
+// slicing, which made a turn with thirty results indistinguishable from a
+// turn with three.
+const maxSummaryResultAtoms = 3
+
+// writeCappedResultAtoms writes a turn's result atoms under the cap and, when
+// the cap bit, the marker naming how many did not make it.
+//
+// This is the unmasked sibling of the masked branch above, which has named
+// what it removes since the kernel started making the masking decision. The
+// two disagreeing was the defect: the same segment could announce "12 atoms
+// masked" for one turn and silently show 3 of 30 for the next.
+func writeCappedResultAtoms(sb *strings.Builder, turn CompressedTurn) {
+	shown := min(maxSummaryResultAtoms, len(turn.ResultAtoms))
+	for _, atom := range turn.ResultAtoms[:shown] {
+		sb.WriteString(atom.String())
+		sb.WriteString("\n")
+	}
+	if notice := types.TruncationNotice(shown, len(turn.ResultAtoms),
+		fmt.Sprintf("result atoms from turn %d", turn.TurnNumber)); notice != "" {
+		sb.WriteString("# ")
+		sb.WriteString(notice)
+		sb.WriteString("\n")
+	}
 }
 
 // rebuildRollingSummaryText rebuilds the combined summary text and keeps it
@@ -557,6 +582,10 @@ func (c *Compressor) rebuildRollingSummaryText() {
 		// already exceeds the reserve.
 		overhead := total - c.counter.CountString(seg.Summary)
 		if overhead >= c.config.HistoryReserve && len(seg.KeyAtoms) > 0 {
+			// Shedding the atoms is a drop like any other: the count moves to
+			// DroppedAtoms so the renderer still announces them, instead of
+			// the block going from 64 atoms to none with no explanation.
+			seg.DroppedAtoms += len(seg.KeyAtoms)
 			seg.KeyAtoms = nil
 			c.renderRollingSummaryText()
 			continue
@@ -599,9 +628,17 @@ func (c *Compressor) mergeOldestSegments(n int) {
 		sb.WriteString("\n")
 		merged.OriginalTokens += s.OriginalTokens
 		merged.MaskedTurns += s.MaskedTurns
+		// What each segment had already lost stays lost, and the merge's own
+		// 64-atom cap adds to it: the merged block's marker has to account for
+		// both or a fold silently resets the count to zero.
+		merged.DroppedAtoms += s.DroppedAtoms
 		for _, a := range s.KeyAtoms {
 			key := a.String()
-			if seenAtoms[key] || len(merged.KeyAtoms) >= 64 {
+			if seenAtoms[key] {
+				continue
+			}
+			if len(merged.KeyAtoms) >= 64 {
+				merged.DroppedAtoms++
 				continue
 			}
 			seenAtoms[key] = true
@@ -645,6 +682,15 @@ func (c *Compressor) renderRollingSummaryText() {
 		if len(seg.KeyAtoms) > 0 {
 			sb.WriteString("# Key Atoms\n")
 			sb.WriteString(c.serializer.SerializeFacts(seg.KeyAtoms))
+			sb.WriteString("\n")
+		}
+		// The caps that built KeyAtoms, and the reserve that may later have
+		// shed them entirely, are announced here because here is where the
+		// model reads the segment. A rendered block is the only place a
+		// marker does any work.
+		if notice := types.TruncationNotice(len(seg.KeyAtoms), len(seg.KeyAtoms)+seg.DroppedAtoms, "key atoms from these turns"); notice != "" {
+			sb.WriteString("# ")
+			sb.WriteString(notice)
 			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")

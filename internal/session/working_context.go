@@ -321,7 +321,15 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		if id == "" {
 			return "", nil, fmt.Errorf("oversize tool result has no durable observation")
 		}
-		result.Content = fmt.Sprintf("%s this %d-character result does not fit the request; recall_context id=%q returns it from offset 0, or in offset/limit pages. Historical evidence requires a current revision check.", archivedResultPrefix, size, id)
+		// The pipeline's marker rides with the pointer. This path already told
+		// the model the size and the handle, which is most of what a marker is
+		// for, but it said it in words of its own — so an audit that walks the
+		// assembled messages looking for unannounced cuts could not tell this
+		// from a result that was simply short. One prefix, every cutter.
+		result.Content = fmt.Sprintf("%s %s recall_context id=%q returns it from offset 0, or in offset/limit pages. Historical evidence requires a current revision check.",
+			archivedResultPrefix,
+			types.DroppedNotice(size, size, "chars of this tool result; it does not fit the request", ""),
+			id)
 		// Both views: assigning Content on the flat projection alone would leave
 		// a block-built turn sending the payload this archive accounted as gone.
 		messages[i] = messages[i].WithToolResults(results)

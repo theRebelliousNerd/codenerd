@@ -91,16 +91,21 @@ func (v *VirtualStore) Exec(ctx context.Context, cmd string, env []string) (stri
 		return "", "", err
 	}
 
+	// Stdout and stderr travel separately here, so the marker Output() would
+	// have appended has to be put on one of them or the truncation vanishes
+	// between this return and whatever renders it. It goes on stderr: that is
+	// where a reader already looks for what went wrong with the run itself,
+	// and appending to stdout would corrupt a caller parsing structured output.
 	if result.ExitCode != 0 {
 		// Command failed
 		errMsg := fmt.Sprintf("command failed with exit code %d", result.ExitCode)
 		if result.Error != "" {
 			errMsg += ": " + result.Error
 		}
-		return result.Stdout, result.Stderr, fmt.Errorf("%s", errMsg)
+		return result.Stdout, result.MarkTruncated(result.Stderr), fmt.Errorf("%s", errMsg)
 	}
 
-	return result.Stdout, result.Stderr, nil
+	return result.Stdout, result.MarkTruncated(result.Stderr), nil
 }
 
 // handleExecCmd executes a shell command safely.

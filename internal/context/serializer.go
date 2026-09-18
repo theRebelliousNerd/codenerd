@@ -165,15 +165,35 @@ func (fs *FactSerializer) serializeGrouped(facts []core.Fact) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+// maxFactArgChars bounds one rendered fact argument in the context block.
+const maxFactArgChars = 47
+
 // truncateFact creates a truncated version of a fact for display.
+//
+// The per-argument cut used to append a bare "...", which says something is
+// missing but not how much and is indistinguishable from an ellipsis the
+// author of the fact wrote. A fact argument is arbitrary text asserted by
+// whatever produced it — a tool result, an error message, a file path — and a
+// path cut to "internal/core/defaults/policy/dele..." reads as a real path.
+// The marker names the count, so the model can tell a shortened argument from
+// a short one and ask for the fact instead of acting on the prefix.
 func (fs *FactSerializer) truncateFact(f core.Fact) string {
 	var args []string
 	for _, arg := range f.Args {
 		argStr := formatArg(arg)
-		// Truncate by rune: a byte cut can split a multi-byte rune and inject
-		// invalid UTF-8 into the context block.
-		if runes := []rune(argStr); len(runes) > 50 {
-			argStr = string(runes[:47]) + "..."
+		// Cut on a rune boundary: a byte cut can split a multi-byte rune and
+		// inject invalid UTF-8 into the context block. ClampInline measures in
+		// bytes, so the rune-safe prefix is taken first and its byte length is
+		// what ClampInline is given.
+		//
+		// The marker costs more than the "..." it replaces, so a cut that does
+		// not actually shorten the argument is not made: dropping forty
+		// characters to add fifty leaves the block bigger AND the fact less
+		// complete, which is the worst of both.
+		if runes := []rune(argStr); len(runes) > maxFactArgChars {
+			if cut := types.ClampInline(argStr, len(string(runes[:maxFactArgChars])), "fact arg"); len(cut) < len(argStr) {
+				argStr = cut
+			}
 		}
 		args = append(args, argStr)
 	}

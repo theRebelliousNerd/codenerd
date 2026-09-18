@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"codenerd/internal/config"
+	"codenerd/internal/types"
 )
 
 // newTestCompressor builds a Compressor with no kernel/store/LLM. The internal
@@ -103,13 +104,32 @@ func TestCompressorTrimToTokens(t *testing.T) {
 	if got := c.trimToTokens("  hi there  ", 1000); got != "hi there" {
 		t.Errorf("trimToTokens under budget=%q, want \"hi there\"", got)
 	}
-	// Over budget -> result is strictly shorter and fits the token budget.
+	// Over budget -> result is strictly shorter, carries the marker, and fits
+	// the budget whenever the marker itself fits.
+	//
+	// A 5-token budget cannot hold a marker, and the marker is not optional:
+	// below that floor the whole budget goes to saying that the content is
+	// gone. The alternative is a 20-character fragment of a 4600-character
+	// segment with nothing to distinguish it from a segment that was 20
+	// characters long, which is the failure this rule exists to prevent.
 	long := strings.Repeat("alpha beta gamma delta ", 200)
 	trimmed := c.trimToTokens(long, 5)
 	if len(trimmed) >= len(long) {
 		t.Errorf("trimToTokens should shorten oversized input (len %d -> %d)", len(long), len(trimmed))
 	}
-	if got := c.counter.CountString(trimmed); got > 5 {
-		t.Errorf("trimmed token count=%d, want <= 5", got)
+	if !types.IsClamped(trimmed) {
+		t.Errorf("trimToTokens cut %d chars with no marker: %q", len(long)-len(trimmed), trimmed)
+	}
+	if got := c.counter.CountString(trimmed); got > 5 && trimmed != types.DroppedNotice(len(long), len(long), "chars of this segment", "") {
+		t.Errorf("trimmed token count=%d over budget 5 and not the bare marker: %q", got, trimmed)
+	}
+
+	// A budget that can hold the marker is respected exactly.
+	roomy := c.trimToTokens(long, 200)
+	if got := c.counter.CountString(roomy); got > 200 {
+		t.Errorf("trimmed token count=%d, want <= 200", got)
+	}
+	if !types.IsClamped(roomy) {
+		t.Errorf("trimToTokens cut to a roomy budget with no marker: %q", roomy)
 	}
 }

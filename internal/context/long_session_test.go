@@ -9,6 +9,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 )
 
 // A long-horizon compression gate.
@@ -119,8 +120,20 @@ func TestRebuildRollingSummaryText_WhenBlockOutgrowsReserve_ShouldMergeOldestSeg
 
 	comp.rebuildRollingSummaryText()
 
-	if got := comp.counter.CountString(comp.rollingSummary.Text); got > comp.config.HistoryReserve {
-		t.Errorf("rolling summary %d tokens still exceeds reserve %d after rebuild", got, comp.config.HistoryReserve)
+	// The reserve is honoured down to a floor, and the floor is now real: the
+	// render frame plus one truncation marker is the smallest honest block
+	// there is. 40 tokens is below that floor on purpose — it is what forces
+	// the merging this test is about — so the surviving contract is "fits, or
+	// overflows by a marker that says why". A block that overflowed with no
+	// marker would be the defect S15 exists to remove: the model would read a
+	// two-line summary of a 120-turn session as the whole of it.
+	got := comp.counter.CountString(comp.rollingSummary.Text)
+	if got > comp.config.HistoryReserve && !types.IsClamped(comp.rollingSummary.Text) {
+		t.Errorf("rolling summary %d tokens exceeds reserve %d after rebuild and carries no marker:\n%s",
+			got, comp.config.HistoryReserve, comp.rollingSummary.Text)
+	}
+	if got > 2*comp.config.HistoryReserve {
+		t.Errorf("rolling summary %d tokens overflows reserve %d by more than the marker floor", got, comp.config.HistoryReserve)
 	}
 	if len(comp.rollingSummary.Segments) >= 12 {
 		t.Errorf("expected segments to be merged, still have %d", len(comp.rollingSummary.Segments))

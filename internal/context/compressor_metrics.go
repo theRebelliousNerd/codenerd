@@ -1,15 +1,17 @@
 package context
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
-	"codenerd/internal/perception"
 	"fmt"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/perception"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -346,17 +348,29 @@ func (c *Compressor) countOriginalTokens(turns []CompressedTurn) int {
 	return total
 }
 
-// collectKeyAtoms extracts a bounded set of high-signal atoms to persist with the summary.
-func (c *Compressor) collectKeyAtoms(turns []CompressedTurn, limit int) []core.Fact {
+// collectKeyAtoms extracts a bounded set of high-signal atoms to persist with
+// the summary, and reports how many distinct atoms the two caps kept out.
+//
+// Two caps apply: five result atoms per turn, and `limit` atoms overall. Both
+// used to return the kept atoms and nothing else, so a segment that dropped
+// two hundred atoms rendered identically to one that dropped none and the
+// model read the survivors as the complete record of those turns. The dropped
+// count is returned rather than logged because the caller renders it into the
+// summary the model reads — an operator-facing log line is not a marker.
+func (c *Compressor) collectKeyAtoms(turns []CompressedTurn, limit int) ([]core.Fact, int) {
 	seen := make(map[string]bool)
 	var atoms []core.Fact
+	dropped := 0
 
 	add := func(f core.Fact) {
-		if len(atoms) >= limit {
-			return
-		}
 		key := f.String()
 		if seen[key] {
+			// A duplicate is not a drop: the atom is in the set already, so
+			// nothing the model needs has left.
+			return
+		}
+		if len(atoms) >= limit {
+			dropped++
 			return
 		}
 		seen[key] = true
@@ -372,6 +386,7 @@ func (c *Compressor) collectKeyAtoms(turns []CompressedTurn, limit int) []core.F
 		}
 		for i, f := range turn.ResultAtoms {
 			if i >= 5 { // keep summaries small; first few results capture state
+				dropped += len(turn.ResultAtoms) - i
 				break
 			}
 			add(f)
@@ -381,15 +396,46 @@ func (c *Compressor) collectKeyAtoms(turns []CompressedTurn, limit int) []core.F
 		}
 	}
 
-	return atoms
+	return atoms, dropped
 }
 
-// trimToTokens truncates a string to fit within the approximate token budget.
+// trimToTokens truncates a string to fit within the approximate token budget,
+// leaving the pipeline's marker on the cut.
+//
+// The marker is budgeted for rather than appended afterwards: this function's
+// whole job is to return something that fits, and a notice pushing the result
+// back over the ceiling would defeat the caller that is trimming precisely
+// because the ceiling was exceeded. The reserve is taken off the budget
+// first, the text is fitted to what is left, and the marker fills the rest.
 func (c *Compressor) trimToTokens(s string, maxTokens int) string {
 	if maxTokens <= 0 || c.counter.CountString(s) <= maxTokens {
 		return strings.TrimSpace(s)
 	}
 
+	// Fit the body to the budget less the marker's own cost. The reserve is
+	// taken against a worst-case notice — every character dropped — which is
+	// never shorter than the real one, since the dropped count cannot exceed
+	// the total and so cannot be wider. When the budget is too small to hold
+	// both, the marker wins and the result exceeds maxTokens by the marker's
+	// length: a caller that gets back only "this is gone" has lost nothing it
+	// could have used, while a fragment carrying no notice is read as a whole
+	// record. That degenerate case is the only way this returns over budget.
+	//
+	// The unit is terse on purpose. This marker is charged against a history
+	// reserve measured in tens of tokens, and a sentence of explanation here
+	// costs body the model could have read instead.
+	const unit = "chars of this segment"
+	reserve := c.counter.CountString(types.DroppedNotice(len(s), len(s), unit, ""))
+	bodyBudget := maxTokens - reserve
+	if bodyBudget < 1 {
+		return types.DroppedNotice(len(s), len(s), unit, "")
+	}
+	body := strings.TrimSpace(c.trimBodyToTokens(s, bodyBudget))
+	return body + "\n" + types.DroppedNotice(len(s)-len(body), len(s), unit, "")
+}
+
+// trimBodyToTokens returns the largest prefix of s within maxTokens.
+func (c *Compressor) trimBodyToTokens(s string, maxTokens int) string {
 	runes := []rune(s)
 	// Find the largest prefix length whose token count is still within budget.
 	// Invariant: CountString(runes[:low]) <= maxTokens (true at low=0). The +1

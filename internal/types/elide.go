@@ -144,6 +144,53 @@ func ClampHead(text string, maxChars int, label string) string {
 		fmt.Sprintf("\n%s %d of %d chars from %s] …\n", clampMarkerPrefix, dropped, len(text), label)
 }
 
+// ClampInline bounds text to maxChars for a position where a newline cannot
+// go: a Mangle fact argument, a status line, one rendered row. It keeps the
+// head and appends the marker on the same line.
+//
+// The variant exists because the alternative was every inline caller inventing
+// its own "..." — which says that something was cut but not how much, and
+// reads to a model like the author's own ellipsis rather than the pipeline's.
+func ClampInline(text string, maxChars int, label string) string {
+	if maxChars <= 0 {
+		return ""
+	}
+	if len(text) <= maxChars {
+		return text
+	}
+	dropped := len(text) - maxChars
+	return trimUTF8Suffix(text[:maxChars]) +
+		fmt.Sprintf(" %s %d of %d chars from %s] …", clampMarkerPrefix, dropped, len(text), label)
+}
+
+// TruncationMarker renders the bare marker around a caller-supplied detail.
+// Use it only where the count-and-kind shape the other helpers produce does
+// not fit — a cut whose size the source genuinely did not report. Everything
+// that knows how much it dropped says how much it dropped.
+func TruncationMarker(detail string) string {
+	return fmt.Sprintf("%s %s] …", clampMarkerPrefix, detail)
+}
+
+// DroppedNotice renders the marker for content that left a model-facing
+// message whole rather than being shortened in place — an evicted history
+// turn, an archived tool result, the remainder of a capped list. handle, when
+// non-empty, is what the model calls to get the content back; it is the
+// difference between "some of this is gone" and "some of this is over there".
+//
+// A handle nobody can redeem is worse than none — it sends the reader off to
+// a verb that answers "not found", which is indistinguishable from expiry —
+// so callers pass one only when a verb in this process actually resolves it.
+func DroppedNotice(dropped, total int, unit, handle string) string {
+	if dropped <= 0 {
+		return ""
+	}
+	notice := TruncationMarker(fmt.Sprintf("%d of %d %s", dropped, total, unit))
+	if handle != "" {
+		notice += " " + handle
+	}
+	return notice
+}
+
 // ClampLines bounds text to maxLines, keeping the head and the tail. Use it
 // for line-oriented output (compiler diagnostics, test output) where cutting
 // mid-line produces a fragment the model may misread as a complete record.

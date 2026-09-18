@@ -681,10 +681,14 @@ func (sm *ShardManager) ResultToFacts(shardID, shardType, task, result string, e
 			Args:      []any{shardID},
 		})
 
-		output := result
-		if len(output) > 4000 {
-			output = output[:4000] + "... (truncated)"
-		}
+		// shard_output/2 is a kernel fact, and kernel facts are rendered into a
+		// later turn's window. The old cut said "... (truncated)" — enough for
+		// an operator reading a fact dump, not enough for a model, which is
+		// given no count and no way to tell a 4 KB answer from the first 4 KB
+		// of a 400 KB one. head+tail because a shard states its plan first and
+		// its findings last: head-only removes exactly the conclusion the next
+		// turn needs.
+		output := types.ClampText(result, 4000, "shard output")
 		facts = append(facts, types.Fact{
 			Predicate: "shard_output",
 			Args:      []any{shardID, output},
