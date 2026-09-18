@@ -118,6 +118,17 @@ func (e *Executor) runToolLoopPass(
 	// hardcoded Go string), then reissue once.
 	if len(llmResponse.ToolCalls) == 0 {
 		if e.intentRequiresToolCall(result.Intent.Verb) {
+			// A turn that must act, offered no tool, cannot act: nudging it is
+			// asking the model to call something that was never on the menu.
+			// Observed 2026-09-18: a full kernel rejected the turn's own facts,
+			// the runtime compiled zero tools, the nudge below fired, the model
+			// answered in prose again, and six runs were recorded hollow with
+			// nothing naming the cause. Name it.
+			if len(e.buildToolDefinitions(cfg)) == 0 {
+				return nil, nil, fmt.Errorf(
+					"no tools were offered to a turn that must act: intent_requires_tool_call(%s) derives but the runtime compiled zero tool definitions; check the boot log for rejected facts (EDB fact limit) and the compiled config's allowed tools",
+					result.Intent.Verb)
+			}
 			logging.Get(logging.CategorySession).Warn(
 				"runToolLoop: intent_requires_tool_call(%q) derived true but model returned no tool_calls; recompiling prompt with no-tool-retry nudge atom",
 				result.Intent.Verb,
