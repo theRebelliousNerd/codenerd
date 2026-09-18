@@ -44,7 +44,6 @@ nemesis_attack_run
 nesting_depth
 pass_count
 patch_tested
-pending_subtask_count_computed
 proposed_rule
 rejection
 rejection_count
