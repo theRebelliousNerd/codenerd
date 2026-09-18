@@ -1,6 +1,7 @@
 package shards
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -447,15 +448,79 @@ func TestQueryRelevantTools_WhenNoKernel_ShouldReturnNil(t *testing.T) {
 
 // --- DisableExecutiveBootGuard ---
 
-func TestDisableExecutiveBootGuard_ShouldDisablePolicy(t *testing.T) {
-	sm := NewShardManager()
-	sm.DisableExecutiveBootGuard()
-	if sm.disabled == nil {
-		// disabled map may not be initialized if DisableSystemShard creates it lazily
-		// This is OK since it means the method ran without panic
-		return
+// bootGuardFakeAgent stands in for a running system shard that holds a boot
+// guard. It carries the same DisableBootGuard method the real executive policy
+// shard does, which is what the manager type-asserts for.
+type bootGuardFakeAgent struct {
+	config    types.ShardConfig
+	guardHeld bool
+}
+
+func (a *bootGuardFakeAgent) Execute(context.Context, string) (string, error) { return "", nil }
+func (a *bootGuardFakeAgent) GetID() string                                   { return a.config.Name + "-1" }
+func (a *bootGuardFakeAgent) GetState() types.ShardState                      { return types.ShardStateRunning }
+func (a *bootGuardFakeAgent) GetConfig() types.ShardConfig                    { return a.config }
+func (a *bootGuardFakeAgent) Stop() error                                     { return nil }
+func (a *bootGuardFakeAgent) SetParentKernel(types.Kernel)                    {}
+func (a *bootGuardFakeAgent) SetLLMClient(types.LLMClient)                    {}
+func (a *bootGuardFakeAgent) SetSessionContext(*types.SessionContext)         {}
+func (a *bootGuardFakeAgent) DisableBootGuard()                               { a.guardHeld = false }
+
+func runningExecutive(sm *ShardManager) *bootGuardFakeAgent {
+	agent := &bootGuardFakeAgent{
+		config:    types.ShardConfig{Name: "executive_policy"},
+		guardHeld: true,
 	}
-	if _, ok := sm.disabled["executive_policy"]; !ok {
-		t.Error("expected executive_policy to be disabled")
+	sm.shards[agent.GetID()] = agent
+	return agent
+}
+
+// The executive policy shard suppresses every action it would execute while its
+// boot guard is held, so the guard must be released on the first user message.
+//
+// Measured 2026-09-17 in a live chat session: the guard was still held thirteen
+// minutes after boot and logged "suppressing 3 actions until user interaction"
+// on the user's own turn. The release call existed and fired; this method sent
+// it to the wrong place, adding the already-running shard to the disabled set
+// instead of releasing the guard it holds.
+func TestDisableExecutiveBootGuard_ReleasesTheRunningShardsGuard(t *testing.T) {
+	sm := NewShardManager()
+	exec := runningExecutive(sm)
+
+	sm.DisableExecutiveBootGuard()
+
+	if exec.guardHeld {
+		t.Error("boot guard still held after DisableExecutiveBootGuard; the executive suppresses every action for the life of the process")
+	}
+}
+
+// Releasing a guard must not stop the shard. A disabled executive executes
+// nothing at all, so the old behaviour would have been a worse bug than the one
+// it was reached for.
+func TestDisableExecutiveBootGuard_DoesNotDisableTheShard(t *testing.T) {
+	sm := NewShardManager()
+	runningExecutive(sm)
+
+	sm.DisableExecutiveBootGuard()
+
+	if _, disabled := sm.disabled["executive_policy"]; disabled {
+		t.Error("executive_policy was added to the disabled set; releasing its boot guard must not stop the shard")
+	}
+}
+
+// Only the executive's guard is released: the method is named for one shard and
+// must not reach any other running one.
+func TestDisableExecutiveBootGuard_LeavesOtherRunningShardsAlone(t *testing.T) {
+	sm := NewShardManager()
+	other := &bootGuardFakeAgent{
+		config:    types.ShardConfig{Name: "perception_firewall"},
+		guardHeld: true,
+	}
+	sm.shards[other.GetID()] = other
+
+	sm.DisableExecutiveBootGuard()
+
+	if !other.guardHeld {
+		t.Error("released the boot guard on perception_firewall; only executive_policy should be touched")
 	}
 }

@@ -257,9 +257,16 @@ func estimateTokens(s string) int {
 	return len(s) / 4
 }
 
-// DisableExecutiveBootGuard prevents the executive policy shard from running at boot.
+// DisableExecutiveBootGuard releases the boot guard on the running executive
+// policy shard, allowing action execution. It must not disable the shard itself.
 func (sm *ShardManager) DisableExecutiveBootGuard() {
-	sm.DisableSystemShard("executive_policy")
+	shard, ok := sm.GetRunningShardByConfigName("executive_policy")
+	if !ok || shard == nil {
+		return
+	}
+	if releaser, ok := shard.(interface{ DisableBootGuard() }); ok {
+		releaser.DisableBootGuard()
+	}
 }
 
 // QueryRelevantTools exposes queryRelevantTools for testing and external access.
