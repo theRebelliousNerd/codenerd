@@ -308,6 +308,57 @@ func flattenForTask(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// withTaskConstraint carries the user's own words into the shard task. The
+// free-text path hands perception's Constraint here and the /fix case used to
+// drop it (observed 2026-09-17: the coder was started with "fix issue in
+// <file>" and guessed what to fix); every verb now appends it.
+func withTaskConstraint(base, constraint string) string {
+	c := strings.TrimSpace(constraint)
+	if c == "" || strings.EqualFold(c, "none") {
+		return base
+	}
+	return base + " with constraint: " + c
+}
+
+// splitSlashTarget separates a slash command's arguments into the target the
+// shard should open and the words the user typed about it. The first token is
+// the target when it looks like a path; the rest is the constraint. Without a
+// path-like first token the whole text is the target, as before, and there is
+// no constraint. The slash handlers used to join everything into the target,
+// so "/fix auth.go login fails" reached the shard as one opaque string.
+func splitSlashTarget(args []string) (target, constraint string) {
+	if len(args) == 0 {
+		return "", ""
+	}
+	first := strings.TrimSpace(args[0])
+	if looksLikePath(first) {
+		return first, strings.TrimSpace(strings.Join(args[1:], " "))
+	}
+	return strings.TrimSpace(strings.Join(args, " ")), ""
+}
+
+// looksLikePath reports whether a token names a file or directory: it has a
+// path separator, or a short alphanumeric extension.
+func looksLikePath(s string) bool {
+	if strings.ContainsAny(s, `/\`) {
+		return true
+	}
+	i := strings.LastIndexByte(s, '.')
+	if i <= 0 || i == len(s)-1 {
+		return false
+	}
+	ext := s[i+1:]
+	if len(ext) > 7 {
+		return false
+	}
+	for _, r := range ext {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
 func formatShardTask(verb, target, constraint, workspace string) string {
 	// Normalize target
 	if target == "" || target == "none" {
@@ -333,60 +384,59 @@ func formatShardTask(verb, target, constraint, workspace string) string {
 	switch verb {
 	case "/review":
 		if fileList != "" {
-			return fmt.Sprintf("review files:%s", fileList)
+			return withTaskConstraint(fmt.Sprintf("review files:%s", fileList), constraint)
 		}
 		if target == "codebase" {
-			return "review all"
+			return withTaskConstraint("review all", constraint)
 		}
-		return fmt.Sprintf("review file:%s", target)
+		return withTaskConstraint(fmt.Sprintf("review file:%s", target), constraint)
 
 	case "/security":
 		if fileList != "" {
-			return fmt.Sprintf("security_scan files:%s", fileList)
+			return withTaskConstraint(fmt.Sprintf("security_scan files:%s", fileList), constraint)
 		}
 		if target == "codebase" {
-			return "security_scan all"
+			return withTaskConstraint("security_scan all", constraint)
 		}
-		return fmt.Sprintf("security_scan file:%s", target)
+		return withTaskConstraint(fmt.Sprintf("security_scan file:%s", target), constraint)
 
 	case "/analyze":
 		if fileList != "" {
-			return fmt.Sprintf("complexity files:%s", fileList)
+			return withTaskConstraint(fmt.Sprintf("complexity files:%s", fileList), constraint)
 		}
 		if target == "codebase" {
-			return "complexity all"
+			return withTaskConstraint("complexity all", constraint)
 		}
-		return fmt.Sprintf("complexity file:%s", target)
+		return withTaskConstraint(fmt.Sprintf("complexity file:%s", target), constraint)
 
 	case "/fix":
-		return fmt.Sprintf("fix issue in %s", target)
+		return withTaskConstraint(fmt.Sprintf("fix file:%s", target), constraint)
 
 	case "/refactor":
-		return fmt.Sprintf("refactor %s", target)
-
+		return withTaskConstraint(fmt.Sprintf("refactor file:%s", target), constraint)
 	case "/create":
-		return fmt.Sprintf("create %s", target)
+		return withTaskConstraint(fmt.Sprintf("create %s", target), constraint)
 
 	case "/test":
 		if strings.Contains(target, "run") || target == "codebase" {
-			return "run_tests"
+			return withTaskConstraint("run_tests", constraint)
 		}
-		return fmt.Sprintf("write_tests for %s", target)
+		return withTaskConstraint(fmt.Sprintf("write_tests for %s", target), constraint)
 
 	case "/debug":
-		return fmt.Sprintf("debug %s", target)
+		return withTaskConstraint(fmt.Sprintf("debug %s", target), constraint)
 
 	case "/research":
-		return fmt.Sprintf("research %s", target)
+		return withTaskConstraint(fmt.Sprintf("research %s", target), constraint)
 
 	case "/explore":
-		return fmt.Sprintf("explore %s", target)
+		return withTaskConstraint(fmt.Sprintf("explore %s", target), constraint)
 
 	case "/document":
-		return fmt.Sprintf("document %s", target)
+		return withTaskConstraint(fmt.Sprintf("document %s", target), constraint)
 
 	case "/diff":
-		return fmt.Sprintf("review diff:%s", target)
+		return withTaskConstraint(fmt.Sprintf("review diff:%s", target), constraint)
 
 	default:
 		// Generic task format
