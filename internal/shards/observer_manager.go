@@ -103,8 +103,11 @@ type BackgroundObserverManager struct {
 	callbacks []ObserverCallback
 
 	// Configuration
-	enabled          bool
-	checkInterval    time.Duration
+	enabled       bool
+	checkInterval time.Duration
+	// eventsSinceCheck counts the events that arrived since the last periodic
+	// check was emitted, excluding periodic checks themselves. Atomic.
+	eventsSinceCheck int64
 	assessmentBuffer []ObserverAssessment
 
 	// Spawner for creating observer tasks
@@ -279,6 +282,9 @@ func (m *BackgroundObserverManager) SendEvent(event ObserverEvent) {
 
 	select {
 	case m.eventChan <- event:
+		if event.Type != EventAlignmentCheck {
+			atomic.AddInt64(&m.eventsSinceCheck, 1)
+		}
 	default:
 		// Channel full, drop event (could log this)
 	}
@@ -341,7 +347,14 @@ func (m *BackgroundObserverManager) eventLoop(ctx context.Context) {
 	}
 }
 
-// periodicCheckLoop triggers periodic alignment checks.
+// periodicCheckLoop emits a periodic alignment check whenever the interval
+// elapses with something to assess.
+//
+// It used to emit one every interval regardless. Measured 2026-09-17 in an
+// idle chat session: a check every five minutes from boot, each an LLM call
+// of 13-43 s, each scoring the session 10-50/100 for having nothing to show
+// -- the guardian's own recommendation on every one was to stop evaluating
+// empty ticks. A tick with no event since the last check is skipped.
 func (m *BackgroundObserverManager) periodicCheckLoop(ctx context.Context) {
 	defer m.loopWG.Done()
 
@@ -353,6 +366,9 @@ func (m *BackgroundObserverManager) periodicCheckLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !m.periodicCheckDue() {
+				continue
+			}
 			m.SendEvent(ObserverEvent{
 				Type:    EventAlignmentCheck,
 				Source:  "system",
@@ -360,6 +376,13 @@ func (m *BackgroundObserverManager) periodicCheckLoop(ctx context.Context) {
 			})
 		}
 	}
+}
+
+// periodicCheckDue reports whether a periodic check has anything to assess --
+// at least one event other than a periodic check arrived since the last one
+// -- and starts the next count.
+func (m *BackgroundObserverManager) periodicCheckDue() bool {
+	return atomic.SwapInt64(&m.eventsSinceCheck, 0) > 0
 }
 
 // processEvent processes a single event by dispatching to relevant observers.
