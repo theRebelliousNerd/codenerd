@@ -175,6 +175,13 @@ controller has the telemetry:
 
 ### Every config key
 
+> **Superseded 2026-09-18 by seam S3** (`Docs/journeys/impl/S3-forcing-as-facts.md`).
+> All six keys below are **deleted**. `internal/config/limits.go` now rejects
+> each by name at load, and the repeat threshold is a policy fact
+> (`working_repeat_threshold` in `internal/context/working_set.mg`). The table
+> is the verified record of what the code was when the study was written, not
+> a list of keys a config may set.
+
 All under `core_limits` in `.nerd/config.json` (`internal/config/limits.go`):
 
 | Key | Type | Default | Validation |
