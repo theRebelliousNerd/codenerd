@@ -153,6 +153,12 @@ func defaultMaxOutputTokensFor(vendor Provider) int {
 	}
 }
 
+// metaBilledTokensForNothing reports a Meta reply that billed completion
+// tokens and delivered neither content nor reasoning text.
+func (c *OpenAICompatClient) metaBilledTokensForNothing(resp *OpenAIResponse) bool {
+	return c.vendor == ProviderMeta && resp != nil && resp.Usage.CompletionTokens > 0
+}
+
 func isValidMetaReasoningEffort(v string) bool {
 	switch strings.TrimSpace(v) {
 	case "minimal", "low", "medium", "high", "xhigh":
@@ -715,10 +721,19 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 	// no content, so this cannot mask a genuinely empty answer or turn one
 	// failed call into an unbounded loop. If the retry is also empty the
 	// original diagnostic is returned unchanged.
-	if out == "" && c.enableThinking && msg.ReasoningContent != "" {
+	// Meta is the other shape of the same failure: no reasoning text comes back
+	// on this surface at all, so the reasoning-only case above never matches
+	// there, but completion tokens were billed and no content arrived -- the
+	// tokens went to thinking all the same. Measured 2026-09-17 21:20:
+	// finish_reason "stop", reasoning_chars 0, output_tokens 2177 and 2668,
+	// twice in a row, ~40 s, no recovery. The retry asks Meta for minimal
+	// reasoning instead of replaying the request that produced nothing.
+	// A caller that accepts an empty reply (allowEmptyCompletion) is not owed a
+	// retry it will not use.
+	if out == "" && !allowEmptyCompletion(ctx) && ((c.enableThinking && msg.ReasoningContent != "") || c.metaBilledTokensForNothing(resp)) {
 		logging.PerceptionWarn(
-			"[%s] empty content with %d chars of reasoning; retrying once with thinking disabled",
-			c.vendor, len(msg.ReasoningContent))
+			"[%s] empty content (%d chars of reasoning, %d completion tokens); retrying once without reasoning",
+			c.vendor, len(msg.ReasoningContent), resp.Usage.CompletionTokens)
 
 		retryBody := c.buildRequest(ctx, []OpenAIMessage{
 			{Role: "system", Content: systemPrompt},
@@ -726,6 +741,9 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 		}, false)
 		if piggyback {
 			retryBody.ResponseFormat = c.piggybackResponseFormat()
+		}
+		if c.vendor == ProviderMeta {
+			retryBody.ReasoningEffort = "minimal"
 		}
 		if retryResp, retryErr := c.executeChat(ctx, retryBody, piggyback); retryErr == nil &&
 			len(retryResp.Choices) > 0 {
