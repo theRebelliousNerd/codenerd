@@ -24,7 +24,19 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 		return 0, fmt.Errorf("no embedding engine configured")
 	}
 
-	logging.Store("Starting force re-embedding prompt atoms in DB: %s", s.dbPath)
+	// The searcher accepts a vector only when its embedding_model equals the
+	// engine name, and a NULL stamp counts as "unstamped". A re-embed that
+	// did not stamp left every atom it had just embedded unusable: measured
+	// 2026-09-17, all 914 atoms in .nerd/prompts/corpus.db still NULL after
+	// /embedding reembed, and the vector tier had nothing to rank on the very
+	// turn meant to validate it. Older databases have no embedding_model
+	// column at all; it is added so they can be stamped too.
+	modelName := engine.Name()
+	if err := s.ensurePromptAtomEmbeddingModelColumn(); err != nil {
+		return 0, err
+	}
+
+	logging.Store("Starting force re-embedding prompt atoms in DB: %s (stamping %s)", s.dbPath, modelName)
 
 	rows, err := s.db.Query("SELECT atom_id, COALESCE(description, ''), content FROM prompt_atoms")
 	if err != nil {
@@ -118,7 +130,7 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 			embeddings = vecs
 		}
 
-		embedded, err := s.applyPromptAtomEmbeddings(batch, embeddings, expectedTask)
+		embedded, err := s.applyPromptAtomEmbeddings(batch, embeddings, expectedTask, modelName)
 		if err != nil {
 			return totalEmbedded, err
 		}
@@ -129,6 +141,19 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 	return totalEmbedded, nil
 }
 
+// ensurePromptAtomEmbeddingModelColumn adds prompt_atoms.embedding_model to a
+// database created before the column existed, so a re-embed can stamp it.
+func (s *LocalStore) ensurePromptAtomEmbeddingModelColumn() error {
+	if columnExists(s.db, "prompt_atoms", "embedding_model") {
+		return nil
+	}
+	if _, err := s.db.Exec("ALTER TABLE prompt_atoms ADD COLUMN embedding_model TEXT"); err != nil {
+		return fmt.Errorf("add prompt_atoms.embedding_model: %w", err)
+	}
+	logging.Store("Added prompt_atoms.embedding_model to %s", s.dbPath)
+	return nil
+}
+
 // atomToEmbed is one prompt atom awaiting an embedding write.
 type atomToEmbed struct {
 	atomID string
@@ -137,7 +162,7 @@ type atomToEmbed struct {
 
 // applyPromptAtomEmbeddings writes one batch of fresh atom embeddings under
 // the write lock. Empty slots (a failed per-item embed) are skipped.
-func (s *LocalStore) applyPromptAtomEmbeddings(batch []atomToEmbed, embeddings [][]float32, expectedTask string) (int, error) {
+func (s *LocalStore) applyPromptAtomEmbeddings(batch []atomToEmbed, embeddings [][]float32, expectedTask, modelName string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -153,7 +178,7 @@ func (s *LocalStore) applyPromptAtomEmbeddings(batch []atomToEmbed, embeddings [
 		}
 	}()
 
-	stmt, err := tx.Prepare("UPDATE prompt_atoms SET embedding = ?, embedding_task = ? WHERE atom_id = ?")
+	stmt, err := tx.Prepare("UPDATE prompt_atoms SET embedding = ?, embedding_task = ?, embedding_model = ? WHERE atom_id = ?")
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -165,7 +190,7 @@ func (s *LocalStore) applyPromptAtomEmbeddings(batch []atomToEmbed, embeddings [
 			continue
 		}
 		blob := encodeFloat32Slice(embeddings[j])
-		if _, err := stmt.Exec(blob, expectedTask, a.atomID); err != nil {
+		if _, err := stmt.Exec(blob, expectedTask, modelName, a.atomID); err != nil {
 			return embedded, fmt.Errorf("failed to update prompt atom %s: %w", a.atomID, err)
 		}
 		embedded++
