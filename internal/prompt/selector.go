@@ -231,6 +231,16 @@ func (s *AtomSelector) topKEligibleVectorScores(
 	k int,
 ) map[string]float64 {
 	if len(scores) == 0 || len(fleshAtoms) == 0 {
+		// Say so. This return used to be silent, and the "Vector tier:" line
+		// below is the signal the live validation of the selector reads for;
+		// with every stored vector unstamped (the state before `nerd embedding
+		// reembed` runs) the search returns no scores, this path is taken on
+		// every compile, and the log showed nothing to distinguish "the vector
+		// channel kept 0 of N" from "the vector channel never ran".
+		logging.Get(logging.CategoryJIT).Debug(
+			"Vector tier: nothing to rank (%d scored, %d flesh atoms); the vector channel contributes no atoms this compile",
+			len(scores), len(fleshAtoms),
+		)
 		return nil
 	}
 	if k <= 0 {
