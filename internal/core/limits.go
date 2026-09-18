@@ -32,8 +32,8 @@ func DefaultLimitsConfig() LimitsConfig {
 		MaxTotalMemoryMB:      12288,  // 12GB RAM limit
 		MaxConcurrentShards:   12,     // Max 12 parallel shards (7 system + 5 user)
 		MaxSessionDurationMin: 120,    // 2 hour sessions
-		MaxFactsInKernel:      250000, // Increase working-set ceiling with larger RAM
-		MaxDerivedFactsLimit:  100000, // Mangle gas limit scales with fact budget
+		MaxFactsInKernel:      2000000, // Out-of-memory backstop, not a working budget
+		MaxDerivedFactsLimit:  5000000, // Runaway-rule backstop; a real repository's world derives past 500k
 	}
 }
 

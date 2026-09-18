@@ -441,10 +441,7 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 // Duplicates still return (false, nil): a no-op is not a failure.
 func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 	// Enforce EDB size limit to prevent unbounded memory growth
-	maxFacts := k.maxFacts
-	if maxFacts <= 0 {
-		maxFacts = defaultMaxFacts
-	}
+	maxFacts := k.effectiveMaxFactsLocked()
 	if len(k.facts) >= maxFacts {
 		logging.Get(logging.CategoryKernel).Warn("EDB fact limit reached (%d/%d), rejecting fact: %s",
 			len(k.facts), maxFacts, f.Predicate)
@@ -735,10 +732,7 @@ func (k *RealKernel) AssertWithoutEval(fact Fact) error {
 		return nil
 	}
 
-	maxFacts := k.maxFacts
-	if maxFacts <= 0 {
-		maxFacts = defaultMaxFacts
-	}
+	maxFacts := k.effectiveMaxFactsLocked()
 	if len(k.facts) >= maxFacts {
 		return fmt.Errorf("EDB fact limit reached (%d/%d)", len(k.facts), maxFacts)
 	}

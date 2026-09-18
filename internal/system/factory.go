@@ -858,6 +858,12 @@ func initCoreComponents(bctx *bootContext) error {
 		return fmt.Errorf("initialize workspace logging: %w", err)
 	}
 	bctx.appCfg = appCfg
+	// The fact ceilings are process-wide: every kernel this process builds
+	// (session, system shards, trial and dream clones) reads them, and until
+	// 2026-09-18 none did -- core_limits.max_facts_in_kernel and
+	// max_derived_facts_limit bound nothing and the kernels ran on constants.
+	bootLimits := appCfg.GetCoreLimits()
+	core.ConfigureFactLimits(bootLimits.MaxFactsInKernel, bootLimits.MaxDerivedFactsLimit)
 	bctx.jitCfg = appCfg.GetEffectiveJITConfig()
 
 	// LLM API scheduler policy is fully driven by config.json (api_scheduler +

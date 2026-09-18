@@ -150,7 +150,7 @@ func DefaultCoreLimits() *CoreLimits {
 		MaxConcurrentShards:   12,
 		MaxConcurrentAPICalls: 5,
 		MaxSessionDurationMin: 120,
-		MaxFactsInKernel:      250000,
-		MaxDerivedFactsLimit:  100000,
+		MaxFactsInKernel:      2000000,
+		MaxDerivedFactsLimit:  5000000,
 	}
 }

@@ -123,9 +123,8 @@ func TestAddFactIfNew_MaxFactsEnforcement(t *testing.T) {
 
 func TestSetMaxFacts_DefaultValue(t *testing.T) {
 	k := setupMockKernel(t)
-	// Default should be 250,000
-	if k.GetMaxFacts() != 250000 {
-		t.Errorf("default maxFacts should be 250000, got %d", k.GetMaxFacts())
+	if k.GetMaxFacts() != defaultMaxFacts {
+		t.Errorf("default maxFacts should be %d, got %d", defaultMaxFacts, k.GetMaxFacts())
 	}
 }
 
@@ -140,7 +139,7 @@ func TestSetMaxFacts_CustomValue(t *testing.T) {
 func TestSetMaxFacts_ZeroUsesDefault(t *testing.T) {
 	k := setupMockKernel(t)
 	k.SetMaxFacts(0)
-	if k.GetMaxFacts() != 250000 {
-		t.Errorf("maxFacts=0 should use default 250000, got %d", k.GetMaxFacts())
+	if k.GetMaxFacts() != defaultMaxFacts {
+		t.Errorf("maxFacts=0 should use default %d, got %d", defaultMaxFacts, k.GetMaxFacts())
 	}
 }

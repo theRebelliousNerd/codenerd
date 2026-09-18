@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -182,22 +183,62 @@ func (k *RealKernel) GetWorkspace() string {
 	return k.workspaceRoot
 }
 
-// defaultDerivedFactLimit is the kernel-wide fallback for every evaluation mode.
-// Keep full and differential evaluation on this single source of truth so an
-// unset limit cannot become path-dependent.
-const defaultDerivedFactLimit = 500_000
+// defaultDerivedFactLimit is the inference ceiling when neither the kernel nor
+// the process has been given one. It is a backstop against a runaway rule, not
+// a working budget. At 500,000 (the value until 2026-09-18) this repository's
+// own world model put the dreamer's pre-write simulation at 500,016 facts and
+// the safety gate refused the edit ("fact size limit layer(File,Layer) 500016 >
+// 500000"): sixteen facts over, on a rule that was not at fault.
+const defaultDerivedFactLimit = 5_000_000
 
-// effectiveDerivedFactLimitLocked resolves the configured inference ceiling.
+// Process-wide fact ceilings, installed once at boot from
+// core_limits.max_facts_in_kernel and core_limits.max_derived_facts_limit by
+// ConfigureFactLimits. They are process-wide because the limits are system-wide
+// resource constraints and one process builds many kernels (the session kernel,
+// one per system shard, every trial and dream clone), so a per-kernel setter
+// left all of them on the constants: until 2026-09-18 no production code called
+// SetMaxFacts or SetDerivedFactLimit, and the two config keys bound nothing. A
+// kernel's own Set* value still wins (rule_court sizes its sandbox's ceiling to
+// the trial).
+var (
+	configuredMaxFacts         atomic.Int64
+	configuredDerivedFactLimit atomic.Int64
+)
+
+// ConfigureFactLimits installs the process-wide EDB and derived-fact ceilings.
+// A value <= 0 leaves that ceiling on its default.
+func ConfigureFactLimits(maxFacts, derivedFactLimit int) {
+	configuredMaxFacts.Store(int64(maxFacts))
+	configuredDerivedFactLimit.Store(int64(derivedFactLimit))
+}
+
+// effectiveDerivedFactLimitLocked resolves the inference ceiling: the kernel's
+// own, else the process-wide configured one, else the default.
 // The caller must hold k.mu for reading unless the kernel is not yet shared.
 func (k *RealKernel) effectiveDerivedFactLimitLocked() int {
-	if k.derivedFactLimit <= 0 {
-		return defaultDerivedFactLimit
+	if k.derivedFactLimit > 0 {
+		return k.derivedFactLimit
 	}
-	return k.derivedFactLimit
+	if configured := configuredDerivedFactLimit.Load(); configured > 0 {
+		return int(configured)
+	}
+	return defaultDerivedFactLimit
+}
+
+// effectiveMaxFactsLocked resolves the EDB ceiling the same way.
+// The caller must hold k.mu for reading unless the kernel is not yet shared.
+func (k *RealKernel) effectiveMaxFactsLocked() int {
+	if k.maxFacts > 0 {
+		return k.maxFacts
+	}
+	if configured := configuredMaxFacts.Load(); configured > 0 {
+		return int(configured)
+	}
+	return defaultMaxFacts
 }
 
 // SetDerivedFactLimit sets the maximum number of derived facts during evaluation.
-// Set to 0 or negative to use the default (500,000).
+// Set to 0 or negative to use the process-wide configured limit, else the default.
 func (k *RealKernel) SetDerivedFactLimit(limit int) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -211,11 +252,15 @@ func (k *RealKernel) GetDerivedFactLimit() int {
 	return k.effectiveDerivedFactLimitLocked()
 }
 
-// defaultMaxFacts is the default limit for EDB facts in the kernel.
-const defaultMaxFacts = 250_000
+// defaultMaxFacts is the EDB ceiling when neither the kernel nor the process
+// has been given one. It is an out-of-memory backstop, not a working budget:
+// at 250,000 (the value until 2026-09-18) one bulk hydration filled it at boot
+// and the turn's own facts -- user_intent, the allowed tools -- were the ones
+// rejected, because the ceiling refuses whatever arrives last.
+const defaultMaxFacts = 2_000_000
 
 // SetMaxFacts sets the maximum number of EDB facts the kernel will accept.
-// Set to 0 or negative to use the default (250,000).
+// Set to 0 or negative to use the process-wide configured limit, else the default.
 func (k *RealKernel) SetMaxFacts(limit int) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -226,10 +271,7 @@ func (k *RealKernel) SetMaxFacts(limit int) {
 func (k *RealKernel) GetMaxFacts() int {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	if k.maxFacts <= 0 {
-		return defaultMaxFacts
-	}
-	return k.maxFacts
+	return k.effectiveMaxFactsLocked()
 }
 
 // SetRepairInterceptor sets the repair interceptor for learned rule validation.
