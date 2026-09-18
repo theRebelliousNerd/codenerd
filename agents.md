@@ -97,6 +97,7 @@ running at all.
 - Preserve the north star, hard requirements, live command snippets, and a current file map.
 - Move deep reference material into scoped docs such as `internal/mangle/agents.md`, `internal/prompt/agents.md`, and `internal/core/agents.md`.
 - When editing this file, verify that every path and command still works.
+- `agents.md` is a byte-identical clone of this file (this file is gitignored; `agents.md` is the tracked twin). Edit here, copy there, `cmp` them before committing.
 
 ## Quick Commands
 
