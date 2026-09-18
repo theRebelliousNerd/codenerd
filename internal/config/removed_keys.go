@@ -32,6 +32,10 @@ var removedFeatureKeys = map[string]string{
 // Malformed JSON is not this function's problem: it returns nil and lets
 // decodeStrictJSON produce the parse error.
 func rejectRemovedKeys(data []byte) error {
+	// core_limits: the tool-budget keys S3 deleted (limits.go).
+	if err := rejectRemovedCoreLimitKeys(coreLimitsKeysPresent(data)); err != nil {
+		return err
+	}
 	var envelope struct {
 		Features map[string]json.RawMessage `json:"features"`
 	}

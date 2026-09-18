@@ -365,18 +365,8 @@ func TestInjectShardResultFacts_DerivesContinuationThroughRealKernel(t *testing.
 
 // newKernelBackedModel is a Model with a real kernel carrying the loaded
 // default corpus — the rules under test are the shipped ones, not a stub.
-//
-// The kernel is pinned to the full evaluation path, which is the path the
-// chat's production kernel takes (it has a VirtualStore with external
-// predicates). The differential path (kernel_eval.go, features.diff_eval —
-// true in this workspace's config, and leaked into this package by tests that
-// load it) re-evaluates over a store that already holds derived facts, so a
-// fact derived under a negation is never retracted when the negated premise
-// arrives: TestTestObligationIsDischargedByTheTestersResult fails there and
-// passes here. Seam S23 deletes that path; delete this line with it.
 func newKernelBackedModel(t *testing.T) *Model {
 	t.Helper()
-	t.Setenv("CODENERD_DIFF_EVAL", "0")
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
