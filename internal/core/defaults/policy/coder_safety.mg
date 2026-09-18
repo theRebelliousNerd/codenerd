@@ -124,9 +124,11 @@ hollow_success("new source was created without a test file") :-
 turn_executed(Verb) :- turn_evidence(Verb, _, _, _, _, _), !has_hollow_success(), !build_state(/failing).
 turn_done(Verb) :- turn_executed(Verb), turn_verified(Verb).
 
-# Two hosts emit verification, and both are the host verifying the workspace:
+# ONE host emits verification, through two mechanisms. This block used to say
+# "only the host verifier emits acceptance", and that is still true — it is just
+# not the only thing the host verifies:
 #
-#   1. turn_acceptance — the acceptance transaction, an immutable caller
+#   1. turn_acceptance — the acceptance transaction: an immutable caller
 #      contract with current, executed behavioral witnesses. Strongest, and
 #      still the only thing that can speak for REQUESTED BEHAVIOUR.
 #   2. build_state / test_state — the session executor's own post-edit gates
@@ -135,10 +137,11 @@ turn_done(Verb) :- turn_executed(Verb), turn_verified(Verb).
 #      itself and recorded what they returned, and only an affirmative verdict
 #      is ever asserted. A skipped or indeterminate gate asserts nothing.
 #
-# So the evidence arms below do not weaken the contract path — they are the same
-# host, reporting what it mechanically measured instead of what it was asked to
-# prove. The model cannot reach either: build_state, test_state and every
-# predicate in this block are hard-blocked in core.FilterMangleUpdates
+# So the evidence arms below do not weaken the contract path. They are the same
+# host reporting what it mechanically measured, rather than what it was asked to
+# prove — a weaker claim about the workspace, not a weaker claim about who is
+# entitled to make it. The model can reach neither: build_state, test_state and
+# every predicate in this block are hard-blocked in core.FilterMangleUpdates
 # (predicateAllowed), ahead of any caller allowlist.
 #
 # A turn that changed nothing has no workspace claim to verify, so execution is
@@ -152,11 +155,14 @@ turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), !turn_wrote(Verb).
 turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), turn_wrote(Verb), build_state(/passing), test_state(/passing).
 turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), has_turn_acceptance(Verb).
 
-# has_turn_acceptance projects turn_acceptance/3 to a single argument so the
-# rules above and below can negate it. Negating the 3-ary literal directly
-# (!turn_acceptance(Verb, _, _)) does NOT exclude on this engine — the wildcard
-# negation trap documented in internal/mangle/agents.md — and would fail
-# silently, deriving nothing and erroring nowhere.
+# has_turn_acceptance projects turn_acceptance/3 to a single argument, matching
+# has_turn_tools / has_turn_write / has_turn_test above. The arm that uses it
+# reads positively, where turn_acceptance(Verb, _, _) would also have worked;
+# the projection is here so that a future rule can NEGATE the question safely.
+# Negating the 3-ary literal directly (!turn_acceptance(Verb, _, _)) does NOT
+# exclude on this engine — the wildcard negation trap documented in
+# internal/mangle/agents.md — and would fail silently, deriving nothing and
+# erroring nowhere. The single-argument form is the one that can be negated.
 has_turn_acceptance(Verb) :- turn_acceptance(Verb, _, _).
 
 # turn_wrote is "this turn made a claim about the workspace". The second arm
