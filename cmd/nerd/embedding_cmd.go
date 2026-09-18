@@ -128,7 +128,7 @@ var embeddingStatsCmd = &cobra.Command{
 
 var embeddingReembedCmd = &cobra.Command{
 	Use:   "reembed",
-	Short: "Force re-embed all .nerd + internal DBs",
+	Short: "Force re-embed every database under .nerd",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ws := workspace
 		if ws == "" {
@@ -156,10 +156,7 @@ var embeddingReembedCmd = &cobra.Command{
 			return err
 		}
 
-		roots := []string{
-			filepath.Join(ws, ".nerd"),
-			filepath.Join(ws, "internal"),
-		}
+		roots := store.ReembedSearchRoots(ws)
 
 		fmt.Println("Re-embedding all databases (vectors + prompt atoms + traces + learnings)...")
 		res, err := store.ReembedAllDBsForce(context.Background(), roots, engine, func(msg string) {

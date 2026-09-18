@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"codenerd/internal/config"
@@ -60,10 +59,7 @@ func (m Model) runReembedAllDBs() tea.Cmd {
 			return reembedCompleteMsg{err: err}
 		}
 
-		searchRoots := []string{
-			filepath.Join(m.workspace, ".nerd"),
-			filepath.Join(m.workspace, "internal"),
-		}
+		searchRoots := store.ReembedSearchRoots(m.workspace)
 
 		res, err := store.ReembedAllDBsForce(
 			ctx,

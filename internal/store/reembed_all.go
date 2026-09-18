@@ -27,6 +27,21 @@ type ReembedResult struct {
 // ReembedProgressFn is an optional progress callback.
 type ReembedProgressFn func(msg string)
 
+// ReembedSearchRoots is where a force re-embed looks for databases: the
+// workspace .nerd tree, and only that.
+//
+// It used to include the workspace internal/ tree as well. The databases there
+// are build inputs -- internal/core/defaults/*_corpus.db are go:embed-ed into
+// the binary and internal/shards/*_learnings.db are tracked -- so a runtime
+// maintenance command was rewriting source files: measured 2026-09-17, one
+// /embedding reembed dirtied five tracked databases and the next build shipped
+// the rewritten copies. Their vectors are legacy either way (no embedding_model
+// column, skipped by the searcher); the prompt loader re-embeds atoms from YAML
+// into .nerd/prompts/corpus.db with the live engine.
+func ReembedSearchRoots(workspace string) []string {
+	return []string{filepath.Join(workspace, ".nerd")}
+}
+
 // ReembedAllDBsForce scans all *.db files under the given roots and force re-embeds
 // vectors and prompt_atoms tables using the provided embedding engine.
 // It skips DBs that can't be opened as LocalStore or don't have relevant tables.
