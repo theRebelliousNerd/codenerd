@@ -212,9 +212,15 @@ The sentence now has three forms instead of one constant:
 
 | state | sentence |
 |---|---|
-| acceptance verified | `Verified by contract <id>.` |
-| `/done` without a contract | `Verified by evidence: build passing, tests passing.` |
+| acceptance report present | `Report.Summary()` — status, snapshot and every obligation it ran |
+| `/done` without a contract | `Verified by evidence: the build and the tests were both measured green after the final edit.` |
 | `/unverified` | `Unverified: <the build was not verified green / the tests were not verified green>.` |
+| `/hollow`, `/failed` | the corresponding sentence |
+
+`verdictSentence` deliberately has **no** acceptance branch. A turn with a report returns
+before reaching it, so such a branch would be unreachable — and an unreachable second spelling
+of "verified by contract" is exactly how two answers to one question drift apart. (One was
+written, found unreachable on review, and deleted.)
 
 ### E. `nerd fix` reads the same verdict
 
@@ -378,14 +384,19 @@ Each commit was extracted with `git archive` into the scratchpad and built in is
 (`go build ./...` + `go vet`) rather than assumed to build from the working tree:
 `fc2db654` clean, `c15b76d4` clean.
 
-Full `go test ./...`: **one failure**, `internal/autopoiesis`
-`TestOuroborosLoop_HotReload_LockedBinary` — *"timed out waiting for hotreload test
+First full `go test ./...`: **87 packages ok, one failure** — `internal/autopoiesis`
+`TestOuroborosLoop_HotReload_LockedBinary`, *"timed out waiting for hotreload test
 execution"*, then a Windows `Access is denied` unlinking the `.exe` it had just built. Checked
 rather than assumed: the package is **untouched** by this seam
 (`git diff HEAD -- internal/autopoiesis` is empty) and **unchanged on this branch**
 (`git log fc2db654~1..dogfood/c2-closure -- internal/autopoiesis` is empty), and the test
-passes in isolation in 0.87s against 5.54s of timeout under full-suite load. It is the same
+passes in isolation in 0.87s against a 5.54s timeout under full-suite load. It is the same
 subprocess-build flake family the brief names for this package.
+
+Second full `go test ./...`: **87 packages ok, 0 failing.** The flake did not recur.
+
+`go test ./internal/session/` re-run green after the final cleanup (the unreachable
+acceptance branch in `verdictSentence`).
 
 ## Open
 

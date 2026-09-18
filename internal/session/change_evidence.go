@@ -165,6 +165,8 @@ func (e *Executor) appendEvidenceSummary(result *ExecutionResult) {
 	if result == nil {
 		return
 	}
+	// Verified by contract: the report states its own status, its snapshot and
+	// every obligation it ran, which is strictly more than a sentence could.
 	if result.Acceptance != nil {
 		result.Response += "\n\n" + result.Acceptance.Summary()
 		return
@@ -191,12 +193,14 @@ func (e *Executor) appendEvidenceSummary(result *ExecutionResult) {
 // verdictSentence states the turn's verification in one sentence, derived from
 // the outcome the kernel produced. No branch here decides anything: each one
 // spells out an atom captureTurnOutcome already recorded.
+//
+// There is no acceptance branch. A turn with a report never reaches this —
+// appendEvidenceSummary prints Report.Summary() and returns — and a branch that
+// cannot be reached is a second answer to a question already answered, which is
+// how two spellings of "verified by contract" would drift apart.
 func verdictSentence(result *ExecutionResult) string {
 	if result == nil {
 		return "Unverified: the turn produced no verdict."
-	}
-	if result.Acceptance != nil && result.Acceptance.Status == "verified" {
-		return "Verified by contract " + result.Acceptance.ContractID + "."
 	}
 	switch result.TurnOutcome {
 	case "/done":
