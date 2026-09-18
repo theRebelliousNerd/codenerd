@@ -143,7 +143,7 @@ other branch is Go control flow that can pre-empt the kernel's answer.
 | 17 | Info-gathering actions | `process.go:796 executeInfoGatheringActions` | run the derived read-only actions | **kernel** derives, **Go** executes | results loaded back as facts (`:800`) | — | VirtualStore actions | — |
 | 18 | System delegations | `process.go:809-813 handleSystemDelegations` | surface kernel `delegate_task` results | **kernel** (`delegate_task/3`, `policy/delegation.mg:15-98,382-399`) | — | — | — | — |
 | 19 | Context selection | `process.go:815-819` | **what enters the window** | **kernel** — `context_to_inject` (spreading activation, `policy/activation.mg`) | the selected facts | — | — | — |
-| 20 | System prompt | `process.go:822-832` | the shard's prompt | **kernel** `final_system_prompt` (JIT), then **Go appends a hardcoded persona string** `stevenMoorePersona` (`process.go:832`) — an unconditional, non-JIT prompt injection | JIT atoms | — | — | — |
+| 20 | System prompt | `process.go:822-832` | the shard's prompt | **kernel** `final_system_prompt` (JIT) **[REFUTED — see S14 study: no producer; 0 bytes]**, then **Go appends a hardcoded persona string** `stevenMoorePersona` (`process.go:832`) — an unconditional, non-JIT prompt injection | JIT atoms | — | — | — |
 | 21 | Articulation | `process.go:880-882 articulateWithConversation` | the user-visible answer | **model** | `ConversationContext{RecentTurns, LastShardResult, ShardHistory, CompressedCtx}` (`:848-854`) | — | — | — |
 | 22 | Model facts → kernel | `process.go:1021-1049` | which of the model's asserted facts are allowed in | **kernel-adjacent Go** — `core.FilterMangleUpdates(..., core.ModelObservationPolicy())`; blocked updates become warnings | — | — | — | — |
 | 23 | Persistence | `process.go:908-927` feedback store; `:946-1014` semantic compression (`compressor.ProcessTurn`); `:1051-1063` `self_correction_hypothesis` | what survives the turn | **Go** | JIT manifest hash recorded with the feedback (`:910-914`) | — | — | — |
@@ -1076,3 +1076,17 @@ the load-bearing claims those questions rest on, and each was checked end to end
    `tests_needed`/`review_needed` returns zero hits, and the only writer of `shard_result`
    is `process_continuation.go:188`. **One anchor correction:** the reviewer/`pending_review`
    guess that S-2 cites at `:212` is at `:214`.
+
+### Post-verification correction (S14 study, 2026-09-18 06:30)
+
+Stage 20 above (row 146) and verification row 61 say the chat turn's system prompt is the
+kernel's `final_system_prompt` (JIT) with the persona appended. The query at `process.go:824`
+is real, but **`final_system_prompt` has no producer anywhere in the repo**: it is listed in
+`internal/core/defaults/testdata/query_only_predicates.txt:22` (the repo's own register of
+predicates Go queries and nothing derives; gate `TestGoQueriedPredicateBudget` green), its only
+other appearance is the `Decl` at `schemas_reviewer.mg:144`, and the compiled base prompt is
+empirically 0 bytes — the persona constant was the entire main-chat system prompt.
+`context_to_inject` (`process.go:818`) has no producer either. The verifier checked that the
+predicate is *queried*, not that it is *produced*; the correct claim is: **the interactive chat
+turn compiles no JIT prompt at all — no atoms, no skeleton, no ordering, no budget** — and that
+is seam S17 in the program of record. Evidence and tests: `Docs/journeys/impl/S14-persona-atom.md`.

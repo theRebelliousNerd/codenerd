@@ -524,3 +524,12 @@ last updated: 2026-09-18, complete. checked: 44, refuted (non-"holds" verdicts):
 4. **The three unconditional appends (`nerd.md`, raw file-context fallback, `stevenMoorePersona`)** — holds, all three confirmed at exact lines and independently corroborated by the sibling `00-journey-map.md`.
 5. **The silent-truncation paths (`priorTurnMessages` eviction, `trimToTokens`, `collectKeyAtoms`, the unmasked-turn atom cap) versus the `ClampText`/`TruncationNotice` convention** — needs correction. The silent-vs-marked contrast holds, but the document misquotes `ClampText`'s own marker text (`"[…clamped...]"` vs. actual `"[codenerd: truncated...]"`), so the "convention" side of the contrast is not accurately rendered even though it does exist and does mark what it cuts.
 
+### Post-verification correction (S14 study, 2026-09-18 06:30)
+
+Section 1 and line 224 describe the chat turn's window as kernel-relayed JIT output
+(`final_system_prompt`). That predicate has no producer anywhere in the repo
+(`internal/core/defaults/testdata/query_only_predicates.txt:22`; only other appearance is its
+`Decl` at `schemas_reviewer.mg:144`); the compiled base prompt for the interactive chat turn is
+0 bytes and the persona constant was the whole system prompt. `context_to_inject` has no
+producer either. The shard-path description stands; the chat-turn description does not. This is
+seam S17. Evidence and tests: `Docs/journeys/impl/S14-persona-atom.md`.

@@ -180,10 +180,14 @@ func TestNoCompetingTokenCounters(t *testing.T) {
 
 	// internal/broker documents the removed names in prose; that is the record
 	// of why they are gone and must not be mistaken for their return.
+	// .claude/worktrees holds other checkouts of this same repository (agent
+	// worktrees); walking into them finds this very file again and reports the
+	// documented names as reintroduced.
 	skipDirs := map[string]bool{
-		filepath.Join(root, "internal", "broker"): true,
-		filepath.Join(root, "Docs"):               true,
-		filepath.Join(root, ".git"):               true,
+		filepath.Join(root, "internal", "broker"):   true,
+		filepath.Join(root, "Docs"):                 true,
+		filepath.Join(root, ".git"):                 true,
+		filepath.Join(root, ".claude", "worktrees"): true,
 	}
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
