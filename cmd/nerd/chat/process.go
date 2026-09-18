@@ -820,17 +820,13 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 6. ARTICULATION (Response Generation)
-		var systemPrompts []core.Fact
-		if m.kernel != nil {
-			systemPrompts, _ = m.kernel.Query("final_system_prompt")
-		}
-		systemPrompt := ""
-		if len(systemPrompts) > 0 && len(systemPrompts[0].Args) > 0 {
-			systemPrompt = types.ExtractString(systemPrompts[0].Args[0])
-		}
+		//
+		// The kernel's final_system_prompt with the architect's persona in front
+		// of it. Both halves live in cmd/nerd/chat/persona.go so there is exactly
+		// one place the persona can be lost from, and one test that says it
+		// cannot be.
+		systemPrompt := m.articulationSystemPrompt()
 
-		// Inject the "Steven Moore Flare" persona
-		systemPrompt += "\n\n" + stevenMoorePersona
 		// Build conversation context for fluid chat experience
 		// This enables the LLM to understand recent turns and reference previous outputs
 		// Now includes compressed session context (Blackboard Pattern + Infinite Context)

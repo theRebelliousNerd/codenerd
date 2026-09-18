@@ -14,3 +14,12 @@
 # The dead-code baseline is compared line by line; pin eol so a Windows
 # checkout does not read every entry as changed.
 scripts/testdata/deadcode-baseline.txt text eol=lf
+
+# cmd/nerd/chat/persona.go carries the architect's persona as a multi-line raw
+# string literal, and TestPersonaWordingUnchanged compares that literal
+# byte-for-byte against testdata/architect_persona.golden (pinned to LF above).
+# With core.autocrlf=true every newline INSIDE the backticks would become CRLF
+# on checkout while the golden stayed LF, so the two would differ on line
+# endings alone and the gate on the architect's own words would go red for a
+# reason that has nothing to do with his words. Pin the source file too.
+cmd/nerd/chat/persona.go text eol=lf

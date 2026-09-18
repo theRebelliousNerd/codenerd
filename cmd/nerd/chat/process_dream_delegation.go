@@ -419,7 +419,21 @@ OUTPUT:
 	fallbackPrompt := fmt.Sprintf(`%s
 
 %s`, campaign.AnalysisLogic, userPrompt)
-	return stevenMoorePersona, fallbackPrompt
+	// Behaviour unchanged: withArchitectPersona("") is the persona alone, byte
+	// for byte, which is what this fallback has always returned. It is routed
+	// through the one seam so a future edit to persona delivery cannot miss this
+	// call site.
+	//
+	// OPEN QUESTION FOR THE ARCHITECT, deliberately not answered here: this text
+	// is what the user reads in chat as the shard's answer
+	// (formatInterpretedResult below tucks the raw output into a <details>), yet
+	// the persona reaches it only when the JIT compile above does NOT happen. On
+	// the success path at :413 the system prompt is the /analysis_translator
+	// prompt and the architect's voice is absent. So his voice appears on this
+	// surface only when the JIT fails, which is backwards. Changing it means
+	// deciding whether a translator should have a persona at all; that is his
+	// call, not this seam's.
+	return withArchitectPersona(""), fallbackPrompt
 }
 
 // translatorJITBudget derives (TokenBudget, ReservedTokens) for the
