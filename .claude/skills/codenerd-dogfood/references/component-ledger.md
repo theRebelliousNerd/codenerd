@@ -4169,3 +4169,36 @@ where that number lives. And one repair attempt in five minutes: the repair loop
 shorter than one round at this window size, so "exhausted after 1 attempt" is the clock, not the
 model. Both are the system's, not the brief's.
 
+
+## F1 through `nerd fix`: the subagent projection ignores the verdict (2026-09-18, 15:20-15:42)
+
+**Setup.** Binary rebuilt from `0225c695` (S8a, F8 continuation fixpoint, F2 turn_gate, F5 turn
+closes on every path). Brief: symptom only -- a delegated turn the kernel recorded /unverified,
+/hollow or /failed is announced to the parent as "coder returned completed"; the reviewer's failing
+test named (`internal/observation/return_verdict_test.go`, three cases plus two guards); expected
+behaviour stated as the test pins it, no cause named.
+
+**Measured.** 21.7 minutes, exit 0, outcome `/done`, 44 tool calls, 1,341,464 prompt tokens,
+55,465 completion. Shape from the session log: 18 `read_file`/`glob` calls, then the working
+policy's commit regime closed exploration ("after 18 executed tool call(s)" -- S3's stop, derived,
+not a count ceiling); 11 edits; 6 `recall_context` calls to re-read what the window had evicted
+(S15's recoverable eviction, used live for the first time); `run_build`, `run_tests` x2, a
+`git_operation status`; three more edits; "turn signals: build ok | tests ok | 0 uncovered | 0
+findings"; `/done`. The kernel's verdict and the exit code agreed.
+
+**Landed.** One file, `internal/observation/subagent.go`: `ReturnResult.Outcome` carried through
+projection, `StatusUnverified` / `StatusHollow` added, the status switch reads the producer's
+verdict after Failure and Empty, the headline text prints `verdict: <atom>`. All five tests in the
+file pass; `internal/core` delegation tests pass. Hand-finished: a JSON tag on the new field and
+one duplicated "producer verdict:" line (the same value printed twice, six lines apart).
+
+**Missed.** Nothing the brief asked for. It did not touch the two adjacent consumers that still
+return a string (the campaign's `spawnTask`, the chat's observer/consultation adapters) -- correctly,
+they were not in the brief.
+
+**Reading.** Best run so far on a one-file symptom with a failing test in hand: the fix is the
+right shape and the two nits are cosmetic. The cost is the window again -- 1.34M prompt tokens
+for a 31-line diff, most of it the eighteen reads before the commit regime cut exploration and
+the six recalls after eviction. The same file was read in pages three times over. That is S17/S21
+territory (what enters the window and how it is ordered), not the brief's.
+

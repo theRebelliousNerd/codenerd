@@ -156,8 +156,12 @@ type Acceptance struct {
 
 // ReturnResult is the projection handed to the parent's reasoning.
 type ReturnResult struct {
-	Agent    string        `json:"agent,omitempty"`
-	Task     string        `json:"task,omitempty"`
+	Agent string `json:"agent,omitempty"`
+	Task  string `json:"task,omitempty"`
+	// Outcome carries the producer-recorded verdict ("/failed",
+	// "/unverified", "/hollow", ...) through projection so the headline
+	// Text can surface it. Empty when the producer recorded no verdict.
+	Outcome  string        `json:"outcome,omitempty"`
 	Status   string        `json:"status"`
 	Failure  string        `json:"failure,omitempty"`
 	Duration time.Duration `json:"duration,omitempty"`
@@ -219,6 +223,10 @@ const (
 	StatusCompleted = "completed"
 	StatusFailed    = "failed"
 	StatusEmpty     = "empty"
+	// A turn the kernel recorded as /unverified or /hollow is neither a
+	// completion nor a plain failure: the parent must not read it as done.
+	StatusUnverified = "unverified"
+	StatusHollow     = "hollow"
 )
 
 // ReturnLimits bound the projection. A subagent that reports two hundred
@@ -497,11 +505,24 @@ func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 		Duration: r.Duration,
 		Bytes:    len(output),
 	}
+	// The producer's verdict decides the projected status: an /unverified,
+	// /hollow, or /failed turn must never read as completed to the parent,
+	// since that headline is what the parent consumes as the delegate result
+	// and what is asserted as delegation_result/2. A recorded failure still
+	// outranks any verdict, and an empty transcript stays empty. No verdict
+	// at all keeps the long-standing completed/empty reading.
+	result.Outcome = strings.TrimSpace(r.Outcome)
 	switch {
 	case result.Failure != "":
 		result.Status = StatusFailed
 	case strings.TrimSpace(output) == "":
 		result.Status = StatusEmpty
+	case result.Outcome == "/failed":
+		result.Status = StatusFailed
+	case result.Outcome == "/unverified":
+		result.Status = StatusUnverified
+	case result.Outcome == "/hollow":
+		result.Status = StatusHollow
 	default:
 		result.Status = StatusCompleted
 	}
@@ -973,6 +994,9 @@ func (r ReturnResult) Text(expandVerb string) string {
 		fmt.Fprintf(&sb, " in %s", r.Duration.Round(time.Millisecond))
 	}
 	sb.WriteString("\n")
+	if r.Outcome != "" {
+		fmt.Fprintf(&sb, "verdict: %s\n", r.Outcome)
+	}
 	if r.Failure != "" {
 		fmt.Fprintf(&sb, "failure: %s\n", clampMessage(r.Failure, 400))
 	}
