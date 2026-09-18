@@ -3,10 +3,18 @@
 ## Status
 
 - last updated: 2026-09-18
-- branch point: `0b5c69d0`
+- branch point: `0b5c69d0` (this worktree is 79 commits behind `dogfood/c2-closure`; see Open (d))
 - branch: `worktree-agent-a74051ff86f826174`
-- done: log created; unsoundness pinned by a failing test (fail-before proven)
-- open: deletions, flag removal, ouroboros decision, config note
+- done:
+  - unsoundness pinned by a test that fails on the branch point and passes after
+  - `evaluateDiffLocked` and the whole diff-engine apparatus deleted from `internal/core`
+  - `features.DiffEval` / `IsDiffEvalEnabled` / `CODENERD_DIFF_EVAL` deleted; a config still
+    carrying `features.diff_eval` now fails to load by name
+  - ouroboros repointed to a fresh, soundly-driven `mangle.Engine`; a real gate bug fixed
+  - `internal/mangle/differential.go` deleted (no remaining non-test caller)
+  - `go build ./...`, `go vet`, `go test` green on every touched package
+- open: six items below — one config edit the merger must apply, two rebase follow-ups, and
+  three findings this seam uncovered but deliberately did not fix
 
 ## Evidence
 
@@ -220,10 +228,125 @@ That failure is deliberate (`internal/config/removed_keys.go`): a removed toggle
 behaviour change, and a silently-ignored key would leave the operator believing they
 still control something.
 
+### A correction to the ouroboros analysis, found while testing
+
+The ouroboros path was **not producing wrong answers at runtime**, by accident. `mangle.Engine.ToggleAutoEval` sets `e.autoEval`, not `e.config.AutoEval` (`engine.go:172-176`), and `NewDifferentialEngine` copies `base.config` (`differential.go:261-270` at the branch point). `NewOuroborosLoop` builds its engine with `engineConfig.AutoEval = false` (`ouroboros.go:257-259`) and only calls `ToggleAutoEval(true)` afterwards, so `de.config.AutoEval` was **false** and every `ApplyDelta` / `AddFactIncremental` returned before evaluating. The simulation's answers came entirely from `DifferentialEngine.Query`'s top-down `EvalQuery` over an EDB-only store — which is sound.
+
+So the accumulation bug was one `ToggleAutoEval`-vs-`config.AutoEval` line away from being live inside the self-modification gate, and was not live. That does not change the decision (the machinery is deleted either way), but it does mean the ouroboros change is a **soundness-preserving repoint** rather than a fix to a live wrong answer. The log says so rather than claiming a verdict change that did not happen.
+
+### The bug the repoint did expose
+
+`DifferentialEngine.Query` (deleted, `differential.go:717-830` at the branch point) passed `shape.atom` to `GetFacts` and then emitted **every** row `EvalQuery` produced, with no filter on the query's constant. `Engine.Query` does filter (`engine.go:951-954`, `factstore.Matches` + `repeatedVariablesAgree`, added by `42eafd37`). Repointing therefore turned the gate from "accept if any `valid_transition` row exists" into a real check — and the real check failed, because `ouroboros.go` built the query as `fmt.Sprintf("valid_transition(%s)", nextStepID)`. `nextStepID` is `/step_<name>_next`, which in query position parses as a **/name** constant, while `state`/`proposed` are `bound [/string]` (`schemas_state.mg:27-29`) so the stored argument is a **/string**. Verified with a throwaway probe: `factstore.Matches` correctly reports `false` for `ast.Constant{Type:1 /*string*/}` against `ast.Constant{Type:0 /*name*/}` with the same symbol.
+
+Fixed to `fmt.Sprintf("valid_transition(%q)", nextStepID)`. Net effect: for four months the Phase 3 stability gate on self-generated tools never looked at which transition it was approving.
+
 ## Tests
 
-_pending_
+### Fail-before proof (the S23 behavioural change)
+
+`internal/core/kernel_eval_soundness_test.go`, run against the branch point `0b5c69d0` with `CODENERD_DIFF_EVAL=1`:
+
+```
+--- FAIL: TestKernelEvalUnDerivesUnderNegation (0.62s)
+    kernel_eval_soundness_test.go:55: after discharge: s23_open = [s23_open(/o1).], want no facts —
+      a derived fact whose negated premise became true was never retracted
+--- FAIL: TestKernelEvalReplacesAggregateResult (0.62s)
+    kernel_eval_soundness_test.go:113: two items: s23_item_count = [1 2], want exactly [2] —
+      the previous aggregate result was added to rather than replaced
+```
+
+Same code with `CODENERD_DIFF_EVAL=0`: both PASS. After the deletion there is no env var and no second path, so the file carries no `t.Setenv` — it pins the behaviour on the only path there is.
+
+### Fail-before proof (the ouroboros repoint)
+
+`internal/autopoiesis/ouroboros_simulation_test.go`
+`TestSimulateTransition_GateIsScopedToThisProposalAndIsolated` **passes against the branch point too**, and that is honest: as established above, the old path answered soundly by accident. It is a *forward* pin, and the fail condition was verified by regressing the one thing it guards — changing `%q` back to `%s` in the gate query:
+
+```
+--- FAIL: TestSimulateTransition_GateIsScopedToThisProposalAndIsolated (0.01s)
+    ouroboros_simulation_test.go:41: simulation rejected a monotonic 0.00 -> 0.90 transition:
+      transition rejected by Mangle (unstable): stability 0.90 < threshold
+```
+
+(The whole-tree signal was the same: `TestOuroboros_WhenFirstProposalIsUnsafe_ShouldRegenerateAndSurviveThunderdome` failed at the simulation stage until the query constant was fixed.)
+
+A second candidate test — "a proposal whose stability degrades must be rejected" — was written and **deleted**, because it does not hold and the reason is a rule defect, not a repoint defect. See Open (a).
+
+### Pass-after
+
+| Package | Result |
+|---|---|
+| `go build ./...` | clean |
+| `go vet ./internal/core ./internal/features ./internal/config ./internal/mangle ./internal/autopoiesis` | clean |
+| `go test ./internal/core` | ok (252 s) |
+| `go test ./internal/features` | ok |
+| `go test ./internal/config` | ok |
+| `go test ./internal/mangle` | ok |
+| `go test ./internal/autopoiesis` | ok (19.7 s) |
+
+One flake seen on the first full `./internal/autopoiesis` run and not on the rerun:
+`TestOuroborosLoop_HotReload_LockedBinary` ("tool execution canceled: context deadline
+exceeded"). It compiles a Go binary and gives it a 2 s `ExecuteTimeout` for a 300 ms sleep
+while the rest of the package (Thunderdome, other compile-heavy tests) runs alongside — a
+wall-clock test under machine load. It passes alone and on a repeat full run, and it exercises
+`ExecuteTool`/`hotReload`, not `simulateTransition` or any engine this seam touched.
+
+## Residual references (grep, case-insensitive, after the work)
+
+`diff_eval` / `DIFF_EVAL` / `DiffEval` in code: **only** `internal/config/removed_keys.go` and its test, which is the rejection itself. No `CODENERD_DIFF_EVAL` anywhere.
+
+`DifferentialEngine` in code: three comments that name it as history, all accurate —
+`internal/autopoiesis/ouroboros.go:772` (why the gate query needs `%q`),
+`internal/config/user_config.go:277` → corrected, it no longer lists it,
+`internal/mangle/engine_harden_step2c_regression_test.go:22` → corrected.
+
+Left alone deliberately:
+
+- `Docs/architecture/**` — 26 files mention the flag. `CLAUDE.md` says this corpus was generated by a weak model, is stale or never-true, and must never be cited as evidence; S10 replaces it. Rewriting it here would dignify it.
+- `.claude/skills/codenerd-dogfood/references/component-ledger.md` and `subsystem-pass-2026-09-04.md` — a dated ledger of what was measured then. Editing the record of a past measurement would be falsifying it; the ledger entry for this change is the merger's to add.
+- `Docs/audits/MANGLE_FACT_APIS_INVENTORY.md:285` — same, a dated audit.
 
 ## Open
 
-- (everything)
+(a) **`schemas_state.mg`'s `valid_transition` does not constrain `Curr`.** Both rules
+(`schemas_state.mg:144-157`) quantify `state(Curr, ...)` with nothing tying `Curr` to the step
+being left, so `Curr = Next` satisfies `NextEff >= CurrEff` reflexively and **every** proposed
+step derives `valid_transition`. The Phase 3 stability gate is therefore still vacuous, now for
+a policy reason rather than a query reason. Out of scope for S23 (it changes self-modification
+safety semantics and needs its own decision), but it is the next thing to fix in this area, and
+it is why the degraded-stability test was deleted rather than left failing.
+
+(b) **`mangle.Engine` has the same monotone-store property as the thing deleted here.**
+`evalWithGasLimit` (`engine.go:218-236`) runs `EvalStratifiedProgramWithStats` over the retained
+`e.store`, so any caller that adds facts and re-evaluates accumulates IDB exactly as the diff
+path did. `ReplaceControlFacts` (`engine.go:572-604`) documents this and works around it by
+clearing every rule-head predicate first — that is the only sound re-evaluation entry point on
+`Engine`. The ouroboros repoint sidesteps it (fresh engine, one batch, one evaluation), but the
+general hazard is live for every other `Engine` caller and deserves its own seam.
+
+(c) **`ToggleAutoEval` does not change `config.AutoEval`.** `engine.go:172-176` sets `e.autoEval`
+while `e.config.AutoEval` keeps its construction-time value, and anything that copies `e.config`
+(as `NewDifferentialEngine` did) reads the stale one. One field, two truths. Small, and exactly
+the class of thing that made the ouroboros behaviour so hard to reason about.
+
+(d) **Two brief items refer to code this worktree cannot see.** It was created from
+`origin/main` (`0b5c69d0`), 79 commits behind `dogfood/c2-closure`:
+  - `cmd/nerd/chat/verdict_from_evidence_test.go` does not exist here; its
+    `t.Setenv("CODENERD_DIFF_EVAL", "0")` line (added today at `097d59ac`) must be **deleted by
+    the merger** when this branch is rebased onto the tip — the variable no longer exists.
+  - `internal/config/limits.go`'s `rejectRemovedCoreLimitKeys` (S3, `cb6dab78`) is not here
+    either, so the by-name rejection was built fresh as `internal/config/removed_keys.go`
+    rather than mirrored. On rebase, consider folding the two into one place; they are the same
+    idea applied to `core_limits` and `features`.
+  - `.claude/rules/nerd-config-schema.md` does not exist on this base, so its `features` row
+    was not updated. The merger should drop `diff_eval` from it if it names the key.
+
+(e) **`.nerd/config.json` in the main checkout must have `"diff_eval": true` removed** before
+anything boots. See `## Config change required`. Not done here on purpose — the file is the
+user's and this worktree has no copy.
+
+(f) **Cost.** `BenchmarkProductionWorldDelta` (`internal/core/kernel_eval_large_test.go`) now
+measures the single remaining path on a 48K-fact world. It was not run in this session (it is a
+long benchmark and no baseline existed on the sound path to compare against). If the world-shard
+evaluate is too slow after this, that number is where to start — and the answer is a *sound*
+incremental evaluator (clear IDB, then re-derive), not the one that was deleted.

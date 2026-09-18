@@ -274,7 +274,7 @@ type UserConfig struct {
 	// FEATURE FLAGS
 	// =========================================================================
 	//
-	// Modernization toggles: DifferentialEngine, FlightRecorder, Provenance,
+	// Modernization toggles: FlightRecorder, Provenance,
 	// system shards, dark mode, onboarding, taxonomy-fast, etc. Each field
 	// is a pointer so we can distinguish "user wrote `false`" from "key
 	// absent → use default". After LoadUserConfig parses the file it

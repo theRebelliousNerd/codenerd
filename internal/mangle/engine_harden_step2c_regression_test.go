@@ -18,8 +18,8 @@ import (
 //
 // All helpers use unique step2c- names to avoid colliding with helpers in
 // engine_failclosed_test.go and engine_step2_regression_test.go.
-// Only APIs confirmed in package docs are used (ParseUnit, ParseAtom,
-// DifferentialEngine methods) so this file cannot break the build.
+// Only APIs confirmed in package docs are used (ParseUnit, ParseAtom)
+// so this file cannot break the build.
 
 func step2cHonest(err error) bool {
 	return err != nil && strings.TrimSpace(err.Error()) != ""
