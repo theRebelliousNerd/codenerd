@@ -140,13 +140,85 @@ flagged the rule: any host that re-evaluates on a retained store must clear IDB 
 
 `go build`, `go vet` and `go test ./internal/core` green (252 s).
 
+### `internal/features` + `internal/config` (commit 3)
+
+- `features.go`: the `DiffEval` field, `IsDiffEvalEnabled`, the `boolFlags`
+  `{"diff_eval", "CODENERD_DIFF_EVAL", ...}` row, and its entries in
+  `DefaultFeaturesConfig` / `FullyEnabledFeaturesConfig`. Package-doc and `envBool`
+  examples that used `CODENERD_DIFF_EVAL` as the illustrative variable now use
+  `CODENERD_DARK_MODE`. `ConfigSchemaJSON` / `ConfigSchemaKeys` are generated from
+  `boolFlags`, so `nerd features --schema` stops advertising the key automatically.
+- Tests: `features_test.go` (`TestResolveBoolPrecedence`, `TestSetActiveCopySemantics`,
+  `TestSummaryRendersBoolPointersAsValues`), `config_roundtrip_test.go`
+  (`TestEnvOverridesActiveConfig` and friends) and `resolved_test.go` used `diff_eval`
+  as the *subject* of tests that are really about `resolveBool`, `SetActive` snapshotting
+  and `Summary` formatting. They are repointed to `provenance` (same default, no legacy
+  env var) rather than deleted — the behaviour they pin is not the flag's.
+  `features_defaults_test.go` and `schema_test.go` lost the `DiffEval` entries from
+  their expectation maps.
+- **New**: `internal/config/removed_keys.go` — `rejectRemovedKeys(data []byte) error`,
+  called from `LoadUserConfig` *before* `decodeStrictJSON`. The strict decoder already
+  refuses the file, but its message ("unknown field \"diff_eval\"") reads like a typo;
+  the named rejection says the key is gone and why. Pinned by
+  `internal/config/removed_keys_test.go` (rejects `features.diff_eval`, still accepts
+  a live `features` block).
+
+`go build ./...`, `go vet` and `go test ./internal/features ./internal/config` green.
+
 ## Ouroboros decision
 
-_pending_
+**Repointed, and `DifferentialEngine` deleted.** The ouroboros program is not monotone.
+
+`internal/autopoiesis/ouroboros.go:674-757` (`simulateTransition`) built a
+`DifferentialEngine` over `o.engine`, whose only loaded program is
+`internal/core/defaults/schemas_state.mg` (`ouroboros.go:302-305`). That file contains
+four negated premises:
+
+- `schemas_state.mg:107` `cumulative_penalty(StepID, 20) :- has_panic_penalty(StepID), !has_retry_penalty(StepID).`
+- `schemas_state.mg:112` `cumulative_penalty(StepID, 10) :- has_retry_penalty(StepID), !has_panic_penalty(StepID).`
+- `schemas_state.mg:117` `cumulative_penalty(StepID, 0) :- state(StepID, _, _), !has_penalty(StepID).`
+- `schemas_state.mg:151` `valid_transition(Next) :- state(Curr, CurrStability, _), proposed(Next), state(Next, NextStability, _), !has_effective_stability(Curr), NextStability >= CurrStability.`
+
+and `simulateTransition` fed the engine six facts one at a time with AutoEval on
+(`AddFactIncremental`, `ouroboros.go:701-731`), so each negated premise was evaluated
+against a partial EDB and every conclusion drawn from it was retained. Concretely: when
+`proposed(nextStepID)` lands, `base_stability(nextStepID, ...)` has not been asserted yet,
+so `has_effective_stability(nextStepID)` is false and the fallback rule fires with
+`Curr = Next = nextStepID` (`NextStability >= CurrStability` is trivially true). One fact
+later that premise becomes true, and the `valid_transition(nextStepID)` derived from it is
+never retracted. `ouroboros.go:746-755` reads exactly that predicate to decide whether a
+self-generated tool is committed.
+
+So the consumer has the same bug, and the brief's condition is met. The repoint:
+`simulateTransition` now builds its own `mangle.Engine` with `AutoEval` **off**, loads the
+same `schemas_state.mg`, asserts all six facts in one `AddFacts` batch, and evaluates once.
+A single stratified pass over a store that holds only EDB facts is sound, and a fresh engine
+per simulation preserves the isolation the DifferentialEngine was there for (simulation
+facts must not reach `o.engine`'s real state machine).
+
+`internal/mangle/differential.go` (907 lines) is then deleted outright: `DifferentialEngine`,
+`ChainedFactStore`, `FactStoreProxy`, `KnowledgeGraph` and `computeStrata` had no other
+non-test caller in the tree.
 
 ## Config change required
 
-_pending_
+`C:\CodeProjects\codeNERD\.nerd\config.json` in the MAIN checkout has
+`"features": { "diff_eval": true, ... }`. It is the user's live config and this worktree
+has no copy, so it is NOT touched here. The merger applies exactly one Edit:
+
+- **Remove the line** `    "diff_eval": true,` from inside the `"features"` object
+  (preserve the comma placement of whatever key follows/precedes it).
+
+Until that edit lands, `nerd` will refuse to boot with:
+
+```
+config .nerd/config.json: features.diff_eval is no longer a supported key: the
+differential evaluation path was deleted: ...
+```
+
+That failure is deliberate (`internal/config/removed_keys.go`): a removed toggle is a
+behaviour change, and a silently-ignored key would leave the operator believing they
+still control something.
 
 ## Tests
 
