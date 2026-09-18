@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -335,6 +336,68 @@ func workStepReport(steps []workStep) string {
 	return b.String()
 }
 
+// languageOfFile names the prompt corpus's language key for a file, or "" when
+// the file's language is not one the corpus distinguishes (the step then keeps
+// the project's). The keys are the atom corpus's own (languages: ["/mangle"],
+// ["/go"], ...): this is the address of knowledge, not a judgement about it.
+func languageOfFile(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mg":
+		return "/mangle"
+	case ".go":
+		return "/go"
+	case ".py":
+		return "/python"
+	case ".ts", ".tsx":
+		return "/typescript"
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return "/javascript"
+	case ".rs":
+		return "/rust"
+	case ".java":
+		return "/java"
+	default:
+		return ""
+	}
+}
+
+// stepSystemPrompt compiles the system prompt for one planned step: the turn's
+// compilation context re-aimed at the step's file and that file's language, so
+// the selector serves the knowledge this step needs at the moment it starts
+// (the /mangle corpus for a policy file, the Go corpus for a Go file) rather
+// than whatever fit the task's first sentence. Observed 2026-09-18: a three-step
+// plan whose second step edited internal/context/working_set.mg ran all three
+// steps on the prompt compiled for step one, with zero of the corpus's 119
+// /mangle atoms in it. The assembly after the compile is the turn's own
+// (project instructions, then the target's file context), as the no-tool retry
+// does it. A failed compile keeps the turn's prompt: a step never runs on less
+// than the turn did.
+func (e *Executor) stepSystemPrompt(
+	ctx context.Context,
+	turnPrompt string,
+	stepCtx *prompt.CompilationContext,
+	cfg *config.EffectiveAgentRuntimeConfig,
+) string {
+	if e.jitCompiler == nil || stepCtx == nil {
+		return turnPrompt
+	}
+	if lang := languageOfFile(stepCtx.IntentTarget); lang != "" {
+		stepCtx.Language = lang
+	}
+	if cfg != nil && len(cfg.AllowedTools) > 0 && len(stepCtx.AvailableTools) == 0 {
+		stepCtx.AvailableTools = slices.Clone(cfg.AllowedTools)
+	}
+	compiled, err := e.jitCompiler.Compile(ctx, stepCtx)
+	if err != nil || compiled == nil || strings.TrimSpace(compiled.Prompt) == "" {
+		logging.Get(logging.CategorySession).Warn(
+			"step prompt for %s did not compile (%v); the step runs on the turn's prompt", stepCtx.IntentTarget, err)
+		return turnPrompt
+	}
+	logging.Session("Step prompt compiled for %s (language=%s, %d chars)", stepCtx.IntentTarget, stepCtx.Language, len(compiled.Prompt))
+	stepPrompt := e.withProjectInstructions(compiled.Prompt)
+	return e.withFileContext(ctx, stepPrompt, stepCtx.IntentTarget)
+}
+
 // runPlannedSteps runs each step as its own pass of the tool loop, gives a
 // step that made no edit one more pass with reading closed, verifies the
 // whole once, and reports. A step's own failure (a policy stop, a provider
@@ -359,7 +422,13 @@ func (e *Executor) runPlannedSteps(
 		stepCtx.IntentTarget = step.File
 		writesBefore, callsBefore := result.SuccessfulWriteTools, result.ToolCallsExecuted
 
-		resp, errs, err := e.runToolLoopPass(ctx, systemPrompt, workStepAnchor(task, steps, i, false), cfg, &stepCtx, result, toolLoopPass{})
+		// The window is compiled for THIS step, when the step starts: the
+		// turn's prompt was selected for the task as a whole and the project's
+		// language, so a step that edits a policy file ran on a Go prompt with
+		// none of the /mangle corpus in it. Both passes of the step share it.
+		stepPrompt := e.stepSystemPrompt(ctx, systemPrompt, &stepCtx, cfg)
+
+		resp, errs, err := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, i, false), cfg, &stepCtx, result, toolLoopPass{})
 		toolErrs = append(toolErrs, errs...)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -373,7 +442,7 @@ func (e *Executor) runPlannedSteps(
 			logging.Get(logging.CategorySession).Warn(
 				"Step %d/%d (%s) made no edit in %d tool call(s); one more pass with reading closed",
 				i+1, len(steps), step.File, result.ToolCallsExecuted-callsBefore)
-			retried, retryErrs, retryErr := e.runToolLoopPass(ctx, systemPrompt, workStepAnchor(task, steps, i, true), cfg, &stepCtx, result, toolLoopPass{regime: commitRegime})
+			retried, retryErrs, retryErr := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, i, true), cfg, &stepCtx, result, toolLoopPass{regime: commitRegime})
 			toolErrs = append(toolErrs, retryErrs...)
 			if retryErr != nil {
 				if ctx.Err() != nil {

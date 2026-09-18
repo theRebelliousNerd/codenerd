@@ -1195,6 +1195,14 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		}
 	}
 
+	// The file the turn is aimed at outranks the project's language: a turn on
+	// a policy file in a Go project needs the /mangle corpus, and the project's
+	// language would hand it the Go one (planned steps do the same per step,
+	// work_steps.go stepSystemPrompt).
+	if lang := languageOfFile(intent.Target); lang != "" {
+		cc.Language = lang
+	}
+
 	// Drive vector atom selection.
 	//
 	// This struct is built literally, which bypasses the SemanticTopK default of
