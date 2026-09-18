@@ -4202,3 +4202,25 @@ for a 31-line diff, most of it the eighteen reads before the commit regime cut e
 the six recalls after eviction. The same file was read in pages three times over. That is S17/S21
 territory (what enters the window and how it is ordered), not the brief's.
 
+
+## Three symptoms through `nerd fix`, back to back, from the same binary (2026-09-18, 16:20-16:52)
+
+Binary from `49dee875`; config now `provider: meta`, `model: muse-spark-1.3-contributor`, coder
+shard `stealth/union-alpha`. Each brief symptom-only with the evidence quoted and the expected
+behaviour stated as a test would pin it. From this point the program's remaining seams go through
+this path by the architect's instruction ("codenerd can dogfood itself from here").
+
+| run | symptom | minutes | verdict | landed | missed |
+|---|---|---|---|---|---|
+| q1 | the derived `/clarify` lane is never consumed by `processInput` (S5 slice, C-32) | 25.2 | `rc=1`: repair loop failed on attempt 2 ("compile working context: context deadline exceeded"), 6 LLM calls, 235k tokens in | the route consumption in `process.go` -- `routeWantsClarify` wired into all three clarify paths and excluded from `delegateNow`; correct and minimal (`0f6da014`) | its test asserted on a model with no transducer and failed for the wrong reason; parked, resubmitted as q1b |
+| q3 | no `tool_capability` fact in the corpus vocabulary is asserted for any registered tool (S21 slice) | 4.2 | `/hollow`: "requires side effects but no tool calls completed successfully (attempted=0)" | nothing | the model narrated a finished fix -- "go test ./... green", "relevant sets now derive" -- having called no tool. The hollow gate caught the confabulation, which is exactly what S1/S4 are for |
+| q4 | a turn that wrote production Go with no test beside it can be `/done` (S6 slice) | 2.2 | `/hollow`, same message | nothing | the model listed five files and asked for their contents ("cat output for each is fine") and ended the turn |
+
+**Reading.** One in three acted. The two that did not were failed correctly and cheaply (2-4
+minutes), but nothing pushed them: the loop ends when a round returns no tool call, so the
+working policy's `/implement` nudge -- which exists for exactly this -- never gets a round to fire
+on. That is a harness gap, and it is the next brief (q5): a write-oriented turn whose first round
+was prose gets one derived re-prompt before the hollow verdict stands. q1's repair-loop failure
+names another: the repair attempt's JIT compile hit its deadline, so the 5-minute repair clock is
+being spent on the compile, not the repair.
+
