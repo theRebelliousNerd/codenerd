@@ -108,69 +108,20 @@ type RealKernel struct {
 	// evaluate() to bound memory usage.
 	proofRecorder *provenance.MemoryRecorder
 
-	// =========================================================================
-	// Differential evaluation (Task #10)
-	// =========================================================================
-	// Feature-flagged via CODENERD_DIFF_EVAL=1 (default OFF). When ON and the
-	// policy is stable, evaluate() routes through diffEngine.ApplyDelta with
-	// only the facts asserted since the previous evaluate, instead of rebuilding
-	// the full SimpleInMemoryStore from scratch every time. The diff engine
-	// keeps a per-stratum fact cache so unrelated strata are not re-derived.
-	//
-	// Invariants:
-	//   * diffEngine is nil when the flag is OFF, when policyDirty is true,
-	//     or when proofRecorder is set (provenance needs to observe every
-	//     derivation, so we fall back to full eval in that case).
-	//   * dirtyStrata is the set of strata that have received new facts since
-	//     the last evaluate(); cleared after a successful ApplyDelta.
-	//   * factsSinceLastEval is the ordered list of new facts since the last
-	//     evaluate(); cleared after a successful ApplyDelta. Retract/Clear/
-	//     Reset paths set diffEngine = nil to force a full rebuild on the next
-	//     evaluate (we cannot incrementally un-derive without DRed-style
-	//     bookkeeping).
-	//   * All fields below are guarded by k.mu.
-	diffEngine         *mangle.DifferentialEngine
-	diffMangleEngine   *mangle.Engine // base engine the DifferentialEngine wraps
-	dirtyStrata        map[int]bool
-	factsSinceLastEval []Fact
-
-	// diffPathDemoted is set once a differential evaluation on this kernel
-	// exceeds diffDemoteThreshold. Measured 2026-09-05 on the world shard
-	// (48K facts): ApplyDelta took 91 s where the full fixpoint takes a
-	// fraction of that, because a one-fact delta marks every stratum dirty
-	// and replays the whole program through the delta machinery. The flag is
-	// per kernel and per process: a small store keeps its 60 ms fast path,
-	// a large one stops paying for a "fast path" that is slower than the
-	// rebuild.
-	diffPathDemoted bool
-	lastEvaluation  EvaluationStats
+	lastEvaluation EvaluationStats
 }
 
-// EvaluationStats describes the actual selected evaluator and its cost.
+// EvaluationStats describes the cost of the most recent evaluate().
 type EvaluationStats struct {
-	Mode           string
-	InputFacts     int
-	DeltaFacts     int
-	Duration       time.Duration
-	DemotionReason string
+	InputFacts int
+	Duration   time.Duration
 }
-
-// Avoid paying the first pathological delta before adaptive demotion can fire.
-// Large worlds use the full evaluator until the differential engine has a
-// demonstrated bound for them. This is a routing limit, not a fact limit.
-const differentialFactCeiling = 10000
 
 func (k *RealKernel) LastEvaluation() EvaluationStats {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	return k.lastEvaluation
 }
-
-// diffDemoteThreshold is the differential-evaluation duration above which a
-// kernel abandons the differential path for the rest of the process. Full
-// fixpoints on 20K-fact shards measure under half a second, so a delta
-// application that takes longer than this cannot be the cheaper option.
-var diffDemoteThreshold = 2 * time.Second
 
 // StartupValidationResult contains statistics from startup learned rule validation.
 type StartupValidationResult struct {

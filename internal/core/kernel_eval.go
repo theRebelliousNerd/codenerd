@@ -8,9 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"codenerd/internal/features"
 	"codenerd/internal/logging"
-	manglepkg "codenerd/internal/mangle"
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -18,17 +16,6 @@ import (
 	"codeberg.org/TauCeti/mangle-go/factstore"
 	"codeberg.org/TauCeti/mangle-go/provenance"
 )
-
-// diffEvalEnabled returns true when the differential evaluation feature flag
-// is on. Resolution precedence (highest first): CODENERD_DIFF_EVAL env var,
-// .nerd/config.json features.diff_eval, compile-time default in internal/features.
-//
-// The compile-time default (internal/features.DefaultFeaturesConfig) is OFF,
-// so unit tests and ad-hoc kernels take the full-evaluation path; production
-// turns it on through .nerd/config.json (this workspace sets it true). The
-// env var still wins, so CODENERD_DIFF_EVAL=0 disables it deterministically.
-// Re-read on every evaluate() so t.Setenv toggles take effect between passes.
-func diffEvalEnabled() bool { return features.IsDiffEvalEnabled() }
 
 // =============================================================================
 // MANGLE EVALUATION ENGINE
@@ -45,10 +32,9 @@ var programBuilderPool = sync.Pool{
 }
 
 // writeProgramLocked appends schemas, policy, and learned rules to sb in
-// canonical order. It is the single assembly point shared by rebuildProgram
-// and buildDiffEngineLocked: the diff engine's predicate index must match
-// the kernel's programInfo exactly, so the order lives in exactly one
-// place. Caller must hold k.mu (or the kernel is not yet shared).
+// canonical order. Load order carries meaning (stratified trust: constitution
+// before learned rules), so it lives in exactly one place.
+// Caller must hold k.mu (or the kernel is not yet shared).
 func (k *RealKernel) writeProgramLocked(sb *strings.Builder) {
 	// STRATIFIED TRUST: Load order ensures Constitution has priority
 	if k.schemas != "" {
@@ -169,28 +155,29 @@ func (k *RealKernel) rebuildProgram() error {
 	return nil
 }
 
-// evaluate populates the store with facts and evaluates to fixpoint.
+// evaluate builds a fresh store from the EDB and evaluates it to fixpoint.
 // Uses cached programInfo for efficiency.
 //
-// When the differential-eval feature flag is on (CODENERD_DIFF_EVAL=1), a
-// stable policy and a non-invalidated diff engine, this routes to
-// evaluateDiff(), which uses DifferentialEngine.ApplyDelta on the facts
-// asserted since the last evaluate(). Otherwise the full-rebuild path runs.
+// The store is rebuilt from cachedAtoms on EVERY call, deliberately. Bottom-up
+// evaluation over a store that already holds previously derived facts is
+// monotone — it can only add — so a derived fact whose negated premise later
+// becomes true is never retracted, and an aggregate is added beside its old
+// value instead of replacing it. That is exactly what the differential path
+// did, and why it was deleted; see Docs/journeys/impl/S23-differential-path.md
+// and the regression in kernel_eval_soundness_test.go. Any future incremental
+// evaluator must remove every IDB fact before re-evaluating.
 //
 // Caller must hold k.mu, or the kernel must not be shared yet (boot).
 func (k *RealKernel) evaluate() error {
 	started := time.Now()
-	stats := EvaluationStats{Mode: "full", InputFacts: len(k.facts), DeltaFacts: len(k.factsSinceLastEval)}
+	stats := EvaluationStats{InputFacts: len(k.facts)}
 	defer func() { stats.Duration = time.Since(started); k.lastEvaluation = stats }()
 	timer := logging.StartTimer(logging.CategoryKernel, "evaluate")
 	defer timer.Stop()
 
-	// Rebuild program if policy changed. This must happen before the diff
-	// engine is consulted, because a policy change invalidates the cached
-	// stratification and stratum stores inside the diff engine.
+	// Rebuild program if policy changed.
 	if k.policyDirty || k.programInfo == nil {
 		logging.KernelDebug("evaluate: policy dirty or programInfo nil, rebuilding program")
-		k.invalidateDiffEngineLocked("policy rebuild")
 		if err := k.rebuildProgram(); err != nil {
 			return err
 		}
@@ -198,62 +185,6 @@ func (k *RealKernel) evaluate() error {
 		logging.KernelDebug("evaluate: using cached programInfo")
 	}
 
-	// Differential fast path. Disabled when:
-	//   - feature flag off (CODENERD_DIFF_EVAL!=1)
-	//   - proofRecorder is set (provenance must observe every derivation)
-	//   - virtualStore registers external predicate callbacks (the diff
-	//     engine does not forward WithExternalPredicates, so rules consuming
-	//     external predicates would silently lose their callbacks. Created-
-	//     fact limits are enforced by DifferentialEngine from its Config.
-	//     Until external-option parity lands, fall back to the full path
-	//     whenever externals are in play.)
-	//   - diff engine was invalidated by a retract/clear/policy change
-	if diffEvalEnabled() && !k.diffPathDemoted && len(k.facts) > differentialFactCeiling {
-		k.diffPathDemoted = true
-		stats.DemotionReason = "large fact set"
-		k.invalidateDiffEngineLocked("large fact set")
-	}
-	if diffEvalEnabled() && !k.diffPathDemoted && k.proofRecorder == nil && !k.hasExternalPredicatesLocked() {
-		if done, err := k.evaluateDiffLocked(); err != nil {
-			return err
-		} else if done {
-			stats.Mode = "differential"
-			if k.diffPathDemoted {
-				stats.DemotionReason = "slow differential evaluation"
-			}
-			k.initialized = true
-			logging.KernelDebug("evaluate: complete via differential path")
-			return nil
-		}
-	}
-
-	return k.evaluateFullLocked()
-}
-
-// hasExternalPredicatesLocked returns true when the kernel has at least one
-// external-predicate callback to register on the next evaluate. The diff
-// path must defer to the full path in that case (see the dispatcher
-// comment in evaluate). Caller must hold k.mu.
-func (k *RealKernel) hasExternalPredicatesLocked() bool {
-	if k.virtualStore == nil {
-		return false
-	}
-	cbs := k.virtualStore.BuildExternalPredicates()
-	if len(cbs) == 0 || k.programInfo == nil || k.programInfo.Decls == nil {
-		return false
-	}
-	for pred := range cbs {
-		if decl, declared := k.programInfo.Decls[pred]; declared && decl.IsExternal() {
-			return true
-		}
-	}
-	return false
-}
-
-// evaluateFullLocked runs the legacy full rebuild path: build a fresh
-// SimpleInMemoryStore from cachedAtoms and run EvalStratifiedProgramWithStats
-// from scratch. Caller must hold k.mu.
-func (k *RealKernel) evaluateFullLocked() error {
 	// Create fresh store and populate with EDB facts
 	// OPTIMIZATION: Use cached atoms instead of converting every time
 	logging.KernelDebug("evaluate: populating store with %d EDB facts", len(k.facts))
@@ -345,7 +276,7 @@ func (k *RealKernel) evaluateFullLocked() error {
 	}
 
 	evalTimer := logging.StartTimer(logging.CategoryKernel, "evaluate.fixpoint")
-	stats, err := engine.EvalStratifiedProgramWithStats(k.programInfo, k.strata, k.predToStratum, baseStore,
+	engineStats, err := engine.EvalStratifiedProgramWithStats(k.programInfo, k.strata, k.predToStratum, baseStore,
 		evalOpts...)
 	evalDuration := evalTimer.Stop()
 
@@ -362,223 +293,15 @@ func (k *RealKernel) evaluateFullLocked() error {
 
 	// Log evaluation stats
 	totalDuration := time.Duration(0)
-	for _, d := range stats.Duration {
+	for _, d := range engineStats.Duration {
 		totalDuration += d
 	}
-	strataCount := len(stats.Strata)
+	strataCount := len(engineStats.Strata)
 	logging.KernelDebug("evaluate: fixpoint reached - strata=%d, evalTime=%v, wallTime=%v",
 		strataCount, totalDuration, evalDuration)
 
 	k.initialized = true
-	// Reset the diff-engine delta buffer: any facts asserted before now were
-	// just included in the full rebuild, so they are no longer "since last
-	// eval". The diff engine itself is rebuilt lazily in evaluateDiffLocked.
-	k.factsSinceLastEval = nil
-	k.dirtyStrata = nil
-	logging.KernelDebug("evaluate: full path complete, kernel initialized")
-	return nil
-}
-
-// invalidateDiffEngineLocked drops the cached differential engine and any
-// pending delta. The next evaluate() call will either fall back to the full
-// path or rebuild the diff engine from the freshly-rebuilt program. Callers
-// must hold k.mu.
-//
-// Called from:
-//   - Retract paths (cannot incrementally un-derive)
-//   - Policy change (programInfo replaced; stratification may differ)
-//   - Clear / Reset (EDB wiped)
-func (k *RealKernel) invalidateDiffEngineLocked(reason string) {
-	if k.diffEngine == nil && k.diffMangleEngine == nil && k.dirtyStrata == nil && k.factsSinceLastEval == nil {
-		return
-	}
-	logging.KernelDebug("evaluate: invalidating diff engine (%s)", reason)
-	k.diffEngine = nil
-	k.diffMangleEngine = nil
-	k.dirtyStrata = nil
-	k.factsSinceLastEval = nil
-}
-
-// evaluateDiffLocked tries the differential-eval fast path. Returns
-// (handled=true, nil) if it completed the evaluation; (handled=false, nil) if
-// the caller should fall back to the full path; or (handled=false, err) on a
-// real error. Caller must hold k.mu.
-func (k *RealKernel) evaluateDiffLocked() (bool, error) {
-	if k.programInfo == nil {
-		return false, nil
-	}
-
-	// Lazy-build the diff engine on first use after a policy rebuild. We feed
-	// the same schemas+policy+learned string into a parallel mangle.Engine so
-	// its predicateIndex matches the kernel's programInfo, then wrap it.
-	//
-	// IMPORTANT: We deliberately convert facts using types.Fact.ToAtom() (the
-	// kernel's own encoding) rather than letting DifferentialEngine.ApplyDelta
-	// call mangle.Engine.factToAtomLocked. The two paths apply different
-	// type-coercion rules — Engine.factToAtomLocked auto-promotes identifier
-	// strings to ast.Name, while Fact.ToAtom does not. Using ApplyAtomDelta
-	// keeps the encoding identical to the full-rebuild path so query results
-	// match bit-for-bit.
-	if k.diffEngine == nil {
-		eng, derr := k.buildDiffEngineLocked()
-		if derr != nil {
-			logging.Get(logging.CategoryKernel).Warn("evaluate: diff engine build failed, falling back to full eval: %v", derr)
-			k.invalidateDiffEngineLocked("build failed")
-			return false, nil
-		}
-		k.diffEngine = eng
-		// Seed the diff engine with the entire current EDB on first build so
-		// downstream queries see all facts, not just the delta. Reuse cachedAtoms
-		// when available; otherwise convert on the fly.
-		seedAtoms, err := k.factsToAtomsLocked(k.facts)
-		if err != nil {
-			logging.Get(logging.CategoryKernel).Warn("evaluate: diff engine seed conversion failed, falling back: %v", err)
-			k.invalidateDiffEngineLocked("seed convert failed")
-			return false, nil
-		}
-		if len(seedAtoms) > 0 {
-			if err := k.diffEngine.ApplyAtomDelta(seedAtoms); err != nil {
-				logging.Get(logging.CategoryKernel).Warn("evaluate: diff engine seeding failed, falling back: %v", err)
-				k.invalidateDiffEngineLocked("seed failed")
-				return false, nil
-			}
-		}
-		k.factsSinceLastEval = nil
-		k.dirtyStrata = nil
-		if err := k.copyDiffStoreToKernelLocked(); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("evaluate: diff store copy failed, falling back: %v", err)
-			k.invalidateDiffEngineLocked("copy failed")
-			return false, nil
-		}
-		return true, nil
-	}
-
-	// No new facts since the last evaluate? Nothing to do.
-	if len(k.factsSinceLastEval) == 0 {
-		logging.KernelDebug("evaluate: diff path - no new facts, no-op")
-		// Still publish the existing store contents as k.store (it's already
-		// the diff-engine union from the previous pass).
-		return true, nil
-	}
-
-	// Convert delta facts using the kernel's own ToAtom encoding.
-	deltaAtoms, err := k.factsToAtomsLocked(k.factsSinceLastEval)
-	if err != nil {
-		logging.Get(logging.CategoryKernel).Warn("evaluate: delta conversion failed, falling back: %v", err)
-		k.invalidateDiffEngineLocked("delta convert failed")
-		return false, nil
-	}
-	evalTimer := logging.StartTimer(logging.CategoryKernel, "evaluate.diff_apply")
-	if err := k.diffEngine.ApplyAtomDelta(deltaAtoms); err != nil {
-		evalTimer.Stop()
-		logging.Get(logging.CategoryKernel).Warn("evaluate: ApplyAtomDelta failed, falling back to full eval: %v", err)
-		k.invalidateDiffEngineLocked("ApplyAtomDelta failed")
-		return false, nil
-	}
-	evalDuration := evalTimer.Stop()
-	logging.KernelDebug("evaluate: diff path applied %d facts in %v (dirtyStrata=%d)", len(deltaAtoms), evalDuration, len(k.dirtyStrata))
-
-	k.factsSinceLastEval = nil
-	k.dirtyStrata = nil
-
-	if err := k.copyDiffStoreToKernelLocked(); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("evaluate: diff store copy failed, falling back: %v", err)
-		k.invalidateDiffEngineLocked("copy failed")
-		return false, nil
-	}
-	if evalDuration > diffDemoteThreshold {
-		// The delta was applied (results are valid), but at this store size the
-		// differential path costs more than a full fixpoint. Drop the engine
-		// and stay on the full path for the rest of the process.
-		logging.Get(logging.CategoryKernel).Warn(
-			"evaluate: differential path took %v for %d facts on a %d-fact store; using the full fixpoint for this kernel from now on",
-			evalDuration, len(deltaAtoms), len(k.facts))
-		k.diffPathDemoted = true
-		k.invalidateDiffEngineLocked("differential path slower than a full fixpoint")
-	}
-	return true, nil
-}
-
-// buildDiffEngineLocked instantiates a parallel mangle.Engine seeded with the
-// same schemas+policy+learned source as the kernel, then wraps it in a
-// DifferentialEngine. The mangle.Engine's predicate index drives
-// factToAtomLocked inside ApplyDelta. Caller must hold k.mu.
-func (k *RealKernel) buildDiffEngineLocked() (*manglepkg.DifferentialEngine, error) {
-	cfg := k.diffEngineConfigLocked()
-	eng, err := manglepkg.NewEngine(cfg, nil)
-	if err != nil {
-		return nil, fmt.Errorf("diff: NewEngine: %w", err)
-	}
-
-	// Assemble the identical program rebuildProgram parses, from the same
-	// single source, so the predicate index matches programInfo exactly.
-	var sb strings.Builder
-	k.writeProgramLocked(&sb)
-	if err := eng.LoadSchemaString(sb.String()); err != nil {
-		return nil, fmt.Errorf("diff: LoadSchemaString: %w", err)
-	}
-
-	de, err := manglepkg.NewDifferentialEngine(eng)
-	if err != nil {
-		return nil, fmt.Errorf("diff: NewDifferentialEngine: %w", err)
-	}
-	// Opt into the unified fast path. The kernel doesn't use Snapshot /
-	// Query / RegisterVirtualPredicate on this engine — it just needs the
-	// derived-fact union via CopyAllFactsTo — so it can pay zero
-	// per-stratum overhead. Caller paths that need the per-stratum API
-	// (ouroboros, torture tests) construct their own DifferentialEngine
-	// and don't enable the fast path.
-	if err := de.EnableUnifiedFastPath(); err != nil {
-		return nil, fmt.Errorf("diff: EnableUnifiedFastPath: %w", err)
-	}
-	k.diffMangleEngine = eng
-	return de, nil
-}
-
-// diffEngineConfigLocked builds the reusable-engine configuration used by the
-// kernel differential path. In particular, it overrides mangle.DefaultConfig's
-// package-level 100K ceiling with the kernel's effective ceiling (500K when
-// unset), matching evaluateFullLocked. Caller must hold k.mu.
-func (k *RealKernel) diffEngineConfigLocked() manglepkg.Config {
-	cfg := manglepkg.DefaultConfig()
-	cfg.DerivedFactsLimit = k.effectiveDerivedFactLimitLocked()
-	cfg.AutoEval = true
-	return cfg
-}
-
-// factsToAtomsLocked converts a fact slice to ast.Atoms using the kernel's
-// canonical encoding. Mirrors the conversion the full eval path uses, so
-// diff-evaluated atoms are bit-identical to atoms inserted by
-// evaluateFullLocked — which means it must apply the same Decl-directed
-// numeric coercion. Skipping it here would both break that invariant and let
-// a float reach an int64-only comparison on the diff path, aborting the
-// fixpoint exactly as it did before. Caller must hold k.mu.
-func (k *RealKernel) factsToAtomsLocked(facts []Fact) ([]ast.Atom, error) {
-	out := make([]ast.Atom, 0, len(facts))
-	for _, f := range facts {
-		atom, err := k.factToAtomLocked(f)
-		if err != nil {
-			return nil, fmt.Errorf("ToAtom(%s): %w", f.Predicate, err)
-		}
-		out = append(out, atom)
-	}
-	return out, nil
-}
-
-// copyDiffStoreToKernelLocked materializes the union of the diff engine's
-// per-stratum stores into k.store so the read path (Query, QueryCallback,
-// QueryAll) is unchanged. This is the simplest correct integration; a more
-// efficient future variant would expose a chained view directly. Caller must
-// hold k.mu.
-func (k *RealKernel) copyDiffStoreToKernelLocked() error {
-	if k.diffEngine == nil {
-		return fmt.Errorf("copyDiffStoreToKernel: diff engine is nil")
-	}
-	dest := factstore.NewSimpleInMemoryStore()
-	if err := k.diffEngine.CopyAllFactsTo(dest); err != nil {
-		return err
-	}
-	k.store = dest
+	logging.KernelDebug("evaluate: complete, kernel initialized")
 	return nil
 }
 
@@ -586,19 +309,16 @@ func (k *RealKernel) copyDiffStoreToKernelLocked() error {
 // Callers should not expect the store to be up-to-date after this call;
 // the next Query/QueryAll will trigger evaluate() on demand.
 //
-// IMPORTANT: rebuild() is the funnel for retract paths (Retract,
-// RetractFact, RetractExactFact, RetractExactFactsBatch,
-// RemoveFactsByPredicateSet, LoadFactsSeq's seq path). A retract may have
-// removed an EDB fact whose derived consequences are still cached inside the
-// diff engine's stratum stores. Differential evaluation cannot incrementally
-// un-derive without DRed-style bookkeeping, so the safe and correct policy is
-// to invalidate the diff engine here and force a full rebuild on the next
-// evaluate(). Callers must hold k.mu.
+// rebuild() is the funnel for retract paths (Retract, RetractFact,
+// RetractExactFact, RetractExactFactsBatch, RemoveFactsByPredicateSet,
+// LoadFactsSeq's seq path). Dropping cachedAtoms is what makes a retract
+// visible: evaluate() reconverts from k.facts and derives over a store that
+// no longer contains the removed fact or anything derived from it.
+// Callers must hold k.mu.
 func (k *RealKernel) rebuild() error {
 	logging.KernelDebug("rebuild: invalidating cached atoms, marking factsDirty")
 	k.cachedAtoms = nil
 	k.factsDirty.Store(true)
-	k.invalidateDiffEngineLocked("retract path / rebuild")
 	return nil
 }
 
@@ -658,7 +378,7 @@ func (k *RealKernel) GetStore() factstore.FactStore {
 // learned rules. It marks factsDirty so the next read lazily re-evaluates
 // to a fresh empty store; without that, reads after a clear would error
 // with "kernel not initialized". Caller must hold k.mu.
-func (k *RealKernel) clearFactsLocked(reason string) {
+func (k *RealKernel) clearFactsLocked() {
 	k.facts = make([]Fact, 0)
 	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
 	k.factIndex = make(map[string]struct{})
@@ -666,14 +386,13 @@ func (k *RealKernel) clearFactsLocked(reason string) {
 	k.initialized = false
 	// factsDirty stays as-is (Clear does not set dirty): the !initialized
 	// state alone drives the next read to re-evaluate via ensureEvaluated.
-	k.invalidateDiffEngineLocked(reason)
 }
 
 // Clear removes all facts from the kernel (but keeps schemas/policy).
 func (k *RealKernel) Clear() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.clearFactsLocked("Clear")
+	k.clearFactsLocked()
 	logging.KernelDebug("Kernel cleared (facts removed, schemas/policy retained)")
 }
 
@@ -685,7 +404,7 @@ func (k *RealKernel) Reset() {
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.clearFactsLocked("Reset")
+	k.clearFactsLocked()
 	// Keep schemas, policy, learned - only reset facts
 	logging.KernelDebug("Kernel reset (facts cleared, policy retained)")
 }
@@ -725,7 +444,6 @@ func (k *RealKernel) Clone() *RealKernel {
 		virtualStore:      k.virtualStore,
 		simulateCommitErr: k.simulateCommitErr,
 		eventBus:          NewFactEventBus(), // Fresh bus: every kernel needs a non-nil one
-		diffPathDemoted:   k.diffPathDemoted, // Keep a measured demotion; the clone holds the same EDB
 		// Deliberately fresh: diff engine state (rebuilt lazily), proof
 		// recorder (sharing it would race), lastEvaluation, undeclared
 		// warnings (re-warn on the clone is benign).
@@ -808,7 +526,6 @@ func (k *RealKernel) ClearSchemas() {
 	k.learned = ""
 	k.programInfo = nil
 	k.policyDirty = true
-	k.invalidateDiffEngineLocked("ClearSchemas")
 }
 
 // writeFailedProgramDump saves the combined Mangle program that failed analysis

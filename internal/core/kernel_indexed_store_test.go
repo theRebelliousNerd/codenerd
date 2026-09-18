@@ -11,7 +11,6 @@ import (
 )
 
 func TestIndexedEvaluationPreservesProductionClosure(t *testing.T) {
-	t.Setenv("CODENERD_DIFF_EVAL", "0")
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

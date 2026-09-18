@@ -67,11 +67,78 @@ is asserted, and `fn:count()` reports **both** 1 and 2 simultaneously. Every dow
 
 ## Production exposure
 
-_pending_
+`.nerd/config.json` in the main checkout sets `"features": {"diff_eval": true}`, so the gate was
+ON in production. A kernel took the differential path whenever it had no proof recorder, no
+external predicates, and ≤ 10000 facts. External predicates come from a VirtualStore
+(`hasExternalPredicatesLocked`), so the chat/session main kernel took the full path — but every
+kernel built by `core.NewRealKernel()` with no virtual store took the differential path:
+
+| Call site | What it is |
+|---|---|
+| `internal/shards/system/constitution.go:295` | ConstitutionGate's own kernel — the safety-enforcement loop |
+| `internal/shards/system/executive.go:441` | Executive shard |
+| `internal/shards/system/legislator.go:186` | Legislator shard |
+| `internal/shards/system/perception.go:424`, `:495` | Perception shard |
+| `internal/shards/system/planner.go:173` | Planner shard |
+| `internal/shards/system/router.go:218` | Router shard |
+| `internal/shards/system/world_model.go:196` | World-model shard |
+| `internal/core/kernel_shard.go:65-79` | every domain `KernelShard` |
+| `internal/core/rule_court.go:71` | the learned-rule sandbox |
+| `cmd/nerd/cmd_query.go:146,:215`, `cmd_retrieve.go:102`, `dom_cmd.go:115,:257,:477`, `cmd_snapshot.go:88,:190`, `cmd_mcp_select.go:94`, `cmd_init_scan.go:397`, `internal/init/initializer.go:324` | CLI entry points |
+
+The shipped policy corpus that these kernels evaluate contains 399 negated premises and 42 `|>`
+transforms (grep over `internal/core/defaults/`), including the constitution. The
+ConstitutionGate — the shard that derives `permitted(...)` — was running on an evaluator that
+cannot un-derive.
+
+`internal/core/kernel_eval_demote_test.go` (now deleted) recorded the other half: on a 48K-fact
+store a one-fact delta took 91 s on the differential path, which is why the demotion machinery
+(`diffPathDemoted`, `diffDemoteThreshold`, `differentialFactCeiling`) existed at all. It was
+both unsound and, at scale, slower than the thing it replaced.
+
+The M3 study (`Docs/journeys/M3-mangle-verification.md`, item 23 / open item (d)) had already
+flagged the rule: any host that re-evaluates on a retained store must clear IDB predicates first.
 
 ## Deletions
 
-_pending_
+### `internal/core` (commit 2)
+
+- `kernel_eval.go`
+  - `diffEvalEnabled()` and the `codenerd/internal/features` + `codenerd/internal/mangle`
+    imports.
+  - `evaluateDiffLocked`, `buildDiffEngineLocked`, `diffEngineConfigLocked`,
+    `factsToAtomsLocked`, `copyDiffStoreToKernelLocked`, `invalidateDiffEngineLocked`,
+    `hasExternalPredicatesLocked` (existed only to keep the diff path away from external
+    predicates) — 183 lines.
+  - `evaluateFullLocked` was merged into `evaluate()`: with one path left, "full" named a
+    contrast that no longer exists. The comment on `evaluate()` now states the invariant
+    (rebuild from the EDB every call) and why.
+  - `clearFactsLocked(reason string)` → `clearFactsLocked()`; the reason existed only for the
+    invalidation log. Call sites in `Clear()`/`Reset()` updated.
+  - `ClearSchemas()` and `rebuild()` lost their invalidation calls; `rebuild()`'s comment now
+    explains what actually makes a retract visible (dropping `cachedAtoms`).
+  - `Clone()` lost the `diffPathDemoted` copy.
+- `kernel_types.go` — the whole "Differential evaluation (Task #10)" field block
+  (`diffEngine`, `diffMangleEngine`, `dirtyStrata`, `factsSinceLastEval`, `diffPathDemoted`),
+  the constants `differentialFactCeiling` and `diffDemoteThreshold`, and
+  `EvaluationStats.Mode` / `.DeltaFacts` / `.DemotionReason`. `EvaluationStats` keeps
+  `InputFacts` + `Duration` (honest cost telemetry, still read by the world benchmark).
+- `kernel_facts.go` — the per-fact delta buffer in `addFactIfNewLocked` and
+  `markStratumDirtyLocked`.
+- Tests: `kernel_eval_demote_test.go` and `kernel_features_test.go` deleted outright (both
+  exist only to pin diff-path behaviour). `kernel_eval_test.go` lost
+  `TestKernelDifferentialEval` and `BenchmarkKernelDifferentialEval`;
+  `TestKernelEval_ZeroConfigDerivedFactLimitParity` became
+  `TestKernelEval_ZeroConfigDerivedFactLimit`, keeping the half that pins the gas limit.
+  `kernel_eval_uplift_test.go` lost `TestEval_DiffFullParity` and its helpers; the Clone,
+  Clear/Reset and ClearSchemas tests were kept.
+  `kernel_eval_large_test.go`: `TestLargeWorldDeltaUsesFullEvaluatorAndPreservesResults` →
+  `TestLargeWorldDeltaPreservesResults` (kept: 10001 facts, delta not lost, retraction lands;
+  dropped: the `LastEvaluation().Mode` assertion) and `BenchmarkProductionWorldDelta` became
+  single-mode — it now measures what a 48K-fact world evaluate costs on the only path.
+  `kernel_indexed_store_test.go` lost its `t.Setenv("CODENERD_DIFF_EVAL", "0")` line.
+
+`go build`, `go vet` and `go test ./internal/core` green (252 s).
 
 ## Ouroboros decision
 

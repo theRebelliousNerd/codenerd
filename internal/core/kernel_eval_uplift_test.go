@@ -1,93 +1,11 @@
 package core
 
 import (
-	"fmt"
-	"sort"
 	"testing"
 )
 
-const evalParityPolicy = `
-Decl thing(Name).
-Decl big_thing(Name).
-Decl tagged_thing(Name, Tag).
-
-big_thing(X) :- thing(X).
-tagged_thing(X, /processed) :- big_thing(X).
-`
-
-func evalParitySeed(t *testing.T, k *RealKernel, n int) {
-	t.Helper()
-	k.AppendPolicy(evalParityPolicy)
-	if err := k.Evaluate(); err != nil {
-		t.Fatalf("Evaluate: %v", err)
-	}
-	facts := make([]Fact, 0, n)
-	for i := 0; i < n; i++ {
-		facts = append(facts, Fact{Predicate: "thing", Args: []any{fmt.Sprintf("t%d", i)}})
-	}
-	if err := k.AssertBatch(facts); err != nil {
-		t.Fatalf("AssertBatch: %v", err)
-	}
-}
-
-func evalParityCapture(t *testing.T, k *RealKernel) []string {
-	t.Helper()
-	var rows []string
-	for _, pred := range []string{"thing", "big_thing", "tagged_thing"} {
-		got, err := k.Query(pred)
-		if err != nil {
-			t.Fatalf("Query %s: %v", pred, err)
-		}
-		for _, f := range got {
-			rows = append(rows, f.String())
-		}
-	}
-	sort.Strings(rows)
-	return rows
-}
-
-// The differential fast path must derive exactly what the full fixpoint
-// derives, and LastEvaluation must honestly report which path ran.
-func TestEval_DiffFullParity(t *testing.T) {
-	captured := map[string][]string{}
-	modes := map[string]string{}
-	for _, tc := range []struct{ name, flag, wantMode string }{
-		{"differential", "1", "differential"},
-		{"full", "0", "full"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("CODENERD_DIFF_EVAL", tc.flag)
-			k, err := NewRealKernel()
-			if err != nil {
-				t.Fatalf("boot: %v", err)
-			}
-			evalParitySeed(t, k, 200)
-			captured[tc.name] = evalParityCapture(t, k)
-			modes[tc.name] = k.LastEvaluation().Mode
-		})
-	}
-	if modes["differential"] != "differential" {
-		t.Fatalf("flag=1 ran %q, want differential path", modes["differential"])
-	}
-	if modes["full"] != "full" {
-		t.Fatalf("flag=0 ran %q, want full path", modes["full"])
-	}
-	a, b := captured["differential"], captured["full"]
-	if len(a) != len(b) {
-		t.Fatalf("row count differs: diff=%d full=%d", len(a), len(b))
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			t.Fatalf("row %d differs:\n diff: %s\n full: %s", i, a[i], b[i])
-		}
-	}
-	if len(a) == 0 {
-		t.Fatal("parity over zero rows proves nothing")
-	}
-}
-
-// Clone must carry config (limits, sandbox, demotion), own a live event
-// bus, and evaluate independently of its parent.
+// Clone must carry config (limits, sandbox), own a live event bus, and
+// evaluate independently of its parent.
 func TestClone_FidelityAndIsolation(t *testing.T) {
 	parent, err := NewRealKernel()
 	if err != nil {
@@ -95,7 +13,6 @@ func TestClone_FidelityAndIsolation(t *testing.T) {
 	}
 	parent.SetDerivedFactLimit(12345)
 	parent.sandbox = true
-	parent.diffPathDemoted = true
 	parent.AppendPolicy("Decl clone_iso_probe(X).")
 	if err := parent.Evaluate(); err != nil {
 		t.Fatalf("Evaluate: %v", err)
@@ -107,9 +24,6 @@ func TestClone_FidelityAndIsolation(t *testing.T) {
 	}
 	if !clone.sandbox {
 		t.Error("clone lost the sandbox marker")
-	}
-	if !clone.diffPathDemoted {
-		t.Error("clone lost the measured demotion")
 	}
 	if clone.GetEventBus() == nil {
 		t.Error("clone has nil event bus")
