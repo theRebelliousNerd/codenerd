@@ -596,12 +596,19 @@ type OnboardingWizardState struct {
 }
 
 // continuationOutcome distinguishes how a multi-step continuation ended.
-// The zero value is continuationCompleted so producers that do not set an
-// outcome keep today's success rendering.
+//
+// The zero value is continuationUnverified, not completion. A producer that
+// does not state an outcome has not observed one, and rendering that under the
+// checkmark is exactly the failure this type exists to prevent: on 2026-09-17
+// a step that reported "Requested behavior remains unverified" was printed to
+// the user as "All 1 steps complete." two lines later.
 type continuationOutcome int
 
 const (
-	continuationCompleted continuationOutcome = iota
+	// continuationUnverified: the steps ran and nothing proved the work holds
+	// — the kernel's /unverified or /hollow verdict, or no verdict at all.
+	continuationUnverified continuationOutcome = iota
+	continuationCompleted
 	continuationFailed
 	continuationInterrupted
 )
@@ -709,9 +716,9 @@ type (
 		summary   string
 		// Result of the final completed subtask (optional)
 		completedShardResult *ShardResultPayload
-		// outcome distinguishes completion, failure, and user interrupt.
-		// Zero value (continuationCompleted) preserves today's behaviour
-		// for any producer that does not set it.
+		// outcome distinguishes verified completion, unverified work,
+		// failure, and user interrupt. Zero value is continuationUnverified:
+		// a producer that states no outcome has not verified anything.
 		outcome continuationOutcome
 	}
 

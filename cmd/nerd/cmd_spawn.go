@@ -170,10 +170,13 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 
 	var result string
+	var outcome types.MangleAtom
 	var spawnErr error
 	if cortex.ShardManager != nil {
 		if cfg, ok := cortex.ShardManager.GetProfile(normalizedType); ok && cfg.Type == types.ShardTypeSystem {
-			result, spawnErr = spawnSystemShardAndWait(ctx, cortex.ShardManager, normalizedType, task, waitTimeout)
+			var res types.ShardResult
+			res, spawnErr = spawnSystemShardAndWait(ctx, cortex.ShardManager, normalizedType, task, waitTimeout)
+			result, outcome = res.Result, res.Outcome
 		} else {
 			result, spawnErr = cortex.SpawnTask(ctx, shardType, task)
 		}
@@ -197,8 +200,28 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("spawn failed: %w", spawnErr)
 	}
 
-	fmt.Printf("Shard Result: %s\n", result)
+	// The heading states the verdict the producer recorded. A run nobody
+	// verified is not reported under the same word as one that was: the
+	// ShardManager path observes only "it did not error", and saying so is the
+	// difference between a result and a claim.
+	fmt.Printf("Shard Result%s: %s\n", shardVerdictSuffix(outcome), result)
 	return nil
+}
+
+// shardVerdictSuffix renders a shard's recorded verdict for the result
+// heading. An empty outcome means the producer recorded none, which is not a
+// pass, so it reads the same as /unverified.
+func shardVerdictSuffix(outcome types.MangleAtom) string {
+	switch outcome {
+	case types.MangleAtom("/done"):
+		return " (verified)"
+	case types.MangleAtom("/hollow"):
+		return " (hollow: no work was performed)"
+	case types.MangleAtom("/failed"):
+		return " (failed)"
+	default:
+		return " (unverified)"
+	}
 }
 
 func normalizeShardType(input string) string {
@@ -216,14 +239,14 @@ func spawnWaitTimeout(cmdTimeout time.Duration) time.Duration {
 	return waitTimeout
 }
 
-func spawnSystemShardAndWait(ctx context.Context, manager *coreshards.ShardManager, shardType, task string, waitTimeout time.Duration) (string, error) {
+func spawnSystemShardAndWait(ctx context.Context, manager *coreshards.ShardManager, shardType, task string, waitTimeout time.Duration) (types.ShardResult, error) {
 	if manager == nil {
-		return "", fmt.Errorf("shard manager unavailable for system shard %s", shardType)
+		return types.ShardResult{}, fmt.Errorf("shard manager unavailable for system shard %s", shardType)
 	}
 
 	shardID, err := manager.SpawnAsyncWithContext(ctx, shardType, task, nil)
 	if err != nil {
-		return "", err
+		return types.ShardResult{}, err
 	}
 
 	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
@@ -235,13 +258,13 @@ func spawnSystemShardAndWait(ctx context.Context, manager *coreshards.ShardManag
 	for {
 		select {
 		case <-waitCtx.Done():
-			return "", fmt.Errorf("system shard %s did not complete within %v (id=%s)", shardType, waitTimeout, shardID)
+			return types.ShardResult{}, fmt.Errorf("system shard %s did not complete within %v (id=%s)", shardType, waitTimeout, shardID)
 		case <-ticker.C:
 			if res, ok := manager.GetResult(shardID); ok {
 				if res.Error != nil {
-					return "", res.Error
+					return res, res.Error
 				}
-				return res.Result, nil
+				return res, nil
 			}
 		}
 	}

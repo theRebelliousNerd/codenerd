@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"codenerd/internal/observation"
+	"codenerd/internal/types"
 )
 
 // ObservedTaskExecutor is the optional half of TaskExecutor: the same task run,
@@ -27,6 +28,13 @@ import (
 // from prose that the runtime had already answered exactly.
 type ObservedTaskExecutor interface {
 	ExecuteObserved(ctx context.Context, req TaskRequest) (observation.Return, error)
+
+	// ExecuteObservedWithContext is the observed twin of
+	// TaskExecutor.ExecuteWithContext. It exists because the caller that most
+	// needs the structure — the chat's delegation and continuation path — is
+	// also the one that must pass a session context and a priority, and a
+	// consumer forced to choose between the two would take the string.
+	ExecuteObservedWithContext(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error)
 }
 
 // observedReturn builds the raw observation from what the executor recorded.
@@ -50,6 +58,21 @@ func observedReturn(agent, task string, res *ExecutionResult) observation.Return
 	if res.Error != nil {
 		out.Failure = res.Error.Error()
 	}
+
+	// The kernel's verdict and the change stage are the two things the
+	// executor already decided and every consumer downstream used to
+	// re-invent by reading the prose. They cross here because this is the
+	// only place both ends are in scope.
+	out.Outcome = string(res.TurnOutcome)
+	out.Stage = res.ChangeStage
+	if res.Acceptance != nil {
+		out.Acceptance = &observation.Acceptance{
+			Status:   res.Acceptance.Status,
+			Contract: res.Acceptance.ContractID,
+			Summary:  res.Acceptance.Summary(),
+		}
+	}
+	out.Untested = append(out.Untested, res.UntestedPaths...)
 
 	// WrittenPaths is the write set of successful mutations, which is what
 	// "changed artifacts" means when it is a fact rather than a claim.

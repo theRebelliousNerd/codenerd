@@ -112,6 +112,46 @@ type Return struct {
 	Build    *Verification `json:"build,omitempty"`
 	Tests    *Verification `json:"tests,omitempty"`
 	Notes    []string      `json:"notes,omitempty"`
+
+	// Outcome is the producer's kernel verdict for the turn: /done, /hollow,
+	// /failed or /unverified. It is the one field here that is DERIVED rather
+	// than measured, and it is carried for exactly that reason — a consumer
+	// that has it never has to re-derive a status by reading the prose, which
+	// is how "Wrote 1 file(s). Requested behavior remains unverified" came to
+	// be reported to a user as "Completed 1 steps successfully."
+	//
+	// Empty means the producer had no verdict, which is NOT the same as
+	// /done: a consumer must treat it as unverified, never as success.
+	Outcome string `json:"outcome,omitempty"`
+
+	// Stage is how far the change got: artifact_changed (files written),
+	// checks_passed (the mechanical gates were green on the final tree), or
+	// behavior_verified (an acceptance contract was verified). It is what
+	// distinguishes a turn that compiled from one that was shown to do what
+	// was asked.
+	Stage string `json:"stage,omitempty"`
+
+	// Acceptance is the acceptance contract's own verdict when the turn was
+	// run under one. Nil means there was no contract, which is why so many
+	// otherwise green turns are /unverified rather than /done.
+	Acceptance *Acceptance `json:"acceptance,omitempty"`
+
+	// Untested is the production files this turn wrote with no test file
+	// alongside them. It is carried as a field rather than only as the Note
+	// built from it because a consumer deriving "this needs tests" must join
+	// on the paths, not parse the sentence.
+	Untested []string `json:"untested,omitempty"`
+}
+
+// Acceptance is an acceptance contract's verdict on a turn.
+//
+// Status is the contract's own word ("verified" / "unverified"), Contract
+// identifies it, and Summary is the one-line report the producer already
+// renders. Nothing here is read out of the subagent's prose.
+type Acceptance struct {
+	Status   string `json:"status,omitempty"`
+	Contract string `json:"contract,omitempty"`
+	Summary  string `json:"summary,omitempty"`
 }
 
 // ReturnResult is the projection handed to the parent's reasoning.

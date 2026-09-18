@@ -2027,11 +2027,13 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 	claimed := append([]types.Fact(nil), e.perTurnClaimedTestOutputFacts...)
 	executed := append([]types.Fact(nil), e.perTurnExecutedTestToolFacts...)
 	turnEvidence := append([]types.Fact(nil), e.perTurnEvidenceFacts...)
+	buildState := append([]types.Fact(nil), e.perTurnBuildStateFacts...)
 	e.perTurnCreatedSourceFacts = nil
 	e.perTurnTestFileForFacts = nil
 	e.perTurnClaimedTestOutputFacts = nil
 	e.perTurnExecutedTestToolFacts = nil
 	e.perTurnEvidenceFacts = nil
+	e.perTurnBuildStateFacts = nil
 	e.mu.Unlock()
 	for _, f := range created {
 		if err := e.kernel.RetractFact(f); err != nil {
@@ -2056,6 +2058,14 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 	for _, f := range turnEvidence {
 		if err := e.kernel.RetractFact(f); err != nil {
 			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract turn_evidence %v: %v", f.Args, err)
+		}
+	}
+	// A red build is evidence about THIS turn. Left asserted it would exclude
+	// turn_executed for every later turn in the session, so a single failed
+	// compile would make the session permanently unable to finish anything.
+	for _, f := range buildState {
+		if err := e.kernel.RetractFact(f); err != nil {
+			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract %s %v: %v", f.Predicate, f.Args, err)
 		}
 	}
 	// Direct kernel asserts (verify_created2 helpers) are not tracked in perTurn lists.

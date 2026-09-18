@@ -17,13 +17,21 @@ func TestUpdate_ContinuationDoneOutcome(t *testing.T) {
 	}{
 		{
 			name:       "completed",
-			msg:        continuationDoneMsg{stepCount: 3, summary: "Completed 3 steps successfully.", outcome: continuationCompleted},
+			msg:        continuationDoneMsg{stepCount: 3, summary: "Completed 3 step(s); the requested behavior was verified.", outcome: continuationCompleted},
 			wantPrefix: "✅",
 		},
 		{
-			name:       "completedZeroValue",
-			msg:        continuationDoneMsg{stepCount: 3, summary: "Completed 3 steps successfully."},
-			wantPrefix: "✅",
+			// The zero value is continuationUnverified, not completion. A
+			// producer that states no outcome has observed none, and the
+			// checkmark is reserved for a verdict.
+			name:       "zeroValueRendersUnverified",
+			msg:        continuationDoneMsg{stepCount: 3, summary: "Ran 3 step(s); the work is not verified."},
+			wantPrefix: "⚠️",
+		},
+		{
+			name:       "unverified",
+			msg:        continuationDoneMsg{stepCount: 1, summary: "Ran 1 step(s); the work is not verified.", outcome: continuationUnverified},
+			wantPrefix: "⚠️",
 		},
 		{
 			name:       "failed",
@@ -58,8 +66,8 @@ func TestUpdate_ContinuationDoneOutcome(t *testing.T) {
 			if !strings.HasPrefix(last.Content, tc.wantPrefix) {
 				t.Errorf("expected last message to start with %q, got %q", tc.wantPrefix, last.Content)
 			}
-			if tc.msg.outcome == continuationFailed && strings.Contains(last.Content, "✅") {
-				t.Errorf("failed outcome must never contain ✅, got %q", last.Content)
+			if tc.msg.outcome != continuationCompleted && strings.Contains(last.Content, "✅") {
+				t.Errorf("a non-completed outcome must never contain ✅, got %q", last.Content)
 			}
 			if len(result.pendingSubtasks) != 0 {
 				t.Errorf("expected pendingSubtasks to be cleared, got %d", len(result.pendingSubtasks))

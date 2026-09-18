@@ -538,7 +538,8 @@ func (m Model) processInput(input string) tea.Cmd {
 				})
 			}
 
-			result, spawnErr := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+			ret, spawnErr := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+			result := ret.Output
 
 			// Glass Box: Emit shard completion event
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -612,7 +613,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount))
 
 				// CONTINUATION PROTOCOL: Check for pending subtasks before returning
-				if cont := m.checkContinuation(shardType, task, result); cont != nil {
+				if cont := m.checkContinuation(shardType, task, ret); cont != nil {
 					return continuationInitMsg{
 						completedSurface: surface,
 						firstResult:      srPayload,
@@ -632,7 +633,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount))
 
 			// CONTINUATION PROTOCOL: Check for pending subtasks before returning
-			if cont := m.checkContinuation(shardType, task, result); cont != nil {
+			if cont := m.checkContinuation(shardType, task, ret); cont != nil {
 				return continuationInitMsg{
 					completedSurface: surface,
 					firstResult:      srPayload,

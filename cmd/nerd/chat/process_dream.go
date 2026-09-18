@@ -270,7 +270,8 @@ Format your response as a structured analysis.`
 			DreamMode: true,
 		}
 		// Dream mode = low priority (background speculation)
-		result, err := m.spawnTaskWithContext(consultCtx, name, prompt, dreamCtx, types.PriorityLow)
+		ret, err := m.spawnTaskWithContext(consultCtx, name, prompt, dreamCtx, types.PriorityLow)
+		result := ret.Output
 
 		consultation := DreamConsultation{
 			ShardName: name,
@@ -699,6 +700,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 	return func() tea.Msg {
 		var results []string
 		var stepResults = make(map[int]string) // Store results for dependency checking
+		verifiedSteps := 0                     // Steps whose verdict was /done, not merely steps that returned
 
 		results = append(results, fmt.Sprintf("## Multi-Step Task Execution\n\n**Original Request**: %s\n**Steps**: %d\n", intent.Response, len(steps)))
 
@@ -723,7 +725,8 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				i+1, strings.TrimPrefix(step.Verb, "/"), step.Target, step.ShardType))
 
 			if step.ShardType != "" {
-				result, err := m.spawnTask(ctx, step.ShardType, step.Task)
+				ret, err := m.spawnTaskWithContext(ctx, step.ShardType, step.Task, nil, types.PriorityNormal)
+				result := ret.Output
 
 				// CRITICAL FIX: Inject multi-step shard results as facts
 				shardID := fmt.Sprintf("%s-step%d-%d", step.ShardType, i, time.Now().UnixNano())
@@ -740,21 +743,31 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 
 				// Store result for dependencies
 				stepResults[i] = result
+				if continuationOutcomeFor(ret, nil) == continuationCompleted {
+					verifiedSteps++
+				}
 
 				formattedResult := result
 				if normalizeShardType(step.ShardType) == "reviewer" || normalizeShardType(step.ShardType) == "tester" {
 					formattedResult = m.formatInterpretedResult(ctx, rawInput, step.ShardType, step.Task, result, "")
 				}
 
-				results = append(results, fmt.Sprintf("**Status**: Complete\n```\n%s\n```\n", formattedResult))
+				// The step's status is its verdict, not the fact that it
+				// returned without an error. "Complete" was printed for every
+				// step that did not throw, including ones that verified
+				// nothing.
+				results = append(results, fmt.Sprintf("**Status**: %s\n```\n%s\n```\n",
+					continuationSummary(1, ret), formattedResult))
 			} else {
 				results = append(results, "**Status**: No shard handler\n")
 			}
 		}
 
-		// Summary
-		successCount := len(stepResults)
-		results = append(results, fmt.Sprintf("\n---\n**Summary**: %d/%d steps completed successfully\n", successCount, len(steps)))
+		// Summary. "Ran" and "verified" are different numbers, and reporting
+		// the first under the second's name is how a plan of unverified steps
+		// reads as a plan that worked.
+		results = append(results, fmt.Sprintf("\n---\n**Summary**: %d/%d steps ran, %d verified\n",
+			len(stepResults), len(steps), verifiedSteps))
 
 		return responseMsg(strings.Join(results, ""))
 	}

@@ -425,8 +425,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.pushAssistantMsg(fmt.Sprintf("❌ Stopped after %d step(s): %s", msg.stepCount, msg.summary))
 		case continuationInterrupted:
 			m = m.pushAssistantMsg(fmt.Sprintf("⏹️ Stopped by user after %d step(s).\n\n%s", msg.stepCount, msg.summary))
+		case continuationCompleted:
+			m = m.pushAssistantMsg(fmt.Sprintf("✅ All %d step(s) complete and verified.\n\n%s", msg.stepCount, msg.summary))
 		default:
-			m = m.pushAssistantMsg(fmt.Sprintf("✅ All %d steps complete.\n\n%s", msg.stepCount, msg.summary))
+			// The steps ran; nothing showed the work holds. The checkmark is
+			// reserved for a verdict, not for having run out of steps.
+			m = m.pushAssistantMsg(fmt.Sprintf("⚠️ %d step(s) ran; the work is not verified.\n\n%s", msg.stepCount, msg.summary))
 		}
 
 	case initCompleteMsg:

@@ -324,7 +324,8 @@ func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, in
 		}
 
 		sessionCtx := m.buildSessionContext(ctx)
-		result, spawnErr := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+		ret, spawnErr := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+		result := ret.Output
 		payload := m.buildShardResultPayload(shardType, task, result, spawnErr)
 		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
 			_ = m.kernel.LoadFacts(payload.Facts)

@@ -20,6 +20,7 @@ import (
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	promptpkg "codenerd/internal/prompt"
+	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	toolscore "codenerd/internal/tools/core"
 	"codenerd/internal/types"
@@ -46,14 +47,31 @@ func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (s
 	return m.taskExecutor.Execute(ctx, shardTypeToTaskRequest(shardType, task))
 }
 
-// spawnTaskWithContext spawns a task with additional session context and priority.
-// This is used for dream mode, shadow mode, and other speculative execution scenarios.
-func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+// spawnTaskWithContext spawns a task with additional session context and
+// priority, returning what the executor OBSERVED about the run rather than
+// only its prose.
+//
+// The structured return is the point. Every caller here feeds a decision —
+// whether the step is done, whether a follow-up is owed, what the user is told
+// happened — and each of them used to re-derive that decision by reading the
+// result string for words like "TODO" or "test". The executor already recorded
+// the kernel's verdict, the change stage and the gate outcomes; this carries
+// them instead of throwing them away and guessing them back.
+//
+// An executor that cannot answer ExecuteObservedWithContext still runs the
+// task: the observation then holds the output and nothing else, and consumers
+// must read an absent verdict as unverified — never as success.
+func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
 	if m.taskExecutor == nil {
-		return "", fmt.Errorf("taskExecutor not initialized")
+		return observation.Return{}, fmt.Errorf("taskExecutor not initialized")
 	}
 	ctx = m.withShardModelContext(ctx, shardType)
-	return m.taskExecutor.ExecuteWithContext(ctx, shardTypeToTaskRequest(shardType, task), sessionCtx, priority)
+	req := shardTypeToTaskRequest(shardType, task)
+	if observed, ok := m.taskExecutor.(session.ObservedTaskExecutor); ok {
+		return observed.ExecuteObservedWithContext(ctx, req, sessionCtx, priority)
+	}
+	out, err := m.taskExecutor.ExecuteWithContext(ctx, req, sessionCtx, priority)
+	return observation.Return{Agent: shardType, Task: task, Output: out}, err
 }
 
 // =============================================================================

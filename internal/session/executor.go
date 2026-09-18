@@ -1084,15 +1084,10 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 	result.Duration = time.Since(start)
 
-	// Surface unrecovered tool failures as the execution error. A tool that
-	// errored is considered "recovered" if the model ultimately produced a
-	// final text response without re-requesting that tool. We can't know that
-	// precisely, but as a conservative heuristic: if the final response is
-	// empty AND tools errored, treat it as execution failure so the learning
-	// trace doesn't record success.
-	if len(toolErrs) > 0 && strings.TrimSpace(result.Response) == "" {
-		result.Error = fmt.Errorf("tool execution failed: %s", strings.Join(toolErrs, "; "))
-	}
+	// Surface unrecovered tool failures as the execution error. See
+	// surfaceToolErrors: whether a mid-turn tool error survived is decided by
+	// the closing evidence, not by the shape of the final response.
+	surfaceToolErrors(result, toolErrs)
 
 	// Block hollow success: mutation intents that require real side effects
 	// must not report completion when the model only returned planning prose
@@ -2331,6 +2326,10 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 	if e.kernel == nil || result == nil {
 		return
 	}
+	// The mechanical gates are evidence about the workspace, and the policy
+	// corpus already asks for them by name. Assert them before turn_evidence
+	// so !build_state(/failing) can exclude turn_executed on the same pass.
+	e.recordBuildState(result)
 	if result.Acceptance != nil && result.Acceptance.Status == "verified" {
 		fact := types.Fact{Predicate: "turn_acceptance", Args: []any{types.MangleAtom(verb), result.Acceptance.ContractID, result.Acceptance.After}}
 		if err := e.kernel.Assert(fact); err == nil {
@@ -2422,6 +2421,50 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 		e.perTurnTurnCreatedSourceFacts = append(e.perTurnTurnCreatedSourceFacts, tf)
 		e.mu.Unlock()
 	}
+}
+
+// recordBuildState asserts this turn's mechanical gate verdicts as the facts
+// the policy corpus reads: build_state/1 from BuildCheck and test_state/1 from
+// TestCheck.
+//
+// Until this existed the field below it tracked was written by nothing —
+// perTurnBuildStateFacts named a recordBuildState that was not in the tree, the
+// only build_state assertions in the repo were in a test, and so the
+// !build_state(/failing) conjunct of turn_executed
+// (internal/core/defaults/policy/coder_safety.mg) excluded nothing in
+// production: a turn whose build failed could still be turn_executed, and with
+// an acceptance contract, turn_done.
+//
+// Only an affirmative verdict is asserted. A skipped, canceled or
+// indeterminate gate proves nothing about the workspace, and asserting
+// /passing for it would be the same guess this seam exists to delete —
+// while asserting /failing would fail turns on a missing Go toolchain.
+func (e *Executor) recordBuildState(result *ExecutionResult) {
+	if e.kernel == nil || result == nil {
+		return
+	}
+	assert := func(pred string, verdict VerifyOutcome) {
+		var state types.MangleAtom
+		switch verdict {
+		case VerifyPassed:
+			state = types.MangleAtom("/passing")
+		case VerifyFailed:
+			state = types.MangleAtom("/failing")
+		default:
+			return
+		}
+		fact := types.Fact{Predicate: pred, Args: []any{state}}
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Warn("failed to assert %s(%s): %v", pred, state, err)
+			return
+		}
+		e.mu.Lock()
+		e.perTurnBuildStateFacts = append(e.perTurnBuildStateFacts, fact)
+		e.mu.Unlock()
+		logging.Get(logging.CategorySession).Debug("asserted %s(%s)", pred, state)
+	}
+	assert("build_state", result.BuildCheck.Verdict())
+	assert("test_state", result.TestCheck.Verdict())
 }
 
 // consumeHollowSuccessVerdict is the Go consumer of the policy-derived

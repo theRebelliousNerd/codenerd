@@ -87,13 +87,13 @@ If you need to search documentation or the web, do so to provide accurate inform
 			)
 
 			// Spawn the specialist with high priority (knowledge is blocking)
-			result, err := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+			ret, err := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
 
 			resultsChan <- KnowledgeResult{
 				Specialist: shardType,
 				Query:      r.Query,
 				Purpose:    r.Purpose,
-				Response:   result,
+				Response:   ret.Output,
 				Timestamp:  time.Now(),
 				Error:      err,
 			}

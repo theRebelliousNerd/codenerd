@@ -266,6 +266,14 @@ func (j *JITExecutor) ExecuteObserved(ctx context.Context, req TaskRequest) (obs
 	return j.executeObserved(ctx, req, nil, types.PriorityNormal)
 }
 
+// ExecuteObservedWithContext implements ObservedTaskExecutor for the callers
+// that also need a session context and a priority — the chat's delegation and
+// continuation path — without making them give up the structured return to get
+// them.
+func (j *JITExecutor) ExecuteObservedWithContext(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
+	return j.executeObserved(ctx, req, sessionCtx, priority)
+}
+
 // executeObserved is the one implementation both entry points share. Splitting
 // it in two so each could "just" return what its caller wanted is how the two
 // paths would drift, and a structured return that disagreed with the string

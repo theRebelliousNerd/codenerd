@@ -517,11 +517,20 @@ func (sm *ShardManager) recordResult(id string, result string, err error) {
 		}
 	}
 
+	// The verdict this path can honestly state. ShardAgent.Execute returns a
+	// string and an error, so "it did not error" is the whole of what was
+	// observed — /unverified, never /done. A consumer wanting more has to ask
+	// a producer that holds a kernel verdict.
+	outcome := types.MangleAtom("/unverified")
+	if err != nil {
+		outcome = types.MangleAtom("/failed")
+	}
 	sm.results[id] = types.ShardResult{
 		ShardID:   id,
 		Result:    result,
 		Error:     err,
 		Timestamp: time.Now(),
+		Outcome:   outcome,
 	}
 }
 

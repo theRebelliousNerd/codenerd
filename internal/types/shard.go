@@ -102,6 +102,21 @@ type ShardResult struct {
 	Result    string
 	Error     error
 	Timestamp time.Time
+
+	// Outcome is the verdict on the run: /done, /hollow, /failed or
+	// /unverified. It is carried so no consumer has to read "no error" as
+	// "verified" or read the verdict out of Result's prose.
+	//
+	// The ShardManager path fills it /failed or /unverified and never /done,
+	// and that is not a placeholder: types.ShardAgent.Execute returns a bare
+	// string, so a shard finishing without an error is genuinely all that
+	// path observed. /unverified says exactly that. A producer that DOES hold
+	// a kernel verdict fills it with that verdict.
+	Outcome MangleAtom
+
+	// Stage is how far a change got — artifact_changed, checks_passed,
+	// behavior_verified — or empty when the producer observed no stage.
+	Stage string
 }
 
 // ShardInfo contains information about an available shard for selection.
