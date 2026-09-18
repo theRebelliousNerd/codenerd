@@ -4004,3 +4004,28 @@ them. Earlier the same check found a real one: `tool_registered` asserted an RFC
 - A shard dropped a comma after a new column in CREATE TABLE; SQLite parsed `TEXT source_file TEXT` as a type name and
   silently created the table without `source_file`. Build, vet and the shard's own gates passed; the package tests caught it.
 - Both lanes lost DNS mid-run: `nerd fix` failed in ~11 s after 4 attempts with the real error and left the tree clean.
+
+### CodeDOM rewrite, measured (controlled A/B, 2026-09-17 20:00)
+
+Same brief (B-MISC-2a: rewrite one vacuous chat test), same starting commit (1cb4667f), two binaries differing only in the
+CodeDOM atoms (39f5665c vs 5bba0023), two runs per arm in alternating order, temperature 0, billed tokens from
+`.nerd/meter/receipts.jsonl`. All four runs exited 0 with the target tests passing.
+
+| | old atoms | new atoms |
+|---|---|---|
+| billed input (2 runs) | 2,402,074 | 1,988,308 (-17%) |
+| cached | 1,879,819 | 1,465,784 |
+| uncached | 522,255 | 522,524 (unchanged) |
+| output | 25,437 | 26,668 |
+| tool-loop calls | 32 + 28 | 30 + 28 |
+| read_file calls | 24, 22 | 33, 19 |
+
+Reading: the 6K-token prompt cut lands 1:1 as fewer cached tokens per request and nothing else moves. Outcome is
+unchanged (good: nothing was lost), behaviour is unchanged (the "read only the range you were given" instruction did not
+reduce reads), and uncached input - the part that costs - is identical. **Prompt density is not what drives the read loop.**
+The next lever for uncached tokens is the loop itself (what the model re-reads and why), not the system prompt. n=2 per arm.
+
+Selector fix landed after this A/B (af736619, merged 13b1e452): non-mandatory atoms in every category are now reachable and
+the vector tier ranks among eligible atoms with a relative floor. Not yet validated live: a rebuilt binary skips every
+unstamped vector until `nerd embedding reembed` runs, so the first live check is reembed -> `nerd fix` -> read
+"Vector tier: N scored, M eligible, floor=..., kept K" in jit.log and confirm the kept atoms fit the task.
