@@ -179,7 +179,7 @@ func (m Model) fastPathKernelUpdate(intent perception.Intent) {
 	// Retract stale facts from previous turns
 	tx.Retract("shard_result")
 	tx.Retract("pending_test")
-	tx.Retract("pending_review")
+	tx.Retract("pending_fix")
 	tx.Retract("interrupt_requested")
 	tx.Retract("execution_result")
 	tx.Retract("routing_result")

@@ -8,7 +8,7 @@ import (
 )
 
 // truncateSummary's output is not private. It becomes the fifth argument of
-// shard_result/5 and the body of pending_test and pending_review, and kernel
+// shard_result/5 and the body of pending_test and pending_fix, and kernel
 // facts are what a later turn's injectable_context renders into the window.
 // Cut at 200 characters with a bare "...", a reviewer's return reaches the
 // model as a complete short answer whose author happened to trail off.

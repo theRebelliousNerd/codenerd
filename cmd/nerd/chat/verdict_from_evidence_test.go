@@ -60,7 +60,8 @@ func TestShardResultStatus_DerivedFromOutcomeNotProse(t *testing.T) {
 		},
 		{
 			// /unverified must never reach /complete, however confident the
-			// prose sounds.
+			// prose sounds. That Go source was written is evidence that raises
+			// pending_test; it is not a status word.
 			name: "unverifiedIsNeverComplete",
 			ret: observation.Return{
 				Agent:   "coder",
@@ -68,7 +69,7 @@ func TestShardResultStatus_DerivedFromOutcomeNotProse(t *testing.T) {
 				Outcome: "/unverified",
 				Changed: []string{"internal/core/kernel.go"},
 			},
-			want: "/code_generated",
+			want: "/unverified",
 		},
 		{
 			name: "unverifiedWithNoChangeIsUnverified",
@@ -287,7 +288,7 @@ func TestInjectShardResultFacts_DerivesContinuationThroughRealKernel(t *testing.
 			Changed: []string{"internal/core/handler.go"},
 		}, nil)
 
-		assertShardResultStatus(t, m, "/code_generated")
+		assertShardResultStatus(t, m, "/unverified")
 		if n := queryLen(t, m, "pending_test"); n != 1 {
 			t.Fatalf("expected one pending_test derived from the evidence, got %d", n)
 		}
@@ -331,7 +332,7 @@ func TestInjectShardResultFacts_DerivesContinuationThroughRealKernel(t *testing.
 		}
 	})
 
-	t.Run("structuredFindingsOweAReview", func(t *testing.T) {
+	t.Run("structuredFindingsOweAFix", func(t *testing.T) {
 		m := newKernelBackedModel(t)
 		m.injectShardResultFacts("coder", "add the handler", observation.Return{
 			Output:   "Added the handler.",
@@ -341,11 +342,11 @@ func TestInjectShardResultFacts_DerivesContinuationThroughRealKernel(t *testing.
 			Findings: []observation.Finding{{File: "internal/core/handler.go", Line: 12, Severity: "high", Message: "unchecked error"}},
 		}, nil)
 
-		if n := queryLen(t, m, "pending_review"); n != 1 {
-			t.Fatalf("expected one pending_review derived from structured findings, got %d", n)
+		if n := queryLen(t, m, "pending_fix"); n != 1 {
+			t.Fatalf("expected one pending_fix derived from structured findings, got %d", n)
 		}
 		if n := queryLen(t, m, "has_pending_subtask"); n == 0 {
-			t.Fatal("the corpus must derive a reviewer subtask from shard_result + pending_review")
+			t.Fatal("the corpus must derive a coder subtask from pending_fix")
 		}
 	})
 
@@ -356,16 +357,26 @@ func TestInjectShardResultFacts_DerivesContinuationThroughRealKernel(t *testing.
 			Outcome: "/unverified",
 		}, nil)
 
-		if n := queryLen(t, m, "pending_review"); n != 0 {
-			t.Fatalf("the substring \"issue\" must not create a review obligation, got %d", n)
+		if n := queryLen(t, m, "pending_fix"); n != 0 {
+			t.Fatalf("the substring \"issue\" must not create a fix obligation, got %d", n)
 		}
 	})
 }
 
 // newKernelBackedModel is a Model with a real kernel carrying the loaded
 // default corpus — the rules under test are the shipped ones, not a stub.
+//
+// The kernel is pinned to the full evaluation path, which is the path the
+// chat's production kernel takes (it has a VirtualStore with external
+// predicates). The differential path (kernel_eval.go, features.diff_eval —
+// true in this workspace's config, and leaked into this package by tests that
+// load it) re-evaluates over a store that already holds derived facts, so a
+// fact derived under a negation is never retracted when the negated premise
+// arrives: TestTestObligationIsDischargedByTheTestersResult fails there and
+// passes here. Seam S23 deletes that path; delete this line with it.
 func newKernelBackedModel(t *testing.T) *Model {
 	t.Helper()
+	t.Setenv("CODENERD_DIFF_EVAL", "0")
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

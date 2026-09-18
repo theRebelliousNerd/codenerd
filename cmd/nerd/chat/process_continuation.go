@@ -199,6 +199,13 @@ func (m *Model) injectShardResultFacts(shardType, task string, ret observation.R
 	}
 	_ = m.kernel.Assert(resultFact)
 
+	// Obligations are keyed by the work they were raised in, so that the shard
+	// result that acts on one discharges it (policy/codedom_continuation.mg
+	// joins on the description). A fix step's own untested files owe a test
+	// for the ROOT task, not for "Fix the findings reported in: ...", or the
+	// descriptions nest one prefix per round and no result ever matches.
+	root := obligationRoot(task)
+
 	// A test obligation is owed by the evidence, not by the vocabulary of the
 	// answer: Go source changed and either nothing ran the tests or the
 	// executor named files it wrote with no test alongside them.
@@ -207,33 +214,62 @@ func (m *Model) injectShardResultFacts(shardType, task string, ret observation.R
 			Predicate: "pending_test",
 			Args: []any{
 				fmt.Sprintf("test_%d", time.Now().UnixNano()),
-				fmt.Sprintf("Write tests for: %s", truncateSummary(task, 100)),
+				testObligationPrefix + root,
 			},
 		}
 		_ = m.kernel.Assert(testFact)
 	}
 
-	// A review obligation is owed by structured findings — the reviewer's own
+	// A fix obligation is owed by structured findings — the reviewer's own
 	// findings, or the critic's on a write turn — not by the substring "issue".
+	// The findings reach the coder through the prior shard context.
 	if len(ret.Findings) > 0 {
-		reviewFact := core.Fact{
-			Predicate: "pending_review",
+		fixFact := core.Fact{
+			Predicate: "pending_fix",
 			Args: []any{
-				fmt.Sprintf("review_%d", time.Now().UnixNano()),
-				fmt.Sprintf("Fix %d finding(s) reported in: %s", len(ret.Findings), truncateSummary(task, 100)),
+				fmt.Sprintf("fix_%d", time.Now().UnixNano()),
+				fixObligationPrefix + root,
 			},
 		}
-		_ = m.kernel.Assert(reviewFact)
+		_ = m.kernel.Assert(fixFact)
+	}
+}
+
+// The obligation descriptions. They are the join key between the obligation
+// and the shard result that discharges it, so they are built from one place.
+const (
+	testObligationPrefix = "Write tests for: "
+	fixObligationPrefix  = "Fix the findings reported in: "
+)
+
+// obligationRoot strips every obligation prefix a task description has
+// accumulated through continuation steps, and bounds what remains the way
+// every other string that enters the kernel is bounded.
+func obligationRoot(task string) string {
+	for {
+		switch {
+		case strings.HasPrefix(task, testObligationPrefix):
+			task = strings.TrimPrefix(task, testObligationPrefix)
+		case strings.HasPrefix(task, fixObligationPrefix):
+			task = strings.TrimPrefix(task, fixObligationPrefix)
+		default:
+			return truncateSummary(task, 100)
+		}
 	}
 }
 
 // shardResultStatus derives the Status argument of shard_result/5 from the
-// producer's verdict and evidence.
+// producer's verdict. The vocabulary is closed and every word in it is either
+// joined by a continuation rule (/incomplete) or terminal for the step
+// (/failed, /complete, /unverified); TestShardResultStatusVocabularyIsClosed
+// holds the two sides together.
 //
 // An absent verdict is deliberately NOT completion. A producer that recorded
 // no outcome observed nothing about whether the work holds, and the whole
 // point of this seam is that "nobody checked" and "it worked" stop sharing a
-// status atom.
+// status atom. Nor is the status where work owed is recorded: whether Go
+// source was written is evidence, and it raises pending_test below;
+// /code_generated, the status that used to carry it, is gone.
 func shardResultStatus(ret observation.Return, err error) string {
 	if err != nil {
 		return "/failed"
@@ -248,9 +284,6 @@ func shardResultStatus(ret observation.Return, err error) string {
 		return "/incomplete"
 	case "/done":
 		return "/complete"
-	}
-	if changedGoSource(ret.Changed) {
-		return "/code_generated"
 	}
 	return "/unverified"
 }
@@ -402,7 +435,7 @@ func isMutationOperation(shardType string) bool {
 // storage, leaving the pipeline's marker where it cuts.
 //
 // These strings are not private: shard_result/5, pending_test and
-// pending_review carry them into the kernel, and the kernel's facts are what
+// pending_fix carry them into the kernel, and the kernel's facts are what
 // injectable_context renders into a later turn's window. A shard output cut
 // at 200 characters with a bare "..." reaches the model as a complete short
 // answer with the author's own trailing ellipsis. The marker names how much

@@ -181,7 +181,13 @@ Decl observation(Key, Value) bound [/string, /string].
 
 # shard_result(TaskID, Status, ShardType, TaskDescription, ResultSummary)
 # TaskID: Unique identifier for this execution
-# Status: /complete, /incomplete, /code_generated, /tests_needed, /review_needed
+# Status: the producer's verdict for the step, from the kernel's turn outcome
+#   and the observed evidence (cmd/nerd/chat/process_continuation.go,
+#   shardResultStatus): /complete (verified), /incomplete (hollow -- the same
+#   shard owes the rest), /failed (error or failed verdict), /unverified (no
+#   verdict recorded). Work owed is NOT read from this word: obligations are
+#   pending_test / pending_fix, raised from evidence and discharged by the
+#   shard result that acted on them (policy/codedom_continuation.mg).
 # ShardType: /coder, /reviewer, /tester, /researcher
 # TaskDescription: What was requested
 # ResultSummary: Brief summary of output
@@ -190,8 +196,16 @@ Decl shard_result(TaskID, Status, ShardType, TaskDescription, ResultSummary) bou
 # pending_test(TaskID, Description) - Test needs to be written for generated code
 Decl pending_test(TaskID, Description) bound [/string, /string].
 
-# pending_review(TaskID, Description) - Review needed for changes
-Decl pending_review(TaskID, Description) bound [/string, /string].
+# pending_fix(TaskID, Description) - Structured findings were reported against
+# the change (the reviewer's, or the critic's on a write turn); the coder owes
+# a fix. Description names the work the findings were found in.
+Decl pending_fix(TaskID, Description) bound [/string, /string].
+
+# Discharge: a shard result for the obligation's own description.
+Decl test_obligation_discharged(Description) bound [/string].
+Decl fix_obligation_discharged(Description) bound [/string].
+# The same shard has produced two results for the same work already.
+Decl incomplete_step_retried(ShardType, Description) bound [/name, /string].
 
 # -----------------------------------------------------------------------------
 # 49.2 Continuation Signals (Derived in policy.mg)
@@ -206,7 +220,7 @@ Decl has_pending_subtask(TaskID, Description, ShardType) bound [/string, /string
 Decl should_auto_continue() bound [].
 
 # continuation_blocked(Reason) - Derived: continuation is blocked
-# Reason: /needs_clarification, /user_interrupted, /max_steps_reached
+# Reason: /needs_clarification, /user_interrupted
 Decl continuation_blocked(Reason) bound [/name].
 
 # has_continuation_block/0 - Helper: true if any continuation block exists
@@ -221,9 +235,6 @@ Decl interrupt_requested() bound [].
 
 # continuation_step(StepNumber, TotalSteps) - Current progress
 Decl continuation_step(StepNumber, TotalSteps) bound [/number, /number].
-
-# max_continuation_steps(Limit) - Safety limit (default 10)
-Decl max_continuation_steps(Limit) bound [/number].
 
 # =============================================================================
 # SECTION 50: BENCHMARK SCHEMAS (REFERENCE)

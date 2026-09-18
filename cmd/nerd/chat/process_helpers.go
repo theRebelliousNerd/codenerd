@@ -14,7 +14,7 @@ func (m Model) clearStaleKernelFacts() {
 	// This prevents old pending_test/pending_review facts from triggering false continuations
 	_ = m.kernel.Retract("shard_result")
 	_ = m.kernel.Retract("pending_test")
-	_ = m.kernel.Retract("pending_review")
+	_ = m.kernel.Retract("pending_fix")
 	_ = m.kernel.Retract("interrupt_requested")
 
 	// STALE ACTION CLEANUP: Clear action pipeline facts from previous turns/sessions

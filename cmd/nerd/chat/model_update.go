@@ -1148,8 +1148,9 @@ func (m *Model) updateContinuationFacts() {
 		Predicate: "continuation_step",
 		Args:      []any{float64(m.continuationStep), float64(m.continuationTotal)},
 	})
-	_ = m.kernel.Assert(core.Fact{
-		Predicate: "max_continuation_steps",
-		Args:      []any{10.0},
-	})
+	// No step ceiling is asserted. Until 2026-09-18 max_continuation_steps(10)
+	// was written here and the continuation ended on it, which is a count as a
+	// completion criterion; the loop is now bounded by the obligations
+	// themselves (each dispatched once, each incomplete step retried once --
+	// policy/codedom_continuation.mg).
 }
