@@ -25,6 +25,14 @@ type MangleUpdateBlock struct {
 // kernel derives decisions from, and it may not witness its own completion
 // (see predicateAllowed).
 //
+// "test_state" was on this list until 2026-09-18, and the mandatory prompt atom
+// protocol/piggyback/mangle_updates taught the model to write it. That was
+// harmless while nothing read test_state as turn evidence; it stopped being
+// harmless when recordBuildState gave it a real producer and turn_verified
+// started reading it, because a model writing test_state(/passing) is a model
+// witnessing its own completion. It is now hard-blocked in predicateAllowed,
+// and the atom no longer teaches it.
+//
 // The prompt atom protocol/piggyback/mangle_updates teaches exactly this set
 // with its declared arities. Add a predicate here and there together.
 func ModelObservationPolicy() MangleUpdatePolicy {
@@ -36,7 +44,6 @@ func ModelObservationPolicy() MangleUpdatePolicy {
 			"task_completed":    {},
 			"diagnostic":        {},
 			"failing_test":      {},
-			"test_state":        {},
 			"review_finding":    {},
 			"modified":          {},
 			"modified_function": {},
@@ -143,9 +150,24 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 
 func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 	// These are host witnesses and conclusions, never model observations.
-	// Even a permissive caller allowlist cannot delegate their authority.
+	// Even a permissive caller allowlist cannot delegate their authority —
+	// this switch runs BEFORE AllowedPredicates and AllowedPrefixes precisely
+	// so no caller can widen it.
+	//
+	// build_state and test_state are on this list because they are what the
+	// session executor's own post-edit gates recorded (recordBuildState, from
+	// BuildCheck/TestCheck): the compiler and the test runner, measured by the
+	// host. Since turn_verified reads them (coder_safety.mg), a model able to
+	// write build_state(/passing) could manufacture its own completion. Two
+	// routes existed: the SessionPlanner's "build_" prefix allowlist
+	// (internal/shards/system/planner.go), and ModelObservationPolicy, which
+	// named "test_state" outright on the two busiest surfaces there are — the
+	// session executor and the chat turn.
 	switch predicate {
-	case "turn_acceptance", "turn_evidence", "turn_executed", "turn_done", "turn_cost":
+	case "turn_acceptance", "turn_evidence", "turn_executed", "turn_done", "turn_cost",
+		"turn_verified", "turn_unverified", "turn_wrote", "turn_build_failed",
+		"turn_missing_evidence", "turn_created_source", "has_turn_acceptance",
+		"build_state", "test_state":
 		return false
 	}
 	if len(policy.AllowedPredicates) == 0 && len(policy.AllowedPrefixes) == 0 {

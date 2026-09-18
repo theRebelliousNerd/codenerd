@@ -94,7 +94,6 @@
     observation("key", "what you saw").
     diagnostic(/error, "path/file.go", 42, "E001", "message").
     failing_test("TestName", "message").
-    test_state(/passing).    # /passing | /failing | /unknown
     review_finding("path/file.go", 42, /warning, /correctness, "message").
     modified("path/file.go").
     modified_function("FuncName", "path/file.go").
@@ -102,6 +101,14 @@
     task_completed("task_id").
     missing_tool_for(/verb, /capability).
     ```
+
+    You cannot report the state of the build or the test suite. `build_state`
+    and `test_state` are the runtime's own record of what the compiler and the
+    test runner returned, and the kernel decides whether this turn is done by
+    reading them. They are refused here, as are `turn_evidence`,
+    `turn_executed`, `turn_verified`, `turn_done` and `turn_acceptance`. Run
+    the build or the tests with a tool and the runtime records the result
+    itself.
 
 - id: "protocol/piggyback/memory_ops"
   category: "protocol"
