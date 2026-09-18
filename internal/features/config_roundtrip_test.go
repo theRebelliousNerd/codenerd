@@ -41,7 +41,7 @@ func writeUserConfig(t *testing.T, uc *config.UserConfig) string {
 }
 
 // TestLoadUserConfig_InstallsFeaturesIntoRegistry verifies that the
-// FeaturesConfig parsed from .nerd/config.json is what IsDiffEvalEnabled()
+// FeaturesConfig parsed from .nerd/config.json is what IsProvenanceEnabled()
 // and friends consult. The boundary under test is the SetActive call
 // inside LoadUserConfig — without it, the registry would still report
 // compile-time defaults and downstream packages would see stale flags.
@@ -53,7 +53,6 @@ func TestLoadUserConfig_InstallsFeaturesIntoRegistry(t *testing.T) {
 		ta := true
 		uc := &config.UserConfig{
 			Features: &features.FeaturesConfig{
-				DiffEval:       &fa,
 				FlightRecorder: &ta,
 				Provenance:     &ta,
 				TaxonomyFast:   &fa,
@@ -65,7 +64,6 @@ func TestLoadUserConfig_InstallsFeaturesIntoRegistry(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, loaded.Features)
 
-		require.False(t, features.IsDiffEvalEnabled(), "config wrote false; registry must report false")
 		require.True(t, features.IsFlightRecorderEnabled(), "config wrote true; registry must report true")
 		require.True(t, features.IsProvenanceEnabled(), "config wrote true; registry must report true")
 		require.False(t, features.IsTaxonomyFastEnabled())
@@ -81,11 +79,10 @@ func TestLoadUserConfig_InstallsFeaturesIntoRegistry(t *testing.T) {
 		require.NoError(t, err)
 
 		// Defaults as declared in features.go's IsXxxEnabled accessors:
-		//   DiffEval=false, FlightRecorder=false, Provenance=false,
+		//   FlightRecorder=false, Provenance=false,
 		//   TaxonomyFast=false. We re-read the same accessors the kernel
 		//   does so we're testing the actual contract, not a hardcoded
 		//   table.
-		require.False(t, features.IsDiffEvalEnabled(), "DiffEval default")
 		require.False(t, features.IsFlightRecorderEnabled(), "FlightRecorder default (opt-in; off)")
 		require.False(t, features.IsProvenanceEnabled(), "Provenance default")
 		require.False(t, features.IsTaxonomyFastEnabled(), "TaxonomyFast default (opt-in; the fast path skips verification)")
@@ -115,30 +112,30 @@ func TestLoadUserConfig_InstallsFeaturesIntoRegistry(t *testing.T) {
 
 // TestEnvOverridesActiveConfig exercises the documented precedence chain:
 // env > active config > compile-time default. The config file explicitly
-// disables DiffEval; the env var explicitly enables it; the accessor MUST
+// disables Provenance; the env var explicitly enables it; the accessor MUST
 // return true.
 func TestEnvOverridesActiveConfig(t *testing.T) {
 	resetActive(t)
 
 	fa := false
 	uc := &config.UserConfig{
-		Features: &features.FeaturesConfig{DiffEval: &fa, FlightRecorder: &fa},
+		Features: &features.FeaturesConfig{Provenance: &fa, FlightRecorder: &fa},
 	}
 	path := writeUserConfig(t, uc)
 
 	_, err := config.LoadUserConfig(path)
 	require.NoError(t, err)
-	require.False(t, features.IsDiffEvalEnabled(), "precondition: active config says false")
+	require.False(t, features.IsProvenanceEnabled(), "precondition: active config says false")
 
-	t.Setenv("CODENERD_DIFF_EVAL", "1")
-	require.True(t, features.IsDiffEvalEnabled(), "env=1 must override active config")
+	t.Setenv("CODENERD_PROVENANCE", "1")
+	require.True(t, features.IsProvenanceEnabled(), "env=1 must override active config")
 
 	// Other accessors keep reading active config; verify env override is scoped.
 	require.False(t, features.IsFlightRecorderEnabled(), "FlightRecorder env not set; active false stands")
 
-	// Unrecognised env value falls back to active config (true).
-	t.Setenv("CODENERD_DIFF_EVAL", "maybe")
-	require.False(t, features.IsDiffEvalEnabled(), "garbage env falls through to active false")
+	// Unrecognised env value falls back to active config (false).
+	t.Setenv("CODENERD_PROVENANCE", "maybe")
+	require.False(t, features.IsProvenanceEnabled(), "garbage env falls through to active false")
 }
 
 // TestFullyEnabledConfigRoundTrip serialises FullyEnabledFeaturesConfig
@@ -155,7 +152,6 @@ func TestFullyEnabledConfigRoundTrip(t *testing.T) {
 	_, err := config.LoadUserConfig(path)
 	require.NoError(t, err)
 
-	require.True(t, features.IsDiffEvalEnabled())
 	require.True(t, features.IsFlightRecorderEnabled())
 	require.True(t, features.IsProvenanceEnabled())
 	require.True(t, features.IsSystemShardsEnabled())

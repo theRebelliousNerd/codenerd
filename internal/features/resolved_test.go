@@ -114,8 +114,6 @@ func setFlag(t *testing.T, cfg *FeaturesConfig, name string, v bool) {
 	t.Helper()
 	p := &v
 	switch name {
-	case "diff_eval":
-		cfg.DiffEval = p
 	case "flight_recorder":
 		cfg.FlightRecorder = p
 	case "provenance":
@@ -144,7 +142,6 @@ func TestResolved_ShouldMatchAccessors(t *testing.T) {
 	t.Cleanup(func() { SetActive(nil) })
 
 	accessors := map[string]func() bool{
-		"diff_eval":        IsDiffEvalEnabled,
 		"flight_recorder":  IsFlightRecorderEnabled,
 		"provenance":       IsProvenanceEnabled,
 		"system_shards":    IsSystemShardsEnabled,
@@ -205,7 +202,7 @@ func TestSetActive_ConcurrentWithReads(t *testing.T) {
 	for i := 0; i < 500; i++ {
 		_ = Resolved()
 		_ = Summary()
-		_ = IsDiffEvalEnabled()
+		_ = IsProvenanceEnabled()
 		_ = FastScanWorkers()
 	}
 	<-done
@@ -215,15 +212,15 @@ func TestSetActive_ConcurrentWithReads(t *testing.T) {
 // SetActive cannot change what the registry reports.
 func TestSetActive_ShouldCopyTheConfig(t *testing.T) {
 	v := true
-	cfg := &FeaturesConfig{DiffEval: &v}
+	cfg := &FeaturesConfig{Provenance: &v}
 	SetActive(cfg)
 	t.Cleanup(func() { SetActive(nil) })
 
-	if !IsDiffEvalEnabled() {
-		t.Fatal("precondition: diff_eval should be on")
+	if !IsProvenanceEnabled() {
+		t.Fatal("precondition: provenance should be on")
 	}
-	cfg.DiffEval = nil // caller mutates its own struct afterwards
-	if !IsDiffEvalEnabled() {
+	cfg.Provenance = nil // caller mutates its own struct afterwards
+	if !IsProvenanceEnabled() {
 		t.Error("SetActive did not copy the config; caller mutation leaked in")
 	}
 }

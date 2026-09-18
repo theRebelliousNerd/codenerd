@@ -12,57 +12,55 @@ import (
 func TestResolveBoolPrecedence(t *testing.T) {
 	t.Run("env wins over active", func(t *testing.T) {
 		f := false
-		SetActive(&FeaturesConfig{DiffEval: &f})
+		SetActive(&FeaturesConfig{Provenance: &f})
 		t.Cleanup(func() { SetActive(nil) })
 
-		t.Setenv("CODENERD_DIFF_EVAL", "1")
-		if got := IsDiffEvalEnabled(); !got {
+		t.Setenv("CODENERD_PROVENANCE", "1")
+		if got := IsProvenanceEnabled(); !got {
 			t.Fatalf("env=1 should win over active=false; got %v", got)
 		}
 	})
 
 	t.Run("active wins over default", func(t *testing.T) {
-		// Default for DiffEval is true, so we set active=false and
-		// verify the active value sticks.
 		f := false
-		SetActive(&FeaturesConfig{DiffEval: &f})
+		SetActive(&FeaturesConfig{Provenance: &f})
 		t.Cleanup(func() { SetActive(nil) })
 
-		t.Setenv("CODENERD_DIFF_EVAL", "")
-		if got := IsDiffEvalEnabled(); got {
-			t.Fatalf("active=false should win over default=true; got %v", got)
+		t.Setenv("CODENERD_PROVENANCE", "")
+		if got := IsProvenanceEnabled(); got {
+			t.Fatalf("active=false should win over default; got %v", got)
 		}
 	})
 
 	t.Run("default kicks in when active nil and env empty", func(t *testing.T) {
 		SetActive(nil)
-		t.Setenv("CODENERD_DIFF_EVAL", "")
-		// DiffEval defaults OFF at compile time (see DefaultFeaturesConfig
-		// rationale); .nerd/config.json flips it on in production.
-		if got := IsDiffEvalEnabled(); got {
+		t.Setenv("CODENERD_PROVENANCE", "")
+		// Provenance defaults OFF at compile time (see DefaultFeaturesConfig
+		// rationale); it allocates per-derivation buffers.
+		if got := IsProvenanceEnabled(); got {
 			t.Fatalf("default should be false; got %v", got)
 		}
 	})
 
 	t.Run("invalid env value falls through to active", func(t *testing.T) {
 		f := false
-		SetActive(&FeaturesConfig{DiffEval: &f})
+		SetActive(&FeaturesConfig{Provenance: &f})
 		t.Cleanup(func() { SetActive(nil) })
 
 		// "yes" is not in the accepted forms — should NOT override.
-		t.Setenv("CODENERD_DIFF_EVAL", "yes")
-		if got := IsDiffEvalEnabled(); got {
+		t.Setenv("CODENERD_PROVENANCE", "yes")
+		if got := IsProvenanceEnabled(); got {
 			t.Fatalf("invalid env should not override active=false; got %v", got)
 		}
 	})
 
 	t.Run("env 0 forces off even when active true", func(t *testing.T) {
 		t1 := true
-		SetActive(&FeaturesConfig{DiffEval: &t1})
+		SetActive(&FeaturesConfig{Provenance: &t1})
 		t.Cleanup(func() { SetActive(nil) })
 
-		t.Setenv("CODENERD_DIFF_EVAL", "0")
-		if got := IsDiffEvalEnabled(); got {
+		t.Setenv("CODENERD_PROVENANCE", "0")
+		if got := IsProvenanceEnabled(); got {
 			t.Fatalf("env=0 should force off; got %v", got)
 		}
 	})
@@ -113,16 +111,16 @@ func TestSystemShardsLegacyEnvIgnored(t *testing.T) {
 // callers cannot mutate the active pointer's struct after install.
 func TestSetActiveCopySemantics(t *testing.T) {
 	f := false
-	cfg := &FeaturesConfig{DiffEval: &f}
+	cfg := &FeaturesConfig{Provenance: &f}
 	SetActive(cfg)
 	t.Cleanup(func() { SetActive(nil) })
 
 	// Mutate the original after install — this should NOT affect Active.
 	tval := true
-	cfg.DiffEval = &tval
+	cfg.Provenance = &tval
 
 	a := Active()
-	if a == nil || a.DiffEval == nil || *a.DiffEval != false {
+	if a == nil || a.Provenance == nil || *a.Provenance != false {
 		t.Fatalf("SetActive should snapshot; got active=%+v", a)
 	}
 }
@@ -166,7 +164,7 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 		got := Summary()
 		// Summary now reports resolved values rather than the phrase
 		// "defaults active", which said nothing about env overrides.
-		if !strings.Contains(got, "diff_eval=false") {
+		if !strings.Contains(got, "provenance=false") {
 			t.Fatalf("nil active: got %q", got)
 		}
 		if strings.Contains(got, "(config)") || strings.Contains(got, "(env)") {
@@ -177,7 +175,6 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 	t.Run("explicit true and false", func(t *testing.T) {
 		tr, fa := true, false
 		SetActive(&FeaturesConfig{
-			DiffEval:        &tr,
 			FlightRecorder:  &fa,
 			Provenance:      &tr,
 			SystemShards:    &fa,
@@ -196,7 +193,7 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 		}
 		// Values set explicitly in config are tagged with their source so an
 		// operator can see at a glance what was deliberately changed.
-		want := "features: diff_eval=true(config) flight_recorder=false(config) provenance=true(config) " +
+		want := "features: flight_recorder=false(config) provenance=true(config) " +
 			"system_shards=false(config) per_shard_facts=true(config) dark_mode=false(config) " +
 			"skip_onboarding=true(config) taxonomy_fast=false(config) " +
 			"prompt_evolution=true(config) " +
@@ -219,7 +216,6 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 			t.Fatalf("Summary should resolve nil fields, not print unset: %q", got)
 		}
 		for _, key := range []string{
-			"diff_eval=false",
 			"flight_recorder=false",
 			"provenance=false",
 			"system_shards=true", // default ON
@@ -238,9 +234,9 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 		// The whole point of the rewrite: a key absent from config used to log
 		// as "unset" even while an env var forced it on.
 		SetActive(&FeaturesConfig{})
-		t.Setenv("CODENERD_DIFF_EVAL", "1")
+		t.Setenv("CODENERD_PROVENANCE", "1")
 		got := Summary()
-		if !strings.Contains(got, "diff_eval=true(env)") {
+		if !strings.Contains(got, "provenance=true(env)") {
 			t.Errorf("Summary did not attribute the env override: %q", got)
 		}
 	})

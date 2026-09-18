@@ -533,10 +533,11 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		return nil, fmt.Errorf("failed to read user config: %w", err)
 	}
 
-	// Before the strict decoder, so a config that still carries a deleted
-	// tool-budget key is told which key and why rather than getting the
-	// decoder's bare "unknown field".
-	if err := rejectRemovedCoreLimitKeys(coreLimitsKeysPresent(data)); err != nil {
+	// Named rejection first: the strict decoder below would refuse a removed
+	// key as a generic unknown field, which reads like a typo and says nothing
+	// about the behaviour change behind it. One entry point for every removed
+	// key (core_limits' tool-budget keys from S3, features' diff_eval from S23).
+	if err := rejectRemovedKeys(data); err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
 

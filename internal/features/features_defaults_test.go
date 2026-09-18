@@ -13,7 +13,7 @@ func TestDefaultFeaturesConfig(t *testing.T) {
 			t.Errorf("%s should default to true", name)
 		}
 	}
-	off := map[string]*bool{"FlightRecorder": c.FlightRecorder, "DiffEval": c.DiffEval, "Provenance": c.Provenance, "PerShardFacts": c.PerShardFacts, "DarkMode": c.DarkMode, "SkipOnboarding": c.SkipOnboarding, "TaxonomyFast": c.TaxonomyFast}
+	off := map[string]*bool{"FlightRecorder": c.FlightRecorder, "Provenance": c.Provenance, "PerShardFacts": c.PerShardFacts, "DarkMode": c.DarkMode, "SkipOnboarding": c.SkipOnboarding, "TaxonomyFast": c.TaxonomyFast}
 	for name, p := range off {
 		if p == nil || *p {
 			t.Errorf("%s should default to false", name)

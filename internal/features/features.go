@@ -22,7 +22,7 @@
 // Env-var naming and the NERD_* → CODENERD_* migration:
 //
 //	Every flag's canonical variable is CODENERD_ + the config key in
-//	upper case (diff_eval → CODENERD_DIFF_EVAL). Four flags predate that
+//	upper case (dark_mode → CODENERD_DARK_MODE). Four flags predate that
 //	rule and shipped under a bare NERD_ prefix: NERD_FLIGHTREC,
 //	NERD_SKIP_ONBOARDING, NERD_FAST_SCAN_WORKERS and
 //	NERD_FAST_AST_MAX_BYTES. Those legacy names are still READ — an
@@ -44,8 +44,8 @@
 //	loudly rather than the behavior changing silently.
 //
 // The flags themselves are intentionally narrow: each one corresponds
-// to a specific marathon-era feature (DifferentialEngine, FlightRecorder,
-// Provenance, ...). Adding a flag here means three things in lockstep:
+// to a specific marathon-era feature (FlightRecorder, Provenance, ...).
+// Adding a flag here means three things in lockstep:
 //
 //  1. A field on FeaturesConfig
 //  2. A public IsXXX helper below that honours env-override + active +
@@ -67,10 +67,6 @@ import (
 // user does not write the `features` block at all, every accessor
 // falls back to DefaultFeaturesConfig().
 type FeaturesConfig struct {
-	// DiffEval activates internal/core/kernel_eval.go's
-	// DifferentialEngine fast-path. Env var: CODENERD_DIFF_EVAL.
-	DiffEval *bool `json:"diff_eval,omitempty"`
-
 	// FlightRecorder turns on the runtime/trace ring buffer dumped on
 	// panic and on /diag flightrec.
 	// Env var: CODENERD_FLIGHT_RECORDER (legacy: NERD_FLIGHTREC).
@@ -146,13 +142,12 @@ type FeaturesConfig struct {
 // AND no env override is present — i.e. they govern unit tests, ad-hoc
 // kernel constructions, and the very first boot before config is read.
 //
-// The choice is intentionally conservative: features that change the
-// evaluation path (DiffEval), allocate per-derivation buffers
-// (Provenance), or drive the execution tracer and can OOM the process
-// under load (FlightRecorder) default OFF here so unit tests against the
-// kernel see the canonical evaluation behaviour and no debug tracer runs
-// unless explicitly requested. The user's `.nerd/config.json` (written by
-// the boot wizard) opts INTO the modern paths explicitly — see
+// The choice is intentionally conservative: features that allocate
+// per-derivation buffers (Provenance) or drive the execution tracer and
+// can OOM the process under load (FlightRecorder) default OFF here, so
+// unit tests see the canonical behaviour and no debug tracer runs unless
+// explicitly requested. The user's `.nerd/config.json` (written by the
+// boot wizard) opts INTO the modern paths explicitly — see
 // FullyEnabledFeaturesConfig and the seed config.json.
 //
 // To "turn it all on by default for everyone", flip the file rather
@@ -161,7 +156,6 @@ type FeaturesConfig struct {
 func DefaultFeaturesConfig() FeaturesConfig {
 	t, f := true, false
 	return FeaturesConfig{
-		DiffEval:        &f, // off in tests; .nerd/config.json sets true in production
 		FlightRecorder:  &f, // drives the execution tracer; can OOM under heavy load — opt-in only
 		Provenance:      &f, // per-derivation buffers — off until /explain
 		SystemShards:    &t,
@@ -209,7 +203,6 @@ func FullyEnabledFeaturesConfig() FeaturesConfig {
 	t := true
 	f := false
 	return FeaturesConfig{
-		DiffEval:        &t,
 		FlightRecorder:  &t,
 		Provenance:      &t,
 		SystemShards:    &t,
@@ -266,7 +259,7 @@ const (
 // Flag is one resolved toggle: the value a caller of the accessor actually
 // gets, plus where it came from.
 type Flag struct {
-	Name         string // JSON/config key, e.g. "diff_eval"
+	Name         string // JSON/config key, e.g. "flight_recorder"
 	EnvVar       string // canonical environment variable
 	LegacyEnvVar string // deprecated pre-CODENERD_ spelling, "" when there is none
 	Value        bool
@@ -287,7 +280,6 @@ var boolFlags = []struct {
 	get          func(*FeaturesConfig) *bool
 	def          bool
 }{
-	{"diff_eval", "CODENERD_DIFF_EVAL", "", func(f *FeaturesConfig) *bool { return f.DiffEval }, false},
 	{"flight_recorder", "CODENERD_FLIGHT_RECORDER", "NERD_FLIGHTREC", func(f *FeaturesConfig) *bool { return f.FlightRecorder }, false},
 	{"provenance", "CODENERD_PROVENANCE", "", func(f *FeaturesConfig) *bool { return f.Provenance }, false},
 	{"system_shards", "CODENERD_SYSTEM_SHARDS", "", func(f *FeaturesConfig) *bool { return f.SystemShards }, true},
@@ -446,7 +438,7 @@ func resolveBool(envVar, legacyEnvVar string, fromActive func(*FeaturesConfig) *
 // must not silently flip a bit.
 //
 // Matching is genuinely case-insensitive. The old switch listed only "true",
-// "TRUE" and "True", so a perfectly ordinary `CODENERD_DIFF_EVAL=True` worked
+// "TRUE" and "True", so a perfectly ordinary `CODENERD_DARK_MODE=True` worked
 // while `=tRue` silently fell through to the default, contradicting the
 // package doc.
 func envBool(envVar string) *bool {
@@ -463,22 +455,6 @@ func envBool(envVar string) *bool {
 	}
 	// Anything else ("yes", "maybe", a typo) is deliberately not an override.
 	return nil
-}
-
-// IsDiffEvalEnabled gates kernel_eval.go's DifferentialEngine path.
-//
-// Default OFF at the compile-time level so unit tests that construct a
-// kernel directly (no .nerd/config.json) see the canonical full-eval
-// path — the diff engine's first build is heavyweight (LoadSchemaString
-// + Stratify on the whole constitution) and inflated test wall time
-// before this default was set conservatively.
-//
-// Production opts IN via the `features.diff_eval: true` key in
-// .nerd/config.json, which LoadUserConfig pushes into the active
-// pointer at boot.
-func IsDiffEvalEnabled() bool {
-	return resolveBool("CODENERD_DIFF_EVAL", "",
-		func(f *FeaturesConfig) *bool { return f.DiffEval }, false)
 }
 
 // IsFlightRecorderEnabled gates the runtime/trace ring buffer in main.go.

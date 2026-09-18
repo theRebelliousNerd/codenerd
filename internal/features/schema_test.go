@@ -45,7 +45,7 @@ func TestConfigSchemaKeys_ShouldMatchTheJSONTags(t *testing.T) {
 	// The struct tags are the authority; ConfigSchemaKeys is derived from the
 	// flag tables, so agreeing here proves the tables name real config keys.
 	want := map[string]bool{
-		"diff_eval": true, "flight_recorder": true, "provenance": true,
+		"flight_recorder": true, "provenance": true,
 		"system_shards": true, "per_shard_facts": true, "dark_mode": true,
 		"skip_onboarding": true, "taxonomy_fast": true,
 		"prompt_evolution":  true,
@@ -84,7 +84,7 @@ func TestPerShardFacts_ShouldRemainOptInEvenWhenFullyEnabled(t *testing.T) {
 	// Every other boolean is on: this is the "most modern paths" config, and
 	// PerShardFacts being the single exception is the point.
 	for name, p := range map[string]*bool{
-		"DiffEval": cfg.DiffEval, "FlightRecorder": cfg.FlightRecorder,
+		"FlightRecorder": cfg.FlightRecorder,
 		"Provenance": cfg.Provenance, "SystemShards": cfg.SystemShards,
 		"DarkMode": cfg.DarkMode, "SkipOnboarding": cfg.SkipOnboarding,
 		"TaxonomyFast": cfg.TaxonomyFast,
