@@ -1247,40 +1247,35 @@ func (c *UserConfig) GetShardProfile(shardType string) ShardProfile {
 	}
 }
 
-// GetCoreLimits returns core resource limits with defaults applied.
+// GetCoreLimits returns core resource limits with defaults applied. The
+// defaults are DefaultCoreLimits' and nowhere else: until 2026-09-18 this method
+// carried two more inline copies of every number, and raising the kernel's fact
+// ceilings in one place left the other two serving the old values.
 func (c *UserConfig) GetCoreLimits() CoreLimits {
-	if c.CoreLimits != nil {
-		limits := *c.CoreLimits
-		// Apply defaults for zero values
-		if limits.MaxTotalMemoryMB == 0 {
-			limits.MaxTotalMemoryMB = 12288
-		}
-		if limits.MaxConcurrentShards == 0 {
-			limits.MaxConcurrentShards = 12
-		}
-		if limits.MaxConcurrentAPICalls == 0 {
-			limits.MaxConcurrentAPICalls = 5
-		}
-		if limits.MaxSessionDurationMin == 0 {
-			limits.MaxSessionDurationMin = 120
-		}
-		if limits.MaxFactsInKernel == 0 {
-			limits.MaxFactsInKernel = 250000
-		}
-		if limits.MaxDerivedFactsLimit == 0 {
-			limits.MaxDerivedFactsLimit = 100000
-		}
-		return limits
+	def := *DefaultCoreLimits()
+	if c.CoreLimits == nil {
+		return def
 	}
-	// Return defaults
-	return CoreLimits{
-		MaxTotalMemoryMB:      12288,
-		MaxConcurrentShards:   12,
-		MaxConcurrentAPICalls: 5,
-		MaxSessionDurationMin: 120,
-		MaxFactsInKernel:      250000,
-		MaxDerivedFactsLimit:  100000,
+	limits := *c.CoreLimits
+	if limits.MaxTotalMemoryMB == 0 {
+		limits.MaxTotalMemoryMB = def.MaxTotalMemoryMB
 	}
+	if limits.MaxConcurrentShards == 0 {
+		limits.MaxConcurrentShards = def.MaxConcurrentShards
+	}
+	if limits.MaxConcurrentAPICalls == 0 {
+		limits.MaxConcurrentAPICalls = def.MaxConcurrentAPICalls
+	}
+	if limits.MaxSessionDurationMin == 0 {
+		limits.MaxSessionDurationMin = def.MaxSessionDurationMin
+	}
+	if limits.MaxFactsInKernel == 0 {
+		limits.MaxFactsInKernel = def.MaxFactsInKernel
+	}
+	if limits.MaxDerivedFactsLimit == 0 {
+		limits.MaxDerivedFactsLimit = def.MaxDerivedFactsLimit
+	}
+	return limits
 }
 
 // GetWorldConfig returns world-model scanning settings with defaults.
