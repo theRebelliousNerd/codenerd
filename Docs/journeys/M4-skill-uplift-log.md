@@ -2,9 +2,9 @@
 
 ## Status
 
-- last updated: 2026-09-18 10:08
-- done: 1 Before
-- open: 2 Decisions; 3 After; 4 Examples run; 5 Mirror; 6 Next uplift
+- last updated: 2026-09-18 20:20
+- done: 1 Before; 2 Decisions; 3 After; 4 Examples run; 5 Mirror; 6 Next uplift (hand-written by the merger after the uplift agent stalled twice)
+- open: none for this pass; see section 6
 - NOTE (merger, 2026-09-18 15:15): the uplift agent stalled at 10:30 after writing section 1 and touched nothing in the skill directory (verified by mtime). Sections 2-6 are owed by the S11 relaunch, which starts from M0/M2/M3 as revised.
 
 Branch: `dogfood/c2-closure`. Repo: `C:/CodeProjects/codeNERD`. Scratch: `C:/Temp/mangle-study/`.
@@ -79,20 +79,33 @@ The `.codex/skills/mangle-programming` mirror **exists** (55 files) and is **not
 
 ## 2. Decisions: kept / harvested-and-updated / deleted, per file
 
-(pending)
+| file | decision | why |
+|---|---|---|
+| `SKILL.md` | **rewritten** (v1.0.0) | It described "Google's Mangle 0.4.0 (November 2024)" and opened with syntax. It now opens with the programming model (witness vs judgement, five sentences), a pattern picker keyed to live corpus examples, the engine truths verified on the pinned commit, a one-screen syntax block, the working checklist for adding a decision to codeNERD's policy, and how the prompt corpus's 119 `/mangle` atoms reach codeNERD's own agents. The CLI, scripts and asset sections were kept verbatim and renumbered. |
+| `references/010-PROGRAMMING_MODEL.md` | **new** | The seven patterns distilled from M2, each with what M3's verification changed and where it is live in the corpus. Points at M2/M3 by repository path; does not copy them (one source of record). |
+| `references/020-ENGINE_TRUTHS_v0.5.1.md` | **new** | Sixteen behaviours established by running programs on the pinned engine or by a production failure, with the mechanism: silent negation deletion, constant-only external inputs, the single-atom aggregation wildcard, the created-fact limit's misleading message, no in-engine retraction, the `ToAtom` string/name heuristic. |
+| `references/context7-mangle.md` (57 KB) | **deleted** | A dump of the downstream 0.4.0 documentation: 116 "Google" mentions, describing an engine this repository does not run. Its one inbound link (960) now points at 020. |
+| `references/SYNTAX.md` | **deleted** | Duplicate of `200-SYNTAX_REFERENCE.md`, listed as "being migrated" since 2025. Its inbound link (000) was rewritten. |
+| `references/000-ORIENTATION.md` | **updated** | The "legacy files being migrated" block replaced with the entry point to 010/020. |
+| `references/960-FORK_FEATURES_v0.5.1.md` | **updated** | See-also repointed. |
+| `150-AI_FAILURE_MODES`, `450-PROMPT_ATOM_PREDICATES`, `SHARDING_STRATEGIES`, the numbered 100-950 references, `GO_API_REFERENCE`, `PRODUCTION`, `ADVANCED_PATTERNS`, `EXAMPLES`, `VALIDATION_TOOLS`, `CLI_*`, `scripts/`, `assets/` | **kept** | Harvest list from the plan; none carries the 0.4.0 framing beyond a passing mention. Not re-verified line by line in this pass (section 6). |
 
 ## 3. After: file list with sizes
 
-(pending)
+57 files (55 before the two additions and two deletions net to 57 with the two `.claude`-only files now mirrored). New: `references/010-PROGRAMMING_MODEL.md`, `references/020-ENGINE_TRUTHS_v0.5.1.md`. Gone: `references/context7-mangle.md` (56,867 bytes), `references/SYNTAX.md` (4,364 bytes). `SKILL.md` is 319 lines (was 376).
 
 ## 4. Examples run
 
-(pending)
+The one-screen syntax block in `SKILL.md` section 4, completed with its `Decl`s, was checked with the production binary: `nerd.exe check-mangle skill_example.mg` -> `OK` (parse, analysis, stratification on the pinned engine; binary built from `f8290327`). The statements in 020 are not new examples: each cites the M3 probe or the production commit that established it. The numbered references' older examples were **not** re-run in this pass.
 
 ## 5. Mirror
 
-(pending)
+`.codex/skills/mangle-programming` was deleted and regenerated as a copy of `.claude/skills/mangle-programming`; `diff -rq` reports no differences (it reported 21 differing files and two missing ones before). The mirror is never edited on its own.
 
 ## 6. What the next uplift should do
 
-(pending)
+1. Re-run every example in the numbered references (100-950, EXAMPLES, ADVANCED_PATTERNS) through `nerd check-mangle` and delete or fix what fails; this pass verified only what it wrote.
+2. Put each of 020's truths into the prompt corpus as a `/mangle` atom where one does not exist (the skill teaches the development agent; the atoms teach the agent inside the harness), and check the 119 existing atoms for 0.4.0-era claims the way `context7-mangle.md` was.
+3. Add the dropped-negation lint (negated-atom count per clause before and after analysis) to `nerd check-mangle`; 020 item 1 is still caught only by reading.
+4. When the upstream external-predicate fix lands (020 item 5), rewrite Pattern A's section and `policy/knowledge.mg`'s comment.
+5. Teach provenance (Pattern F) with a runnable `DerivationRecorder` example once `nerd why` uses it.
