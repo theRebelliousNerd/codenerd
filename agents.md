@@ -22,6 +22,40 @@ This repo exists to make that split real in production: creative power with dete
 - Bound each model request's context while allowing a task to continue as long as it makes progress within the user's constraints. Arbitrary tool-call counts are not task-completion criteria; detect stalls and repeated failures explicitly.
 - Validate this architecture through the normal production entry paths with CodeDOM and world-model context enabled. Restricted-tool benchmarks are supplementary evidence.
 
+## The Vision (Steve, 2026-09-18) — read before any architectural change
+
+- This is an experimental project and a different paradigm. Mangle — a deductive database
+  programming language, not Datalog — plus JIT prompt compilation is meant to be the
+  replacement for subagents and skills: the harness decides, not the model's discretion.
+- The harness forces. Test coverage is not optional: the agent cannot stop until the tests
+  that actually harden the system exist. Domain knowledge is not at the LLM's discretion: it
+  is pushed into the context window when the harness decides it is needed — by user request,
+  task type, and the history of what has been built. The agent keeps working not until the
+  task is done, but until the behavior the north star of that system envisions holds.
+- It knows the codebase better than any other coding agent because it never has to grep
+  around: the kernel has the math to hand the LLM what it needs — a blend of domain knowledge
+  from SQLite, vector search, CodeDOM and history — injected at the right time, for the right
+  reason, to the right agent, so the job finishes in as few turns as possible without wasting
+  tool calls or thinking tokens double-checking.
+- Quality and capability first. Tokens are the constraint, not the goal. Lost-in-the-middle
+  is eliminated by context compression, pruning and ordering — where a fact sits in the
+  window is a decision.
+- Tools exist for exactly three things: condense the search space, reduce the turns to
+  complete the task, and offload cognition to deterministic code (a change with a blast
+  radius is carried out by the tool, not by the LLM hand-editing). A tool that does none of
+  these is cruft.
+- "Clean fixpoint," not "clean loop." Go is fine and may be as large as the work needs — it
+  is the FFI, the drivers, the tools. The executive decisions — what a turn is, whether it is
+  done, what is delegated and with what task, what enters the window, what the verdict is —
+  are the fixpoint of the kernel over the facts. The drift to hunt is decisions computed in
+  Go instead of derived.
+- Complexity is not a defect. This may be a highly complex system; what is scored is whether
+  a decision is derived and whether an obligation is forced.
+- It hunts its own bugs and intelligently extends its own tooling, in Mangle and in Go.
+- The original bet lives in `.codex/skills/codenerd-builder/references/` — an input to be
+  judged, not a request to restore. `Docs/architecture/` (July 2026) is orientation, not the
+  original, and not authoritative.
+
 ## Repo Contract
 
 - JIT is the standard for all new LLM-facing behavior.
