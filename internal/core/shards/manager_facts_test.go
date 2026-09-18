@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"codenerd/internal/types"
 )
 
 func TestResultToFacts(t *testing.T) {
@@ -36,8 +38,11 @@ func TestResultToFacts(t *testing.T) {
 		}
 	}
 
-	// Oversized output is truncated in the shard_output fact.
-	big := strings.Repeat("x", 5000)
+	// Oversized output is truncated in the shard_output fact, and says so with
+	// the count. "... (truncated)" told an operator reading a fact dump what
+	// had happened and told the model nothing it could use: no size, no way to
+	// tell a 4 KB answer from the first 4 KB of a 400 KB one.
+	big := "HEADMARK" + strings.Repeat("x", 5000) + "TAILMARK"
 	bigFacts := sm.ResultToFacts("s1", "coder", "task", big, nil)
 	var out string
 	for _, f := range bigFacts {
@@ -45,8 +50,32 @@ func TestResultToFacts(t *testing.T) {
 			out, _ = f.Args[1].(string)
 		}
 	}
-	if !strings.HasSuffix(out, "... (truncated)") {
-		t.Errorf("oversized shard_output should be truncated, got len=%d", len(out))
+	if !types.IsClamped(out) {
+		t.Errorf("oversized shard_output cut with no marker, got len=%d", len(out))
+	}
+	if !strings.Contains(out, "5016 chars") {
+		t.Errorf("the marker does not name the output's true length: %q", out)
+	}
+	// head+tail: a shard states its plan first and its findings last, so a
+	// head-only cut removes exactly the conclusion the next turn needs.
+	for _, want := range []string{"HEADMARK", "TAILMARK"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("shard_output lost %q", want)
+		}
+	}
+}
+
+// recent_shard_context/2 is read back into a later turn, so its 200-char cut
+// is model-facing too and used to end mid-sentence in silence.
+func TestExtractSummary_MarksTheCut(t *testing.T) {
+	sm := &ShardManager{}
+	long := strings.Repeat("a", 300)
+	got := sm.extractSummary("tester", long)
+	if !types.IsClamped(got) {
+		t.Errorf("extractSummary cut 100 chars with no marker: %q", got)
+	}
+	if !strings.HasPrefix(got, "[tester] ") {
+		t.Errorf("extractSummary lost its shard-type prefix: %q", got)
 	}
 }
 
@@ -57,7 +86,10 @@ func TestExtractSummary(t *testing.T) {
 	}
 	long := strings.Repeat("a", 300)
 	got := sm.extractSummary("tester", long)
-	if !strings.HasPrefix(got, "[tester] ") || len(got) != len("[tester] ")+200 {
+	if !strings.HasPrefix(got, "[tester] ") {
+		t.Errorf("extractSummary should keep its shard-type prefix, got %q", got)
+	}
+	if !strings.HasPrefix(got, "[tester] "+strings.Repeat("a", 200)) {
 		t.Errorf("extractSummary should cap the body at 200 chars, got len=%d", len(got))
 	}
 }

@@ -705,9 +705,9 @@ func (sm *ShardManager) ResultToFacts(shardID, shardType, task, result string, e
 }
 
 func (sm *ShardManager) extractSummary(shardType, result string) string {
-	prefix := fmt.Sprintf("[%s] ", shardType)
-	if len(result) > 200 {
-		return prefix + result[:200]
-	}
-	return prefix + result
+	// recent_shard_context/2 is read back into a later turn, so this 200-char
+	// cut is model-facing. It used to end mid-sentence with nothing to say it
+	// had — the reader saw a shard that stopped talking, not a shard that was
+	// cut off.
+	return fmt.Sprintf("[%s] ", shardType) + types.ClampInline(result, 200, "shard summary")
 }
