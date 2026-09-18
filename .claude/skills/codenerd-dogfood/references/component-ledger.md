@@ -4140,3 +4140,32 @@ fail: the brief shape works when the cause is one file. The two remaining gaps a
 not the model's: a count ceiling stopped it before verification (S3), and the verdict printer
 cannot tell "checks passed" from "behaviour verified" (S1).
 
+
+## S8a through `nerd fix`: the command surface, on the first binary with S1/S3/S4/S15 (2026-09-18, 09:52-10:17)
+
+**Setup.** Binary rebuilt from `68378baa` (verdict from evidence, turn_done binding, progress-driven
+loop with no count ceiling, truncation markers). Brief: symptom only -- /shards, /autopoiesis,
+/facts print "Unknown command" while help and tests treat them as real; /explain dispatched but
+unregistered; find the class, fix the root, add tests that fail before.
+
+**Measured.** 24.1 minutes, exit 1, 6 LLM calls, 6 tool calls, 461,000 input tokens, 7,700 output.
+Landed in the tree: the three registry entries, the three dispatcher cases, the /explain and
+/explain-off registry gap it found on its own, and the command tests hardened to fail on
+"Unknown command". Not written: the three handlers. The post-edit build gate caught it, the
+repair loop spent its 5-minute wall clock on one attempt, and the run exited non-zero with the
+three compile errors named. That is the first live run where the verdict followed the evidence
+end to end: a broken build is a failed turn, printed as one, and the loop ended on the wall
+clock, not on a tool-call count.
+
+**Missed.** The handlers themselves (the Shard Console and Autopoiesis dashboard already existed
+behind Alt+S/Alt+A; /facts is /logic's query), and the registry-vs-dispatcher invariant. Finished
+by hand: `commands_handlers_introspection.go`, `TestCommandSurface_RegistryAndDispatcherAgree`
+(parses the switch; fails at HEAD naming /explain, /explain-off). Commit `7c59a848`.
+
+**Reading.** Two numbers matter. Six tool calls in 24 minutes: each LLM round took about four
+minutes, because each carried ~77k input tokens -- the window is the cost, and the window-shape
+seams (S17: the chat turn compiles no JIT prompt; S21: every shard gets every tool; S12) are
+where that number lives. And one repair attempt in five minutes: the repair loop's wall clock is
+shorter than one round at this window size, so "exhausted after 1 attempt" is the clock, not the
+model. Both are the system's, not the brief's.
+
