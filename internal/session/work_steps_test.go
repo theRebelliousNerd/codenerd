@@ -529,3 +529,48 @@ func TestPlanTurnSteps_RetriesOnceThenFallsBack(t *testing.T) {
 		t.Fatalf("planning calls = %d, want exactly 2 (no third attempt)", failing.calls)
 	}
 }
+
+// An empty planner answer is not something an identical second request
+// fixes: measured 2026-09-17 21:20, both attempts came back empty
+// (finish_reason "stop", no content) and cost about 40 s before the task ran
+// as one pass. One attempt, then one pass.
+func TestPlanTurnSteps_EmptyAnswerIsOnePassNotARetry(t *testing.T) {
+	readTool, writeTool := registerStepTools(t)
+	client := newStepScriptProvider("", nil)
+	planned := 0
+	client.MockLLMClient.CompleteWithSystemFunc = func(context.Context, string, string) (string, error) {
+		planned++
+		return "", errors.New("meta returned an empty completion (model=muse-spark-1.3-contributor finish_reason=stop reasoning_chars=0 output_tokens=2177)")
+	}
+	e := newPlannedStepsExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+	if _, _, err := e.runToolLoop(context.Background(), "system", "fix the thing",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{readTool, writeTool}},
+		&prompt.CompilationContext{ShardID: "probe"}, result); err != nil {
+		t.Fatalf("runToolLoop: %v", err)
+	}
+	if planned != 1 {
+		t.Fatalf("planning was attempted %d time(s) after an empty answer; want exactly 1", planned)
+	}
+}
+
+// The planner is told what kind of turn it is dividing, not only the task
+// text: on the chat path the task is a one-line summary of the intent, so
+// the verb is most of what the planner has.
+func TestPlanTurnSteps_PlannerIsToldTheIntentVerb(t *testing.T) {
+	readTool, writeTool := registerStepTools(t)
+	client := newStepScriptProvider("STEP a.txt :: x", nil)
+	asked := ""
+	client.MockLLMClient.CompleteWithSystemFunc = func(_ context.Context, _ string, user string) (string, error) {
+		asked = user
+		return client.plan, nil
+	}
+	e := newPlannedStepsExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+	_, _, _ = e.runToolLoop(context.Background(), "system", "fix the thing",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{readTool, writeTool}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if !strings.Contains(asked, "fix the thing") || !strings.Contains(asked, "/fix") {
+		t.Fatalf("planner request lacks the task or the verb: %q", asked)
+	}
+}

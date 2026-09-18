@@ -41,15 +41,12 @@ const maxPlannedSteps = 12
 // and the task runs as a single pass.
 const planStepsTimeout = 2 * time.Minute
 
-// workStepPlanSystem is the planning prompt. It asks for edit sites, not for
-// an approach: the executive needs to know where the model will write, not
-// how it will think.
 const workStepPlanSystem = `You divide one code-change task into the edit steps an executive will run one at a time, each as its own turn with the file named.
 
 Output one line per step, in the order the task gives them, in exactly this form:
 STEP <workspace-relative file path> :: <the change to make in that file, with its location>
 
-Rules: one step per file region the task says to change; keep the task's own numbering, names, line numbers and wording; a test the task asks for is its own step; an import a step needs is part of that step, never a step of its own; never add a file the task does not name or clearly imply; never add a step the task does not ask for; the task's verification command is not a step, the executive runs it. A task with one change is one STEP line. Output only STEP lines, nothing else.`
+Rules: one step per file region the task says to change; keep the task's own numbering, names, line numbers and wording; a test the task asks for is its own step; an import a step needs is part of that step, never a step of its own; never add a file the task does not name or clearly imply; never add a step the task does not ask for; the task's verification command is not a step, the executive runs it. A task with one change is one STEP line. If the task names no file and clearly implies none, reply with exactly one line: NO STEPS. Output only STEP lines, or NO STEPS, and nothing else.`
 
 // workStep is one edit site of a planned task and what became of it.
 // CoveredBy names the earlier step (1-based) that edited the same file when
@@ -131,6 +128,27 @@ func isWorkspaceDir(workspace, file string) bool {
 	return err == nil && st.IsDir()
 }
 
+// workStepPlanUser is the planning request body: the task and the turn's
+// intent verb. The bare task was sent before, and on the chat path the task
+// is a one-line summary built from the intent ("fix issue in <target>"), so
+// the planner had a 48-character request to divide into steps.
+func workStepPlanUser(task, verb string) string {
+	if verb == "" {
+		verb = "unknown"
+	}
+	return "Task: " + task + "\nIntent verb: " + verb
+}
+
+// emptyCompletionError reports whether err describes a planner answer that
+// arrived with no text. Retrying that answer only replays the same request,
+// so the caller treats it as a fast single pass instead of a retry.
+func emptyCompletionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "empty completion")
+}
+
 // planTurnSteps decides whether this turn is a planned task and, if so, what
 // its steps are. Only a write-oriented turn on the native tool path inside a
 // working loop is planned; every other turn keeps the single pass. A plan
@@ -155,14 +173,22 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 	if cfg == nil || !hasWriteTool(cfg.AllowedTools) {
 		return nil
 	}
+	user := workStepPlanUser(task, result.Intent.Verb)
 	var text string
 	var err error
 	for attempt := 1; attempt <= 2; attempt++ {
 		planCtx, cancel := context.WithTimeout(ctx, planStepsTimeout)
-		text, err = client.CompleteWithSystem(planCtx, workStepPlanSystem, task)
+		text, err = client.CompleteWithSystem(planCtx, workStepPlanSystem, user)
 		cancel()
 		if err == nil {
 			break
+		}
+		// An empty answer is not something an identical second request fixes:
+		// measured 2026-09-17 21:20, both attempts came back empty (finish_reason
+		// "stop", no content) and cost about 40 s before the task ran as one pass.
+		if emptyCompletionError(err) {
+			logging.Get(logging.CategorySession).Warn("Step planning got an empty model answer; the task runs as one pass")
+			return nil
 		}
 		if attempt == 1 && ctx.Err() == nil {
 			logging.Get(logging.CategorySession).Warn("Step planning attempt 1 failed (%v); retrying once", err)
