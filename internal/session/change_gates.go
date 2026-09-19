@@ -248,6 +248,91 @@ func (e *Executor) verifyAndRepairCoverage(
 	return repaired, repairErrs, settleForcingRepair(err)
 }
 
+// removedTestsRepairPrompt asks for the tests the turn deleted back. The seed
+// is either the tests still missing, with their source, or the failing run of
+// the restored tests.
+func removedTestsRepairPrompt(seed string) string {
+	return "This turn deleted tests that existed before it, and no test of the same name exists anywhere " +
+		"in the workspace now. A test is a contract the system already had: put each one back in the " +
+		"file it came from. If your change altered the behaviour a test pins on purpose, keep the test " +
+		"and change its assertions to the new behaviour -- never delete it. The tests are run again " +
+		"afterwards.\n\n" + seed
+}
+
+// verifyAndRepairRemovedTests runs after the other gates, so a suite made
+// green by losing a contract is still caught. A turn that deleted tests which
+// existed before it -- and exist nowhere in the workspace now -- gets repair
+// rounds in which it is handed each one's source as the turn found it, and
+// the restored tests are run again. A turn that still deletes them fails: a
+// test is fixed by fixing the code, not by deleting it. Until 2026-09-19 the
+// first deletion failed the turn with no round (ladder run R1-4: a whole-file
+// rewrite dropped three tests that still passed against the new code, and
+// fourteen minutes of otherwise green work were refused).
+func (e *Executor) verifyAndRepairRemovedTests(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history []types.Message,
+	toolDefs []types.ToolDefinition,
+	cfg *jitconfig.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	if result == nil || result.SuccessfulWriteTools == 0 || len(result.PreWriteContents) == 0 {
+		return nil, nil, nil
+	}
+	workspace := e.workspaceForVerification()
+	removed := removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents)
+	if len(removed) == 0 {
+		return nil, nil, nil
+	}
+	stillRemoved := func() error {
+		return fmt.Errorf("%w: turn removed test(s) without replacing them: %s; a failing test is fixed by fixing the code, not by deleting the test",
+			ErrVerificationFailed, strings.Join(removed, ", "))
+	}
+	if trp == nil {
+		return nil, nil, stillRemoved()
+	}
+	missing := func() string {
+		return "Deleted by this turn, as they were before it:\n\n" + removedTestListing(removed, result.PreWriteContents)
+	}
+	logging.Get(logging.CategorySession).Warn(
+		"This turn deleted %d test(s) that existed before it; giving the model repair rounds to restore them: %s",
+		len(removed), strings.Join(removed, ", "))
+	spec := repairSpec{
+		kind:         "removed_tests",
+		brokenPhrase: "the turn deleted tests that existed before it",
+		promptFor:    removedTestsRepairPrompt,
+		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
+			removed = removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents)
+			if len(removed) > 0 {
+				return false, missing(), VerifyFailed
+			}
+			v, _ := gateTests(epCtx, workspace, result, false)
+			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
+				// The test gate's own repair record stays with it.
+				v.Repair = result.TestCheck.Repair
+				result.TestCheck = v
+			}
+			if v.Verdict() != VerifyPassed {
+				return false, "The deleted tests are back, and the tests fail:\n\n```\n" + v.Output + "\n```", v.Verdict()
+			}
+			return true, "", VerifyPassed
+		},
+		followups: func() []string {
+			if len(removed) > 0 {
+				return []string{"restore " + strings.Join(removed, ", ")}
+			}
+			runnable, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
+			return repairFollowups(workspace, runnable, result, "tests")
+		},
+	}
+	repaired, repairErrs, _, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, missing(), spec)
+	if err != nil && errors.Is(err, ErrVerificationFailed) && len(removed) > 0 {
+		return nil, repairErrs, stillRemoved()
+	}
+	return repaired, repairErrs, err
+}
+
 // settleForcingRepair decides what a forcing round's error means for the
 // turn. Running out of attempts leaves the debt on the result, where the
 // kernel's verdict names it; a cancel is a cancel.

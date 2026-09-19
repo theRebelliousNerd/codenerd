@@ -30,6 +30,49 @@ func removedTestFunctions(workspace string, writtenPaths []string, preWrite map[
 	return out
 }
 
+// removedTestListing renders each removed test ("path:Name", as
+// removedTestFunctions reports it) with its source as the turn found it. The
+// harness holds the pre-write file, so putting a test back is a paste, not a
+// reconstruction from memory.
+func removedTestListing(removed []string, preWrite map[string]string) string {
+	var b strings.Builder
+	for _, entry := range removed {
+		i := strings.LastIndex(entry, ":")
+		if i < 0 {
+			continue
+		}
+		path, name := entry[:i], entry[i+1:]
+		b.WriteString(path + ": " + name + "\n")
+		if src := testFuncSource(preWrite[path], name); src != "" {
+			b.WriteString("```go\n" + src + "\n```\n")
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// testFuncSource returns the source of the top-level function name in src,
+// with its doc comment, or "" when src does not parse or has no such function.
+func testFuncSource(src, name string) string {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return ""
+	}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil || fn.Name.Name != name {
+			continue
+		}
+		start := fn.Pos()
+		if fn.Doc != nil {
+			start = fn.Doc.Pos()
+		}
+		return src[fset.Position(start).Offset:fset.Position(fn.End()).Offset]
+	}
+	return ""
+}
+
 func isTestPath(p string) bool {
 	return strings.HasSuffix(p, "_test.go")
 }
