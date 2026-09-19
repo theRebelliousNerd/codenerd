@@ -4329,3 +4329,25 @@ the CodeDOM line tools. (3) The per-step compile ran for both steps (both Go, so
 `ShardManager.queryRelevantTools` would then narrow every shard's tool catalogue, which today
 falls back to all tools. That is S21's design question and waits for it.
 
+
+## Same brief with the target's outline served: less exploration, more tokens -- because the file context was sent twice (2026-09-18/19, 23:30-23:56)
+
+Binary from `3b21071a` (the holographic section carries the target file's outline, line ranges
+current per request). Brief identical to q3b, as a controlled comparison. rc=1 again (tests broke;
+the repair clock, 5m + 3x the measured gate time, was 16m43s and allowed one attempt). Reverted.
+
+| run | tool calls | grep | read_file | recall_context | edits | mean / peak input per call | total input |
+|---|---|---|---|---|---|---|---|
+| q3b, no outline | 85 | 13 | 40 | 14 | 9 edit_lines + 1 insert_lines | 37.5k / 52.5k | ~2.4M |
+| q3c, outline | 83 | 6 | 34 | 28 | 7 edit_file | 44.7k / 77.9k | ~3.1M |
+
+**Reading.** The outline did what it was for on exploration (grep halved, fewer whole-file
+reads), and cost a third more input. The cost was not the outline itself: planned steps and the
+no-tool retry appended the file context to their compiled prompt while the working loop also
+rendered it into every request -- the section went out twice per call, and the outline made it
+bigger. The turn-level compile already skipped it when a working loop runs; the step compile
+(`e434033b`, mine) and the retry did not. Fixed by one helper (`withCompiledFileContext`) at all
+three sites and by reserving the view's room before observations fill the section (it could be
+dropped when the section was full), pinned by a test that fails with the duplicate. n=1 each: the
+switch from edit_lines to edit_file and the doubled recall are noted, not concluded.
+
