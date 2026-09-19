@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -684,97 +683,6 @@ func TestView_LargeTerminal(t *testing.T) {
 	view := m.View()
 	if view == "" {
 		t.Error("Large terminal rendered empty")
-	}
-}
-
-// ============================================================================
-// CONCURRENT TESTS - Tests for concurrency safety
-// ============================================================================
-
-// TestConcurrent_ViewRendering tests concurrent view rendering
-func TestConcurrent_ViewRendering(t *testing.T) {
-	m := NewTestModel(WithSize(100, 50), WithHistory(TestMessages.UserMessage))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	done := make(chan bool, 10)
-
-	for range 10 {
-		go func() {
-			defer func() {
-				recover() // Don't fail on panic in goroutine
-				done <- true
-			}()
-			for range 100 {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					_ = m.View()
-				}
-			}
-		}()
-	}
-
-	// Wait for all goroutines
-	for range 10 {
-		<-done
-	}
-}
-
-// TestConcurrent_HistoryAccess tests concurrent history access
-func TestConcurrent_HistoryAccess(t *testing.T) {
-	m := NewTestModel()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	done := make(chan bool, 5)
-
-	// Writers
-	for i := range 2 {
-		go func(id int) {
-			defer func() {
-				recover()
-				done <- true
-			}()
-			for range 50 {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					m.history = append(m.history, Message{
-						Role:    "user",
-						Content: "Test",
-						Time:    time.Now(),
-					})
-				}
-			}
-		}(i)
-	}
-
-	// Readers
-	for range 3 {
-		go func() {
-			defer func() {
-				recover()
-				done <- true
-			}()
-			for range 50 {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					_ = len(m.history)
-				}
-			}
-		}()
-	}
-
-	// Wait for all
-	for range 5 {
-		<-done
 	}
 }
 

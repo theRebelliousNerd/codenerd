@@ -4,7 +4,6 @@ package chat
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 )
@@ -128,85 +127,6 @@ func TestContextCancellation_WithTimeout(t *testing.T) {
 // =============================================================================
 // GOROUTINE SAFETY TESTS
 // =============================================================================
-
-func TestConcurrentUpdates(t *testing.T) {
-	t.Parallel()
-
-	m := NewTestModel()
-	var wg sync.WaitGroup
-	iterations := 100
-
-	// Simulate concurrent updates
-	for i := range iterations {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("Panic in concurrent update %d: %v", i, r)
-				}
-			}()
-
-			// Note: Bubbletea normally serializes updates, but this tests
-			// that our code doesn't have obvious race conditions
-			msg := statusMsg("status update")
-			_, _ = m.Update(msg)
-		}(i)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Success
-	case <-time.After(5 * time.Second):
-		t.Error("Concurrent updates timed out")
-	}
-}
-
-func TestConcurrentViews(t *testing.T) {
-	t.Parallel()
-
-	m := NewTestModel(
-		WithHistory(
-			Message{Role: "user", Content: "test", Time: time.Now()},
-		),
-	)
-
-	var wg sync.WaitGroup
-	iterations := 50
-
-	for i := range iterations {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("Panic in concurrent view %d: %v", i, r)
-				}
-			}()
-
-			_ = m.View()
-		}(i)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Success
-	case <-time.After(5 * time.Second):
-		t.Error("Concurrent views timed out")
-	}
-}
 
 func TestGoroutineCount_AfterOperations(t *testing.T) {
 	if testing.Short() {

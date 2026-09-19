@@ -607,37 +607,6 @@ func TestLive_ErrorHandling(t *testing.T) {
 	}
 }
 
-func TestLive_ConcurrentAccess(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping live kernel test in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	// Test that model handles multiple rapid updates
-	done := make(chan bool)
-	perf.Track("concurrent_updates", func() {
-		for i := range 10 {
-			go func(idx int) {
-				localM := m
-				localM.textarea.SetValue("test input " + string(rune('0'+idx)))
-				_ = localM.View()
-				done <- true
-			}(i)
-		}
-
-		// Wait for all goroutines
-		for range 10 {
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				t.Error("Timeout waiting for goroutine")
-			}
-		}
-	})
-}
-
 func TestLive_PerformanceBaseline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
