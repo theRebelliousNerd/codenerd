@@ -710,60 +710,83 @@ func (e *Executor) verifyAndUpliftWithCritic(
 
 	var upliftErrs []string
 	if uplifted != nil && len(uplifted.ToolCalls) > 0 {
+		snap := snapshotTurnFiles(workspace, result)
 		_, errs := e.executeToolBatch(ctx, uplifted.ToolCalls, cfg, result)
 		upliftErrs = append(upliftErrs, errs...)
-
-		// Re-verify. The uplift round makes real edits, and it runs AFTER the
-		// build and test gates have already had their turn — so without this,
-		// code written here is the only code in the whole loop that ships
-		// unverified. That is precisely the false success the stack exists to
-		// prevent, reintroduced at the last step.
-		//
-		// This does not contradict "the critic can never fail a turn". The
-		// critic's OPINION is advisory: a hallucinated finding must not fail
-		// anything. Its EDITS are not privileged — they answer to the compiler
-		// and the test runner like every other edit. Acting on a wrong finding
-		// and breaking the build is a real break, whoever suggested it.
-		//
-		// Every re-verdict is stored: the uplift edits came after the gates'
-		// passes, so those passes no longer describe this workspace. A pass
-		// refreshes them; a failure fails the turn; a timeout invalidates
-		// them to indeterminate rather than leaving a stale green behind.
-		// closeChangeEvidence then re-verifies the final workspace anyway.
-		if verification := verifyBuild(ctx, workspace, nil); verification.Verdict() == VerifyFailed {
-			verification.Repair = inheritRepair(verification.Verdict(), result.BuildCheck.Repair)
-			result.BuildCheck = verification
-			return upliftErrs, fmt.Errorf(
-				"%w: the adversarial review's uplift round broke the build. Compiler output:\n%s",
-				ErrVerificationFailed, verification.Output)
-		} else if verification.Verdict() == VerifyCanceled {
-			return upliftErrs, fmt.Errorf("uplift build re-verification canceled: %w", context.Canceled)
-		} else {
-			verification.Repair = inheritRepair(verification.Verdict(), result.BuildCheck.Repair)
-			result.BuildCheck = verification
-			if verification.Verdict() == VerifyIndeterminate {
-				logging.Get(logging.CategorySession).Warn(
-					"Uplift build re-verification timed out; prior pass invalidated, recovery NOT verified")
-			}
-		}
-		if tv := attributeTestFailures(ctx, workspace, packagesForPaths(result.WrittenPaths), result.WrittenPaths, result.PreWriteContents, verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))); tv.Verdict() == VerifyFailed {
-			tv.Repair = inheritRepair(tv.Verdict(), result.TestCheck.Repair)
-			result.TestCheck = tv
-			return upliftErrs, fmt.Errorf(
-				"%w: the adversarial review's uplift round broke the tests. Test output:\n%s",
-				ErrVerificationFailed, tv.Output)
-		} else if tv.Verdict() == VerifyCanceled {
-			return upliftErrs, fmt.Errorf("uplift test re-verification canceled: %w", context.Canceled)
-		} else {
-			tv.Repair = inheritRepair(tv.Verdict(), result.TestCheck.Repair)
-			result.TestCheck = tv
-			if tv.Verdict() == VerifyIndeterminate {
-				logging.Get(logging.CategorySession).Warn(
-					"Uplift test re-verification timed out; prior pass invalidated, recovery NOT verified")
-			}
-		}
+		return upliftErrs, recheckUplift(ctx, workspace, result, snap)
 	}
 	return upliftErrs, nil
+}
+
+// recheckUplift measures the uplift round's edits. They answer to the
+// compiler and the test runner like every other edit, and they come after the
+// test gate's pass, so that pass no longer describes this workspace.
+//
+// The critic's opinion is advisory, and acting on it must not take down a
+// change that was green without it: an uplift that breaks the build or the
+// tests is undone, the verdicts it would have invalidated describe the
+// workspace again, and the finding stays on the result. Until 2026-09-19 a
+// broken uplift failed the turn -- the one place left where the "never fails
+// a turn" gate could. Only an undo that cannot be carried out still does,
+// because then the break is in the workspace.
+//
+// An uplift that passes refreshes the build, the tests and the coverage the
+// forcing rounds after it start from, so its own new code is covered, vetted
+// and inventoried like the rest of the turn's.
+func recheckUplift(ctx context.Context, workspace string, result *ExecutionResult, snap turnFiles) error {
+	build := verifyBuild(ctx, workspace, nil)
+	if build.Verdict() == VerifyCanceled {
+		return fmt.Errorf("uplift build re-verification canceled: %w", context.Canceled)
+	}
+	var tests TestVerification
+	var uncovered []UncoveredBlock
+	broke, failure := "", build.Output
+	if build.Verdict() == VerifyFailed {
+		broke = "build"
+	} else {
+		// The same helper the test gate uses, with coverage: a tag-gated
+		// package is compile-checked, not failed, and the blocks the uplift
+		// left unexecuted reach the coverage round.
+		tests, uncovered = gateTests(ctx, workspace, result, true)
+		if tests.Verdict() == VerifyCanceled {
+			return fmt.Errorf("uplift test re-verification canceled: %w", context.Canceled)
+		}
+		if tests.Verdict() == VerifyFailed {
+			broke, failure = "tests", tests.Output
+		}
+	}
+	if broke != "" {
+		restored, err := snap.restore(workspace, result)
+		if err != nil {
+			build.Repair = inheritRepair(build.Verdict(), result.BuildCheck.Repair)
+			result.BuildCheck = build
+			if broke == "tests" {
+				tests.Repair = inheritRepair(tests.Verdict(), result.TestCheck.Repair)
+				result.TestCheck = tests
+			}
+			return fmt.Errorf("%w: the adversarial review's uplift round broke the %s and could not be undone (%v):\n%s",
+				ErrVerificationFailed, broke, err, failure)
+		}
+		logging.Get(logging.CategorySession).Warn(
+			"The adversarial review's uplift round broke the %s; restored %s as the review found them. Output:\n%s",
+			broke, strings.Join(restored, ", "), failure)
+		return nil
+	}
+	build.Repair = inheritRepair(build.Verdict(), result.BuildCheck.Repair)
+	result.BuildCheck = build
+	if build.Verdict() == VerifyIndeterminate {
+		logging.Get(logging.CategorySession).Warn(
+			"Uplift build re-verification timed out; prior pass invalidated, recovery NOT verified")
+	}
+	tests.Repair = inheritRepair(tests.Verdict(), result.TestCheck.Repair)
+	result.TestCheck = tests
+	result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
+	result.UntestedPaths = untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths)
+	if tests.Verdict() == VerifyIndeterminate {
+		logging.Get(logging.CategorySession).Warn(
+			"Uplift test re-verification timed out; prior pass invalidated, recovery NOT verified")
+	}
+	return nil
 }
 
 // criticTimeout bounds the adversarial review call.

@@ -299,8 +299,8 @@ func (e *Executor) verifyAndRepairCoverage(
 // is either the tests still missing, with their source, or the failing run of
 // the restored tests.
 func removedTestsRepairPrompt(seed string) string {
-	return "This turn deleted tests that existed before it, and no test of the same name exists anywhere " +
-		"in the workspace now. A test is a contract the system already had: put each one back in the " +
+	return "This turn deleted tests that existed before it, and no test of the same name exists in the " +
+		"same package now. A test is a contract the system already had: put each one back in the " +
 		"file it came from. If your change altered the behaviour a test pins on purpose, keep the test " +
 		"and change its assertions to the new behaviour -- never delete it. The tests are run again " +
 		"afterwards.\n\n" + seed
@@ -308,7 +308,7 @@ func removedTestsRepairPrompt(seed string) string {
 
 // verifyAndRepairRemovedTests runs after the other gates, so a suite made
 // green by losing a contract is still caught. A turn that deleted tests which
-// existed before it -- and exist nowhere in the workspace now -- gets repair
+// existed before it -- and exist nowhere in their package now -- gets repair
 // rounds in which it is handed each one's source as the turn found it, and
 // the restored tests are run again. A turn that still deletes them fails: a
 // test is fixed by fixing the code, not by deleting it. Until 2026-09-19 the
@@ -332,12 +332,8 @@ func (e *Executor) verifyAndRepairRemovedTests(
 	if len(removed) == 0 {
 		return nil, nil, nil
 	}
-	stillRemoved := func() error {
-		return fmt.Errorf("%w: turn removed test(s) without replacing them: %s; a failing test is fixed by fixing the code, not by deleting the test",
-			ErrVerificationFailed, strings.Join(removed, ", "))
-	}
 	if trp == nil {
-		return nil, nil, stillRemoved()
+		return nil, nil, removedTestsError(removed)
 	}
 	missing := func() string {
 		return "Deleted by this turn, as they were before it:\n\n" + removedTestListing(removed, result.PreWriteContents)
@@ -375,9 +371,15 @@ func (e *Executor) verifyAndRepairRemovedTests(
 	}
 	repaired, repairErrs, _, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, missing(), spec)
 	if err != nil && errors.Is(err, ErrVerificationFailed) && len(removed) > 0 {
-		return nil, repairErrs, stillRemoved()
+		return nil, repairErrs, removedTestsError(removed)
 	}
 	return repaired, repairErrs, err
+}
+
+// removedTestsError fails a turn that deleted tests and did not put them back.
+func removedTestsError(removed []string) error {
+	return fmt.Errorf("%w: turn removed test(s) without replacing them: %s; a failing test is fixed by fixing the code, not by deleting the test",
+		ErrVerificationFailed, strings.Join(removed, ", "))
 }
 
 // turnFiles holds the turn's written files as a forcing round found them. A

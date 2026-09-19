@@ -41,8 +41,20 @@ func failedChecksSummary(result *ExecutionResult) string {
 	return strings.Join(parts, "; ")
 }
 
-// closeChangeEvidence runs after every model repair/critic edit. Later edits
-// invalidate earlier green checks before the turn is allowed to complete.
+// closeChangeEvidence runs after the turn's last writer -- every repair round
+// and the critic's uplift -- and binds the evidence the verdict reads to the
+// workspace as it is now. A gate's verdict describes the revision it measured;
+// an edit after it turns that verdict into a statement about a workspace that
+// no longer exists. When anything changed after the gates began, or a change
+// cannot be ruled out, every gate the verdict reads is measured again here
+// (remeasureGates), with no model in the loop: build, tests, coverage, vet and
+// the test inventory then all describe one revision.
+//
+// External audit F3 (2026-09-19): this refreshed the build and the tests only,
+// and dropped the tests' coverage, so a later round could add a branch no test
+// runs, a vet finding, or delete a passing test, and the turn kept the earlier
+// clean coverage, vet and inventory verdicts -- or kept an earlier debt a
+// later round had paid.
 func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionResult, before string) error {
 	if result == nil {
 		return nil
@@ -52,18 +64,9 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 		result.ChangeStage = "artifact_changed"
 		if touchedGoFiles(result.WrittenPaths) {
 			after, err := evidence.Snapshot(ctx, workspace)
-			if err == nil && after != before {
-				if e.configSnapshot().VerifyBuildAfterEdits {
-					fresh := verifyBuild(ctx, workspace, nil)
-					fresh.Repair = inheritRepair(fresh.Verdict(), result.BuildCheck.Repair)
-					result.BuildCheck = fresh
-				}
-				if e.configSnapshot().VerifyTestsAfterEdits {
-					// Must stay the same helper the post-edit gate uses (gateTests),
-					// or a tag-gated package fails the turn twice over.
-					fresh, _ := gateTests(ctx, workspace, result, false)
-					fresh.Repair = inheritRepair(fresh.Verdict(), result.TestCheck.Repair)
-					result.TestCheck = fresh
+			if err != nil || before == "" || after != before {
+				if err := e.remeasureGates(ctx, workspace, result); err != nil {
+					return err
 				}
 			}
 			current, currentErr := evidence.Snapshot(ctx, workspace)
@@ -88,6 +91,40 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 		} else {
 			return fmt.Errorf("%w: %s", ErrVerificationFailed, report.Summary())
 		}
+	}
+	return nil
+}
+
+// remeasureGates measures every gate the verdict reads on the workspace as it
+// is now, in the order the post-edit gates run. Nothing here asks the model
+// anything or edits a file: the rounds are over, and this is what they left.
+// A deleted test fails the turn, as it does in its own round; the other gates
+// leave their findings on the result for the verdict to read.
+func (e *Executor) remeasureGates(ctx context.Context, workspace string, result *ExecutionResult) error {
+	cfg := e.configSnapshot()
+	if cfg.VerifyBuildAfterEdits {
+		fresh := verifyBuild(ctx, workspace, nil)
+		fresh.Repair = inheritRepair(fresh.Verdict(), result.BuildCheck.Repair)
+		result.BuildCheck = fresh
+	}
+	if cfg.VerifyTestsAfterEdits {
+		result.UntestedPaths = untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths)
+		// Must stay the same helper the post-edit gate uses (gateTests), or a
+		// tag-gated package fails the turn twice over. With coverage: the
+		// blocks no test runs are this revision's too, whichever way they
+		// moved -- a later round can add one or pay one off.
+		fresh, uncovered := gateTests(ctx, workspace, result, true)
+		fresh.Repair = inheritRepair(fresh.Verdict(), result.TestCheck.Repair)
+		result.TestCheck = fresh
+		result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
+	}
+	if cfg.VerifyBuildAfterEdits {
+		fresh := verifyVet(ctx, workspace, result.WrittenPaths)
+		fresh.Repair = inheritRepair(fresh.Verdict(), result.VetCheck.Repair)
+		result.VetCheck = fresh
+	}
+	if removed := removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents); len(removed) > 0 {
+		return removedTestsError(removed)
 	}
 	return nil
 }

@@ -490,6 +490,20 @@ func (e *Executor) verifyCompletedToolTurn(
 		current = tested
 	}
 
+	// The critic reviews the change once it compiles and passes, and before
+	// the forcing rounds: its uplift edits are the turn's code like any other,
+	// so the coverage, vet and deleted-test rounds after it answer for them
+	// too. Its opinion is advisory; an uplift that breaks the suite is undone
+	// inside verifyAndUpliftWithCritic. It used to run after the last forcing
+	// round, so its edits were the only ones no round covered, vetted or
+	// inventoried (external audit F3, 2026-09-19).
+	upliftErrs, upliftErr := e.verifyAndUpliftWithCritic(
+		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+	toolErrs = append(toolErrs, upliftErrs...)
+	if upliftErr != nil {
+		return current, toolErrs, upliftErr
+	}
+
 	// The tests pass. Code the turn changed that no test executes, and go vet
 	// findings in its files, are evidence the verdict reads; the model gets
 	// its rounds to answer them first, the coverage round before vet so the
@@ -528,14 +542,8 @@ func (e *Executor) verifyCompletedToolTurn(
 		current = restored
 	}
 
-	// The critic is advisory; only its resulting edits can fail the turn through
-	// the mechanical rechecks inside verifyAndUpliftWithCritic.
-	upliftErrs, upliftErr := e.verifyAndUpliftWithCritic(
-		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-	toolErrs = append(toolErrs, upliftErrs...)
-	if upliftErr != nil {
-		return current, toolErrs, upliftErr
-	}
+	// Every round above can edit; the closure measures what they left, all
+	// gates at one revision, with no model in the loop.
 	return current, toolErrs, e.closeChangeEvidence(ctx, result, before)
 }
 
