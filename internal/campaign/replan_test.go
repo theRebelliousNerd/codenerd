@@ -30,7 +30,7 @@ func TestReplanner_NilDependencies(t *testing.T) {
 	}
 
 	// RefineNextPhase
-	err = r.RefineNextPhase(context.Background(), &Campaign{ID: "c1"}, &Phase{ID: "p1"})
+	err = r.RefineNextPhase(context.Background(), &Campaign{ID: "c1"}, &Phase{ID: "p1"}, nil)
 	if !errors.Is(err, ErrNilKernel) {
 		t.Errorf("Expected ErrNilKernel, got %v", err)
 	}
@@ -162,7 +162,7 @@ func TestReplan_MalformedTaskActionStrings(t *testing.T) {
 		},
 	}
 
-	err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0])
+	err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil)
 	if err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestReplan_DuplicateTaskIDsInAddedTasks(t *testing.T) {
 		},
 	}
 
-	err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0])
+	err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil)
 	if err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}

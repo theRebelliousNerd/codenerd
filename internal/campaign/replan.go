@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -397,9 +399,22 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 	return nil
 }
 
+// TaskResults looks up what a completed task returned: the output the
+// orchestrator kept for it. Nil means none are available.
+type TaskResults func(taskID string) (string, bool)
+
 // RefineNextPhase performs rolling-wave planning: after completing a phase, we
 // refresh the next phase based on the latest artifacts and failures.
-func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, completedPhase *Phase) error {
+//
+// The refinement is shown what it needs to correct the next phase against what
+// the campaign has learned (ladder C1): each completed task's result, and each
+// upcoming task's ID and write set, every path marked present or absent on
+// disk. Until 2026-09-19 it saw descriptions and statuses only -- no result, no
+// ID, no write set -- so a target the research proved wrong could not be
+// corrected: an update names a task by ID, an update to an ID it was never
+// shown matched nothing and was added as a new task, and the near-duplicate
+// guard below dropped it.
+func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, completedPhase *Phase, results TaskResults) error {
 	if campaign == nil || completedPhase == nil {
 		return nil
 	}
@@ -443,11 +458,27 @@ func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, com
 	var completedTasksSummary strings.Builder
 	for _, t := range completedPhase.Tasks {
 		completedTasksSummary.WriteString(fmt.Sprintf("- %s [%s]\n", t.Description, t.Status))
+		if results == nil {
+			continue
+		}
+		if result, ok := results(t.ID); ok && strings.TrimSpace(result) != "" {
+			completedTasksSummary.WriteString("  Result:\n")
+			for _, line := range strings.Split(strings.TrimRight(result, "\n"), "\n") {
+				completedTasksSummary.WriteString("    " + line + "\n")
+			}
+		}
 	}
 
 	var upcomingTasks strings.Builder
 	for _, t := range nextPhase.Tasks {
-		upcomingTasks.WriteString(fmt.Sprintf("- %s (%s)\n", t.Description, t.Type))
+		upcomingTasks.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", t.ID, t.Description, t.Type))
+		for _, path := range t.DeterministicWriteSet() {
+			state := "exists"
+			if !r.pathExists(path) {
+				state = "ABSENT"
+			}
+			upcomingTasks.WriteString(fmt.Sprintf("    write_set: %s (%s)\n", path, state))
+		}
 	}
 
 	// Get Replanner prompt (JIT or static)
@@ -471,7 +502,7 @@ Current Tasks:
 Return JSON only:
 {
   "tasks": [
-    {"task_id": "existing-id or empty for new", "description": "...", "type": "/file_modify|/file_create|/test_run|/research|/verify|/document|/refactor|/integrate", "priority": "/high|/normal|/low|/critical", "action": "update|add|remove"}
+    {"task_id": "existing-id or empty for new", "description": "...", "type": "/file_modify|/file_create|/test_run|/research|/verify|/document|/refactor|/integrate", "priority": "/high|/normal|/low|/critical", "action": "update|add|remove", "write_set": ["workspace-relative path the task changes", "..."]}
   ],
   "summary": "one-line change summary"
 }`, replannerPrompt, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
@@ -1296,4 +1327,15 @@ func (r *Replanner) ClearReplanTriggers(campaignID string) error {
 		Predicate: "replan_trigger",
 		Args:      []any{campaignID},
 	})
+}
+
+// pathExists reports whether a write-set path exists in the campaign's
+// workspace.
+func (r *Replanner) pathExists(path string) bool {
+	p := path
+	if !filepath.IsAbs(p) && r.workspace != "" {
+		p = filepath.Join(r.workspace, p)
+	}
+	_, err := os.Stat(p)
+	return err == nil
 }

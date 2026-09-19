@@ -157,7 +157,6 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 					return nil
 				}
 
-
 				// Seed a replan trigger so Replanner has a hard signal.
 				if err := o.kernel.Assert(core.Fact{
 					Predicate: "replan_trigger",
@@ -291,7 +290,7 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 
 	if o.replanner != nil {
 		logging.CampaignDebug("Refining next phase based on completed phase: %s", completedPhase.ID)
-		if err := o.replanner.RefineNextPhase(ctx, o.campaign, completedPhase); err != nil {
+		if err := o.replanner.RefineNextPhase(ctx, o.campaign, completedPhase, o.getTaskResult); err != nil {
 			logging.Get(logging.CategoryCampaign).Warn("Rolling-wave refinement failed: %v", err)
 			o.emitEvent(EventReplanFailed, completedPhase.ID, "", err.Error(), nil)
 			return

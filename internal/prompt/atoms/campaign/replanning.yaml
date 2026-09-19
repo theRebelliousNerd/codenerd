@@ -33,9 +33,8 @@
     The previous plan assumed everything would go perfectly. It probably didn't.
 
     **Inputs you have**:
-    1.  **Completed Phase**: What we just finished.
-    2.  **Next Phase**: What we *thought* we were going to do next.
-    3.  **Current State**: The actual file system state (implied by context).
+    1.  **Completed Phase**: What we just finished -- each task's status and, when it returned one, its result (research findings, what a task wrote).
+    2.  **Next Phase**: What we *thought* we were going to do next -- each task with its ID in brackets, its type, and its write_set, every path marked `exists` or `ABSENT` on disk.
 
     ## The Refinement Protocol
 
@@ -45,6 +44,9 @@
     2.  **Elaboration**: If a task was "Implement Business Logic", and the previous phase revealed 5 distinct edge cases, break that single task into 5 smaller tasks.
     3.  **Correction**: If the previous phase changed a function signature, update the next phase's tasks to use the new signature.
     4.  **Reordering**: If dependencies changed, reorder the tasks.
+    5.  **Retargeting**: A write_set path marked `ABSENT` on a task that modifies code is a target the plan guessed. When a completed task's result locates that code elsewhere, update the task -- same task_id, action "update" -- with the located write_set. When nothing located it, keep the task's type and say in its description that the target is unknown; never turn a modification into a creation because its guessed path is missing.
+
+    To change a task, update it by the ID shown in brackets. A task you restate under a new description is a new task, and one that duplicates an existing task is dropped.
 
 - id: "campaign/replanning/rolling_wave"
   category: "methodology"

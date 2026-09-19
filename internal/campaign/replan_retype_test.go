@@ -70,7 +70,7 @@ func TestReplanRefineRetypesPathlessDocument(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Assemble short ranked risk report from Phase 3 correctness and safety findings", "type": "/document", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
 	}, t.TempDir())
-	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err == nil {
+	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err == nil {
 		t.Fatal("pathless document refinement must fail")
 	}
 	if len(campaign.Phases[1].Tasks) != 0 {
@@ -103,7 +103,7 @@ func TestReplanDedupeDropsSuffixedRestatement(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Research correctness in internal/retrieval", "type": "/research", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
 	}, t.TempDir())
-	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
+	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
 	if got := len(campaign.Phases[1].Tasks); got != 1 {
@@ -139,7 +139,7 @@ func TestReplanDedupeKeepsDistinctTasks(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Draft release notes in docs/notes.md", "type": "/document", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
 	}, t.TempDir())
-	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
+	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
 	if got := len(campaign.Phases[1].Tasks); got != 2 {

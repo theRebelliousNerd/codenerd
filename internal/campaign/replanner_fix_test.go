@@ -242,7 +242,7 @@ func TestRefineNextPhase_DuplicateSuppression(t *testing.T) {
 					return `{"tasks": [{"task_id": "", "description": "` + tc.newDesc + `", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 				},
 			}, "")
-			if err := r.RefineNextPhase(context.Background(), campaign, completed); err != nil {
+			if err := r.RefineNextPhase(context.Background(), campaign, completed, nil); err != nil {
 				t.Fatalf("RefineNextPhase failed: %v", err)
 			}
 			if got := len(campaign.Phases[1].Tasks); got != tc.wantLen {
@@ -275,7 +275,7 @@ func TestRefineNextPhase_DuplicateViaUpdateFallback(t *testing.T) {
 			return `{"tasks": [{"task_id": "nonexistent", "description": "Implement payment flow", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "update"}], "summary": "ok"}`, nil
 		},
 	}, "")
-	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
+	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
 	if got := len(campaign.Phases[1].Tasks); got != 1 {
@@ -310,7 +310,7 @@ func TestRefineNextPhase_ContextFromMapping(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Synthesize payment report", "type": "/document", "artifacts": ["report.md"], "priority": "/high", "action": "add", "depends_on": ["Research payment design"]}], "summary": "ok"}`, nil
 		},
 	}, "")
-	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
+	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
 	if len(campaign.Phases[1].Tasks) != 2 {
@@ -340,7 +340,7 @@ func TestRefineNextPhase_ContextFromMapping(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 		},
 	}, "")
-	if err := r2.RefineNextPhase(context.Background(), campaign2, &campaign2.Phases[0]); err != nil {
+	if err := r2.RefineNextPhase(context.Background(), campaign2, &campaign2.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
 	if len(campaign2.Phases[1].Tasks) != 1 {
@@ -369,7 +369,7 @@ func TestRefineNextPhase_PerPhaseDuplicateIsolation(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 		},
 	}, "")
-	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
+	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
 	if len(campaign.Phases[1].Tasks) != 1 {
