@@ -16,12 +16,14 @@ import (
 // DefaultRepairMaxAttempts bounds one repair episode. Three iterations give a
 // model room to misdiagnose once and still recover; beyond that the loop is
 // burning budget going nowhere and the turn must fail loudly instead.
+//
+// The attempts are the episode's only bound. Each ends in a recheck, so
+// attempts that did not converge are a repeated failure, and that is what
+// stops the loop. There is no wall clock: how long a model thinks is not
+// evidence about whether it is converging (ladder run R1-4d: a 368 s call,
+// cut with nothing returned by a 6.2-minute clock sized for faster models).
+// The turn's own deadline, when the user set one, still applies.
 const DefaultRepairMaxAttempts = 3
-
-// DefaultRepairWallClock bounds one repair episode in wall time. Five minutes
-// covers several real go build/test cycles plus model latency without letting
-// an unattended run stall: repair that has not converged by then will not.
-const DefaultRepairWallClock = 5 * time.Minute
 
 // repairRoundsPerAttempt bounds one attempt's read-diagnose-edit cycle: each
 // attempt is allowed multiple model calls so it can read, then edit, before
@@ -35,46 +37,22 @@ const repairRoundsPerAttempt = 6
 // older than one round is capped, so context cannot grow without bound.
 const repairRetainedOutputCap = 2000
 
-// RepairBudget is the hard budget for one repair episode: bounded
-// read→diagnose→edit→verify iterations under attempt and wall-clock ceilings.
+// RepairBudget is the budget for one repair episode: a bounded number of
+// read→diagnose→edit→verify iterations.
 type RepairBudget struct {
 	MaxAttempts int
-	WallClock   time.Duration
 }
 
 // repairBudgetFor resolves the episode budget from executor config with
-// defaults. Non-positive values fall back to defaults: repair is always
-// bounded; there is no way to configure an unbounded loop.
+// defaults. A non-positive value falls back to the default: repair is always
+// bounded by its attempts; there is no way to configure an unbounded loop.
 func (e *Executor) repairBudgetFor() RepairBudget {
 	cfg := e.configSnapshot()
-	b := RepairBudget{MaxAttempts: DefaultRepairMaxAttempts, WallClock: DefaultRepairWallClock}
+	b := RepairBudget{MaxAttempts: DefaultRepairMaxAttempts}
 	if cfg.RepairMaxAttempts > 0 {
 		b.MaxAttempts = cfg.RepairMaxAttempts
 	}
-	if cfg.RepairWallClock > 0 {
-		b.WallClock = cfg.RepairWallClock
-	}
 	return b
-}
-
-// repairClockWithGateTime adds the harness's own measured cost to the episode
-// clock: every attempt ends in a re-run of the gates that failed, and how long
-// those gates take is a fact about the repository, measured on the run that
-// seeded this repair (result.BuildCheck / TestCheck Duration). The wall clock is
-// the model's budget to read, diagnose and edit; without this, a repository
-// whose gate takes a minute spends most of a five-minute episode re-running its
-// own tests. Observed 2026-09-18: a repair of cmd/nerd/chat (26 s of tests plus
-// a full build per recheck) "exhausted its 5m0s wall clock after 2 attempts"
-// of the 3 it was allowed.
-func repairClockWithGateTime(budget RepairBudget, result *ExecutionResult) time.Duration {
-	if result == nil || budget.MaxAttempts <= 0 {
-		return budget.WallClock
-	}
-	gate := result.BuildCheck.Duration + result.TestCheck.Duration
-	if gate <= 0 {
-		return budget.WallClock
-	}
-	return budget.WallClock + time.Duration(budget.MaxAttempts)*gate
 }
 
 // RepairCost is the episode cost ledger: every attempt, model call, tool
@@ -129,52 +107,15 @@ type RepairRecord struct {
 	Followups      []string
 }
 
-// repairEpisodeContext derives the episode clock. It mirrors
-// runVerificationCommand: an already-expired parent deadline does not apply
-// (the episode keeps its own budget, so verification at the deadline edge
-// still gets its repair — observed live, the repair round used to die
-// instantly on the turn's expired context), a live parent deadline is
-// respected via the earlier of the two, and an explicit parent cancel kills
-// the episode immediately.
-func repairEpisodeContext(parent context.Context, wallClock time.Duration) (context.Context, context.CancelFunc) {
-	if parent.Err() == context.Canceled {
-		// Explicit cancel kills the episode before it starts: no attempts.
-		canceled, cancel := context.WithCancel(context.Background())
-		cancel()
-		return canceled, func() {}
-	}
-	// A pre-expired parent deadline does not apply: the episode keeps its
-	// own budget (mirroring runVerificationCommand).
-	timeout := wallClock
-	if deadline, ok := parent.Deadline(); ok {
-		if remaining := time.Until(deadline); remaining < timeout {
-			timeout = remaining
-		}
-	}
-	if timeout <= 0 {
-		timeout = wallClock
-	}
-	epCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
-	stop := context.AfterFunc(parent, func() {
-		if parent.Err() == context.Canceled {
-			cancel()
-		}
-	})
-	return epCtx, func() {
-		stop()
-		cancel()
-	}
-}
-
-// repairCallContext is what an attempt's model calls, tools and re-verification
-// run under: the turn's own deadline while one is still ahead (the user's
-// constraint), cancelled with the turn, and never the episode clock. The clock
-// decides whether an attempt starts; it does not cut a call in flight (ladder
-// run R1-4d: a 366 s model call, cut by a 6.2-minute clock with nothing
-// returned, left the coverage round with no attempt at all). Like the episode,
-// it ignores a parent deadline already past; a call then stays bounded by its
-// client's own HTTP timeout.
-func repairCallContext(parent context.Context) (context.Context, context.CancelFunc) {
+// repairEpisodeContext is what a repair episode runs under -- its model calls,
+// tools and re-verification: the turn's own deadline while one is still ahead
+// (the user's constraint), cancelled with the turn, and nothing of the
+// harness's own. A parent deadline already past does not apply, mirroring
+// runVerificationCommand, so verification at the deadline edge still gets its
+// repair (observed live: the repair round used to die instantly on the turn's
+// expired context); a call then stays bounded by its client's HTTP timeout and
+// the episode by its attempts.
+func repairEpisodeContext(parent context.Context) (context.Context, context.CancelFunc) {
 	detached := context.WithoutCancel(parent)
 	var ctx context.Context
 	var cancel context.CancelFunc
@@ -184,6 +125,7 @@ func repairCallContext(parent context.Context) (context.Context, context.CancelF
 		ctx, cancel = context.WithCancel(detached)
 	}
 	if parent.Err() == context.Canceled {
+		// Explicit cancel kills the episode before it starts: no attempts.
 		cancel()
 		return ctx, func() {}
 	}
@@ -244,15 +186,9 @@ func (e *Executor) repairLoop(
 	spec repairSpec,
 ) (*types.LLMToolResponse, []string, *RepairRecord, error) {
 	budget := e.repairBudgetFor()
-	budget.WallClock = repairClockWithGateTime(budget, result)
 	rec := &RepairRecord{Kind: spec.kind, InitialFailure: seedOutput}
-	// epCtx is the clock: when it has run out, no attempt (and no further round
-	// of one) starts. callCtx is what an attempt runs under, so a model call in
-	// flight when the clock runs out finishes and is judged.
-	epCtx, cancelEpisode := repairEpisodeContext(ctx, budget.WallClock)
+	epCtx, cancelEpisode := repairEpisodeContext(ctx)
 	defer cancelEpisode()
-	callCtx, cancelCalls := repairCallContext(ctx)
-	defer cancelCalls()
 
 	var last *types.LLMToolResponse
 	var allErrs []string
@@ -262,15 +198,15 @@ func (e *Executor) repairLoop(
 	for attempt := 1; attempt <= budget.MaxAttempts; attempt++ {
 		if err := epCtx.Err(); err != nil {
 			rec.Followups = spec.followups()
-			if epCtx.Err() == context.Canceled && ctx.Err() == context.Canceled {
+			if err == context.Canceled {
 				return nil, allErrs, rec, fmt.Errorf("repair canceled: %w", context.Canceled)
 			}
 			logging.Get(logging.CategorySession).Warn(
-				"Repair episode (%s) exhausted its wall clock after %d attempts; cost=%s",
+				"Repair episode (%s) reached the turn's deadline after %d attempts; cost=%s",
 				spec.kind, attempt-1, rec.Cost.String())
 			return nil, allErrs, rec, fmt.Errorf(
-				"%w: %s and the repair loop exhausted its %s wall clock after %d attempts (cost=%s) and the workspace still fails. Follow-ups: %s. Last failure:\n%s",
-				ErrVerificationFailed, spec.brokenPhrase, budget.WallClock, attempt-1, rec.Cost.String(),
+				"%w: %s and the turn's deadline passed after %d repair attempt(s) (cost=%s) and the workspace still fails. Follow-ups: %s. Last failure:\n%s",
+				ErrVerificationFailed, spec.brokenPhrase, attempt-1, rec.Cost.String(),
 				strings.Join(rec.Followups, "; "), seed)
 		}
 
@@ -289,7 +225,7 @@ func (e *Executor) repairLoop(
 		logging.Get(logging.CategorySession).Warn(
 			"Repair attempt %d/%d (%s)%s", attempt, budget.MaxAttempts, spec.kind, regimeNote)
 
-		repaired, llmCalls, allCalls, repairErrs, toolResults, wrote, err := e.repairRound(callCtx, epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime)
+		repaired, llmCalls, allCalls, repairErrs, toolResults, wrote, err := e.repairRound(epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime)
 		allErrs = append(allErrs, repairErrs...)
 		if err != nil {
 			att.Verdict = VerifyIndeterminate
@@ -319,7 +255,7 @@ func (e *Executor) repairLoop(
 		}
 		att.Wrote = wrote
 
-		passed, failingOutput, verdict := spec.recheck(callCtx)
+		passed, failingOutput, verdict := spec.recheck(epCtx)
 		att.Verdict = verdict
 		att.SeedExcerpt = excerpt(failingOutput, repairRetainedOutputCap)
 		rec.Attempts = append(rec.Attempts, att)

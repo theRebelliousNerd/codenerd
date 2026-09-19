@@ -521,36 +521,60 @@ func TestRepairLoop_CancelBeforeStart(t *testing.T) {
 	}
 }
 
-// An already-expired parent deadline does not apply: the episode keeps its
-// own budget (this is the run-4 lesson — verification at the deadline edge
-// still gets its repair).
-func TestRepairEpisodeContext_ExpiredDeadlineKeepsBudget(t *testing.T) {
+// An already-expired parent deadline does not apply: the episode runs with no
+// deadline, bounded by its attempts (this is the run-4 lesson — verification
+// at the deadline edge still gets its repair).
+func TestRepairEpisodeContext_ExpiredDeadlineDoesNotApply(t *testing.T) {
 	parent, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
-	epCtx, stop := repairEpisodeContext(parent, time.Minute)
+	epCtx, stop := repairEpisodeContext(parent)
 	defer stop()
 	if epCtx.Err() != nil {
 		t.Fatalf("episode ctx already done: %v", epCtx.Err())
 	}
-	if _, ok := epCtx.Deadline(); !ok {
-		t.Fatal("episode ctx has no deadline of its own")
+	if deadline, ok := epCtx.Deadline(); ok {
+		t.Fatalf("episode ctx has a deadline (%v) the user never set", deadline)
 	}
 }
 
 func TestRepairEpisodeContext_CancelKillsFast(t *testing.T) {
 	parent, cancel := context.WithCancel(context.Background())
 	cancel()
-	epCtx, stop := repairEpisodeContext(parent, time.Minute)
+	epCtx, stop := repairEpisodeContext(parent)
 	defer stop()
 	if epCtx.Err() != context.Canceled {
 		t.Fatalf("episode ctx err=%v, want canceled", epCtx.Err())
 	}
 }
 
+// A cancel that arrives while the episode runs reaches it: the episode is
+// detached from the parent's deadline handling, not from the user.
+func TestRepairEpisodeContext_LaterCancelReachesTheEpisode(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	epCtx, stop := repairEpisodeContext(parent)
+	defer stop()
+	cancel()
+	select {
+	case <-epCtx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cancel of the turn did not reach the running episode")
+	}
+}
+
+// With no deadline on the turn, the episode has none: the harness adds no
+// clock of its own.
+func TestRepairEpisodeContext_NoDeadlineOfItsOwn(t *testing.T) {
+	epCtx, stop := repairEpisodeContext(context.Background())
+	defer stop()
+	if deadline, ok := epCtx.Deadline(); ok {
+		t.Fatalf("episode ctx has a deadline (%v); the turn had none", deadline)
+	}
+}
+
 func TestRepairEpisodeContext_LiveDeadlineRespected(t *testing.T) {
 	parent, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
 	defer cancel()
-	epCtx, stop := repairEpisodeContext(parent, time.Minute)
+	epCtx, stop := repairEpisodeContext(parent)
 	defer stop()
 	deadline, ok := epCtx.Deadline()
 	if !ok {

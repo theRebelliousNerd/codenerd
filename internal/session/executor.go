@@ -258,10 +258,11 @@ type Executor struct {
 // held MaxToolCalls, MaxToolIterations, ProgressDrivenTools,
 // AdaptiveToolBudget, ToolIterationExtensionSize, MaxToolIterationExtensions
 // and ToolLoopRepeatThreshold. The tool loop now continues while the working
-// policy derives no stop, so the only turn-level ceilings left here are the
-// user's wall-clock constraints (ToolTimeout, FinalAnswerReserve,
-// RepairWallClock) — a count of calls was never a fact about whether the task
-// was done.
+// policy derives no stop, so the only time bounds left here are a single
+// tool execution's (ToolTimeout) and the tail kept for a final answer when the
+// user gave the turn a deadline (FinalAnswerReserve) — a count of calls was
+// never a fact about whether the task was done, and neither is a wall clock
+// on a repair episode (RepairWallClock, removed 2026-09-19).
 type ExecutorConfig struct {
 	// ToolTimeout is the maximum time for a single tool execution.
 	ToolTimeout time.Duration
@@ -269,12 +270,6 @@ type ExecutorConfig struct {
 	// RepairMaxAttempts bounds one build/test repair episode. Zero falls
 	// back to DefaultRepairMaxAttempts; repair is always bounded.
 	RepairMaxAttempts int
-
-	// RepairWallClock bounds one build/test repair episode in wall time.
-	// Zero falls back to DefaultRepairWallClock; the episode keeps this
-	// budget even when the turn's own deadline already expired, while an
-	// explicit cancel still kills it immediately.
-	RepairWallClock time.Duration
 
 	// FinalAnswerReserve keeps the tail of a deadline-bound turn available for
 	// one tool-free completion. Ordinary tool exploration is cancelled at the
@@ -390,7 +385,6 @@ func DefaultExecutorConfig() ExecutorConfig {
 	return ExecutorConfig{
 		ToolTimeout:        defaultToolTimeout,
 		RepairMaxAttempts:  DefaultRepairMaxAttempts,
-		RepairWallClock:    DefaultRepairWallClock,
 		FinalAnswerReserve: defaultFinalAnswerReserve,
 		EnableSafetyGate:   true,
 		TokenBudget:        DefaultTokenBudget(),

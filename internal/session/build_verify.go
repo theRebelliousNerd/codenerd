@@ -192,9 +192,9 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 //
 // This used to be exactly one round, on the theory that a model that cannot
 // fix its own breakage with the errors in front of it will not fix it on the
-// fourth attempt either. C1 keeps the hard bound but makes it a loop: attempt
-// and wall-clock ceilings (RepairMaxAttempts/RepairWallClock) make iteration
-// safe where an unbounded loop was not, and real failures — a fix that
+// fourth attempt either. C1 keeps the hard bound but makes it a loop: the
+// attempt ceiling (RepairMaxAttempts) makes iteration safe where an unbounded
+// loop was not, and real failures — a fix that
 // addresses the first error but exposes the second — need more than one shot.
 // If the budget exhausts, the turn fails loudly with the errors, the cost
 // ledger, and follow-ups, rather than reporting the success that started this
@@ -490,14 +490,8 @@ func buildRepairPrompt(compilerOutput string) string {
 // (repair_loop's toolRunsFor needs the calls of all rounds), the collected
 // repair errors, every round's tool results in order, and whether any round
 // wrote.
-//
-// ctx is what each round's model call and tools run under; clock is the
-// repair episode's clock. The clock decides whether another round starts, not
-// when a round in flight is cut: once it has run out, the attempt ends with
-// what it has and the loop rechecks it.
 func (e *Executor) repairRound(
 	ctx context.Context,
-	clock context.Context,
 	trp types.ToolResultsProvider,
 	systemPrompt string,
 	history *[]types.Message,
@@ -554,9 +548,6 @@ func (e *Executor) repairRound(
 			types.Message{Role: "user", ToolResults: results})
 		wrote = result != nil && result.SuccessfulWriteTools > before
 		if wrote {
-			break
-		}
-		if clock.Err() != nil {
 			break
 		}
 		if round+1 < repairRoundsPerAttempt {
