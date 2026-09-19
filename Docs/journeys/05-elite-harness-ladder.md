@@ -11,9 +11,12 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 02:40 (gate baseline measured on `f26140e1`)
-- current rung: R1 (single-file landings happen, not yet three in a row)
-- open: the first R1 run (brief R1-1, the final-verdict flake); G6 needs a toolchain download (asked)
+- last updated: 2026-09-19 05:30
+- current rung: R1 -- one landing (R1-3), two more in a row to pass; R0 suite 1 of 3 green after
+  the two load flakes were fixed at their cause
+- open: the forcing gate (changed code no test executes, and `go vet`, become verdict evidence with
+  a repair round -- R1-2 failed on exactly those); the campaign defects the R1-2 comparison found;
+  G6 needs a toolchain download (asked)
 
 ## What counts as a landing
 
@@ -30,7 +33,10 @@ problem in this repository, whose result is kept. All of these hold:
    green after.
 4. **The verdict is truthful.** codeNERD's own result says done only when its evidence shows it:
    no "done" over a test that never ran, no success line over a failed gate.
-5. **The file count is the fix's, not the noise's.** Files edited to fix the problem, tests
+5. **The failure is reproducible with codeNERD's own tools** (a command it may run), or the brief
+   carries an acceptance contract. A failure only the reviewer can reproduce (R1-1 needed 32 busy
+   loops) cannot be told red from green inside the run, so it is not a rung-1 probe.
+6. **The file count is the fix's, not the noise's.** Files edited to fix the problem, tests
    included, count; generated files and formatting churn do not.
 
 Every run, landed or not, is recorded in the dogfood ledger
@@ -106,4 +112,12 @@ it is run both ways and the ledger records which landed and at what cost.
 
 ## Runs
 
-(Newest last. Each line: date, rung, brief, outcome, minutes, calls, files, commit or revert.)
+(Newest last.)
+
+| date | rung | brief | entry | outcome | minutes | tool calls | files | commit |
+|---|---|---|---|---|---|---|---|---|
+| 2026-09-19 02:26 | R1 | R1-1 final-verdict flake | nerd fix | not landed: `working_stop(/read_only_stall)` after 24 rounds, nothing written. Harness blocker: the working window dropped every file but the last one read (fixed by hand, `7856287c`) | 6.1 | 27 | 0 | -- |
+| 2026-09-19 02:50 | R1 | R1-1 again, fixed window | nerd fix | not landed, reverted: `/done` over a change that still fails 40 of 40 under load; the runtime edit broke tool-use/result pairing; its test edit (an assertion drop) was refused and never redone. The failure is load-dependent and codeNERD's tools cannot reproduce it -- a poor rung-1 probe; fixed by hand for R0 | 15.6 | 46 | 2 | reverted |
+| 2026-09-19 03:09 | R1 | R1-2 check-mangle in kernel context | nerd fix | not landed, reverted: the corpus passes (135/135) and real errors still fail, but `go vet` unreachable code, an unused function, every corpus error misattributed to every file, and no test. Its `run_build` replaced the running nerd.exe (became R1-3) | 25.3 | 108 | 2 | reverted |
+| 2026-09-19 03:38 | R1 | R1-2, same brief | campaign `--type remediation` | not landed: timed out at 60 min in phase 3 of 4 with the tree not building. Plan targets guessed before research, modify retyped to create, a retry without its reason, a rollback scoped to declared targets | 60.1 | -- | 1 + a doc | reverted |
+| 2026-09-19 04:41 | R1 | R1-3 run_build leaves artifacts | nerd fix | **landed**: fix + a test that fails before and passes after; found and fixed its own regression from a full-suite run | 23.9 | 52 | 2 | `df4a3063` |

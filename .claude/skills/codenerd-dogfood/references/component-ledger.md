@@ -4485,3 +4485,60 @@ half-finished edits and left the live one as `nerd.exe~` in the repo root (the r
 "Created in the repository root, undeclared: nerd.exe~"). A verification tool must not produce
 artifacts, least of all the harness. Next brief (R1-3), since codeNERD can reproduce it with its
 own tools. Also: the post-edit gate is build + tests; `go vet` is not in it, so (1) passed as done.
+
+
+## R1-2 as a short campaign, for the comparison: 60 minutes, no fix, a tree that did not build (2026-09-19, 03:38-04:38)
+
+Same brief, same binary (`7856287c`), `nerd campaign start "<brief>" --type remediation --timeout 60m`.
+The plan was reasonable on paper -- 4 phases, 16 tasks: research and reproduce (4), map the
+cross-file declarations (3), fix the checker (4), pin accept and reject with tests (5) -- and it
+is the only one of the two runs that planned the tests at all.
+
+| entry | minutes | outcome | tree at exit | tests written |
+|---|---|---|---|---|
+| `nerd fix` | 25.3 | fix works on the corpus; vet, unused, misattribution | builds | none (a comment) |
+| campaign | 60.1 (timeout, paused) | phases 1-2 done (27 min), phase 3's first task failed twice | **does not build** | none (phase 4 never reached) |
+
+**Why it failed, in order.** (1) The plan was made before the research ran, and it named the
+checker's file as `internal/cli/check-mangle.go` -- a path that has never existed; the research
+tasks found `cmd/nerd/cmd_mangle_check.go`, and nothing re-targeted the tasks after them. (2) The
+orchestrator retyped the task: "Retyped task ... from /file_modify to /file_create: no write-set
+path exists" -- a guessed path turned "modify the checker" into "create a new file". (3) The
+coder did that, and the created-source test obligation refused it: "hollow success blocked: turn
+created Go source internal/cli/check-mangle.go without a test file (verb /fix)" -- the gate right,
+the framing that led there wrong. (4) The retry re-spawned the same task (`action=create ... task=
+create file:internal/cli/check-mangle.go Modify checker...`) without the reason it failed, and
+the create-only fallback refused because the file now existed. (5) The failure rollback restores
+the task's declared write set only: it removed the created file and kept the coder's edit to
+`cmd_mangle_check.go`, outside that set, which imports it. (6) Two `[diagnostic-repro]` tasks ran
+`go test ./...`, one hit the known final-verdict load flake, and the hour ran out.
+
+**Reading.** For a one-file brief the campaign costs more than twice the time for nothing kept; its
+value is the plan (a test phase is planned, not left to the model). The four harness defects --
+targets fixed before research, modify-to-create retyping, a retry that drops its reason, a rollback
+scoped to declared targets -- are what stand between campaigns and rungs R2-R5, where they are the
+right tool.
+
+
+## R1-3, run_build leaves nothing on disk: the first rung-1 landing (2026-09-19, 04:41-05:05)
+
+Binary from `275af357`. Brief (symptom only): `run_build {"packages":["./cmd/nerd"]}` left a new
+nerd.exe in the repository root, built from the agent's unfinished edits, and the running binary
+as nerd.exe~; what should hold: run_build changes nothing on disk, for any package list.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 23.9 | 52 (22 read_file, 10 run_tests, 8 grep, 7 edit_lines, 2 git_operation, 1 each search_code, run_build, list_files, insert_lines) | rc=0, `/done`, `checks_passed` -- **landed**, `df4a3063` | 50 calls, mean 38.7k, peak 49.8k, 1.94M total, 52.4k out | `verification.go` +59/-1, its test +50 |
+
+**What it did.** Found the file in four calls, read the existing tests, wrote the fix (`go build -o
+<per-call temp dir>`, removed on return; the reported argv names `<discarded-temp-dir>`) and a test
+that builds a temp main module with and without a package list and requires the directory
+unchanged. Then it ran the whole suite once: its first version broke
+`TestExecuteRunBuild_AutoDetectGo` (`go build -o` refuses a list with no main package), which it
+fixed with a fallback to the plain build; and it re-ran `TestEnsureOnDemandShardsNeverDoubleSpawns`
+alone to tell that failure (a load flake, since fixed at its cause) from its own.
+
+**Reviewed.** Test fails with the fix reverted ("build left \"buildclean.exe\" behind"), passes with
+it; vet and staticcheck clean; full suite 88 of 89, the one failure the known final-verdict flake.
+Nits kept: one new golangci errcheck finding (`defer os.RemoveAll`), and the build path repeats the
+shared tail's run-and-encode lines rather than reusing them. The verdict was true.
