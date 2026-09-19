@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 08:05
+- last updated: 2026-09-19 08:32
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -20,8 +20,8 @@ the protocol for a run, and the status of each rung with the run that moved it.
   reviewed on every codeNERD run: true for R1-3, R1-4 and R1-4b (both failed and said so; R1-4b's
   message did not say why, fixed in `27a4f0db`).
 - current rung: R1 -- streak 0: R1-3 landed; R1-4 was refused by the removed-tests guard, R1-4b by
-  its own coverage round. Next: the check-mangle brief v2 (it states the property both fixes broke:
-  an error is reported against the file that has it) on `27a4f0db`.
+  its own coverage round, R1-4c by the broker (a replayed think counted by its ciphertext). Next:
+  the check-mangle brief v2 again (R1-4d) on `d54424d0`.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
@@ -30,7 +30,8 @@ the protocol for a run, and the status of each rung with the run that moved it.
   tests is handed each one's source to put back and the tests are rerun, where it used to fail on
   the spot -- R1-4's blocker); a forcing round that gives up with the suite red is undone to its
   last green state, the vet round keeps the tests green, and the final check names what failed
-  (`27a4f0db` -- R1-4b's blocker)
+  (`27a4f0db` -- R1-4b's blocker); a replayed encrypted think is measured by the reasoning tokens
+  the provider counted for it, not its ciphertext's length (`d54424d0` -- R1-4c's blocker)
 - open: the harness defects below (C1-C4, V1); G6 needs a toolchain download
   (asked); codeNERD cannot run the gates it will be asked to clear -- no typed tool runs `go vet`,
   staticcheck or golangci-lint for the model (the forcing gate runs vet itself, the model cannot),
@@ -195,3 +196,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 04:41 | R1 | R1-3 run_build leaves artifacts | nerd fix | **landed**: fix + a test that fails before and passes after; found and fixed its own regression from a full-suite run | 23.9 | 52 | 2 | `df4a3063` |
 | 2026-09-19 06:37 | R1 | R1-2 again (R1-4), forcing-gate binary | nerd fix | not landed, reverted: every gate held -- build, tests, the new coverage round (converged in two attempts), vet -- then the removed-tests guard refused the turn: a whole-file `write_file` of the test file dropped three existing tests that still pass against the new code. The guard was the one gate with no round (fixed by hand, `279b73fe`). The fix: corpus 135/135 and rule errors attributed right, but one malformed Decl cascades into 84 misattributed errors | 14.2 | 63 | 2 | reverted |
 | 2026-09-19 07:22 | R1 | R1-2 again (R1-4b), removed-tests round in | nerd fix | not landed, reverted: build and tests green, then the coverage round's own test failed three times (it counted a marker four schema files also contain) and the round left it in place; the final check failed the turn without naming why. Fixed by hand: a red give-up is undone, the final check names what failed. The fix (whole corpus in one program) blames all 135 files for one sibling's error -- criterion 7; brief v2 states that property | 20.6 | 49 | 2 | reverted |
+| 2026-09-19 08:02 | R1 | check-mangle v2 (R1-4c) | nerd fix | not landed, reverted: after a 22,853-token think the broker counted the replayed encrypted reasoning by its ciphertext length and refused the next request as window_exceeded (193,735 counted; the day's think-then-request pairs cost a fraction of their estimate). Fixed by hand: a redacted think is measured by the reasoning tokens the provider counted. The unfinished fix (the disk file with the embedded corpus) met v2's property | 12.8 | 40 | 1 + a repro | reverted |

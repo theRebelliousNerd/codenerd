@@ -4616,3 +4616,29 @@ The current checker reports a planted rule error, or a malformed Decl, in the fi
 nowhere else (measured). Criterion 7 fails either way. Both attempts cascaded a sibling's error into
 every file; the brief never stated that property, so v2 of the brief states it (an error is
 reported against the file that has it; today that holds and must still hold).
+
+
+## R1-4c, brief v2: the broker refused a request that fit (2026-09-19, 08:02-08:15)
+
+Binary from `3293b8f7`. Brief v2 (R1-2's plus the property both earlier fixes broke: an error is
+reported against the file that has it; today that holds and must still hold).
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 12.8 | 40 (18 read_file, 9 grep, 4 list_files, 3 search_code, 3 edit_lines, 1 each write_file, run_tests, run_build) | rc=1, "broker refused window_exceeded request ... 193735 tokens exceeds 188000 available" -- **not landed**, reverted | 30 admitted, mean 44.0k, peak 62.9k, 1.32M total, 51.6k out (42.9k thinking); the 31st refused | `cmd_mangle_check.go` +52/-5 and a repro test, unfinished |
+
+**What happened.** After 39 calls the working policy closed exploration (commit regime); the model
+then thought for 22,853 tokens (256 s) and wrote a repro test. The next request carried that
+think's encrypted reasoning, which the broker counted by the length of its ciphertext: history
+went from 18k to 133k estimated tokens and the request was refused. Across the day's 18
+think-then-request pairs the estimate grew 3-5x the thinking tokens while the provider's actual
+input+cached grew by a fraction of it; on ordinary requests the estimator is sound (median -6.5%
+over 321). Harness fix, hand-built: a replayed encrypted think is measured by the reasoning tokens
+the provider counted for it.
+
+**The partial fix.** A third design: the checked file from disk, loaded with the kernel's embedded
+corpus (`core.DefaultCorpusText`) minus that file's embedded copy. It meets v2's property (a sibling
+is its built copy, so an error planted on disk fails only its own file) at a cost it did not reach
+the point of weighing: every file is judged against its siblings as built into the binary, not as
+they are in the working tree, so a change across several policy files is checked against stale
+siblings. Unfinished; not judged against the criteria.
