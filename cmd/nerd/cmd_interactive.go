@@ -90,7 +90,7 @@ func runInteractiveAction(shardType, verb, initialTarget string) error {
 
 		// Each turn gets its own timeout from --timeout. Explicit cancel:
 		// defer in a loop would leak until the session ends.
-		turnCtx, turnCancel := context.WithTimeout(processCtx, timeout)
+		turnCtx, turnCancel := operationContext(processCtx)
 		if usageTracker != nil {
 			turnCtx = usage.NewContext(turnCtx, usageTracker)
 		}

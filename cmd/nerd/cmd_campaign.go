@@ -294,7 +294,7 @@ func campaignNorthstarObserver(cortex *coresys.Cortex, cwd string) *northstar.Ca
 
 // runCampaignStart starts a new campaign
 func runCampaignStart(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	// Handle graceful shutdown
@@ -671,7 +671,7 @@ func runCampaignPause(cmd *cobra.Command, args []string) error {
 
 // runCampaignResume resumes a paused campaign
 func runCampaignResume(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	// Resolve workspace
@@ -1336,4 +1336,3 @@ func (a *campaignTaskDelegatorAdapter) Execute(ctx context.Context, intent strin
 	}
 	return a.executor.Execute(ctx, req)
 }
-

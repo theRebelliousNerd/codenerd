@@ -43,7 +43,7 @@ var runCmd = &cobra.Command{
 
 // runInstruction executes a single instruction through the OODA loop
 func runInstruction(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	// Handle graceful shutdown

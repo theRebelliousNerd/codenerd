@@ -307,7 +307,7 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		tracer.Trace("CONFIG", "shard=%s, verb=%s", shardType, verb)
 
 		// One-shot mode (original behavior)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := operationContext(context.Background())
 		defer cancel()
 		if acceptance != nil {
 			ctx = evidence.WithContract(ctx, *acceptance)

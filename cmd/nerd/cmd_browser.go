@@ -364,7 +364,7 @@ func browserLaunch(cmd *cobra.Command, args []string) error {
 
 // browserSession creates a new browser session
 func browserSession(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	url := args[0]
@@ -419,7 +419,7 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 	sessionID := args[0]
 	logger.Info("Snapshotting DOM", zap.String("session", sessionID))
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	cfg := getBrowserConfig()
@@ -546,7 +546,7 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 // browser is running so an operator can see what a previous run left behind
 // without paying for a Chrome launch.
 func browserList(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	if _, err := os.Stat(browserControlFile()); err != nil {
@@ -602,7 +602,7 @@ func browserList(cmd *cobra.Command, args []string) error {
 
 // browserScreenshot captures a screenshot of a session.
 func browserScreenshot(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	mgr, _, err := connectBrowserManager(ctx)
@@ -639,7 +639,7 @@ func browserScreenshot(cmd *cobra.Command, args []string) error {
 
 // browserClick clicks an element, subject to the honeypot guard.
 func browserClick(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	mgr, _, err := connectBrowserManager(ctx)
@@ -664,7 +664,7 @@ func browserClick(cmd *cobra.Command, args []string) error {
 
 // browserType types into an element, subject to the honeypot guard.
 func browserType(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	mgr, _, err := connectBrowserManager(ctx)
@@ -695,7 +695,7 @@ func browserType(cmd *cobra.Command, args []string) error {
 
 // browserFork clones a session's cookies and storage into an isolated tab.
 func browserFork(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	mgr, _, err := connectBrowserManager(ctx)
@@ -724,7 +724,7 @@ func browserFork(cmd *cobra.Command, args []string) error {
 // browserHoneypot reports what the kernel derives about a page's links, or one
 // selector when --selector is given.
 func browserHoneypot(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	mgr, _, err := connectBrowserManager(ctx)

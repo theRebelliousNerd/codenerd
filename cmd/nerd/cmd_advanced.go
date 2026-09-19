@@ -143,19 +143,15 @@ Equivalent to /jit in the TUI.`,
 
 // runDreamState executes dream state consultation
 func runDreamState(cmd *cobra.Command, args []string) error {
-	// Honour --timeout rather than a hardcoded 5 minutes.
+	// Honour --timeout rather than a hardcoded ceiling.
 	//
 	// Observed live: 22 agents consulted, every one failing "context deadline
 	// exceeded", and the command still printed "Dream state consultation
 	// complete" and exited 0. Three separate faults produced that, all fixed
-	// here — the flat 5-minute ceiling (identical to the bug already fixed in
+	// here — a flat 5-minute ceiling (identical to the bug already fixed in
 	// runToolCommand below), a strictly sequential fan-out sharing that one
 	// budget, and a success message that never consulted the results.
-	dreamTimeout := timeout
-	if dreamTimeout <= 0 {
-		dreamTimeout = 25 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), dreamTimeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	scenario := strings.Join(args, " ")
@@ -351,7 +347,7 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 	printDreamLearnings(scenario, results)
 
 	// Report the outcome the run actually had.
-	summary, err := dreamSummary(succeeded, failed, dreamTimeout, ctx.Err() != nil)
+	summary, err := dreamSummary(succeeded, failed, timeout, ctx.Err() == context.DeadlineExceeded)
 	fmt.Println(summary)
 	if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
 		fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
@@ -863,11 +859,7 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 	// `--timeout` in its own help text (default 25m) and then ignored it, so
 	// every generation died with a bare "context deadline exceeded" that named
 	// neither the real limit nor the flag that was supposed to control it.
-	toolCtxTimeout := timeout
-	if toolCtxTimeout <= 0 {
-		toolCtxTimeout = 25 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), toolCtxTimeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 
 	// Resolve API key

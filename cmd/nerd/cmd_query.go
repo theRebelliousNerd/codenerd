@@ -65,7 +65,7 @@ func queryFacts(cmd *cobra.Command, args []string) error {
 	if baseCtx == nil {
 		baseCtx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(baseCtx, timeout)
+	ctx, cancel := operationContext(baseCtx)
 	defer cancel()
 
 	// Resolve API key
@@ -199,7 +199,7 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	if baseCtx == nil {
 		baseCtx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(baseCtx, timeout)
+	ctx, cancel := operationContext(baseCtx)
 	defer cancel()
 
 	if cortex, err := coresys.GetOrBootCortex(ctx, cwd, key, disableSystemShards); err == nil && cortex != nil {

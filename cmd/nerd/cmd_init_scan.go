@@ -516,7 +516,7 @@ func commandOperationContext(cmd *cobra.Command) (context.Context, func()) {
 		parent = cmd.Context()
 	}
 	signalCtx, stopSignals := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
-	ctx, cancel := context.WithTimeout(signalCtx, timeout)
+	ctx, cancel := operationContext(signalCtx)
 	return ctx, func() {
 		cancel()
 		stopSignals()

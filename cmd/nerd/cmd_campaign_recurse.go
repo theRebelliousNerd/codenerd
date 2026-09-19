@@ -136,7 +136,7 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 
 	// Unbounded runs still honor --timeout like any other command; Ctrl+C
 	// stops between waves via the shared context.
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

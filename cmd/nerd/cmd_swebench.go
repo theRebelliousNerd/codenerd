@@ -95,7 +95,7 @@ func runSwebenchSetup(cmd *cobra.Command, args []string) error {
 	if baseCtx == nil {
 		baseCtx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(baseCtx, timeout)
+	ctx, cancel := operationContext(baseCtx)
 	defer cancel()
 
 	datasetPath := swebenchDataset

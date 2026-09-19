@@ -48,6 +48,7 @@
 //   - cmd_test_context.go - testContextCmd
 //
 // Helpers:
+//   - operation_context.go - operationContext() (applies --timeout; unset means none)
 //   - system_results.go  - systemResultBaselines(), waitForSystemResults(), formatSystemResults()
 //   - stats.go           - computeStats()
 package main
@@ -181,8 +182,10 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "",
 		"API key override for the configured provider (default: .nerd/config.json, then that provider's env var)")
 	rootCmd.PersistentFlags().StringVarP(&workspace, "workspace", "w", "", "Workspace directory (default: current)")
-	// --timeout is the only source for the operation timeout (default 25m).
-	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 25*time.Minute, "Operation timeout")
+	// --timeout is the user's own limit on a whole command; operationContext
+	// applies it. Unset means none.
+	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 0,
+		"Wall-clock limit for the whole command, e.g. 2h (default: none; a run stops when it stops making progress)")
 
 	// Define-agent flags
 	var agentName, agentTopic string
