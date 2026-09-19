@@ -331,7 +331,8 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 	}
 	var succeeded []committed
 	var commitErr error
-	for _, sn := range snaps {
+	failedIdx := -1
+	for idx, sn := range snaps {
 		if err := ctx.Err(); err != nil {
 			commitErr = err
 			break
@@ -348,6 +349,7 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 		p := planned[sn.absPath]
 		if err := applyEditsWriteFile(sn.absPath, p, sn.mode); err != nil {
 			commitErr = fmt.Errorf("failed to write %s: %w", sn.relPath, err)
+			failedIdx = idx
 			break
 		}
 		succeeded = append(succeeded, committed{
@@ -360,6 +362,21 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 	}
 	if commitErr != nil {
 		var rollbackConflicts []string
+		if failedIdx >= 0 {
+			fsn := snaps[failedIdx]
+			cur, err := projectdoc.ReadFileForTool(fsn.absPath)
+			if err != nil {
+				rollbackConflicts = append(rollbackConflicts, fsn.relPath+": restore failed: "+err.Error())
+			} else if !bytes.Equal(cur, fsn.orig) {
+				if err := applyEditsWriteFile(fsn.absPath, fsn.orig, fsn.mode); err != nil {
+					rollbackConflicts = append(rollbackConflicts, fsn.relPath+": restore failed: "+err.Error())
+				} else if after, err := projectdoc.ReadFileForTool(fsn.absPath); err != nil {
+					rollbackConflicts = append(rollbackConflicts, fsn.relPath+": restore failed: "+err.Error())
+				} else if !bytes.Equal(after, fsn.orig) {
+					rollbackConflicts = append(rollbackConflicts, fsn.relPath)
+				}
+			}
+		}
 		for j := len(succeeded) - 1; j >= 0; j-- {
 			c := succeeded[j]
 			cur, err := projectdoc.ReadFileForTool(c.absPath)

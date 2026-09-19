@@ -654,6 +654,258 @@ func TestApplyEdits_InterWriteConflictRollsBackEarlierWrite(t *testing.T) {
 	}
 }
 
+func TestApplyEdits_PartialWriteFailureLeavesNoCorruption(t *testing.T) {
+	dir := t.TempDir()
+	aRel := "a.txt"
+	bRel := "b.txt"
+	aAbs := writeFixture(t, dir, aRel, "one\ntwo\n")
+	bAbs := writeFixture(t, dir, bRel, "alpha\nbeta\ngamma\ndelta\n")
+	aBefore := readFile(t, aAbs)
+	bBefore := readFile(t, bAbs)
+
+	origWrite := applyEditsWriteFile
+	calls := 0
+	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+		calls++
+		if calls == 2 {
+			half := len(data) / 2
+			if err := os.WriteFile(path, data[:half], perm); err != nil {
+				return err
+			}
+			return errors.New("no space left on device")
+		}
+		return os.WriteFile(path, data, perm)
+	}
+	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+
+	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
+		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
+		map[string]any{"operation": "edit_lines", "path": bRel, "start_line": 1, "end_line": 1, "new_content": "ALPHA"},
+	}})
+	if err == nil {
+		t.Fatal("expected write failure")
+	}
+	if !strings.Contains(err.Error(), "no space left on device") {
+		t.Fatalf("expected no-space error, got %v", err)
+	}
+	if got := readFile(t, aAbs); got != aBefore {
+		t.Fatalf("a.txt not restored: got %q want %q", got, aBefore)
+	}
+	if got := readFile(t, bAbs); got != bBefore {
+		if !strings.Contains(err.Error(), bRel) {
+			t.Fatalf("b.txt corrupt without naming it: got %q want %q, err %v", got, bBefore, err)
+		}
+		t.Fatalf("b.txt not restored: got %q want %q", got, bBefore)
+	}
+}
+
+func TestApplyEdits_FailedFileRestoreReadFailsNamesFile(t *testing.T) {
+	dir := t.TempDir()
+	aRel := "a.txt"
+	bRel := "b.txt"
+	aAbs := writeFixture(t, dir, aRel, "one\ntwo\n")
+	bAbs := writeFixture(t, dir, bRel, "alpha\nbeta\ngamma\ndelta\n")
+	aBefore := readFile(t, aAbs)
+
+	origWrite := applyEditsWriteFile
+	bWrites := 0
+	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+		if path == bAbs {
+			bWrites++
+			if bWrites == 1 {
+				half := len(data) / 2
+				if err := os.WriteFile(path, data[:half], perm); err != nil {
+					return err
+				}
+				// Remove the half-written file so the post-failure re-read fails.
+				if err := os.Remove(path); err != nil {
+					return err
+				}
+				return errors.New("no space left on device")
+			}
+		}
+		return os.WriteFile(path, data, perm)
+	}
+	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+
+	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
+		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
+		map[string]any{"operation": "edit_lines", "path": bRel, "start_line": 1, "end_line": 1, "new_content": "ALPHA"},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "no space left on device") {
+		t.Fatalf("expected no-space error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "rollback conflicts on:") || !strings.Contains(err.Error(), bRel) {
+		t.Fatalf("error must name file it could not put back, got %v", err)
+	}
+	if got := readFile(t, aAbs); got != aBefore {
+		t.Fatalf("a.txt not restored: got %q want %q", got, aBefore)
+	}
+	if _, rerr := os.ReadFile(bAbs); rerr == nil {
+		t.Fatalf("expected b.txt to be missing after failed re-read, got %q", readFile(t, bAbs))
+	}
+}
+
+func TestApplyEdits_FailedFileRestoreWriteFailsNamesFile(t *testing.T) {
+	dir := t.TempDir()
+	aRel := "a.txt"
+	bRel := "b.txt"
+	aAbs := writeFixture(t, dir, aRel, "one\ntwo\n")
+	bAbs := writeFixture(t, dir, bRel, "alpha\nbeta\ngamma\ndelta\n")
+	aBefore := readFile(t, aAbs)
+	bBefore := readFile(t, bAbs)
+
+	origWrite := applyEditsWriteFile
+	bWrites := 0
+	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+		if path == bAbs {
+			bWrites++
+			if bWrites == 1 {
+				half := len(data) / 2
+				if err := os.WriteFile(path, data[:half], perm); err != nil {
+					return err
+				}
+				return errors.New("no space left on device")
+			}
+			if bWrites == 2 {
+				return errors.New("restore: no space left on device")
+			}
+		}
+		return os.WriteFile(path, data, perm)
+	}
+	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+
+	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
+		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
+		map[string]any{"operation": "edit_lines", "path": bRel, "start_line": 1, "end_line": 1, "new_content": "ALPHA"},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "no space left on device") {
+		t.Fatalf("expected no-space error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "rollback conflicts on:") || !strings.Contains(err.Error(), bRel) {
+		t.Fatalf("error must name file it could not put back, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "restore failed") {
+		t.Fatalf("error must say restore failed, got %v", err)
+	}
+	if got := readFile(t, aAbs); got != aBefore {
+		t.Fatalf("a.txt not restored: got %q want %q", got, aBefore)
+	}
+	if got := readFile(t, bAbs); got == bBefore {
+		t.Fatalf("expected b.txt to still be corrupt, got %q", got)
+	}
+	if got := readFile(t, bAbs); got != "ALPHA\nbeta\n" {
+		t.Fatalf("expected half-written b.txt %q, got %q", "ALPHA\nbeta\n", got)
+	}
+}
+
+func TestApplyEdits_FailedFileRestoreVerifyReadFailsNamesFile(t *testing.T) {
+	dir := t.TempDir()
+	aRel := "a.txt"
+	bRel := "b.txt"
+	aAbs := writeFixture(t, dir, aRel, "one\ntwo\n")
+	bAbs := writeFixture(t, dir, bRel, "alpha\nbeta\ngamma\ndelta\n")
+	aBefore := readFile(t, aAbs)
+
+	origWrite := applyEditsWriteFile
+	bWrites := 0
+	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+		if path == bAbs {
+			bWrites++
+			if bWrites == 1 {
+				half := len(data) / 2
+				if err := os.WriteFile(path, data[:half], perm); err != nil {
+					return err
+				}
+				return errors.New("no space left on device")
+			}
+			if bWrites == 2 {
+				// Restore reports success but the file vanishes before verification.
+				if err := os.WriteFile(path, data, perm); err != nil {
+					return err
+				}
+				if err := os.Remove(path); err != nil {
+					return err
+				}
+				return nil
+			}
+		}
+		return os.WriteFile(path, data, perm)
+	}
+	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+
+	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
+		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
+		map[string]any{"operation": "edit_lines", "path": bRel, "start_line": 1, "end_line": 1, "new_content": "ALPHA"},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "no space left on device") {
+		t.Fatalf("expected no-space error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "rollback conflicts on:") || !strings.Contains(err.Error(), bRel) {
+		t.Fatalf("error must name file it could not put back, got %v", err)
+	}
+	if got := readFile(t, aAbs); got != aBefore {
+		t.Fatalf("a.txt not restored: got %q want %q", got, aBefore)
+	}
+	if _, rerr := os.ReadFile(bAbs); rerr == nil {
+		t.Fatalf("expected b.txt to be missing after failed verification, got %q", readFile(t, bAbs))
+	}
+}
+
+func TestApplyEdits_FailedFileRestoreVerifyMismatchNamesFile(t *testing.T) {
+	dir := t.TempDir()
+	aRel := "a.txt"
+	bRel := "b.txt"
+	aAbs := writeFixture(t, dir, aRel, "one\ntwo\n")
+	bAbs := writeFixture(t, dir, bRel, "alpha\nbeta\ngamma\ndelta\n")
+	aBefore := readFile(t, aAbs)
+	bBefore := readFile(t, bAbs)
+
+	origWrite := applyEditsWriteFile
+	bWrites := 0
+	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+		if path == bAbs {
+			bWrites++
+			if bWrites == 1 {
+				half := len(data) / 2
+				if err := os.WriteFile(path, data[:half], perm); err != nil {
+					return err
+				}
+				return errors.New("no space left on device")
+			}
+			if bWrites == 2 {
+				// Restore reports success but leaves the wrong bytes behind.
+				if err := os.WriteFile(path, []byte("ALPHA\nbeta\n"), perm); err != nil {
+					return err
+				}
+				return nil
+			}
+		}
+		return os.WriteFile(path, data, perm)
+	}
+	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+
+	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
+		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
+		map[string]any{"operation": "edit_lines", "path": bRel, "start_line": 1, "end_line": 1, "new_content": "ALPHA"},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "no space left on device") {
+		t.Fatalf("expected no-space error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "rollback conflicts on:") || !strings.Contains(err.Error(), bRel) {
+		t.Fatalf("error must name file it could not put back, got %v", err)
+	}
+	if got := readFile(t, aAbs); got != aBefore {
+		t.Fatalf("a.txt not restored: got %q want %q", got, aBefore)
+	}
+	if got := readFile(t, bAbs); got == bBefore {
+		t.Fatalf("expected b.txt to still be corrupt, got %q", got)
+	}
+	if got := readFile(t, bAbs); got != "ALPHA\nbeta\n" {
+		t.Fatalf("expected corrupt b.txt %q, got %q", "ALPHA\nbeta\n", got)
+	}
+}
+
 func TestApplyEdits_Registration(t *testing.T) {
 	reg := tools.NewRegistry()
 	if err := RegisterAll(reg); err != nil {
