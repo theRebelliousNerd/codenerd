@@ -4302,3 +4302,30 @@ run is spent on it. The repair loop's cost is the other open item: ~55k tokens i
 produce ~1k out, twice, inside a five-minute clock. "Step prompt compiled" does not appear in this
 run's log: the task planned as a single step, so the per-step compile (`e434033b`) had nothing to do.
 
+
+## Tool capabilities, second attempt, on the binary with the halved working section (2026-09-18, 22:53-23:16)
+
+Binary from `86e461f2` (working_section_ceiling 128 KiB as a policy fact; per-step prompt compile;
+JIT needs). Brief q3b: symptom-only, the capability vocabulary never asserted for a registered tool,
+expected "derived from what the tool declares (category and effect), never guessed from its name
+or description".
+
+| minutes | tool calls | verdict | input tokens per call | what it wrote |
+|---|---|---|---|---|
+| 22.7 | 85 (40 read_file, 14 recall_context, 13 grep, 9 edit_lines, 1 insert_lines) | rc=1: tests broke, repair exhausted its 5m51s clock (5m + measured gate time, `0e389537`) after 2 attempts | 63 calls, mean 37.5k, peak 52.5k (q1c: mean ~55k, peak 103k) | `tool_registry.go` +129, `stage_context_test.go` +84 |
+
+**What it did.** Closer to the spec than the first attempt (which guessed from name and
+description substrings): capabilities from the declared category and effect. But through a Go
+token table with a `/knowledge` fallback, and with collateral edits that broke the kernel
+contract: `registered_tool` renamed to `tool_registered` (wrong arity for the
+`tool_registered(Name, RegisteredAt)` Decl the policy joins on), the real `tool_registered` fact
+replaced by a new `tool_description`, `tool_hash` facts deleted. That is what broke the tests. The
+verdict said so. Reverted by the merger.
+
+**Readings.** (1) The halved section did what it was for: the peak per-call input halved and the
+model recalled archived observations 14 times instead of carrying them. (2) Every edit went through
+the CodeDOM line tools. (3) The per-step compile ran for both steps (both Go, so no Mangle need).
+(4) The fix itself is not mechanical: correct capability facts make `relevant_tool` fire, and
+`ShardManager.queryRelevantTools` would then narrow every shard's tool catalogue, which today
+falls back to all tools. That is S21's design question and waits for it.
+
