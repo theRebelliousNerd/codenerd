@@ -4351,3 +4351,23 @@ three sites and by reserving the view's room before observations fill the sectio
 dropped when the section was full), pinned by a test that fails with the duplicate. n=1 each: the
 switch from edit_lines to edit_file and the doubled recall are noted, not concluded.
 
+
+## Third run of the same brief, file context once per request: stopped by the tool-failure policy (2026-09-19, 00:07-00:19)
+
+Binary from `4e71e0cd`. Same brief as q3b/q3c. rc=1 after 11.7 minutes: the working policy derived
+`working_stop(/tool_failures)` -- three consecutive rounds in which every tool call failed. 52 tool
+calls (23 read_file, 15 grep, 5 recall_context, 5 edit_lines, 3 glob, 1 write_file); 27 model calls,
+mean 46.4k / peak 79.2k input tokens, 1.25M total. Reverted.
+
+**What failed.** Three `edit_lines` refused by the delimiter-balance guard (each replaced a range
+that cut across a block: "braces: replaced text had net -3, new content has net -1") -- the guard is
+right and its message says why -- and two `recall_context` calls for ids that do not exist, which
+returned the driver's `sql: no rows in result set`: nothing the model could act on. Fixed: a missing
+id now names the id and points at `recall_context query=<text>`, pinned in the working-set test.
+
+**Per-call input.** Mean 46.4k against 44.7k with the duplicate and 37.5k before the outline. One
+run, a different shape (the stop came at 27 calls, before the long tail): the single-copy fix is
+pinned by a test that counts the copies, but this run does not show its effect on the mean. The
+mean is set by the compiled prompt plus a section that fills to its ceiling within a few rounds;
+the next lever is what the section keeps, not how often the file context is sent.
+
