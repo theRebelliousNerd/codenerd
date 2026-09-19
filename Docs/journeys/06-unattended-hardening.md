@@ -12,8 +12,9 @@ whether it can keep running while it does.
   session ceilings (`f91c39b6`), campaign defaults (`856ff1fe`). What bounds a run now: the
   user's own `--timeout`, the progress stops (`working_stop`, the repair-attempt bound), and
   per-request bounds.
-- next in H1: the request bounds tighter than the per-call bound (the critic's 3 m and 5 m,
-  below) and `defaultToolTimeout`.
+- next in H1: `defaultToolTimeout`; the client request bounds themselves (the OpenAI-compatible
+  vendors' 10 m is a constant in `DefaultOpenAICompatConfig`). The critic's 3 m and 5 m landed
+  `8958ffb0`: the review and its uplift round carry no clock of their own.
 - open: the census tool (one inventory per class below, generated, not hand-kept); a ratchet
   test per class; limit hits and gaps asserted as facts the kernel can derive repair obligations
   from.

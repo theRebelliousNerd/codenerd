@@ -4912,3 +4912,38 @@ not name.
   could find got no review; the four critics before it took 1 min 59 s to 2 min 50 s (R1-6's ran
   on another defective change and found nothing).
 - Rung-level: **streak back to 0** (R1-7 landed, R1-8 did not). Next: N17, L3, then N09 again.
+
+## R1-9, the commit regime's sentence sent twice: the working focus froze and the run stalled -- a harness blocker, fixed (2026-09-19, 16:19-16:23)
+
+Binary from `67e33c72`. Brief (symptom only, N17, found in R1-5): in a coverage repair round under
+the commit regime each re-sent demand ends with "Reading is closed for this task..." twice; what
+should hold: the sentence reaches the model once per message; a test that fails today pins it.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 4.5 | 35 (18 read_file, 10 recall_context, 3 grep, 2 search_code, 2 search_expand) | rc=1: "the working policy derived working_stop(/read_only_stall) -- a change task read for 24 round(s) and wrote nothing" -- **failed**, nothing written | 25, mean 47.5k, peak 63.9k, 1.19M total (592k cached by the provider), 9.2k out | none |
+
+**What happened.** It found the sentence (`search_code`), its definition (`working_meter.go`), the
+two places that append it (`repair_loop.go:219`, `build_verify.go:561`) and the round that re-sends
+it, said "Fix location confirmed -- drafting the exact change", and read the test harnesses it would
+need (`build_repair_regime_test.go`, `repair_loop_test.go`, `working_loop_gating_test.go`,
+`testtool_test.go`). The working policy closed reading after 25 tool calls (16:22:19); its last read
+had been `working_meter.go`. For its remaining eleven rounds it recalled observations --
+`build_verify.go` twice, `repair_loop.go`, `change_gates.go`, two greps, `testtool_test.go` -- while
+every request rendered `working_meter.go`'s context ("Injected holographic context for
+internal/session/working_meter.go" on each of them), and it never wrote. Its last message: "the
+read-without-write resend appends the regime text -- now checking whether the prompt itself already
+carries it".
+
+**The blocker (N21), and its fix.** The working loop's focus -- whose outline and current line
+ranges each request renders -- moved only when a call named a path; a recall names an observation,
+so under the commit regime, where a recall is the only way to look at code, the focus froze on the
+last file read before reading closed. A test had pinned exactly that ("a recall names no file and
+must not move the focus"); the recalled record does name its file. Landed by hand, test first:
+the focus follows a recall to the recalled record's file (`WorkingSet.Entity`); the recall still
+saves nothing under the old focus. The same brief runs again next (R1-10).
+
+**Harness observations.**
+- The stall stop worked as designed: a change task that could not reach a write was stopped by the
+  policy, and the verdict said why.
+- Rung-level: streak 0.

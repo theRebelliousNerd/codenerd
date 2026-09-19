@@ -93,6 +93,11 @@ becoming stale, or detached from the mutations it is supposed to describe.
   servers they are schemas on every turn that can only fail, and R1-6 sent `run_tests` through
   `mcp_call` ("no MCP servers are configured for this workspace"). The catalogue is not derived
   (S21); open.
+- **N21 the working focus froze under the commit regime.** The focus -- whose context each
+  working request renders -- moved only when a call named a path; a recall names an observation,
+  so once reading closed the focus stayed on the last file read. R1-9 recalled the files it had to
+  edit eleven times while every request rendered `working_meter.go`, and stalled. Landed
+  `51e86c27`: a recall moves the focus to the recalled record's file.
 - **N19 the working request drops history before the first kept round.** `prepareWorkingRequest`
   (`working_context.go`) sends the loop's anchor and history from the earliest kept assistant
   tool-call round onward; a user message with no tool round before it is not sent. Every production
@@ -148,5 +153,5 @@ read, or a run where one is named). It is not a reproduction unless the row says
 | N14 | P2 | Co-use statistics settle every nil-error turn as success, `/unverified` included | `executor.go:913-917` | codeNERD brief | open |
 | N15 | P2 | The impacted-test provider is process-global, last workspace wins | `run_impacted_tests.go:63-98` | R2 | open |
 | N16 | P2 | A contained symlink stops snapshot certification (fail-closed, a capability limit) | `change.go:173-174` | decision (Steve) | open |
-| N17 | P3 | Under the commit regime a repair round's re-sent demand carries the regime sentence twice | R1-5's coverage round (llm_io 14:43:28); `repair_loop.go` and `build_verify.go` each append it | codeNERD brief | open |
+| N17 | P3 | Under the commit regime a repair round's re-sent demand carries the regime sentence twice | R1-5's coverage round (llm_io 14:43:28); `repair_loop.go` and `build_verify.go` each append it | codeNERD brief | open: R1-9 stalled on N21 (fixed); R1-10 runs the brief again |
 | N18 | P2 | Go written by the test, coverage, vet and critic rounds is never gofmt'd; the turn still reports `checks_passed` | R1-5 (one `gofmt: formatted` line, 14:38, before the coverage round's insert at 14:44) | codeNERD brief | **landed `24e9cc56`** by codeNERD (ladder R1-7) |
