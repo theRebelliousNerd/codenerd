@@ -179,9 +179,9 @@
     
     ```mangle
     # Schema
-    Decl person(Name.Type<n>).
-    Decl friend(P1.Type<n>, P2.Type<n>).
-    Decl not_friend(P1.Type<n>, P2.Type<n>).
+    Decl person(Name) bound [/name].
+    Decl friend(P1, P2) bound [/name, /name].
+    Decl not_friend(P1, P2) bound [/name, /name].
     
     # Base facts
     person(/alice).

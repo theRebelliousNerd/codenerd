@@ -32,14 +32,14 @@
     
     ### Correct Mangle Way
     ```mangle
-    Decl edge(X.Type<int>, Y.Type<int>).
-    Decl path(X.Type<int>, Y.Type<int>).
+    Decl edge(X, Y) bound [/number, /number].
+    Decl path(X, Y) bound [/number, /number].
     ```
     
     **Key Differences:**
     - `Decl` not `.decl`
     - Variables are UPPERCASE
-    - Type syntax: `Var.Type<typename>` not `var:typename`
+    - Type syntax: `Decl p(Var) bound [/typename].`, not `var:typename`
     
     ---
     
@@ -59,10 +59,10 @@
     ### Correct Mangle Way
     ```mangle
     # Use Type<> syntax directly in Decl:
-    Decl node(Id.Type<int>, Status.Type</atom>).
+    Decl node(Id, Status) bound [/number, /name].
     
     # Or use string/atom types:
-    Decl node(Id.Type<int>, Status.Type<string>).
+    Decl node(Id, Status) bound [/number, /string].
     ```
     
     **Note:** Mangle's type system is simpler - no custom type aliases.
@@ -86,8 +86,8 @@
     ### Correct Mangle Way
     ```mangle
     # Just declare the predicates:
-    Decl edge(X.Type<int>, Y.Type<int>).
-    Decl path(X.Type<int>, Y.Type<int>).
+    Decl edge(X, Y) bound [/number, /number].
+    Decl path(X, Y) bound [/number, /number].
     
     # Load facts in Go:
     // store.Add(engine.NewAtom("edge", engine.Number(1), engine.Number(2)))
@@ -161,7 +161,7 @@
     ### Correct Mangle Way
     ```mangle
     # Use structs with /atom keys:
-    Decl point(P.Type<{/x: int, /y: int}>).
+    Decl point(P).
     
     # Then use :match_field to access:
     get_x(Point, X) :-
@@ -169,7 +169,7 @@
         :match_field(Point, /x, X).
     
     # Or just flatten the structure:
-    Decl point(X.Type<int>, Y.Type<int>).
+    Decl point(X, Y) bound [/number, /number].
     ```
     
     ---
@@ -187,8 +187,8 @@
     ### Correct Mangle Way
     ```mangle
     # Tag variants with atoms:
-    Decl tree_leaf(Id.Type</atom>, Value.Type<int>).
-    Decl tree_node(Id.Type</atom>, Left.Type</atom>, Right.Type</atom>).
+    Decl tree_leaf(Id, Value) bound [/name, /number].
+    Decl tree_node(Id, Left, Right) bound [/name, /name, /name].
     
     # Example:
     tree_leaf(/leaf1, 42).
@@ -245,9 +245,9 @@
     ### Correct Mangle Way
     ```mangle
     # Just write the rules - stratification is automatic:
-    Decl a(X.Type<int>).
-    Decl b(X.Type<int>).
-    Decl c(X.Type<int>).
+    Decl a(X) bound [/number].
+    Decl b(X) bound [/number].
+    Decl c(X) bound [/number].
     
     b(X) :- a(X), not c(X).
     
@@ -300,12 +300,12 @@
     
     ### Correct Mangle Way
     ```mangle
-    Decl total(Sum.Type<int>).
+    Decl total(Sum) bound [/number].
     
     total(Sum) :-
         item(X)
         |> do fn:group_by()
-        |> let Sum = fn:Sum(X).
+        |> let Sum = fn:sum(X).
     ```
     
     ---
@@ -355,8 +355,8 @@
     # Use packages for modularity:
     package graph
     
-    Decl edge(X.Type<int>, Y.Type<int>).
-    Decl path(X.Type<int>, Y.Type<int>).
+    Decl edge(X, Y) bound [/number, /number].
+    Decl path(X, Y) bound [/number, /number].
     
     path(X, Y) :- edge(X, Y).
     
@@ -416,7 +416,7 @@
     min_cost(X, MinCost) :-
         base_cost(X, Cost)
         |> do fn:group_by(X)
-        |> let MinCost = fn:Min(Cost).
+        |> let MinCost = fn:min(Cost).
     ```
     
     ---
@@ -426,7 +426,7 @@
     | Soufflé | Mangle |
     |---------|--------|
     | `.decl` | `Decl` |
-    | `var:type` | `Var.Type<type>` |
+    | `var:type` | `Var`, plus `bound [/type]` after the argument list |
     | `.type Name = ...` | Inline types only |
     | `.input`/`.output` | Go API |
     | `.plan` | Automatic optimization |
@@ -436,7 +436,7 @@
     | `btree` subsumption | Automatic set semantics |
     | `.strata` | Automatic stratification |
     | `choice-domain` | Derive all, choose in Go |
-    | `s = sum x : { ... }` | `\|> do fn:group_by() \|> let S = fn:Sum(X)` |
+    | `s = sum x : { ... }` | `\|> do fn:group_by() \|> let S = fn:sum(X)` |
     | `.comp`/`.init` | Packages |
     | `.limitsize` | Explicit constraints |
     | Lattice ops | Explicit aggregation |
@@ -448,7 +448,7 @@
     When translating Soufflé to Mangle:
     
     - [ ] Convert `.decl` to `Decl`
-    - [ ] Convert `var:type` to `Var.Type<type>`
+    - [ ] Convert `var:type` to a `bound [/type, ...]` list after the Decl's arguments
     - [ ] Remove `.type` aliases - use inline types
     - [ ] Remove `.input`/`.output` - use Go API
     - [ ] Remove `.plan` directives - let engine optimize

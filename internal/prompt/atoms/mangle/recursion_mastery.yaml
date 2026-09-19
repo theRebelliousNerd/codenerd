@@ -129,7 +129,7 @@
     shortest(X, Y, MinLen) :-
         path_len(X, Y, Len) |>
         do fn:group_by(X, Y),
-        let MinLen = fn:Min(Len).
+        let MinLen = fn:min(Len).
     ```
     
     ### Longest Path
@@ -137,7 +137,7 @@
     longest(X, Y, MaxLen) :-
         path_len(X, Y, Len) |>
         do fn:group_by(X, Y),
-        let MaxLen = fn:Max(Len).
+        let MaxLen = fn:max(Len).
     ```
     
     ### Maximum Depth (Tree)
@@ -154,7 +154,7 @@
     # Find maximum depth
     max_depth(MaxD) :-
         depth(_, D) |>
-        let MaxD = fn:Max(D).
+        let MaxD = fn:max(D).
     ```
     
     ## Mutual Recursion
@@ -234,7 +234,7 @@
         child(Node, C),
         subtree_size(C, ChildSize) |>
         do fn:group_by(Node),
-        let TotalChildren = fn:Sum(ChildSize),
+        let TotalChildren = fn:sum(ChildSize),
         let Size = fn:plus(TotalChildren, 1).
     ```
     
@@ -248,7 +248,7 @@
         child(Node, C),
         height(C, CH) |>
         do fn:group_by(Node),
-        let MaxChildHeight = fn:Max(CH),
+        let MaxChildHeight = fn:max(CH),
         let H = fn:plus(MaxChildHeight, 1).
     ```
     
@@ -266,7 +266,7 @@
         depends_on(Node, Dep),
         level(Dep, DepLev) |>
         do fn:group_by(Node),
-        let MaxDepLevel = fn:Max(DepLev),
+        let MaxDepLevel = fn:max(DepLev),
         let Lev = fn:plus(MaxDepLevel, 1).
     ```
     
@@ -363,7 +363,7 @@
         subtree_sum(C, ChildSum),
         node_value(Node, NodeValue) |>
         do fn:group_by(Node),
-        let ChildrenTotal = fn:Sum(ChildSum),
+        let ChildrenTotal = fn:sum(ChildSum),
         let Total = fn:plus(ChildrenTotal, NodeValue).
     ```
     

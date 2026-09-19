@@ -195,10 +195,10 @@
     # winning(X) :- move(X, Y), not winning(Y).  # ILLEGAL!
     
     # CORRECT - Stratified by depth
-    Decl position(Pos.Type<n>).
-    Decl move(From.Type<n>, To.Type<n>).
-    Decl winning_at_depth(Pos.Type<n>, Depth.Type<int>).
-    Decl losing_at_depth(Pos.Type<n>, Depth.Type<int>).
+    Decl position(Pos) bound [/name].
+    Decl move(From, To) bound [/name, /name].
+    Decl winning_at_depth(Pos, Depth) bound [/name, /number].
+    Decl losing_at_depth(Pos, Depth) bound [/name, /number].
     
     # Layer 1: Terminal positions (base facts)
     terminal(X) :- position(X), not has_move_from(X).

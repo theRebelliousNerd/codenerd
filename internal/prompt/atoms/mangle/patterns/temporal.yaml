@@ -35,9 +35,9 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl event(Name.Type<string>, Timestamp.Type<int>).
-    Decl before(E1.Type<string>, E2.Type<string>).
-    Decl immediately_before(E1.Type<string>, E2.Type<string>).
+    Decl event(Name, Timestamp) bound [/string, /number].
+    Decl before(E1, E2) bound [/string, /string].
+    Decl immediately_before(E1, E2) bound [/string, /string].
     
     # Facts - Unix timestamps
     event("login", 1000).
@@ -67,8 +67,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(Name.Type<string>, Timestamp.Type<int>).
-    Decl in_range(Name.Type<string>, T.Type<int>, Start.Type<int>, End.Type<int>).
+    Decl event(Name, Timestamp) bound [/string, /number].
+    Decl in_range(Name, T, Start, End) bound [/string, /number, /number, /number].
     
     in_range(Name, T, Start, End) :-
       event(Name, T),
@@ -97,10 +97,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(Name.Type<string>, Timestamp.Type<int>).
-    Decl session_start(SessionId.Type<string>, Time.Type<int>).
-    Decl session_end(SessionId.Type<string>, Time.Type<int>).
-    Decl session_duration(SessionId.Type<string>, Duration.Type<int>).
+    Decl event(Name, Timestamp) bound [/string, /number].
+    Decl session_start(SessionId, Time) bound [/string, /number].
+    Decl session_end(SessionId, Time) bound [/string, /number].
+    Decl session_duration(SessionId, Duration) bound [/string, /number].
     
     session_duration(SessionId, Duration) :-
       session_start(SessionId, Start),
@@ -129,8 +129,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(Name.Type<string>, Timestamp.Type<int>, SessionId.Type<string>).
-    Decl valid_sequence(SessionId.Type<string>).
+    Decl event(Name, Timestamp, SessionId) bound [/string, /number, /string].
+    Decl valid_sequence(SessionId) bound [/string].
     
     # Valid sequence: login -> action -> logout
     valid_sequence(Sid) :-
@@ -166,8 +166,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(Name.Type<string>, Timestamp.Type<int>).
-    Decl event_bucket(Name.Type<string>, Bucket.Type<int>).
+    Decl event(Name, Timestamp) bound [/string, /number].
+    Decl event_bucket(Name, Bucket) bound [/string, /number].
     
     # Bucket size: 3600 seconds (1 hour)
     event_bucket(Name, Bucket) :-
@@ -197,8 +197,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl interval(Id.Type<string>, Start.Type<int>, End.Type<int>).
-    Decl overlaps(A.Type<string>, B.Type<string>).
+    Decl interval(Id, Start, End) bound [/string, /number, /number].
+    Decl overlaps(A, B) bound [/string, /string].
     
     # Two intervals overlap if one starts before the other ends
     overlaps(A, B) :-
@@ -229,8 +229,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(Name.Type<string>, Timestamp.Type<int>).
-    Decl within_window(E1.Type<string>, E2.Type<string>, WindowSize.Type<int>).
+    Decl event(Name, Timestamp) bound [/string, /number].
+    Decl within_window(E1, E2, WindowSize) bound [/string, /string, /number].
     
     # Events within window seconds of each other
     within_window(E1, E2, WindowSize) :-
@@ -264,8 +264,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(Type.Type<string>, Timestamp.Type<int>, UserId.Type<string>).
-    Decl time_to_conversion(UserId.Type<string>, Duration.Type<int>).
+    Decl event(Type, Timestamp, UserId) bound [/string, /number, /string].
+    Decl time_to_conversion(UserId, Duration) bound [/string, /number].
     
     # Time from signup to purchase
     time_to_conversion(UserId, Duration) :-
@@ -296,13 +296,13 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(Entity.Type<string>, EventType.Type<string>, Timestamp.Type<int>).
-    Decl latest_event(Entity.Type<string>, EventType.Type<string>, MaxTime.Type<int>).
+    Decl event(Entity, EventType, Timestamp) bound [/string, /string, /number].
+    Decl latest_event(Entity, EventType, MaxTime) bound [/string, /string, /number].
     
     latest_event(Entity, EventType, MaxTime) :-
       event(Entity, EventType, Timestamp)
       |> do fn:group_by(Entity, EventType),
-         let MaxTime = fn:Max(Timestamp).
+         let MaxTime = fn:max(Timestamp).
     ```
     
     ### Example
@@ -325,9 +325,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(Sequence.Type<int>, Timestamp.Type<int>).
-    Decl expected_sequence(N.Type<int>).
-    Decl missing_event(N.Type<int>).
+    Decl event(Sequence, Timestamp) bound [/number, /number].
+    Decl expected_sequence(N) bound [/number].
+    Decl missing_event(N) bound [/number].
     
     # Expected sequence: 1 through 10
     expected_sequence(1).
@@ -363,15 +363,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(User.Type<string>, Timestamp.Type<int>).
-    Decl event_count_in_window(User.Type<string>, Start.Type<int>, End.Type<int>, Count.Type<int>).
+    Decl event(User, Timestamp) bound [/string, /number].
+    Decl event_count_in_window(User, Start, End, Count) bound [/string, /number, /number, /number].
     
     event_count_in_window(User, Start, End, Count) :-
       event(User, T),
       T >= Start,
       T <= End
       |> do fn:group_by(User, Start, End),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Example
@@ -421,8 +421,8 @@
     
     ### Session Tracking
     ```mangle
-    Decl session_event(SessionId.Type<string>, EventType.Type<string>, Time.Type<int>).
-    Decl session_active(SessionId.Type<string>, Start.Type<int>, End.Type<int>).
+    Decl session_event(SessionId, EventType, Time) bound [/string, /string, /number].
+    Decl session_active(SessionId, Start, End) bound [/string, /number, /number].
     
     session_active(Sid, Start, End) :-
       session_event(Sid, "start", Start),
@@ -432,19 +432,19 @@
     
     ### Code Change History
     ```mangle
-    Decl file_modified(Path.Type<string>, Timestamp.Type<int>, CommitHash.Type<string>).
-    Decl recent_change(Path.Type<string>, MaxTime.Type<int>).
+    Decl file_modified(Path, Timestamp, CommitHash) bound [/string, /number, /string].
+    Decl recent_change(Path, MaxTime) bound [/string, /number].
     
     recent_change(Path, MaxTime) :-
       file_modified(Path, Timestamp, _)
       |> do fn:group_by(Path),
-         let MaxTime = fn:Max(Timestamp).
+         let MaxTime = fn:max(Timestamp).
     ```
     
     ### Test Execution Timeline
     ```mangle
-    Decl test_run(TestId.Type<string>, StartTime.Type<int>, EndTime.Type<int>).
-    Decl test_duration(TestId.Type<string>, Duration.Type<int>).
+    Decl test_run(TestId, StartTime, EndTime) bound [/string, /number, /number].
+    Decl test_duration(TestId, Duration) bound [/string, /number].
     
     test_duration(TestId, Duration) :-
       test_run(TestId, Start, End),

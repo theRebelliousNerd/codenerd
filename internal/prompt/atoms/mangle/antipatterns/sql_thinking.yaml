@@ -64,7 +64,7 @@
     active_total(Total) :-
         item(/active, X)
         |> do fn:group_by()
-        |> let Total = fn:Sum(X).
+        |> let Total = fn:sum(X).
     ```
     
     **Key Points:**
@@ -98,7 +98,7 @@
     category_total(Cat, Total) :-
         transaction(Cat, Amt)
         |> do fn:group_by(Cat)
-        |> let Total = fn:Sum(Amt).
+        |> let Total = fn:sum(Amt).
     ```
     
     ---

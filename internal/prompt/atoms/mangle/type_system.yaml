@@ -26,17 +26,14 @@
     
     ### Declaration Syntax
     ```mangle
-    Decl predicate_name(
-        Arg1.Type<type>,
-        Arg2.Type<type>
-    ).
+    Decl predicate_name(Arg1, Arg2).
     ```
     
     ### Examples
     ```mangle
-    Decl user(Id.Type<name>, Name.Type<string>).
-    Decl score(User.Type<name>, Points.Type<int>).
-    Decl rating(Item.Type<name>, Value.Type<float>).
+    Decl user(Id, Name) bound [/name, /string].
+    Decl score(User, Points) bound [/name, /number].
+    Decl rating(Item, Value) bound [/name, /float64].
     ```
     
     ## Atoms vs Strings (Critical)
@@ -67,7 +64,7 @@
     ### Integer vs Float
     ```mangle
     # Schema expects float
-    Decl metric(Name.Type<name>, Value.Type<float>).
+    Decl metric(Name, Value) bound [/name, /float64].
     
     # WRONG - integer literal
     metric(/cpu, 50).
@@ -79,7 +76,7 @@
     ### List Type Mismatch
     ```mangle
     # WRONG - list in scalar field
-    Decl single_value(Name.Type<name>, Val.Type<int>).
+    Decl single_value(Name, Val) bound [/name, /number].
     single_value(/x, [1, 2, 3]).  # Type error
     
     # RIGHT - scalar value
@@ -89,7 +86,7 @@
     ### Atom in String Field
     ```mangle
     # Schema expects string
-    Decl message(Id.Type<name>, Text.Type<string>).
+    Decl message(Id, Text) bound [/name, /string].
     
     # WRONG - atom instead of string
     message(/msg1, /hello).

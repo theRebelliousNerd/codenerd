@@ -33,8 +33,8 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl edge(From.Type<string>, To.Type<string>).
-    Decl reachable(From.Type<string>, To.Type<string>).
+    Decl edge(From, To) bound [/string, /string].
+    Decl reachable(From, To) bound [/string, /string].
     
     # Facts
     edge("a", "b").
@@ -59,8 +59,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl edge(From.Type<string>, To.Type<string>).
-    Decl connected(A.Type<string>, B.Type<string>).
+    Decl edge(From, To) bound [/string, /string].
+    Decl connected(A, B) bound [/string, /string].
     
     # Create symmetric edges
     connected(X, Y) :- edge(X, Y).
@@ -89,8 +89,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl edge(From.Type<string>, To.Type<string>).
-    Decl distance(From.Type<string>, To.Type<string>, Dist.Type<int>).
+    Decl edge(From, To) bound [/string, /string].
+    Decl distance(From, To, Dist) bound [/string, /string, /number].
     
     # Direct edges have distance 1
     distance(X, Y, 1) :- edge(X, Y).
@@ -102,12 +102,12 @@
       D = fn:plus(D1, 1).
     
     # Shortest path (minimum distance)
-    Decl shortest_path(From.Type<string>, To.Type<string>, MinDist.Type<int>).
+    Decl shortest_path(From, To, MinDist) bound [/string, /string, /number].
     
     shortest_path(From, To, MinDist) :-
       distance(From, To, Dist)
       |> do fn:group_by(From, To),
-         let MinDist = fn:Min(Dist).
+         let MinDist = fn:min(Dist).
     ```
     
     ### Example
@@ -131,8 +131,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl edge(From.Type<string>, To.Type<string>).
-    Decl has_cycle(Node.Type<string>).
+    Decl edge(From, To) bound [/string, /string].
+    Decl has_cycle(Node) bound [/string].
     
     # A node is in a cycle if it can reach itself
     has_cycle(X) :- edge(X, Y), reachable(Y, X).
@@ -161,8 +161,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl edge(From.Type<string>, To.Type<string>).
-    Decl reachable_within(From.Type<string>, To.Type<string>, Depth.Type<int>).
+    Decl edge(From, To) bound [/string, /string].
+    Decl reachable_within(From, To, Depth) bound [/string, /string, /number].
     
     # Direct edges at depth 1
     reachable_within(X, Y, 1) :- edge(X, Y).
@@ -196,8 +196,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl edge(From.Type<string>, To.Type<string>).
-    Decl in_component(Seed.Type<string>, Member.Type<string>).
+    Decl edge(From, To) bound [/string, /string].
+    Decl in_component(Seed, Member) bound [/string, /string].
     
     # Bidirectional reachability from seed
     in_component(Seed, Seed).

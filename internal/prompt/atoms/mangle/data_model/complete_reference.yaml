@@ -298,26 +298,26 @@
     **Basic Type Bounds**:
     ```mangle
     Decl person(Name, Age, City)
-      bounds [ /string, /number, /string ].
+      bound [ /string, /number, /string ].
     ```
     
     **Constructed Type Bounds**:
     ```mangle
     # List of numbers
     Decl numbers(List)
-      bounds [ fn:List(/number) ].
+      bound [ fn:List(/number) ].
     
     # Pair of string and number
     Decl labeled_value(Pair)
-      bounds [ fn:Pair(/string, /number) ].
+      bound [ fn:Pair(/string, /number) ].
     
     # Map with name keys and number values
     Decl scores(Map)
-      bounds [ fn:Map(/name, /number) ].
+      bound [ fn:Map(/name, /number) ].
     
     # Struct with specific fields
     Decl person_record(Struct)
-      bounds [
+      bound [
         fn:Struct(
             /name: /string,
             /age: /number,
@@ -330,7 +330,7 @@
     
     ```mangle
     Decl id(Value)
-      bounds [ fn:Union(/number, /string) ].
+      bound [ fn:Union(/number, /string) ].
     
     # Accepts either number or string
     id(42).
@@ -341,7 +341,7 @@
     
     ```mangle
     Decl status(Value)
-      bounds [ fn:Singleton(/active), fn:Singleton(/inactive) ].
+      bound [ fn:Singleton(/active), fn:Singleton(/inactive) ].
     
     # Only these exact values allowed
     status(/active).
@@ -352,7 +352,7 @@
     
     ```mangle
     Decl flexible(Value)
-      bounds [ /any ].
+      bound [ /any ].
     
     # Accepts any value
     flexible(42).

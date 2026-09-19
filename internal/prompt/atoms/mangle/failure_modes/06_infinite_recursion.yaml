@@ -81,7 +81,7 @@
     
     current_max(Max) :-
         existing_id(X) |>
-        let Max = fn:Max(X).
+        let Max = fn:max(X).
     
     # CORRECT - Recursive closure bounded by monotonicity
     # (Can only add facts, existing facts provide bound)
@@ -266,10 +266,10 @@
     
     ```mangle
     # Schema
-    Decl node(ID.Type<n>).
-    Decl edge(From.Type<n>, To.Type<n>).
-    Decl path(From.Type<n>, To.Type<n>, Depth.Type<int>).
-    Decl path_exists(From.Type<n>, To.Type<n>).
+    Decl node(ID) bound [/name].
+    Decl edge(From, To) bound [/name, /name].
+    Decl path(From, To, Depth) bound [/name, /name, /number].
+    Decl path_exists(From, To) bound [/name, /name].
     
     # Base facts
     node(/a). node(/b). node(/c). node(/d).
@@ -332,12 +332,12 @@
     ## Debugging Aid
     ```mangle
     # To debug infinite recursion, add counters to facts:
-    Decl debug_depth(Predicate.Type<n>, Depth.Type<int>).
+    Decl debug_depth(Predicate, Depth) bound [/name, /number].
     
     # Track maximum depth reached
     debug_depth(/my_recursive_pred, MaxDepth) :-
         my_recursive_pred(_, _, D) |>
-        let MaxDepth = fn:Max(D).
+        let MaxDepth = fn:max(D).
     
     # If MaxDepth keeps growing → unbounded recursion!
     ```

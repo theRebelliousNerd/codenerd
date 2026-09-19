@@ -31,7 +31,7 @@
     
     ### 1. Matching Empty List
     ```mangle
-    Decl is_empty(List.Type<list<int>>).
+    Decl is_empty(List).
     
     is_empty([]).
     
@@ -44,7 +44,7 @@
     
     ### 2. Matching Head and Tail (Destructuring)
     ```mangle
-    Decl first_element(List.Type<list<int>>, First.Type<int>).
+    Decl first_element(List, First).
     
     first_element(List, First) :-
       :match_cons(List, First, Tail).
@@ -55,7 +55,7 @@
     
     ### 3. Matching Multiple Elements
     ```mangle
-    Decl first_two(List.Type<list<int>>, A.Type<int>, B.Type<int>).
+    Decl first_two(List, A, B).
     
     first_two(List, A, B) :-
       :match_cons(List, A, Tail1),
@@ -67,7 +67,7 @@
     
     ### 4. Cons Construction (Building Lists)
     ```mangle
-    Decl prepend(Elem.Type<int>, List.Type<list<int>>, Result.Type<list<int>>).
+    Decl prepend(Elem, List, Result).
     
     prepend(Elem, List, Result) :-
       :cons(Elem, List, Result).
@@ -80,7 +80,7 @@
     
     ### fn:length
     ```mangle
-    Decl list_size(List.Type<list<int>>, Size.Type<int>).
+    Decl list_size(List, Size).
     
     list_size(List, Size) :-
       Size = fn:length(List).
@@ -95,7 +95,7 @@
     
     ### fn:list:get (Index Access)
     ```mangle
-    Decl get_element(List.Type<list<int>>, Index.Type<int>, Elem.Type<int>).
+    Decl get_element(List, Index, Elem).
     
     get_element(List, Index, Elem) :-
       Elem = fn:list:get(List, Index).
@@ -110,7 +110,7 @@
     
     ### fn:list:append (Concatenation)
     ```mangle
-    Decl concat_lists(A.Type<list<int>>, B.Type<list<int>>, Result.Type<list<int>>).
+    Decl concat_lists(A, B, Result).
     
     concat_lists(A, B, Result) :-
       Result = fn:list:append(A, B).
@@ -122,7 +122,7 @@
     
     ### fn:list:reverse
     ```mangle
-    Decl reverse_list(List.Type<list<int>>, Reversed.Type<list<int>>).
+    Decl reverse_list(List, Reversed).
     
     reverse_list(List, Reversed) :-
       Reversed = fn:list:reverse(List).
@@ -134,7 +134,7 @@
     
     ### fn:list:contains
     ```mangle
-    Decl contains_element(List.Type<list<int>>, Elem.Type<int>).
+    Decl contains_element(List, Elem).
     
     contains_element(List, Elem) :-
       fn:list:contains(List, Elem).
@@ -149,8 +149,8 @@
     
     ### fn:collect (Build List from Aggregation)
     ```mangle
-    Decl user(Id.Type<atom>, Dept.Type<atom>).
-    Decl dept_users(Dept.Type<atom>, Users.Type<list<atom>>).
+    Decl user(Id, Dept) bound [/name, /name].
+    Decl dept_users(Dept, Users).
     
     user(/u1, /eng).
     user(/u2, /eng).
@@ -170,7 +170,7 @@
     
     ### Example 1: Sum of List
     ```mangle
-    Decl sum_list(List.Type<list<int>>, Sum.Type<int>).
+    Decl sum_list(List, Sum).
     
     # Base case: empty list
     sum_list([], 0).
@@ -197,7 +197,7 @@
     
     ### Example 2: List Length (Manual)
     ```mangle
-    Decl list_length(List.Type<list<int>>, Len.Type<int>).
+    Decl list_length(List, Len).
     
     list_length([], 0).
     
@@ -212,7 +212,7 @@
     
     ### Example 3: Maximum Element
     ```mangle
-    Decl list_max(List.Type<list<int>>, Max.Type<int>).
+    Decl list_max(List, Max).
     
     # Single element
     list_max(List, Max) :-
@@ -239,7 +239,7 @@
     
     ### Example 4: Filter List
     ```mangle
-    Decl filter_positive(List.Type<list<int>>, Filtered.Type<list<int>>).
+    Decl filter_positive(List, Filtered).
     
     # Base case
     filter_positive([], []).
@@ -263,7 +263,7 @@
     
     ### Example 5: Map (Transform Each Element)
     ```mangle
-    Decl double_elements(List.Type<list<int>>, Doubled.Type<list<int>>).
+    Decl double_elements(List, Doubled).
     
     # Base case
     double_elements([], []).
@@ -281,10 +281,10 @@
     
     ### Example 6: Reverse (Manual)
     ```mangle
-    Decl reverse_manual(List.Type<list<int>>, Reversed.Type<list<int>>).
+    Decl reverse_manual(List, Reversed).
     
     # Helper with accumulator
-    Decl reverse_acc(List.Type<list<int>>, Acc.Type<list<int>>, Result.Type<list<int>>).
+    Decl reverse_acc(List, Acc, Result).
     
     reverse_manual(List, Reversed) :-
       reverse_acc(List, [], Reversed).
@@ -309,7 +309,7 @@
     
     ### Example 7: Membership Check
     ```mangle
-    Decl member(Elem.Type<int>, List.Type<list<int>>).
+    Decl member(Elem, List).
     
     # Base case: head matches
     member(Elem, List) :-
@@ -329,7 +329,7 @@
     
     ### Example 8: Nth Element (Manual)
     ```mangle
-    Decl nth_element(List.Type<list<int>>, N.Type<int>, Elem.Type<int>).
+    Decl nth_element(List, N, Elem).
     
     # Base case: N = 0, return head
     nth_element(List, 0, Elem) :-
@@ -349,7 +349,7 @@
     ## Nested Lists
     
     ```mangle
-    Decl matrix(M.Type<list<list<int>>>).
+    Decl matrix(M).
     
     # 2D matrix
     matrix([[1, 2], [3, 4], [5, 6]]).
@@ -362,7 +362,7 @@
     # Result: Row = [1, 2]
     
     # Access element at [row, col]
-    Decl matrix_get(Row.Type<int>, Col.Type<int>, Elem.Type<int>).
+    Decl matrix_get(Row, Col, Elem) bound [/number, /number, /number].
     
     matrix_get(R, C, Elem) :-
       matrix(M),
@@ -378,10 +378,10 @@
     
     ### Build List from Facts
     ```mangle
-    Decl number(N.Type<int>).
+    Decl number(N) bound [/number].
     number(1). number(2). number(3).
     
-    Decl all_numbers(List.Type<list<int>>).
+    Decl all_numbers(List).
     
     all_numbers(List) :-
       number(N)
@@ -393,7 +393,7 @@
     
     ### Build List with Cons
     ```mangle
-    Decl build_list(List.Type<list<int>>).
+    Decl build_list(List).
     
     build_list(List) :-
       :cons(1, [], L1),
@@ -462,7 +462,7 @@
     
     ### Flatten List of Lists
     ```mangle
-    Decl flatten(ListOfLists.Type<list<list<int>>>, Flat.Type<list<int>>).
+    Decl flatten(ListOfLists, Flat).
     
     flatten([], []).
     
@@ -477,7 +477,7 @@
     
     ### Zip Two Lists
     ```mangle
-    Decl zip(A.Type<list<int>>, B.Type<list<int>>, Pairs.Type<list<list<int>>>).
+    Decl zip(A, B, Pairs).
     
     # Base case: one list is empty
     zip([], _, []).
@@ -496,8 +496,7 @@
     
     ### Partition List
     ```mangle
-    Decl partition(List.Type<list<int>>, Threshold.Type<int>,
-                   Low.Type<list<int>>, High.Type<list<int>>).
+    Decl partition(List, Threshold, Low, High).
     
     partition([], _, [], []).
     

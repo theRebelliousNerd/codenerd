@@ -83,12 +83,7 @@
     ### Correct Mangle Usage
     ```mangle
     # Schema for semantic matches (injected by Go)
-    Decl semantic_match(
-        Input.Type<string>,
-        Canonical.Type<string>,
-        Verb.Type<n>,
-        Score.Type<float>
-    ).
+    Decl semantic_match(Input, Canonical, Verb, Score) bound [/string, /string, /name, /float64].
     
     # Mangle handles DEDUCTION, not matching
     selected_verb(Verb) :-
@@ -209,7 +204,7 @@
     - `X = Y`, `X != Y`, `X < Y`, `X > Y`, `X <= Y`, `X >= Y`
     
     **Aggregation** (must use pipeline):
-    - `fn:Count()`, `fn:Sum(X)`, `fn:Min(X)`, `fn:Max(X)`, `fn:group_by(X)`, `fn:collect(X)`
+    - `fn:count()`, `fn:sum(X)`, `fn:min(X)`, `fn:max(X)`, `fn:group_by(X)`, `fn:collect(X)`
     
     **List/Data**:
     - `fn:list(A, B, C)`, `fn:len(L)`, `fn:concat(A, B)`, `fn:append(L, X)`, `fn:pair(K, V)`
@@ -325,9 +320,9 @@
     
     ```mangle
     # Step 3: Mangle for deductive reasoning
-    Decl semantic_match(Input.Type<string>, Canon.Type<string>, Verb.Type<n>, Score.Type<float>).
-    Decl verb_priority(Verb.Type<n>, Priority.Type<int>).
-    Decl blocked_action(Action.Type<n>).
+    Decl semantic_match(Input, Canon, Verb, Score) bound [/string, /string, /name, /float64].
+    Decl verb_priority(Verb, Priority) bound [/name, /number].
+    Decl blocked_action(Action) bound [/name].
     
     # High-confidence matches
     high_confidence(Verb) :-
@@ -394,11 +389,11 @@
     ## Debugging Aid
     ```mangle
     # Count how many "definition" predicates you have:
-    Decl intent_definition(Pattern.Type<string>, Verb.Type<n>).
+    Decl intent_definition(Pattern, Verb) bound [/string, /name].
     
     pattern_count(N) :-
         intent_definition(P, _) |>
-        let N = fn:Count().
+        let N = fn:count().
     
     # If N > 50 → You're probably misusing Mangle!
     # These should be in a Vector DB, not Mangle facts.

@@ -139,8 +139,8 @@
     ### Pattern 1: Optional Relationships
     ```mangle
     # Schema
-    Decl employee(ID.Type<n>).
-    Decl reports_to(Employee.Type<n>, Manager.Type<n>).
+    Decl employee(ID) bound [/name].
+    Decl reports_to(Employee, Manager) bound [/name, /name].
     
     # Derive who has managers
     has_manager(Emp) :- reports_to(Emp, _).
@@ -159,8 +159,8 @@
     ### Pattern 2: Default Values
     ```mangle
     # Base data (sparse - not all items have values)
-    Decl item(ID.Type<n>).
-    Decl config(ID.Type<n>, Val.Type<int>).
+    Decl item(ID) bound [/name].
+    Decl config(ID, Val) bound [/name, /number].
     
     # Explicit values
     explicit_config(ID, Val) :- config(ID, Val).
@@ -193,8 +193,8 @@
     # In SQL: SELECT * FROM users WHERE email IS NOT NULL
     # In Mangle: Derive "has email" from presence
     
-    Decl user(ID.Type<n>).
-    Decl user_email(ID.Type<n>, Email.Type<string>).
+    Decl user(ID) bound [/name].
+    Decl user_email(ID, Email) bound [/name, /string].
     
     # Users with email
     has_email(ID) :- user_email(ID, _).
@@ -232,10 +232,10 @@
     
     ```mangle
     # Schema
-    Decl user(ID.Type<n>).
-    Decl active_until(ID.Type<n>, Date.Type<int>).
-    Decl banned(ID.Type<n>).
-    Decl current_date(Date.Type<int>).
+    Decl user(ID) bound [/name].
+    Decl active_until(ID, Date) bound [/name, /number].
+    Decl banned(ID) bound [/name].
+    Decl current_date(Date) bound [/number].
     
     # Base facts
     user(/alice).
@@ -374,7 +374,7 @@
     
     total(Sum) :-
         value(X) |>
-        let Sum = fn:Sum(X).
+        let Sum = fn:sum(X).
     # If no value(X) facts exist, total(Sum) is not derived
     ```
     

@@ -329,7 +329,7 @@ When writing Mangle rules:
 2. Use /atom for enums, "string" for text (see type_errors.md)
 3. Variables UPPERCASE, atoms /lowercase (see parse_errors.md)
 4. Negation uses !, not \+ (see parse_errors.md#34)
-5. Aggregation: |> do fn:Count(), not count() (see undefined_errors.md#215)
+5. Aggregation: |> do fn:count(), not count() (see undefined_errors.md#215)
 ```
 
 ### For Error Recovery Loops

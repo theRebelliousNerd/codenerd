@@ -38,9 +38,9 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, Price.Type<int>, Category.Type<string>).
-    Decl affordable(Id.Type<string>, Price.Type<int>).
-    Decl premium(Id.Type<string>, Price.Type<int>).
+    Decl item(Id, Price, Category) bound [/string, /number, /string].
+    Decl affordable(Id, Price) bound [/string, /number].
+    Decl premium(Id, Price) bound [/string, /number].
     
     # Facts
     item("i1", 50, "electronics").
@@ -67,14 +67,14 @@
     ### Solution
     ```mangle
     # Schema
-    Decl value(Id.Type<string>, Val.Type<int>).
-    Decl in_range(Id.Type<string>, Val.Type<int>).
+    Decl value(Id, Val) bound [/string, /number].
+    Decl in_range(Id, Val) bound [/string, /number].
     
     # Inclusive range [50, 150]
     in_range(Id, Val) :- value(Id, Val), Val >= 50, Val <= 150.
     
     # Exclusive range (50, 150)
-    Decl in_range_exclusive(Id.Type<string>, Val.Type<int>).
+    Decl in_range_exclusive(Id, Val) bound [/string, /number].
     in_range_exclusive(Id, Val) :- value(Id, Val), Val > 50, Val < 150.
     ```
     
@@ -98,8 +98,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl product(Id.Type<string>, Price.Type<int>, Stock.Type<int>, Rating.Type<float>).
-    Decl recommended(Id.Type<string>).
+    Decl product(Id, Price, Stock, Rating) bound [/string, /number, /number, /float64].
+    Decl recommended(Id) bound [/string].
     
     # Must satisfy ALL conditions
     recommended(Id) :-
@@ -127,10 +127,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl vip_user(UserId.Type<string>).
-    Decl high_spender(UserId.Type<string>).
-    Decl long_term_member(UserId.Type<string>).
-    Decl eligible_for_discount(UserId.Type<string>).
+    Decl vip_user(UserId) bound [/string].
+    Decl high_spender(UserId) bound [/string].
+    Decl long_term_member(UserId) bound [/string].
+    Decl eligible_for_discount(UserId) bound [/string].
     
     # OR: any of these conditions make you eligible
     eligible_for_discount(UserId) :- vip_user(UserId).
@@ -158,9 +158,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl all_items(Id.Type<string>).
-    Decl blacklisted(Id.Type<string>).
-    Decl allowed_items(Id.Type<string>).
+    Decl all_items(Id) bound [/string].
+    Decl blacklisted(Id) bound [/string].
+    Decl allowed_items(Id) bound [/string].
     
     # Only items NOT in blacklist
     allowed_items(Id) :- all_items(Id), not blacklisted(Id).
@@ -186,8 +186,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(Id.Type<string>, EventType.Type<atom>, Severity.Type<atom>).
-    Decl critical_events(Id.Type<string>).
+    Decl event(Id, EventType, Severity) bound [/string, /name, /name].
+    Decl critical_events(Id) bound [/string].
     
     # Filter by specific atom values
     critical_events(Id) :-
@@ -195,7 +195,7 @@
       EventType != /info.
     
     # Multiple allowed values (OR on atoms)
-    Decl important_events(Id.Type<string>).
+    Decl important_events(Id) bound [/string].
     important_events(Id) :- event(Id, _, /critical).
     important_events(Id) :- event(Id, _, /error).
     ```
@@ -219,10 +219,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Country.Type<string>).
-    Decl product(ProductId.Type<string>, Price.Type<int>).
-    Decl discount_active(Country.Type<string>).
-    Decl eligible_for_discount(UserId.Type<string>, ProductId.Type<string>).
+    Decl user(UserId, Country) bound [/string, /string].
+    Decl product(ProductId, Price) bound [/string, /number].
+    Decl discount_active(Country) bound [/string].
+    Decl eligible_for_discount(UserId, ProductId) bound [/string, /string].
     
     # Discount applies only if user's country has active discount
     eligible_for_discount(UserId, ProductId) :-
@@ -256,15 +256,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl purchase(UserId.Type<string>, Amount.Type<int>).
-    Decl total_spent(UserId.Type<string>, Total.Type<int>).
-    Decl high_value_customer(UserId.Type<string>).
+    Decl purchase(UserId, Amount) bound [/string, /number].
+    Decl total_spent(UserId, Total) bound [/string, /number].
+    Decl high_value_customer(UserId) bound [/string].
     
     # Calculate total per user
     total_spent(UserId, Total) :-
       purchase(UserId, Amount)
       |> do fn:group_by(UserId),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     
     # Filter users above threshold
     high_value_customer(UserId) :- total_spent(UserId, Total), Total > 1000.
@@ -292,9 +292,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, Category.Type<string>).
-    Decl allowed_category(Category.Type<string>).
-    Decl visible_item(Id.Type<string>).
+    Decl item(Id, Category) bound [/string, /string].
+    Decl allowed_category(Category) bound [/string].
+    Decl visible_item(Id) bound [/string].
     
     # Define allowed set
     allowed_category("electronics").
@@ -327,10 +327,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>).
-    Decl email(UserId.Type<string>, Email.Type<string>).
-    Decl users_with_email(UserId.Type<string>).
-    Decl users_without_email(UserId.Type<string>).
+    Decl user(UserId) bound [/string].
+    Decl email(UserId, Email) bound [/string, /string].
+    Decl users_with_email(UserId) bound [/string].
+    Decl users_without_email(UserId) bound [/string].
     
     # Has email (data exists)
     users_with_email(UserId) :- email(UserId, _).
@@ -362,8 +362,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, Price.Type<int>, InStock.Type<atom>, Featured.Type<atom>).
-    Decl promoted_item(Id.Type<string>).
+    Decl item(Id, Price, InStock, Featured) bound [/string, /number, /name, /name].
+    Decl promoted_item(Id) bound [/string].
     
     # (Featured AND InStock) OR (Cheap AND InStock)
     promoted_item(Id) :-
@@ -396,16 +396,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl file(Path.Type<string>).
-    Decl go_file(Path.Type<string>).
-    Decl test_file(Path.Type<string>).
+    Decl file(Path) bound [/string].
+    Decl go_file(Path) bound [/string].
+    Decl test_file(Path) bound [/string].
     
     # Files ending with .go (using suffix check)
     # Note: Mangle doesn't have built-in string pattern matching
     # You'd use external predicates or pre-process in Go
     
     # Workaround: Use atoms for known patterns
-    Decl file_ext(Path.Type<string>, Ext.Type<atom>).
+    Decl file_ext(Path, Ext) bound [/string, /name].
     file_ext("main.go", /go).
     file_ext("main_test.go", /go).
     file_ext("readme.md", /md).
@@ -464,8 +464,8 @@
     
     ### File Filtering
     ```mangle
-    Decl file(Path.Type<string>, Size.Type<int>, Modified.Type<int>).
-    Decl large_recent_files(Path.Type<string>).
+    Decl file(Path, Size, Modified) bound [/string, /number, /number].
+    Decl large_recent_files(Path) bound [/string].
     
     large_recent_files(Path) :-
       file(Path, Size, Modified),
@@ -475,8 +475,8 @@
     
     ### Code Analysis Filtering
     ```mangle
-    Decl function(Name.Type<string>, Complexity.Type<int>, Lines.Type<int>).
-    Decl refactor_candidate(Name.Type<string>).
+    Decl function(Name, Complexity, Lines) bound [/string, /number, /number].
+    Decl refactor_candidate(Name) bound [/string].
     
     refactor_candidate(Name) :-
       function(Name, Complexity, Lines),
@@ -486,8 +486,8 @@
     
     ### Test Selection
     ```mangle
-    Decl test(Name.Type<string>, Duration.Type<int>, Flaky.Type<atom>).
-    Decl fast_stable_tests(Name.Type<string>).
+    Decl test(Name, Duration, Flaky) bound [/string, /number, /name].
+    Decl fast_stable_tests(Name) bound [/string].
     
     fast_stable_tests(Name) :-
       test(Name, Duration, Flaky),

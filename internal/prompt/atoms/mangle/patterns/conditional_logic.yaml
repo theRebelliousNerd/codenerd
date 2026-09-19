@@ -35,9 +35,9 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>).
-    Decl is_premium(UserId.Type<string>).
-    Decl discount(UserId.Type<string>, Rate.Type<float>).
+    Decl user(UserId) bound [/string].
+    Decl is_premium(UserId) bound [/string].
+    Decl discount(UserId, Rate) bound [/string, /float64].
     
     # Facts
     user("u1").
@@ -68,8 +68,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, Price.Type<int>).
-    Decl category(Id.Type<string>).
+    Decl item(Id, Price) bound [/string, /number].
+    Decl category(Id) bound [/string].
     
     # Priority 1: If price > 1000
     category(Id) = /expensive :- item(Id, Price), Price > 1000.
@@ -88,9 +88,9 @@
     # Note: The above uses functional syntax which might not work in Mangle
     # Better approach with separate predicates:
     
-    Decl expensive(Id.Type<string>).
-    Decl moderate(Id.Type<string>).
-    Decl cheap(Id.Type<string>).
+    Decl expensive(Id) bound [/string].
+    Decl moderate(Id) bound [/string].
+    Decl cheap(Id) bound [/string].
     
     expensive(Id) :- item(Id, Price), Price > 1000.
     
@@ -124,9 +124,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl input(X.Type<string>, Value.Type<int>).
-    Decl validated(X.Type<string>).
-    Decl result(X.Type<string>, Output.Type<string>).
+    Decl input(X, Value) bound [/string, /number].
+    Decl validated(X) bound [/string].
+    Decl result(X, Output) bound [/string, /string].
     
     # Guard: Only process validated inputs
     validated(X) :- input(X, Value), Value > 0, Value < 1000.
@@ -159,9 +159,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl person(Id.Type<string>, Age.Type<int>, Income.Type<int>).
-    Decl loan_approved(Id.Type<string>, Reason.Type<string>).
-    Decl loan_denied(Id.Type<string>, Reason.Type<string>).
+    Decl person(Id, Age, Income) bound [/string, /number, /number].
+    Decl loan_approved(Id, Reason) bound [/string, /string].
+    Decl loan_denied(Id, Reason) bound [/string, /string].
     
     # If age >= 18
     #   If income >= 50000
@@ -206,8 +206,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(EventId.Type<string>, Type.Type<atom>).
-    Decl priority(EventId.Type<string>, Level.Type<int>).
+    Decl event(EventId, Type) bound [/string, /name].
+    Decl priority(EventId, Level) bound [/string, /number].
     
     # Case /critical -> Priority 1
     priority(EventId, 1) :- event(EventId, /critical).
@@ -250,8 +250,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, InStock.Type<atom>, OnSale.Type<atom>, Featured.Type<atom>).
-    Decl should_display(Id.Type<string>).
+    Decl item(Id, InStock, OnSale, Featured) bound [/string, /name, /name, /name].
+    Decl should_display(Id) bound [/string].
     
     # Complex condition: (InStock AND OnSale) OR Featured
     should_display(Id) :-
@@ -261,7 +261,7 @@
       item(Id, _, _, /yes).     # Featured (regardless of stock/sale)
     
     # Alternative: All conditions in one rule
-    Decl should_display_v2(Id.Type<string>).
+    Decl should_display_v2(Id) bound [/string].
     should_display_v2(Id) :-
       item(Id, InStock, OnSale, Featured),
       (InStock = /yes, OnSale = /yes) ; Featured = /yes.
@@ -292,8 +292,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl measurement(Id.Type<string>, Value.Type<int>).
-    Decl grade(Id.Type<string>, Letter.Type<atom>).
+    Decl measurement(Id, Value) bound [/string, /number].
+    Decl grade(Id, Letter) bound [/string, /name].
     
     # A: 90-100
     grade(Id, /A) :-
@@ -347,15 +347,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl value(X.Type<string>, V.Type<int>).
-    Decl result(X.Type<string>, Output.Type<int>).
+    Decl value(X, V) bound [/string, /number].
+    Decl result(X, Output) bound [/string, /number].
     
     # If V > 100, use V; else use 100 (max function)
     result(X, V) :- value(X, V), V > 100.
     result(X, 100) :- value(X, V), V <= 100.
     
     # Or: If V < 0, use 0; else use V (clamp to non-negative)
-    Decl clamped(X.Type<string>, Output.Type<int>).
+    Decl clamped(X, Output) bound [/string, /number].
     clamped(X, 0) :- value(X, V), V < 0.
     clamped(X, V) :- value(X, V), V >= 0.
     ```
@@ -384,9 +384,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl current_state(EntityId.Type<string>, State.Type<atom>).
-    Decl event(EntityId.Type<string>, Event.Type<atom>).
-    Decl next_state(EntityId.Type<string>, State.Type<atom>).
+    Decl current_state(EntityId, State) bound [/string, /name].
+    Decl event(EntityId, Event) bound [/string, /name].
+    Decl next_state(EntityId, State) bound [/string, /name].
     
     # State transitions
     # From /idle: event /start -> /running
@@ -414,13 +414,13 @@
       current_state(EntityId, State),
       not (event(EntityId, _), transition_exists(EntityId)).
     
-    Decl transition_exists(EntityId.Type<string>).
+    Decl transition_exists(EntityId) bound [/string].
     transition_exists(EntityId) :-
       current_state(EntityId, State),
       event(EntityId, Event),
       valid_transition(State, Event).
     
-    Decl valid_transition(State.Type<atom>, Event.Type<atom>).
+    Decl valid_transition(State, Event) bound [/name, /name].
     valid_transition(/idle, /start).
     valid_transition(/running, /pause).
     valid_transition(/paused, /resume).
@@ -448,9 +448,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>).
-    Decl has_value(Id.Type<string>, Value.Type<int>).
-    Decl result(Id.Type<string>, Output.Type<atom>).
+    Decl item(Id) bound [/string].
+    Decl has_value(Id, Value) bound [/string, /number].
+    Decl result(Id, Output) bound [/string, /name].
     
     # If has value and value > 100 -> /high
     result(Id, /high) :- has_value(Id, Value), Value > 100.
@@ -486,16 +486,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>).
-    Decl purchase(PurchaseId.Type<string>, UserId.Type<string>, Amount.Type<int>).
-    Decl total_spent(UserId.Type<string>, Total.Type<int>).
-    Decl user_tier(UserId.Type<string>, Tier.Type<atom>).
+    Decl user(UserId) bound [/string].
+    Decl purchase(PurchaseId, UserId, Amount) bound [/string, /string, /number].
+    Decl total_spent(UserId, Total) bound [/string, /number].
+    Decl user_tier(UserId, Tier) bound [/string, /name].
     
     # Derive total (intermediate predicate)
     total_spent(UserId, Total) :-
       purchase(PurchaseId, UserId, Amount)
       |> do fn:group_by(UserId),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     
     # Condition based on derived total
     user_tier(UserId, /gold) :- total_spent(UserId, Total), Total > 10000.
@@ -534,8 +534,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, InStock.Type<atom>, Price.Type<int>).
-    Decl available_for_purchase(Id.Type<string>).
+    Decl item(Id, InStock, Price) bound [/string, /name, /number].
+    Decl available_for_purchase(Id) bound [/string].
     
     # Check cheap condition (in stock) before expensive computation
     available_for_purchase(Id) :-
@@ -543,7 +543,7 @@
       Price > 0,              # Then check price
       complex_validation(Id). # Finally expensive check
     
-    Decl complex_validation(Id.Type<string>).
+    Decl complex_validation(Id) bound [/string].
     complex_validation(Id) :- item(Id, _, Price), Price < 10000.  # Placeholder
     ```
     
@@ -593,8 +593,8 @@
     
     ### Shard Selection Logic
     ```mangle
-    Decl task(TaskId.Type<string>, Type.Type<atom>).
-    Decl assign_shard(TaskId.Type<string>, ShardType.Type<atom>).
+    Decl task(TaskId, Type) bound [/string, /name].
+    Decl assign_shard(TaskId, ShardType) bound [/string, /name].
     
     assign_shard(TaskId, /coder) :- task(TaskId, /code_generation).
     assign_shard(TaskId, /tester) :- task(TaskId, /test_execution).
@@ -604,8 +604,8 @@
     
     ### File Type Classification
     ```mangle
-    Decl file(Path.Type<string>, Extension.Type<string>).
-    Decl file_category(Path.Type<string>, Category.Type<atom>).
+    Decl file(Path, Extension) bound [/string, /string].
+    Decl file_category(Path, Category) bound [/string, /name].
     
     file_category(Path, /source) :- file(Path, Ext), Ext = "go".
     file_category(Path, /source) :- file(Path, Ext), Ext = "py".
@@ -614,7 +614,7 @@
     file_category(Path, /config) :- file(Path, Ext), Ext = "yaml".
     file_category(Path, /other) :- file(Path, Ext), not is_known_type(Ext).
     
-    Decl is_known_type(Ext.Type<string>).
+    Decl is_known_type(Ext) bound [/string].
     is_known_type("go").
     is_known_type("py").
     is_known_type("json").
@@ -623,8 +623,8 @@
     
     ### Test Priority Assignment
     ```mangle
-    Decl test(TestId.Type<string>, Duration.Type<int>, Flakiness.Type<float>).
-    Decl test_priority(TestId.Type<string>, Priority.Type<atom>).
+    Decl test(TestId, Duration, Flakiness) bound [/string, /number, /float64].
+    Decl test_priority(TestId, Priority) bound [/string, /name].
     
     test_priority(TestId, /critical) :-
       test(TestId, Duration, Flakiness),

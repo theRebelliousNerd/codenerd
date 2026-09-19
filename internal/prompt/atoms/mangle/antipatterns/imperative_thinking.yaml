@@ -92,7 +92,7 @@
         Result = fn:times(N, 2).
     
     # Option 2: Recursive generation (careful - needs bound!)
-    Decl generate(N.Type<int>).
+    Decl generate(N) bound [/number].
     
     generate(0).
     generate(N) :-
@@ -298,8 +298,8 @@
     ### Correct Mangle Way
     ```mangle
     # Model transitions as facts:
-    Decl state(Time.Type<int>, State.Type</atom>).
-    Decl transition(From.Type</atom>, To.Type</atom>).
+    Decl state(Time, State) bound [/number, /name].
+    Decl transition(From, To) bound [/name, /name].
     
     # Base fact:
     state(0, /start).
@@ -346,17 +346,17 @@
     count_items(Count) :-
         items(Item)
         |> do fn:group_by()
-        |> let Count = fn:Count(Item).
+        |> let Count = fn:count().
     
     # Or count via recursion (for learning purposes):
-    Decl item_list(Items.Type<list>).
-    Decl count(N.Type<int>).
+    Decl item_list(Items).
+    Decl count(N) bound [/number].
     
     count(N) :-
         item_list(Items),
         count_helper(Items, N).
     
-    Decl count_helper(List.Type<list>, N.Type<int>).
+    Decl count_helper(List, N).
     
     count_helper([], 0).
     count_helper(List, N) :-
@@ -391,7 +391,7 @@
     ### Correct Mangle Way
     ```mangle
     # Recursive doubling with explicit steps:
-    Decl double_until(Step.Type<int>, Value.Type<int>).
+    Decl double_until(Step, Value) bound [/number, /number].
     
     double_until(0, 1).  # Start value
     
@@ -576,7 +576,7 @@
     total(Sum) :-
         number(N)
         |> do fn:group_by()
-        |> let Sum = fn:Sum(N).
+        |> let Sum = fn:sum(N).
     ```
     
     ---

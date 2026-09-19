@@ -36,7 +36,7 @@
     # WRONG - can't create predicates at runtime
     create_predicate(Name) :-
         predicate_name(Name),
-        Decl Name(X.Type<int>).  # Not possible!
+        Decl Name(X).  # Not possible!
     ```
     
     ### Why It Fails
@@ -45,16 +45,16 @@
     ### Correct Mangle Way
     ```mangle
     # Declare all possible predicates upfront:
-    Decl operation_double(X.Type<int>, Result.Type<int>).
-    Decl operation_triple(X.Type<int>, Result.Type<int>).
-    Decl operation_square(X.Type<int>, Result.Type<int>).
+    Decl operation_double(X, Result) bound [/number, /number].
+    Decl operation_triple(X, Result) bound [/number, /number].
+    Decl operation_square(X, Result) bound [/number, /number].
     
     operation_double(X, R) :- input(X), R = fn:times(X, 2).
     operation_triple(X, R) :- input(X), R = fn:times(X, 3).
     operation_square(X, R) :- input(X), R = fn:times(X, X).
     
     # Use atoms to select which operation:
-    Decl requested_operation(Op.Type</atom>).
+    Decl requested_operation(Op) bound [/name].
     
     result(R) :-
         requested_operation(/double),
@@ -90,7 +90,7 @@
     ### Correct Mangle Way
     ```mangle
     # Use pattern matching on operation types:
-    Decl operation(Type.Type</atom>, Value.Type<int>, Result.Type<int>).
+    Decl operation(Type, Value, Result) bound [/name, /number, /number].
     
     operation(/sum, Value, Result) :-
         sum_data(Data),
@@ -136,14 +136,14 @@
     ### Correct Mangle Way
     ```mangle
     # Use atoms as tags to represent operations:
-    Decl apply(Op.Type</atom>, X.Type<int>, Result.Type<int>).
+    Decl apply(Op, X, Result) bound [/name, /number, /number].
     
     apply(/double, X, R) :- R = fn:times(X, 2).
     apply(/triple, X, R) :- R = fn:times(X, 3).
     apply(/square, X, R) :- R = fn:times(X, X).
     
     # "Pass" the operation by passing the atom:
-    Decl computation(Op.Type</atom>, Input.Type<int>).
+    Decl computation(Op, Input) bound [/name, /number].
     
     computation(/double, 5).
     
@@ -177,7 +177,7 @@
     ### Correct Mangle Way
     ```mangle
     # Manually maintain a registry:
-    Decl registered_predicate(Name.Type</atom>).
+    Decl registered_predicate(Name) bound [/name].
     
     registered_predicate(/user).
     registered_predicate(/order).
@@ -221,7 +221,7 @@
     ### Correct Mangle Way
     ```mangle
     # Use lists for variable-length data:
-    Decl sum_list(Values.Type<list>, Result.Type<int>).
+    Decl sum_list(Values, Result).
     
     sum_list([], 0).
     sum_list(List, Sum) :-
@@ -233,7 +233,7 @@
     total(Sum) :-
         value(V)
         |> do fn:group_by()
-        |> let Sum = fn:Sum(V).
+        |> let Sum = fn:sum(V).
     
     # Load variable-length data as separate facts:
     value(1).
@@ -266,8 +266,8 @@
     ### Correct Mangle Way
     ```mangle
     # Define a wrapper predicate:
-    Decl expensive_calculation(X.Type<int>, Y.Type<int>).
-    Decl calc(X.Type<int>, Y.Type<int>).  # Alias
+    Decl expensive_calculation(X, Y) bound [/number, /number].
+    Decl calc(X, Y) bound [/number, /number].  # Alias
     
     calc(X, Y) :- expensive_calculation(X, Y).
     
@@ -306,7 +306,7 @@
     ### Correct Mangle Way
     ```mangle
     # Define both, use guards to select:
-    Decl process(X.Type<int>, Y.Type<int>).
+    Decl process(X, Y) bound [/number, /number].
     
     process(X, Y) :-
         feature_enabled(/advanced),
@@ -341,8 +341,8 @@
     Attempting:
     ```mangle
     # WRONG - no overloading by type
-    Decl add(A.Type<int>, B.Type<int>, Result.Type<int>).
-    Decl add(A.Type<float>, B.Type<float>, Result.Type<float>).  # Name collision!
+    Decl add(A, B, Result) bound [/number, /number, /number].
+    Decl add(A, B, Result) bound [/float64, /float64, /float64].  # Name collision!
     ```
     
     ### Why It Fails
@@ -351,16 +351,16 @@
     ### Correct Mangle Way
     ```mangle
     # Use different predicate names:
-    Decl add_int(A.Type<int>, B.Type<int>, Result.Type<int>).
-    Decl add_float(A.Type<float>, B.Type<float>, Result.Type<float>).
-    Decl add_string(A.Type<string>, B.Type<string>, Result.Type<string>).
+    Decl add_int(A, B, Result) bound [/number, /number, /number].
+    Decl add_float(A, B, Result) bound [/float64, /float64, /float64].
+    Decl add_string(A, B, Result) bound [/string, /string, /string].
     
     add_int(A, B, R) :- R = fn:plus(A, B).
     add_float(A, B, R) :- R = fn:plus_float(A, B).
     add_string(A, B, R) :- fn:string_concat([A, B], R).
     
     # Or use tagged unions:
-    Decl add(Type.Type</atom>, A, B, Result).
+    Decl add(Type, A, B, Result).
     
     add(/int, A, B, R) :-
         # A and B are ints
@@ -402,7 +402,7 @@
     ### Correct Mangle Way
     ```mangle
     # Use pattern matching:
-    Decl handler(Op.Type</atom>, A.Type<int>, B.Type<int>, Result.Type<int>).
+    Decl handler(Op, A, B, Result) bound [/name, /number, /number, /number].
     
     handler(/add, A, B, R) :- R = fn:plus(A, B).
     handler(/mul, A, B, R) :- R = fn:times(A, B).
@@ -439,8 +439,8 @@
     ### Correct Mangle Way
     ```mangle
     # Build an interpreter:
-    Decl expr(Id.Type</atom>, Type.Type</atom>).
-    Decl expr_arg(Id.Type</atom>, Index.Type<int>, Value.Type<int>).
+    Decl expr(Id, Type) bound [/name, /name].
+    Decl expr_arg(Id, Index, Value) bound [/name, /number, /number].
     
     # Represent: add(1, 2)
     expr(/e1, /add).
@@ -490,13 +490,13 @@
     ### Correct Mangle Way
     ```mangle
     # Use atoms to represent operations:
-    Decl map_operation(Op.Type</atom>, Input.Type<int>, Output.Type<int>).
+    Decl map_operation(Op, Input, Output) bound [/name, /number, /number].
     
     map_operation(/double, X, Y) :- Y = fn:times(X, 2).
     map_operation(/triple, X, Y) :- Y = fn:times(X, 3).
     
     # Apply operation to list:
-    Decl input_list(Index.Type<int>, Value.Type<int>).
+    Decl input_list(Index, Value) bound [/number, /number].
     
     input_list(0, 1).
     input_list(1, 2).
@@ -537,8 +537,8 @@
     ### Correct Mangle Way
     ```mangle
     # Pre-define compositions:
-    Decl transform_a(X.Type<int>, Result.Type<int>).
-    Decl transform_b(X.Type<int>, Result.Type<int>).
+    Decl transform_a(X, Result) bound [/number, /number].
+    Decl transform_b(X, Result) bound [/number, /number].
     
     transform_a(X, R) :-
         Y = fn:plus(X, 1),
@@ -550,9 +550,9 @@
         R = fn:plus(Y, 10).
     
     # Or chain explicitly:
-    Decl step1(X.Type<int>, Y.Type<int>).
-    Decl step2(Y.Type<int>, Z.Type<int>).
-    Decl step3(Z.Type<int>, Result.Type<int>).
+    Decl step1(X, Y) bound [/number, /number].
+    Decl step2(Y, Z) bound [/number, /number].
+    Decl step3(Z, Result) bound [/number, /number].
     
     step1(X, Y) :- Y = fn:plus(X, 1).
     step2(Y, Z) :- Z = fn:times(Y, 2).
@@ -574,14 +574,14 @@
     
     ```mangle
     # Define all strategies:
-    Decl strategy(Name.Type</atom>, Input.Type<int>, Output.Type<int>).
+    Decl strategy(Name, Input, Output) bound [/name, /number, /number].
     
     strategy(/double, X, Y) :- Y = fn:times(X, 2).
     strategy(/triple, X, Y) :- Y = fn:times(X, 3).
     strategy(/square, X, Y) :- Y = fn:times(X, X).
     
     # Select strategy dynamically:
-    Decl active_strategy(Name.Type</atom>).
+    Decl active_strategy(Name) bound [/name].
     
     active_strategy(/double).  # Load from config
     
@@ -596,9 +596,9 @@
     
     ```mangle
     # AST representation:
-    Decl ast(Id.Type</atom>, Type.Type</atom>).
-    Decl ast_child(Parent.Type</atom>, Index.Type<int>, Child.Type</atom>).
-    Decl ast_value(Id.Type</atom>, Value.Type<int>).
+    Decl ast(Id, Type) bound [/name, /name].
+    Decl ast_child(Parent, Index, Child) bound [/name, /number, /name].
+    Decl ast_value(Id, Value) bound [/name, /number].
     
     # Example: (add 1 (mul 2 3))
     ast(/e1, /add).
@@ -679,14 +679,14 @@
     # - Strategy objects
     
     # Use atoms:
-    Decl operation(Op.Type</atom>, Input, Output).
+    Decl operation(Op, Input, Output).
     
     operation(/strategy_a, X, Y) :- # ...
     operation(/strategy_b, X, Y) :- # ...
     operation(/strategy_c, X, Y) :- # ...
     
     # Then "dynamically" select by loading different atom facts:
-    Decl selected_operation(Op.Type</atom>).
+    Decl selected_operation(Op) bound [/name].
     
     selected_operation(/strategy_a).  # Load from config/user input
     

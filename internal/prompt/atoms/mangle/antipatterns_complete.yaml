@@ -47,7 +47,7 @@
     region_sales(Region, Total) :-
         sales(Region, Amount) |>
         do fn:group_by(Region),
-        let Total = fn:Sum(Amount).
+        let Total = fn:sum(Amount).
     ```
     
     **Why**: Mangle requires explicit pipeline syntax with `|>`, `do`, `let` keywords.
@@ -61,7 +61,7 @@
     total(K, S) :-
         item(K, V) |>
         fn:group_by(K),  # Missing 'do'!
-        let S = fn:Sum(V).
+        let S = fn:sum(V).
     ```
     
     **CORRECT**:
@@ -69,7 +69,7 @@
     total(K, S) :-
         item(K, V) |>
         do fn:group_by(K),
-        let S = fn:Sum(V).
+        let S = fn:sum(V).
     ```
     
     ---
@@ -85,9 +85,9 @@
     
     **CORRECT**:
     ```mangle
-    ... let N = fn:Count().
-    ... let S = fn:Sum(X).
-    ... let M = fn:Max(X).
+    ... let N = fn:count().
+    ... let S = fn:sum(X).
+    ... let M = fn:max(X).
     ```
     
     **Why**: Capital letters required: `Count`, `Sum`, `Min`, `Max`. Lowercase `group_by`.
@@ -103,10 +103,10 @@
     
     **CORRECT**:
     ```mangle
-    Decl dependency(App.Type<string>, Lib.Type<string>).
+    Decl dependency(App, Lib) bound [/string, /string].
     ```
     
-    **Why**: Mangle uses `Decl` (capital D) with `Arg.Type<type>` syntax.
+    **Why**: Mangle uses `Decl` (capital D); argument types go in a `bound [/type, ...]` list after the argument list.
     
     ---
     
@@ -119,7 +119,7 @@
     
     **CORRECT**:
     ```mangle
-    Decl person(Name.Type<string>, Age.Type<int>).
+    Decl person(Name, Age) bound [/string, /number].
     ```
     
     ---
@@ -480,7 +480,7 @@
     
     **WRONG**:
     ```mangle
-    Decl score(Player.Type<n>, Points.Type<float>).
+    Decl score(Player, Points) bound [/name, /float64].
     score(/alice, 100).  # 100 is int, not float!
     ```
     
@@ -534,7 +534,7 @@
     - [ ] All variables in rule heads appear in positive body atoms
     - [ ] All statements end with period (`.`)
     - [ ] All variables are UPPERCASE
-    - [ ] All type declarations use `Decl Arg.Type<type>` syntax
+    - [ ] All type declarations use `Decl p(Arg, ...) bound [/type, ...].`
     - [ ] No hallucinated functions (check builtins_complete.md)
     - [ ] No stratification cycles (check with dependency graph)
     - [ ] No infinite recursion (all recursion bounded by finite domain)
@@ -557,7 +557,7 @@
     # Find SQL-style aggregation
     total(K, S) :- item(K, V), S = sum(V).  # WRONG
     # Replace with:
-    total(K, S) :- item(K, V) |> do fn:group_by(K), let S = fn:Sum(V).
+    total(K, S) :- item(K, V) |> do fn:group_by(K), let S = fn:sum(V).
     ```
     
     ### Fix Unbound Negation

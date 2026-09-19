@@ -420,10 +420,11 @@
       :match_entry(Map, K, V),
       DoubledV = fn:mult(V, 2).
     
-    # Collect back to map
+    # Collect back into key/value pairs. There is no map-building reducer:
+    # fn:collect(K, V) yields a list of fn:pair(K, V).
     doubled_map(NewMap) :-
       doubled_entry(K, V)
-      |> do fn:group_by(), let NewMap = fn:CollectToMap(K, V).
+      |> do fn:group_by(), let NewMap = fn:collect(K, V).
     ```
     
     ### Nested Struct Access

@@ -86,14 +86,14 @@
     **With Type Bounds**:
     ```mangle
     Decl person(Name, Age, City)
-      bounds [ /string, /number, /string ].
+      bound [ /string, /number, /string ].
     ```
     
     **Multiple Bounds**:
     ```mangle
     Decl value(Val)
-      bounds [ /number ]
-      bounds [ /string ].
+      bound [ /number ]
+      bound [ /string ].
     ```
     
     This means value can be number OR string.
@@ -376,30 +376,29 @@
     total(T) :-
         item(X)
         |> do fn:group_by(),
-           let T = fn:Sum(X).
+           let T = fn:sum(X).
     
     # Sum per category
     category_total(Cat, Total) :-
         item(Cat, Value)
         |> do fn:group_by(Cat),
-           let Total = fn:Sum(Value).
+           let Total = fn:sum(Value).
     
     # Multiple aggregators
     stats(Cat, Total, Avg, Count) :-
         data(Cat, Value)
         |> do fn:group_by(Cat),
-           let Total = fn:Sum(Value),
-           let Avg = fn:Avg(Value),
-           let Count = fn:Count().
+           let Total = fn:sum(Value),
+           let Avg = fn:avg(Value),
+           let Count = fn:count().
     ```
     
     **Available Aggregators**:
-    - `fn:Sum(X)`, `fn:FloatSum(X)`
-    - `fn:Max(X)`, `fn:Min(X)`, `fn:FloatMax(X)`, `fn:FloatMin(X)`
-    - `fn:Avg(X)`
-    - `fn:Count()`, `fn:CountDistinct(X)`
-    - `fn:Collect(X)`, `fn:CollectDistinct(X)`
-    - `fn:CollectToMap(K, V)`
+    - `fn:sum(X)`, `fn:float:sum(X)`
+    - `fn:max(X)`, `fn:min(X)`, `fn:float:max(X)`, `fn:float:min(X)`
+    - `fn:avg(X)`
+    - `fn:count()` (no argument; for a distinct count, project first and count the projection)
+    - `fn:collect(X)`, `fn:collect_distinct(X)` (with two arguments: a list of `fn:pair(K, V)`)
     
     ---
     
@@ -474,7 +473,7 @@
     
     # RIGHT - Mangle style
     Decl edge(X, Y)
-      bounds [ /number, /number ].
+      bound [ /number, /number ].
     ```
     
     ### 5. Inline Aggregation
@@ -487,7 +486,7 @@
     total(Sum) :-
         item(X)
         |> do fn:group_by(),
-           let Sum = fn:Sum(X).
+           let Sum = fn:sum(X).
     ```
     
     ### 6. Assignment Syntax
@@ -622,7 +621,7 @@
     total_age(Total) :-
         person(P, Age)
         |> do fn:group_by(),
-           let Total = fn:Sum(Age).
+           let Total = fn:sum(Age).
     
     # Pattern matching
     full_name(Name) :-

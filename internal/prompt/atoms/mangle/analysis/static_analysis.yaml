@@ -54,7 +54,7 @@
     
     ```mangle
     Decl person(Name, Age)
-      bounds [ /string, /number ].
+      bound [ /string, /number ].
     ```
     
     The analyzer **desugars** this into primitive type bounds.
@@ -195,7 +195,7 @@
     
     ```mangle
     Decl person(Name, Age)
-      bounds [ /string, /number ].
+      bound [ /string, /number ].
     
     # VALID
     person("Alice", 30).

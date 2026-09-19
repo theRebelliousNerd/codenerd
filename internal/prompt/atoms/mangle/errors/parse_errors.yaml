@@ -227,7 +227,7 @@
     
     **Fix:**
     ```mangle
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y) bound [/string, /string].
     ```
     
     ### 5.2 SQL Keywords

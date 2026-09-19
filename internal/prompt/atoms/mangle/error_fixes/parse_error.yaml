@@ -36,7 +36,7 @@
     
     **After (Mangle style):**
     ```mangle
-    Decl edge(X.Type<int>, Y.Type<int>).
+    Decl edge(X, Y) bound [/number, /number].
     ```
     
     ### 3. Lowercase Variables
@@ -71,12 +71,12 @@
     
     **Before:**
     ```mangle
-    count(N) :- source(_) |> fn:group_by(), let N = fn:Count().
+    count(N) :- source(_) |> fn:group_by(), let N = fn:count().
     ```
     
     **After:**
     ```mangle
-    count(N) :- source(_) |> do fn:group_by(), let N = fn:Count().
+    count(N) :- source(_) |> do fn:group_by(), let N = fn:count().
     ```
     
     ### 6. Wrong String/Atom Syntax

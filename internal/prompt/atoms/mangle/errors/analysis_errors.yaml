@@ -260,14 +260,14 @@
     **Reproducing Example:**
     ```mangle
     # WRONG - X redefined in transform
-    result(X) :- source(X, Y) |> do fn:group_by(Y), let X = fn:Count().
+    result(X) :- source(X, Y) |> do fn:group_by(Y), let X = fn:count().
                                   # ^^^^^ X already bound!
     ```
     
     **How to Fix:**
     ```mangle
     # CORRECT - use a different variable name
-    result(Count) :- source(X, Y) |> do fn:group_by(Y), let Count = fn:Count().
+    result(Count) :- source(X, Y) |> do fn:group_by(Y), let Count = fn:count().
     ```
     
     ---
@@ -286,14 +286,14 @@
     **Reproducing Example:**
     ```mangle
     # WRONG - Z not in body
-    result(Total) :- source(X) |> do fn:group_by(Y), let Total = fn:Sum(Z).
+    result(Total) :- source(X) |> do fn:group_by(Y), let Total = fn:sum(Z).
                                   # Y and Z never appear in body!
     ```
     
     **How to Fix:**
     ```mangle
     # CORRECT - all variables in transform are in body
-    result(Total) :- source(X, Y) |> do fn:group_by(Y), let Total = fn:Sum(X).
+    result(Total) :- source(X, Y) |> do fn:group_by(Y), let Total = fn:sum(X).
     ```
     
     ---
@@ -340,7 +340,7 @@
     result(X, Y, Total) :-
         source(X, Y, Z) |>
         do fn:group_by(X),
-        let Total = fn:Sum(Z).
+        let Total = fn:sum(Z).
         # Y is neither grouped nor aggregated!
     ```
     
@@ -352,7 +352,7 @@
     result(X, Y, Total) :-
         source(X, Y, Z) |>
         do fn:group_by(X, Y),
-        let Total = fn:Sum(Z).
+        let Total = fn:sum(Z).
     ```
     
     **Option 2:** Remove ungrouped variable
@@ -361,7 +361,7 @@
     result(X, Total) :-
         source(X, Y, Z) |>
         do fn:group_by(X),
-        let Total = fn:Sum(Z).
+        let Total = fn:sum(Z).
     ```
     
     **Option 3:** Aggregate it
@@ -370,8 +370,8 @@
     result(X, YList, Total) :-
         source(X, Y, Z) |>
         do fn:group_by(X),
-        let YList = fn:Collect(Y),
-        let Total = fn:Sum(Z).
+        let YList = fn:collect(Y),
+        let Total = fn:sum(Z).
     ```
     
     ---
@@ -421,7 +421,7 @@
     result(X, Z) :-
         source(X, Y, Z) |>
         do fn:group_by(X),
-        let Total = fn:Sum(Y).
+        let Total = fn:sum(Y).
         # Z appears in head but not in transform!
     ```
     
@@ -432,7 +432,7 @@
     result(X, Z) :-
         source(X, Y, Z) |>
         do fn:group_by(X, Z),
-        let Total = fn:Sum(Y).
+        let Total = fn:sum(Y).
     ```
     
     **Option 2:** Remove from head
@@ -440,7 +440,7 @@
     result(X) :-
         source(X, Y, Z) |>
         do fn:group_by(X),
-        let Total = fn:Sum(Y).
+        let Total = fn:sum(Y).
     ```
     
     **Option 3:** Aggregate it
@@ -469,8 +469,8 @@
     **Reproducing Example:**
     ```mangle
     # WRONG - duplicate declarations
-    Decl parent(X.Type<string>, Y.Type<string>).
-    Decl parent(A.Type<int>, B.Type<int>).
+    Decl parent(X, Y) bound [/string, /string].
+    Decl parent(A, B) bound [/number, /number].
     ```
     
     **How to Fix:**
@@ -478,14 +478,14 @@
     **Option 1:** Remove duplicate
     ```mangle
     # CORRECT - single declaration
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y) bound [/string, /string].
     ```
     
     **Option 2:** Use different predicate names
     ```mangle
     # CORRECT - different predicates
-    Decl parent_string(X.Type<string>, Y.Type<string>).
-    Decl parent_int(A.Type<int>, B.Type<int>).
+    Decl parent_string(X, Y) bound [/string, /string].
+    Decl parent_int(A, B) bound [/number, /number].
     ```
     
     ---
@@ -508,7 +508,7 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y).
     
     # WRONG - using 3 args when declared with 2
     parent(X, Y, Z) :- person(X), person(Y), person(Z).
@@ -525,7 +525,7 @@
     **Option 2:** Update declaration
     ```mangle
     # CORRECT - declare with 3 args
-    Decl parent(X.Type<string>, Y.Type<string>, Z.Type<string>).
+    Decl parent(X, Y, Z) bound [/string, /string, /string].
     parent(X, Y, Z) :- person(X), person(Y), person(Z).
     ```
     
@@ -577,7 +577,7 @@
         source(X, Y),
         Y > 0 |>  # Filter in body, not transform
         do fn:group_by(X),
-        let Total = fn:Sum(Y).
+        let Total = fn:sum(Y).
     ```
     
     ---
@@ -609,7 +609,7 @@
         source(X, Y),
         Y > 0 |>
         do fn:group_by(X),
-        let Total = fn:Sum(Y).
+        let Total = fn:sum(Y).
     ```
     
     ---
@@ -628,13 +628,13 @@
     **Reproducing Example:**
     ```mangle
     # WRONG - no body before transform
-    result(Count) :- |> do fn:group_by(X), let Count = fn:Count().
+    result(Count) :- |> do fn:group_by(X), let Count = fn:count().
     ```
     
     **How to Fix:**
     ```mangle
     # CORRECT - body before transform
-    result(Count) :- source(X) |> do fn:group_by(X), let Count = fn:Count().
+    result(Count) :- source(X) |> do fn:group_by(X), let Count = fn:count().
     ```
     
     ---
@@ -671,8 +671,8 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl name_str(X.Type<string>).
-    Decl age_int(X.Type<int>).
+    Decl name_str(X) bound [/string].
+    Decl age_int(X) bound [/number].
     
     # WRONG - X can't be both string and int
     result(X) :- name_str(X), age_int(X).

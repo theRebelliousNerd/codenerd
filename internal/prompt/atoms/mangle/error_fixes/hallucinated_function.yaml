@@ -73,10 +73,10 @@
     
     ### Aggregation (in transform blocks only)
     ```mangle
-    fn:Count()         # Count rows
-    fn:Sum(X)          # Sum values
-    fn:Min(X)          # Minimum value
-    fn:Max(X)          # Maximum value
+    fn:count()         # Count rows
+    fn:sum(X)          # Sum values
+    fn:min(X)          # Minimum value
+    fn:max(X)          # Maximum value
     fn:group_by(K)     # Group by key
     ```
     

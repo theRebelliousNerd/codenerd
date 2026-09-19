@@ -28,21 +28,21 @@
     total_count(Count) :-
       item(X)
       |> do fn:group_by(),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Count per group
     group_count(Group, Count) :-
       item(X, Group)
       |> do fn:group_by(Group),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Country.Type<string>).
-    Decl total_users(Count.Type<int>).
-    Decl users_per_country(Country.Type<string>, Count.Type<int>).
+    Decl user(UserId, Country) bound [/string, /string].
+    Decl total_users(Count) bound [/number].
+    Decl users_per_country(Country, Count) bound [/string, /number].
     
     # Facts
     user("u1", "USA").
@@ -55,13 +55,13 @@
     total_users(Count) :-
       user(UserId, _)
       |> do fn:group_by(),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Count per country
     users_per_country(Country, Count) :-
       user(UserId, Country)
       |> do fn:group_by(Country),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Query: total_users(C)
     # Result: total_users(5)
@@ -80,21 +80,26 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(EventId.Type<string>, UserId.Type<string>, EventType.Type<string>).
-    Decl unique_users(Count.Type<int>).
-    Decl unique_users_per_type(EventType.Type<string>, Count.Type<int>).
-    
-    # Count distinct users (total)
+    Decl event(EventId, UserId, EventType) bound [/string, /string, /string].
+    Decl event_user(UserId) bound [/string].
+    Decl event_type_user(EventType, UserId) bound [/string, /string].
+    Decl unique_users(Count) bound [/number].
+    Decl unique_users_per_type(EventType, Count) bound [/string, /number].
+
+    # Count distinct users (total). There is no count-distinct reducer on the
+    # pinned engine: facts are a set, so project to the distinct columns first.
+    event_user(UserId) :- event(Id, UserId, EventType).
     unique_users(Count) :-
-      event(_, UserId, _)
+      event_user(UserId)
       |> do fn:group_by(),
-         let Count = fn:CountDistinct(UserId).
-    
+         let Count = fn:count().
+
     # Count distinct users per event type
+    event_type_user(EventType, UserId) :- event(Id, UserId, EventType).
     unique_users_per_type(EventType, Count) :-
-      event(_, UserId, EventType)
+      event_type_user(EventType, UserId)
       |> do fn:group_by(EventType),
-         let Count = fn:CountDistinct(UserId).
+         let Count = fn:count().
     ```
     
     ### Example
@@ -118,22 +123,22 @@
     ### Solution
     ```mangle
     # Schema
-    Decl product(ProductId.Type<string>, Price.Type<int>, InStock.Type<atom>).
-    Decl expensive_count(Count.Type<int>).
-    Decl in_stock_count(Count.Type<int>).
+    Decl product(ProductId, Price, InStock) bound [/string, /number, /name].
+    Decl expensive_count(Count) bound [/number].
+    Decl in_stock_count(Count) bound [/number].
     
     # Count expensive items (Price > 1000)
     expensive_count(Count) :-
       product(ProductId, Price, _),
       Price > 1000
       |> do fn:group_by(),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Count in-stock items
     in_stock_count(Count) :-
       product(ProductId, _, /yes)
       |> do fn:group_by(),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Example
@@ -156,15 +161,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl category(CategoryId.Type<string>).
-    Decl product(ProductId.Type<string>, CategoryId.Type<string>).
-    Decl product_count(CategoryId.Type<string>, Count.Type<int>).
+    Decl category(CategoryId) bound [/string].
+    Decl product(ProductId, CategoryId) bound [/string, /string].
+    Decl product_count(CategoryId, Count) bound [/string, /number].
     
     # Categories with products
     product_count(CategoryId, Count) :-
       product(ProductId, CategoryId)
       |> do fn:group_by(CategoryId),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Categories with zero products
     product_count(CategoryId, 0) :-
@@ -196,8 +201,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(EventId.Type<string>, Timestamp.Type<int>).
-    Decl events_before(Timestamp.Type<int>, Count.Type<int>).
+    Decl event(EventId, Timestamp) bound [/string, /number].
+    Decl events_before(Timestamp, Count) bound [/number, /number].
     
     # Count events before or at each timestamp
     events_before(T, Count) :-
@@ -205,7 +210,7 @@
       event(EventId, EventTime),
       EventTime <= T
       |> do fn:group_by(T),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Example
@@ -228,22 +233,22 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Country.Type<string>).
-    Decl total_users(Count.Type<int>).
-    Decl users_per_country(Country.Type<string>, Count.Type<int>).
-    Decl country_percentage(Country.Type<string>, Percentage.Type<float>).
+    Decl user(UserId, Country) bound [/string, /string].
+    Decl total_users(Count) bound [/number].
+    Decl users_per_country(Country, Count) bound [/string, /number].
+    Decl country_percentage(Country, Percentage) bound [/string, /float64].
     
     # Total (from earlier pattern)
     total_users(Count) :-
       user(UserId, _)
       |> do fn:group_by(),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Per country
     users_per_country(Country, Count) :-
       user(UserId, Country)
       |> do fn:group_by(Country),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Percentage
     country_percentage(Country, Percentage) :-
@@ -275,15 +280,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl purchase(UserId.Type<string>, Amount.Type<int>).
-    Decl purchase_count(UserId.Type<string>, Count.Type<int>).
-    Decl frequent_buyers(UserId.Type<string>).
+    Decl purchase(UserId, Amount) bound [/string, /number].
+    Decl purchase_count(UserId, Count) bound [/string, /number].
+    Decl frequent_buyers(UserId) bound [/string].
     
     # Count purchases per user
     purchase_count(UserId, Count) :-
       purchase(UserId, Amount)
       |> do fn:group_by(UserId),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Only users with 3+ purchases
     frequent_buyers(UserId) :- purchase_count(UserId, Count), Count >= 3.
@@ -311,21 +316,21 @@
     ### Solution
     ```mangle
     # Schema
-    Decl sale(SaleId.Type<string>, StoreId.Type<string>, Region.Type<string>).
-    Decl sales_per_store(StoreId.Type<string>, Count.Type<int>).
-    Decl sales_per_region(Region.Type<string>, Count.Type<int>).
+    Decl sale(SaleId, StoreId, Region) bound [/string, /string, /string].
+    Decl sales_per_store(StoreId, Count) bound [/string, /number].
+    Decl sales_per_region(Region, Count) bound [/string, /number].
     
     # Count per store
     sales_per_store(StoreId, Count) :-
       sale(SaleId, StoreId, _)
       |> do fn:group_by(StoreId),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Count per region
     sales_per_region(Region, Count) :-
       sale(SaleId, _, Region)
       |> do fn:group_by(Region),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Example
@@ -351,14 +356,14 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(UserId.Type<string>, Action.Type<string>).
-    Decl action_count(UserId.Type<string>, Action.Type<string>, Count.Type<int>).
+    Decl event(UserId, Action) bound [/string, /string].
+    Decl action_count(UserId, Action, Count) bound [/string, /string, /number].
     
     # Count per user-action pair
     action_count(UserId, Action, Count) :-
       event(UserId, Action)
       |> do fn:group_by(UserId, Action),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Example
@@ -382,16 +387,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Country.Type<string>).
-    Decl order(OrderId.Type<string>, UserId.Type<string>).
-    Decl orders_per_country(Country.Type<string>, Count.Type<int>).
+    Decl user(UserId, Country) bound [/string, /string].
+    Decl order(OrderId, UserId) bound [/string, /string].
+    Decl orders_per_country(Country, Count) bound [/string, /number].
     
     # Join then count
     orders_per_country(Country, Count) :-
       user(UserId, Country),
       order(OrderId, UserId)
       |> do fn:group_by(Country),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Example
@@ -412,7 +417,7 @@
     ### Note on Zero Counts After Joins
     ```mangle
     # To include zero counts:
-    Decl country(C.Type<string>).
+    Decl country(C) bound [/string].
     country("USA").
     country("Canada").
     
@@ -420,7 +425,7 @@
       user(UserId, Country),
       order(OrderId, UserId)
       |> do fn:group_by(Country),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Add explicit zero case
     orders_per_country(Country, 0) :-
@@ -436,26 +441,26 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(UserId.Type<string>, Action.Type<string>).
-    Decl action_count(Action.Type<string>, Count.Type<int>).
-    Decl top_actions(Action.Type<string>, Count.Type<int>, Rank.Type<int>).
+    Decl event(UserId, Action) bound [/string, /string].
+    Decl action_count(Action, Count) bound [/string, /number].
+    Decl top_actions(Action, Count, Rank) bound [/string, /number, /number].
     
     # Count per action
     action_count(Action, Count) :-
       event(UserId, Action)
       |> do fn:group_by(Action),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Rank by count (descending)
     # Note: Mangle doesn't have built-in LIMIT/TOP N
     # Workaround: find max, then next max excluding previous, etc.
     
     # Find maximum count
-    Decl max_count(MaxCount.Type<int>).
+    Decl max_count(MaxCount) bound [/number].
     max_count(MaxCount) :-
       action_count(Action, Count)
       |> do fn:group_by(),
-         let MaxCount = fn:Max(Count).
+         let MaxCount = fn:max(Count).
     
     # Actions with max count
     top_actions(Action, Count, 1) :-
@@ -487,22 +492,23 @@
     # Bad - this counts the same item multiple times if it appears in multiple rules
     count(N) :- item(X), N = 1.
     # Fix: Use aggregation
-    count(N) :- item(X) |> do fn:group_by(), let N = fn:Count().
+    count(N) :- item(X) |> do fn:group_by(), let N = fn:count().
     ```
     
     ### WRONG: Forgetting CountDistinct
     ```mangle
-    # Bad - counts duplicate user IDs
-    user_count(Count) :- event(_, UserId) |> do fn:group_by(), let Count = fn:Count().
-    
-    # Fix - use CountDistinct for unique users
-    user_count(Count) :- event(_, UserId) |> do fn:group_by(), let Count = fn:CountDistinct(UserId).
+    # Bad - counts event rows, not users (and the wildcard keeps the event column)
+    user_count(Count) :- event(_, UserId) |> do fn:group_by(), let Count = fn:count().
+
+    # Fix - project to the users first, then count the projection
+    event_user(UserId) :- event(E, UserId).
+    user_count(Count) :- event_user(UserId) |> do fn:group_by(), let Count = fn:count().
     ```
     
     ### WRONG: Counting Before Filtering
     ```mangle
     # Inefficient - count everything then filter
-    all_count(Category, Count) :- item(X, Category) |> do fn:group_by(Category), let Count = fn:Count().
+    all_count(Category, Count) :- item(X, Category) |> do fn:group_by(Category), let Count = fn:count().
     high_count(Category, Count) :- all_count(Category, Count), Count > 100.
     
     # Better - filter first if possible
@@ -520,33 +526,33 @@
     
     ### Test Coverage Metrics
     ```mangle
-    Decl test_covers(TestId.Type<string>, SourceFile.Type<string>).
-    Decl coverage_count(SourceFile.Type<string>, Count.Type<int>).
+    Decl test_covers(TestId, SourceFile) bound [/string, /string].
+    Decl coverage_count(SourceFile, Count) bound [/string, /number].
     
     coverage_count(SourceFile, Count) :-
       test_covers(TestId, SourceFile)
       |> do fn:group_by(SourceFile),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Function Call Frequency
     ```mangle
-    Decl function_call(CallSite.Type<string>, FuncName.Type<string>).
-    Decl call_count(FuncName.Type<string>, Count.Type<int>).
+    Decl function_call(CallSite, FuncName) bound [/string, /string].
+    Decl call_count(FuncName, Count) bound [/string, /number].
     
     call_count(FuncName, Count) :-
       function_call(CallSite, FuncName)
       |> do fn:group_by(FuncName),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Shard Execution Statistics
     ```mangle
-    Decl shard_executed(ShardId.Type<string>, TaskId.Type<string>, Status.Type<atom>).
-    Decl shard_success_count(ShardId.Type<string>, Count.Type<int>).
+    Decl shard_executed(ShardId, TaskId, Status) bound [/string, /string, /name].
+    Decl shard_success_count(ShardId, Count) bound [/string, /number].
     
     shard_success_count(ShardId, Count) :-
       shard_executed(ShardId, TaskId, /success)
       |> do fn:group_by(ShardId),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```

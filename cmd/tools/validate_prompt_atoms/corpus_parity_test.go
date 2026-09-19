@@ -53,15 +53,18 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 		t.Fatal("validator and embedded runtime atom order differ")
 	}
 
-	const wantCount = 915
+	const wantCount = 914
 	// Includes tool-agnostic editing discipline alongside change evidence, and
 	// the working-context methodology atom (methodology/working_context).
 	// 920 at 8ebd7616, minus the 6 envelope-restating atoms deleted by
 	// f73362ff (piggyback, reasoning_trace, output_protocol,
 	// self_correction, tool_steering); plus
 	// language/mangle/engine_truths_pinned (2026-09-18), served when the kernel
-	// derives /authoring_mangle (policy/jit_needs.mg).
-	const wantDigest = "65349f6b3b57ca67b6575131190db5835c05a24e9a372a2105858c44aa127ba8"
+	// derives /authoring_mangle (policy/jit_needs.mg); minus
+	// language/mangle/docs/builtins_complete/aggregators (2026-09-18), a second
+	// reducer reference teaching fn:CountDistinct and fn:CollectToMap, which the
+	// pinned engine does not have.
+	const wantDigest = "da8aecd2e1780ccbc99bf058a08dd878760e6d6e652ac3a3b633b8ed267a0f0a"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}

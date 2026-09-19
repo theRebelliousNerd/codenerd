@@ -24,7 +24,7 @@
     ## Struct Declaration
     
     ```mangle
-    Decl user_data(Id.Type<atom>, Data.Type<struct>).
+    Decl user_data(Id, Data).
     
     # Fact with struct
     user_data(/u1, { /name: "Alice", /age: 30, /role: /admin }).
@@ -35,7 +35,7 @@
     ### 1. :match_field (Single Field Access)
     
     ```mangle
-    Decl get_name(UserId.Type<atom>, Name.Type<string>).
+    Decl get_name(UserId, Name) bound [/name, /string].
     
     get_name(UserId, Name) :-
       user_data(UserId, Data),
@@ -48,7 +48,7 @@
     ### 2. Multiple Field Access
     
     ```mangle
-    Decl user_info(Id.Type<atom>, Name.Type<string>, Age.Type<int>).
+    Decl user_info(Id, Name, Age) bound [/name, /string, /number].
     
     user_info(Id, Name, Age) :-
       user_data(Id, Data),
@@ -62,7 +62,7 @@
     ### 3. Nested Struct Access
     
     ```mangle
-    Decl employee(Id.Type<atom>, Data.Type<struct>).
+    Decl employee(Id, Data).
     
     # Nested struct
     employee(/e1, {
@@ -73,7 +73,7 @@
       }
     }).
     
-    Decl get_email(Id.Type<atom>, Email.Type<string>).
+    Decl get_email(Id, Email) bound [/name, /string].
     
     get_email(Id, Email) :-
       employee(Id, Data),
@@ -89,7 +89,7 @@
     ### 1. Building Structs Dynamically
     
     ```mangle
-    Decl create_user_struct(Name.Type<string>, Age.Type<int>, Result.Type<struct>).
+    Decl create_user_struct(Name, Age, Result).
     
     create_user_struct(Name, Age, Result) :-
       Result = { /name: Name, /age: Age, /active: /true }.
@@ -104,7 +104,7 @@
     # Note: Mangle does not have built-in struct merge
     # You must manually extract and reconstruct
     
-    Decl merge_user_data(Base.Type<struct>, Override.Type<struct>, Result.Type<struct>).
+    Decl merge_user_data(Base, Override, Result).
     
     merge_user_data(Base, Override, Result) :-
       :match_field(Base, /name, BaseName),
@@ -120,12 +120,12 @@
     ### 1. Partial Matching (Extract Subset of Fields)
     
     ```mangle
-    Decl user(Id.Type<atom>, Data.Type<struct>).
+    Decl user(Id, Data).
     
     user(/u1, { /name: "Alice", /age: 30, /role: /admin, /dept: /eng }).
     
     # Extract only specific fields
-    Decl user_role(Id.Type<atom>, Name.Type<string>, Role.Type<atom>).
+    Decl user_role(Id, Name, Role) bound [/name, /string, /name].
     
     user_role(Id, Name, Role) :-
       user(Id, Data),
@@ -140,7 +140,7 @@
     ### 2. Struct Field Existence Check
     
     ```mangle
-    Decl has_field(Data.Type<struct>, Field.Type<atom>).
+    Decl has_field(Data, Field).
     
     has_field(Data, Field) :-
       :match_field(Data, Field, _).  # If match succeeds, field exists
@@ -155,7 +155,7 @@
     ### 3. Conditional Field Access (Default Value)
     
     ```mangle
-    Decl get_email_or_default(UserId.Type<atom>, Email.Type<string>).
+    Decl get_email_or_default(UserId, Email) bound [/name, /string].
     
     # If email exists, use it
     get_email_or_default(UserId, Email) :-
@@ -171,7 +171,7 @@
     ## Struct with Lists
     
     ```mangle
-    Decl project(Id.Type<atom>, Data.Type<struct>).
+    Decl project(Id, Data).
     
     project(/p1, {
       /name: "Project Alpha",
@@ -180,7 +180,7 @@
     }).
     
     # Extract list field
-    Decl project_members(Id.Type<atom>, Members.Type<list<atom>>).
+    Decl project_members(Id, Members).
     
     project_members(Id, Members) :-
       project(Id, Data),
@@ -190,7 +190,7 @@
     # Result: Members = [/alice, /bob, /charlie]
     
     # Check if user is member
-    Decl is_project_member(ProjectId.Type<atom>, UserId.Type<atom>).
+    Decl is_project_member(ProjectId, UserId) bound [/name, /name].
     
     is_project_member(ProjectId, UserId) :-
       project_members(ProjectId, Members),
@@ -203,7 +203,7 @@
     ## Struct with Nested Lists
     
     ```mangle
-    Decl task(Id.Type<atom>, Data.Type<struct>).
+    Decl task(Id, Data).
     
     task(/t1, {
       /title: "Implement feature",
@@ -214,18 +214,18 @@
     }).
     
     # Extract subtasks
-    Decl task_subtasks(TaskId.Type<atom>, Subtasks.Type<list<struct>>).
+    Decl task_subtasks(TaskId, Subtasks).
     
     task_subtasks(TaskId, Subtasks) :-
       task(TaskId, Data),
       :match_field(Data, /subtasks, Subtasks).
     
     # Process each subtask (requires iteration)
-    Decl subtask_status(TaskId.Type<atom>, SubtaskId.Type<atom>, Done.Type<atom>).
+    Decl subtask_status(TaskId, SubtaskId, Done) bound [/name, /name, /name].
     
     # This is complex in pure Mangle; better to normalize data structure
     # Store subtasks as separate facts:
-    Decl subtask(TaskId.Type<atom>, SubtaskId.Type<atom>, Title.Type<string>, Done.Type<atom>).
+    Decl subtask(TaskId, SubtaskId, Title, Done) bound [/name, /name, /string, /name].
     
     subtask(/t1, /st1, "Design", /true).
     subtask(/t1, /st2, "Code", /false).
@@ -236,8 +236,8 @@
     ### 1. Key-Value Lookup
     
     ```mangle
-    Decl config(Key.Type<atom>, Value.Type<string>).
-    Decl config_struct(Data.Type<struct>).
+    Decl config(Key, Value) bound [/name, /string].
+    Decl config_struct(Data).
     
     # Store config as struct
     config_struct({
@@ -247,7 +247,7 @@
     }).
     
     # Lookup by key
-    Decl get_config(Key.Type<atom>, Value.Type<string>).
+    Decl get_config(Key, Value) bound [/name, /string].
     
     get_config(Key, Value) :-
       config_struct(Data),
@@ -279,7 +279,7 @@
     ### 1. Required Fields
     
     ```mangle
-    Decl valid_user(Data.Type<struct>).
+    Decl valid_user(Data).
     
     valid_user(Data) :-
       :match_field(Data, /name, Name),
@@ -298,7 +298,7 @@
     ### 2. Field Type Validation
     
     ```mangle
-    Decl valid_age(Data.Type<struct>).
+    Decl valid_age(Data).
     
     valid_age(Data) :-
       :match_field(Data, /age, Age),
@@ -315,7 +315,7 @@
     ### 3. Conditional Field Requirements
     
     ```mangle
-    Decl valid_employee(Data.Type<struct>).
+    Decl valid_employee(Data).
     
     # If role is manager, must have /team field
     valid_employee(Data) :-
@@ -334,7 +334,7 @@
     Structs are immutable. To "update", create a new struct.
     
     ```mangle
-    Decl update_age(OldData.Type<struct>, NewAge.Type<int>, NewData.Type<struct>).
+    Decl update_age(OldData, NewAge, NewData).
     
     update_age(OldData, NewAge, NewData) :-
       :match_field(OldData, /name, Name),
@@ -352,7 +352,7 @@
     
     ### Struct Approach
     ```mangle
-    Decl user_struct(Id.Type<atom>, Data.Type<struct>).
+    Decl user_struct(Id, Data).
     user_struct(/u1, { /name: "Alice", /age: 30, /role: /admin }).
     ```
     
@@ -367,9 +367,9 @@
     
     ### Multiple Facts Approach
     ```mangle
-    Decl user_name(Id.Type<atom>, Name.Type<string>).
-    Decl user_age(Id.Type<atom>, Age.Type<int>).
-    Decl user_role(Id.Type<atom>, Role.Type<atom>).
+    Decl user_name(Id, Name) bound [/name, /string].
+    Decl user_age(Id, Age) bound [/name, /number].
+    Decl user_role(Id, Role) bound [/name, /name].
     
     user_name(/u1, "Alice").
     user_age(/u1, 30).
@@ -393,14 +393,14 @@
     ## Advanced: Struct in Aggregation
     
     ```mangle
-    Decl event(Id.Type<atom>, Data.Type<struct>).
+    Decl event(Id, Data).
     
     event(/e1, { /user: /alice, /action: /login, /timestamp: 100 }).
     event(/e2, { /user: /alice, /action: /logout, /timestamp: 200 }).
     event(/e3, { /user: /bob, /action: /login, /timestamp: 150 }).
     
     # Count events per user
-    Decl user_event_count(User.Type<atom>, Count.Type<int>).
+    Decl user_event_count(User, Count) bound [/name, /number].
     
     user_event_count(User, Count) :-
       event(Id, Data),
@@ -418,7 +418,7 @@
     Struct equality is structural (deep equality).
     
     ```mangle
-    Decl same_data(A.Type<struct>, B.Type<struct>).
+    Decl same_data(A, B).
     
     same_data(A, B) :- A = B.
     

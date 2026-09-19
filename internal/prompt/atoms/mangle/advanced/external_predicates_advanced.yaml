@@ -34,7 +34,7 @@
     
     ### Mangle Declaration
     ```mangle
-    Decl external_data(Key.Type<atom>, Value.Type<string>).
+    Decl external_data(Key, Value) bound [/name, /string].
     ```
     
     ### Go Implementation
@@ -256,7 +256,7 @@
     ### Better Approach: Explicit Action Queue
     ```mangle
     # Declare intent, execute later
-    Decl action_intent(Action.Type<atom>, Args.Type<struct>).
+    Decl action_intent(Action, Args).
     
     # Mangle declares what should happen
     action_intent(/send_email, { /to: "user@example.com", /subject: "Hello" }).
@@ -334,7 +334,7 @@
     
     ### Mangle Usage
     ```mangle
-    Decl event(Id.Type<atom>, Timestamp.Type<int>).
+    Decl event(Id, Timestamp) bound [/name, /number].
     event(/e1, 1700000000).
     
     recent_events(Id) :-

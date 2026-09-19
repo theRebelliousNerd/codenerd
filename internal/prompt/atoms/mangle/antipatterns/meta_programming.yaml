@@ -42,7 +42,7 @@
     ### Correct Mangle Way
     ```mangle
     # Just define predicates normally:
-    Decl double(X.Type<int>, Result.Type<int>).
+    Decl double(X, Result) bound [/number, /number].
     
     double(X, R) :- R = fn:times(X, 2).
     
@@ -51,7 +51,7 @@
     # For code reuse, use regular predicates
     # For complex generation, generate .gl files in Go:
     // template := `
-    // Decl %s(X.Type<int>, Result.Type<int>).
+    // Decl %s(X, Result).
     // %s(X, R) :- R = fn:times(X, %d).
     // `
     // code := fmt.Sprintf(template, name, name, multiplier)
@@ -78,7 +78,7 @@
     ```mangle
     # WRONG - no templates
     template<T>
-    max(A.Type<T>, B.Type<T>, Result.Type<T>) :-
+    max(A, B, Result) :-
         A > B, Result = A;
         Result = B.
     ```
@@ -89,8 +89,8 @@
     ### Correct Mangle Way
     ```mangle
     # Define separate predicates for each type:
-    Decl max_int(A.Type<int>, B.Type<int>, Result.Type<int>).
-    Decl max_float(A.Type<float>, B.Type<float>, Result.Type<float>).
+    Decl max_int(A, B, Result) bound [/number, /number, /number].
+    Decl max_float(A, B, Result) bound [/float64, /float64, /float64].
     
     max_int(A, B, A) :- A > B.
     max_int(A, B, B) :- B >= A.
@@ -133,7 +133,7 @@
     ### Correct Mangle Way
     ```mangle
     # Just compute at runtime:
-    Decl factorial(N.Type<int>, Result.Type<int>).
+    Decl factorial(N, Result) bound [/number, /number].
     
     factorial(0, 1).
     factorial(N, Result) :-
@@ -147,7 +147,7 @@
     // fact5 := factorial(5)
     // store.Add(engine.NewAtom("constant", engine.Atom("/FACT_5"), engine.Number(fact5)))
     
-    Decl constant(Name.Type</atom>, Value.Type<int>).
+    Decl constant(Name, Value) bound [/name, /number].
     
     use_constant(V) :- constant(/FACT_5, V).
     ```
@@ -168,7 +168,7 @@
     Attempting:
     ```mangle
     # WRONG - code is not data
-    Decl code(Expr.Type<code>).
+    Decl code(Expr).
     
     code(rule(head(X), body(pred(X)))).  # Not possible
     
@@ -183,9 +183,9 @@
     ### Correct Mangle Way
     ```mangle
     # Represent AST as data:
-    Decl rule(Id.Type</atom>).
-    Decl rule_head(RuleId.Type</atom>, Predicate.Type</atom>).
-    Decl rule_body(RuleId.Type</atom>, Index.Type<int>, Predicate.Type</atom>).
+    Decl rule(Id) bound [/name].
+    Decl rule_head(RuleId, Predicate) bound [/name, /name].
+    Decl rule_body(RuleId, Index, Predicate) bound [/name, /number, /name].
     
     # Example: result(X) :- input(X).
     rule(/r1).
@@ -223,12 +223,12 @@
     ### Correct Mangle Way
     ```mangle
     # Manually wrap predicates:
-    Decl business_logic(X.Type<int>, Y.Type<int>).
+    Decl business_logic(X, Y) bound [/number, /number].
     
     business_logic(X, Y) :- # ... actual logic ...
     
     # Wrapper with logging:
-    Decl logged_business_logic(X.Type<int>, Y.Type<int>).
+    Decl logged_business_logic(X, Y) bound [/number, /number].
     
     logged_business_logic(X, Y) :-
         log_entry(/info, "Calling business_logic"),
@@ -268,12 +268,12 @@
     ### Correct Mangle Way
     ```mangle
     # Use versioned predicates:
-    Decl process(Version.Type<int>, X.Type<int>, Result.Type<int>).
+    Decl process(Version, X, Result) bound [/number, /number, /number].
     
     process(1, X, R) :- R = fn:times(X, 2).
     process(2, X, R) :- R = fn:times(X, 3).
     
-    Decl active_version(V.Type<int>).
+    Decl active_version(V) bound [/number].
     
     active_version(1).  # Initially version 1
     
@@ -310,17 +310,17 @@
     ### Correct Mangle Way
     ```mangle
     # Manually compose:
-    Decl expensive_core(X.Type<int>, Y.Type<int>).
+    Decl expensive_core(X, Y) bound [/number, /number].
     expensive_core(X, Y) :- Y = fn:times(X, 2).
     
     # Validation wrapper:
-    Decl validated_expensive(X.Type<int>, Y.Type<int>).
+    Decl validated_expensive(X, Y) bound [/number, /number].
     validated_expensive(X, Y) :-
         validate_input(X),
         expensive_core(X, Y).
     
     # Cache wrapper (simulate with memoization facts):
-    Decl cached_expensive(X.Type<int>, Y.Type<int>).
+    Decl cached_expensive(X, Y) bound [/number, /number].
     
     cached_expensive(X, Y) :- cache_entry(/expensive, X, Y).
     
@@ -354,7 +354,7 @@
     ### Correct Mangle Way
     ```mangle
     # Tag values with types manually:
-    Decl typed_value(Type.Type</atom>, Value).
+    Decl typed_value(Type, Value).
     
     typed_value(/int, 42).
     typed_value(/string, "hello").
@@ -364,8 +364,8 @@
     int_values(V) :- typed_value(/int, V).
     
     # Or use separate predicates per type:
-    Decl int_value(V.Type<int>).
-    Decl string_value(V.Type<string>).
+    Decl int_value(V) bound [/number].
+    Decl string_value(V) bound [/string].
     
     int_value(42).
     string_value("hello").
@@ -394,9 +394,9 @@
     ### Correct Mangle Way
     ```mangle
     # Pre-declare all possible fields:
-    Decl user(Id.Type</atom>, Name.Type<string>).
-    Decl user_email(Id.Type</atom>, Email.Type<string>).  # Optional field
-    Decl user_phone(Id.Type</atom>, Phone.Type<string>).  # Optional field
+    Decl user(Id, Name) bound [/name, /string].
+    Decl user_email(Id, Email) bound [/name, /string].  # Optional field
+    Decl user_phone(Id, Phone) bound [/name, /string].  # Optional field
     
     # Use them as needed:
     user(/u1, "Alice").
@@ -405,7 +405,7 @@
     
     # For truly dynamic schemas, generate .gl files in Go:
     // if config.EnableEmail {
-    //     schema += "Decl user_email(Id.Type</atom>, Email.Type<string>).\n"
+    //     schema += "Decl user_email(Id, Email) bound [/name, /string].\n"
     // }
     // os.WriteFile("schema.gl", []byte(schema), 0644)
     ```
@@ -433,9 +433,9 @@
     ### Correct Mangle Way
     ```mangle
     # Build expressions as data structures:
-    Decl expr(Id.Type</atom>, Op.Type</atom>).
-    Decl expr_arg(ExprId.Type</atom>, Index.Type<int>, ArgId.Type</atom>).
-    Decl expr_const(Id.Type</atom>, Value.Type<int>).
+    Decl expr(Id, Op) bound [/name, /name].
+    Decl expr_arg(ExprId, Index, ArgId) bound [/name, /number, /name].
+    Decl expr_const(Id, Value) bound [/name, /number].
     
     # Build: add(1, multiply(2, 3))
     expr(/e1, /add).
@@ -472,7 +472,7 @@
     # WRONG - no multiple dispatch
     Decl process(X, Y, Result).
     
-    process(X.Type<int>, Y.Type<int>, Result) :- # Can't specialize in head
+    process(X, Y, Result) :- # Can't specialize in head
         Result = fn:plus(X, Y).
     ```
     
@@ -482,14 +482,14 @@
     ### Correct Mangle Way
     ```mangle
     # Use separate predicate names:
-    Decl process_int(X.Type<int>, Y.Type<int>, Result.Type<int>).
-    Decl process_string(X.Type<string>, Y.Type<string>, Result.Type<string>).
+    Decl process_int(X, Y, Result) bound [/number, /number, /number].
+    Decl process_string(X, Y, Result) bound [/string, /string, /string].
     
     process_int(X, Y, Result) :- Result = fn:plus(X, Y).
     process_string(X, Y, Result) :- fn:string_concat([X, Y], Result).
     
     # Or use tagged unions:
-    Decl process(XType.Type</atom>, X, YType.Type</atom>, Y, Result).
+    Decl process(XType, X, YType, Y, Result).
     
     process(/int, X, /int, Y, Result) :-
         Result = fn:plus(X, Y).

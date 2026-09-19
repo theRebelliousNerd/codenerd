@@ -96,7 +96,7 @@
     - **Symptom**: Memory usage spikes dramatically
     - **Symptom**: Rules with many unbound variables early in clause
     - **Pattern**: Large predicates (many facts) appear before filters
-    - **Test**: Check predicate sizes: `?predicate(X) |> let N = fn:Count()` for each
+    - **Test**: Check predicate sizes: `?predicate(X) |> let N = fn:count()` for each
     - **Profile**: Trace intermediate result sizes during evaluation
     
     ## Prevention
@@ -125,8 +125,8 @@
     
     ```mangle
     # For each predicate in a rule, count facts:
-    # ?user(X) |> let N = fn:Count()        → 10,000
-    # ?friends(X, Y) |> let N = fn:Count()  → 1,000
+    # ?user(X) |> let N = fn:count()        → 10,000
+    # ?friends(X, Y) |> let N = fn:count()  → 1,000
     
     # Order by selectivity (smallest first):
     # 1. friends(X, Y)     → 1,000 facts
@@ -208,11 +208,11 @@
     
     ```mangle
     # Schema
-    Decl file(Path.Type<string>).               # 50,000 files
-    Decl function(Name.Type<n>).                # 100,000 functions
-    Decl imports(File.Type<string>, Lib.Type<n>). # 10,000 imports
-    Decl calls(Func.Type<n>, Target.Type<n>).   # 200,000 calls
-    Decl defined_in(Func.Type<n>, File.Type<string>). # 100,000 definitions
+    Decl file(Path) bound [/string].               # 50,000 files
+    Decl function(Name) bound [/name].                # 100,000 functions
+    Decl imports(File, Lib) bound [/string, /name]. # 10,000 imports
+    Decl calls(Func, Target) bound [/name, /name].   # 200,000 calls
+    Decl defined_in(Func, File) bound [/name, /string]. # 100,000 definitions
     
     # WRONG - Cartesian product explosion
     bad_analysis(File, Func, Lib) :-
@@ -301,7 +301,7 @@
     
     ## Quick Check
     Before writing a rule:
-    1. **Count facts** for each predicate: `?pred(X) |> let N = fn:Count()`
+    1. **Count facts** for each predicate: `?pred(X) |> let N = fn:count()`
     2. **Order by selectivity**: Smallest count first
     3. **Bind constants early**: Specific values before generators
     4. **Filters before joins**: Reduce search space ASAP
@@ -310,12 +310,12 @@
     ## Debugging Aid
     ```mangle
     # To profile cardinality, create diagnostic rules:
-    Decl cardinality(Predicate.Type<n>, Count.Type<int>).
+    Decl cardinality(Predicate, Count) bound [/name, /number].
     
     # Count facts for each predicate
-    cardinality(/users, N) :- user(X) |> let N = fn:Count().
-    cardinality(/friends, N) :- friends(X, Y) |> let N = fn:Count().
-    cardinality(/posts, N) :- post(X) |> let N = fn:Count().
+    cardinality(/users, N) :- user(X) |> let N = fn:count().
+    cardinality(/friends, N) :- friends(X, Y) |> let N = fn:count().
+    cardinality(/posts, N) :- post(X) |> let N = fn:count().
     
     # Query to see selectivity:
     # ?cardinality(P, N)

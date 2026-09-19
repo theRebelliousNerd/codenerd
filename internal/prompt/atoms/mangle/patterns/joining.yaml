@@ -34,9 +34,9 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Name.Type<string>).
-    Decl order(OrderId.Type<string>, UserId.Type<string>, Amount.Type<int>).
-    Decl user_orders(Name.Type<string>, OrderId.Type<string>, Amount.Type<int>).
+    Decl user(UserId, Name) bound [/string, /string].
+    Decl order(OrderId, UserId, Amount) bound [/string, /string, /number].
+    Decl user_orders(Name, OrderId, Amount) bound [/string, /string, /number].
     
     # Facts
     user("u1", "Alice").
@@ -68,10 +68,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Name.Type<string>).
-    Decl order(OrderId.Type<string>, UserId.Type<string>, ProductId.Type<string>).
-    Decl product(ProductId.Type<string>, ProductName.Type<string>, Price.Type<int>).
-    Decl order_details(UserName.Type<string>, ProductName.Type<string>, Price.Type<int>).
+    Decl user(UserId, Name) bound [/string, /string].
+    Decl order(OrderId, UserId, ProductId) bound [/string, /string, /string].
+    Decl product(ProductId, ProductName, Price) bound [/string, /string, /number].
+    Decl order_details(UserName, ProductName, Price) bound [/string, /string, /number].
     
     # Three-way join
     order_details(UserName, ProductName, Price) :-
@@ -103,9 +103,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Name.Type<string>).
-    Decl email(UserId.Type<string>, Email.Type<string>).
-    Decl user_with_email(UserId.Type<string>, Name.Type<string>, HasEmail.Type<atom>).
+    Decl user(UserId, Name) bound [/string, /string].
+    Decl email(UserId, Email) bound [/string, /string].
+    Decl user_with_email(UserId, Name, HasEmail) bound [/string, /string, /name].
     
     # Users with email
     user_with_email(UserId, Name, /yes) :-
@@ -141,8 +141,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl employee(EmpId.Type<string>, Name.Type<string>, ManagerId.Type<string>).
-    Decl employee_manager(EmpName.Type<string>, ManagerName.Type<string>).
+    Decl employee(EmpId, Name, ManagerId) bound [/string, /string, /string].
+    Decl employee_manager(EmpName, ManagerName) bound [/string, /string].
     
     # Join employee with itself on manager relationship
     employee_manager(EmpName, ManagerName) :-
@@ -172,16 +172,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Name.Type<string>).
-    Decl order(OrderId.Type<string>, UserId.Type<string>, Amount.Type<int>).
-    Decl user_total_spent(Name.Type<string>, Total.Type<int>).
+    Decl user(UserId, Name) bound [/string, /string].
+    Decl order(OrderId, UserId, Amount) bound [/string, /string, /number].
+    Decl user_total_spent(Name, Total) bound [/string, /number].
     
     # Join then sum
     user_total_spent(Name, Total) :-
       user(UserId, Name),
       order(OrderId, UserId, Amount)
       |> do fn:group_by(Name),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     ```
     
     ### Example
@@ -206,9 +206,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl product(ProductId.Type<string>, CategoryId.Type<string>, Price.Type<int>).
-    Decl category(CategoryId.Type<string>, Name.Type<string>, TaxRate.Type<float>).
-    Decl expensive_taxable_products(ProductId.Type<string>, CategoryName.Type<string>).
+    Decl product(ProductId, CategoryId, Price) bound [/string, /string, /number].
+    Decl category(CategoryId, Name, TaxRate) bound [/string, /string, /float64].
+    Decl expensive_taxable_products(ProductId, CategoryName) bound [/string, /string].
     
     # Join only expensive products with high-tax categories
     expensive_taxable_products(ProductId, CategoryName) :-
@@ -241,11 +241,11 @@
     ### Solution
     ```mangle
     # Schema - Data warehouse style
-    Decl sale(SaleId.Type<string>, ProductId.Type<string>, CustomerId.Type<string>, StoreId.Type<string>, Amount.Type<int>).
-    Decl product(ProductId.Type<string>, Name.Type<string>).
-    Decl customer(CustomerId.Type<string>, Name.Type<string>).
-    Decl store(StoreId.Type<string>, Location.Type<string>).
-    Decl sale_detail(Amount.Type<int>, Product.Type<string>, Customer.Type<string>, Location.Type<string>).
+    Decl sale(SaleId, ProductId, CustomerId, StoreId, Amount) bound [/string, /string, /string, /string, /number].
+    Decl product(ProductId, Name) bound [/string, /string].
+    Decl customer(CustomerId, Name) bound [/string, /string].
+    Decl store(StoreId, Location) bound [/string, /string].
+    Decl sale_detail(Amount, Product, Customer, Location) bound [/number, /string, /string, /string].
     
     # Star join
     sale_detail(Amount, ProductName, CustomerName, Location) :-
@@ -275,8 +275,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl employee(EmpId.Type<string>, Salary.Type<int>).
-    Decl higher_paid_pairs(Emp1.Type<string>, Emp2.Type<string>).
+    Decl employee(EmpId, Salary) bound [/string, /number].
+    Decl higher_paid_pairs(Emp1, Emp2) bound [/string, /string].
     
     # Find pairs where Emp1 earns more than Emp2
     higher_paid_pairs(Emp1, Emp2) :-
@@ -306,9 +306,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Name.Type<string>).
-    Decl order(OrderId.Type<string>, UserId.Type<string>).
-    Decl users_without_orders(UserId.Type<string>, Name.Type<string>).
+    Decl user(UserId, Name) bound [/string, /string].
+    Decl order(OrderId, UserId) bound [/string, /string].
+    Decl users_without_orders(UserId, Name) bound [/string, /string].
     
     # Users with no orders
     users_without_orders(UserId, Name) :-
@@ -338,9 +338,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Name.Type<string>).
-    Decl order(OrderId.Type<string>, UserId.Type<string>).
-    Decl users_with_orders(UserId.Type<string>, Name.Type<string>).
+    Decl user(UserId, Name) bound [/string, /string].
+    Decl order(OrderId, UserId) bound [/string, /string].
+    Decl users_with_orders(UserId, Name) bound [/string, /string].
     
     # Users with at least one order
     users_with_orders(UserId, Name) :-
@@ -369,10 +369,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl order(OrderId.Type<string>, UserId.Type<string>).
-    Decl user(UserId.Type<string>, CompanyId.Type<string>).
-    Decl company(CompanyId.Type<string>, Name.Type<string>).
-    Decl order_company(OrderId.Type<string>, CompanyName.Type<string>).
+    Decl order(OrderId, UserId) bound [/string, /string].
+    Decl user(UserId, CompanyId) bound [/string, /string].
+    Decl company(CompanyId, Name) bound [/string, /string].
+    Decl order_company(OrderId, CompanyName) bound [/string, /string].
     
     # Chain: order → user → company
     order_company(OrderId, CompanyName) :-
@@ -476,16 +476,16 @@
        has_orders(User) :- user(User), order(_, User).
     
        # Slower
-       has_orders(User) :- user(User), order(_, User) |> do fn:group_by(User), let Count = fn:Count(), Count > 0.
+       has_orders(User) :- user(User), order(_, User) |> do fn:group_by(User), let Count = fn:count(), Count > 0.
        ```
     
     ## Common Use Cases in codeNERD
     
     ### Symbol Resolution (Definition-Usage Join)
     ```mangle
-    Decl symbol_def(SymbolId.Type<string>, File.Type<string>, Line.Type<int>).
-    Decl symbol_use(SymbolId.Type<string>, File.Type<string>, Line.Type<int>).
-    Decl symbol_references(SymbolId.Type<string>, DefFile.Type<string>, UseFile.Type<string>).
+    Decl symbol_def(SymbolId, File, Line) bound [/string, /string, /number].
+    Decl symbol_use(SymbolId, File, Line) bound [/string, /string, /number].
+    Decl symbol_references(SymbolId, DefFile, UseFile) bound [/string, /string, /string].
     
     symbol_references(SymbolId, DefFile, UseFile) :-
       symbol_def(SymbolId, DefFile, _),
@@ -494,9 +494,9 @@
     
     ### File Dependency Graph
     ```mangle
-    Decl imports(FileA.Type<string>, FileB.Type<string>).
-    Decl file_metadata(File.Type<string>, Size.Type<int>).
-    Decl large_file_dependencies(FileA.Type<string>, FileB.Type<string>).
+    Decl imports(FileA, FileB) bound [/string, /string].
+    Decl file_metadata(File, Size) bound [/string, /number].
+    Decl large_file_dependencies(FileA, FileB) bound [/string, /string].
     
     large_file_dependencies(FileA, FileB) :-
       imports(FileA, FileB),
@@ -506,10 +506,10 @@
     
     ### Test-Code Coverage Join
     ```mangle
-    Decl test(TestId.Type<string>, TestFile.Type<string>).
-    Decl covers(TestId.Type<string>, SourceFile.Type<string>).
-    Decl source_file(File.Type<string>).
-    Decl untested_files(File.Type<string>).
+    Decl test(TestId, TestFile) bound [/string, /string].
+    Decl covers(TestId, SourceFile) bound [/string, /string].
+    Decl source_file(File) bound [/string].
+    Decl untested_files(File) bound [/string].
     
     untested_files(File) :-
       source_file(File),

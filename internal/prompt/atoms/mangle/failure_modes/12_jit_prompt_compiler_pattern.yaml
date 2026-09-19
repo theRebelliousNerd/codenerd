@@ -71,17 +71,17 @@
     # =============================================================================
     
     # Schema declarations
-    Decl vector_hit(AtomID.Type<n>, Score.Type<float>).
-    Decl current_phase(Phase.Type<n>).
-    Decl category(AtomID.Type<n>, Category.Type<n>).
-    Decl requires(AtomID.Type<n>, Dependency.Type<n>).
-    Decl conflicts(AtomID.Type<n>, OtherID.Type<n>).
+    Decl vector_hit(AtomID, Score) bound [/name, /float64].
+    Decl current_phase(Phase) bound [/name].
+    Decl category(AtomID, Category) bound [/name, /name].
+    Decl requires(AtomID, Dependency) bound [/name, /name].
+    Decl conflicts(AtomID, OtherID) bound [/name, /name].
     
-    Decl selected(AtomID.Type<n>).
-    Decl excluded(AtomID.Type<n>).
-    Decl suppressed(AtomID.Type<n>).
-    Decl final_atom(AtomID.Type<n>).
-    Decl ordered_result(AtomID.Type<n>, Rank.Type<int>).
+    Decl selected(AtomID) bound [/name].
+    Decl excluded(AtomID) bound [/name].
+    Decl suppressed(AtomID) bound [/name].
+    Decl final_atom(AtomID) bound [/name].
+    Decl ordered_result(AtomID, Rank) bound [/name, /number].
     
     # 1. SELECTION: High-confidence vector hits
     selected(P) :- vector_hit(P, Score), Score > 0.85.
@@ -130,7 +130,7 @@
         not suppressed(P).
     
     # 6. ORDERING: Safety first, then role, tool, format
-    Decl priority(Category.Type<n>, Rank.Type<int>).
+    Decl priority(Category, Rank) bound [/name, /number].
     
     # Base priorities (lower number = higher priority)
     priority(/safety, 1).
@@ -271,10 +271,10 @@
     
     ```mangle
     # Schema
-    Decl vector_hit(AtomID.Type<n>, Score.Type<float>).
-    Decl category(AtomID.Type<n>, Cat.Type<n>).
-    Decl requires(AtomID.Type<n>, Dep.Type<n>).
-    Decl safety_critical(Tool.Type<n>).
+    Decl vector_hit(AtomID, Score) bound [/name, /float64].
+    Decl category(AtomID, Cat) bound [/name, /name].
+    Decl requires(AtomID, Dep) bound [/name, /name].
+    Decl safety_critical(Tool) bound [/name].
     
     # Facts (from Go)
     category(/cap_database, /tool).

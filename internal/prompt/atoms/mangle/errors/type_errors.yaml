@@ -26,7 +26,7 @@
     
     **Exact Message:**
     ```
-    could not unify parent("alice", "bob") and Decl parent(X.Type<int>, Y.Type<int>): type mismatch
+    could not unify parent("alice", "bob") and Decl parent(X, Y): type mismatch
     ```
     
     **What Causes It:**
@@ -35,7 +35,7 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl parent(X.Type<int>, Y.Type<int>).
+    Decl parent(X, Y).
     
     # WRONG - inserting strings when ints expected
     parent("alice", "bob").
@@ -45,7 +45,7 @@
     
     **Option 1:** Match the declared type
     ```mangle
-    Decl parent(X.Type<int>, Y.Type<int>).
+    Decl parent(X, Y) bound [/number, /number].
     
     # CORRECT - use integers
     parent(1, 2).
@@ -54,7 +54,7 @@
     **Option 2:** Change declaration
     ```mangle
     # CORRECT - declare as strings
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y) bound [/string, /string].
     
     parent("alice", "bob").
     ```
@@ -79,8 +79,8 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl name(X.Type<string>).
-    Decl score(X.Type<int>, Y.Type<float>).
+    Decl name(X) bound [/string].
+    Decl score(X, Y) bound [/number, /float64].
     
     # WRONG - X is string from name, but score expects int
     result(X, Y) :- name(X), score(X, Y).
@@ -127,8 +127,8 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl age(X.Type<int>).
-    Decl name(X.Type<string>).
+    Decl age(X) bound [/number].
+    Decl name(X) bound [/string].
     
     # WRONG - comparing int to string
     result(A, N) :- age(A), name(N), A = N.
@@ -251,7 +251,7 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl person(P.Type<struct{name:string, age:int}>).
+    Decl person(P).
     
     # WRONG - email field doesn't exist
     result(Email) :- person(P), :match_field(P, /email, Email).
@@ -271,7 +271,7 @@
     **Option 2:** Add field to type declaration
     ```mangle
     # CORRECT - extend struct definition
-    Decl person(P.Type<struct{name:string, age:int, email:string}>).
+    Decl person(P).
     
     result(Email) :- person(P), :match_field(P, /email, Email).
     ```
@@ -293,7 +293,7 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl message(X.Type<string>).
+    Decl message(X) bound [/string].
     
     # WRONG - using atom where string expected
     message(/hello).
@@ -303,7 +303,7 @@
     
     **Option 1:** Use string
     ```mangle
-    Decl message(X.Type<string>).
+    Decl message(X) bound [/string].
     
     # CORRECT - use string literal
     message("hello").
@@ -312,7 +312,7 @@
     **Option 2:** Change declaration to name/atom
     ```mangle
     # CORRECT - declare as name type
-    Decl message(X.Type<name>).
+    Decl message(X) bound [/name].
     
     message(/hello).
     ```
@@ -332,7 +332,7 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl status(X.Type<name>).
+    Decl status(X) bound [/name].
     
     # WRONG - using string where atom expected
     status("active").
@@ -342,7 +342,7 @@
     
     **Option 1:** Use atom
     ```mangle
-    Decl status(X.Type<name>).
+    Decl status(X) bound [/name].
     
     # CORRECT - use atom syntax
     status(/active).
@@ -351,7 +351,7 @@
     **Option 2:** Change declaration to string
     ```mangle
     # CORRECT - declare as string
-    Decl status(X.Type<string>).
+    Decl status(X) bound [/string].
     
     status("active").
     ```
@@ -374,7 +374,7 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl score(X.Type<int>).
+    Decl score(X) bound [/number].
     
     # WRONG - 0.5 is float, but int expected
     score(0.5).
@@ -388,7 +388,7 @@
     
     **Option 1:** Match the declared type
     ```mangle
-    Decl score(X.Type<int>).
+    Decl score(X) bound [/number].
     
     # CORRECT - use integer
     score(50).
@@ -399,7 +399,7 @@
     **Option 2:** Use float type
     ```mangle
     # CORRECT - declare as float
-    Decl score(X.Type<float>).
+    Decl score(X) bound [/float64].
     
     score(0.5).
     result(X) :- score(X), X > 0.5.
@@ -483,7 +483,7 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl items(X.Type<list<int>>).
+    Decl items(X).
     
     # WRONG - single int where list expected
     items(42).
@@ -491,7 +491,7 @@
     
     **How to Fix:**
     ```mangle
-    Decl items(X.Type<list<int>>).
+    Decl items(X).
     
     # CORRECT - wrap in list
     items([42]).
@@ -524,7 +524,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - use variables
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y) bound [/string, /string].
     ```
     
     ---
@@ -543,13 +543,13 @@
     **Reproducing Example:**
     ```mangle
     # WRONG - 3 args but only 2 type bounds
-    Decl parent(X.Type<string>, Y.Type<string>, Z).
+    Decl parent(X, Y, Z).
     ```
     
     **How to Fix:**
     ```mangle
     # CORRECT - type bound for each argument
-    Decl parent(X.Type<string>, Y.Type<string>, Z.Type<int>).
+    Decl parent(X, Y, Z) bound [/string, /string, /number].
     ```
     
     ---
@@ -568,15 +568,15 @@
     **Reproducing Example:**
     ```mangle
     # WRONG - invalid type syntax
-    Decl parent(X.Type<invalid-type>).
+    Decl parent(X).
     ```
     
     **How to Fix:**
     ```mangle
     # CORRECT - valid type syntax
-    Decl parent(X.Type<string>).
-    Decl score(X.Type<int>).
-    Decl data(X.Type<struct{field:string}>).
+    Decl parent(X) bound [/string].
+    Decl score(X) bound [/number].
+    Decl data(X).
     ```
     
     ---
@@ -588,14 +588,14 @@
     **Common Mistake:**
     ```mangle
     # WRONG - confidence is usually 0.0-1.0, not 0-100
-    Decl hypothesis_confidence(H.Type<name>, C.Type<int>).
+    Decl hypothesis_confidence(H, C) bound [/name, /number].
     hypothesis_confidence(/h1, 80).
     ```
     
     **Fix:**
     ```mangle
     # CORRECT - use float for 0.0-1.0 range
-    Decl hypothesis_confidence(H.Type<name>, C.Type<float>).
+    Decl hypothesis_confidence(H, C) bound [/name, /float64].
     hypothesis_confidence(/h1, 0.8).
     ```
     
@@ -608,14 +608,14 @@
     **Common Mistake:**
     ```mangle
     # WRONG - file paths should be strings, not atoms
-    Decl file_content(Path.Type<name>, Content.Type<string>).
+    Decl file_content(Path, Content) bound [/name, /string].
     file_content(/path/to/file, "content").
     ```
     
     **Fix:**
     ```mangle
     # CORRECT - paths are strings
-    Decl file_content(Path.Type<string>, Content.Type<string>).
+    Decl file_content(Path, Content) bound [/string, /string].
     file_content("c:/path/to/file.go", "content").
     ```
     
@@ -626,14 +626,14 @@
     **Common Mistake:**
     ```mangle
     # WRONG - status values should be atoms, not strings
-    Decl task_status(ID.Type<name>, Status.Type<string>).
+    Decl task_status(ID, Status) bound [/name, /string].
     task_status(/task1, "pending").
     ```
     
     **Fix:**
     ```mangle
     # CORRECT - status/category are atoms
-    Decl task_status(ID.Type<name>, Status.Type<name>).
+    Decl task_status(ID, Status) bound [/name, /name].
     task_status(/task1, /pending).
     ```
     
@@ -658,8 +658,8 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl name_string(X.Type<string>).
-    Decl age_int(X.Type<int>).
+    Decl name_string(X) bound [/string].
+    Decl age_int(X) bound [/number].
     
     # WRONG - X can't be both types
     result(X) :- name_string(X), age_int(X).
@@ -717,23 +717,23 @@
     
     ```mangle
     # IDs and keys - use atoms
-    Decl user_id(ID.Type<name>).
+    Decl user_id(ID) bound [/name].
     user_id(/user123).
     
     # Text content - use strings
-    Decl file_content(Path.Type<string>, Content.Type<string>).
+    Decl file_content(Path, Content) bound [/string, /string].
     file_content("main.go", "package main...").
     
     # Enums and statuses - use atoms
-    Decl status(Entity.Type<name>, Status.Type<name>).
+    Decl status(Entity, Status) bound [/name, /name].
     status(/task1, /pending).
     
     # Numeric scores - use float for ratios, int for counts
-    Decl confidence(H.Type<name>, C.Type<float>).
+    Decl confidence(H, C) bound [/name, /float64].
     confidence(/hypothesis, 0.85).
     
     # Collections - use list<T>
-    Decl tags(File.Type<string>, Tags.Type<list<string>>).
+    Decl tags(File, Tags).
     tags("main.go", ["core", "entry"]).
     ```
     
@@ -759,8 +759,8 @@
     
     ### Example Diagnosis:
     ```mangle
-    Decl name(X.Type<string>).
-    Decl status(X.Type<name>).
+    Decl name(X) bound [/string].
+    Decl status(X) bound [/name].
     
     result(X) :- name(X), status(X).
     # ERROR: type mismatch

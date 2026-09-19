@@ -66,9 +66,9 @@
     #### Example: Multi-table Join
     ```mangle
     # Schema
-    Decl employee(Id.Type<atom>, Name.Type<string>, DeptId.Type<atom>).
-    Decl department(Id.Type<atom>, Name.Type<string>, Budget.Type<int>).
-    Decl project(Id.Type<atom>, Name.Type<string>, DeptId.Type<atom>).
+    Decl employee(Id, Name, DeptId) bound [/name, /string, /name].
+    Decl department(Id, Name, Budget) bound [/name, /string, /number].
+    Decl project(Id, Name, DeptId) bound [/name, /string, /name].
     
     # BAD: Cartesian product of all employees × all projects
     expensive_query(EName, PName) :-
@@ -113,7 +113,7 @@
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
     
     # With depth limit
-    Decl depth_limited_ancestor(Anc.Type<atom>, Desc.Type<atom>, Depth.Type<int>).
+    Decl depth_limited_ancestor(Anc, Desc, Depth) bound [/name, /name, /number].
     
     depth_limited_ancestor(X, Y, 1) :- parent(X, Y).
     depth_limited_ancestor(X, Z, D) :-
@@ -265,9 +265,9 @@
     #### Profiling Template
     ```mangle
     # Add timing predicates
-    Decl query_start_time(QueryName.Type<atom>, Time.Type<int>).
-    Decl query_end_time(QueryName.Type<atom>, Time.Type<int>).
-    Decl query_duration(QueryName.Type<atom>, Duration.Type<int>).
+    Decl query_start_time(QueryName, Time) bound [/name, /number].
+    Decl query_end_time(QueryName, Time) bound [/name, /number].
+    Decl query_duration(QueryName, Duration) bound [/name, /number].
     
     # Compute duration
     query_duration(Name, Duration) :-
@@ -365,8 +365,8 @@
     
     ```mangle
     # Track computation cost
-    Decl operation_cost(Op.Type<atom>, Cost.Type<int>).
-    Decl total_cost(Cost.Type<int>).
+    Decl operation_cost(Op, Cost) bound [/name, /number].
+    Decl total_cost(Cost) bound [/number].
     
     operation_cost(/join, 10).
     operation_cost(/filter, 1).

@@ -78,20 +78,20 @@ This directory contains comprehensive documentation for ALL Mangle built-in func
 **⚠️ CRITICAL: These use PascalCase (capital first letter)**
 
 **Numeric Aggregations:**
-- `fn:Count(Var) -> Int` - Count rows
-- `fn:Sum(Var) -> Int` - Sum integers
-- `fn:Min(Var) -> Int` - Minimum integer
-- `fn:Max(Var) -> Int` - Maximum integer
-- `fn:Avg(Var) -> Float64` - Average (returns float)
+- `fn:count() -> Int` - Count rows
+- `fn:sum(Var) -> Int` - Sum integers
+- `fn:min(Var) -> Int` - Minimum integer
+- `fn:max(Var) -> Int` - Maximum integer
+- `fn:avg(Var) -> Float64` - Average (returns float)
 
 **Float Aggregations:**
-- `fn:FloatSum(Var) -> Float64` - Sum floats
-- `fn:FloatMin(Var) -> Float64` - Minimum float
-- `fn:FloatMax(Var) -> Float64` - Maximum float
+- `fn:float:sum(Var) -> Float64` - Sum floats
+- `fn:float:min(Var) -> Float64` - Minimum float
+- `fn:float:max(Var) -> Float64` - Maximum float
 
 **Collection Aggregations:**
-- `fn:Collect(Var, ...) -> List` - Collect values into list
-- `fn:CollectDistinct(Var, ...) -> List` - Collect unique values
+- `fn:collect(Var, ...) -> List` - Collect values into list
+- `fn:collect_distinct(Var, ...) -> List` - Collect unique values
 - `fn:CollectToMap(Key, Value) -> Map` - Build map from key-value pairs
 - `fn:PickAny(Var) -> T` - Pick arbitrary value
 
@@ -268,8 +268,8 @@ Variables in negated atoms must be bound first.
 **CORRECT:** `safe(X) :- candidate(X), not distinct(X).`
 
 ### Aggregation Outside Transform
-**WRONG:** `result(Sum) :- value(X), Sum = fn:Sum(X).`
-**CORRECT:** `result(Sum) :- value(X) |> do fn:group_by(), let Sum = fn:Sum(X).`
+**WRONG:** `result(Sum) :- value(X), Sum = fn:sum(X).`
+**CORRECT:** `result(Sum) :- value(X) |> do fn:group_by(), let Sum = fn:sum(X).`
 
 See: [aggregation_functions.md](aggregation_functions.md), [transform_functions.md](transform_functions.md)
 
@@ -281,7 +281,7 @@ See: [aggregation_functions.md](aggregation_functions.md), [transform_functions.
 ```mangle
 category_total(Cat, Total) :-
   item(Cat, Amount)
-  |> do fn:group_by(Cat), let Total = fn:Sum(Amount).
+  |> do fn:group_by(Cat), let Total = fn:sum(Amount).
 ```
 See: [aggregation_functions.md](aggregation_functions.md)
 

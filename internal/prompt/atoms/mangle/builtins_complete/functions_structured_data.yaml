@@ -254,7 +254,7 @@
     **Type Declaration**:
     ```mangle
     Decl person_record(Struct)
-      bounds [
+      bound [
         fn:Struct(
             /name: /string,
             /age: /number,
@@ -372,28 +372,28 @@
     
     ```mangle
     Decl coordinate(Pair)
-      bounds [ fn:Pair(/number, /number) ].
+      bound [ fn:Pair(/number, /number) ].
     ```
     
     ### List Type
     
     ```mangle
     Decl numbers(List)
-      bounds [ fn:List(/number) ].
+      bound [ fn:List(/number) ].
     ```
     
     ### Map Type
     
     ```mangle
     Decl person_map(Map)
-      bounds [ fn:Map(/atom, /any) ].  # Atom keys, any values
+      bound [ fn:Map(/atom, /any) ].  # Atom keys, any values
     ```
     
     ### Struct Type
     
     ```mangle
     Decl person_struct(Struct)
-      bounds [
+      bound [
         fn:Struct(
             /name: /string,
             /age: /number
@@ -406,11 +406,11 @@
     ```mangle
     # List of pairs
     Decl coordinates(List)
-      bounds [ fn:List(fn:Pair(/number, /number)) ].
+      bound [ fn:List(fn:Pair(/number, /number)) ].
     
     # Map with list values
     Decl person_skills(Map)
-      bounds [ fn:Map(/atom, fn:List(/atom)) ].
+      bound [ fn:Map(/atom, fn:List(/atom)) ].
     ```
     
     ---

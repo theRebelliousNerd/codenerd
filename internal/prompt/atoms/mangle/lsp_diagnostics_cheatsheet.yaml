@@ -227,8 +227,8 @@
     # SECTION 20: E018 - Wrong casing for function
     # =============================================================================
     
-    # ERROR: Should be fn:sum not fn:Sum
-    wrong_case1(Sum) :- numbers(N) |> do fn:group_by(), let Sum = fn:Sum(N).
+    # ERROR: Should be fn:sum not fn:sum
+    wrong_case1(Sum) :- numbers(N) |> do fn:group_by(), let Sum = fn:sum(N).
     
     # ERROR: Should be fn:add not fn:ADD
     wrong_case2(X, Y) :- numbers(X), Y = fn:ADD(X, 1).

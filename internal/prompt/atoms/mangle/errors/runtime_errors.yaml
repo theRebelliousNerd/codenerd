@@ -37,7 +37,7 @@
     **Reproducing Example:**
     ```mangle
     # Schema has this:
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y) bound [/string, /string].
     
     # But code tries to add:
     # ERROR - typo or undeclared
@@ -49,7 +49,7 @@
     **Option 1:** Add declaration
     ```mangle
     # CORRECT - declare before using
-    Decl my_predicate(X.Type<string>).
+    Decl my_predicate(X) bound [/string].
     
     my_predicate("value").
     ```
@@ -57,7 +57,7 @@
     **Option 2:** Fix typo
     ```mangle
     # CORRECT - match existing declaration
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y) bound [/string, /string].
     
     parent("alice", "bob").
     ```
@@ -88,7 +88,7 @@
     
     **Exact Message:**
     ```
-    could not unify parent(1, 2) and Decl parent(X.Type<string>, Y.Type<string>): type mismatch
+    could not unify parent(1, 2) and Decl parent(X, Y): type mismatch
     ```
     
     **What Causes It:**
@@ -97,7 +97,7 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y).
     
     # WRONG - integers where strings expected
     parent(1, 2).
@@ -105,7 +105,7 @@
     
     **How to Fix:**
     ```mangle
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y) bound [/string, /string].
     
     # CORRECT - match declared types
     parent("alice", "bob").
@@ -236,7 +236,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - declare all predicates
-    Decl undefined_pred(X.Type<string>).
+    Decl undefined_pred(X) bound [/string].
     
     result(X) :- undefined_pred(X).
     ```
@@ -262,13 +262,13 @@
     engine.RegisterExternal("my_external", callback)
     
     // But schema doesn't declare it:
-    // Missing: Decl my_external(X) external().
+    // Missing: Decl my_external(X) descr [external()].
     ```
     
     **How to Fix:**
     ```mangle
     # CORRECT - declare external predicate
-    Decl my_external(X.Type<string>) external().
+    Decl my_external(X) external() bound [/string].
     ```
     
     **Important:** All predicates, including external ones, need `Decl` statements.
@@ -289,13 +289,13 @@
     **Reproducing Example:**
     ```mangle
     # WRONG - missing external() marker
-    Decl my_pred(X.Type<string>).
+    Decl my_pred(X) bound [/string].
     ```
     
     **How to Fix:**
     ```mangle
     # CORRECT - mark as external
-    Decl my_pred(X.Type<string>) external().
+    Decl my_pred(X) descr [external()] bound [/string].
     ```
     
     ---
@@ -452,14 +452,14 @@
     **Reproducing Example:**
     ```mangle
     # WRONG - no mode specification
-    Decl my_pred(X.Type<string>).
+    Decl my_pred(X) bound [/string].
     # Missing mode information
     ```
     
     **How to Fix:**
     ```mangle
     # CORRECT - include mode bounds
-    Decl my_pred(X.Type<string>) bound.
+    Decl my_pred(X) bound.
     ```
     
     ---
@@ -601,7 +601,7 @@
     
     **Reproducing Example:**
     ```mangle
-    Decl parent(X.Type<string>, Y.Type<string>).
+    Decl parent(X, Y) bound [/string, /string].
     ```
     
     ```go

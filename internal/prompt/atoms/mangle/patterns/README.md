@@ -206,7 +206,7 @@ high_value_order(OrderId, CustomerId, Amount) :-
 customer_high_value_count(CustomerId, Count) :-
   high_value_order(OrderId, CustomerId, Amount)
   |> do fn:group_by(CustomerId),
-     let Count = fn:Count().
+     let Count = fn:count().
 
 # Step 3: Filter on count (existence.md)
 vip_customer(CustomerId) :-

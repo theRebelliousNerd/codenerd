@@ -29,8 +29,8 @@
     |---------|---------|----------|---------|
     | `\|>` | Pipeline operator | Infix | `source() \|>` |
     | `do` | Apply transform | Before function | `do fn:group_by(K)` |
-    | `let` | Bind aggregation result | Before assignment | `let N = fn:Count()` |
-    | `fn:` | Function namespace | Prefix | `fn:Sum`, `fn:Count` |
+    | `let` | Bind aggregation result | Before assignment | `let N = fn:count()` |
+    | `fn:` | Function namespace | Prefix | `fn:sum`, `fn:count` |
     
     ## Single-Stage Aggregation
     
@@ -39,7 +39,7 @@
     items_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Sum
@@ -47,7 +47,7 @@
     total_by_category(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value).
+        let Total = fn:sum(Value).
     ```
     
     ### Min/Max
@@ -55,8 +55,8 @@
     value_range(Cat, Min, Max) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Min = fn:Min(Value),
-        let Max = fn:Max(Value).
+        let Min = fn:min(Value),
+        let Max = fn:max(Value).
     ```
     
     ### Average (Derived)
@@ -64,8 +64,8 @@
     average_per_category(Cat, Avg) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value),
-        let Count = fn:Count(),
+        let Total = fn:sum(Value),
+        let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
     ```
     
@@ -77,7 +77,7 @@
         item(Cat, Value) |>
         do fn:filter(fn:gt(Value, 1000)) |>
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Transform then Aggregate
@@ -86,7 +86,7 @@
         item(Cat, RawValue) |>
         do fn:transform(fn:multiply(RawValue, 1.1)) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(NormalizedValue).
+        let Total = fn:sum(NormalizedValue).
     ```
     
     ### Multiple Filters
@@ -96,7 +96,7 @@
         do fn:filter(fn:gt(Value, 100)) |>
         do fn:filter(fn:eq(Status, /active)) |>
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Complex Multi-Stage
@@ -105,8 +105,8 @@
         sale(Region, Product, Amount) |>
         do fn:filter(fn:gt(Amount, 0)) |>
         do fn:group_by(Region, Product) |>
-        let Count = fn:Count(),
-        let Revenue = fn:Sum(Amount) |>
+        let Count = fn:count(),
+        let Revenue = fn:sum(Amount) |>
         let Avg = fn:divide(Revenue, Count).
     ```
     
@@ -117,7 +117,7 @@
     count_by_lang(Lang, N) :-
         file(_, Lang) |>
         do fn:group_by(Lang),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Multi-Variable Grouping
@@ -125,8 +125,8 @@
     sales_summary(Region, Product, Count, Revenue) :-
         sale(Region, Product, Amount) |>
         do fn:group_by(Region, Product),
-        let Count = fn:Count(),
-        let Revenue = fn:Sum(Amount).
+        let Count = fn:count(),
+        let Revenue = fn:sum(Amount).
     ```
     
     ### Grouping with No Variables (Global Aggregation)
@@ -134,7 +134,7 @@
     overall_total(GrandTotal) :-
         item(_, Value) |>
         do fn:group_by(),  # No grouping variables = single group
-        let GrandTotal = fn:Sum(Value).
+        let GrandTotal = fn:sum(Value).
     ```
     
     ## Nested Aggregation
@@ -145,13 +145,13 @@
     category_total(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value).
+        let Total = fn:sum(Value).
     
     # Step 2: Grand total from subtotals
     grand_total(GrandTotal) :-
         category_total(_, Total) |>
         do fn:group_by(),
-        let GrandTotal = fn:Sum(Total).
+        let GrandTotal = fn:sum(Total).
     ```
     
     ### Average of Averages
@@ -160,16 +160,16 @@
     regional_avg(Region, Avg) :-
         sale(Region, Amount) |>
         do fn:group_by(Region),
-        let Total = fn:Sum(Amount),
-        let Count = fn:Count(),
+        let Total = fn:sum(Amount),
+        let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
     
     # Step 2: Overall average of regional averages
     overall_avg(OverallAvg) :-
         regional_avg(_, Avg) |>
         do fn:group_by(),
-        let AvgTotal = fn:Sum(Avg),
-        let RegionCount = fn:Count(),
+        let AvgTotal = fn:sum(Avg),
+        let RegionCount = fn:count(),
         let OverallAvg = fn:divide(AvgTotal, RegionCount).
     ```
     
@@ -182,7 +182,7 @@
         item(Cat, Value) |>
         do fn:filter(fn:gt(Value, 1000)),
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Multiple Conditional Aggregations
@@ -196,13 +196,13 @@
         item(Cat, V) |>
         do fn:filter(fn:gt(V, 1000)),
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     
     low_value_count(Cat, N) :-
         item(Cat, V) |>
         do fn:filter(fn:le(V, 1000)),
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### HAVING Clause Equivalent
@@ -215,7 +215,7 @@
     count_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ## Window Functions (Simulated)
@@ -228,7 +228,7 @@
         item(PrevItem, PrevTimestamp, PrevValue),
         PrevTimestamp <= Timestamp |>
         do fn:group_by(Item, Timestamp),
-        let RunningSum = fn:Sum(PrevValue).
+        let RunningSum = fn:sum(PrevValue).
     ```
     
     ### Rank (Simulated)
@@ -239,7 +239,7 @@
         item(_, OtherValue),
         OtherValue > Value |>
         do fn:group_by(Item, Value),
-        let BetterCount = fn:Count(),
+        let BetterCount = fn:count(),
         let Rank = fn:plus(BetterCount, 1).
     ```
     
@@ -251,7 +251,7 @@
         item(Group, OtherItem, OtherTimestamp),
         OtherTimestamp < Timestamp |>
         do fn:group_by(Group, Item),
-        let PriorCount = fn:Count(),
+        let PriorCount = fn:count(),
         let RowNum = fn:plus(PriorCount, 1).
     ```
     
@@ -263,13 +263,13 @@
     category_total(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value).
+        let Total = fn:sum(Value).
     
     # Step 2: Grand total
     grand_total(GT) :-
         item(_, Value) |>
         do fn:group_by(),
-        let GT = fn:Sum(Value).
+        let GT = fn:sum(Value).
     
     # Step 3: Percentage
     category_percentage(Cat, Pct) :-
@@ -286,7 +286,7 @@
         item(OtherValue),
         OtherValue <= Value |>
         do fn:group_by(Value),
-        let Count = fn:Count().
+        let Count = fn:count().
     ```
     
     ### Moving Average (Fixed Window)
@@ -298,8 +298,8 @@
         OtherTimestamp >= fn:minus(Timestamp, 3),
         OtherTimestamp <= Timestamp |>
         do fn:group_by(Item, Timestamp),
-        let Total = fn:Sum(OtherValue),
-        let Count = fn:Count(),
+        let Total = fn:sum(OtherValue),
+        let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
     ```
     
@@ -310,8 +310,8 @@
     weighted_avg(Category, WeightedAvg) :-
         item(Category, Value, Weight) |>
         do fn:group_by(Category),
-        let WeightedSum = fn:Sum(fn:multiply(Value, Weight)),
-        let TotalWeight = fn:Sum(Weight),
+        let WeightedSum = fn:sum(fn:multiply(Value, Weight)),
+        let TotalWeight = fn:sum(Weight),
         let WeightedAvg = fn:divide(WeightedSum, TotalWeight).
     ```
     
@@ -321,8 +321,8 @@
     mean(Cat, Mean) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value),
-        let Count = fn:Count(),
+        let Total = fn:sum(Value),
+        let Count = fn:count(),
         let Mean = fn:divide(Total, Count).
     
     # Step 2: Squared deviations
@@ -336,8 +336,8 @@
     variance(Cat, Var) :-
         sq_dev(Cat, _, SqDev) |>
         do fn:group_by(Cat),
-        let SumSqDev = fn:Sum(SqDev),
-        let Count = fn:Count(),
+        let SumSqDev = fn:sum(SqDev),
+        let Count = fn:count(),
         let Var = fn:divide(SumSqDev, Count).
     ```
     
@@ -349,13 +349,13 @@
     result(K, N) :-
         source(K, _) |>
         fn:group_by(K),  # Missing 'do'!
-        let N = fn:Count().
+        let N = fn:count().
     
     # ✅ CORRECT
     result(K, N) :-
         source(K, _) |>
         do fn:group_by(K),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Wrong Function Casing
@@ -365,8 +365,8 @@
     ... let S = fn:sum(X).
     
     # ✅ CORRECT - capital letters
-    ... let N = fn:Count().
-    ... let S = fn:Sum(X).
+    ... let N = fn:count().
+    ... let S = fn:sum(X).
     ```
     
     ### Missing Pipeline Operator
@@ -375,13 +375,13 @@
     result(K, N) :-
         source(K, _)
         do fn:group_by(K),
-        let N = fn:Count().
+        let N = fn:count().
     
     # ✅ CORRECT
     result(K, N) :-
         source(K, _) |>
         do fn:group_by(K),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Aggregation Without Grouping
@@ -393,7 +393,7 @@
     total(K, Sum) :-
         item(K, V) |>
         do fn:group_by(K),
-        let Sum = fn:Sum(V).
+        let Sum = fn:sum(V).
     ```
     
     ### Unbound Grouping Variable
@@ -402,13 +402,13 @@
     bad(Cat, N) :-
         item(_, _) |>
         do fn:group_by(Cat),  # Cat unbound!
-        let N = fn:Count().
+        let N = fn:count().
     
     # ✅ CORRECT - Cat appears in body
     good(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ## Performance Optimization
@@ -420,7 +420,7 @@
         item(Cat, Value) |>
         do fn:filter(fn:gt(Value, 1000)) |>  # Filter first
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     
     # ❌ BAD - aggregate then filter
     inefficient(Cat, N) :-
@@ -435,8 +435,8 @@
     efficient(Cat, Total, Count, Avg) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value),
-        let Count = fn:Count(),
+        let Total = fn:sum(Value),
+        let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
     
     # ❌ BAD - three separate aggregations
@@ -445,6 +445,6 @@
         count(Cat, Count),
         Avg = fn:divide(Total, Count).
     
-    total(Cat, T) :- item(Cat, V) |> do fn:group_by(Cat), let T = fn:Sum(V).
-    count(Cat, N) :- item(Cat, _) |> do fn:group_by(Cat), let N = fn:Count().
+    total(Cat, T) :- item(Cat, V) |> do fn:group_by(Cat), let T = fn:sum(V).
+    count(Cat, N) :- item(Cat, _) |> do fn:group_by(Cat), let N = fn:count().
     ```

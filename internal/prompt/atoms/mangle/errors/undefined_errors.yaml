@@ -40,8 +40,8 @@
     **Reproducing Example:**
     ```mangle
     # schemas.mg has:
-    Decl user_action(Action.Type<name>).
-    Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
+    Decl user_action(Action) bound [/name].
+    Decl permitted(ActionType, Target, Payload) bound [/name, /string, /string].
     
     # Rule uses undefined predicate:
     candidate_action(/monitor_server) :- server_health(/degraded).
@@ -58,7 +58,7 @@
     **Option 1:** Add declaration
     ```mangle
     # CORRECT - declare the predicate
-    Decl server_health(Status.Type<name>).
+    Decl server_health(Status) bound [/name].
     
     candidate_action(/monitor_server) :- server_health(/degraded).
     ```
@@ -120,7 +120,7 @@
     **How to Fix:**
     ```mangle
     # 1. Add declaration
-    Decl undeclared_pred(X.Type<string>).
+    Decl undeclared_pred(X) bound [/string].
     ```
     
     ```go
@@ -153,7 +153,7 @@
     **How to Fix:**
     ```mangle
     # Add missing declaration
-    Decl undeclared_helper(X.Type<string>).
+    Decl undeclared_helper(X) bound [/string].
     
     result(X) :- undeclared_helper(X).
     ```
@@ -205,7 +205,7 @@
     ```mangle
     # Mangle list operations (if available)
     :match_cons(List, Head, Tail)  # List destructuring
-    fn:Collect(Var)                # Aggregation to list
+    fn:collect(Var)                # Aggregation to list
     ```
     
     ---
@@ -255,11 +255,11 @@
     fn:avg(X)
     
     # CORRECT - Capital first letter
-    fn:Count()
-    fn:Sum(X)
-    fn:Min(X)
-    fn:Max(X)
-    fn:Avg(X)  # If available
+    fn:count()
+    fn:sum(X)
+    fn:min(X)
+    fn:max(X)
+    fn:avg(X)  # If available
     ```
     
     ---
@@ -289,7 +289,7 @@
     **Option 1:** Use external predicate
     ```mangle
     # CORRECT - implement in Go
-    Decl sqrt_ext(X.Type<float>, Y.Type<float>) external().
+    Decl sqrt_ext(X, Y) external() bound [/float64, /float64].
     
     result(Y) :- source(X), sqrt_ext(X, Y).
     ```
@@ -324,8 +324,8 @@
     **Reproducing Example:**
     ```mangle
     # schemas.mg has:
-    Decl user_action(A.Type<name>).
-    Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
+    Decl user_action(A) bound [/name].
+    Decl permitted(ActionType, Target, Payload) bound [/name, /string, /string].
     
     # AI generates rule with undefined predicates:
     candidate_action(/fix_issue) :-
@@ -342,8 +342,8 @@
     **Option 1:** Declare missing predicates
     ```mangle
     # Add declarations
-    Decl system_load(Load.Type<int>).
-    Decl server_health(Status.Type<name>).
+    Decl system_load(Load) bound [/number].
+    Decl server_health(Status) bound [/name].
     
     # Now rule is valid
     candidate_action(/fix_issue) :-
@@ -406,11 +406,11 @@
     
     **Aggregation (in transforms):**
     ```mangle
-    fn:Count()         # Count facts
-    fn:Sum(X)          # Sum values
-    fn:Min(X)          # Minimum value
-    fn:Max(X)          # Maximum value
-    fn:Collect(X)      # Collect into list
+    fn:count()         # Count facts
+    fn:sum(X)          # Sum values
+    fn:min(X)          # Minimum value
+    fn:max(X)          # Maximum value
+    fn:collect(X)      # Collect into list
     fn:Pick(X)         # Pick one value (first)
     ```
     
@@ -440,7 +440,7 @@
     1. Check Mangle builtin package documentation
     2. Test in minimal example:
        ```mangle
-       Decl test(X.Type<int>, Y.Type<int>).
+       Decl test(X, Y) bound [/number, /number].
        test(X, Y) :- X = 1, Y = fn:the_function(X).
        ```
     3. Review codeNERD's `builtin` imports
@@ -498,7 +498,7 @@
     **Reproducing Example:**
     ```mangle
     # Schema declares external:
-    Decl my_external(X.Type<string>) external().
+    Decl my_external(X) external() bound [/string].
     ```
     
     ```go
@@ -534,7 +534,7 @@
     **Reproducing Example:**
     ```mangle
     # WRONG - missing external() marker
-    Decl my_pred(X.Type<string>).
+    Decl my_pred(X) bound [/string].
     ```
     
     ```go
@@ -546,7 +546,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - add external() marker
-    Decl my_pred(X.Type<string>) external().
+    Decl my_pred(X) descr [external()] bound [/string].
     ```
     
     ---
@@ -581,8 +581,8 @@
     grep "^Decl " .nerd/mangle/*.mg internal/mangle/*.mg
     
     # Output:
-    # Decl user_action(Action.Type<name>).
-    # Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
+    # Decl user_action(Action) bound [/name].
+    # Decl permitted(ActionType, Target, Payload) bound [/name, /string, /string].
     # ...
     ```
     
@@ -594,9 +594,9 @@
     
     ```mangle
     # Declare as external
-    Decl file_exists(Path.Type<string>) external().
-    Decl file_content(Path.Type<string>, Content.Type<string>) external().
-    Decl ast_node(File.Type<string>, Node.Type<string>) external().
+    Decl file_exists(Path) descr [external()] bound [/string].
+    Decl file_content(Path, Content) external() bound [/string, /string].
+    Decl ast_node(File, Node) external() bound [/string, /string].
     ```
     
     ```go
@@ -614,8 +614,8 @@
     
     ```mangle
     # Base facts in schemas
-    Decl user_action(Action.Type<name>).
-    Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
+    Decl user_action(Action) bound [/name].
+    Decl permitted(ActionType, Target, Payload) bound [/name, /string, /string].
     
     # Derived predicates in learned.mg (automatically available)
     candidate_action(Action) :- user_action(Action), permitted(Action, _, _).
@@ -648,7 +648,7 @@
     | "rule uses undefined predicates" | AI hallucination | Add Decl or use available |
     | "ext callback ... without decl" | Missing external Decl | Add `external()` marker |
     | "ext callback ... not marked" | Missing external() | Add to Decl |
-    | "fn:count" error | Wrong casing | Use `fn:Count()` |
+    | "fn:count" error | Wrong casing | Use `fn:count()` |
     | "fn:split" error | Function doesn't exist | Implement externally |
     
     ---

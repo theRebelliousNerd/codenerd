@@ -52,10 +52,10 @@
     
     #### Example Program
     ```mangle
-    Decl a(X.Type<int>).
-    Decl b(X.Type<int>).
-    Decl c(X.Type<int>).
-    Decl d(X.Type<int>).
+    Decl a(X) bound [/number].
+    Decl b(X) bound [/number].
+    Decl c(X) bound [/number].
+    Decl d(X) bound [/number].
     
     # Rules
     a(X) :- b(X).           # a → b (positive)
@@ -95,9 +95,9 @@
     
     ### Example 1: Safe Negation
     ```mangle
-    Decl employee(Id.Type<atom>, Name.Type<string>).
-    Decl manager(Id.Type<atom>).
-    Decl non_manager(Id.Type<atom>).
+    Decl employee(Id, Name) bound [/name, /string].
+    Decl manager(Id) bound [/name].
+    Decl non_manager(Id) bound [/name].
     
     # Base facts (stratum 0)
     employee(/e1, "Alice").
@@ -124,11 +124,11 @@
     
     ### Example 2: Layered Permissions
     ```mangle
-    Decl user(Id.Type<atom>).
-    Decl admin(Id.Type<atom>).
-    Decl banned(Id.Type<atom>).
-    Decl active_user(Id.Type<atom>).
-    Decl safe_user(Id.Type<atom>).
+    Decl user(Id) bound [/name].
+    Decl admin(Id) bound [/name].
+    Decl banned(Id) bound [/name].
+    Decl active_user(Id) bound [/name].
+    Decl safe_user(Id) bound [/name].
     
     # Stratum 0: Base facts
     user(/u1).
@@ -216,7 +216,7 @@
     #### After (Stratified)
     ```mangle
     # Admin is base fact
-    Decl admin(Id.Type<atom>).
+    Decl admin(Id) bound [/name].
     admin(/u1).
     
     # Non-admin derives from admin
@@ -316,8 +316,8 @@
     
     #### Example
     ```mangle
-    Decl employee(Id.Type<atom>, Dept.Type<atom>, Salary.Type<int>).
-    Decl dept_total(Dept.Type<atom>, Total.Type<int>).
+    Decl employee(Id, Dept, Salary) bound [/name, /name, /number].
+    Decl dept_total(Dept, Total) bound [/name, /number].
     
     # Stratum 0: Base facts
     employee(/e1, /engineering, 100000).
@@ -360,11 +360,11 @@
     
     ### Program
     ```mangle
-    Decl node(Id.Type<atom>).
-    Decl edge(From.Type<atom>, To.Type<atom>).
-    Decl reachable(From.Type<atom>, To.Type<atom>).
-    Decl unreachable(From.Type<atom>, To.Type<atom>).
-    Decl isolated(Id.Type<atom>).
+    Decl node(Id) bound [/name].
+    Decl edge(From, To) bound [/name, /name].
+    Decl reachable(From, To) bound [/name, /name].
+    Decl unreachable(From, To) bound [/name, /name].
+    Decl isolated(Id) bound [/name].
     
     # Stratum 0: Base facts
     node(/a). node(/b). node(/c).

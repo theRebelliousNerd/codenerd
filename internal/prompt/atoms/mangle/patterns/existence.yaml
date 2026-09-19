@@ -38,9 +38,9 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>).
-    Decl has_users(Result.Type<atom>).
-    Decl has_no_users(Result.Type<atom>).
+    Decl user(UserId) bound [/string].
+    Decl has_users(Result) bound [/name].
+    Decl has_no_users(Result) bound [/name].
     
     # Facts
     user("u1").
@@ -67,8 +67,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Status.Type<atom>).
-    Decl has_active_users(Result.Type<atom>).
+    Decl user(UserId, Status) bound [/string, /name].
+    Decl has_active_users(Result) bound [/name].
     
     # Check if at least one active user exists
     has_active_users(/yes) :- user(_, /active).
@@ -94,15 +94,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, Priority.Type<int>, Value.Type<string>).
-    Decl highest_priority_item(Id.Type<string>, Value.Type<string>).
+    Decl item(Id, Priority, Value) bound [/string, /number, /string].
+    Decl highest_priority_item(Id, Value) bound [/string, /string].
     
     # Find max priority
-    Decl max_priority(MaxP.Type<int>).
+    Decl max_priority(MaxP) bound [/number].
     max_priority(MaxP) :-
       item(Id, Priority, Value)
       |> do fn:group_by(),
-         let MaxP = fn:Max(Priority).
+         let MaxP = fn:max(Priority).
     
     # Get item(s) with max priority
     highest_priority_item(Id, Value) :-
@@ -131,15 +131,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>).
-    Decl has_property(Id.Type<string>).
-    Decl all_items_have_property(Result.Type<atom>).
+    Decl item(Id) bound [/string].
+    Decl has_property(Id) bound [/string].
+    Decl all_items_have_property(Result) bound [/name].
     
     # "All have property" = "There does NOT exist an item WITHOUT the property"
     all_items_have_property(/yes) :- not (item(Id), not has_property(Id)).
     
     # Simpler: Check for counterexample
-    Decl item_without_property(Id.Type<string>).
+    Decl item_without_property(Id) bound [/string].
     item_without_property(Id) :- item(Id), not has_property(Id).
     
     all_items_have_property(/no) :- item_without_property(_).
@@ -173,15 +173,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>).
-    Decl item_count(Count.Type<int>).
-    Decl has_enough_items(Result.Type<atom>).
+    Decl item(Id) bound [/string].
+    Decl item_count(Count) bound [/number].
+    Decl has_enough_items(Result) bound [/name].
     
     # Count items
     item_count(Count) :-
       item(Id)
       |> do fn:group_by(),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Check threshold
     has_enough_items(/yes) :- item_count(Count), Count >= 5.
@@ -210,15 +210,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl candidate(Id.Type<string>).
-    Decl candidate_count(Count.Type<int>).
-    Decl exactly_one(Result.Type<atom>).
+    Decl candidate(Id) bound [/string].
+    Decl candidate_count(Count) bound [/number].
+    Decl exactly_one(Result) bound [/name].
     
     # Count candidates
     candidate_count(Count) :-
       candidate(Id)
       |> do fn:group_by(),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Check for exactly one
     exactly_one(/yes) :- candidate_count(1).
@@ -249,9 +249,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl entity(Id.Type<string>).
-    Decl related_to(Id.Type<string>, TargetId.Type<string>).
-    Decl orphaned(Id.Type<string>).
+    Decl entity(Id) bound [/string].
+    Decl related_to(Id, TargetId) bound [/string, /string].
+    Decl orphaned(Id) bound [/string].
     
     # Entities without any relationships
     orphaned(Id) :- entity(Id), not related_to(Id, _).
@@ -278,10 +278,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl in_both(Elem.Type<string>).
-    Decl intersection_exists(Result.Type<atom>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl in_both(Elem) bound [/string].
+    Decl intersection_exists(Result) bound [/name].
     
     # Elements in both sets
     in_both(Elem) :- set_a(Elem), set_b(Elem).
@@ -313,9 +313,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, Value.Type<int>).
-    Decl any_item_large(Result.Type<atom>).
-    Decl all_items_large(Result.Type<atom>).
+    Decl item(Id, Value) bound [/string, /number].
+    Decl any_item_large(Result) bound [/name].
+    Decl all_items_large(Result) bound [/name].
     
     # Any item > 100
     any_item_large(/yes) :- item(Id, Value), Value > 100.
@@ -345,9 +345,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl edge(From.Type<string>, To.Type<string>).
-    Decl reachable(From.Type<string>, To.Type<string>).
-    Decl path_exists(From.Type<string>, To.Type<string>, Result.Type<atom>).
+    Decl edge(From, To) bound [/string, /string].
+    Decl reachable(From, To) bound [/string, /string].
+    Decl path_exists(From, To, Result) bound [/string, /string, /name].
     
     # Reachability
     reachable(X, Y) :- edge(X, Y).
@@ -380,16 +380,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl entity(Id.Type<string>).
-    Decl attribute(Id.Type<string>, Source.Type<string>, Value.Type<string>, Priority.Type<int>).
-    Decl best_value(Id.Type<string>, Value.Type<string>).
+    Decl entity(Id) bound [/string].
+    Decl attribute(Id, Source, Value, Priority) bound [/string, /string, /string, /number].
+    Decl best_value(Id, Value) bound [/string, /string].
     
     # For each entity, find highest priority source
-    Decl max_priority_per_entity(Id.Type<string>, MaxP.Type<int>).
+    Decl max_priority_per_entity(Id, MaxP) bound [/string, /number].
     max_priority_per_entity(Id, MaxP) :-
       attribute(Id, Source, Value, Priority)
       |> do fn:group_by(Id),
-         let MaxP = fn:Max(Priority).
+         let MaxP = fn:max(Priority).
     
     # Get value from highest priority source
     best_value(Id, Value) :-
@@ -418,9 +418,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>).
-    Decl purchase(PurchaseId.Type<string>, UserId.Type<string>, Amount.Type<int>).
-    Decl has_high_value_customer(Result.Type<atom>).
+    Decl user(UserId) bound [/string].
+    Decl purchase(PurchaseId, UserId, Amount) bound [/string, /string, /number].
+    Decl has_high_value_customer(Result) bound [/name].
     
     # Check if there exists a user with purchase > 10000
     has_high_value_customer(/yes) :-
@@ -492,9 +492,9 @@
     
     ### Check if File Has Tests
     ```mangle
-    Decl source_file(File.Type<string>).
-    Decl test_covers(TestFile.Type<string>, SourceFile.Type<string>).
-    Decl has_tests(File.Type<string>, Result.Type<atom>).
+    Decl source_file(File) bound [/string].
+    Decl test_covers(TestFile, SourceFile) bound [/string, /string].
+    Decl has_tests(File, Result) bound [/string, /name].
     
     has_tests(File, /yes) :- source_file(File), test_covers(_, File).
     has_tests(File, /no) :- source_file(File), not test_covers(_, File).
@@ -502,11 +502,11 @@
     
     ### Verify All Functions Are Documented
     ```mangle
-    Decl function(FuncId.Type<string>).
-    Decl has_doc(FuncId.Type<string>).
-    Decl all_documented(Result.Type<atom>).
+    Decl function(FuncId) bound [/string].
+    Decl has_doc(FuncId) bound [/string].
+    Decl all_documented(Result) bound [/name].
     
-    Decl undocumented(FuncId.Type<string>).
+    Decl undocumented(FuncId) bound [/string].
     undocumented(FuncId) :- function(FuncId), not has_doc(FuncId).
     
     all_documented(/yes) :- not undocumented(_).
@@ -515,9 +515,9 @@
     
     ### Check if Shard Has Completed Any Tasks
     ```mangle
-    Decl shard(ShardId.Type<string>).
-    Decl shard_executed(ShardId.Type<string>, TaskId.Type<string>, Status.Type<atom>).
-    Decl has_completed_tasks(ShardId.Type<string>, Result.Type<atom>).
+    Decl shard(ShardId) bound [/string].
+    Decl shard_executed(ShardId, TaskId, Status) bound [/string, /string, /name].
+    Decl has_completed_tasks(ShardId, Result) bound [/string, /name].
     
     has_completed_tasks(ShardId, /yes) :-
       shard(ShardId),

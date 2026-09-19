@@ -39,7 +39,7 @@
     /** WRONG - Javadoc style
       * Documentation comment
       */
-    Decl parent(X.Type<n>, Y.Type<n>).
+    Decl parent(X, Y) bound [/name, /name].
     ```
     
     ## Correct Code
@@ -53,7 +53,7 @@
     parent(/alice, /bob).
     
     # CORRECT - Comments can appear anywhere
-    Decl parent(X.Type<n>, Y.Type<n>).  # Inline comment OK
+    Decl parent(X, Y) bound [/name, /name].  # Inline comment OK
     
     # CORRECT - Comment entire sections
     # ancestor(X, Y) :- parent(X, Y).  # Commented out rule
@@ -98,7 +98,7 @@
     ancestor(X, Y) :- parent(X, Y).
     
     # Inline comment at end of line
-    Decl edge(X.Type<int>, Y.Type<int>).  # Graph edge
+    Decl edge(X, Y) bound [/number, /number].  # Graph edge
     
     # Section header
     # =================================

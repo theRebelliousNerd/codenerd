@@ -36,16 +36,16 @@
     region_sales(Region, Total) :-
         sales(Region, Amount) |>
         fn:group_by(Region),  # Missing `do`!
-        let Total = fn:Sum(Amount).
+        let Total = fn:sum(Amount).
     
     # WRONG - Function name casing error
     total_count(N) :-
         item(X) |>
         do fn:group_by(),
-        let N = fn:count().  # Should be fn:Count() with capital C
+        let N = fn:count().  # Should be fn:count() with capital C
     
     # WRONG - Using aggregation without pipeline
-    max_price(P) :- product(_, Price), P = fn:Max(Price).
+    max_price(P) :- product(_, Price), P = fn:max(Price).
     ```
     
     ## Correct Code
@@ -54,26 +54,26 @@
     region_sales(Region, Total) :-
         sales(Region, Amount) |>
         do fn:group_by(Region),
-        let Total = fn:Sum(Amount).
+        let Total = fn:sum(Amount).
     
     # CORRECT - Count with no grouping
     total_items(N) :-
         item(X) |>
-        let N = fn:Count().
+        let N = fn:count().
     
     # CORRECT - Multiple aggregations
     stats(Region, Total, Avg, Count) :-
         sales(Region, Amount) |>
         do fn:group_by(Region),
-        let Total = fn:Sum(Amount),
-        let Avg = fn:Avg(Amount),
-        let Count = fn:Count().
+        let Total = fn:sum(Amount),
+        let Avg = fn:avg(Amount),
+        let Count = fn:count().
     
     # CORRECT - Min/Max aggregation
     price_range(Min, Max) :-
         product(_, Price) |>
-        let Min = fn:Min(Price),
-        let Max = fn:Max(Price).
+        let Min = fn:min(Price),
+        let Max = fn:max(Price).
     
     # CORRECT - Collect into list
     region_products(Region, Products) :-
@@ -96,15 +96,15 @@
     |---------|---------|-----------|---------|
     | `\|>` | Pipeline operator | Always | `source() \|> ...` |
     | `do` | Apply transform | With group_by | `do fn:group_by(X)` |
-    | `let` | Bind result | Always | `let N = fn:Count()` |
-    | `fn:` | Function namespace | Always | `fn:Sum`, `fn:Max` |
+    | `let` | Bind result | Always | `let N = fn:count()` |
+    | `fn:` | Function namespace | Always | `fn:sum`, `fn:max` |
     
     ### Function Casing Rules
     **CRITICAL**: Aggregation functions use specific casing:
-    - `fn:Count()` - Capital C
-    - `fn:Sum(X)` - Capital S
-    - `fn:Min(X)`, `fn:Max(X)` - Capital M
-    - `fn:Avg(X)` - Capital A
+    - `fn:count()` - Capital C
+    - `fn:sum(X)` - Capital S
+    - `fn:min(X)`, `fn:max(X)` - Capital M
+    - `fn:avg(X)` - Capital A
     - `fn:group_by(X)` - lowercase g (exception!)
     - `fn:collect(X)` - lowercase c
     
@@ -114,20 +114,20 @@
     result(GroupKey, AggValue) :-
         source_predicate(GroupKey, ValueToAggregate) |>
         do fn:group_by(GroupKey),
-        let AggValue = fn:Sum(ValueToAggregate).
+        let AggValue = fn:sum(ValueToAggregate).
     
     # Template: Aggregation without grouping
     result(AggValue) :-
         source_predicate(ValueToAggregate) |>
-        let AggValue = fn:Count().
+        let AggValue = fn:count().
     
     # Template: Multiple aggregations
     result(Key, Sum, Count, Avg) :-
         source(Key, Value) |>
         do fn:group_by(Key),
-        let Sum = fn:Sum(Value),
-        let Count = fn:Count(),
-        let Avg = fn:Avg(Value).
+        let Sum = fn:sum(Value),
+        let Count = fn:count(),
+        let Avg = fn:avg(Value).
     ```
     
     ## Training Bias Origins
@@ -142,6 +142,6 @@
     Before writing aggregation code:
     1. Does it start with `|>` pipeline? (YES required)
     2. Is grouping needed? → Add `do fn:group_by(Keys)`
-    3. Are aggregation functions capitalized? (`fn:Count`, `fn:Sum`)
+    3. Are aggregation functions capitalized? (`fn:count`, `fn:sum`)
     4. Is `let` used to bind the result? (YES required)
     5. Are all keywords present? (`|>`, `do`, `let`, `fn:`)

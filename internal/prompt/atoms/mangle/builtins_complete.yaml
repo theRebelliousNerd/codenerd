@@ -15,40 +15,40 @@
     
     ### Count
     ```mangle
-    fn:Count()  # Count elements in group
+    fn:count()  # Count elements in group
     ```
     **Usage**:
     ```mangle
     items_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Sum
     ```mangle
-    fn:Sum(Variable)  # Sum numeric values
+    fn:sum(Variable)  # Sum numeric values
     ```
     **Usage**:
     ```mangle
     category_total(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value).
+        let Total = fn:sum(Value).
     ```
     
     ### Min / Max
     ```mangle
-    fn:Min(Variable)  # Minimum value
-    fn:Max(Variable)  # Maximum value
+    fn:min(Variable)  # Minimum value
+    fn:max(Variable)  # Maximum value
     ```
     **Usage**:
     ```mangle
     value_range(Cat, Min, Max) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Min = fn:Min(Value),
-        let Max = fn:Max(Value).
+        let Min = fn:min(Value),
+        let Max = fn:max(Value).
     ```
     
     ### Grouping
@@ -60,7 +60,7 @@
     count_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     **Multiple variables**:
@@ -68,7 +68,7 @@
     stats(Region, Product, Count) :-
         sale(Region, Product, Amount) |>
         do fn:group_by(Region, Product),
-        let Count = fn:Count().
+        let Count = fn:count().
     ```
     
     ## Arithmetic Functions
@@ -89,8 +89,8 @@
     average(Cat, Avg) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value),
-        let Count = fn:Count(),
+        let Total = fn:sum(Value),
+        let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
     ```
     
@@ -111,7 +111,7 @@
         item(Cat, Value) |>
         do fn:filter(fn:gt(Value, 1000)),
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ## List Functions
@@ -219,17 +219,17 @@
         do fn:filter(fn:gt(X, 10)) |>
         do fn:transform(X) |>
         do fn:group_by(Category) |>
-        let Count = fn:Count() |>
-        let Total = fn:Sum(Value) |>
+        let Count = fn:count() |>
+        let Total = fn:sum(Value) |>
         let Final = fn:divide(Total, Count).
     ```
     
     ## Function Casing Rules
     
     **CRITICAL**: Aggregation functions use specific casing:
-    - `fn:Count()` - Capital C
-    - `fn:Sum(X)` - Capital S
-    - `fn:Min(X)`, `fn:Max(X)` - Capital M
+    - `fn:count()` - Capital C
+    - `fn:sum(X)` - Capital S
+    - `fn:min(X)`, `fn:max(X)` - Capital M
     - `fn:group_by(X)` - lowercase
     - `fn:plus(A, B)` - lowercase (all arithmetic)
     - `fn:list_cons(H, T)` - lowercase (all list operations)
@@ -285,7 +285,7 @@
         item(Cat, Value) |>
         do fn:filter(fn:gt(Value, 1000)),
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Multi-Stage Aggregation
@@ -294,14 +294,14 @@
     category_total(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value).
+        let Total = fn:sum(Value).
     
     # Step 2: Overall stats
     overall_stats(GrandTotal, AvgCategoryTotal) :-
         category_total(_, Total) |>
         do fn:group_by(),
-        let GrandTotal = fn:Sum(Total),
-        let Count = fn:Count(),
+        let GrandTotal = fn:sum(Total),
+        let Count = fn:count(),
         let AvgCategoryTotal = fn:divide(GrandTotal, Count).
     ```
     
@@ -312,5 +312,5 @@
         item(PrevItem, PrevValue),
         PrevItem < Item |>  # Ordering assumption
         do fn:group_by(Item),
-        let RunningSum = fn:Sum(PrevValue).
+        let RunningSum = fn:sum(PrevValue).
     ```

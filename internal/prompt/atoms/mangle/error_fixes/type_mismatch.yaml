@@ -25,7 +25,7 @@
     
     **Before:**
     ```mangle
-    # Schema: status(User.Type<name>, State.Type<name>)
+    # Schema: Decl status(User, State) bound [/name, /name].
     check(X) :- status(X, "active").
     ```
     
@@ -39,7 +39,7 @@
     
     **Before:**
     ```mangle
-    # Schema: message(Id.Type<name>, Text.Type<string>)
+    # Schema: Decl message(Id, Text) bound [/name, /string].
     log(X) :- message(X, /error_occurred).
     ```
     
@@ -53,7 +53,7 @@
     
     **Before:**
     ```mangle
-    # Schema: metric(Name.Type<name>, Value.Type<float>)
+    # Schema: Decl metric(Name, Value) bound [/name, /float64].
     high(X) :- metric(X, V), V > 50.
     ```
     
@@ -67,7 +67,7 @@
     
     **Before:**
     ```mangle
-    # Schema: count(Name.Type<name>, N.Type<int>)
+    # Schema: Decl count(Name, N) bound [/name, /number].
     many(X) :- count(X, N), N > 10.0.
     ```
     
@@ -81,7 +81,7 @@
     
     **Before:**
     ```mangle
-    # Schema: single(Name.Type<name>, Val.Type<int>)
+    # Schema: Decl single(Name, Val) bound [/name, /number].
     single(/x, [1, 2, 3]).
     ```
     

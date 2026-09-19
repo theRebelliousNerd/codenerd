@@ -20,7 +20,7 @@
     result(GroupKey, AggValue) :-
         source(GroupKey, Value) |>
         do fn:group_by(GroupKey),
-        let AggValue = fn:Sum(Value).
+        let AggValue = fn:sum(Value).
     ```
     
     ## Required Keywords
@@ -29,15 +29,15 @@
     |---------|---------|---------|
     | `\|>` | Start pipeline | `source() \|>` |
     | `do` | Apply transform | `do fn:group_by(K)` |
-    | `let` | Bind result | `let N = fn:Count()` |
+    | `let` | Bind result | `let N = fn:count()` |
     
     ## Function Casing (Critical)
     
     Aggregation functions use SPECIFIC casing:
-    - `fn:Count()` - Capital C
-    - `fn:Sum(X)` - Capital S
-    - `fn:Min(X)` - Capital M
-    - `fn:Max(X)` - Capital M
+    - `fn:count()` - Capital C
+    - `fn:sum(X)` - Capital S
+    - `fn:min(X)` - Capital M
+    - `fn:max(X)` - Capital M
     - `fn:group_by(X)` - lowercase
     
     ### Wrong vs Right
@@ -46,7 +46,7 @@
     ... let N = fn:count().
     
     # CORRECT - capital C
-    ... let N = fn:Count().
+    ... let N = fn:count().
     ```
     
     ## Common Patterns
@@ -56,7 +56,7 @@
     files_per_lang(Lang, Count) :-
         file_topology(_, _, Lang, _, _) |>
         do fn:group_by(Lang),
-        let Count = fn:Count().
+        let Count = fn:count().
     ```
     
     ### Sum by Group
@@ -64,7 +64,7 @@
     total_by_category(Cat, Total) :-
         item(Cat, Amount) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Amount).
+        let Total = fn:sum(Amount).
     ```
     
     ### Multiple Aggregations
@@ -72,9 +72,9 @@
     stats(Project, Min, Max, Total) :-
         metric(Project, Value) |>
         do fn:group_by(Project),
-        let Min = fn:Min(Value),
-        let Max = fn:Max(Value),
-        let Total = fn:Sum(Value).
+        let Min = fn:min(Value),
+        let Max = fn:max(Value),
+        let Total = fn:sum(Value).
     ```
     
     ## Anti-Patterns
@@ -91,5 +91,5 @@
     result(K, N) :-
         source(K, _) |>
         fn:group_by(K),  # Missing 'do'!
-        let N = fn:Count().
+        let N = fn:count().
     ```

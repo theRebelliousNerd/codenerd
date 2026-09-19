@@ -197,11 +197,9 @@
     ### SCHEMA DECLARATIONS
     ```mangle
     # Declare predicate signatures with Mangle Type<> syntax
-    Decl user_intent(ID.Type<n>, Category.Type<n>, Verb.Type<n>,
-                     Target.Type<string>, Constraint.Type<string>).
+    Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/name, /name, /name, /string, /string].
 
-    Decl file_modified(Path.Type<string>, Lines.Type<int>).
+    Decl file_modified(Path, Lines) bound [/string, /number].
 
-    Decl hypothesis(HType.Type<n>, File.Type<string>,
-                    Line.Type<int>, Confidence.Type<int>).
+    Decl hypothesis(HType, File, Line, Confidence) bound [/name, /string, /number, /number].
     ```

@@ -36,7 +36,7 @@
     
     #### Example: Countdown (Terminates)
     ```mangle
-    Decl countdown(N.Type<int>).
+    Decl countdown(N) bound [/number].
     
     countdown(0).  # Base case
     
@@ -54,7 +54,7 @@
     
     #### Example: List Length (Terminates)
     ```mangle
-    Decl list_length(List.Type<list<int>>, Len.Type<int>).
+    Decl list_length(List, Len).
     
     list_length([], 0).  # Empty list
     
@@ -72,7 +72,7 @@
     
     #### Example: Depth-Limited Search
     ```mangle
-    Decl reachable_within(Start.Type<atom>, End.Type<atom>, MaxDepth.Type<int>).
+    Decl reachable_within(Start, End, MaxDepth) bound [/name, /name, /number].
     
     # Base case: direct edge
     reachable_within(X, Y, D) :-
@@ -212,7 +212,7 @@
     
     #### Example: Fibonacci (Terminates with Memoization)
     ```mangle
-    Decl fib(N.Type<int>, Result.Type<int>).
+    Decl fib(N, Result) bound [/number, /number].
     
     fib(0, 0).
     fib(1, 1).
@@ -233,8 +233,8 @@
     
     ### 1. Step Counter
     ```mangle
-    Decl step_count(Count.Type<int>).
-    Decl max_steps(Max.Type<int>).
+    Decl step_count(Count) bound [/number].
+    Decl max_steps(Max) bound [/number].
     
     # Initialize
     step_count(0) :- true.
@@ -259,8 +259,8 @@
     
     ### 2. Depth Tracking
     ```mangle
-    Decl recursion_depth(Pred.Type<atom>, Depth.Type<int>).
-    Decl max_depth(Depth.Type<int>).
+    Decl recursion_depth(Pred, Depth) bound [/name, /number].
+    Decl max_depth(Depth) bound [/number].
     
     max_depth(50).
     

@@ -41,7 +41,7 @@
     ### Correct Mangle Way
     ```mangle
     # If the fact exists, it's valid:
-    Decl user_email(UserId.Type</atom>, Email.Type<string>).
+    Decl user_email(UserId, Email) bound [/name, /string].
     
     valid_email(UserId, Email) :-
         user_email(UserId, Email).
@@ -76,7 +76,7 @@
     Attempting:
     ```mangle
     # WRONG - trying to model nullable fields
-    Decl user(Id.Type<int>, Email.Type<null | string>, Phone.Type<null | string>).
+    Decl user(Id, Email, Phone).
     ```
     
     ### Why It Fails
@@ -85,9 +85,9 @@
     ### Correct Mangle Way
     ```mangle
     # Option 1: Separate predicates for optional fields
-    Decl user(Id.Type<int>).
-    Decl user_email(Id.Type<int>, Email.Type<string>).
-    Decl user_phone(Id.Type<int>, Phone.Type<string>).
+    Decl user(Id) bound [/number].
+    Decl user_email(Id, Email) bound [/number, /string].
+    Decl user_phone(Id, Phone) bound [/number, /string].
     
     # User with email and phone:
     user(1).
@@ -100,11 +100,7 @@
     # No user_phone(2, ...) fact = phone is "missing"
     
     # Option 2: Use optional wrapper
-    Decl user(
-        Id.Type<int>,
-        Email.Type<{/tag: /atom, /value: string}>,
-        Phone.Type<{/tag: /atom, /value: string}>
-    ).
+    Decl user(Id, Email, Phone).
     
     # With values:
     user(1, {/tag: /some, /value: "alice@example.com"}, {/tag: /some, /value: "555-1234"}).
@@ -177,9 +173,9 @@
     ### Correct Mangle Way
     ```mangle
     # Chain predicates with explicit existence checks:
-    Decl user(Id.Type</atom>).
-    Decl user_address(UserId.Type</atom>, AddressId.Type</atom>).
-    Decl address_city(AddressId.Type</atom>, City.Type<string>).
+    Decl user(Id) bound [/name].
+    Decl user_address(UserId, AddressId) bound [/name, /name].
+    Decl address_city(AddressId, City) bound [/name, /string].
     
     user_city(UserId, City) :-
         user(UserId),
@@ -280,7 +276,7 @@
     // store.Retract(fact)
     
     # Or derive "cleared" state:
-    Decl email_cleared(UserId.Type</atom>).
+    Decl email_cleared(UserId) bound [/name].
     
     email_cleared(UserId) :-
         clear_request(UserId),
@@ -313,7 +309,7 @@
     ### Correct Mangle Way
     ```mangle
     # Option 1: Query returns results or empty set
-    Decl user(Id.Type<int>, Name.Type<string>).
+    Decl user(Id, Name) bound [/number, /string].
     
     # Query in Go:
     // results := store.Query("user", 123, X)
@@ -324,7 +320,7 @@
     // }
     
     # Option 2: Explicit /some and /none tags
-    Decl find_result(Query.Type</atom>, Tag.Type</atom>, Value.Type<string>).
+    Decl find_result(Query, Tag, Value) bound [/name, /name, /string].
     
     find_result(/query1, /some, Name) :-
         request(/query1, UserId),
@@ -400,7 +396,7 @@
     # Missing email = no fact
     # Empty email = fact with ""
     
-    Decl user_email(UserId.Type</atom>, Email.Type<string>).
+    Decl user_email(UserId, Email) bound [/name, /string].
     
     # Valid email (non-empty):
     valid_email(UserId, Email) :-
@@ -443,19 +439,19 @@
     total_users(Count) :-
         user(UserId)
         |> do fn:group_by()
-        |> let Count = fn:Count(UserId).
+        |> let Count = fn:count().
     
     # Count users with email:
     total_emails(Count) :-
         user_email(UserId, _)
         |> do fn:group_by()
-        |> let Count = fn:Count(UserId).
+        |> let Count = fn:count().
     
     # Count users without email:
     total_missing_emails(Count) :-
         missing_email(UserId)  # From earlier definition
         |> do fn:group_by()
-        |> let Count = fn:Count(UserId).
+        |> let Count = fn:count().
     ```
     
     ---
@@ -490,7 +486,7 @@
     ### Correct Mangle Way
     ```mangle
     # Option 1: Just don't derive if not found
-    Decl search_result(Query.Type</atom>, Index.Type<int>).
+    Decl search_result(Query, Index) bound [/name, /number].
     
     search_result(/q1, 5) :-
         search_request(/q1, Target),
@@ -499,7 +495,7 @@
     # If not found, no search_result fact derives
     
     # Option 2: Explicit tags
-    Decl search_status(Query.Type</atom>, Status.Type</atom>, Index.Type<int>).
+    Decl search_status(Query, Status, Index) bound [/name, /name, /number].
     
     search_status(/q1, /found, Index) :-
         search_request(/q1, Target),
@@ -560,9 +556,9 @@
     ### 1. Separate Predicates (Recommended)
     
     ```mangle
-    Decl user(Id.Type<int>, Name.Type<string>).
-    Decl user_email(Id.Type<int>, Email.Type<string>).
-    Decl user_phone(Id.Type<int>, Phone.Type<string>).
+    Decl user(Id, Name) bound [/number, /string].
+    Decl user_email(Id, Email) bound [/number, /string].
+    Decl user_phone(Id, Phone) bound [/number, /string].
     
     # User might have email and/or phone, or neither
     ```
@@ -573,11 +569,7 @@
     ### 2. Tagged Unions
     
     ```mangle
-    Decl user(
-        Id.Type<int>,
-        Name.Type<string>,
-        Email.Type<{/tag: /atom, /value: string}>
-    ).
+    Decl user(Id, Name, Email).
     
     # Email present:
     user(1, "Alice", {/tag: /some, /value: "alice@example.com"}).
@@ -592,8 +584,8 @@
     ### 3. Derivation-based Defaults
     
     ```mangle
-    Decl user(Id.Type<int>, Name.Type<string>).
-    Decl user_email(Id.Type<int>, Email.Type<string>).
+    Decl user(Id, Name) bound [/number, /string].
+    Decl user_email(Id, Email) bound [/number, /string].
     
     # Derive display email (with default):
     display_email(Id, Email) :- user_email(Id, Email).

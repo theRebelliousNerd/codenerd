@@ -28,14 +28,14 @@
     result(Group, AggValue) :-
       data(Item, Group, Value)
       |> do fn:group_by(Group),
-         let AggValue = fn:Sum(Value).
+         let AggValue = fn:sum(Value).
     ```
     
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl sale(SaleId.Type<string>, Department.Type<string>, Amount.Type<int>).
-    Decl dept_total(Department.Type<string>, Total.Type<int>).
+    Decl sale(SaleId, Department, Amount) bound [/string, /string, /number].
+    Decl dept_total(Department, Total) bound [/string, /number].
     
     # Facts
     sale("s1", "electronics", 1000).
@@ -48,7 +48,7 @@
     dept_total(Department, Total) :-
       sale(SaleId, Department, Amount)
       |> do fn:group_by(Department),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     
     # Query: dept_total(Dept, Total)
     # Results:
@@ -64,14 +64,14 @@
     ### Solution
     ```mangle
     # Schema
-    Decl sale(SaleId.Type<string>, Department.Type<string>, Region.Type<string>, Amount.Type<int>).
-    Decl dept_region_total(Department.Type<string>, Region.Type<string>, Total.Type<int>).
+    Decl sale(SaleId, Department, Region, Amount) bound [/string, /string, /string, /number].
+    Decl dept_region_total(Department, Region, Total) bound [/string, /string, /number].
     
     # Group by both department AND region
     dept_region_total(Department, Region, Total) :-
       sale(SaleId, Department, Region, Amount)
       |> do fn:group_by(Department, Region),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     ```
     
     ### Example
@@ -97,16 +97,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl employee(EmpId.Type<string>, Department.Type<string>, Salary.Type<int>).
-    Decl dept_stats(Department.Type<string>, TotalSalary.Type<int>, AvgSalary.Type<float>, EmpCount.Type<int>).
+    Decl employee(EmpId, Department, Salary) bound [/string, /string, /number].
+    Decl dept_stats(Department, TotalSalary, AvgSalary, EmpCount) bound [/string, /number, /float64, /number].
     
     # Multiple aggregations
     dept_stats(Department, TotalSalary, AvgSalary, EmpCount) :-
       employee(EmpId, Department, Salary)
       |> do fn:group_by(Department),
-         let TotalSalary = fn:Sum(Salary),
-         let AvgSalary = fn:Avg(Salary),
-         let EmpCount = fn:Count().
+         let TotalSalary = fn:sum(Salary),
+         let AvgSalary = fn:avg(Salary),
+         let EmpCount = fn:count().
     ```
     
     ### Example
@@ -130,22 +130,22 @@
     ### Solution
     ```mangle
     # Schema
-    Decl transaction(TxId.Type<string>, AccountId.Type<string>, Amount.Type<int>, Type.Type<atom>).
-    Decl account_balance(AccountId.Type<string>, Balance.Type<int>).
+    Decl transaction(TxId, AccountId, Amount, Type) bound [/string, /string, /number, /name].
+    Decl account_balance(AccountId, Balance) bound [/string, /number].
     
     # Sum deposits, subtract withdrawals
-    Decl deposits(AccountId.Type<string>, Total.Type<int>).
-    Decl withdrawals(AccountId.Type<string>, Total.Type<int>).
+    Decl deposits(AccountId, Total) bound [/string, /number].
+    Decl withdrawals(AccountId, Total) bound [/string, /number].
     
     deposits(AccountId, Total) :-
       transaction(TxId, AccountId, Amount, /deposit)
       |> do fn:group_by(AccountId),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     
     withdrawals(AccountId, Total) :-
       transaction(TxId, AccountId, Amount, /withdrawal)
       |> do fn:group_by(AccountId),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     
     # Calculate balance
     account_balance(AccountId, Balance) :-
@@ -188,28 +188,28 @@
     ### Solution
     ```mangle
     # Schema
-    Decl sale(SaleId.Type<string>, Region.Type<string>, City.Type<string>, Amount.Type<int>).
-    Decl city_total(Region.Type<string>, City.Type<string>, Total.Type<int>).
-    Decl region_total(Region.Type<string>, Total.Type<int>).
-    Decl grand_total(Total.Type<int>).
+    Decl sale(SaleId, Region, City, Amount) bound [/string, /string, /string, /number].
+    Decl city_total(Region, City, Total) bound [/string, /string, /number].
+    Decl region_total(Region, Total) bound [/string, /number].
+    Decl grand_total(Total) bound [/number].
     
     # Level 1: City totals
     city_total(Region, City, Total) :-
       sale(SaleId, Region, City, Amount)
       |> do fn:group_by(Region, City),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     
     # Level 2: Region totals (sum of cities)
     region_total(Region, Total) :-
       city_total(Region, City, CityTotal)
       |> do fn:group_by(Region),
-         let Total = fn:Sum(CityTotal).
+         let Total = fn:sum(CityTotal).
     
     # Level 3: Grand total (sum of regions)
     grand_total(Total) :-
       region_total(Region, RegionTotal)
       |> do fn:group_by(),
-         let Total = fn:Sum(RegionTotal).
+         let Total = fn:sum(RegionTotal).
     ```
     
     ### Example
@@ -238,16 +238,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl customer(CustomerId.Type<string>, Segment.Type<string>).
-    Decl purchase(PurchaseId.Type<string>, CustomerId.Type<string>, Amount.Type<int>).
-    Decl customer_total(CustomerId.Type<string>, Total.Type<int>).
-    Decl high_value_customers(CustomerId.Type<string>, Total.Type<int>).
+    Decl customer(CustomerId, Segment) bound [/string, /string].
+    Decl purchase(PurchaseId, CustomerId, Amount) bound [/string, /string, /number].
+    Decl customer_total(CustomerId, Total) bound [/string, /number].
+    Decl high_value_customers(CustomerId, Total) bound [/string, /number].
     
     # Calculate totals
     customer_total(CustomerId, Total) :-
       purchase(PurchaseId, CustomerId, Amount)
       |> do fn:group_by(CustomerId),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     
     # Filter: only customers with total > 10000
     high_value_customers(CustomerId, Total) :-
@@ -280,14 +280,14 @@
     ### Solution
     ```mangle
     # Schema
-    Decl product(ProductId.Type<string>, Category.Type<string>, Price.Type<int>).
-    Decl category_price_range(Category.Type<string>, MinPrice.Type<int>, MaxPrice.Type<int>).
+    Decl product(ProductId, Category, Price) bound [/string, /string, /number].
+    Decl category_price_range(Category, MinPrice, MaxPrice) bound [/string, /number, /number].
     
     category_price_range(Category, MinPrice, MaxPrice) :-
       product(ProductId, Category, Price)
       |> do fn:group_by(Category),
-         let MinPrice = fn:Min(Price),
-         let MaxPrice = fn:Max(Price).
+         let MinPrice = fn:min(Price),
+         let MaxPrice = fn:max(Price).
     ```
     
     ### Example
@@ -311,15 +311,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl event(EventId.Type<string>, UserId.Type<string>, Timestamp.Type<int>, Action.Type<string>).
-    Decl user_latest_event(UserId.Type<string>, LatestTime.Type<int>).
-    Decl user_latest_action(UserId.Type<string>, Action.Type<string>).
+    Decl event(EventId, UserId, Timestamp, Action) bound [/string, /string, /number, /string].
+    Decl user_latest_event(UserId, LatestTime) bound [/string, /number].
+    Decl user_latest_action(UserId, Action) bound [/string, /string].
     
     # Find latest timestamp per user
     user_latest_event(UserId, LatestTime) :-
       event(EventId, UserId, Timestamp, Action)
       |> do fn:group_by(UserId),
-         let LatestTime = fn:Max(Timestamp).
+         let LatestTime = fn:max(Timestamp).
     
     # Get action at latest timestamp
     user_latest_action(UserId, Action) :-
@@ -350,14 +350,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user_action(UserId.Type<string>, Action.Type<string>, Timestamp.Type<int>).
-    Decl user_action_count(UserId.Type<string>, DistinctActions.Type<int>).
-    
-    # Count distinct actions per user
+    Decl user_action(UserId, Action, Timestamp) bound [/string, /string, /number].
+    Decl user_action_kind(UserId, Action) bound [/string, /string].
+    Decl user_action_count(UserId, DistinctActions) bound [/string, /number].
+
+    # Count distinct actions per user: project, then count (no count-distinct reducer)
+    user_action_kind(UserId, Action) :- user_action(UserId, Action, Timestamp).
     user_action_count(UserId, DistinctActions) :-
-      user_action(UserId, Action, Timestamp)
+      user_action_kind(UserId, Action)
       |> do fn:group_by(UserId),
-         let DistinctActions = fn:CountDistinct(Action).
+         let DistinctActions = fn:count().
     ```
     
     ### Example
@@ -385,16 +387,16 @@
     # Workaround: Use Min/Max as approximations or implement in Go
     
     # Schema
-    Decl test_score(StudentId.Type<string>, Class.Type<string>, Score.Type<int>).
-    Decl class_stats(Class.Type<string>, MinScore.Type<int>, MaxScore.Type<int>, AvgScore.Type<float>).
+    Decl test_score(StudentId, Class, Score) bound [/string, /string, /number].
+    Decl class_stats(Class, MinScore, MaxScore, AvgScore) bound [/string, /number, /number, /float64].
     
     # Approximate range with min/max
     class_stats(Class, MinScore, MaxScore, AvgScore) :-
       test_score(StudentId, Class, Score)
       |> do fn:group_by(Class),
-         let MinScore = fn:Min(Score),
-         let MaxScore = fn:Max(Score),
-         let AvgScore = fn:Avg(Score).
+         let MinScore = fn:min(Score),
+         let MaxScore = fn:max(Score),
+         let AvgScore = fn:avg(Score).
     ```
     
     ### Example
@@ -418,8 +420,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl sale(SaleId.Type<string>, Day.Type<int>, Amount.Type<int>).
-    Decl cumulative_sales(Day.Type<int>, CumulativeTotal.Type<int>).
+    Decl sale(SaleId, Day, Amount) bound [/string, /number, /number].
+    Decl cumulative_sales(Day, CumulativeTotal) bound [/number, /number].
     
     # Running total up to each day
     cumulative_sales(Day, CumulativeTotal) :-
@@ -427,7 +429,7 @@
       sale(SaleId2, Day2, Amount2),
       Day2 <= Day
       |> do fn:group_by(Day),
-         let CumulativeTotal = fn:Sum(Amount2).
+         let CumulativeTotal = fn:sum(Amount2).
     ```
     
     ### Example
@@ -451,16 +453,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl order(OrderId.Type<string>, CustomerId.Type<string>, Amount.Type<int>).
-    Decl customer(CustomerId.Type<string>, Segment.Type<string>).
-    Decl segment_revenue(Segment.Type<string>, TotalRevenue.Type<int>).
+    Decl order(OrderId, CustomerId, Amount) bound [/string, /string, /number].
+    Decl customer(CustomerId, Segment) bound [/string, /string].
+    Decl segment_revenue(Segment, TotalRevenue) bound [/string, /number].
     
     # Join customer with orders, then group by segment
     segment_revenue(Segment, TotalRevenue) :-
       customer(CustomerId, Segment),
       order(OrderId, CustomerId, Amount)
       |> do fn:group_by(Segment),
-         let TotalRevenue = fn:Sum(Amount).
+         let TotalRevenue = fn:sum(Amount).
     ```
     
     ### Example
@@ -487,13 +489,13 @@
     result(Category, Total) :-
       data(X, Value)
       |> do fn:group_by(Category),  # Category is unbound!
-         let Total = fn:Sum(Value).
+         let Total = fn:sum(Value).
     
     # Fix - ensure grouping variables are bound
     result(Category, Total) :-
       data(X, Category, Value)
       |> do fn:group_by(Category),
-         let Total = fn:Sum(Value).
+         let Total = fn:sum(Value).
     ```
     
     ### WRONG: Using Non-Grouped Variables in Result
@@ -502,20 +504,20 @@
     result(Category, X, Total) :-
       data(X, Category, Value)
       |> do fn:group_by(Category),
-         let Total = fn:Sum(Value).
+         let Total = fn:sum(Value).
     
     # Fix - only use grouped variables or aggregates
     result(Category, Total) :-
       data(X, Category, Value)
       |> do fn:group_by(Category),
-         let Total = fn:Sum(Value).
+         let Total = fn:sum(Value).
     ```
     
     ### WRONG: Multiple Aggregations Without Common Grouping
     ```mangle
     # Bad - conflicting grouping levels
-    sum1(Total1) :- data(X, Y) |> do fn:group_by(X), let Total1 = fn:Sum(Y).
-    sum2(Total2) :- data(X, Y) |> do fn:group_by(Y), let Total2 = fn:Sum(X).
+    sum1(Total1) :- data(X, Y) |> do fn:group_by(X), let Total1 = fn:sum(Y).
+    sum2(Total2) :- data(X, Y) |> do fn:group_by(Y), let Total2 = fn:sum(X).
     final(Total) :- sum1(Total1), sum2(Total2), Total = fn:plus(Total1, Total2).
     # These are at different granularities - results will be misleading
     ```
@@ -532,43 +534,43 @@
     
     ### Test Results by Suite
     ```mangle
-    Decl test_result(TestId.Type<string>, Suite.Type<string>, Status.Type<atom>).
-    Decl suite_stats(Suite.Type<string>, Passed.Type<int>, Failed.Type<int>).
+    Decl test_result(TestId, Suite, Status) bound [/string, /string, /name].
+    Decl suite_stats(Suite, Passed, Failed) bound [/string, /number, /number].
     
-    Decl suite_passed(Suite.Type<string>, Count.Type<int>).
+    Decl suite_passed(Suite, Count) bound [/string, /number].
     suite_passed(Suite, Count) :-
       test_result(TestId, Suite, /passed)
       |> do fn:group_by(Suite),
-         let Count = fn:Count().
+         let Count = fn:count().
     
-    Decl suite_failed(Suite.Type<string>, Count.Type<int>).
+    Decl suite_failed(Suite, Count) bound [/string, /number].
     suite_failed(Suite, Count) :-
       test_result(TestId, Suite, /failed)
       |> do fn:group_by(Suite),
-         let Count = fn:Count().
+         let Count = fn:count().
     ```
     
     ### Code Complexity by Module
     ```mangle
-    Decl function(FuncId.Type<string>, Module.Type<string>, Complexity.Type<int>).
-    Decl module_complexity(Module.Type<string>, TotalComplexity.Type<int>, AvgComplexity.Type<float>).
+    Decl function(FuncId, Module, Complexity) bound [/string, /string, /number].
+    Decl module_complexity(Module, TotalComplexity, AvgComplexity) bound [/string, /number, /float64].
     
     module_complexity(Module, TotalComplexity, AvgComplexity) :-
       function(FuncId, Module, Complexity)
       |> do fn:group_by(Module),
-         let TotalComplexity = fn:Sum(Complexity),
-         let AvgComplexity = fn:Avg(Complexity).
+         let TotalComplexity = fn:sum(Complexity),
+         let AvgComplexity = fn:avg(Complexity).
     ```
     
     ### Shard Performance Metrics
     ```mangle
-    Decl shard_execution(ShardId.Type<string>, TaskId.Type<string>, DurationMs.Type<int>).
-    Decl shard_perf(ShardId.Type<string>, MinMs.Type<int>, MaxMs.Type<int>, AvgMs.Type<float>).
+    Decl shard_execution(ShardId, TaskId, DurationMs) bound [/string, /string, /number].
+    Decl shard_perf(ShardId, MinMs, MaxMs, AvgMs) bound [/string, /number, /number, /float64].
     
     shard_perf(ShardId, MinMs, MaxMs, AvgMs) :-
       shard_execution(ShardId, TaskId, DurationMs)
       |> do fn:group_by(ShardId),
-         let MinMs = fn:Min(DurationMs),
-         let MaxMs = fn:Max(DurationMs),
-         let AvgMs = fn:Avg(DurationMs).
+         let MinMs = fn:min(DurationMs),
+         let MaxMs = fn:max(DurationMs),
+         let AvgMs = fn:avg(DurationMs).
     ```

@@ -77,7 +77,7 @@
         Val = fn:map_get(Cfg, /timeout, 30).  # Default = 30
     
     # CORRECT - Pattern matching in rule head (if schema allows)
-    Decl point(P.Type<{/x: int, /y: int}>).
+    Decl point(P).
     distance_from_origin(Dist) :-
         point(P),
         :match_field(P, /x, X),
@@ -136,7 +136,7 @@
     ### Pattern 1: Simple Field Access
     ```mangle
     # Schema
-    Decl user(Data.Type<{/id: int, /name: string, /age: int}>).
+    Decl user(Data).
     
     # Extract single field
     user_name(Name) :-
@@ -170,12 +170,7 @@
     ### Pattern 3: Nested Structures
     ```mangle
     # Schema
-    Decl server(
-        Config.Type<{
-            /network: {/host: string, /port: int},
-            /auth: {/enabled: n, /method: n}
-        }>
-    ).
+    Decl server(Config).
     
     # Access nested fields
     server_host(Host) :-
@@ -235,14 +230,7 @@
     
     ```mangle
     # Schema
-    Decl app_config(
-        Name.Type<n>,
-        Config.Type<{
-            /server: {/host: string, /port: int, /timeout: int},
-            /database: {/url: string, /pool_size: int},
-            /features: [n]
-        }>
-    ).
+    Decl app_config(Name, Config).
     
     # WRONG - Dot notation
     # bad_server_info(Name, Host, Port) :-
@@ -327,7 +315,7 @@
     ## Debugging Aid
     ```mangle
     # To debug struct contents, create extraction rules:
-    Decl debug_fields(Source.Type<n>, Fields.Type<[n]>).
+    Decl debug_fields(Source, Fields).
     
     # List all fields in a struct (if known at compile time)
     debug_user_fields([/id, /name, /age, /email]).

@@ -27,9 +27,9 @@
     ### Example: Debug Why Rule Doesn't Fire
     
     ```mangle
-    Decl employee(Id.Type<atom>, Name.Type<string>, Dept.Type<atom>).
-    Decl manager(Id.Type<atom>).
-    Decl high_paid_manager(Id.Type<atom>).
+    Decl employee(Id, Name, Dept) bound [/name, /string, /name].
+    Decl manager(Id) bound [/name].
+    Decl high_paid_manager(Id) bound [/name].
     
     # Facts
     employee(/e1, "Alice", /eng).
@@ -43,9 +43,9 @@
       Salary > 100000.
     
     # Add trace predicates
-    Decl trace_employee_check(Id.Type<atom>).
-    Decl trace_manager_check(Id.Type<atom>).
-    Decl trace_salary_check(Id.Type<atom>).
+    Decl trace_employee_check(Id) bound [/name].
+    Decl trace_manager_check(Id) bound [/name].
+    Decl trace_salary_check(Id) bound [/name].
     
     trace_employee_check(Id) :- employee(Id, _, _).
     trace_manager_check(Id) :- manager(Id).
@@ -93,18 +93,18 @@
     
     ### Example
     ```mangle
-    Decl salary(Id.Type<atom>, Amount.Type<int>).
+    Decl salary(Id, Amount) bound [/name, /number].
     salary(/e1, 80000).
     salary(/e2, 120000).
     
     # Rule with computation
-    Decl bonus(Id.Type<atom>, Amount.Type<int>).
+    Decl bonus(Id, Amount) bound [/name, /number].
     bonus(Id, Bonus) :-
       salary(Id, Salary),
       Bonus = fn:mult(Salary, 0.1).  # 10% bonus
     
     # Debug: Capture intermediate values
-    Decl debug_salary(Id.Type<atom>, Salary.Type<int>).
+    Decl debug_salary(Id, Salary) bound [/name, /number].
     debug_salary(Id, Salary) :- salary(Id, Salary).
     
     # Query:
@@ -120,7 +120,7 @@
     
     ### Example
     ```mangle
-    Decl item(Id.Type<atom>).
+    Decl item(Id) bound [/name].
     item(/i1). item(/i2). item(/i3).
     
     # Count items
@@ -139,9 +139,9 @@
     
     ### Example
     ```mangle
-    Decl user(Id.Type<atom>).
-    Decl active(Id.Type<atom>).
-    Decl inactive(Id.Type<atom>).
+    Decl user(Id) bound [/name].
+    Decl active(Id) bound [/name].
+    Decl inactive(Id) bound [/name].
     
     user(/u1). user(/u2).
     active(/u1).
@@ -154,7 +154,7 @@
     # Query: inactive(?Id) → {/u2}
     
     # Debug: Check what's being negated
-    Decl debug_active(Id.Type<atom>).
+    Decl debug_active(Id) bound [/name].
     debug_active(Id) :- active(Id).
     
     # Query: debug_active(?Id) → {/u1}
@@ -197,11 +197,11 @@
     
     ### Example
     ```mangle
-    Decl edge(From.Type<atom>, To.Type<atom>).
+    Decl edge(From, To) bound [/name, /name].
     edge(/a, /b).
     edge(/b, /c).
     
-    Decl path(From.Type<atom>, To.Type<atom>).
+    Decl path(From, To) bound [/name, /name].
     path(X, Y) :- edge(X, Y).
     path(X, Z) :- edge(X, Y), path(Y, Z).
     
@@ -236,9 +236,9 @@
     
     ### Example
     ```mangle
-    Decl a(X.Type<int>).
-    Decl b(X.Type<int>).
-    Decl c(X.Type<int>).
+    Decl a(X) bound [/number].
+    Decl b(X) bound [/number].
+    Decl c(X) bound [/number].
     
     a(1). a(2).
     b(2). b(3).
@@ -377,7 +377,7 @@
     ### Mangle-Side Trace Facts
     
     ```mangle
-    Decl trace(Rule.Type<atom>, Step.Type<atom>, Value.Type<string>).
+    Decl trace(Rule, Step, Value) bound [/name, /name, /string].
     
     # Add trace facts in rules
     complex_rule(X) :-
@@ -409,9 +409,9 @@
     ```mangle
     # Problem: Why doesn't high_value_customer/1 produce any results?
     
-    Decl customer(Id.Type<atom>).
-    Decl purchase(CustomerId.Type<atom>, Amount.Type<int>).
-    Decl high_value_customer(Id.Type<atom>).
+    Decl customer(Id) bound [/name].
+    Decl purchase(CustomerId, Amount) bound [/name, /number].
+    Decl high_value_customer(Id) bound [/name].
     
     customer(/c1).
     customer(/c2).
@@ -469,7 +469,7 @@
     ### 3. Rule Coverage
     Track which rules fired:
     ```mangle
-    Decl rule_fired(RuleName.Type<atom>).
+    Decl rule_fired(RuleName) bound [/name].
     
     rule1(X) :-
       clause(X),

@@ -33,8 +33,8 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl parent(Parent.Type<string>, Child.Type<string>).
-    Decl ancestor(Ancestor.Type<string>, Descendant.Type<string>).
+    Decl parent(Parent, Child) bound [/string, /string].
+    Decl ancestor(Ancestor, Descendant) bound [/string, /string].
     
     # Facts - Org chart
     parent("CEO", "VP_Eng").
@@ -60,9 +60,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl parent(Parent.Type<string>, Child.Type<string>).
-    Decl depth(Node.Type<string>, Level.Type<int>).
-    Decl root(Node.Type<string>).
+    Decl parent(Parent, Child) bound [/string, /string].
+    Decl depth(Node, Level) bound [/string, /number].
+    Decl root(Node) bound [/string].
     
     # Root nodes have depth 0
     root(X) :- parent(X, _), not parent(_, X).
@@ -96,8 +96,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl parent(Parent.Type<string>, Child.Type<string>).
-    Decl in_subtree(Root.Type<string>, Node.Type<string>).
+    Decl parent(Parent, Child) bound [/string, /string].
+    Decl in_subtree(Root, Node) bound [/string, /string].
     
     # Root is in its own subtree
     in_subtree(Root, Root).
@@ -128,9 +128,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl parent(Parent.Type<string>, Child.Type<string>).
-    Decl leaf(Node.Type<string>).
-    Decl node(N.Type<string>).
+    Decl parent(Parent, Child) bound [/string, /string].
+    Decl leaf(Node) bound [/string].
+    Decl node(N) bound [/string].
     
     # All nodes (parents and children)
     node(X) :- parent(X, _).
@@ -161,8 +161,8 @@
     ### Solution
     ```mangle
     # Schema
-    Decl parent(Parent.Type<string>, Child.Type<string>).
-    Decl sibling(A.Type<string>, B.Type<string>).
+    Decl parent(Parent, Child) bound [/string, /string].
+    Decl sibling(A, B) bound [/string, /string].
     
     # Two nodes are siblings if they share a parent and are different
     sibling(X, Y) :-
@@ -193,11 +193,11 @@
     ### Solution
     ```mangle
     # Schema
-    Decl parent(Parent.Type<string>, Child.Type<string>).
-    Decl ancestor(A.Type<string>, D.Type<string>).
-    Decl common_ancestor(A.Type<string>, B.Type<string>, Anc.Type<string>).
-    Decl depth(Node.Type<string>, D.Type<int>).
-    Decl lca(A.Type<string>, B.Type<string>, Anc.Type<string>).
+    Decl parent(Parent, Child) bound [/string, /string].
+    Decl ancestor(A, D) bound [/string, /string].
+    Decl common_ancestor(A, B, Anc) bound [/string, /string, /string].
+    Decl depth(Node, D) bound [/string, /number].
+    Decl lca(A, B, Anc) bound [/string, /string, /string].
     
     # Build ancestor relation
     ancestor(X, Y) :- parent(X, Y).
@@ -219,7 +219,7 @@
       common_ancestor(A, B, Anc),
       depth(Anc, D)
       |> do fn:group_by(A, B),
-         let MaxDepth = fn:Max(D),
+         let MaxDepth = fn:max(D),
       depth(Anc, MaxDepth).
     ```
     
@@ -246,9 +246,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl parent(Parent.Type<string>, Child.Type<string>).
-    Decl path_to_root(Node.Type<string>, Ancestor.Type<string>, Distance.Type<int>).
-    Decl root(Node.Type<string>).
+    Decl parent(Parent, Child) bound [/string, /string].
+    Decl path_to_root(Node, Ancestor, Distance) bound [/string, /string, /number].
+    Decl root(Node) bound [/string].
     
     # Root definition
     root(X) :- parent(X, _), not parent(_, X).
@@ -285,20 +285,20 @@
     ### Solution
     ```mangle
     # Schema
-    Decl parent(Parent.Type<string>, Child.Type<string>).
-    Decl child_count(Parent.Type<string>, Count.Type<int>).
+    Decl parent(Parent, Child) bound [/string, /string].
+    Decl child_count(Parent, Count) bound [/string, /number].
     
     child_count(Parent, Count) :-
       parent(Parent, Child)
       |> do fn:group_by(Parent),
-         let Count = fn:Count().
+         let Count = fn:count().
     
     # Include nodes with zero children
-    Decl node(N.Type<string>).
+    Decl node(N) bound [/string].
     node(X) :- parent(X, _).
     node(X) :- parent(_, X).
     
-    Decl child_count_with_zero(Node.Type<string>, Count.Type<int>).
+    Decl child_count_with_zero(Node, Count) bound [/string, /number].
     
     child_count_with_zero(Node, Count) :- child_count(Node, Count).
     child_count_with_zero(Node, 0) :- node(Node), not parent(Node, _).
@@ -356,8 +356,8 @@
     
     ### File System Hierarchy
     ```mangle
-    Decl file_parent(Parent.Type<string>, Child.Type<string>).
-    Decl in_directory(Dir.Type<string>, File.Type<string>).
+    Decl file_parent(Parent, Child) bound [/string, /string].
+    Decl in_directory(Dir, File) bound [/string, /string].
     
     in_directory(Dir, Dir).
     in_directory(Dir, File) :-
@@ -367,8 +367,8 @@
     
     ### Class Inheritance
     ```mangle
-    Decl extends(Child.Type<string>, Parent.Type<string>).
-    Decl inherits(Class.Type<string>, Ancestor.Type<string>).
+    Decl extends(Child, Parent) bound [/string, /string].
+    Decl inherits(Class, Ancestor) bound [/string, /string].
     
     inherits(C, P) :- extends(C, P).
     inherits(C, A) :- inherits(C, P), extends(P, A).
@@ -376,8 +376,8 @@
     
     ### AST Node Traversal
     ```mangle
-    Decl ast_child(Parent.Type<int>, Child.Type<int>, Index.Type<int>).
-    Decl ast_descendant(Ancestor.Type<int>, Descendant.Type<int>).
+    Decl ast_child(Parent, Child, Index) bound [/number, /number, /number].
+    Decl ast_descendant(Ancestor, Descendant) bound [/number, /number].
     
     ast_descendant(P, C) :- ast_child(P, C, _).
     ast_descendant(A, D) :- ast_descendant(A, N), ast_child(N, D, _).

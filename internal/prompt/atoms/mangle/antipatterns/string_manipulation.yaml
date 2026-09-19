@@ -50,7 +50,7 @@
     // store.Add(engine.NewAtom("greeting", engine.String(name), engine.String(msg)))
     
     # Query:
-    Decl greeting(Name.Type<string>, Msg.Type<string>).
+    Decl greeting(Name, Msg) bound [/string, /string].
     ```
     
     ---
@@ -82,7 +82,7 @@
     //     store.Add(engine.NewAtom("csv_part", engine.Number(i), engine.String(part)))
     // }
     
-    Decl csv_part(Index.Type<int>, Value.Type<string>).
+    Decl csv_part(Index, Value) bound [/number, /string].
     
     # Option 2: If fn:string:split exists:
     parse_csv(Parts) :-
@@ -90,7 +90,7 @@
         fn:string:split(Line, ",", Parts).
     
     # Option 3: Model delimited data as separate facts
-    Decl field(Line.Type</atom>, Index.Type<int>, Value.Type<string>).
+    Decl field(Line, Index, Value) bound [/name, /number, /string].
     
     field(/line1, 0, "a").
     field(/line1, 1, "b").
@@ -130,7 +130,7 @@
     //         engine.String(matches[2]))) // number
     // }
     
-    Decl phone_parts(Phone.Type<string>, AreaCode.Type<string>, Number.Type<string>).
+    Decl phone_parts(Phone, AreaCode, Number) bound [/string, /string, /string].
     
     format_phone(Phone, Formatted) :-
         phone_parts(Phone, Area, Num),
@@ -175,7 +175,7 @@
     //     engine.String(first),
     //     engine.String(rest)))
     
-    Decl text_parts(Text.Type<string>, First.Type<string>, Rest.Type<string>).
+    Decl text_parts(Text, First, Rest) bound [/string, /string, /string].
     ```
     
     ---
@@ -204,7 +204,7 @@
     // formatted := fmt.Sprintf("%10s", value)
     // store.Add(engine.NewAtom("formatted_value", engine.String(value), engine.String(formatted)))
     
-    Decl formatted_value(Value.Type<string>, Formatted.Type<string>).
+    Decl formatted_value(Value, Formatted) bound [/string, /string].
     ```
     
     ---
@@ -239,7 +239,7 @@
     // upper := strings.ToUpper(text)
     // store.Add(engine.NewAtom("uppercase", engine.String(text), engine.String(upper)))
     
-    Decl uppercase(Original.Type<string>, Upper.Type<string>).
+    Decl uppercase(Original, Upper) bound [/string, /string].
     ```
     
     ---
@@ -387,7 +387,7 @@
     // `
     // store.Add(engine.NewAtom("query", engine.String(sql)))
     
-    Decl query(SQL.Type<string>).
+    Decl query(SQL) bound [/string].
     ```
     
     ---
@@ -420,10 +420,10 @@
     // reversed := string(runes)
     // store.Add(engine.NewAtom("reversed", engine.String(text), engine.String(reversed)))
     
-    Decl reversed(Original.Type<string>, Reversed.Type<string>).
+    Decl reversed(Original, Reversed) bound [/string, /string].
     
     # Or implement recursively (for learning, not production):
-    Decl reverse_chars(Chars.Type<list>, Result.Type<list>).
+    Decl reverse_chars(Chars, Result).
     
     reverse_chars([], []).
     reverse_chars(List, Reversed) :-
@@ -538,11 +538,11 @@
     // tsv := "col1\tcol2\tcol3"
     // store.Add(engine.NewAtom("tsv_line", engine.String(tsv)))
     
-    Decl windows_path(Path.Type<string>).
-    Decl tsv_line(Line.Type<string>).
+    Decl windows_path(Path) bound [/string].
+    Decl tsv_line(Line) bound [/string].
     
     # Or use atoms for paths:
-    Decl file_path(Path.Type</atom>).
+    Decl file_path(Path) bound [/name].
     file_path(/c_users_name_file_txt).
     ```
     
@@ -564,7 +564,7 @@
     # Don't parse CSV in Mangle!
     
     # Instead, load parsed data:
-    Decl csv_row(RowId.Type<int>, Col1.Type<string>, Col2.Type<string>, Col3.Type<string>).
+    Decl csv_row(RowId, Col1, Col2, Col3) bound [/number, /string, /string, /string].
     
     # In Go:
     // csvReader := csv.NewReader(file)
@@ -588,8 +588,8 @@
     
     Common built-ins that MAY exist:
     
-    - `fn:string_concat(Parts.Type<list>, Result.Type<string>)` - Concatenate strings
-    - `fn:length(Str.Type<string>)` - String length
+    - `fn:string_concat(Parts, Result)` - Concatenate strings
+    - `fn:length(Str)` - String length
     - `fn:string:upper(Str, Upper)` - To uppercase
     - `fn:string:lower(Str, Lower)` - To lowercase
     - `fn:string:trim(Str, Trimmed)` - Remove whitespace
@@ -646,12 +646,12 @@
     
     ```mangle
     # Instead of:
-    Decl status(Id.Type<int>, Status.Type<string>).
+    Decl status(Id, Status) bound [/number, /string].
     status(1, "active").
     status(2, "inactive").
     
     # Use atoms:
-    Decl status(Id.Type<int>, Status.Type</atom>).
+    Decl status(Id, Status) bound [/number, /name].
     status(1, /active).
     status(2, /inactive).
     ```

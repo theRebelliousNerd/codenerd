@@ -134,8 +134,8 @@
     
     # If expensive_check should only run when cheap_check passes,
     # structure your data so expensive_check only has facts for valid X:
-    Decl cheap_check(X.Type</atom>).
-    Decl expensive_check(X.Type</atom>).
+    Decl cheap_check(X) bound [/name].
+    Decl expensive_check(X) bound [/name].
     
     cheap_check(/a).
     cheap_check(/b).
@@ -202,7 +202,7 @@
     # WRONG - aggregating before grouping variables are bound
     total(T) :-
         data(Key, Value),
-        T = fn:Sum(Value),     # What are we grouping by?
+        T = fn:sum(Value),     # What are we grouping by?
         group_key(Key).
     ```
     
@@ -215,7 +215,7 @@
     total_by_key(Key, T) :-
         data(Key, Value)
         |> do fn:group_by(Key)
-        |> let T = fn:Sum(Value).
+        |> let T = fn:sum(Value).
     
     # Order in pipe matters:
     # 1. Generate facts: data(Key, Value)
@@ -317,7 +317,7 @@
     best_match(X) :-
         match(X, Priority)
         |> do fn:group_by(X)
-        |> let MinPriority = fn:Min(Priority)
+        |> let MinPriority = fn:min(Priority)
         |> where Priority = MinPriority.
     ```
     
@@ -438,11 +438,11 @@
     # Write files so order doesn't matter:
     
     # file1.gl
-    Decl step1(X.Type<int>).
+    Decl step1(X) bound [/number].
     step1(X) :- input(X).
     
     # file2.gl
-    Decl step2(X.Type<int>).
+    Decl step2(X) bound [/number].
     step2(X) :- step1(X).
     
     # Both files declare their predicates
@@ -529,7 +529,7 @@
     // log.Printf("rule2 results: %v", results2)
     
     # Or add debug predicates:
-    Decl debug_rule1(X.Type<int>).
+    Decl debug_rule1(X) bound [/number].
     debug_rule1(X) :- input(X).  # Exactly same as rule1
     
     # Query debug predicates to trace derivations
@@ -558,8 +558,8 @@
     result(Key, Avg) :-
         data(Key, Value)
         |> do fn:group_by(Key)        # Step 1
-        |> let Sum = fn:Sum(Value)     # Step 2
-        |> let Count = fn:Count(Value) # Step 3
+        |> let Sum = fn:sum(Value)     # Step 2
+        |> let Count = fn:count() # Step 3
         |> let Avg = fn:div(Sum, Count). # Step 4
     
     # Order matters here!

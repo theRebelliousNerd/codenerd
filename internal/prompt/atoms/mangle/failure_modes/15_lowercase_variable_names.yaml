@@ -35,7 +35,7 @@
     ancestor(from_node, to_node) :- edge(from_node, to_node).
     
     # WRONG - In declarations
-    Decl parent(x.Type<n>, y.Type<n>).  # x and y are constants!
+    Decl parent(x, y) bound [/name, /name].  # x and y are constants!
     ```
     
     ## Correct Code
@@ -54,7 +54,7 @@
     ancestor(From_Node, To_Node) :- edge(From_Node, To_Node).
     
     # CORRECT - In declarations
-    Decl parent(X.Type<n>, Y.Type<n>).
+    Decl parent(X, Y) bound [/name, /name].
     
     # CORRECT - Anonymous variable
     ancestor(X, _) :- parent(X, _).  # Underscore = don't care
@@ -106,7 +106,7 @@
     path(X, Y, Z).
     
     # Aggregation
-    total(Sum) :- value(X) |> let Sum = fn:Sum(X).
+    total(Sum) :- value(X) |> let Sum = fn:sum(X).
     ```
     
     ### Descriptive Variables
@@ -137,7 +137,7 @@
     
     ```mangle
     # Schema
-    Decl user(ID.Type<n>, Name.Type<string>, Age.Type<int>).
+    Decl user(ID, Name, Age) bound [/name, /string, /number].
     
     # WRONG - lowercase treated as constants
     adult(id, name) :- user(id, name, age), age >= 18.

@@ -31,8 +31,8 @@
     
     ### Example
     ```mangle
-    Decl employee(Id.Type<atom>, Dept.Type<atom>, Salary.Type<int>).
-    Decl dept_total(Dept.Type<atom>, Total.Type<int>).
+    Decl employee(Id, Dept, Salary) bound [/name, /name, /number].
+    Decl dept_total(Dept, Total) bound [/name, /number].
     
     # Facts
     employee(/e1, /engineering, 100000).
@@ -52,7 +52,7 @@
     
     ### Solution: Explicit Group Universe
     ```mangle
-    Decl department(Dept.Type<atom>).
+    Decl department(Dept) bound [/name].
     department(/engineering).
     department(/marketing).
     
@@ -107,8 +107,8 @@
     
     ### Example
     ```mangle
-    Decl sale(Product.Type<atom>, Amount.Type<int>).
-    Decl product_stats(Product.Type<atom>, Total.Type<int>, Avg.Type<float>, Count.Type<int>).
+    Decl sale(Product, Amount) bound [/name, /number].
+    Decl product_stats(Product, Total, Avg, Count) bound [/name, /number, /float64, /number].
     
     sale(/widget, 100).
     sale(/widget, 150).
@@ -132,8 +132,8 @@
     
     ### Example
     ```mangle
-    Decl transaction(Id.Type<atom>, User.Type<atom>, Amount.Type<int>, Status.Type<atom>).
-    Decl user_successful_total(User.Type<atom>, Total.Type<int>).
+    Decl transaction(Id, User, Amount, Status) bound [/name, /name, /number, /name].
+    Decl user_successful_total(User, Total) bound [/name, /number].
     
     transaction(/t1, /alice, 100, /success).
     transaction(/t2, /alice, 50, /failed).
@@ -166,9 +166,9 @@
     
     ### Example: Average of Department Averages
     ```mangle
-    Decl employee(Id.Type<atom>, Dept.Type<atom>, Salary.Type<int>).
-    Decl dept_avg(Dept.Type<atom>, Avg.Type<float>).
-    Decl company_avg_of_avgs(Avg.Type<float>).
+    Decl employee(Id, Dept, Salary) bound [/name, /name, /number].
+    Decl dept_avg(Dept, Avg) bound [/name, /float64].
+    Decl company_avg_of_avgs(Avg) bound [/float64].
     
     employee(/e1, /eng, 100000).
     employee(/e2, /eng, 120000).
@@ -199,7 +199,7 @@
     What if the input predicate has no facts?
     
     ```mangle
-    Decl data(X.Type<int>).
+    Decl data(X) bound [/number].
     # No facts!
     
     total(Sum) :-
@@ -233,8 +233,8 @@
     
     ### Example: Group Users by Department
     ```mangle
-    Decl employee(Id.Type<atom>, Dept.Type<atom>).
-    Decl dept_employees(Dept.Type<atom>, Employees.Type<list<atom>>).
+    Decl employee(Id, Dept) bound [/name, /name].
+    Decl dept_employees(Dept, Employees).
     
     employee(/e1, /eng).
     employee(/e2, /eng).
@@ -256,8 +256,8 @@
     
     ### Example
     ```mangle
-    Decl purchase(User.Type<atom>, Product.Type<atom>).
-    Decl user_product_count(User.Type<atom>, Count.Type<int>).
+    Decl purchase(User, Product) bound [/name, /name].
+    Decl user_product_count(User, Count) bound [/name, /number].
     
     purchase(/alice, /widget).
     purchase(/alice, /widget).  # Duplicate purchase
@@ -283,8 +283,8 @@
     
     ### Example: High-Value Customers
     ```mangle
-    Decl purchase(User.Type<atom>, Amount.Type<int>).
-    Decl high_value_customer(User.Type<atom>, Total.Type<int>).
+    Decl purchase(User, Amount) bound [/name, /number].
+    Decl high_value_customer(User, Total) bound [/name, /number].
     
     purchase(/alice, 100).
     purchase(/alice, 200).
@@ -307,8 +307,8 @@
     
     ### Example: Total Tax
     ```mangle
-    Decl sale(Product.Type<atom>, Price.Type<int>).
-    Decl total_tax(TaxAmount.Type<float>).
+    Decl sale(Product, Price) bound [/name, /number].
+    Decl total_tax(TaxAmount) bound [/float64].
     
     sale(/widget, 100).
     sale(/gadget, 200).
@@ -332,8 +332,8 @@
     
     ### Example: Department and Job Title
     ```mangle
-    Decl employee(Id.Type<atom>, Dept.Type<atom>, Title.Type<atom>, Salary.Type<int>).
-    Decl dept_title_avg(Dept.Type<atom>, Title.Type<atom>, Avg.Type<float>).
+    Decl employee(Id, Dept, Title, Salary) bound [/name, /name, /name, /number].
+    Decl dept_title_avg(Dept, Title, Avg) bound [/name, /name, /float64].
     
     employee(/e1, /eng, /senior, 120000).
     employee(/e2, /eng, /senior, 130000).

@@ -42,7 +42,7 @@
         S = fn:plus(Temp, C).
     ```
     
-    **Note**: For summing over groups, use the `fn:Sum` aggregator instead.
+    **Note**: For summing over groups, use the `fn:sum` aggregator instead.
     
     ---
     
@@ -252,7 +252,7 @@
     - Return a single result per invocation
     - Used in rule bodies for computation
     
-    **Aggregators** (e.g., `fn:Sum`):
+    **Aggregators** (e.g., `fn:sum`):
     - Operate on **groups of values**
     - Used in **transform blocks** with `|>`
     - Compute over multiple facts
@@ -267,7 +267,7 @@
     total_of_all(T) :-
         item(X)
         |> do fn:group_by(),
-           let T = fn:Sum(X).
+           let T = fn:sum(X).
     ```
     
     ---

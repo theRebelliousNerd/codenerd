@@ -23,7 +23,7 @@
     ## Wrong Code
     ```mangle
     # WRONG - Missing period on declaration
-    Decl parent(X.Type<n>, Y.Type<n>)
+    Decl parent(X, Y)
     
     # WRONG - Missing period on fact
     parent(/alice, /bob)
@@ -47,7 +47,7 @@
     ## Correct Code
     ```mangle
     # CORRECT - Period on declaration
-    Decl parent(X.Type<n>, Y.Type<n>).
+    Decl parent(X, Y).
     
     # CORRECT - Period on fact
     parent(/alice, /bob).

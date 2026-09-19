@@ -54,13 +54,13 @@
     
     **CORRECTION:**
     ```mangle
-    Decl edge(X.Type<int>, Y.Type<int>).
+    Decl edge(X, Y) bound [/number, /number].
     ```
     
     **Rule**:
     - Use uppercase `Decl` (not `.decl`)
     - Variables are UPPERCASE (not lowercase)
-    - Type syntax is `.Type<type>` (not `:type`)
+    - Types go in `bound [/type, ...]` after the argument list (not `:type`, and not the 0.4.0 `Var` form, which the pinned engine does not parse)
     
     ---
     
@@ -372,13 +372,13 @@
     
     **ERROR:**
     ```mangle
-    Decl score(Value.Type<float>).
+    Decl score(Value) bound [/float64].
     score(5).  # ERROR: 5 is int, not float
     ```
     
     **CORRECTION:**
     ```mangle
-    Decl score(Value.Type<float>).
+    Decl score(Value) bound [/float64].
     score(5.0).  # Use 5.0 for floats
     ```
     
@@ -648,7 +648,7 @@
     ```text
     ✓ CORRECT                           ✗ INCORRECT
     ----------------------------------  ----------------------------------
-    Decl pred(X.Type<int>).            .decl pred(x:int).
+    Decl pred(X) bound [/number].            .decl pred(x:int).
     ancestor(X, Y) :- parent(X, Y).    ancestor(x, y) :- parent(x, y).
     file_topology(..., /go, ...).      file_topology(..., "go", ...).
     # Comment                          // Comment

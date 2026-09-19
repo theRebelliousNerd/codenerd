@@ -35,9 +35,9 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl all_users(UserId.Type<string>).
-    Decl banned_users(UserId.Type<string>).
-    Decl active_users(UserId.Type<string>).
+    Decl all_users(UserId) bound [/string].
+    Decl banned_users(UserId) bound [/string].
+    Decl active_users(UserId) bound [/string].
     
     # Facts
     all_users("u1").
@@ -63,9 +63,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl difference(Elem.Type<string>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl difference(Elem) bound [/string].
     
     # A - B
     difference(X) :- set_a(X), not set_b(X).
@@ -92,9 +92,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl expected(Id.Type<string>).
-    Decl actual(Id.Type<string>).
-    Decl missing(Id.Type<string>).
+    Decl expected(Id) bound [/string].
+    Decl actual(Id) bound [/string].
+    Decl missing(Id) bound [/string].
     
     # Expected but not actual
     missing(X) :- expected(X), not actual(X).
@@ -122,9 +122,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl child(ChildId.Type<string>, ParentId.Type<string>).
-    Decl parent(ParentId.Type<string>).
-    Decl orphaned(ChildId.Type<string>).
+    Decl child(ChildId, ParentId) bound [/string, /string].
+    Decl parent(ParentId) bound [/string].
+    Decl orphaned(ChildId) bound [/string].
     
     # Children whose parent doesn't exist
     orphaned(ChildId) :-
@@ -152,9 +152,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>).
-    Decl login_event(UserId.Type<string>, Timestamp.Type<int>).
-    Decl never_logged_in(UserId.Type<string>).
+    Decl user(UserId) bound [/string].
+    Decl login_event(UserId, Timestamp) bound [/string, /number].
+    Decl never_logged_in(UserId) bound [/string].
     
     # Users with no login events
     never_logged_in(UserId) :- user(UserId), not login_event(UserId, _).
@@ -181,9 +181,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl xor_result(Elem.Type<string>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl xor_result(Elem) bound [/string].
     
     # In A but not B
     xor_result(X) :- set_a(X), not set_b(X).
@@ -212,10 +212,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>).
-    Decl has_issue_a(Id.Type<string>).
-    Decl has_issue_b(Id.Type<string>).
-    Decl clean_items(Id.Type<string>).
+    Decl item(Id) bound [/string].
+    Decl has_issue_a(Id) bound [/string].
+    Decl has_issue_b(Id) bound [/string].
+    Decl clean_items(Id) bound [/string].
     
     # Items with neither issue
     clean_items(Id) :- item(Id), not has_issue_a(Id), not has_issue_b(Id).
@@ -243,9 +243,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl candidate(Id.Type<string>, Value.Type<int>).
-    Decl excluded(Id.Type<string>).
-    Decl result(Id.Type<string>, Value.Type<int>).
+    Decl candidate(Id, Value) bound [/string, /number].
+    Decl excluded(Id) bound [/string].
+    Decl result(Id, Value) bound [/string, /number].
     
     # Candidates that are not excluded AND meet criteria
     result(Id, Value) :-
@@ -276,10 +276,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl edge(From.Type<string>, To.Type<string>).
-    Decl reachable(From.Type<string>, To.Type<string>).
-    Decl isolated(Node.Type<string>).
-    Decl node(N.Type<string>).
+    Decl edge(From, To) bound [/string, /string].
+    Decl reachable(From, To) bound [/string, /string].
+    Decl isolated(Node) bound [/string].
+    Decl node(N) bound [/string].
     
     # Derive reachable (Stratum 1)
     reachable(X, Y) :- edge(X, Y).
@@ -315,16 +315,16 @@
     ### Solution
     ```mangle
     # Schema
-    Decl purchase(UserId.Type<string>, Amount.Type<int>).
-    Decl total_spent(UserId.Type<string>, Total.Type<int>).
-    Decl low_spenders(UserId.Type<string>).
-    Decl user(UserId.Type<string>).
+    Decl purchase(UserId, Amount) bound [/string, /number].
+    Decl total_spent(UserId, Total) bound [/string, /number].
+    Decl low_spenders(UserId) bound [/string].
+    Decl user(UserId) bound [/string].
     
     # Calculate totals (Stratum 1)
     total_spent(UserId, Total) :-
       purchase(UserId, Amount)
       |> do fn:group_by(UserId),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     
     # Users who spent less than threshold (Stratum 2)
     low_spenders(UserId) :- total_spent(UserId, Total), Total < 100.
@@ -357,15 +357,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl module(ModuleId.Type<string>).
-    Decl has_test(ModuleId.Type<string>).
-    Decl all_modules_tested(Result.Type<atom>).
+    Decl module(ModuleId) bound [/string].
+    Decl has_test(ModuleId) bound [/string].
+    Decl all_modules_tested(Result) bound [/name].
     
     # "All modules have tests" = "There does NOT exist a module that does NOT have a test"
     all_modules_tested(/yes) :- not (module(M), not has_test(M)).
     
     # Simpler alternative (find counterexample)
-    Decl untested_module(ModuleId.Type<string>).
+    Decl untested_module(ModuleId) bound [/string].
     untested_module(M) :- module(M), not has_test(M).
     
     all_modules_tested(/no) :- untested_module(_).
@@ -449,19 +449,19 @@
     
     ### Files Without Tests
     ```mangle
-    Decl source_file(File.Type<string>).
-    Decl test_file(TestFile.Type<string>, SourceFile.Type<string>).
-    Decl untested_files(File.Type<string>).
+    Decl source_file(File) bound [/string].
+    Decl test_file(TestFile, SourceFile) bound [/string, /string].
+    Decl untested_files(File) bound [/string].
     
     untested_files(File) :- source_file(File), not test_file(_, File).
     ```
     
     ### Unreachable Code
     ```mangle
-    Decl function(FuncId.Type<string>).
-    Decl called_by(Callee.Type<string>, Caller.Type<string>).
-    Decl reachable_from_main(FuncId.Type<string>).
-    Decl dead_code(FuncId.Type<string>).
+    Decl function(FuncId) bound [/string].
+    Decl called_by(Callee, Caller) bound [/string, /string].
+    Decl reachable_from_main(FuncId) bound [/string].
+    Decl dead_code(FuncId) bound [/string].
     
     # Reachable from main
     reachable_from_main("main").
@@ -473,9 +473,9 @@
     
     ### Unhandled Error Paths
     ```mangle
-    Decl error_type(ErrorId.Type<string>).
-    Decl handled_error(ErrorId.Type<string>).
-    Decl unhandled_errors(ErrorId.Type<string>).
+    Decl error_type(ErrorId) bound [/string].
+    Decl handled_error(ErrorId) bound [/string].
+    Decl unhandled_errors(ErrorId) bound [/string].
     
     unhandled_errors(ErrorId) :- error_type(ErrorId), not handled_error(ErrorId).
     ```

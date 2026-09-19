@@ -37,9 +37,9 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>).
-    Decl email(UserId.Type<string>, Email.Type<string>).
-    Decl user_email(UserId.Type<string>, Email.Type<string>).
+    Decl user(UserId) bound [/string].
+    Decl email(UserId, Email) bound [/string, /string].
+    Decl user_email(UserId, Email) bound [/string, /string].
     
     # Facts
     user("u1").
@@ -73,11 +73,11 @@
     ### Solution
     ```mangle
     # Schema
-    Decl entity(Id.Type<string>).
-    Decl primary_value(Id.Type<string>, Value.Type<string>).
-    Decl secondary_value(Id.Type<string>, Value.Type<string>).
-    Decl tertiary_value(Id.Type<string>, Value.Type<string>).
-    Decl final_value(Id.Type<string>, Value.Type<string>).
+    Decl entity(Id) bound [/string].
+    Decl primary_value(Id, Value) bound [/string, /string].
+    Decl secondary_value(Id, Value) bound [/string, /string].
+    Decl tertiary_value(Id, Value) bound [/string, /string].
+    Decl final_value(Id, Value) bound [/string, /string].
     
     # Priority 1: Use primary if available
     final_value(Id, Value) :- primary_value(Id, Value).
@@ -134,15 +134,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>).
-    Decl purchase(UserId.Type<string>, Amount.Type<int>).
-    Decl user_total(UserId.Type<string>, Total.Type<int>).
+    Decl user(UserId) bound [/string].
+    Decl purchase(UserId, Amount) bound [/string, /number].
+    Decl user_total(UserId, Total) bound [/string, /number].
     
     # Users with purchases - sum them
     user_total(UserId, Total) :-
       purchase(UserId, Amount)
       |> do fn:group_by(UserId),
-         let Total = fn:Sum(Amount).
+         let Total = fn:sum(Amount).
     
     # Users with no purchases - default to 0
     user_total(UserId, 0) :-
@@ -174,10 +174,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl node(Id.Type<string>).
-    Decl parent(Child.Type<string>, Parent.Type<string>).
-    Decl own_value(Id.Type<string>, Value.Type<string>).
-    Decl effective_value(Id.Type<string>, Value.Type<string>).
+    Decl node(Id) bound [/string].
+    Decl parent(Child, Parent) bound [/string, /string].
+    Decl own_value(Id, Value) bound [/string, /string].
+    Decl effective_value(Id, Value) bound [/string, /string].
     
     # Use own value if it exists
     effective_value(Id, Value) :- own_value(Id, Value).
@@ -226,9 +226,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>, Country.Type<string>).
-    Decl custom_setting(UserId.Type<string>, Value.Type<string>).
-    Decl effective_setting(UserId.Type<string>, Value.Type<string>).
+    Decl user(UserId, Country) bound [/string, /string].
+    Decl custom_setting(UserId, Value) bound [/string, /string].
+    Decl effective_setting(UserId, Value) bound [/string, /string].
     
     # Use custom setting if exists
     effective_setting(UserId, Value) :- custom_setting(UserId, Value).
@@ -273,9 +273,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl expected_sequence(N.Type<int>).
-    Decl actual_value(N.Type<int>, Value.Type<string>).
-    Decl complete_sequence(N.Type<int>, Value.Type<string>).
+    Decl expected_sequence(N) bound [/number].
+    Decl actual_value(N, Value) bound [/number, /string].
+    Decl complete_sequence(N, Value) bound [/number, /string].
     
     # Use actual value if it exists
     complete_sequence(N, Value) :- actual_value(N, Value).
@@ -314,9 +314,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl time_point(T.Type<int>).
-    Decl measurement(T.Type<int>, Value.Type<int>).
-    Decl filled_value(T.Type<int>, Value.Type<int>).
+    Decl time_point(T) bound [/number].
+    Decl measurement(T, Value) bound [/number, /number].
+    Decl filled_value(T, Value) bound [/number, /number].
     
     # Use actual measurement if exists
     filled_value(T, Value) :- measurement(T, Value).
@@ -329,7 +329,7 @@
       measurement(PrevT, Value),
       PrevT < T
       |> do fn:group_by(T),
-         let MaxPrevT = fn:Max(PrevT),
+         let MaxPrevT = fn:max(PrevT),
       PrevT = MaxPrevT.
     ```
     
@@ -363,17 +363,17 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, Category.Type<string>).
-    Decl actual_price(Id.Type<string>, Price.Type<int>).
-    Decl category_avg_price(Category.Type<string>, AvgPrice.Type<float>).
-    Decl effective_price(Id.Type<string>, Price.Type<float>).
+    Decl item(Id, Category) bound [/string, /string].
+    Decl actual_price(Id, Price) bound [/string, /number].
+    Decl category_avg_price(Category, AvgPrice) bound [/string, /float64].
+    Decl effective_price(Id, Price) bound [/string, /float64].
     
     # Calculate average price per category
     category_avg_price(Category, AvgPrice) :-
       item(ItemId, Category),
       actual_price(ItemId, Price)
       |> do fn:group_by(Category),
-         let AvgPrice = fn:Avg(Price).
+         let AvgPrice = fn:avg(Price).
     
     # Use actual price if exists
     effective_price(Id, Price) :-
@@ -412,22 +412,22 @@
     ### Solution
     ```mangle
     # Schema
-    Decl user(UserId.Type<string>).
-    Decl user_name(UserId.Type<string>, Name.Type<string>).
-    Decl user_email(UserId.Type<string>, Email.Type<string>).
-    Decl user_phone(UserId.Type<string>, Phone.Type<string>).
-    Decl user_profile(UserId.Type<string>, Name.Type<string>, Email.Type<string>, Phone.Type<string>).
+    Decl user(UserId) bound [/string].
+    Decl user_name(UserId, Name) bound [/string, /string].
+    Decl user_email(UserId, Email) bound [/string, /string].
+    Decl user_phone(UserId, Phone) bound [/string, /string].
+    Decl user_profile(UserId, Name, Email, Phone) bound [/string, /string, /string, /string].
     
     # Combine actuals with defaults
-    Decl name_or_default(UserId.Type<string>, Name.Type<string>).
+    Decl name_or_default(UserId, Name) bound [/string, /string].
     name_or_default(UserId, Name) :- user_name(UserId, Name).
     name_or_default(UserId, "Anonymous") :- user(UserId), not user_name(UserId, _).
     
-    Decl email_or_default(UserId.Type<string>, Email.Type<string>).
+    Decl email_or_default(UserId, Email) bound [/string, /string].
     email_or_default(UserId, Email) :- user_email(UserId, Email).
     email_or_default(UserId, "no-email") :- user(UserId), not user_email(UserId, _).
     
-    Decl phone_or_default(UserId.Type<string>, Phone.Type<string>).
+    Decl phone_or_default(UserId, Phone) bound [/string, /string].
     phone_or_default(UserId, Phone) :- user_phone(UserId, Phone).
     phone_or_default(UserId, "no-phone") :- user(UserId), not user_phone(UserId, _).
     
@@ -464,9 +464,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, BasePrice.Type<int>).
-    Decl custom_discount(Id.Type<string>, Discount.Type<float>).
-    Decl effective_discount(Id.Type<string>, Discount.Type<float>).
+    Decl item(Id, BasePrice) bound [/string, /number].
+    Decl custom_discount(Id, Discount) bound [/string, /float64].
+    Decl effective_discount(Id, Discount) bound [/string, /float64].
     
     # Use custom discount if exists
     effective_discount(Id, Discount) :- custom_discount(Id, Discount).
@@ -505,9 +505,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl setting(Key.Type<string>, Value.Type<string>, ExpiresAt.Type<int>).
-    Decl current_time(T.Type<int>).
-    Decl effective_setting(Key.Type<string>, Value.Type<string>).
+    Decl setting(Key, Value, ExpiresAt) bound [/string, /string, /number].
+    Decl current_time(T) bound [/number].
+    Decl effective_setting(Key, Value) bound [/string, /string].
     
     # Use setting if not expired
     effective_setting(Key, Value) :-
@@ -581,10 +581,10 @@
     
     ### Configuration Defaults
     ```mangle
-    Decl config_key(Key.Type<string>).
-    Decl user_config(UserId.Type<string>, Key.Type<string>, Value.Type<string>).
-    Decl system_default(Key.Type<string>, Value.Type<string>).
-    Decl effective_config(UserId.Type<string>, Key.Type<string>, Value.Type<string>).
+    Decl config_key(Key) bound [/string].
+    Decl user_config(UserId, Key, Value) bound [/string, /string, /string].
+    Decl system_default(Key, Value) bound [/string, /string].
+    Decl effective_config(UserId, Key, Value) bound [/string, /string, /string].
     
     effective_config(UserId, Key, Value) :- user_config(UserId, Key, Value).
     effective_config(UserId, Key, Value) :-
@@ -595,9 +595,9 @@
     
     ### Test Timeout Defaults
     ```mangle
-    Decl test(TestId.Type<string>, Suite.Type<string>).
-    Decl custom_timeout(TestId.Type<string>, TimeoutMs.Type<int>).
-    Decl effective_timeout(TestId.Type<string>, TimeoutMs.Type<int>).
+    Decl test(TestId, Suite) bound [/string, /string].
+    Decl custom_timeout(TestId, TimeoutMs) bound [/string, /number].
+    Decl effective_timeout(TestId, TimeoutMs) bound [/string, /number].
     
     effective_timeout(TestId, TimeoutMs) :- custom_timeout(TestId, TimeoutMs).
     effective_timeout(TestId, 5000) :- test(TestId, _), not custom_timeout(TestId, _).
@@ -605,9 +605,9 @@
     
     ### File Metadata Defaults
     ```mangle
-    Decl file(Path.Type<string>).
-    Decl file_encoding(Path.Type<string>, Encoding.Type<string>).
-    Decl effective_encoding(Path.Type<string>, Encoding.Type<string>).
+    Decl file(Path) bound [/string].
+    Decl file_encoding(Path, Encoding) bound [/string, /string].
+    Decl effective_encoding(Path, Encoding) bound [/string, /string].
     
     effective_encoding(Path, Encoding) :- file_encoding(Path, Encoding).
     effective_encoding(Path, "UTF-8") :- file(Path), not file_encoding(Path, _).

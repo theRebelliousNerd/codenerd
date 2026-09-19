@@ -47,13 +47,13 @@
         :match_field(U, /name, Name).
     
     # Or flatten the structure:
-    Decl user(Id.Type</atom>, Name.Type<string>, Age.Type<int>).
+    Decl user(Id, Name, Age) bound [/name, /string, /number].
     
     get_name(Id, Name) :- user(Id, Name, _).
     
     # For nested structures, use separate predicates:
-    Decl person(Id.Type</atom>, Name.Type<string>).
-    Decl address(PersonId.Type</atom>, Street.Type<string>, City.Type<string>).
+    Decl person(Id, Name) bound [/name, /string].
+    Decl address(PersonId, Street, City) bound [/name, /string, /string].
     
     get_city(PersonId, City) :-
         person(PersonId, _),
@@ -88,7 +88,7 @@
     
     ### Correct Mangle Way
     ```mangle
-    Decl user(Id.Type</atom>, First.Type<string>, Last.Type<string>, Age.Type<int>).
+    Decl user(Id, First, Last, Age) bound [/name, /string, /string, /number].
     
     # "Method" as predicate:
     full_name(UserId, FullName) :-
@@ -137,7 +137,7 @@
     //     engine.Atom("active")))
     
     # Or derive them from other facts:
-    Decl user(Id.Type</atom>, Name.Type<string>, Age.Type<int>, Status.Type</atom>).
+    Decl user(Id, Name, Age, Status) bound [/name, /string, /number, /name].
     
     new_user(Id, Name, Age) :-
         pending_user(Id, Name, Age),
@@ -178,7 +178,7 @@
     ### Correct Mangle Way
     ```mangle
     # Option 1: Type tags
-    Decl animal(Id.Type</atom>, Type.Type</atom>, Name.Type<string>).
+    Decl animal(Id, Type, Name) bound [/name, /name, /string].
     
     animal(/dog1, /dog, "Buddy").
     animal(/cat1, /cat, "Whiskers").
@@ -190,8 +190,8 @@
         animal(Id, /cat, _).
     
     # Option 2: Separate predicates (more common)
-    Decl dog(Id.Type</atom>, Name.Type<string>).
-    Decl cat(Id.Type</atom>, Name.Type<string>).
+    Decl dog(Id, Name) bound [/name, /string].
+    Decl cat(Id, Name) bound [/name, /string].
     
     dog(/dog1, "Buddy").
     cat(/cat1, "Whiskers").
@@ -230,15 +230,15 @@
     ### Correct Mangle Way
     ```mangle
     # Option 1: Derive final state directly
-    Decl final_user(Id.Type</atom>, Name.Type<string>, Age.Type<int>, Status.Type</atom>).
+    Decl final_user(Id, Name, Age, Status) bound [/name, /string, /number, /name].
     
     final_user(/user1, "Alice", 25, /active) :-
         base_user(/user1).
     
     # Option 2: Sequential derivations
-    Decl user_step1(Id.Type</atom>, Name.Type<string>).
-    Decl user_step2(Id.Type</atom>, Name.Type<string>, Age.Type<int>).
-    Decl user_final(Id.Type</atom>, Name.Type<string>, Age.Type<int>, Status.Type</atom>).
+    Decl user_step1(Id, Name) bound [/name, /string].
+    Decl user_step2(Id, Name, Age) bound [/name, /string, /number].
+    Decl user_final(Id, Name, Age, Status) bound [/name, /string, /number, /name].
     
     user_step1(Id, "Alice") :- base_user(Id).
     user_step2(Id, Name, 25) :- user_step1(Id, Name).
@@ -265,7 +265,7 @@
     Attempting:
     ```mangle
     # WRONG - no private/public
-    Decl private password(User.Type</atom>, Pass.Type<string>).
+    Decl private password(User, Pass).
     ```
     
     ### Why It Fails
@@ -274,7 +274,7 @@
     ### Correct Mangle Way
     ```mangle
     # Convention: prefix with underscore for "internal" predicates
-    Decl _password_hash(UserId.Type</atom>, Hash.Type<string>).
+    Decl _password_hash(UserId, Hash) bound [/name, /string].
     
     # Public predicate for checking:
     password_valid(UserId, Input) :-
@@ -351,7 +351,7 @@
     ### Correct Mangle Way
     ```mangle
     # Define the "interface" as a predicate:
-    Decl can_speak(Entity.Type</atom>).
+    Decl can_speak(Entity) bound [/name].
     
     # "Implement" by deriving facts:
     can_speak(Id) :- dog(Id, _).
@@ -392,7 +392,7 @@
     ### Correct Mangle Way
     ```mangle
     # "Getter" - just a query:
-    Decl user(Id.Type</atom>, Name.Type<string>).
+    Decl user(Id, Name) bound [/name, /string].
     
     name(UserId, Name) :- user(UserId, Name).
     
@@ -433,8 +433,8 @@
     ### Correct Mangle Way
     ```mangle
     # Option 1: Explicit /none variant
-    Decl user(Id.Type</atom>, Name.Type<string>).
-    Decl no_user(Id.Type</atom>).
+    Decl user(Id, Name) bound [/name, /string].
+    Decl no_user(Id) bound [/name].
     
     user(/user1, "Alice").
     no_user(/user2).
@@ -475,9 +475,9 @@
     ### Correct Mangle Way
     ```mangle
     # Derive user based on type:
-    Decl user_request(Id.Type</atom>, Type.Type</atom>).
-    Decl admin_user(Id.Type</atom>, Permissions.Type<string>).
-    Decl guest_user(Id.Type</atom>).
+    Decl user_request(Id, Type) bound [/name, /name].
+    Decl admin_user(Id, Permissions) bound [/name, /string].
+    Decl guest_user(Id) bound [/name].
     
     # "Factory" as derivation rules:
     admin_user(Id, "full") :-
@@ -519,7 +519,7 @@
     ### Correct Mangle Way
     ```mangle
     # Just assert a single fact in Go:
-    Decl config(Key.Type<string>, Value.Type<string>).
+    Decl config(Key, Value) bound [/string, /string].
     
     # In Go: load exactly one set of config facts
     // store.Add(engine.NewAtom("config", engine.String("max_users"), engine.String("100")))
@@ -576,7 +576,7 @@
     
     **Mangle:**
     ```mangle
-    Decl user(Id.Type</atom>, Name.Type<string>, Age.Type<int>).
+    Decl user(Id, Name, Age) bound [/name, /string, /number].
     
     # Facts:
     user(/alice, "Alice", 25).
@@ -621,10 +621,10 @@
     
     Mangle works best with normalized relations:
     ```mangle
-    Decl user(UserId.Type</atom>, Name.Type<string>).
-    Decl profile(UserId.Type</atom>, Bio.Type<string>).
-    Decl address(UserId.Type</atom>, Street.Type<string>, CityId.Type</atom>).
-    Decl city(CityId.Type</atom>, Name.Type<string>).
+    Decl user(UserId, Name) bound [/name, /string].
+    Decl profile(UserId, Bio) bound [/name, /string].
+    Decl address(UserId, Street, CityId) bound [/name, /string, /name].
+    Decl city(CityId, Name) bound [/name, /string].
     
     # Join through queries:
     user_city(UserId, CityName) :-

@@ -43,14 +43,14 @@
     **Severity**: HIGH - Parse errors or incorrect results
     **Pattern**: Missing `|>`, `do`, `let` keywords; SQL-style implicit grouping
     **Detection**: Parse error near aggregation; wrong function casing
-    **Key Rule**: Always use `|> do fn:group_by(), let Sum = fn:Sum(X)` pipeline
+    **Key Rule**: Always use `|> do fn:group_by(), let Sum = fn:sum(X)` pipeline
     
     #### 03. Type Declaration Syntax
     **File**: `03_type_declaration_syntax.md`
     **Severity**: HIGH - Parse errors preventing load
     **Pattern**: `.decl` (Souffle), TypeScript, or SQL declaration styles
     **Detection**: Parse error on declaration line
-    **Key Rule**: `Decl pred(X.Type<type>).` with uppercase Decl, period at end
+    **Key Rule**: `Decl pred(X).` with uppercase Decl, period at end
     
     #### 13. Missing Period Terminator
     **File**: `13_missing_period_terminator.md`
@@ -228,7 +228,7 @@
     total(Sum) :-
         value(X) |>
         do fn:group_by(),
-        let Sum = fn:Sum(X).
+        let Sum = fn:sum(X).
     ```
     
     ### Correct Negation

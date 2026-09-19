@@ -31,12 +31,12 @@
     
     ```mangle
     Decl user_intent(
-        ID.Type<n>,
-        Category.Type<n>,      # /query, /mutation, /instruction
-        Verb.Type<n>,          # /explain, /refactor, /debug, /generate, /scaffold
-        Target.Type<string>,   # "auth system", "login button"
-        Constraint.Type<string> # "no external libs", "max_complexity < 10"
-    ).
+        ID,
+        Category,      # /query, /mutation, /instruction
+        Verb,          # /explain, /refactor, /debug, /generate, /scaffold
+        Target,   # "auth system", "login button"
+        Constraint # "no external libs", "max_complexity < 10"
+    ) bound [/name, /name, /name, /string, /string].
     ```
     
     **Category Values**:
@@ -62,11 +62,11 @@
     
     ```mangle
     Decl focus_resolution(
-        RawReference.Type<string>,  # "the auth thing"
-        ResolvedPath.Type<string>,  # "src/auth/handler.go"
-        SymbolName.Type<string>,    # "AuthHandler"
-        ConfidencePercent.Type<int> # 0 - 100
-    ).
+        RawReference,  # "the auth thing"
+        ResolvedPath,  # "src/auth/handler.go"
+        SymbolName,    # "AuthHandler"
+        ConfidencePercent # 0 - 100
+    ) bound [/string, /string, /string, /number].
     ```
     
     **Examples**:
@@ -88,10 +88,10 @@
     
     ```mangle
     Decl ambiguity_flag(
-        MissingParam.Type<string>,   # "TargetFunction"
-        ContextClue.Type<string>,    # Part of prompt hinting at missing data
-        Hypothesis.Type<string>      # LLM's best guess
-    ).
+        MissingParam,   # "TargetFunction"
+        ContextClue,    # Part of prompt hinting at missing data
+        Hypothesis      # LLM's best guess
+    ) bound [/string, /string, /string].
     ```
     
     **Examples**:
@@ -110,12 +110,12 @@
     
     ```mangle
     Decl file_topology(
-        Path.Type<string>,           # Unique identifier
-        Hash.Type<string>,           # SHA-256 for change detection
-        Language.Type<n>,            # /go, /python, /ts, /rust, /unknown
-        LastModified.Type<int>,      # Unix timestamp
-        IsTestFile.Type<n>           # /true or /false
-    ).
+        Path,           # Unique identifier
+        Hash,           # SHA-256 for change detection
+        Language,            # /go, /python, /ts, /rust, /unknown
+        LastModified,      # Unix timestamp
+        IsTestFile           # /true or /false
+    ) bound [/string, /string, /name, /number, /name].
     ```
     
     **Examples**:
@@ -132,12 +132,7 @@
     File content chunks for large files (windowing pattern).
     
     ```mangle
-    Decl file_content(
-        Path.Type<string>,
-        StartLine.Type<int>,
-        EndLine.Type<int>,
-        Content.Type<string>
-    ).
+    Decl file_content(Path, StartLine, EndLine, Content) bound [/string, /number, /number, /string].
     ```
     
     **Examples**:
@@ -152,10 +147,10 @@
     
     ```mangle
     Decl file_imports(
-        SourcePath.Type<string>,
-        ImportPath.Type<string>,
-        ImportType.Type<n>           # /direct, /transitive
-    ).
+        SourcePath,
+        ImportPath,
+        ImportType           # /direct, /transitive
+    ) bound [/string, /string, /name].
     ```
     
     **Examples**:
@@ -174,12 +169,12 @@
     
     ```mangle
     Decl symbol_graph(
-        SymbolID.Type<string>,       # "func:main:AuthHandler"
-        Type.Type<n>,                # /function, /class, /interface, /variable
-        Visibility.Type<n>,          # /public, /private, /protected
-        DefinedAt.Type<string>,      # Path + Line Number
-        Signature.Type<string>       # "(User) -> Result<bool>"
-    ).
+        SymbolID,       # "func:main:AuthHandler"
+        Type,                # /function, /class, /interface, /variable
+        Visibility,          # /public, /private, /protected
+        DefinedAt,      # Path + Line Number
+        Signature       # "(User) -> Result<bool>"
+    ) bound [/string, /name, /name, /string, /string].
     ```
     
     **Symbol Types**: `/function`, `/class`, `/interface`, `/struct`, `/variable`, `/constant`, `/method`, `/property`
@@ -198,11 +193,7 @@
     Call graph - symbol A calls/uses symbol B.
     
     ```mangle
-    Decl dependency_link(
-        CallerID.Type<string>,
-        CalleeID.Type<string>,
-        ImportPath.Type<string>
-    ).
+    Decl dependency_link(CallerID, CalleeID, ImportPath) bound [/string, /string, /string].
     ```
     
     **Examples**:
@@ -216,12 +207,7 @@
     Where symbols are referenced/used in code.
     
     ```mangle
-    Decl symbol_reference(
-        SymbolID.Type<string>,
-        FilePath.Type<string>,
-        Line.Type<int>,
-        Column.Type<int>
-    ).
+    Decl symbol_reference(SymbolID, FilePath, Line, Column) bound [/string, /string, /number, /number].
     ```
     
     **Examples**:
@@ -240,12 +226,12 @@
     
     ```mangle
     Decl diagnostic(
-        Severity.Type<n>,            # /panic, /error, /warning, /info
-        FilePath.Type<string>,
-        Line.Type<int>,
-        ErrorCode.Type<string>,      # E0308 (Rust), TS2322 (TypeScript)
-        Message.Type<string>
-    ).
+        Severity,            # /panic, /error, /warning, /info
+        FilePath,
+        Line,
+        ErrorCode,      # E0308 (Rust), TS2322 (TypeScript)
+        Message
+    ) bound [/name, /string, /number, /string, /string].
     ```
     
     **Severity Levels**: `/panic`, `/error`, `/warning`, `/info`
@@ -272,12 +258,12 @@
     
     ```mangle
     Decl test_result(
-        TestName.Type<string>,
-        FilePath.Type<string>,
-        Status.Type<n>,              # /passed, /failed, /skipped, /panic
-        Duration.Type<int>,          # Milliseconds
-        Message.Type<string>
-    ).
+        TestName,
+        FilePath,
+        Status,              # /passed, /failed, /skipped, /panic
+        Duration,          # Milliseconds
+        Message
+    ) bound [/string, /string, /name, /number, /string].
     ```
     
     **Examples**:
@@ -296,7 +282,7 @@
     Current TDD loop state for repair orchestration.
     
     ```mangle
-    Decl test_state(State.Type<n>).
+    Decl test_state(State) bound [/name].
     ```
     
     **States**: `/passing`, `/failing`, `/compiling`, `/unknown`, `/log_read`, `/cause_found`, `/patch_applied`
@@ -312,7 +298,7 @@
     Mangle-derived next action (IDB typically, but also used as fact).
     
     ```mangle
-    Decl next_action(Action.Type<n>).
+    Decl next_action(Action) bound [/name].
     ```
     
     **Common Actions**: `/read_error_log`, `/analyze_root_cause`, `/generate_patch`, `/run_tests`, `/escalate_to_user`
@@ -322,7 +308,7 @@
     Constitutional safety gate - actions permitted by policy.
     
     ```mangle
-    Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
+    Decl permitted(ActionType, Target, Payload) bound [/name, /string, /string].
     ```
     
     **Examples**:
@@ -342,11 +328,11 @@
     
     ```mangle
     Decl shard_profile(
-        AgentName.Type<n>,           # /agent_rust, /agent_k8s
-        Description.Type<string>,    # Mission statement
-        Topics.Type<string>,         # JSON array of research topics
-        Tools.Type<string>           # JSON array of tool names
-    ).
+        AgentName,           # /agent_rust, /agent_k8s
+        Description,    # Mission statement
+        Topics,         # JSON array of research topics
+        Tools           # JSON array of tool names
+    ) bound [/name, /string, /string, /string].
     ```
     
     **Examples**:
@@ -360,11 +346,7 @@
     Tasks delegated to shards for execution.
     
     ```mangle
-    Decl delegate_task(
-        ShardType.Type<n>,
-        Task.Type<string>,
-        Priority.Type<int>
-    ).
+    Decl delegate_task(ShardType, Task, Priority) bound [/name, /string, /number].
     ```
     
     **Examples**:
@@ -379,10 +361,10 @@
     
     ```mangle
     Decl shard_status(
-        AgentName.Type<n>,
-        Status.Type<n>,              # /idle, /running, /completed, /failed
-        LastActive.Type<int>         # Unix timestamp
-    ).
+        AgentName,
+        Status,              # /idle, /running, /completed, /failed
+        LastActive         # Unix timestamp
+    ) bound [/name, /name, /number].
     ```
     
     **Examples**:
@@ -400,12 +382,7 @@
     Extracted knowledge from ResearcherShard ingestion.
     
     ```mangle
-    Decl knowledge_atom(
-        SourceURL.Type<string>,
-        Concept.Type<string>,
-        CodePattern.Type<string>,
-        AntiPattern.Type<string>
-    ).
+    Decl knowledge_atom(SourceURL, Concept, CodePattern, AntiPattern) bound [/string, /string, /string, /string].
     ```
     
     **Examples**:
@@ -420,10 +397,10 @@
     
     ```mangle
     Decl research_topic(
-        AgentName.Type<n>,
-        Topic.Type<string>,
-        Status.Type<n>               # /pending, /in_progress, /completed
-    ).
+        AgentName,
+        Topic,
+        Status               # /pending, /in_progress, /completed
+    ) bound [/name, /string, /name].
     ```
     
     **Examples**:
@@ -438,10 +415,10 @@
     
     ```mangle
     Decl doc_reference(
-        Library.Type<string>,
-        URL.Type<string>,
-        LastFetched.Type<int>        # Unix timestamp
-    ).
+        Library,
+        URL,
+        LastFetched        # Unix timestamp
+    ) bound [/string, /string, /number].
     ```
     
     **Examples**:
@@ -459,10 +436,7 @@
     Runtime observations and facts.
     
     ```mangle
-    Decl observation(
-        Key.Type<n>,
-        Value.Type<string>
-    ).
+    Decl observation(Key, Value) bound [/name, /string].
     ```
     
     **Examples**:
@@ -477,10 +451,7 @@
     Learned user preferences (autopoiesis).
     
     ```mangle
-    Decl preference(
-        Key.Type<n>,
-        Value.Type<string>
-    ).
+    Decl preference(Key, Value) bound [/name, /string].
     ```
     
     **Examples**:
@@ -496,10 +467,10 @@
     
     ```mangle
     Decl activation(
-        Concept.Type<string>,
-        Weight.Type<float>,
-        Source.Type<n>               # /recency, /goal, /dependency
-    ).
+        Concept,
+        Weight,
+        Source               # /recency, /goal, /dependency
+    ) bound [/string, /float64, /name].
     ```
     
     **Examples**:
@@ -519,10 +490,10 @@
     
     ```mangle
     Decl campaign(
-        ID.Type<n>,
-        Goal.Type<string>,
-        Status.Type<n>               # /active, /paused, /completed, /failed
-    ).
+        ID,
+        Goal,
+        Status               # /active, /paused, /completed, /failed
+    ) bound [/name, /string, /name].
     ```
     
     **Examples**:
@@ -536,12 +507,7 @@
     Individual campaign phases.
     
     ```mangle
-    Decl campaign_phase(
-        CampaignID.Type<n>,
-        PhaseNum.Type<int>,
-        Description.Type<string>,
-        Status.Type<n>
-    ).
+    Decl campaign_phase(CampaignID, PhaseNum, Description, Status) bound [/name, /number, /string, /name].
     ```
     
     **Examples**:
@@ -556,11 +522,7 @@
     Phase ordering constraints (dependency graph).
     
     ```mangle
-    Decl phase_depends(
-        CampaignID.Type<n>,
-        Phase.Type<int>,
-        DependsOn.Type<int>
-    ).
+    Decl phase_depends(CampaignID, Phase, DependsOn) bound [/name, /number, /number].
     ```
     
     **Examples**:
@@ -579,11 +541,11 @@
     
     ```mangle
     Decl generated_tool(
-        Name.Type<string>,
-        Description.Type<string>,
-        Schema.Type<string>,         # JSON schema
-        Status.Type<n>               # /generated, /validated, /deployed, /failed
-    ).
+        Name,
+        Description,
+        Schema,         # JSON schema
+        Status               # /generated, /validated, /deployed, /failed
+    ) bound [/string, /string, /string, /name].
     ```
     
     **Examples**:
@@ -598,10 +560,10 @@
     
     ```mangle
     Decl tool_invocation(
-        ToolName.Type<string>,
-        Timestamp.Type<int>,
-        Success.Type<n>              # /true or /false
-    ).
+        ToolName,
+        Timestamp,
+        Success              # /true or /false
+    ) bound [/string, /number, /name].
     ```
     
     **Examples**:
@@ -616,10 +578,10 @@
     
     ```mangle
     Decl tool_quality(
-        ToolName.Type<string>,
-        SuccessRate.Type<float>,     # 0.0 - 1.0
-        AvgDuration.Type<int>        # Milliseconds
-    ).
+        ToolName,
+        SuccessRate,     # 0.0 - 1.0
+        AvgDuration        # Milliseconds
+    ) bound [/string, /float64, /number].
     ```
     
     **Examples**:
@@ -637,12 +599,7 @@
     Verb taxonomy definitions.
     
     ```mangle
-    Decl verb_def(
-        Verb.Type<n>,
-        Category.Type<n>,
-        ShardType.Type<n>,
-        Priority.Type<int>
-    ).
+    Decl verb_def(Verb, Category, ShardType, Priority) bound [/name, /name, /name, /number].
     ```
     
     **Examples**:
@@ -657,10 +614,7 @@
     Verb synonyms for NL parsing.
     
     ```mangle
-    Decl verb_synonym(
-        Verb.Type<n>,
-        Synonym.Type<string>
-    ).
+    Decl verb_synonym(Verb, Synonym) bound [/name, /string].
     ```
     
     **Examples**:
@@ -675,10 +629,7 @@
     Regex patterns for verb detection.
     
     ```mangle
-    Decl verb_pattern(
-        Verb.Type<n>,
-        Regex.Type<string>
-    ).
+    Decl verb_pattern(Verb, Regex) bound [/name, /string].
     ```
     
     **Examples**:
@@ -692,10 +643,7 @@
     Candidate intents with raw scores (transient).
     
     ```mangle
-    Decl candidate_intent(
-        Verb.Type<n>,
-        RawScore.Type<float>
-    ).
+    Decl candidate_intent(Verb, RawScore) bound [/name, /float64].
     ```
     
     ### context_token/1
@@ -703,7 +651,7 @@
     Tokenized user input for classification (transient).
     
     ```mangle
-    Decl context_token(Token.Type<string>).
+    Decl context_token(Token) bound [/string].
     ```
     
     ### user_input_string/1
@@ -711,7 +659,7 @@
     Full user input string (transient).
     
     ```mangle
-    Decl user_input_string(Input.Type<string>).
+    Decl user_input_string(Input) bound [/string].
     ```
     
     ### learned_exemplar/5
@@ -720,11 +668,11 @@
     
     ```mangle
     Decl learned_exemplar(
-        Pattern.Type<string>,
-        Verb.Type<n>,
-        Target.Type<string>,
-        Constraint.Type<string>,
-        ConfidencePercent.Type<int> # 0 - 100
+        Pattern,
+        Verb,
+        Target,
+        Constraint,
+        ConfidencePercent # 0 - 100
     ).
     ```
     
@@ -743,11 +691,7 @@
     Ouroboros loop transactional state.
     
     ```mangle
-    Decl state(
-        StepID.Type<n>,
-        Stability.Type<float>,
-        Location.Type<string>
-    ).
+    Decl state(StepID, Stability, Location) bound [/name, /float64, /string].
     ```
     
     ### proposed/1
@@ -755,7 +699,7 @@
     Proposed next state in Ouroboros loop.
     
     ```mangle
-    Decl proposed(StepID.Type<n>).
+    Decl proposed(StepID) bound [/name].
     ```
     
     ### history/2
@@ -763,10 +707,7 @@
     Code hash history for stagnation detection.
     
     ```mangle
-    Decl history(
-        StepID.Type<n>,
-        Hash.Type<string>
-    ).
+    Decl history(StepID, Hash) bound [/name, /string].
     ```
     
     ### error_event/1
@@ -774,7 +715,7 @@
     Error events in Ouroboros loop.
     
     ```mangle
-    Decl error_event(Type.Type<n>).
+    Decl error_event(Type) bound [/name].
     ```
     
     ### iteration/2
@@ -782,10 +723,7 @@
     Iteration tracking for Ouroboros loop.
     
     ```mangle
-    Decl iteration(
-        StepID.Type<n>,
-        IterNum.Type<int>
-    ).
+    Decl iteration(StepID, IterNum) bound [/name, /number].
     ```
     
     ### retry_attempt/3
@@ -793,11 +731,7 @@
     Retry tracking with reasons.
     
     ```mangle
-    Decl retry_attempt(
-        StepID.Type<n>,
-        AttemptNum.Type<int>,
-        Reason.Type<string>
-    ).
+    Decl retry_attempt(StepID, AttemptNum, Reason) bound [/name, /number, /string].
     ```
     
     ### base_stability/2
@@ -805,10 +739,7 @@
     Base stability score before penalties.
     
     ```mangle
-    Decl base_stability(
-        StepID.Type<n>,
-        Score.Type<float>
-    ).
+    Decl base_stability(StepID, Score) bound [/name, /float64].
     ```
     
     ### tool_hot_loaded/2
@@ -816,10 +747,7 @@
     Hot-reloaded tool tracking.
     
     ```mangle
-    Decl tool_hot_loaded(
-        ToolName.Type<string>,
-        Timestamp.Type<int>
-    ).
+    Decl tool_hot_loaded(ToolName, Timestamp) bound [/string, /number].
     ```
     
     ---

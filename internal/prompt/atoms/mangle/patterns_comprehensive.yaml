@@ -156,7 +156,7 @@
     shortest(X, Y, MinLen) :-
         path_len(X, Y, Len) |>
         do fn:group_by(X, Y),
-        let MinLen = fn:Min(Len).
+        let MinLen = fn:min(Len).
     ```
     
     ### Cycle Detection
@@ -191,7 +191,7 @@
     count_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
-        let N = fn:Count().
+        let N = fn:count().
     ```
     
     ### Sum by Group
@@ -199,7 +199,7 @@
     total_by_region(Region, Total) :-
         sale(Region, Amount) |>
         do fn:group_by(Region),
-        let Total = fn:Sum(Amount).
+        let Total = fn:sum(Amount).
     ```
     
     ### Average (Derived from Sum/Count)
@@ -207,8 +207,8 @@
     average_per_category(Cat, Avg) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value),
-        let Count = fn:Count(),
+        let Total = fn:sum(Value),
+        let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
     ```
     
@@ -217,8 +217,8 @@
     sales_summary(Region, Product, Count, Revenue) :-
         sale(Region, Product, Amount) |>
         do fn:group_by(Region, Product),
-        let Count = fn:Count(),
-        let Revenue = fn:Sum(Amount).
+        let Count = fn:count(),
+        let Revenue = fn:sum(Amount).
     ```
     
     ### Conditional Aggregation (HAVING)
@@ -235,13 +235,13 @@
     category_total(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
-        let Total = fn:Sum(Value).
+        let Total = fn:sum(Value).
     
     # Step 2: Grand total from subtotals
     grand_total(GrandTotal) :-
         category_total(_, Total) |>
         do fn:group_by(),
-        let GrandTotal = fn:Sum(Total).
+        let GrandTotal = fn:sum(Total).
     ```
     
     ## Domain-Specific Patterns
@@ -428,8 +428,8 @@
     | `HAVING` | Filter on aggregated results |
     | `WITH RECURSIVE` | Recursive rules |
     | `NOT EXISTS` | Negation with generator |
-    | `COUNT(*)` | `fn:Count()` in pipeline |
-    | `SUM(col)` | `fn:Sum(Var)` in pipeline |
+    | `COUNT(*)` | `fn:count()` in pipeline |
+    | `SUM(col)` | `fn:sum(Var)` in pipeline |
     
     ## Common Anti-Patterns to Avoid
     

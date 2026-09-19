@@ -54,7 +54,7 @@
     // }
     
     # Or derive "log messages" as facts to extract later:
-    Decl log_entry(Level.Type</atom>, Message.Type<string>).
+    Decl log_entry(Level, Message) bound [/name, /string].
     
     log_entry(/info, Msg) :-
         process_result(X, Result),
@@ -88,7 +88,7 @@
     ### Correct Mangle Way
     ```mangle
     # Derive what should be saved:
-    Decl result_to_save(Id.Type</atom>, Data.Type<string>).
+    Decl result_to_save(Id, Data) bound [/name, /string].
     
     result_to_save(/r1, "Important data").
     
@@ -103,7 +103,7 @@
     // store.Add(engine.NewAtom("file_content", engine.String(string(data))))
     
     # Then query in Mangle:
-    Decl file_content(Content.Type<string>).
+    Decl file_content(Content) bound [/string].
     
     process_file(Result) :-
         file_content(Content),
@@ -135,7 +135,7 @@
     ### Correct Mangle Way
     ```mangle
     # Derive what should be saved:
-    Decl user_to_persist(Id.Type</atom>, Name.Type<string>).
+    Decl user_to_persist(Id, Name) bound [/name, /string].
     
     user_to_persist(Id, Name) :-
         user(Id, Name),
@@ -184,7 +184,7 @@
     ### Correct Mangle Way
     ```mangle
     # Derive what URLs to fetch:
-    Decl url_to_fetch(Url.Type<string>).
+    Decl url_to_fetch(Url) bound [/string].
     
     url_to_fetch("https://api.example.com/users").
     
@@ -198,7 +198,7 @@
     // }
     
     # Query the loaded response:
-    Decl api_response(Url.Type<string>, Body.Type<string>).
+    Decl api_response(Url, Body) bound [/string, /string].
     
     process_response(Data) :-
         api_response(_, Body),
@@ -233,7 +233,7 @@
     //     store.Add(engine.NewAtom("random_value", engine.Number(i), engine.Number(r)))
     // }
     
-    Decl random_value(Id.Type<int>, Value.Type<int>).
+    Decl random_value(Id, Value) bound [/number, /number].
     
     # Use the loaded random values:
     process_random(Id, Result) :-
@@ -273,8 +273,8 @@
     // now := time.Now().Unix()
     // store.Add(engine.NewAtom("current_time", engine.Number(now)))
     
-    Decl current_time(Timestamp.Type<int>).
-    Decl expiry_date(Id.Type</atom>, Timestamp.Type<int>).
+    Decl current_time(Timestamp) bound [/number].
+    Decl expiry_date(Id, Timestamp) bound [/name, /number].
     
     is_expired(Id) :-
         current_time(Now),
@@ -311,7 +311,7 @@
     ### Correct Mangle Way
     ```mangle
     # Cache is just facts:
-    Decl cache(Key.Type<string>, Value.Type<int>).
+    Decl cache(Key, Value) bound [/string, /number].
     
     # "Add to cache" = add a fact (in Go):
     // store.Add(engine.NewAtom("cache", engine.String(key), engine.Number(value)))
@@ -352,7 +352,7 @@
     ### Correct Mangle Way
     ```mangle
     # Derive what notifications should be sent:
-    Decl notification(UserId.Type</atom>, Type.Type</atom>, Message.Type<string>).
+    Decl notification(UserId, Type, Message) bound [/name, /name, /string].
     
     notification(UserId, /email, Msg) :-
         user(UserId),
@@ -403,7 +403,7 @@
     ### Correct Mangle Way
     ```mangle
     # Derive validation results:
-    Decl validation_error(Id.Type</atom>, Message.Type<string>).
+    Decl validation_error(Id, Message) bound [/name, /string].
     
     validation_error(Id, "x must be positive") :-
         input(Id, X),
@@ -445,7 +445,7 @@
     ### Correct Mangle Way
     ```mangle
     # Derive what payments to process:
-    Decl payment_to_process(Id.Type</atom>, Amount.Type<int>).
+    Decl payment_to_process(Id, Amount) bound [/name, /number].
     
     payment_to_process(Id, Amount) :-
         payment_request(Id, Amount),
@@ -464,8 +464,8 @@
     // }
     
     # Query results in Mangle:
-    Decl payment_success(Id.Type</atom>).
-    Decl payment_failed(Id.Type</atom>).
+    Decl payment_success(Id) bound [/name].
+    Decl payment_failed(Id) bound [/name].
     
     successful_payment(Id, Amount) :-
         payment_request(Id, Amount),
@@ -497,7 +497,7 @@
     ### Correct Mangle Way
     ```mangle
     # Model time explicitly:
-    Decl event(Time.Type<int>, Type.Type</atom>).
+    Decl event(Time, Type) bound [/number, /name].
     
     event(0, /start).
     event(5, /trigger).
@@ -539,8 +539,8 @@
     ### Correct Mangle Way
     ```mangle
     # Derive what handlers should trigger:
-    Decl click_event(Button.Type</atom>, Time.Type<int>).
-    Decl handler(Button.Type</atom>, Action.Type</atom>).
+    Decl click_event(Button, Time) bound [/name, /number].
+    Decl handler(Button, Action) bound [/name, /name].
     
     handler(/btn1, /log_message).
     
@@ -570,7 +570,7 @@
     
     ```mangle
     # Step 1: Derive effects
-    Decl file_to_write(Path.Type<string>, Content.Type<string>).
+    Decl file_to_write(Path, Content) bound [/string, /string].
     
     file_to_write("/tmp/output.txt", Data) :-
         processed_data(Data).
@@ -593,8 +593,8 @@
     
     ```mangle
     # Use results
-    Decl write_success(Path.Type<string>).
-    Decl write_error(Path.Type<string>, Error.Type<string>).
+    Decl write_success(Path) bound [/string].
+    Decl write_error(Path, Error) bound [/string, /string].
     
     completed(Path) :- write_success(Path).
     failed(Path, Err) :- write_error(Path, Err).
@@ -644,7 +644,7 @@
     
     ```mangle
     # Use in Mangle
-    Decl read_file(Path.Type<string>, Content.Type<string>) :external.
+    Decl read_file(Path, Content) descr [external()] bound [/string, /string].
     
     process_config(Config) :-
         read_file("/etc/config.json", Content),

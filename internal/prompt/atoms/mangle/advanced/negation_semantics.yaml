@@ -27,9 +27,9 @@
     
     ### Example
     ```mangle
-    Decl employee(Id.Type<atom>, Name.Type<string>).
-    Decl manager(Id.Type<atom>).
-    Decl non_manager(Id.Type<atom>).
+    Decl employee(Id, Name) bound [/name, /string].
+    Decl manager(Id) bound [/name].
+    Decl non_manager(Id) bound [/name].
     
     # Facts
     employee(/e1, "Alice").
@@ -125,9 +125,9 @@
     Compute A - B (elements in A but not in B).
     
     ```mangle
-    Decl all_users(Id.Type<atom>).
-    Decl active_users(Id.Type<atom>).
-    Decl inactive_users(Id.Type<atom>).
+    Decl all_users(Id) bound [/name].
+    Decl active_users(Id) bound [/name].
+    Decl inactive_users(Id) bound [/name].
     
     # Facts
     all_users(/u1). all_users(/u2). all_users(/u3).
@@ -146,9 +146,9 @@
     Check if a relationship does NOT exist.
     
     ```mangle
-    Decl user(Id.Type<atom>).
-    Decl login(UserId.Type<atom>, Date.Type<string>).
-    Decl never_logged_in(Id.Type<atom>).
+    Decl user(Id) bound [/name].
+    Decl login(UserId, Date) bound [/name, /string].
+    Decl never_logged_in(Id) bound [/name].
     
     # Facts
     user(/u1). user(/u2).
@@ -167,9 +167,9 @@
     "All X satisfy property P" = "There is no X that violates P"
     
     ```mangle
-    Decl employee(Id.Type<atom>, Dept.Type<atom>).
-    Decl training_complete(Id.Type<atom>).
-    Decl dept_fully_trained(Dept.Type<atom>).
+    Decl employee(Id, Dept) bound [/name, /name].
+    Decl training_complete(Id) bound [/name].
+    Decl dept_fully_trained(Dept) bound [/name].
     
     # Facts
     employee(/e1, /eng). employee(/e2, /eng).
@@ -192,9 +192,9 @@
     "If A holds, then B must NOT hold."
     
     ```mangle
-    Decl conflict(A.Type<atom>, B.Type<atom>).
-    Decl assigned(Task.Type<atom>, Person.Type<atom>).
-    Decl valid_assignment(Task.Type<atom>, Person.Type<atom>).
+    Decl conflict(A, B) bound [/name, /name].
+    Decl assigned(Task, Person) bound [/name, /name].
+    Decl valid_assignment(Task, Person) bound [/name, /name].
     
     # Facts
     conflict(/alice, /bob).  # Alice and Bob can't work together
@@ -217,8 +217,8 @@
     "This should NEVER happen."
     
     ```mangle
-    Decl account(Id.Type<atom>, Balance.Type<int>).
-    Decl violation_negative_balance(Id.Type<atom>, Balance.Type<int>).
+    Decl account(Id, Balance) bound [/name, /number].
+    Decl violation_negative_balance(Id, Balance) bound [/name, /number].
     
     # Facts
     account(/acc1, 1000).
@@ -249,7 +249,7 @@
     
     ### Example
     ```mangle
-    Decl data(X.Type<int>).
+    Decl data(X) bound [/number].
     data(1).
     data(2).
     
@@ -268,8 +268,8 @@
     
     ### Example: "Has at least one child"
     ```mangle
-    Decl parent(Parent.Type<atom>, Child.Type<atom>).
-    Decl has_children(Parent.Type<atom>).
+    Decl parent(Parent, Child) bound [/name, /name].
+    Decl has_children(Parent) bound [/name].
     
     parent(/alice, /bob).
     parent(/alice, /charlie).
@@ -282,7 +282,7 @@
     
     ### Example: "Has NO children"
     ```mangle
-    Decl childless(Parent.Type<atom>).
+    Decl childless(Parent) bound [/name].
     
     childless(P) :-
       person(P),
@@ -297,7 +297,7 @@
     
     ### Example: "All values are distinct"
     ```mangle
-    Decl value(X.Type<int>).
+    Decl value(X) bound [/number].
     Decl all_distinct().
     
     value(1). value(2). value(3).
@@ -380,7 +380,7 @@
     **Solution**: Explicitly model "unknown" if needed.
     
     ```mangle
-    Decl manager_status(Id.Type<atom>, Status.Type<atom>).
+    Decl manager_status(Id, Status) bound [/name, /name].
     
     manager_status(/alice, /unknown).
     manager_status(/bob, /yes).
@@ -399,7 +399,7 @@
     
     ### Pitfall 3: Negating Empty Results
     ```mangle
-    Decl item(Id.Type<atom>).
+    Decl item(Id) bound [/name].
     # No facts!
     
     # Query: not item(/missing)

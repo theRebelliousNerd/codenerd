@@ -275,14 +275,14 @@
         data(L),
         :match_cons(L, E, _)
         |> do fn:group_by(),
-           let Sum = fn:Sum(E).
+           let Sum = fn:sum(E).
     
     # Count all elements across all lists
     total_count(Count) :-
         data(L),
         :match_cons(L, E, _)
         |> do fn:group_by(),
-           let Count = fn:Count(E).
+           let Count = fn:count().
     ```
     
     **Note**: This aggregates across multiple lists. For single-list aggregation, use recursion.

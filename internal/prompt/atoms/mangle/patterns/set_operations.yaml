@@ -33,9 +33,9 @@
     ### Complete Working Example
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl union_result(Elem.Type<string>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl union_result(Elem) bound [/string].
     
     # Facts
     set_a("a").
@@ -63,9 +63,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl intersection(Elem.Type<string>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl intersection(Elem) bound [/string].
     
     # Intersection: Items in both A and B
     intersection(X) :- set_a(X), set_b(X).
@@ -92,9 +92,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl difference(Elem.Type<string>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl difference(Elem) bound [/string].
     
     # A - B: Items in A but not in B
     difference(X) :- set_a(X), not set_b(X).
@@ -123,9 +123,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl symmetric_difference(Elem.Type<string>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl symmetric_difference(Elem) bound [/string].
     
     # In A but not B
     symmetric_difference(X) :- set_a(X), not set_b(X).
@@ -156,15 +156,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl is_subset(Result.Type<atom>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl is_subset(Result) bound [/name].
     
     # A is subset of B if there's no element in A that's not in B
     is_subset(/yes) :- not (set_a(X), not set_b(X)).
     
     # Alternative: find counterexample
-    Decl in_a_not_b(Elem.Type<string>).
+    Decl in_a_not_b(Elem) bound [/string].
     in_a_not_b(X) :- set_a(X), not set_b(X).
     
     is_subset(/no) :- in_a_not_b(_).
@@ -197,9 +197,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl is_proper_subset(Result.Type<atom>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl is_proper_subset(Result) bound [/name].
     
     # A ⊂ B means:
     # 1. A ⊆ B (no element in A that's not in B)
@@ -238,9 +238,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl are_disjoint(Result.Type<atom>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl are_disjoint(Result) bound [/name].
     
     # Disjoint if no element is in both
     are_disjoint(/yes) :- not (set_a(X), set_b(X)).
@@ -274,9 +274,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl are_equal(Result.Type<atom>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl are_equal(Result) bound [/name].
     
     # Equal if A ⊆ B and B ⊆ A
     are_equal(/yes) :-
@@ -316,10 +316,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl set_c(Elem.Type<string>).
-    Decl union_all(Elem.Type<string>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl set_c(Elem) bound [/string].
+    Decl union_all(Elem) bound [/string].
     
     # Union of A, B, and C
     union_all(X) :- set_a(X).
@@ -345,9 +345,9 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>, Value.Type<int>).
-    Decl set_b(Elem.Type<string>, Value.Type<int>).
-    Decl conditional_union(Elem.Type<string>).
+    Decl set_a(Elem, Value) bound [/string, /number].
+    Decl set_b(Elem, Value) bound [/string, /number].
+    Decl conditional_union(Elem) bound [/string].
     
     # Union only elements where Value > 100
     conditional_union(Elem) :- set_a(Elem, Value), Value > 100.
@@ -373,10 +373,10 @@
     ### Solution
     ```mangle
     # Schema
-    Decl item(Id.Type<string>, Value.Type<int>).
-    Decl partition_low(Id.Type<string>).
-    Decl partition_mid(Id.Type<string>).
-    Decl partition_high(Id.Type<string>).
+    Decl item(Id, Value) bound [/string, /number].
+    Decl partition_low(Id) bound [/string].
+    Decl partition_mid(Id) bound [/string].
+    Decl partition_high(Id) bound [/string].
     
     # Partition by value ranges (disjoint)
     partition_low(Id) :- item(Id, Value), Value < 50.
@@ -408,8 +408,8 @@
     # Only practical for very small sets in Mangle
     
     # Schema
-    Decl element(Elem.Type<string>).
-    Decl subset(Elem.Type<string>).
+    Decl element(Elem) bound [/string].
+    Decl subset(Elem) bound [/string].
     
     # Every element is either in the subset or not
     # This creates all 2^n combinations
@@ -425,7 +425,7 @@
     subset_empty :- not element(_).  # Empty set exists if no elements
     
     # Better: Define specific subsets based on properties
-    Decl subset_by_property(Elem.Type<string>, Property.Type<atom>).
+    Decl subset_by_property(Elem, Property) bound [/string, /name].
     subset_by_property(Elem, Prop) :- element(Elem), has_property(Elem, Prop).
     ```
     
@@ -440,15 +440,15 @@
     ### Solution
     ```mangle
     # Schema
-    Decl set_a(Elem.Type<string>).
-    Decl set_b(Elem.Type<string>).
-    Decl count_a(Count.Type<int>).
-    Decl count_b(Count.Type<int>).
-    Decl size_comparison(Result.Type<atom>).
+    Decl set_a(Elem) bound [/string].
+    Decl set_b(Elem) bound [/string].
+    Decl count_a(Count) bound [/number].
+    Decl count_b(Count) bound [/number].
+    Decl size_comparison(Result) bound [/name].
     
     # Count elements
-    count_a(Count) :- set_a(Elem) |> do fn:group_by(), let Count = fn:Count().
-    count_b(Count) :- set_b(Elem) |> do fn:group_by(), let Count = fn:Count().
+    count_a(Count) :- set_a(Elem) |> do fn:group_by(), let Count = fn:count().
+    count_b(Count) :- set_b(Elem) |> do fn:group_by(), let Count = fn:count().
     
     # Compare
     size_comparison(/a_larger) :- count_a(A), count_b(B), A > B.
@@ -479,7 +479,7 @@
     first_element(X) :- set_a(X).  # Which X?
     
     # Fix - use explicit ordering
-    first_element(X) :- set_a(X, Priority), ... |> do fn:group_by(), let MinP = fn:Min(Priority), ...
+    first_element(X) :- set_a(X, Priority), ... |> do fn:group_by(), let MinP = fn:min(Priority), ...
     ```
     
     ### WRONG: Modifying Sets (Mutable Operations)
@@ -514,39 +514,39 @@
     ### File Set Operations
     ```mangle
     # Files modified in branch A
-    Decl modified_in_a(File.Type<string>).
+    Decl modified_in_a(File) bound [/string].
     
     # Files modified in branch B
-    Decl modified_in_b(File.Type<string>).
+    Decl modified_in_b(File) bound [/string].
     
     # Merge conflicts (both modified)
-    Decl conflict_files(File.Type<string>).
+    Decl conflict_files(File) bound [/string].
     conflict_files(File) :- modified_in_a(File), modified_in_b(File).
     ```
     
     ### Test Coverage Sets
     ```mangle
     # All source files
-    Decl source_file(File.Type<string>).
+    Decl source_file(File) bound [/string].
     
     # Files covered by tests
-    Decl covered_file(File.Type<string>).
+    Decl covered_file(File) bound [/string].
     
     # Uncovered files (difference)
-    Decl uncovered_file(File.Type<string>).
+    Decl uncovered_file(File) bound [/string].
     uncovered_file(File) :- source_file(File), not covered_file(File).
     ```
     
     ### Dependency Resolution
     ```mangle
     # Direct dependencies
-    Decl direct_dep(Package.Type<string>).
+    Decl direct_dep(Package) bound [/string].
     
     # Transitive dependencies
-    Decl transitive_dep(Package.Type<string>).
+    Decl transitive_dep(Package) bound [/string].
     
     # All dependencies (union)
-    Decl all_deps(Package.Type<string>).
+    Decl all_deps(Package) bound [/string].
     all_deps(Pkg) :- direct_dep(Pkg).
     all_deps(Pkg) :- transitive_dep(Pkg).
     ```
@@ -554,13 +554,13 @@
     ### Symbol Scope Sets
     ```mangle
     # Symbols defined in scope A
-    Decl defined_in_a(Symbol.Type<string>).
+    Decl defined_in_a(Symbol) bound [/string].
     
     # Symbols used in scope B
-    Decl used_in_b(Symbol.Type<string>).
+    Decl used_in_b(Symbol) bound [/string].
     
     # Undefined symbols (used but not defined)
-    Decl undefined_symbol(Symbol.Type<string>).
+    Decl undefined_symbol(Symbol) bound [/string].
     undefined_symbol(Sym) :- used_in_b(Sym), not defined_in_a(Sym).
     ```
     

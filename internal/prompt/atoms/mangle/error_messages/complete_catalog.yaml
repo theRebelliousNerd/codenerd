@@ -256,7 +256,7 @@
     **Example**:
     ```mangle
     Decl person(Name, Age)
-      bounds [ /string, /number ].
+      bound [ /string, /number ].
     
     # ERROR
     person("Alice", "thirty").  # Age is string, not number
@@ -403,13 +403,13 @@
     total(Cat, T) :-
         item(Value)
         |> do fn:group_by(Cat),  # Cat never bound!
-           let T = fn:Sum(Value).
+           let T = fn:sum(Value).
     
     # FIX - bind Cat first
     total(Cat, T) :-
         item(Cat, Value)  # Cat now bound
         |> do fn:group_by(Cat),
-           let T = fn:Sum(Value).
+           let T = fn:sum(Value).
     ```
     
     **Error**: "Variable Cat in group_by is not bound"
@@ -481,7 +481,7 @@
     Type errors caught early:
     ```mangle
     Decl value(Val)
-      bounds [ /number ].
+      bound [ /number ].
     
     # This will error at analysis time, not evaluation
     value("not a number").  # Immediate type error
