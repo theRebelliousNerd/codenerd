@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/observation"
 	"codenerd/internal/session"
 	"codenerd/internal/types"
 )
@@ -129,6 +130,32 @@ type MockTaskExecutor struct {
 	ExecuteAsyncFunc       func(ctx context.Context, req session.TaskRequest) (string, error)
 	GetResultFunc          func(taskID string) (string, bool, error)
 	WaitForResultFunc      func(ctx context.Context, taskID string) (string, error)
+	// ExecuteObservedFunc scripts the typed return the campaign reads. Unset,
+	// ExecuteObserved wraps ExecuteFunc's string and calls a success /done --
+	// the verdict a test that scripts only prose means.
+	ExecuteObservedFunc func(ctx context.Context, req session.TaskRequest) (observation.Return, error)
+}
+
+func (m *MockTaskExecutor) ExecuteObserved(ctx context.Context, req session.TaskRequest) (observation.Return, error) {
+	if m.ExecuteObservedFunc != nil {
+		return m.ExecuteObservedFunc(ctx, req)
+	}
+	return observedFromProse(m.Execute(ctx, req))
+}
+
+func (m *MockTaskExecutor) ExecuteObservedWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
+	if m.ExecuteObservedFunc != nil {
+		return m.ExecuteObservedFunc(ctx, req)
+	}
+	return observedFromProse(m.ExecuteWithContext(ctx, req, sessionCtx, priority))
+}
+
+func observedFromProse(out string, err error) (observation.Return, error) {
+	ret := observation.Return{Output: out}
+	if err == nil {
+		ret.Outcome = "/done"
+	}
+	return ret, err
 }
 
 func (m *MockTaskExecutor) Execute(ctx context.Context, req session.TaskRequest) (string, error) {
@@ -169,7 +196,7 @@ func (m *MockTaskExecutor) WaitForResult(ctx context.Context, taskID string) (st
 func TestSpawnTask_InputValidation(t *testing.T) {
 	t.Run("nil taskExecutor", func(t *testing.T) {
 		o := &Orchestrator{}
-		_, err := o.spawnTask(context.Background(), "coder", "do something")
+		_, err := o.spawnTask(context.Background(), nil, "coder", "do something")
 		if err == nil || err.Error() != "taskExecutor not initialized" {
 			t.Errorf("expected error 'taskExecutor not initialized', got %v", err)
 		}
@@ -187,7 +214,7 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 				},
 			},
 		}
-		res, err := o.spawnTask(context.Background(), "", "do something")
+		res, err := o.spawnTask(context.Background(), nil, "", "do something")
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -214,7 +241,7 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 				},
 			},
 		}
-		res, err := o.spawnTask(context.Background(), "/fix", taskStr)
+		res, err := o.spawnTask(context.Background(), nil, "/fix", taskStr)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -231,7 +258,7 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 				},
 			},
 		}
-		res, err := o.spawnTask(context.Background(), "/fix", "do something")
+		res, err := o.spawnTask(context.Background(), nil, "/fix", "do something")
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}

@@ -118,12 +118,13 @@ func TestObservedReturn_CarriesKernelVerdict(t *testing.T) {
 		ContractID: "contract-42",
 	}
 	res := &ExecutionResult{
-		Response:      "Wrote the file.",
-		TurnOutcome:   types.MangleAtom("/unverified"),
-		ChangeStage:   "checks_passed",
-		Acceptance:    &report,
-		WrittenPaths:  []string{"internal/session/executor.go"},
-		UntestedPaths: []string{"internal/session/executor.go"},
+		Response:        "Wrote the file.",
+		TurnOutcome:     types.MangleAtom("/unverified"),
+		MissingEvidence: []string{"/tests_not_written"},
+		ChangeStage:     "checks_passed",
+		Acceptance:      &report,
+		WrittenPaths:    []string{"internal/session/executor.go"},
+		UntestedPaths:   []string{"internal/session/executor.go"},
 	}
 
 	got := observedReturn("coder", "fix the thing", res)
@@ -148,6 +149,14 @@ func TestObservedReturn_CarriesKernelVerdict(t *testing.T) {
 	}
 	if len(got.Untested) != 1 || got.Untested[0] != "internal/session/executor.go" {
 		t.Errorf("Untested = %v, want the executor's UntestedPaths", got.Untested)
+	}
+	// What an /unverified turn left missing crosses too: a campaign fails the
+	// task by it and the retry reads it (external audit F2).
+	if len(got.Missing) != 1 || got.Missing[0] != "/tests_not_written" {
+		t.Errorf("Missing = %v, want the kernel's turn_missing_evidence", got.Missing)
+	}
+	if got.Done() {
+		t.Error("Done() = true for an /unverified turn")
 	}
 }
 

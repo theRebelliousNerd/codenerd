@@ -18,6 +18,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	"codenerd/internal/testoutput"
@@ -26,7 +27,7 @@ import (
 )
 
 // spawnTask is the unified entry point for task execution.
-func (o *Orchestrator) spawnTask(ctx context.Context, intent string, task string) (string, error) {
+func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input string) (string, error) {
 	o.mu.RLock()
 	te := o.taskExecutor
 	o.mu.RUnlock()
@@ -34,12 +35,78 @@ func (o *Orchestrator) spawnTask(ctx context.Context, intent string, task string
 	if te == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
+	observed, ok := te.(session.ObservedTaskExecutor)
+	if !ok {
+		return "", fmt.Errorf("task executor %T returns no observed result; a campaign reads each task's verdict", te)
+	}
 	logging.CampaignDebug("spawnTask: using TaskExecutor for intent=%s", intent)
 	req := session.TaskRequest{
 		IntentVerb: intent,
-		Task:       task,
+		Task:       o.withPreviousAttempt(task, input),
 	}
-	return te.Execute(ctx, req)
+	ret, err := observed.ExecuteObserved(ctx, req)
+	if err != nil {
+		return ret.Output, err
+	}
+	if !ret.Done() {
+		return ret.Output, turnNotDoneError(intent, ret)
+	}
+	return ret.Output, nil
+}
+
+// ErrTaskNotDone marks an attempt whose turn ran without an error but whose
+// kernel verdict was not /done.
+var ErrTaskNotDone = errors.New("the task's turn did not end done")
+
+// turnNotDoneError names what the turn left unmet, from the kernel's own
+// turn_missing_evidence, so the failure -- and the retry that reads it -- says
+// why rather than only that.
+func turnNotDoneError(intent string, ret observation.Return) error {
+	if ret.Outcome == "" {
+		return fmt.Errorf("%w: the %s turn returned no verdict", ErrTaskNotDone, intent)
+	}
+	if why := session.DescribeMissingEvidence(ret.Missing); why != "" {
+		return fmt.Errorf("%w: the %s turn ended %s: %s", ErrTaskNotDone, intent, ret.Outcome, why)
+	}
+	return fmt.Errorf("%w: the %s turn ended %s", ErrTaskNotDone, intent, ret.Outcome)
+}
+
+// withPreviousAttempt carries why the task's last attempt failed into the next
+// attempt's input. A retry used to re-spawn the same request without the
+// failure that stopped it, and repeated it (ladder C3: a create task retried
+// with no word of its failure, and the create-only fallback then refused
+// because the first attempt had left the file behind). The attempt is read
+// from the live campaign by ID: a replan can orphan the caller's pointer.
+func (o *Orchestrator) withPreviousAttempt(task *Task, input string) string {
+	if task == nil {
+		return input
+	}
+	var last string
+	o.mu.RLock()
+	if o.campaign != nil {
+	search:
+		for i := range o.campaign.Phases {
+			for j := range o.campaign.Phases[i].Tasks {
+				live := &o.campaign.Phases[i].Tasks[j]
+				if live.ID != task.ID {
+					continue
+				}
+				for k := len(live.Attempts) - 1; k >= 0; k-- {
+					if a := live.Attempts[k]; a.Outcome == "/failure" && strings.TrimSpace(a.Error) != "" {
+						last = a.Error
+						break
+					}
+				}
+				break search
+			}
+		}
+	}
+	o.mu.RUnlock()
+	if last == "" {
+		return input
+	}
+	return input + "\n\n=== THE PREVIOUS ATTEMPT AT THIS TASK FAILED ===\n" + last +
+		"\n\nThat attempt's work may still be in the workspace: read what is there before writing, and fix the failure above rather than repeating the attempt."
 }
 
 // executeTask executes a single task.
@@ -126,7 +193,7 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 	logging.CampaignDebug("Built shard input (%d bytes) for task %s", len(input), task.ID)
 
 	// Spawn the shard via unified spawnTask
-	result, err := o.spawnTask(ctx, shardType, input)
+	result, err := o.spawnTask(ctx, task, shardType, input)
 	if err != nil {
 		// F-DOC-1: /document tasks are the campaign's deliverables (reports,
 		// rubrics). The decomposer often routes them to the coder shard, which
@@ -159,7 +226,7 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 	if needsAnalysisRetry(result) && !isFileProducingType(task.Type) {
 		logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s (shard=%s) returned a non-deliverable result (%d bytes, empty-or-intent-stub); retrying via research path", task.ID, shardType, len(strings.TrimSpace(result)))
 		retryInput := task.Description + "\n\nIMPORTANT: Do NOT describe what you WILL do and do NOT return a plan. Perform the audit NOW and report concrete findings in your final response, with file+symbol anchors where possible (or an explicit \"no issues found\" for a surface you checked). Do NOT return an empty response."
-		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !needsAnalysisRetry(retried) {
+		if retried, rerr := o.spawnTask(ctx, task, "/research", retryInput); rerr == nil && !needsAnalysisRetry(retried) {
 			result = retried
 			logging.Campaign("Research-path retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
 		} else {
@@ -263,7 +330,7 @@ func isAnalyticalVerifyDescription(desc string) bool {
 // executeResearchTask spawns a researcher shard.
 func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any, error) {
 	logging.CampaignDebug("Spawning researcher shard for task %s", task.ID)
-	result, err := o.spawnTask(ctx, "/research", o.buildTaskInput(task))
+	result, err := o.spawnTask(ctx, task, "/research", o.buildTaskInput(task))
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Researcher shard failed for task %s: %v", task.ID, err)
 		return nil, err
@@ -279,7 +346,7 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 	if needsAnalysisRetry(result) {
 		logging.Get(logging.CategoryCampaign).Warn("Research task %s returned a non-deliverable result (%d bytes, empty-or-intent-stub); retrying once", task.ID, len(strings.TrimSpace(result)))
 		retryInput := task.Description + "\n\nIMPORTANT: Do NOT describe what you WILL do and do NOT return a plan. Perform the work NOW and report concrete findings as a complete written report in your final response (or an explicit \"no issues found\" for a surface you checked). Do NOT return an empty response."
-		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !needsAnalysisRetry(retried) {
+		if retried, rerr := o.spawnTask(ctx, task, "/research", retryInput); rerr == nil && !needsAnalysisRetry(retried) {
 			result = retried
 			logging.Campaign("Research retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
 		} else {
@@ -469,7 +536,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	logging.CampaignDebug("Spawning coder shard: action=%s, path=%s, task=%s", action, targetPath, shardTask)
 
 	// Delegate to coder shard
-	result, err := o.spawnTask(ctx, "/fix", shardTask)
+	result, err := o.spawnTask(ctx, task, "/fix", shardTask)
 	if err != nil {
 		// F-CAMP-3: once the context is expired or cancelled, any fallback's
 		// LLM call can only fail with a bare "context deadline exceeded" that
@@ -727,7 +794,7 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 	shardTask := o.testWriteShardTask(task, targetPath)
 
 	// Delegate to tester shard
-	result, err := o.spawnTask(ctx, "/test", shardTask)
+	result, err := o.spawnTask(ctx, task, "/test", shardTask)
 	if err != nil {
 		// F-CAMP-3: an expired or cancelled context makes any downstream
 		// fallback's LLM call fail with a bare "context deadline exceeded" that
@@ -966,7 +1033,7 @@ func (o *Orchestrator) executeShardSpawnTask(ctx context.Context, task *Task) (a
 	intent := "/fix" // Default
 	logging.CampaignDebug("Executing shard spawn task %s: intent=%s", task.ID, intent)
 	// Holographic context: shard-spawn inputs carry upstream durable findings.
-	result, err := o.spawnTask(ctx, intent, o.buildTaskInput(task))
+	result, err := o.spawnTask(ctx, task, intent, o.buildTaskInput(task))
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Shard spawn task %s failed: %v", task.ID, err)
 		return nil, err
@@ -991,7 +1058,7 @@ func (o *Orchestrator) executeRefactorTask(ctx context.Context, task *Task) (any
 	logging.CampaignDebug("Spawning coder shard for refactoring")
 
 	// Delegate to coder shard
-	result, err := o.spawnTask(ctx, "/fix", shardTask)
+	result, err := o.spawnTask(ctx, task, "/fix", shardTask)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Refactor shard failed for task %s, falling back to file task: %v", task.ID, err)
 		// Fallback to generic file task
@@ -1260,7 +1327,7 @@ func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any,
 	}
 	logging.CampaignDebug("Executing generic task %s via coder shard", task.ID)
 	// Holographic context: generic inputs carry upstream durable findings.
-	result, err := o.spawnTask(ctx, "/fix", o.buildTaskInput(task))
+	result, err := o.spawnTask(ctx, task, "/fix", o.buildTaskInput(task))
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Generic task %s failed: %v", task.ID, err)
 		return nil, err

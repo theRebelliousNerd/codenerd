@@ -64,6 +64,7 @@ func observedReturn(agent, task string, res *ExecutionResult) observation.Return
 	// re-invent by reading the prose. They cross here because this is the
 	// only place both ends are in scope.
 	out.Outcome = string(res.TurnOutcome)
+	out.Missing = append(out.Missing, res.MissingEvidence...)
 	out.Stage = res.ChangeStage
 	if res.Acceptance != nil {
 		out.Acceptance = &observation.Acceptance{

@@ -2780,9 +2780,9 @@ func missingEvidenceSentence(atom string) string {
 	}
 }
 
-// missingEvidenceClause joins the derived reasons into the phrase that follows
-// "Unverified: ". Empty when nothing is missing.
-func missingEvidenceClause(missing []string) string {
+// DescribeMissingEvidence joins the derived reasons into the phrase that
+// follows "Unverified: ". Empty when nothing is missing.
+func DescribeMissingEvidence(missing []string) string {
 	if len(missing) == 0 {
 		return ""
 	}

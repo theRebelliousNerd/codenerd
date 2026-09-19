@@ -347,7 +347,7 @@ func (o *Orchestrator) runAssaultStage(
 		nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95).\"]}, \"surface_response\": \"...\"}.\n")
 		nemesisPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
 		taskStr := nemesisPrompt.String()
-		result, err := o.spawnTask(ctx, "nemesis", taskStr)
+		result, err := o.spawnTask(ctx, nil, "nemesis", taskStr)
 		content := "nemesis review\n\n" + taskStr + "\n\n" + result
 		if err != nil {
 			content += "\n\nERROR: " + err.Error()

@@ -140,6 +140,12 @@ func validateOrchestratorConfig(cfg OrchestratorConfig) error {
 	}
 
 	var invalid []string
+	// A campaign reads each task's kernel verdict (spawnTask): an executor
+	// that returns only prose would report an /unverified turn as success
+	// (external audit F2).
+	if _, ok := cfg.TaskExecutor.(session.ObservedTaskExecutor); !ok {
+		invalid = append(invalid, fmt.Sprintf("task_executor %T must return an observed result (session.ObservedTaskExecutor)", cfg.TaskExecutor))
+	}
 	if strings.TrimSpace(cfg.Workspace) == "" {
 		invalid = append(invalid, "workspace must be non-empty")
 	}
@@ -230,6 +236,10 @@ func (o *Orchestrator) SetTaskExecutor(te session.TaskExecutor) {
 	// verification checkpoints cannot run.
 	if isNilTaskExecutor(te) {
 		logging.Get(logging.CategoryCampaign).Warn("SetTaskExecutor called with nil executor; keeping existing executor")
+		return
+	}
+	if _, ok := te.(session.ObservedTaskExecutor); !ok {
+		logging.Get(logging.CategoryCampaign).Error("SetTaskExecutor: %T returns no observed result, and a campaign reads each task's verdict; keeping existing executor", te)
 		return
 	}
 	o.mu.Lock()

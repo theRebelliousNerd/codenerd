@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/observation"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
@@ -195,6 +196,14 @@ func (g *gatingTaskExecutor) GetResult(taskID string) (string, bool, error) {
 
 func (g *gatingTaskExecutor) WaitForResult(ctx context.Context, taskID string) (string, error) {
 	return "", nil
+}
+
+func (g *gatingTaskExecutor) ExecuteObserved(ctx context.Context, req session.TaskRequest) (observation.Return, error) {
+	return observedFromProse(g.Execute(ctx, req))
+}
+
+func (g *gatingTaskExecutor) ExecuteObservedWithContext(ctx context.Context, req session.TaskRequest, _ *types.SessionContext, _ types.SpawnPriority) (observation.Return, error) {
+	return observedFromProse(g.Execute(ctx, req))
 }
 
 func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {

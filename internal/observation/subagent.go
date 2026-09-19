@@ -124,6 +124,12 @@ type Return struct {
 	// /done: a consumer must treat it as unverified, never as success.
 	Outcome string `json:"outcome,omitempty"`
 
+	// Missing is the kernel's turn_missing_evidence for a turn that did not
+	// end /done: the gates and obligations it left unmet, as the corpus named
+	// them (/tests_not_green, /test_run_not_green, ...). A consumer that fails
+	// the turn says why from these rather than from the prose.
+	Missing []string `json:"missing,omitempty"`
+
 	// Stage is how far the change got: artifact_changed (files written),
 	// checks_passed (the mechanical gates were green on the final tree), or
 	// behavior_verified (an acceptance contract was verified). It is what
@@ -142,6 +148,10 @@ type Return struct {
 	// on the paths, not parse the sentence.
 	Untested []string `json:"untested,omitempty"`
 }
+
+// Done reports whether the producer's kernel verdict for the turn is /done.
+// An empty Outcome is no verdict, and no verdict is not success.
+func (r Return) Done() bool { return r.Outcome == "/done" }
 
 // Acceptance is an acceptance contract's verdict on a turn.
 //
