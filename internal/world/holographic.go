@@ -15,6 +15,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/tools/codedom"
 )
 
 // =============================================================================
@@ -574,6 +575,19 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		b.WriteString("\n")
 	}
 
+	// The target file's own outline: every declaration with its line range,
+	// the data get_elements returns. A turn or planned step aimed at this file
+	// needs it before its first read -- the CodeDOM atoms tell the model to
+	// locate, read only that range, then edit by range -- so the harness serves
+	// it with the file instead of the model spending its first calls finding
+	// its way. It is read fresh on every call, so after an edit the ranges are
+	// the current ones. Observed 2026-09-18: a two-file change spent 40
+	// read_file and 13 grep calls around its 10 edits.
+	if outline := h.targetOutline(filePath); outline != "" {
+		substantive = true
+		b.WriteString(outline)
+	}
+
 	if !substantive {
 		return ""
 	}
@@ -582,6 +596,52 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		return ""
 	}
 	return result + "\n"
+}
+
+// maxOutlineElements bounds the outline a prompt carries; a file with more
+// says how many it left out and points at get_elements, which lists them all.
+const maxOutlineElements = 120
+
+// maxOutlineSignature bounds one outline entry; a longer signature is cut with
+// a visible ellipsis (get_element returns it whole).
+const maxOutlineSignature = 100
+
+// targetOutline renders the declarations of filePath with their current line
+// ranges, or "" when the file cannot be read or declares nothing.
+func (h *HolographicProvider) targetOutline(filePath string) string {
+	path := filePath
+	if !filepath.IsAbs(path) && h.workDir != "" {
+		path = filepath.Join(h.workDir, filePath)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	elements := codedom.ElementsFromSource(path, string(data))
+	if len(elements) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "### Outline of %s (%d declarations, line ranges current as of this request)\n\n", filepath.Base(filePath), len(elements))
+	shown := elements
+	if len(shown) > maxOutlineElements {
+		shown = shown[:maxOutlineElements]
+	}
+	for _, el := range shown {
+		label := strings.TrimSpace(el.Signature)
+		if label == "" {
+			label = el.Name
+		}
+		if len(label) > maxOutlineSignature {
+			label = label[:maxOutlineSignature] + "…"
+		}
+		fmt.Fprintf(&b, "- %d-%d %s `%s`\n", el.StartLine, el.EndLine, el.Type, label)
+	}
+	if rest := len(elements) - len(shown); rest > 0 {
+		fmt.Fprintf(&b, "- … %d more declarations not listed; `get_elements path=%s` lists every one\n", rest, filePath)
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 // getContextInternal is the shared cancellable context generator.
