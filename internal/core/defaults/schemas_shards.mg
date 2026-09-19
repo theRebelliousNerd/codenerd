@@ -306,8 +306,8 @@ Decl has_incomplete_hard_dep(TaskID) bound [/string].
 # has_earlier_phase(PhaseID) - helper: there are earlier phases to complete
 Decl has_earlier_phase(PhaseID) bound [/string].
 
-# has_earlier_task(PhaseID, TaskID) - helper: there are earlier tasks in phase
-Decl has_earlier_task(PhaseID, TaskID) bound [/string, /string].
+# has_earlier_task(TaskID, PhaseID) - helper: a runnable higher-priority task in the phase goes first
+Decl has_earlier_task(TaskID, PhaseID) bound [/string, /string].
 
 # all_phase_tasks_complete(PhaseID) - derived: all tasks in phase are complete
 Decl all_phase_tasks_complete(PhaseID) bound [/string].

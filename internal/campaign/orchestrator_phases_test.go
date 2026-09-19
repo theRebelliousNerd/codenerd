@@ -101,65 +101,6 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 // TODO: [Null/Undefined/Empty] Test getEligibleTasks when 'eligible_task' fact returns missing or empty string arguments.
 // TODO: [Type Coercion] Test getEligibleTasks when 'eligible_task' fact argument is coerced from non-string Atom/types.
 // TODO: [State Conflicts] Test getEligibleTasks with concurrent modifications to Phase.Tasks.
-func TestOrchestrator_GetEligibleTasks(t *testing.T) {
-	mockKernel := &MockKernel{}
-	c := &Campaign{
-		ID: "/campaign_1",
-		Phases: []Phase{
-			{
-				ID: "/phase_1",
-				Tasks: []Task{
-					{ID: "/task_1"},
-					{ID: "/task_2"},
-					{ID: "/task_3", NextRetryAt: time.Now().Add(1 * time.Hour)},  // Future backoff
-					{ID: "/task_4", NextRetryAt: time.Now().Add(-1 * time.Hour)}, // Past backoff
-				},
-			},
-		},
-	}
-
-	// Inject eligible_task facts
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_1"}})
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_3"}})
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_4"}})
-
-	orch := &Orchestrator{
-		kernel:   mockKernel,
-		campaign: c,
-	}
-
-	phase := &c.Phases[0]
-	tasks := orch.getEligibleTasks(phase)
-
-	// Expectations:
-	// /task_1: Eligible and no backoff -> Included
-	// /task_2: Not eligible -> Excluded
-	// /task_3: Eligible but future backoff -> Excluded
-	// /task_4: Eligible and past backoff -> Included
-
-	if len(tasks) != 2 {
-		t.Fatalf("Expected 2 tasks, got %d", len(tasks))
-	}
-
-	found1 := false
-	found4 := false
-	for _, task := range tasks {
-		if task.ID == "/task_1" {
-			found1 = true
-		}
-		if task.ID == "/task_4" {
-			found4 = true
-		}
-	}
-
-	if !found1 {
-		t.Error("Expected /task_1 to be eligible")
-	}
-	if !found4 {
-		t.Error("Expected /task_4 to be eligible (backoff expired)")
-	}
-}
-
 func TestOrchestrator_GetEligibleTasks_ExtremeScaling(t *testing.T) {
 	mockKernel := &MockKernel{}
 	numTasks := 10000
@@ -211,58 +152,6 @@ func TestOrchestrator_GetEligibleTasks_ExtremeScaling(t *testing.T) {
 // TODO: [Null/Undefined/Empty] Test getNextTask with a nil Phase argument.
 // TODO: [Type Coercion] Test getNextTask when 'next_campaign_task' fact argument is not a string.
 // TODO: [State Conflicts] Test getNextTask when concurrent tasks are modifying the Phase structure.
-func TestOrchestrator_GetEligibleTasks_ExtremeBackoff(t *testing.T) {
-	mockKernel := &MockKernel{}
-	c := &Campaign{
-		ID: "/campaign_1",
-		Phases: []Phase{
-			{
-				ID: "/phase_1",
-				Tasks: []Task{
-					{ID: "/task_far_future", NextRetryAt: time.Now().Add(100 * 365 * 24 * time.Hour)}, // 100 years in future
-					{ID: "/task_far_past", NextRetryAt: time.Now().Add(-100 * 365 * 24 * time.Hour)},  // 100 years in past
-					{ID: "/task_zero_time", NextRetryAt: time.Time{}},                                 // zero time
-				},
-			},
-		},
-	}
-
-	// Inject eligible_task facts
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_far_future"}})
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_far_past"}})
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_zero_time"}})
-
-	orch := &Orchestrator{
-		kernel:   mockKernel,
-		campaign: c,
-	}
-
-	phase := &c.Phases[0]
-	tasks := orch.getEligibleTasks(phase)
-
-	if len(tasks) != 2 {
-		t.Fatalf("Expected 2 tasks, got %d", len(tasks))
-	}
-
-	foundPast := false
-	foundZero := false
-	for _, task := range tasks {
-		if task.ID == "/task_far_past" {
-			foundPast = true
-		}
-		if task.ID == "/task_zero_time" {
-			foundZero = true
-		}
-	}
-
-	if !foundPast {
-		t.Errorf("Expected /task_far_past to be included")
-	}
-	if !foundZero {
-		t.Errorf("Expected /task_zero_time to be included")
-	}
-}
-
 func TestOrchestrator_GetNextTask(t *testing.T) {
 	mockKernel := &MockKernel{}
 	c := &Campaign{

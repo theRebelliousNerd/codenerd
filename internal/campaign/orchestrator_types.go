@@ -27,6 +27,7 @@ type Orchestrator struct {
 
 	// Core components
 	kernel       core.Kernel
+	kernelClock  atomic.Int64 // the current_time second last fed to the kernel; see tickKernelClock
 	llmClient    perception.LLMClient
 	shardMgr     *coreshards.ShardManager // For monitoring (GetActiveShards, GetBackpressureStatus). Use taskExecutor for task execution.
 	taskExecutor session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)

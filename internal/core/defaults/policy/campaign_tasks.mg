@@ -40,11 +40,16 @@ task_conflict(TaskID, OtherTaskID) :-
     task_write_path(OtherTaskID, Path),
     TaskID != OtherTaskID.
 
-# Helper: check if there's an earlier pending task
+# Helper: check if there's an earlier pending task. A task still waiting on
+# a dependency cannot go first, so it holds nothing back: a higher-priority task
+# that depends on a lower-priority one in the same phase would otherwise leave
+# neither eligible (external audit N02 -- the scheduler's in-memory fallback hid
+# this until the kernel became the only scheduler).
 has_earlier_task(TaskID, PhaseID) :-
     campaign_task(TaskID, PhaseID, _, /pending, _),
     campaign_task(OtherTaskID, PhaseID, _, /pending, _),
     OtherTaskID != TaskID,
+    !has_blocking_task_dep(OtherTaskID),
     task_priority(OtherTaskID, OtherPriority),
     task_priority(TaskID, Priority),
     priority_higher(OtherPriority, Priority).

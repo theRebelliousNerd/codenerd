@@ -69,88 +69,130 @@ func (o *Orchestrator) getEligibleTasks(phase *Phase) []*Task {
 		return nil
 	}
 
-	now := time.Now()
-	tasks := make([]*Task, 0)
+	// The kernel decides what runs: eligible_task weighs dependencies, write-set
+	// conflicts, ordering and backoff. An empty answer from a kernel that holds
+	// this phase's pending tasks is a decision -- wait -- and nothing here
+	// overrides it. Until 2026-09-19 an empty answer, or a failed query, fell
+	// back to an in-memory scan of dependencies alone, which scheduled the very
+	// tasks the kernel was holding back (external audit N02).
+	o.tickKernelClock()
+	tasks, err := o.kernelEligibleTasks(phase)
+	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("eligible_task query failed for phase %s: %v; nothing is scheduled this round", phase.ID, err)
+		return nil
+	}
+	if len(tasks) == 0 {
+		if pending := o.pendingTasksTheKernelDoesNotHold(phase); pending > 0 {
+			// Missing state, not a decision: the case the fallback was written
+			// for (a resume whose campaign facts were not reloaded). Reload them
+			// and ask again; the kernel still decides.
+			logging.Get(logging.CategoryCampaign).Warn(
+				"The kernel holds none of phase %s's %d pending task(s); reloading the campaign's facts", phase.ID, pending)
+			o.mu.RLock()
+			reload := o.campaign.ToFacts()
+			o.mu.RUnlock()
+			if lerr := o.kernel.LoadFacts(reload); lerr != nil {
+				logging.Get(logging.CategoryCampaign).Error("reloading campaign facts for phase %s failed: %v; nothing is scheduled this round", phase.ID, lerr)
+				return nil
+			}
+			if tasks, err = o.kernelEligibleTasks(phase); err != nil {
+				logging.Get(logging.CategoryCampaign).Error("eligible_task query failed for phase %s after the reload: %v", phase.ID, err)
+				return nil
+			}
+		}
+	}
+	logging.CampaignDebug("Matched %d eligible tasks for phase %s", len(tasks), phase.ID)
+	return tasks
+}
 
+// tickKernelClock feeds the kernel the wall clock before it is asked to
+// schedule. eligible_task withholds a task whose task_retry_at is ahead of
+// current_time, and nothing in a campaign moved current_time -- the chat
+// refreshes it once per user turn -- so a retry scheduled after the last
+// refresh stayed in backoff for the rest of the run; the in-memory fallback
+// hid it (external audit N02). current_time is whole seconds, so within one
+// second the tick is skipped: each one re-evaluates the corpus (~60ms).
+func (o *Orchestrator) tickKernelClock() {
+	now := time.Now().Unix()
+	if o.kernelClock.Swap(now) == now {
+		return
+	}
+	clock := core.Fact{Predicate: "current_time", Args: []any{now}}
+	if tr, ok := types.TransactorOf(o.kernel); ok {
+		tx := tr.Transaction()
+		tx.Retract("current_time")
+		tx.Assert(clock)
+		if err := tx.Commit(); err != nil {
+			o.kernelClock.Store(0)
+			logging.Get(logging.CategoryCampaign).Warn("feeding the kernel the clock failed: %v", err)
+		}
+		return
+	}
+	// Without a transaction a query can land between the two calls and see no
+	// clock; the policy then keeps retry tasks in backoff, which only delays.
+	if err := o.kernel.Retract("current_time"); err != nil {
+		o.kernelClock.Store(0)
+		logging.Get(logging.CategoryCampaign).Warn("retracting the kernel clock failed: %v", err)
+		return
+	}
+	if err := o.kernel.Assert(clock); err != nil {
+		o.kernelClock.Store(0)
+		logging.Get(logging.CategoryCampaign).Warn("feeding the kernel the clock failed: %v", err)
+	}
+}
+
+// kernelEligibleTasks returns the phase's tasks the kernel derives
+// eligible_task for.
+func (o *Orchestrator) kernelEligibleTasks(phase *Phase) ([]*Task, error) {
 	facts, err := o.kernel.Query("eligible_task")
 	if err != nil {
-		logging.CampaignDebug("Error querying eligible_task: %v", err)
+		return nil, err
 	}
-	if len(facts) > 0 {
-		logging.CampaignDebug("Found %d eligible_task facts from kernel", len(facts))
-		eligibleMap := make(map[string]bool, len(facts))
-		for _, fact := range facts {
-			if len(fact.Args) > 0 {
-				eligibleMap[types.ExtractString(fact.Args[0])] = true
-			}
-		}
-		for i := range phase.Tasks {
-			if eligibleMap[phase.Tasks[i].ID] {
-				tasks = append(tasks, &phase.Tasks[i])
-			}
+	eligible := make(map[string]bool, len(facts))
+	for _, fact := range facts {
+		if len(fact.Args) > 0 {
+			eligible[types.ExtractString(fact.Args[0])] = true
 		}
 	}
+	var tasks []*Task
+	for i := range phase.Tasks {
+		if eligible[phase.Tasks[i].ID] {
+			tasks = append(tasks, &phase.Tasks[i])
+		}
+	}
+	return tasks, nil
+}
 
-	// Fallback: when Mangle has no eligible_task facts (common after resume if
-	// campaign_task facts were not re-derived), use in-memory dependency rules
-	// so the phase does not spin forever with zero work.
-	if len(tasks) == 0 {
-		logging.CampaignDebug("No eligible_task facts for phase %s; using dependency fallback", phase.ID)
-		completed := make(map[string]bool)
-		for i := range phase.Tasks {
-			if phase.Tasks[i].Status == TaskCompleted {
-				completed[phase.Tasks[i].ID] = true
-			}
-		}
-		// Also treat tasks completed in other phases as satisfied deps when IDs match.
-		if o.campaign != nil {
-			for pi := range o.campaign.Phases {
-				for ti := range o.campaign.Phases[pi].Tasks {
-					t := &o.campaign.Phases[pi].Tasks[ti]
-					if t.Status == TaskCompleted {
-						completed[t.ID] = true
-					}
-				}
-			}
-		}
-		for i := range phase.Tasks {
-			t := &phase.Tasks[i]
-			if t.Status != TaskPending {
-				continue
-			}
-			depsOK := true
-			for _, dep := range t.DependsOn {
-				if !completed[dep] {
-					depsOK = false
-					break
-				}
-			}
-			if depsOK {
-				tasks = append(tasks, t)
-			}
-		}
-		logging.Campaign("Eligible fallback matched %d pending tasks for phase %s", len(tasks), phase.ID)
-	} else {
-		logging.CampaignDebug("Matched %d eligible tasks for phase %s", len(tasks), phase.ID)
+// pendingTasksTheKernelDoesNotHold counts the phase's pending tasks when the
+// kernel holds a campaign_task row for none of them -- state that was never
+// loaded, as opposed to a kernel that holds them and schedules none. It is 0
+// when the kernel holds any of them or the phase has nothing pending.
+func (o *Orchestrator) pendingTasksTheKernelDoesNotHold(phase *Phase) int {
+	facts, err := o.kernel.Query("campaign_task")
+	if err != nil {
+		return 0
 	}
-
-	// Respect retry backoff windows.
-	filtered := make([]*Task, 0, len(tasks))
-	skipped := 0
-	for _, t := range tasks {
-		if !t.NextRetryAt.IsZero() && t.NextRetryAt.After(now) {
-			skipped++
+	held := make(map[string]bool, len(facts))
+	for _, fact := range facts {
+		if len(fact.Args) > 0 {
+			held[types.ExtractString(fact.Args[0])] = true
+		}
+	}
+	pending := 0
+	for i := range phase.Tasks {
+		if phase.Tasks[i].Status != TaskPending {
 			continue
 		}
-		filtered = append(filtered, t)
+		if held[phase.Tasks[i].ID] {
+			return 0
+		}
+		pending++
 	}
-	if skipped > 0 {
-		logging.CampaignDebug("Filtered %d eligible tasks due to backoff", skipped)
-	}
-	return filtered
+	return pending
 }
 
 // getNextTask gets the next task to execute from Mangle.
+
 func (o *Orchestrator) getNextTask(phase *Phase) *Task {
 	if phase == nil {
 		return nil
