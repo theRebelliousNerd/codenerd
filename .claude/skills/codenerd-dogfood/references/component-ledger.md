@@ -5052,3 +5052,77 @@ not a reconstruction from memory"; the test round does not. **N24.**
 
 **Rung-level.** Streak 0. The pinning gate never ran: the turn died at the test gate, which is
 where it should die. What the run measures is the repair loop, not the gate.
+
+## R1-13, N09's brief a third time: the fix the brief asked for, and two names it takes away -- not landed (2026-09-19, 18:27-19:09)
+
+Binary from `6470a401`: the pinning gate (N22/N22b) and the repair round that carries the failing
+tests (N24). Brief unchanged from R1-8 and R1-12.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 42.3 | 127 (64 read_file, 13 recall_context, 11 run_tests, 10 edit_lines, 8 grep, and the rest) | rc=0, `/done`, `checks_passed` -- **not landed**: the review found two elements it makes unfetchable | 114, mean 46.2k, peak 71.8k, 5.27M total, 108k out | `elements.go` +178, `elements_receiver_test.go` +10 tests, `extent_realfile_test.go` 1 line |
+
+**What it did.** Go methods are listed receiver-qualified (`A.Close`), and `get_element` accepts
+`A.Close`, `*B.Close`, `(*B).Close`, `pkg.B.Close` and `Box[T].Get`; a bare name matching more than
+one element is refused with the candidates named. It widened the existing extent test's assertion
+(`el.Name != "ForbidsPath" && !strings.HasSuffix(el.Name, ".ForbidsPath")`) -- `ForbidsPath` is a
+method, so the naming change the brief asked for is what moved it. Eleven of its own `run_tests`
+calls; no repair round was needed, which is the first time this brief compiled and passed on the
+first measurement.
+
+**The gates, and the pinning gate's first production run.** Build and tests green in 9 s and 16 s;
+the critic reported 2 findings, 0 worth acting on; the coverage round converged (46 uncovered
+blocks at the critic, answered). Then the gate: every declaration pinned, 21 units, and 12
+conditions recorded as advisory at ~0.3 s each. Two of those twelve were
+`line 574, !eIsMethod forced false` and `line 588, eIsMethod forced true` -- the branches the
+review's two defects live in. The advisory half aimed at the right lines without charging.
+
+**Reviewed (7 shapes probed, workspace-rooted).** Two methods of the same name: both fetchable by
+every form, bare name refused with both candidates -- the brief's demand, met. A lone method: bare
+name still fetches it. Generic receiver: `Box.Get`, `Box[T].Get` accepted. **Two defects it
+introduces:**
+- a Go function beside a same-named method is listed `Close` and answers
+  `ambiguous (2 matches); use one of: A.Close, Close` -- the second candidate is the name just
+  refused, so the function has no name the tool accepts (at HEAD the function was the one that
+  fetched);
+- Python and JavaScript methods are not receiver-qualified, so `close` answers
+  `use one of: close, close` and `A.close` is `element not found`: both elements become
+  unfetchable where one worked before.
+
+Criterion 7 fails, so it does not land. The work stays in the tree and R1-14 continues from it with
+the two symptoms as its brief -- the first time a run is handed the remains of another.
+
+## R1-14, the two names R1-13 took away: the gate forced the tests, the suite found the rest -- not landed (2026-09-19, 19:16-19:34)
+
+Binary from `6470a401`. Brief written from R1-13's review: the two symptoms it introduced, with
+the observed messages, nothing else. Run on top of R1-13's uncommitted tree.
+
+| minutes | tool calls | outcome | files |
+|---|---|---|---|
+| 18.3 | ~60 | rc=0, `/done`, `checks_passed` -- **not landed**: the full suite found a consumer's contract broken outside the turn's sight | `elements.go` (+130 more), `elements_roundtrip_test.go` (12 tests), `brace_net_change_test.go` (a table for a pre-existing helper) |
+
+**What it did.** An exact stored name now wins over a method-name match, so a function beside a
+same-named method fetches again; and Python and JavaScript class methods are listed
+receiver-qualified too (`A.close`), so both of the elements that had become unfetchable fetch.
+Probed over 15 shapes: every listed name fetches its element, a bare name matching several is
+refused with candidates that each fetch one, `(*B).Close`, `*B.Close`, `p.B.Close`, `Box[T].Get`
+all resolve, nested Python classes give `Outer.go` and `Inner.go`. The gaps that remain --
+interface methods, generic functions and `async def` are not listed at all -- are the regex
+reader's (audit N08), not this change's.
+
+**The pinning gate did what it was built for.** Its first two attempts wrote tests that passed
+with `ElementsFromSource` and `executeGetElement` put back as R1-13 left them; the gate refused
+both, and the third attempt added `elements_roundtrip_test.go` -- every name `get_elements` shows
+fetched back through `get_element` -- which is the test the review would have demanded by hand.
+`pinning repair converged after 3 attempt(s)` (14 model calls, 698k in, 19.5k out).
+
+**Why it does not land.** `go test ./...` afterwards: `internal/observation`'s
+`TestProject_WhenHitIsInsideAMethodOfAClass_ShouldAttributeToTheInnermostSymbol` fails --
+`symbol = "w.py:Widget.encode", want w.py:encode`. The turn never saw it: **the test gate ran the
+packages the turn wrote and nothing else** (N25, fixed by hand). A second failure in
+`internal/core` (`TestLimitsEnforcer_ExtraCornerCases`, "memory utilization critical (>90%)") is
+load-dependent and not this change's -- it fails on an idle box too when memory is tight.
+
+The work is saved (`scratchpad/r1_13_14_change/`) and the tree is back at HEAD: with the gate's
+scope fixed, the brief is run again from scratch, and the model gets to reconcile the consumer's
+contract inside the turn instead of leaving it to the reviewer.

@@ -137,6 +137,25 @@ the CLI's own output), goroutines whose panics are not logged.
 Census pending: maps and slices that only grow, tables with no retention, logs with no rotation,
 caches with no eviction.
 
+Measured 2026-09-19 18:35, this workspace's `.nerd/` after the dogfood weeks: **~4 GB**, none of
+it bounded by anything.
+
+| path | size | shape |
+|---|---|---|
+| `marathon-supervision` | 1.2 G | per-run supervision artifacts |
+| `knowledge.db` (+20 M wal) | 1.0 G | the knowledge graph |
+| `campaigns` | 773 M | per-campaign artifacts |
+| `logs_archive` | 711 M | rotated logs |
+| `logs` | 159 M | 280 files, a set per run |
+| `context` | 86 M | 170 working-context archives, one per executor (N13) |
+| `prompts`, `shards`, `tools` | 34 M | |
+
+A machine left running for weeks grows this without bound while the disk guard's floor is real.
+The pieces differ in kind -- an archive a later run should reopen (N13), a log a reviewer may
+want, a campaign artifact whose campaign is finished -- so the answer is a derived retention and
+not a blanket delete: what a record is for, and whether anything can still read it, decides how
+long it is kept. Hand-built when it is worked: it deletes files.
+
 ### H7 memory safety
 
 A data race in Go is undefined behaviour, not a wrong value: a torn slice or interface header

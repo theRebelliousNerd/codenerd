@@ -147,6 +147,14 @@ becoming stale, or detached from the mutations it is supposed to describe.
   test's source as it is on disk, found in the package the runner named or beside the turn's own
   writes -- the answer the removed-tests round already gives ("a paste, not a reconstruction from
   memory").
+- **N25 the test gate ran the turn's own packages and nothing else.** A change to a package
+  others import was verified by its own tests alone. R1-13 and R1-14 renamed Go methods in the
+  CodeDOM reader; `internal/tools/codedom` was green, the pinning gate satisfied, both turns
+  `/done` -- and `internal/observation`'s codesearch test, which pins how a hit inside a method is
+  named, failed on the next full suite. Fixed by hand `c4c097fc`: the packages that import the turn's
+  run in the same gate, one hop, found through code and tests, with the same baseline attribution
+  so a package that was already red is not charged. They run where the verdict is decided -- the
+  gate and the closure -- not inside every repair round's recheck.
 - **N19 the working request drops history before the first kept round.** `prepareWorkingRequest`
   (`working_context.go`) sends the loop's anchor and history from the earliest kept assistant
   tool-call round onward; a user message with no tool round before it is not sent. Every production
