@@ -22,6 +22,16 @@ Decl working_in_transcript(ID) bound [/string].
 # never wrote; three runs stalled at the read-only ceiling.
 Decl working_transcript_rounds(N) bound [/number].
 working_transcript_rounds(3).
+# The most the observations section of one working request may carry, in
+# bytes. Within it working_selected/2 chooses what is shown; everything it
+# leaves out stays recallable by id. It was a Go constant equal to the old
+# transcript cap (256 KiB, ~64k tokens) until 2026-09-18, when one nerd fix run
+# was measured sending 32k tokens on its first call and 80-103k by its last:
+# the growth was this section filling with every file the turn had read. The
+# window is not a bucket; half of that is room for a one-file change and the
+# files around it, and a read that falls out is one recall away.
+Decl working_section_ceiling(Bytes) bound [/number].
+working_section_ceiling(131072).
 Decl working_stale(ID) bound [/string].
 Decl working_superseded(ID) bound [/string].
 Decl working_selected(ID, Priority) bound [/string, /name].

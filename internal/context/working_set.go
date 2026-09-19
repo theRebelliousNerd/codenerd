@@ -244,6 +244,23 @@ func (w *WorkingSet) TranscriptRounds(context.Context) (int, error) {
 	return n, nil
 }
 
+// SectionCeiling is the policy's bound on the observations section of one
+// working request, in bytes (working_section_ceiling). Within it the policy's
+// selection chooses what is shown; the rest stays recallable.
+func (w *WorkingSet) SectionCeiling(context.Context) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	facts := w.engine.QueryFacts("working_section_ceiling")
+	if len(facts) == 0 || len(facts[0].Args) != 1 {
+		return 0, fmt.Errorf("working policy declares no working_section_ceiling")
+	}
+	n, err := strconv.Atoi(fmt.Sprint(facts[0].Args[0]))
+	if err != nil || n < 4096 {
+		return 0, fmt.Errorf("working_section_ceiling must be at least 4096 bytes, got %v", facts[0].Args[0])
+	}
+	return n, nil
+}
+
 // RepeatThreshold is the policy's span for a deterministic trace cycle
 // (working_repeat_threshold). The loop is the only side that can see the tool
 // trace, so it does the measuring and reports the verdict as working_control/2;

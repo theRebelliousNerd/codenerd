@@ -81,14 +81,6 @@ func commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDef
 	return kept
 }
 
-// workingSectionCeiling bounds the observations section of a working request
-// at what the transcript it replaces was allowed to cost. The working context
-// exists so the provider transcript stops growing with every tool result; a
-// section allowed to grow to the whole input window would put that growth
-// back, at 1M-window prices, on every round of a long turn. Within the ceiling
-// the policy chooses what is shown; what it leaves out stays recallable.
-const workingSectionCeiling = maxToolLoopHistoryBytes
-
 // workingReplyReserve is the part of the input window kept free of working
 // context so the request is never sent at exactly the budget.
 const workingReplyReserve = 256
@@ -383,7 +375,16 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 			return "", nil, err
 		}
 	}
-	budget := min((remaining-workingReplyReserve)*4, workingSectionCeiling)
+	// The section's ceiling is the working policy's (working_section_ceiling):
+	// the working context exists so the request stops growing with every tool
+	// result, and a section allowed to fill whatever the window leaves would put
+	// that growth back on every round. Within it the policy chooses what is
+	// shown; what it leaves out stays recallable.
+	ceiling, err := loop.set.SectionCeiling(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	budget := min((remaining-workingReplyReserve)*4, ceiling)
 	selected, err := loop.set.Select(ctx, loop.focus, loop.recent, shown, budget)
 	if err != nil {
 		return "", nil, err
