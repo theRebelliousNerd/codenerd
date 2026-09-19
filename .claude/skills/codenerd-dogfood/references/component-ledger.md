@@ -4642,3 +4642,39 @@ is its built copy, so an error planted on disk fails only its own file) at a cos
 the point of weighing: every file is judged against its siblings as built into the binary, not as
 they are in the working tree, so a change across several policy files is checked against stale
 siblings. Unfinished; not judged against the criteria.
+
+## R1-4d, brief v2 on the broker fix: two harness clocks cut a model that thinks for minutes (2026-09-19, 08:31-08:56)
+
+Binary from `40c6f61a` (the redacted-think measurement in). Brief v2 unchanged.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 25.1 | 77 (33 read_file, 17 grep, 12 recall_context, 4 list_files, 3 edit_lines -- one refused, "changes delimiter balance", 2 search_code, 2 run_tests, 2 get_elements, 1 glob, 1 git_operation) | rc=0, `/unverified`: "code this turn changed is executed by no test" -- **not landed**, reverted | 59, mean 71.8k input+cached, peak 91.6k, 4.24M total (2.71M uncached), 58.5k out | `cmd_mangle_check.go` +101/-8, no test |
+
+**What happened.** The edits were done by 08:35:54; the working policy closed exploration at 35
+and again at 58 tool calls, and each time a `run_tests` reopened it -- the second on a tree that
+had not changed since the first -- so the model read for 11 more minutes (policy: "reading stays
+closed until a verification brings evidence the model has not seen", but the rule lifts on any
+verification). Build (7.5 s), tests (16.5 s) and vet then passed; six changed blocks were
+executed by no test, so the coverage round opened at 08:47:44. Its attempt read the file (3.5 s);
+its second model call ran 368 s and the episode clock (5 min + 3 x the 24 s gate) cut it with
+nothing returned. The round's record said `llm_calls=0 tool_calls=0` although one call and one
+read had completed (the error path drops an attempt's finished work). The critic then ran 2.5
+minutes and was cut at 25:01 by `nerd fix`'s default `--timeout`. The verdict named the six
+blocks: honest.
+
+**Harness fixes, hand-built.** Steve, on seeing the 25-minute cut: "there should not be timeouts
+like that... some agentic runs are like hours long." `c9f8212d` stopped the repair clock cutting a
+call in flight; `4316415f` removed the episode clock (attempts bound it); `02e4c8dd` gave
+`--timeout` no default (0 used to be an expired deadline); `f91c39b6` removed the shard,
+OODA-loop, campaign-phase, ingestion, Ouroboros, per-shard and session ceilings (his config's
+eleven keys removed with his go-ahead); `856ff1fe` the campaign's 4 h / 30 m. Still open from this
+run: the regime lifting on a verification that brings nothing new; the repair ledger's error path;
+whether the refused `edit_lines` was the delimiter guard's false veto (external audit N10).
+
+**The partial fix.** A fourth design: schemas load whole, every policy and root module contributes
+only its Decls, each loaded on its own so one bad Decl fails alone -- v2's property. Its Decl
+extractor ends a Decl at the first line ending in "."; a Decl with a trailing comment
+(`chaos.mg:40`, `:84`) swallows the lines after it and fails to load, and the error is discarded,
+so those predicates silently vanish from every other file's context (latent: nothing outside
+`chaos.mg` uses them today). No test.
