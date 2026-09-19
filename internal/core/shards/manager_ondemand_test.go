@@ -11,9 +11,22 @@ import (
 type onDemandFakeAgent struct {
 	id     string
 	config types.ShardConfig
+	// release, when set, holds Execute until the test ends, the way a live
+	// on-demand system shard runs until it is stopped.
+	release <-chan struct{}
 }
 
-func (a *onDemandFakeAgent) Execute(context.Context, string) (string, error) {
+// Execute returning at once made "while the shard is active" a race between
+// the agent's goroutine and the test's second ensure: the manager drops a
+// finished agent from its active set, and once, under a full `go test ./...`
+// (2026-09-19), the goroutine won and the second ensure spawned again.
+func (a *onDemandFakeAgent) Execute(ctx context.Context, _ string) (string, error) {
+	if a.release != nil {
+		select {
+		case <-a.release:
+		case <-ctx.Done():
+		}
+	}
 	return "on-demand work", nil
 }
 func (a *onDemandFakeAgent) GetID() string                           { return a.id }
@@ -36,8 +49,10 @@ func onDemandTestManager(t *testing.T, activate []types.Fact) *ShardManager {
 		t.Fatalf("LoadFacts: %v", err)
 	}
 	sm.SetParentKernel(kernel)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
 	sm.RegisterShard("world_model_ingestor", func(id string, cfg types.ShardConfig) types.ShardAgent {
-		return &onDemandFakeAgent{id: id, config: cfg}
+		return &onDemandFakeAgent{id: id, config: cfg, release: release}
 	})
 	sm.DefineProfile("world_model_ingestor", types.ShardConfig{
 		Name:        "world_model_ingestor",

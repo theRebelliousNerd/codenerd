@@ -217,9 +217,17 @@ func TestRunToolLoop_ReservesTimeForFinalVerdict(t *testing.T) {
 	// policy, which needs a declared workspace to build its working set in.
 	executor.config.WorkspaceRoot = t.TempDir()
 	executor.config.ToolTimeout = time.Second
-	executor.config.FinalAnswerReserve = 120 * time.Millisecond
+	// The reserve pays for the harness's own work on the final request as
+	// well as the model's call: compiling the working context is a Mangle
+	// evaluation, about 20ms on a quiet machine and up to about 300ms with
+	// every hardware thread busy. At a 350ms turn and a 120ms reserve that
+	// work alone could spend the reserve -- the test failed 40 of 40 runs
+	// beside 32 busy loops (2026-09-19) while production reserves five
+	// minutes. The numbers here are large beside that work, so what the test
+	// measures is the reservation, not the machine.
+	executor.config.FinalAnswerReserve = time.Second
 
-	ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/review", Category: "/query"}}
 	cfg := &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}
@@ -240,7 +248,9 @@ func TestRunToolLoop_ReservesTimeForFinalVerdict(t *testing.T) {
 	if got := client.finalFollowups.Load(); got != 1 {
 		t.Fatalf("final follow-ups = %d, want 1", got)
 	}
-	if remaining := time.Duration(client.remainingAtFinalNanos.Load()); remaining < 80*time.Millisecond {
+	remaining := time.Duration(client.remainingAtFinalNanos.Load())
+	t.Logf("final call started with %v of the %v reserve remaining", remaining.Round(time.Millisecond), executor.config.FinalAnswerReserve)
+	if remaining < 500*time.Millisecond {
 		t.Fatalf("final call started with only %v remaining; reserve was consumed by exploration", remaining)
 	}
 }
