@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 15:50
+- last updated: 2026-09-19 16:20
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -40,7 +40,11 @@ the protocol for a run, and the status of each rung with the run that moved it.
   file, so an edit below that drops a closing brace goes through where HEAD refuses it. The critic
   found nothing. R1-7 (N18: a forcing round's Go was never gofmt'd) **landed** (`24e9cc56`): the
   turn formats what it wrote again, last, before the closure re-measures the gates; a whole-turn
-  test, failing at HEAD; no hand edit. **Streak 1.** Next: N09, N17, L3 (briefs ready).
+  test, failing at HEAD; no hand edit. **Streak 1.** R1-8 (N09: a shared method name resolved
+  silently) ended `/unverified` -- its alias parser's defensive branches left uncovered -- and the
+  review found a regression besides: a package-level function beside a same-named method is
+  unreachable by its only listed name. Its critic was cut at 3 minutes (H1). **Streak 0.** Next:
+  N17, L3, then N09 again.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
@@ -233,3 +237,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 14:28 | R1 | apply_edits partial write (R1-5, N04) | nerd fix | **landed, assisted**: the failed file is put back and confirmed, or named; five fault-injection tests, all failing at HEAD; build, vet, tests green; review probes (first file, last of three, the restore failing, a write that failed after writing everything) pass. One doubled blank line removed by hand -- the coverage round's writes are never gofmt'd (N18) | 17.0 | 29 | 2 | 3d9ba680 |
 | 2026-09-19 14:55 | R1 | edit_lines delimiters inside a raw string (R1-6, N10) | nerd fix | not landed, reverted: `/done`, build, tests and the suite green; the brief's two edits pass and an edit in a block comment now does. Review: the prefix scan does not know a language's literals -- below a JS regex holding a quote or a Rust lifetime, an edit that drops a closing brace is accepted (HEAD refuses it). The critic found nothing | 18.0 | 38 | 2 | reverted |
 | 2026-09-19 15:21 | R1 | a forcing round's Go never formatted (R1-7, N18) | nerd fix | **landed**: a second format pass at the end of the turn, before the closure re-measures the gates; a whole-turn test through ProcessWithIntent, failing at HEAD; build, vet, suite green. Nits: the early pass stays, its comment's "once" is stale | 19.7 | 57 | 2 | 24e9cc56 |
+| 2026-09-19 15:50 | R1 | get_element shared method names (R1-8, N09) | nerd fix | not landed, reverted: `/unverified` (12 changed blocks no test executes; the coverage round gave up) and true. Review: `A.Close`/`B.Close` reach their elements and a bare name over two receivers is refused; but a function `Close` beside a method `A.Close` is reached by no name (HEAD reached it), and Python/JS methods sharing a name are reached by none. The critic was cut at 3 minutes | 27.0 | 56 | 4 | reverted |

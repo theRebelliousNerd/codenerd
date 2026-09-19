@@ -4872,3 +4872,43 @@ pre-existing (a lint-class nit for G4/G5).
 - R1-7 is the first run on a binary that forces formatting at the end of a turn; from here a
   forcing round's write cannot cap a landing at "assisted".
 - Rung-level: **streak 1** (R1-7). Next: N09, N17, L3.
+
+## R1-8, get_element resolves a shared method name silently: /unverified, and its bare-name rule orphans a function (2026-09-19, 15:50-16:17)
+
+Binary from `67e33c72` (N18's late format pass in). Brief (symptom only, the audit's N09,
+reproduced 13:05-14:06): `get_element "Close"` returns `A.Close` with no sign that `B.Close`
+exists, and no name the tool accepts reaches `B.Close`; what should hold: every element
+`get_elements` lists can be fetched by a name it shows for it, and a name that matches more than
+one element is never resolved silently; tests pin it.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 27.0 | 56 (27 read_file, 7 grep, 6 run_tests, 4 recall_context, 3 edit_lines, 2 write_file, 2 glob, 2 get_elements, 1 each search_code, list_files, edit_file) | rc=0, `/unverified`: "code this turn changed is executed by no test" -- **not landed**, reverted (diff and new files kept in the scratchpad, `r1_8_diff.patch`) | 52, mean 43.8k, peak 67.6k, 2.28M total (1.21M cached by the provider), 44.2k out | `elements.go` +135/-6, `extent_realfile_test.go` 1 line, two new test files |
+
+**What it did.** Go method elements are listed receiver-qualified (`B.Close`, from the
+declaration line; pointers, package prefixes and type parameters stripped); `get_element`
+collects every element whose name matches -- exactly, or a bare query against a qualified name's
+suffix, or an alias (`(*B).Close`, `pkg.B.Close`) -- and answers "ambiguous element name ...
+matches N elements: ... use a qualified name shown by get_elements" when more than one does. It
+adapted one existing test to the qualified names. The gates passed with 12 changed blocks no test
+executes -- the alias parser's defensive branches -- and the coverage round gave up after three
+attempts (7 model calls, 360k input); the verdict named it, `/unverified`.
+
+**The review (criterion 7), beyond the verdict.** Met: `A.Close` and `B.Close` each reach their
+element; a bare `Close` over two receivers is refused with both named; generic receivers
+(`Stack[T].Push`, `Queue[T].Push`) work. **Not met:** a package-level `func Close()` beside a
+method `A.Close` -- the function is listed as `Close`, the bare query also matches `A.Close` by
+suffix, and the function's only listed name is now ambiguous: no name reaches it, where HEAD
+returned it. An exact match to a listed name has to win over suffix matches. Python and JS
+classes with a shared method name: the ambiguity is now reported (the brief's second half), but
+the listing carries no enclosing class, so neither method is reachable by a listed name (HEAD
+reached the first) -- the regex reader knows no class context (N08's limit), which the fix did
+not name.
+
+**Harness observations.**
+- The verdict was true: `/unverified`, the uncovered blocks named.
+- The critic was cut: "adversarial review failed (context deadline exceeded); turn continues"
+  at 16:12:53, three minutes after it started -- `criticTimeout` (H1). A change with a defect a review
+  could find got no review; the four critics before it took 1 min 59 s to 2 min 50 s (R1-6's ran
+  on another defective change and found nothing).
+- Rung-level: **streak back to 0** (R1-7 landed, R1-8 did not). Next: N17, L3, then N09 again.

@@ -93,7 +93,12 @@ replace this list):
   <= 5 m). They were set after a review hung for twenty minutes when the client had no bound of
   its own; it has one now. A reasoning model reviewing a large change can legitimately take
   longer (R1-4d's coverage call ran 368 s), and a cut review is a missing opinion: derivable
-  (the slot's measured call durations), not a constant.
+  (the slot's measured call durations), not a constant. Measured on the planner slot
+  (muse-spark-1.3), 2026-09-19: R1-4e 2 m 11 s, R1-5 2 m 50 s (10 s from the cut; 15.5k output
+  tokens for "NO FINDINGS"), R1-6 1 m 59 s, R1-7 2 m 20 s (one finding, pre-existing), and R1-8
+  **cut at 3 m** ("adversarial review failed (context deadline exceeded); turn continues") -- on
+  a change with a defect a review could have found (R1-6's critic ran on another such change and
+  found nothing).
   **`defaultToolTimeout` 5 m** (`session/executor.go:363`) is per tool run, but this repo's full
   suite takes 5 minutes and `cmd/nerd/chat` alone 2-8 minutes under load, so a model's
   `run_tests` on either is cut: derivable (a command's measured duration), not a constant.
