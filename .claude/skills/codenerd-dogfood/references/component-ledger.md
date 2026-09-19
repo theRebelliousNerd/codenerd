@@ -4732,3 +4732,56 @@ out alone.
   removed-tests guard, coverage give-up, broker, clocks) and each was fixed. This one is the fix's
   design. Next: the audit's tool-level briefs (N04, N10, N09 reproduced) for the R1 streak, and
   this brief again once a streak exists.
+
+## R1-5, apply_edits leaves a half-written file behind: landed, assisted by one blank line (2026-09-19, 14:28-14:45)
+
+Binary from `df85abe6`. Brief (symptom only, the audit's N04, reproduced 13:30): two files, one
+`apply_edits` call, the second file's write fails half-way ("no space left on device", injected
+through the package's `applyEditsWriteFile`); `a.txt` is put back, `b.txt` keeps "ALPHA\nbeta\n" --
+two lines gone -- and the error does not say so. What should hold: every targeted file as it was,
+or the error names each one that could not be put back; a test pins it.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 17.0 | 29 (11 read_file, 9 recall_context, 3 run_tests, 2 insert_lines, 1 each search_code, git_operation, get_elements, edit_lines) | rc=0, `/done`, `checks_passed` -- **landed, assisted**, `3d9ba680` (one doubled blank line removed by hand; see N18) | 31, mean 40.6k, peak 55.0k, 1.26M total (792k of it cached by the provider), 45.1k out | `apply_edits.go` +18/-1, its test +252 |
+
+**What it did.** Found `executeApplyEdits` in three calls and made its first edit at 14:31 (tool
+call 9): the index of the file whose write failed is kept, and that file is put back to its
+snapshot when it no longer holds it, read again to confirm, and named in the rollback conflicts
+when the read, the restore or the confirming read fails. Its first test is the brief's check. It
+then ran the one test, the package, and `./...` -- the whole suite, 5 min 17 s, the turn's only
+full-suite check (the executor's test gate is package-scoped). Gates: build 8.6 s, tests 6.0 s, four
+changed blocks no test executes (the restore's error branches). The critic (planner slot) thought
+for 2 min 50 s -- 15.5k output tokens for "NO FINDINGS". The coverage round's first attempt wrote
+nothing; the second, under the commit regime, recovered the test file's helpers with five
+`recall_context` calls and wrote four fault-injection tests in one `insert_lines`: the half-written
+file removed (the read fails), the restore write failing, the file vanishing before the confirming
+read, and a restore that reports success over the wrong bytes. Converged after 2 attempts (11 model
+calls, 521k input).
+
+**Reviewed.** All five new tests fail with `apply_edits.go` at HEAD and pass with the fix; the
+package, `go vet` and the whole suite green (89 of 89, uncached, with C1 and C2, 14:48-14:53). Criterion 7,
+beyond its tests: a partial write on the first file, and on the last of three, leaves all three as
+they were; a restore that fails too names `b.txt: restore failed: ...`; a write that fails having
+written everything is undone; a write that fails without touching the file reports the write
+error alone, no conflict (HEAD fails the first four, passes the fifth). The failed file is put
+back without the compare-and-swap the committed files get -- what a partial write left is unknown
+-- and the optimistic check just before the write, under the commit mutex, is what licenses it.
+Nit kept: the first test's "not restored" branch nests a redundant check.
+
+**Assisted, and why.** The test file was not gofmt-clean: the coverage round's `insert_lines`
+left a doubled blank line. The session formats the Go a turn wrote once, after build repair and
+before the test, coverage, vet and critic rounds (`formatWrittenGoFiles`,
+`executor_tools.go:476`), so a forcing round's writes are never formatted and the turn still
+reports `checks_passed` (N18). One line removed by hand; the landing is capped at assisted and the
+streak does not move.
+
+**Harness observations.**
+- N17: in a repair round under the commit regime, each re-sent demand carries the regime sentence
+  twice ("Reading is closed for this task..." -- `repair_loop.go` appends it to the prompt, and the
+  round's re-send appends it again). Brief ready (scratchpad `brief_n17_*`).
+- N18: above. A one-file brief for codeNERD.
+- The critic's 2 min 50 s for "NO FINDINGS" on a 16k-character review is the run's longest single
+  wait; R1-4e's critic took 2 min 11 s for the same answer.
+- Rung-level: first run on the audit's tool-level briefs; the verdict was true. Next: N10, N09,
+  N17, N18 for the streak.

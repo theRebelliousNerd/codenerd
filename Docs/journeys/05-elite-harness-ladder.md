@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 14:20
+- last updated: 2026-09-19 14:56
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -30,7 +30,11 @@ the protocol for a run, and the status of each rung with the run that moved it.
   moved to the kernel's one-fragment load with the old loop as fallback, and the review found a
   broken sibling still fails an unrelated file through that fallback -- a design defect in the fix,
   not a harness blocker. Next: the audit's tool-level briefs for the streak -- N04, N10 and N09 are
-  reproduced with briefs ready -- then this brief again.
+  reproduced with briefs ready -- then this brief again. R1-5 (N04: a failed `apply_edits` left the
+  half-written file behind) landed **assisted** (`3d9ba680`): fix and tests codeNERD's, verdict true,
+  one doubled blank line its coverage round left removed by hand -- the session formats a turn's Go
+  before the forcing rounds run, never after (N18) -- so the streak does not move. Next: N10, N09,
+  and the two harness briefs the run produced (N17, N18).
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
@@ -57,11 +61,16 @@ C1-C5 from the R1-2 campaign comparison (`campaign_1284b6bb`); V1 found while fi
 - **C1 targets fixed before research.** Every write set was decided when the plan was made, before
   phase 0's research ran. Phase 2's task targets `internal/cli/check-mangle.go`, a path that does
   not exist; the command lives in `cmd/nerd/cmd_mangle_check.go`, which phase 0 found. Nothing
-  carries research results back into the tasks that follow it.
+  carries research results back into the tasks that follow it. **Landed `32f4d9c4`**: the refinement
+  between phases is shown each completed task's result and each upcoming task's ID and write set,
+  every path marked `exists` or `ABSENT`; the instruction to retarget by ID is the replanning atom's.
 - **C2 a missing modify target becomes a create.** `reconcileTaskTypeWithWriteSet`
   (`internal/campaign/decomposer_planning.go`) retypes a `/file_modify` whose write set does not
   exist to `/file_create` (planned `/file_modify`, executed `/file_create`), so a wrong guess turns
-  into a new file at the wrong path instead of a plan error.
+  into a new file at the wrong path instead of a plan error. **Landed `8b007804`**: no retype; the
+  attempt is told its planned target is absent, and a pre-existing file its attempt changed
+  satisfies it (the validator reads C4's attempt record); creating the guess satisfies nothing, and
+  the refusal says so to the retry.
 - **C3 a retry drops its reason.** The retry re-spawned the same create task without the failure
   that stopped it, and the create-only fallback refused because the file now existed.
 - **C4 rollback covers the declared write set, not the attempt's writes.** It removed the created
@@ -210,3 +219,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 08:02 | R1 | check-mangle v2 (R1-4c) | nerd fix | not landed, reverted: after a 22,853-token think the broker counted the replayed encrypted reasoning by its ciphertext length and refused the next request as window_exceeded (193,735 counted; the day's think-then-request pairs cost a fraction of their estimate). Fixed by hand: a redacted think is measured by the reasoning tokens the provider counted. The unfinished fix (the disk file with the embedded corpus) met v2's property | 12.8 | 40 | 1 + a repro | reverted |
 | 2026-09-19 08:31 | R1 | check-mangle v2 (R1-4d) | nerd fix | not landed, reverted: build, tests and vet green, six changed blocks executed by no test; the coverage round's second model call ran 368 s and the repair episode's 6.2-minute clock cut it with nothing returned, then `nerd fix`'s 25-minute default cut the critic. `/unverified`, and honestly so. Fixed by hand: no run-level clock anywhere (repair episode, CLI, `llm_timeouts`, campaigns). The fix (each policy file's Decls preloaded one by one) met v2's property but silently drops a Decl with a trailing comment (latent: `chaos.mg:40`, `:84`) and had no test | 25.1 | 77 | 1 | reverted |
 | 2026-09-19 13:51 | R1 | check-mangle v2 (R1-4e) | nerd fix | not landed, reverted: build, tests and vet green; the coverage round's own test failed -- the per-file preload dropped `reviewer.mg` (it uses a predicate a later file declares), so a brief file still failed. The model moved to a one-fragment load with the per-file loop as fallback; the round gave up with five defensive error branches uncovered, `/unverified` and saying so. Review: a sibling with a planted error still fails `intent_routing_rules.mg` through the fallback; 55 s and 482 warning lines on a clean corpus (HEAD 12.2 s). No harness blocker; the coverage prompt's ban on removing unreachable lines it named is recorded | 19.5 | 30 | 2 | reverted |
+| 2026-09-19 14:28 | R1 | apply_edits partial write (R1-5, N04) | nerd fix | **landed, assisted**: the failed file is put back and confirmed, or named; five fault-injection tests, all failing at HEAD; build, vet, tests green; review probes (first file, last of three, the restore failing, a write that failed after writing everything) pass. One doubled blank line removed by hand -- the coverage round's writes are never gofmt'd (N18) | 17.0 | 29 | 2 | 3d9ba680 |

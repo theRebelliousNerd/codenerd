@@ -12,16 +12,17 @@ becoming stale, or detached from the mutations it is supposed to describe.
 
 ## Status
 
-- last updated: 2026-09-19 14:27
+- last updated: 2026-09-19 14:56
 - landed: F7 (`247a2402`), F6 (`ac5c9b03`), F3 (`8dd5ef48`), F5 (`a6d4e572`), F1 (`662699eb`),
   N03 (`90100128`), N07 (`0b0a4d49`), N02 (`8c906461`), N01 (`b41565cf`), F2 with C3 (`6df972de`),
-  F4 (`ad91108d` rollback with C4, `be3fa92e` isolation); L2 (`00482316`).
-- next, hand-built: C1 with C2 (below) before any R2+ campaign run; the N01 follow-on -- a forcing
-  round for `/test_run`, keyed on the kernel's `turn_owes_gate`, which needs the turn's evidence
-  asserted before the rounds run.
-- next, as codeNERD ladder briefs (one or two files, tool code, symptom and evidence in hand):
-  N04, N10 and N09 reproduced with briefs ready (scratchpad `brief_n04_*`, `brief_n10_*`,
-  `brief_n09_*`); N05, N06, N14 need an observation first (N14 is confirmed by reading only).
+  F4 (`ad91108d` rollback with C4, `be3fa92e` isolation); L2 (`00482316`); C1 (`32f4d9c4`), C2
+  (`8b007804`); N04 by codeNERD (`3d9ba680`, ladder R1-5, assisted).
+- next, hand-built: L4 (below) before any R2+ campaign run; the N01 follow-on -- a forcing round
+  for `/test_run`, keyed on the kernel's `turn_owes_gate`, which needs the turn's evidence asserted
+  before the rounds run.
+- next, as codeNERD ladder briefs (one or two files, symptom and evidence in hand): N10, N09, N17,
+  N18 with briefs ready (scratchpad `brief_n10_*`, `brief_n09_*`, `brief_n17_*`; N18's below);
+  N05, N06, N14 need an observation first (N14 is confirmed by reading only).
 
 ## Found here while working the audit
 
@@ -57,7 +58,30 @@ becoming stale, or detached from the mutations it is supposed to describe.
   the completed tasks' results and the upcoming tasks' write sets, with each write-set path
   marked present or absent on disk; a `/file_modify` whose targets are all absent is named to the
   refinement as a plan error to correct, never retyped; the instruction to correct targets from
-  the research lives in the replanner's prompt atom (JIT), not in Go prose.
+  the research lives in the replanner's prompt atom (JIT), not in Go prose. **Landed**: C1
+  `32f4d9c4` as shaped; C2 `8b007804` -- no retype, the attempt told its target is absent, and
+  the modify contract satisfied by a pre-existing file the attempt changed (building it found the
+  micro-checkpoint refusing the real fix too: "none of planned write_set paths exist" -- it now
+  checks the attempt's writes with the declared paths).
+- **L4 the micro-checkpoint builds the tree a second time, worse.** After every mutating campaign
+  task, `runTaskMicroCheckpoint` (`micro_checkpoint.go`, March 2026) runs `go build ./...` through
+  the tactile executor with a 20-second limit and the executor's environment allowlist, which has
+  no `CGO_CFLAGS`. The turn it follows has already built `./...` under the session's build gate
+  (`verifyBuild`: the project's build environment, its own bound), and since F2 a task completes
+  only on a `/done` turn, which owes that gate green. So the checkpoint repeats a gate with a
+  20-second clock -- a cold build here takes longer, the timeout reads as transient, and a good
+  change is rolled back -- and, with tasks side by side, builds a tree holding a sibling's
+  half-finished edits. Whether the missing `CGO_CFLAGS` alone fails a build of this repository is
+  to be measured before the fix is chosen (delete the build, or share the session's gate). Open.
+- **N17 the commit regime's sentence is sent twice.** In a repair round under the commit regime,
+  each re-sent demand ends with "Reading is closed for this task..." twice: `repair_loop.go`
+  appends it to the prompt, and the round's re-send (`build_verify.go`) appends it to that prompt
+  again. Observed in R1-5's coverage round. Brief ready.
+- **N18 a forcing round's writes are never formatted.** The session gofmt's the Go a turn wrote
+  once, after build repair and before the test, coverage, vet and critic rounds
+  (`formatWrittenGoFiles`, `executor_tools.go`); what those rounds write stays as written and the
+  turn reports `checks_passed`. R1-5's coverage round left a doubled blank line (its landing is
+  assisted for it); `orchestrator_tasks.go` carried the same at HEAD. Open, a codeNERD brief.
 
 ## Routing rule
 
@@ -86,7 +110,7 @@ read, or a run where one is named). It is not a reproduction unless the row says
 | N02 | P1 | `getEligibleTasks` falls back to an in-memory scan whenever the kernel's answer is empty -- including a valid "wait" | `orchestrator_phases.go:94-98`; the fallback checks dependencies only, so it schedules tasks `eligible_task` withholds for write-set conflicts, ordering or backoff. Reproduced on `0b0a4d49`: a pending task whose write target an in-progress task holds was scheduled | hand (scheduling authority) | **landed `8c906461`** (the kernel is the only scheduler; a kernel holding none of the phase's tasks is reloaded and asked again. Removing the scan exposed two defects it hid, both fixed: a priority-inversion deadlock in `has_earlier_task`, and a campaign clock nothing moved, so a retry stayed in backoff for the run -- the orchestrator now feeds `current_time` at most once a second) |
 | N03 | P1 | Three failed phase checkpoints call `completePhase`: `/completed`, progress, a success observation | `orchestrator_tasks.go:144-152`; the old test pinned `/completed` | hand (completion) | **landed `90100128`** (the phase closes `/unverified`: hard dependents blocked, the campaign blocked on it by name, the observer told failure, a resume re-arms the checkpoint) |
 
-| N04 | P1 | `apply_edits` rollback visits `succeeded` only; a target whose write failed part-way is left corrupt | `apply_edits.go:332-379` | codeNERD brief | open |
+| N04 | P1 | `apply_edits` rollback visits `succeeded` only; a target whose write failed part-way is left corrupt | `apply_edits.go:332-379` | codeNERD brief | **landed `3d9ba680`** by codeNERD (ladder R1-5, assisted: one blank line by hand, N18) |
 | N05 | P1 | Impacted-test selection follows two dependency edges, not a fixed point | `test_dependency.go` ("simplified - could query kernel for full transitivity") | codeNERD brief | open |
 | N06 | P2 | Coverage-gap report counts production callers as test coverage | not yet checked | codeNERD brief | open |
 | N07 | P1 | `run_impacted_tests` is a test execution by name alone; a dry run or an empty selection mints executed-test evidence | reproduced on `90100128`: a dry run counted `SuccessfulTestTools = 1` | hand (evidence) | **landed `0b0a4d49`** (a test run is a receipt the process-starting code records -- typed runner, `runGoTests`, shell test commands, the VirtualStore handler; the counter is `TestRunCalls`) |
@@ -99,3 +123,5 @@ read, or a run where one is named). It is not a reproduction unless the row says
 | N14 | P2 | Co-use statistics settle every nil-error turn as success, `/unverified` included | `executor.go:913-917` | codeNERD brief | open |
 | N15 | P2 | The impacted-test provider is process-global, last workspace wins | `run_impacted_tests.go:63-98` | R2 | open |
 | N16 | P2 | A contained symlink stops snapshot certification (fail-closed, a capability limit) | `change.go:173-174` | decision (Steve) | open |
+| N17 | P3 | Under the commit regime a repair round's re-sent demand carries the regime sentence twice | R1-5's coverage round (llm_io 14:43:28); `repair_loop.go` and `build_verify.go` each append it | codeNERD brief | open |
+| N18 | P2 | Go written by the test, coverage, vet and critic rounds is never gofmt'd; the turn still reports `checks_passed` | R1-5 (one `gofmt: formatted` line, 14:38, before the coverage round's insert at 14:44) | codeNERD brief | open |
