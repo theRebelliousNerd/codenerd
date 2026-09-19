@@ -235,3 +235,118 @@ func TestPrepareWorkingRequest_KeepsRecentRoundsInTheTranscript(t *testing.T) {
 		}
 	}
 }
+
+// A change whose evidence spans files needs them in view together. The focus
+// follows the file touched last, and the observations of the files touched
+// before it left the window with the transcript rounds that carried them:
+// selection only reached the focus's import neighbourhood, which a
+// same-package test never belongs to. Observed 2026-09-19: a flake fix read
+// the test four times, one source file four times and the other three times,
+// and stopped at the read-only stall with nothing written.
+func TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves(t *testing.T) {
+	e := newWorkingLoopExecutor(t, &MockLLMClient{})
+	e.config.TokenBudget = 200000
+	for _, name := range []string{"loop_test.go", "loop.go", "context.go"} {
+		if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, name), []byte("package loop // "+name+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix the flaky test", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "loop_test.go"})
+	if err != nil {
+		t.Fatalf("beginWorkingLoop: %v", err)
+	}
+	t.Cleanup(closeLoop)
+
+	// Five rounds: the test, then the two files it exercises, then two more
+	// reads of the last one. The policy keeps three rounds in the transcript,
+	// so the test and loop.go are carried only if the section carries them.
+	reads := []struct{ path, body string }{
+		{"loop_test.go", "body-of-the-test"},
+		{"loop.go", "body-of-loop"},
+		{"context.go", "body-of-context-head"},
+		{"context.go", "body-of-context-middle"},
+		{"context.go", "body-of-context-tail"},
+	}
+	history := []types.Message{{Role: "user", Text: "fix the flaky test"}}
+	for i, read := range reads {
+		call := types.ToolCall{ID: fmt.Sprintf("call-%d", i+1), Name: "read_file", Input: map[string]any{"path": read.path, "start_line": i + 1}}
+		if err := e.recordWorkingResult(ctx, call, read.body, nil); err != nil {
+			t.Fatalf("recordWorkingResult: %v", err)
+		}
+		history = append(history,
+			types.Message{Role: "assistant", ToolCalls: []types.ToolCall{call}},
+			types.Message{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: call.ID, Content: read.body}}})
+	}
+
+	provider := &captureProvider{MockLLMClient: &MockLLMClient{}}
+	if _, err := e.completeWithWorkingContext(ctx, provider, "system", history, nil); err != nil {
+		t.Fatalf("completeWithWorkingContext: %v", err)
+	}
+	for _, body := range []string{"body-of-the-test", "body-of-loop"} {
+		if !strings.Contains(provider.system, body) {
+			t.Fatalf("%s left the transcript and must be in the section; the focus moving to context.go does not end what the turn is working with", body)
+		}
+	}
+	for _, body := range []string{"body-of-the-test", "body-of-loop"} {
+		if strings.Count(provider.system, body) != 1 {
+			t.Fatalf("%s must appear once in the section, got %d", body, strings.Count(provider.system, body))
+		}
+	}
+}
+
+// A recall brings an archived observation back; it is not a new observation.
+// Saving its result minted a copy under the focus -- whatever file was touched
+// last -- at that file's revision, so the recalled evidence went stale when the
+// wrong file changed and stayed current when its own file did. Observed
+// 2026-09-19: bodies of a test file and executor_tools.go, recalled while the
+// focus was working_context.go, were shown as working_context.go observations.
+func TestRecordWorkingResult_RecallRestoresTheOriginalObservation(t *testing.T) {
+	e := newWorkingLoopExecutor(t, &MockLLMClient{})
+	e.config.TokenBudget = 200000
+	for _, name := range []string{"loop_test.go", "loop.go"} {
+		if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, name), []byte("package loop // "+name+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix the flaky test", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "loop_test.go"})
+	if err != nil {
+		t.Fatalf("beginWorkingLoop: %v", err)
+	}
+	t.Cleanup(closeLoop)
+	loop := activeWorkingLoop(ctx)
+
+	read := types.ToolCall{ID: "call-read", Name: "read_file", Input: map[string]any{"path": "loop_test.go"}}
+	if err := e.recordWorkingResult(ctx, read, "body-of-the-test", nil); err != nil {
+		t.Fatal(err)
+	}
+	original := loop.observations[read.ID]
+	other := types.ToolCall{ID: "call-other", Name: "read_file", Input: map[string]any{"path": "loop.go"}}
+	if err := e.recordWorkingResult(ctx, other, "body-of-loop", nil); err != nil {
+		t.Fatal(err)
+	}
+	page, err := loop.set.Recall(ctx, original, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recall := types.ToolCall{ID: "call-recall", Name: "recall_context", Input: map[string]any{"id": original}}
+	if err := e.recordWorkingResult(ctx, recall, page, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := loop.observations[recall.ID]; got != original {
+		t.Fatalf("the recall call must map to the observation it recalled, %q; got %q", original, got)
+	}
+	if got := loop.recent[len(loop.recent)-1]; got != original {
+		t.Fatalf("the recalled observation must be the most recent again, %q; got %q", original, got)
+	}
+	hits, err := loop.set.Search(ctx, "recall_context/", 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(hits, `"id":`) {
+		t.Fatalf("a recall must not be saved as a new observation; the archive holds %s", hits)
+	}
+	if loop.focus != "loop.go" {
+		t.Fatalf("a recall names no file and must not move the focus; focus = %q", loop.focus)
+	}
+}

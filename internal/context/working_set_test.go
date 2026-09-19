@@ -281,3 +281,40 @@ func TestWorkingSetSearchReportsBodyCharsNotAnEmptyBody(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, page, `"total_chars":5000`, "the id must round-trip into a full-body read")
 }
+
+// The loop's recent observations are its working memory, whatever file they
+// came from: working_recent gives them the top priority. Selection used to draw
+// candidates only from the focus's dependency slice -- the file touched last
+// and its import links -- so an observation of any other file was never a
+// candidate and the promise could not be kept. A same-package test and the
+// code it tests have no import link. Observed 2026-09-19: a fix whose evidence
+// lay in a test and two source files read them 4, 4 and 3 times, never holding
+// all three in view, until the read-only stall ended the turn.
+func TestWorkingSetSelectKeepsRecentObservationsOfOtherFiles(t *testing.T) {
+	root := t.TempDir()
+	files := []string{"a_test.go", "b.go", "c.go"}
+	for _, name := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte("package a // "+name), 0600))
+	}
+	w, err := NewWorkingSet(nil, root, "task")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	for i, name := range files {
+		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: name, Entity: name, Revision: w.Revision(name), Kind: "read_file/" + name, Step: int64(i + 1), Body: "body of " + name}))
+	}
+
+	sel, err := w.Select(t.Context(), "c.go", files, []string{"c.go"}, 100000)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"a_test.go", "b.go"}, sel.Selected, "every recent observation the transcript does not already carry")
+	require.Contains(t, sel.Text, "body of a_test.go")
+	require.Contains(t, sel.Text, "body of b.go")
+
+	// Recency is not a way around staleness: an edit to the other file makes
+	// its observation stale, focus or no focus.
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a_test.go"), []byte("package a // edited"), 0600))
+	sel, err = w.Select(t.Context(), "c.go", files, []string{"c.go"}, 100000)
+	require.NoError(t, err)
+	require.Equal(t, []string{"b.go"}, sel.Selected)
+	require.Equal(t, []string{"a_test.go"}, sel.Omitted, "the stale observation stays recallable, not shown")
+	require.NotContains(t, sel.Text, "body of a_test.go")
+}

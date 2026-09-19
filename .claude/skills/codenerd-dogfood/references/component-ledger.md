@@ -4371,3 +4371,48 @@ pinned by a test that counts the copies, but this run does not show its effect o
 mean is set by the compiled prompt plus a section that fills to its ceiling within a few rounds;
 the next lever is what the section keeps, not how often the file context is sent.
 
+
+
+## R1-1, first rung-1 run of the ladder: the window never held the three files the fix needed (2026-09-19, 02:26-02:32)
+
+Binary from `f26140e1`. Brief (symptom only): `TestRunToolLoop_ReservesTimeForFinalVerdict` fails
+when the machine is busy -- 12 of 40 runs with 16 busy loops, 40 of 40 with 32, 80 of 80 pass
+quiet -- with the five failure lines and their counts, and what should hold (the final verdict
+always gets its reserved time; the test proves it without depending on load). Ladder:
+`Docs/journeys/05-elite-harness-ladder.md`, rung R1.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 6.1 | 27 (11 read_file, 10 recall_context, 2 search_code, 2 grep, 1 search_expand, 1 glob) | rc=1: `working_stop(/read_only_stall)`, 24 rounds, nothing written | 25 calls, mean 41.7k, peak 70.1k, 1.04M total; system prompt mean 30.5k, max 49.2k | none |
+
+**What it did.** The step planner answered NO STEPS (single pass, 34 s). The model read the test,
+`executor_tools.go` and `working_context.go` -- the right three files -- and said the cause at
+round 16: "deadline-bound setup work is eating into your final verdict time". Then eight rounds
+of `recall_context` under the commit regime and the stall. It read the test four times,
+`executor_tools.go` four times and `working_context.go` three times.
+
+**Why: the harness, not the model.** The per-round selection log shows 1-5 candidates while it
+investigated, every one an observation of the current focus file. `WorkingSet.Select` drew
+candidates only from the focus and its two-hop `dependency_link` neighbours, and the focus is the
+file touched last. A same-package test has no import link to the code it tests, so from the
+round the model opened `executor_tools.go` the test was not a candidate -- not in the section,
+and out of the transcript after three rounds. `working_recent` promises the last sixteen
+observations the top priority, but a recent observation outside the slice never had
+`working_observation` asserted, so the rule could not fire. The model re-read what the harness had
+dropped. A second defect showed at the end: a `recall_context` result was saved as a new
+observation under the focus entity (`working_context.go`) at that file's revision, so the recalled
+test and `executor_tools.go` bodies were shown as `working_context.go` observations, stale on the
+wrong file's edit and current across their own.
+
+**Fixed by hand** (codeNERD could not see its own window to diagnose it), test first: `Select`
+loads the recent observations by id wherever their file is and asserts their files'
+`working_revision`, so an edit still makes them stale (`WorkingStore.Records`); a recall by id maps
+the call to the recalled observation and makes it recent again instead of minting a copy.
+Pinned by `TestWorkingSetSelectKeepsRecentObservationsOfOtherFiles` (incl. staleness),
+`TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves` (the live five-round shape)
+and `TestRecordWorkingResult_RecallRestoresTheOriginalObservation`; all three failed before.
+
+**Also seen, not acted on yet.** `recall_context query=func.*runToolLoop` returned nothing: the
+query is literal (`instr`), and the model wrote a regex. The compiled system prompt reached 49k
+tokens, most of it generic Go guidance (failure modes, profiling, benchmarking) for a timing fix.
+The same brief is rerun on the fixed binary.

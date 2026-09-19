@@ -171,6 +171,33 @@ func (s *WorkingStore) Candidates(ctx context.Context, entities []string, limit 
 	if err != nil {
 		return nil, err
 	}
+	return scanWorkingMetadata(rows)
+}
+
+// Records returns metadata for the named observations, with no body IO.
+// Selection loads the loop's recent observations by id: they are its working
+// memory whatever file they came from, and the dependency slice Candidates
+// serves never reaches a file with no import link to the focus.
+func (s *WorkingStore) Records(ctx context.Context, ids []string) ([]WorkingRecord, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	args := []any{s.scope}
+	marks := make([]string, len(ids))
+	for i, id := range ids {
+		marks[i] = "?"
+		args = append(args, id)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,entity,revision,kind,step,failed,digest,span_start,span_end FROM working_records
+		WHERE scope=? AND id IN (`+strings.Join(marks, ",")+`) ORDER BY step DESC,id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanWorkingMetadata(rows)
+}
+
+// scanWorkingMetadata reads the metadata columns Candidates and Records select.
+func scanWorkingMetadata(rows *sql.Rows) ([]WorkingRecord, error) {
 	defer rows.Close()
 	var result []WorkingRecord
 	for rows.Next() {

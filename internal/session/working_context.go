@@ -198,6 +198,19 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	if loop == nil {
 		return nil
 	}
+	// A recall brings an archived observation back; it is not a new one.
+	// Saving its result minted a copy under the focus -- whatever file was
+	// touched last -- at that file's revision, so recalled evidence went stale
+	// when the wrong file changed and stayed current when its own file did.
+	// The recalled observation becomes recent again and the call maps to it:
+	// the transcript carries the page while the round is kept, the section
+	// carries the record after, under its own file and revision.
+	if call.Name == "recall_context" && toolErr == nil {
+		if id, _ := call.Input["id"].(string); id != "" {
+			loop.remember(call.ID, id)
+			return nil
+		}
+	}
 	entity := ""
 	for _, key := range []string{"path", "file_path", "file", "target", "working_dir"} {
 		if value, ok := call.Input[key].(string); ok && value != "" {
@@ -242,12 +255,18 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	if err := loop.set.Save(ctx, record); err != nil {
 		return fmt.Errorf("persist working observation: %w", err)
 	}
+	loop.remember(call.ID, id)
+	return nil
+}
+
+// remember maps a tool call to the observation it produced or recalled and
+// makes that observation the most recent of the last sixteen.
+func (loop *workingLoop) remember(callID, id string) {
 	loop.recent = append(loop.recent, id)
-	loop.observations[call.ID] = id
+	loop.observations[callID] = id
 	if len(loop.recent) > 16 {
 		loop.recent = loop.recent[len(loop.recent)-16:]
 	}
-	return nil
 }
 
 // wholeFileSpanEnd stands for "to the end of the file" in an observation's

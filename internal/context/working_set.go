@@ -353,6 +353,37 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent, shown []s
 	if err != nil {
 		return WorkingSelection{}, err
 	}
+	// The recent observations are the loop's working memory whatever file they
+	// came from, and working_recent gives them the top priority. The slice
+	// above reaches only the focus and its import links, and the focus follows
+	// the file touched last, so a file read a few rounds earlier -- a
+	// same-package test, say -- stopped being a candidate as soon as another
+	// file was read, and the model read it again. Observed 2026-09-19: three
+	// files a fix needed together, read 4, 4 and 3 times and never in view at
+	// once, until the read-only stall. Their files get a working_revision like
+	// the slice's, so an edit still makes them stale.
+	have := make(map[string]bool, len(records))
+	for _, r := range records {
+		have[r.ID] = true
+	}
+	var missing []string
+	for _, id := range recent {
+		if !have[id] {
+			have[id] = true
+			missing = append(missing, id)
+		}
+	}
+	elsewhere, err := w.store.Records(ctx, missing)
+	if err != nil {
+		return WorkingSelection{}, err
+	}
+	for _, r := range elsewhere {
+		if !seen[r.Entity] {
+			seen[r.Entity] = true
+			add("working_revision", r.Entity, w.Revision(r.Entity))
+		}
+		records = append(records, r)
+	}
 	for _, r := range records {
 		add("working_observation", r.ID, r.Entity, r.Revision, r.Kind, r.Step)
 		add("working_digest", r.ID, r.Digest)
