@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sort"
+	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 )
 
 type fileMutationSnapshot struct {
@@ -96,7 +98,7 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 
 	result, err = run()
 	if err == nil && task != nil && task.Type == TaskTypeFileModify {
-		err = validateFileModifyOutcome(task, snapshot)
+		err = validateFileModifyOutcome(task, snapshot, o.attemptWrites(task))
 	}
 	if err == nil {
 		o.endAttempt(task).release()
@@ -112,7 +114,13 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 // that did not exist at snapshot time), but they no longer survive a refusal:
 // rollback removes files created during the attempt so leftovers cannot satisfy
 // the gate on the next try.
-func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot) error {
+//
+// When no file the write set declares existed at capture, the plan guessed
+// the target (ladder C2), and the task is satisfied by changing existing code
+// wherever it is: writes are the attempt's own, each with what the path held
+// before it, and a pre-existing file among them that holds something else now
+// is the modification. Creating the guessed file still satisfies nothing.
+func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot, writes []observation.FileWrite) error {
 	newMatches, err := listNewBroadGlobMatches(snapshot)
 	if err != nil {
 		return fmt.Errorf("verify file_modify broad-glob contract for %s: %w", taskIDOrUnknown(task), err)
@@ -121,6 +129,7 @@ func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot) error
 		return fmt.Errorf("task %s (%s) created new file(s) matching declared broad glob: %v (broad globs do not grant exact-path authority; provenance unknown)", taskIDOrUnknown(task), task.Type, newMatches)
 	}
 	modified := false
+	declaredExisted := false
 	var deletedPath string
 	var readErr error
 	var readErrPath string
@@ -128,6 +137,7 @@ func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot) error
 		if !fs.Exists {
 			continue
 		}
+		declaredExisted = true
 		current, err := os.ReadFile(fs.Path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -155,7 +165,45 @@ func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot) error
 	if modified {
 		return nil
 	}
-	return fmt.Errorf("task %s (%s) modified no pre-existing file in its declared write set", taskIDOrUnknown(task), task.Type)
+	if declaredExisted {
+		return fmt.Errorf("task %s (%s) modified no pre-existing file in its declared write set", taskIDOrUnknown(task), task.Type)
+	}
+	if changed := changedPreexistingFiles(writes); len(changed) > 0 {
+		logging.Campaign("Task %s (%s): nothing its write set declares existed; it changed existing code in %s", taskIDOrUnknown(task), task.Type, strings.Join(changed, ", "))
+		return nil
+	}
+	return fmt.Errorf("task %s (%s) modified no pre-existing file: nothing its write set declares existed, and it changed no existing file -- creating the planned file does not satisfy a modification; find the existing code this task changes and change it there", taskIDOrUnknown(task), task.Type)
+}
+
+// changedPreexistingFiles names the files an attempt's writes found existing
+// and left holding something else. A path written more than once is judged
+// by what it held before the first write; a file since removed is not a
+// modification.
+func changedPreexistingFiles(writes []observation.FileWrite) []string {
+	first := make(map[string]observation.FileState, len(writes))
+	var order []string
+	for _, w := range writes {
+		if _, seen := first[w.Path]; seen {
+			continue
+		}
+		first[w.Path] = w.Before
+		order = append(order, w.Path)
+	}
+	var changed []string
+	for _, path := range order {
+		before := first[path]
+		if !before.Known || !before.Exists {
+			continue
+		}
+		current, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if string(current) != before.Content {
+			changed = append(changed, path)
+		}
+	}
+	return changed
 }
 
 func requiresTaskMutationSnapshot(task *Task) bool {

@@ -499,8 +499,10 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 		fullPath = filepath.Join(o.workspace, targetPath)
 	}
 	isDirectoryTarget := false
-	if info, statErr := os.Stat(fullPath); statErr == nil && info.IsDir() {
-		isDirectoryTarget = true
+	targetExisted := false
+	if info, statErr := os.Stat(fullPath); statErr == nil {
+		targetExisted = true
+		isDirectoryTarget = info.IsDir()
 	}
 	// For a directory target, success means the workspace changed under it, so
 	// take the evidence snapshot before the shard runs (same mechanism
@@ -586,6 +588,13 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 			return nil, fmt.Errorf("evidence snapshot after shard for directory target %s: %w", targetPath, snapErr)
 		}
 		verified = after != before
+	}
+	// Ladder C2: a /file_modify whose planned target did not exist is satisfied
+	// by changing existing code where that code is, not by the guessed target
+	// appearing. validateFileModifyOutcome, around this call, decides from the
+	// attempt's writes; the create-style fallback below must not run for it.
+	if !verified && task.Type == TaskTypeFileModify && !targetExisted {
+		return map[string]any{"coder_result": result, "path": targetPath}, nil
 	}
 	if !verified {
 		if isDirectoryTarget {

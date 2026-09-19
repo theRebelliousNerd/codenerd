@@ -818,22 +818,26 @@ func applyTaskTypeDefenses(workspace string, task *Task) (bool, string) {
 }
 
 // reconcileTaskTypeWithWriteSet corrects a mistyped file task against the
-// reconcileTaskTypeWithWriteSet corrects a mistyped file task against the
 // filesystem at plan time. It mutates task.Type in place and reports whether
 // a retype happened and why.
 //
-// A /file_modify whose write set contains no existing file is invalid by the
-// orchestrator's own transaction rules (validateFileModifyOutcome refuses it
-// with "modified no pre-existing file in its declared write set"), so retype
-// it to /file_create. Symmetrically, a /file_create whose write set already
-// exists on disk is really a modification, so retype it to /file_modify.
+// A /file_create whose write set already exists on disk is really a
+// modification, so it is retyped to /file_modify. The reverse is not a
+// correction (ladder C2). A /file_modify whose write set names no existing
+// file is a modification whose target the plan guessed; retyping it to
+// /file_create told the coder to create the guess. R1-2's campaign aimed a
+// fix at internal/cli/check-mangle.go, which does not exist, and the retyped
+// task wrote a new file there instead of changing the command where it lives
+// (cmd/nerd/cmd_mangle_check.go). It stays a modification: the attempt is
+// told its planned target is absent (writeSetBriefing), and it is satisfied
+// by changing existing code where that code is (validateFileModifyOutcome).
 //
 // Only exact paths participate: if any write-set entry contains glob
 // metacharacters (see containsGlobMeta), or the write set is empty, the task
 // is left unchanged. Relative paths resolve against workspace; absolute paths
 // are stated directly. Pure: no logging here — the caller logs the retype.
 func reconcileTaskTypeWithWriteSet(workspace string, task *Task) (changed bool, reason string) {
-	if task == nil {
+	if task == nil || task.Type != TaskTypeFileCreate {
 		return false, ""
 	}
 	if len(task.WriteSet) == 0 {
@@ -844,32 +848,15 @@ func reconcileTaskTypeWithWriteSet(workspace string, task *Task) (changed bool, 
 			return false, ""
 		}
 	}
-	pathExists := func(p string) bool {
+	for _, p := range task.WriteSet {
 		q := p
 		if !filepath.IsAbs(q) && workspace != "" {
 			q = filepath.Join(workspace, q)
 		}
-		_, err := os.Stat(q)
-		return err == nil
-	}
-	switch task.Type {
-	case TaskTypeFileModify:
-		for _, p := range task.WriteSet {
-			if pathExists(p) {
-				return false, ""
-			}
+		if _, err := os.Stat(q); err != nil {
+			return false, ""
 		}
-		task.Type = TaskTypeFileCreate
-		return true, "no write-set path exists"
-	case TaskTypeFileCreate:
-		for _, p := range task.WriteSet {
-			if !pathExists(p) {
-				return false, ""
-			}
-		}
-		task.Type = TaskTypeFileModify
-		return true, "every write-set path already exists"
-	default:
-		return false, ""
 	}
+	task.Type = TaskTypeFileModify
+	return true, "every write-set path already exists"
 }

@@ -53,6 +53,12 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 		)
 		return nil
 	}
+	// Ladder C2: what the attempt wrote is where its change landed -- a
+	// modification whose planned target was a guess changes existing code
+	// elsewhere -- so those paths are checked, and built, with the declared ones.
+	for _, w := range o.attemptWrites(task) {
+		writeSet = append(writeSet, w.Path)
+	}
 
 	// File existence sanity for create/modify tasks (fail fast before expensive checks).
 	// Planner paths are often wrong (e.g. cmd/server/main.go when code is backend/main.go).

@@ -226,7 +226,9 @@ func (o *Orchestrator) buildTaskInput(task *Task) string {
 // writeSetBriefing tells a file task what it may change and what will
 // satisfy it. A /file_modify task that creates a new file is refused by
 // validateFileModifyOutcome, so the existing files are named here rather
-// than left to the shard to guess.
+// than left to the shard to guess. When nothing the write set declares
+// exists, the plan guessed the target (ladder C2): the briefing names the
+// guess as absent, and the change belongs in the existing code wherever it is.
 func (o *Orchestrator) writeSetBriefing(task *Task) string {
 	if task == nil {
 		return ""
@@ -264,10 +266,14 @@ func (o *Orchestrator) writeSetBriefing(task *Task) string {
 		}
 		return slash
 	}
+	var absent []string
 	for _, entry := range writeSet {
 		hostPath := filepath.FromSlash(entry)
 		info, err := os.Stat(hostPath)
 		if err != nil {
+			if os.IsNotExist(err) && !containsGlobMeta(entry) {
+				absent = append(absent, toRel(entry))
+			}
 			continue
 		}
 		if !info.IsDir() {
@@ -307,21 +313,25 @@ func (o *Orchestrator) writeSetBriefing(task *Task) string {
 			return nil
 		})
 	}
-	if len(relPaths) == 0 {
-		return ""
-	}
-	sort.Strings(relPaths)
-	display := relPaths
-	suffix := ""
-	if len(relPaths) > 40 {
-		remaining := len(relPaths) - 40
-		display = relPaths[:40]
-		suffix = fmt.Sprintf("\n... and %d more", remaining)
+	list := func(paths []string) string {
+		sort.Strings(paths)
+		if len(paths) <= 40 {
+			return strings.Join(paths, "\n")
+		}
+		return strings.Join(paths[:40], "\n") + fmt.Sprintf("\n... and %d more", len(paths)-40)
 	}
 	var b strings.Builder
+	if len(relPaths) == 0 {
+		if len(absent) == 0 {
+			return ""
+		}
+		b.WriteString("\n\nTHIS TASK'S PLANNED TARGET DOES NOT EXIST (workspace-relative):\n")
+		b.WriteString(list(absent))
+		b.WriteString("\nThis task modifies existing code, and the plan guessed where that code lives. Creating the file above does not satisfy it: find the existing file that holds the code this task changes and make the change there. Add tests next to the code you changed.")
+		return b.String()
+	}
 	b.WriteString("\n\nFILES THIS TASK MAY MODIFY (workspace-relative):\n")
-	b.WriteString(strings.Join(display, "\n"))
-	b.WriteString(suffix)
+	b.WriteString(list(relPaths))
 	b.WriteString("\nThis task modifies existing files. Creating a new file does not satisfy it: the change must land in one of the files above, and a new helper file that nothing calls is not a change. Add tests next to the code you changed.")
 	return b.String()
 }

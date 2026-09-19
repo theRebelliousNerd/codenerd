@@ -59,6 +59,19 @@ func (o *Orchestrator) recordAttemptWrites(task *Task, writes []observation.File
 	}
 }
 
+// attemptWrites returns the writes the task's open attempt has recorded so far.
+func (o *Orchestrator) attemptWrites(task *Task) []observation.FileWrite {
+	if task == nil {
+		return nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if rec := o.attempts[task.ID]; rec != nil {
+		return append([]observation.FileWrite(nil), rec.writes...)
+	}
+	return nil
+}
+
 // holdForAttempt keeps a lease the write guard took until the task's attempt
 // ends. With no attempt open there is nothing to hold it for: the write was
 // checked, and the lease goes back at once.

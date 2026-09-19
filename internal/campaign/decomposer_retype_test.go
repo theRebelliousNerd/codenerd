@@ -16,14 +16,16 @@ func TestReconcileTaskTypeWithWriteSet(t *testing.T) {
 		wantReason string
 	}{
 		{
-			name:     "file_modify with one non-existent exact path becomes file_create",
+			// Ladder C2: the plan guessed the target; the task is still a
+			// modification, never an instruction to create the guess.
+			name:     "file_modify whose one exact path does not exist stays file_modify",
 			taskType: TaskTypeFileModify,
 			writeSet: func(workspace string) []string {
 				return []string{filepath.Join(workspace, "does-not-exist.mg")}
 			},
-			wantType:   TaskTypeFileCreate,
-			wantChange: true,
-			wantReason: "no write-set path exists",
+			wantType:   TaskTypeFileModify,
+			wantChange: false,
+			wantReason: "",
 		},
 		{
 			name:     "file_create with one existing path becomes file_modify",

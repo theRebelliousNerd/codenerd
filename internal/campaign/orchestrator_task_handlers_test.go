@@ -760,7 +760,7 @@ func TestWriteSetBriefing_ListsExistingFilesForModify(t *testing.T) {
 	}
 }
 
-func TestWriteSetBriefing_EmptyForCreateAndForMissingPaths(t *testing.T) {
+func TestWriteSetBriefing_EmptyForCreateNamesAMissingModifyTarget(t *testing.T) {
 	ws := t.TempDir()
 	p := filepath.Join(ws, "pkg", "a.go")
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -773,8 +773,12 @@ func TestWriteSetBriefing_EmptyForCreateAndForMissingPaths(t *testing.T) {
 	if got := o.writeSetBriefing(&Task{ID: "brief-create", Type: TaskTypeFileCreate, WriteSet: []string{"pkg"}}); got != "" {
 		t.Fatalf("expected empty briefing for /file_create, got %q", got)
 	}
-	if got := o.writeSetBriefing(&Task{ID: "brief-missing", Type: TaskTypeFileModify, WriteSet: []string{"does/not/exist"}}); got != "" {
-		t.Fatalf("expected empty briefing for missing write-set paths, got %q", got)
+	// Ladder C2: a modification whose planned target is absent is told so.
+	got := o.writeSetBriefing(&Task{ID: "brief-missing", Type: TaskTypeFileModify, WriteSet: []string{"does/not/exist"}})
+	for _, want := range []string{"PLANNED TARGET DOES NOT EXIST", "does/not/exist", "Creating the file above does not satisfy it"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("briefing for a missing modify target lacks %q:\n%s", want, got)
+		}
 	}
 }
 
