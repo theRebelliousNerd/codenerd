@@ -4987,3 +4987,43 @@ streak even clean.
   the failure recorded until the closure re-measures; and the round logs "giving the model one
   repair round" while it runs up to the repair budget's attempts. One file, a codeNERD brief.
 - Rung-level: streak 0 (assisted, and three files).
+
+## R1-11, L3's brief on overlapping write-set leases: the fix is right, the direction reported is pinned by nothing -- assisted (2026-09-19, 17:07-17:27)
+
+Binary from `d9438242`. Brief: two campaign tasks whose write sets overlap (a directory and a
+path under it) both get leases, and the second one's first write is then refused by name.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 19.2 | 33 (17 read_file, 3 run_tests, 3 grep, 3 edit_lines, 2 glob, 2 git_operation, 1 each write_file, recall_context, list_files) | rc=0, `/done`, `checks_passed` -- **landed, assisted**, `aae24670` (the reported direction's test added by hand) | 32, mean 43.0k, peak 52.2k, 1.38M total (813k cached by the provider), 53.3k out | `write_set_lock_manager.go` +29/-14, `write_set_directory_cover_test.go` +155 (and `write_set_file_under_held_directory_test.go` +70 by hand) |
+
+**What it did.** It deleted the `ancestors bool` parameter that had made the declared lease check
+the exact path only, and added a descendant check: `claim` now refuses a path another task holds,
+a directory above it, or a path below it, for the declared lease and the write-time check alike.
+Its five tests are the direction it found uncovered -- a held file blocks a directory above it
+(refused; times out; waits then proceeds; same holder allowed; prefix sibling not blocked).
+
+**Reviewed.** 15 overlap shapes probed against HEAD and the change: same path, directory above and
+below, depth two, workspace root either way, case difference, absolute vs relative, trailing
+slash, a multi-path set where one path overlaps, a sibling with the directory's name as a prefix
+(`internal/foobar`), and a dotted sibling (`internal/foo.go`). The change is right on all 15;
+HEAD is wrong on 10. Criterion 7: nothing made worse.
+
+Criterion 3 is not met by codeNERD's own tests: **the whole campaign suite still passes with the
+declared lease's ancestor check taken back out** -- the direction the brief reported (a file under
+a held directory must wait) is pinned by nothing it wrote. Added by hand
+(`write_set_file_under_held_directory_test.go`): the file waits, and gets its lease and its write
+once the directory is released; and a prefix sibling does not wait. It fails at HEAD and with that
+check removed.
+
+**Harness observations.**
+- The critic ran **5 min 19 s** and reported 4 findings, 3 of them in code the change did not
+  touch (the ancestor walk's filesystem-root edge, `refuseOutsideWorkspace` not trimming, a stale
+  comment). Its fourth -- the uncovered descendant branch -- was the coverage round's, which
+  converged in one attempt and produced the five tests.
+- The delimiter guard refused one `edit_lines` (braces +2 vs +1) and the model recovered.
+- This is the second run in a row whose tests pin a helper or a branch rather than the behaviour
+  the brief named: N22's ground truth. N22 as built (a changed function taken out on its own)
+  would not have caught this one -- `claim` carries both directions, so taking the whole function
+  out fails the tests either way. The gate is a floor, not the reviewer.
+- Rung-level: streak 0 (assisted).

@@ -18,7 +18,7 @@ becoming stale, or detached from the mutations it is supposed to describe.
   F4 (`ad91108d` rollback with C4, `be3fa92e` isolation); L2 (`00482316`); C1 (`32f4d9c4`), C2
   (`8b007804`); N04 by codeNERD (`3d9ba680`, ladder R1-5, assisted); L4 (`57f00dbc`); the N01
   follow-on (`0915bfab`: a turn whose writes owe a test run is sent back to run one).
-- next, hand-built: L5 (below); L3.
+- next, hand-built: L5 (below).
 - next, as codeNERD ladder briefs (one or two files, symptom and evidence in hand): N10, N09, N17,
   N18 with briefs ready (scratchpad `brief_n10_*`, `brief_n09_*`, `brief_n17_*`; N18 landed
   `24e9cc56`, R1-7);
@@ -40,7 +40,10 @@ becoming stale, or detached from the mutations it is supposed to describe.
   `internal/foo` and one that declared `internal/foo/x.go` are not serialized at plan time: the
   lock manager keys a lease by the path as declared. F4's write-time guard checks ancestors, so
   the write itself is caught; the plan-time acquisition still admits both tasks at once, and one
-  of them then has its write refused. Open.
+  of them then has its write refused. **Landed `aae24670`** by codeNERD (ladder R1-11, assisted): the
+  declared lease and the write-time check both refuse a path another task holds, a directory above
+  it, or a path below it; the direction the report was about was pinned by none of its tests, so
+  that test was added by hand.
 - **N09, N10 reproduced (13:05-14:06) for codeNERD briefs.** N10: an `edit_lines` change inside a
   Go raw string holding a Mangle program is refused as unbalancing delimiters, though the Go file
   is as valid after it -- the same guard meets every edit to a test's embedded program. N09:
