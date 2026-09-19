@@ -307,7 +307,7 @@ func TestVerifyTests_KeepsLongOutputWhole(t *testing.T) {
 // while destroying the thing that made the suite worth running.
 func TestTestRepairPrompt_ForbidsWeakeningTheTest(t *testing.T) {
 	out := "--- FAIL: TestAdd (0.00s)\n    calc_test.go:5: intentional failure"
-	p := testRepairPrompt(out)
+	p := testRepairPrompt(out, "")
 
 	if !strings.Contains(p, out) {
 		t.Error("repair prompt drops the test output, which is the only thing that makes the round useful")
@@ -358,7 +358,7 @@ func TestTestBuildFailed(t *testing.T) {
 
 func TestTestRepairPrompt_BuildFailureBlamesTheTestFile(t *testing.T) {
 	out := "internal\\session\\tool_timeout_hook_test.go:34:97: undefined: config.EffectiveAgentRuntimeConfig\nFAIL\tcodenerd/internal/session [build failed]"
-	p := testRepairPrompt(out)
+	p := testRepairPrompt(out, "")
 
 	for _, want := range []string{"do not compile", "the test file is what is wrong", "Do NOT add, alias or re-export"} {
 		if !strings.Contains(p, want) {

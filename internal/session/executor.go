@@ -705,7 +705,11 @@ type ExecutionResult struct {
 	// PinCheck is the pinning gate (pin_gate.go): whether each function the
 	// turn changed, taken out on its own, makes a test the turn wrote fail.
 	// Measured only for a turn the policy says owes it (/pinned).
-	PinCheck              BuildVerification
+	PinCheck BuildVerification
+	// PinAdvisory names the decisions inside the change that no test the turn
+	// wrote distinguishes (condition_units.go). Recorded and handed to the
+	// model, never charged: a forced guard can be unanswerable.
+	PinAdvisory           []string
 	ChecksSnapshot        string
 	ChangeStage           string
 	acceptanceTransaction *evidence.Transaction

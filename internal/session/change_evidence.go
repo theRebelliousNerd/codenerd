@@ -121,7 +121,7 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 		// are now; a red suite leaves it unmeasured -- the turn fails on the
 		// tests.
 		if e.kernel != nil && result.TestCheck.Verdict() == VerifyPassed && e.turnOwesGate(result, "/pinned") {
-			pin := verifyPinning(ctx, workspace, result)
+			pin := verifyPinning(ctx, workspace, result, false)
 			pin.Repair = inheritRepair(pin.Verdict(), result.PinCheck.Repair)
 			result.PinCheck = pin
 		}

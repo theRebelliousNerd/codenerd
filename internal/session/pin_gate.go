@@ -52,6 +52,9 @@ type pinUnit struct {
 	added bool
 	// absent takes the whole file out: a created file reverted.
 	absent bool
+	// forced is a condition on a changed line held at true or at false
+	// (condition_units.go) rather than a declaration taken out.
+	forced bool
 	// content is the file with this one change taken out.
 	content string
 }
@@ -472,7 +475,62 @@ func turnTests(workspace string, written []string, preWrite map[string]PreImage,
 // them (or there is no change to pin), fails naming the ones that do not --
 // or naming every change when the turn wrote no test that could -- and is
 // indeterminate when a measurement did not finish.
-func verifyPinning(ctx context.Context, workspace string, result *ExecutionResult) BuildVerification {
+// measureUnits runs the turn's tests against each unit, a few at a time, and
+// reports the units the tests did not notice and the ones that were not
+// measured.
+func measureUnits(ctx context.Context, workspace string, units []pinUnit, runArg string, names, pkgs []string, bound time.Duration) (unpinned, unmeasured []string) {
+	type measured struct{ verdict, why string }
+	results := make([]measured, len(units))
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, pinWorkers())
+	for i, u := range units {
+		wg.Add(1)
+		go func(i int, u pinUnit) {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			verdict, why := runPinUnit(ctx, workspace, u, runArg, names, pkgs, bound)
+			logging.Get(logging.CategorySession).Info("pinning gate: %s -> %s%s", u.label(), verdict, suffixed(why))
+			results[i] = measured{verdict, why}
+		}(i, u)
+	}
+	wg.Wait()
+	for i, r := range results {
+		switch r.verdict {
+		case "unpinned":
+			unpinned = append(unpinned, units[i].label())
+		case "unmeasured":
+			unmeasured = append(unmeasured, units[i].label()+" ("+r.why+")")
+		}
+	}
+	return unpinned, unmeasured
+}
+
+// conditionsFor is every condition on a line the turn changed, in each
+// production Go file it wrote.
+func conditionsFor(workspace string, result *ExecutionResult) []pinUnit {
+	var units []pinUnit
+	for _, p := range result.WrittenPaths {
+		if !strings.HasSuffix(strings.ToLower(p), ".go") || isTestPath(p) || ignoredByGoTool(p) {
+			continue
+		}
+		pre, ok := preImageFor(workspace, p, result.PreWriteContents)
+		if !ok || !pre.Known() {
+			continue
+		}
+		data, err := os.ReadFile(diskPath(workspace, p))
+		if err != nil {
+			continue
+		}
+		units = append(units, conditionUnits(p, string(data), pre)...)
+	}
+	return units
+}
+
+// verifyPinning measures the gate. withConditions also asks the advisory
+// question about the decisions inside the change (conditionsFor); the closure
+// re-measures without it, because nothing reads the answer.
+func verifyPinning(ctx context.Context, workspace string, result *ExecutionResult, withConditions bool) BuildVerification {
 	start := time.Now()
 	units := pinUnits(workspace, result.WrittenPaths, result.PreWriteContents)
 	if len(units) == 0 {
@@ -487,32 +545,29 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 			Reason: "the turn changed functions and wrote no test", Duration: time.Since(start)}
 	}
 	runArg := baselineRunRegex(names)
-	type measured struct{ verdict, why string }
-	results := make([]measured, len(units))
-	var wg sync.WaitGroup
-	slots := make(chan struct{}, pinWorkers())
-	for i, u := range units {
-		wg.Add(1)
-		go func(i int, u pinUnit) {
-			defer wg.Done()
-			slots <- struct{}{}
-			defer func() { <-slots }()
-			verdict, why := runPinUnit(ctx, workspace, u, runArg, names, pkgs)
-			logging.Get(logging.CategorySession).Info("pinning gate: %s -> %s%s", u.label(), verdict, suffixed(why))
-			results[i] = measured{verdict, why}
-		}(i, u)
+	bound, why := pinBaseline(ctx, workspace, runArg, names, pkgs)
+	if bound <= 0 {
+		return BuildVerification{Outcome: VerifyIndeterminate, Reason: "the turn's tests were not measured on their own first: " + why, Duration: time.Since(start)}
 	}
-	wg.Wait()
+	unpinned, unmeasured := measureUnits(ctx, workspace, units, runArg, names, pkgs, bound)
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return BuildVerification{Outcome: VerifyCanceled, Reason: "canceled while measuring", Duration: time.Since(start)}
 	}
-	var unpinned, unmeasured []string
-	for i, r := range results {
-		switch r.verdict {
-		case "unpinned":
-			unpinned = append(unpinned, units[i].label())
-		case "unmeasured":
-			unmeasured = append(unmeasured, units[i].label()+" ("+r.why+")")
+	if withConditions {
+		// The decisions inside the changed functions are asked about too, and
+		// what survives is recorded rather than charged: measured over a
+		// hand-written change (2026-09-19, N24's own commit) five of eight
+		// surviving conditions were guards whose forcing changes nothing
+		// observable, and a verdict cannot rest on a question whose answer is
+		// sometimes unanswerable. The round hands them to the model, the log
+		// and the record keep them for the review.
+		conditions := conditionsFor(workspace, result)
+		survived, _ := measureUnits(ctx, workspace, conditions, runArg, names, pkgs, bound)
+		result.PinAdvisory = survived
+		if len(survived) > 0 {
+			logging.Get(logging.CategorySession).Warn(
+				"%d decision(s) this turn made are not distinguished by the tests it wrote (not charged):\n%s",
+				len(survived), strings.Join(survived, "\n"))
 		}
 	}
 	command := append([]string{"go", "test", "-overlay", "<one change taken out>", "-count=1", "-v", "-run", runArg}, pkgs...)
@@ -547,7 +602,7 @@ func suffixed(why string) string {
 // runPinUnit runs the turn's tests with one change taken out. "pinned" when
 // they fail or no longer compile, "unpinned" when they ran and passed,
 // "unmeasured" with the reason otherwise.
-func runPinUnit(ctx context.Context, workspace string, u pinUnit, runArg string, names, pkgs []string) (string, string) {
+func runPinUnit(ctx context.Context, workspace string, u pinUnit, runArg string, names, pkgs []string, bound time.Duration) (string, string) {
 	tmpDir, err := os.MkdirTemp("", "pin-unit-*")
 	if err != nil {
 		return "unmeasured", err.Error()
@@ -570,7 +625,7 @@ func runPinUnit(ctx context.Context, workspace string, u pinUnit, runArg string,
 	if err := os.WriteFile(overlayPath, overlay, 0o644); err != nil {
 		return "unmeasured", err.Error()
 	}
-	args := append([]string{"test", "-overlay", overlayPath, "-count=1", "-v", "-run", runArg}, pkgs...)
+	args := append([]string{"test", "-overlay", overlayPath, "-count=1", "-v", "-timeout", bound.String(), "-run", runArg}, pkgs...)
 	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
 	switch outcome {
 	case VerifyFailed:
@@ -588,6 +643,25 @@ func runPinUnit(ctx context.Context, workspace string, u pinUnit, runArg string,
 	}
 }
 
+// pinBaseline runs the turn's tests as they are, before anything is taken
+// out. It answers two questions with one run: whether they pass and really
+// run (a gate measured against tests that do not is measuring nothing), and
+// how long they take -- which bounds every mutant, so one that leaves the
+// tests spinning is cut instead of holding the turn. Measured 2026-09-19 on a
+// prototype: one forced condition left a lock test waiting ten minutes.
+func pinBaseline(ctx context.Context, workspace, runArg string, names, pkgs []string) (time.Duration, string) {
+	start := time.Now()
+	args := append([]string{"test", "-count=1", "-v", "-run", runArg}, pkgs...)
+	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
+	switch {
+	case outcome != VerifyPassed:
+		return 0, fmt.Sprintf("they did not pass on their own (%s%s)", outcome, suffixed(reason))
+	case !anyTestRan(string(out), names):
+		return 0, "none of them ran"
+	}
+	return 2*time.Since(start) + time.Minute, ""
+}
+
 // anyTestRan reports whether go test -v output shows one of names finishing.
 func anyTestRan(out string, names []string) bool {
 	for _, n := range names {
@@ -601,8 +675,9 @@ func anyTestRan(out string, names []string) bool {
 }
 
 func unpinnedListing(unpinned, names []string) string {
-	return "Each change below can be taken out -- the function put back as it was before this turn, or removed " +
-		"when the turn added it -- and every test this turn wrote still passes (" + strings.Join(names, ", ") + "):\n\n```\n" +
+	return "Each change below can be undone -- a function put back as it was, one this turn added " +
+		"removed, or a condition it wrote held at a constant -- and every test this turn wrote still " +
+		"passes (" + strings.Join(names, ", ") + "):\n\n```\n" +
 		strings.Join(unpinned, "\n") + "\n```"
 }
 
@@ -619,9 +694,24 @@ func pinningRepairPrompt(seed string) string {
 	return seed + "\n\n" +
 		"For each one, write or extend a test that fails when the change is taken out and passes with it: drive the " +
 		"path the change sits on -- the function named, or a caller that reaches it -- and assert the behaviour the " +
-		"change was made for. A test of a helper does not pin the place that calls it. Put the tests in the package's " +
+		"change was made for. For a condition, the test that pins it takes the branch the forced value would skip, and " +
+		"asserts what that branch is for. A test of a helper does not pin the place that calls it. Put the tests in the package's " +
 		"_test.go files. Do not change the production code to make a test fail, and do not take a change out to clear " +
 		"this list: the change is what the tests must pin. The check is run again afterwards."
+}
+
+// advisorySection adds the decisions the tests do not distinguish to a round
+// that is already running. They are not what the round must clear -- nothing
+// fails for them -- but the round is the one moment the model is already
+// writing tests for this change.
+func advisorySection(advisory []string) string {
+	if len(advisory) == 0 {
+		return ""
+	}
+	return "\n\nWorth pinning while you are here: these decisions your change makes are not distinguished by " +
+		"any test you wrote -- held at a constant, the tests still pass. Where one of them is a real choice " +
+		"(and not a guard whose branch changes nothing observable), a test that takes the other side is worth " +
+		"writing; the turn does not fail for them.\n\n```\n" + strings.Join(advisory, "\n") + "\n```"
 }
 
 func pinningBrokeTestsPrompt(testOutput string) string {
@@ -658,7 +748,7 @@ func (e *Executor) verifyAndRepairPinning(
 		return nil, nil, nil
 	}
 	workspace := e.workspaceForVerification()
-	result.PinCheck = verifyPinning(ctx, workspace, result)
+	result.PinCheck = verifyPinning(ctx, workspace, result, true)
 	if result.PinCheck.Verdict() != VerifyFailed || trp == nil {
 		return nil, nil, nil
 	}
@@ -672,7 +762,7 @@ func (e *Executor) verifyAndRepairPinning(
 			if testsBroke {
 				return pinningBrokeTestsPrompt(seed)
 			}
-			return pinningRepairPrompt(seed)
+			return pinningRepairPrompt(seed) + advisorySection(result.PinAdvisory)
 		},
 		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
 			testsBroke = false
@@ -685,7 +775,7 @@ func (e *Executor) verifyAndRepairPinning(
 				testsBroke = v.Verdict() == VerifyFailed
 				return false, v.Output, v.Verdict()
 			}
-			p := verifyPinning(epCtx, workspace, result)
+			p := verifyPinning(epCtx, workspace, result, true)
 			result.PinCheck = p
 			snap, green, greenPin = snapshotTurnFiles(workspace, result), result.TestCheck, p
 			if p.Verdict() == VerifyPassed {

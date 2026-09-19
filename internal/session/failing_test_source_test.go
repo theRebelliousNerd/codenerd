@@ -55,6 +55,25 @@ func TestFailingTestSection_FindsTheTestBesideTheTurnsOwnWrite(t *testing.T) {
 	}
 }
 
+// With the tests in hand the prompt stops telling the model to read them: the
+// round has closed the read tools, and R1-12 spent three attempts trying to
+// obey that sentence with recall_context.
+func TestTestRepairPrompt_StopsAskingForAReadItCannotDo(t *testing.T) {
+	out := "--- FAIL: TestAdd (0.00s)\n    calc_test.go:5: intentional failure"
+	withSource := testRepairPrompt(out, "\nThe failing tests, as they are on disk:\nx_test.go: TestAdd\n")
+	if strings.Contains(withSource, "Read the failing test and the code under test") {
+		t.Errorf("the prompt still asks for a read it has already answered:\n%s", withSource)
+	}
+	for _, want := range []string{"read them there, not with a tool", "x_test.go: TestAdd"} {
+		if !strings.Contains(withSource, want) {
+			t.Errorf("the prompt does not contain %q:\n%s", want, withSource)
+		}
+	}
+	if without := testRepairPrompt(out, ""); !strings.Contains(without, "Read the failing test and the code under test") {
+		t.Errorf("without the source the prompt must still send the model to read it:\n%s", without)
+	}
+}
+
 // End to end: a turn whose edit breaks a test is handed the test.
 func TestVerifyAndRepairTests_ThePromptCarriesTheFailingTest(t *testing.T) {
 	if testing.Short() {

@@ -351,7 +351,7 @@ func (e *Executor) verifyAndRepairTests(
 		// closes the read tools after its first round that writes nothing, so
 		// a model that has not already read the test it broke cannot.
 		promptFor: func(seed string) string {
-			return testRepairPrompt(seed) + failingTestSection(workspace, seed, result.WrittenPaths)
+			return testRepairPrompt(seed, failingTestSection(workspace, seed, result.WrittenPaths))
 		},
 		// A test repair can break the build, so re-check both, cheapest
 		// first. Only an affirmative failure verdict fails here: a recheck
@@ -425,9 +425,18 @@ func testBuildFailed(output string) bool {
 // often delete or weaken the assertion, which turns red green while destroying
 // the thing that made the suite worth running. The failing test is the
 // specification until proven otherwise.
-func testRepairPrompt(testOutput string) string {
+// withSource is the failing tests' source when the round has it (N24). The
+// closing sentence depends on it: telling a model to read the failing test
+// while the round has closed the read tools is an instruction it cannot
+// follow, and R1-12 spent three attempts on recall_context trying.
+func testRepairPrompt(testOutput, withSource string) string {
 	if testBuildFailed(testOutput) {
 		return testCompileRepairPrompt(testOutput)
+	}
+	closing := "Read the failing test and the code under test before editing either."
+	if withSource != "" {
+		closing = "The failing tests are below as they are on disk; read them there, not with a tool, " +
+			"and edit the code under test."
 	}
 	return "Your edits compile but the tests fail. This is the test output:\n\n" +
 		"```\n" + testOutput + "\n```\n\n" +
@@ -437,7 +446,7 @@ func testRepairPrompt(testOutput string) string {
 		"expects in order to make it pass. The test states the required behaviour; your code " +
 		"does not meet it yet. If — and only if — you can show the test itself asserts something " +
 		"incorrect, say so explicitly and explain why before changing it.\n\n" +
-		"Read the failing test and the code under test before editing either."
+		closing + withSource
 }
 func testCompileRepairPrompt(output string) string {
 	return "The tests do not compile, so no test ran. This is the compiler's output:\n\n```\n" + output + "\n```\n\n" +

@@ -51,7 +51,7 @@ func TestVerifyPinning_ACallSiteOnlyAHelperTestReachesIsUnpinned(t *testing.T) {
 	}
 	ws, result := pinTurn(t)
 
-	v := verifyPinning(context.Background(), ws, result)
+	v := verifyPinning(context.Background(), ws, result, true)
 	if v.Verdict() != VerifyFailed {
 		t.Fatalf("verdict = %s (%s), want failed: TestPolite passes with Greet put back as it was", v.Verdict(), v.Reason)
 	}
@@ -64,7 +64,7 @@ func TestVerifyPinning_ACallSiteOnlyAHelperTestReachesIsUnpinned(t *testing.T) {
 
 	// The scenario test the brief asked for pins it.
 	writeWorkspaceFile(t, ws, "helper_test.go", pinHelperTests+pinGreetTest)
-	if v := verifyPinning(context.Background(), ws, result); v.Verdict() != VerifyPassed {
+	if v := verifyPinning(context.Background(), ws, result, true); v.Verdict() != VerifyPassed {
 		t.Fatalf("verdict = %s (%s):\n%s\nwant passed: TestGreet fails with Greet put back", v.Verdict(), v.Reason, v.Output)
 	}
 }
@@ -75,7 +75,7 @@ func TestVerifyPinning_AChangeWithNoTestOfTheTurnsIsUnpinned(t *testing.T) {
 	ws, result := pinTurn(t)
 	result.WrittenPaths = []string{"calc.go", "helper.go"}
 
-	v := verifyPinning(context.Background(), ws, result)
+	v := verifyPinning(context.Background(), ws, result, true)
 	if v.Verdict() != VerifyFailed || !strings.Contains(v.Output, "wrote no test") {
 		t.Fatalf("verdict = %s:\n%s\nwant failed, naming that the turn wrote no test", v.Verdict(), v.Output)
 	}
