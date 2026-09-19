@@ -490,8 +490,14 @@ func buildRepairPrompt(compilerOutput string) string {
 // (repair_loop's toolRunsFor needs the calls of all rounds), the collected
 // repair errors, every round's tool results in order, and whether any round
 // wrote.
+//
+// ctx is what each round's model call and tools run under; clock is the
+// repair episode's clock. The clock decides whether another round starts, not
+// when a round in flight is cut: once it has run out, the attempt ends with
+// what it has and the loop rechecks it.
 func (e *Executor) repairRound(
 	ctx context.Context,
+	clock context.Context,
 	trp types.ToolResultsProvider,
 	systemPrompt string,
 	history *[]types.Message,
@@ -548,6 +554,9 @@ func (e *Executor) repairRound(
 			types.Message{Role: "user", ToolResults: results})
 		wrote = result != nil && result.SuccessfulWriteTools > before
 		if wrote {
+			break
+		}
+		if clock.Err() != nil {
 			break
 		}
 		if round+1 < repairRoundsPerAttempt {

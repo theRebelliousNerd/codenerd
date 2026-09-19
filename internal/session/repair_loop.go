@@ -166,6 +166,38 @@ func repairEpisodeContext(parent context.Context, wallClock time.Duration) (cont
 	}
 }
 
+// repairCallContext is what an attempt's model calls, tools and re-verification
+// run under: the turn's own deadline while one is still ahead (the user's
+// constraint), cancelled with the turn, and never the episode clock. The clock
+// decides whether an attempt starts; it does not cut a call in flight (ladder
+// run R1-4d: a 366 s model call, cut by a 6.2-minute clock with nothing
+// returned, left the coverage round with no attempt at all). Like the episode,
+// it ignores a parent deadline already past; a call then stays bounded by its
+// client's own HTTP timeout.
+func repairCallContext(parent context.Context) (context.Context, context.CancelFunc) {
+	detached := context.WithoutCancel(parent)
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if deadline, ok := parent.Deadline(); ok && time.Until(deadline) > 0 {
+		ctx, cancel = context.WithDeadline(detached, deadline)
+	} else {
+		ctx, cancel = context.WithCancel(detached)
+	}
+	if parent.Err() == context.Canceled {
+		cancel()
+		return ctx, func() {}
+	}
+	stop := context.AfterFunc(parent, func() {
+		if parent.Err() == context.Canceled {
+			cancel()
+		}
+	})
+	return ctx, func() {
+		stop()
+		cancel()
+	}
+}
+
 // repairSpec describes one gate's repair episode: how to prompt from failing
 // output, how to recheck, and what follow-ups to record on give-up.
 type repairSpec struct {
@@ -214,8 +246,13 @@ func (e *Executor) repairLoop(
 	budget := e.repairBudgetFor()
 	budget.WallClock = repairClockWithGateTime(budget, result)
 	rec := &RepairRecord{Kind: spec.kind, InitialFailure: seedOutput}
+	// epCtx is the clock: when it has run out, no attempt (and no further round
+	// of one) starts. callCtx is what an attempt runs under, so a model call in
+	// flight when the clock runs out finishes and is judged.
 	epCtx, cancelEpisode := repairEpisodeContext(ctx, budget.WallClock)
 	defer cancelEpisode()
+	callCtx, cancelCalls := repairCallContext(ctx)
+	defer cancelCalls()
 
 	var last *types.LLMToolResponse
 	var allErrs []string
@@ -252,7 +289,7 @@ func (e *Executor) repairLoop(
 		logging.Get(logging.CategorySession).Warn(
 			"Repair attempt %d/%d (%s)%s", attempt, budget.MaxAttempts, spec.kind, regimeNote)
 
-		repaired, llmCalls, allCalls, repairErrs, toolResults, wrote, err := e.repairRound(epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime)
+		repaired, llmCalls, allCalls, repairErrs, toolResults, wrote, err := e.repairRound(callCtx, epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime)
 		allErrs = append(allErrs, repairErrs...)
 		if err != nil {
 			att.Verdict = VerifyIndeterminate
@@ -282,7 +319,7 @@ func (e *Executor) repairLoop(
 		}
 		att.Wrote = wrote
 
-		passed, failingOutput, verdict := spec.recheck(epCtx)
+		passed, failingOutput, verdict := spec.recheck(callCtx)
 		att.Verdict = verdict
 		att.SeedExcerpt = excerpt(failingOutput, repairRetainedOutputCap)
 		rec.Attempts = append(rec.Attempts, att)
