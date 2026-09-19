@@ -1,12 +1,14 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -112,24 +114,58 @@ func (e *Executor) verifyAndRepairVet(
 		return nil, nil, nil
 	}
 	logging.Get(logging.CategorySession).Warn("go vet rejects this turn's files; giving the model repair rounds:\n%s", result.VetCheck.Output)
+	snap, green, vetBefore := snapshotTurnFiles(workspace, result), result.TestCheck, result.VetCheck
+	testsBroke := false
 	spec := repairSpec{
 		kind:         "vet",
 		brokenPhrase: "go vet reports problems in the files this turn changed",
-		promptFor:    vetRepairPrompt,
+		promptFor: func(seed string) string {
+			if testsBroke {
+				return vetBrokeTestsPrompt(seed)
+			}
+			return vetRepairPrompt(seed)
+		},
 		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
+			testsBroke = false
 			v := verifyVet(epCtx, workspace, result.WrittenPaths)
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
 				result.VetCheck = v
 			}
-			return v.Verdict() == VerifyPassed, v.Output, v.Verdict()
+			if v.Verdict() != VerifyPassed {
+				return false, v.Output, v.Verdict()
+			}
+			// A vet repair that breaks the tests has repaired nothing: the
+			// round keeps the suite as green as it found it.
+			tv, _ := gateTests(epCtx, workspace, result, false)
+			if tv.Verdict() == VerifyPassed || tv.Verdict() == VerifyFailed {
+				tv.Repair = result.TestCheck.Repair
+				result.TestCheck = tv
+			}
+			if tv.Verdict() != VerifyPassed {
+				testsBroke = tv.Verdict() == VerifyFailed
+				return false, tv.Output, tv.Verdict()
+			}
+			return true, "", VerifyPassed
 		},
 		followups: func() []string {
 			return []string{"go vet " + strings.Join(packagesForPaths(result.WrittenPaths), " ")}
 		},
 	}
 	repaired, repairErrs, rec, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, result.VetCheck.Output, spec)
+	if undoRedRound("vet", workspace, result, snap, green, err) {
+		result.VetCheck = vetBefore
+		repaired = nil
+	}
 	result.VetCheck.Repair = rec
 	return repaired, repairErrs, settleForcingRepair(err)
+}
+
+// vetBrokeTestsPrompt is the vet round's next attempt when the last one made
+// go vet clean and broke the tests.
+func vetBrokeTestsPrompt(testOutput string) string {
+	return "go vet is clean now, but the tests fail after your vet repair:\n\n```\n" + testOutput + "\n```\n\n" +
+		"A vet repair keeps the behaviour the tests pin. Fix the code so that go vet and the tests " +
+		"both pass; do not change or remove a test to make it pass."
 }
 
 // narrowToChangedLines keeps the uncovered blocks that overlap lines the turn
@@ -212,6 +248,9 @@ func (e *Executor) verifyAndRepairCoverage(
 	}
 	logging.Get(logging.CategorySession).Warn(
 		"Code this turn changed is executed by no test (%d block(s)); giving the model repair rounds to write the tests", len(result.UncoveredBlocks))
+	// The state a red give-up is undone to: the round's start, then each
+	// attempt that left the suite green, so a good attempt survives a bad one.
+	snap, green, greenBlocks := snapshotTurnFiles(workspace, result), result.TestCheck, result.UncoveredBlocks
 	spec := repairSpec{
 		kind:         "coverage",
 		brokenPhrase: "code this turn changed is executed by no test",
@@ -226,10 +265,11 @@ func (e *Executor) verifyAndRepairCoverage(
 			}
 			if v.Verdict() != VerifyPassed {
 				// The new tests broke something: the failure is what the next
-				// round works from, and the close re-runs the gates regardless.
+				// round works from; a round that ends here is undone below.
 				return false, v.Output, v.Verdict()
 			}
 			result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
+			snap, green, greenBlocks = snapshotTurnFiles(workspace, result), result.TestCheck, result.UncoveredBlocks
 			if len(result.UncoveredBlocks) == 0 {
 				return true, "", VerifyPassed
 			}
@@ -241,6 +281,10 @@ func (e *Executor) verifyAndRepairCoverage(
 		},
 	}
 	repaired, repairErrs, rec, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, uncoveredList(result.UncoveredBlocks, result.WrittenPaths), spec)
+	if undoRedRound("coverage", workspace, result, snap, green, err) {
+		result.UncoveredBlocks = greenBlocks
+		repaired = nil
+	}
 	if rec != nil && !rec.Passed {
 		logging.Get(logging.CategorySession).Warn(
 			"Coverage repair left %d block(s) executed by no test; the verdict names them", len(result.UncoveredBlocks))
@@ -331,6 +375,107 @@ func (e *Executor) verifyAndRepairRemovedTests(
 		return nil, repairErrs, stillRemoved()
 	}
 	return repaired, repairErrs, err
+}
+
+// turnFiles holds the turn's written files as a forcing round found them. A
+// forcing round starts from a green suite and must not end the turn worse than
+// it found it: one that gives up with the suite red is undone from this, and
+// the debt it leaves is the obligation it did not discharge, which the verdict
+// names. Ladder run R1-4b: a change that passed build and tests was failed
+// because the coverage round's own test was wrong three times over.
+type turnFiles struct {
+	written []string
+	content map[string][]byte
+	exists  map[string]bool
+}
+
+func snapshotTurnFiles(workspace string, result *ExecutionResult) turnFiles {
+	snap := turnFiles{
+		written: append([]string(nil), result.WrittenPaths...),
+		content: map[string][]byte{},
+		exists:  map[string]bool{},
+	}
+	for _, p := range snap.written {
+		if data, err := os.ReadFile(turnFilePath(workspace, p)); err == nil {
+			snap.content[p], snap.exists[p] = data, true
+		}
+	}
+	return snap
+}
+
+// restore puts the turn's files back as the round found them: a file the
+// round changed gets its content back, a file the round wrote for the first
+// time gets its pre-turn content, and one the round created is removed. A file
+// the round wrote with no record of what it held before is not guessed at: the
+// restore refuses before touching anything. It returns the paths it changed.
+func (snap turnFiles) restore(workspace string, result *ExecutionResult) ([]string, error) {
+	type step struct {
+		path   string
+		want   []byte
+		exists bool
+	}
+	var plan []step
+	for _, p := range result.WrittenPaths {
+		s := step{path: p, want: snap.content[p], exists: snap.exists[p]}
+		if !slices.Contains(snap.written, p) {
+			pre, recorded := result.PreWriteContents[p]
+			if !recorded {
+				return nil, fmt.Errorf("%s was written by the round with no record of it before the turn", p)
+			}
+			s.want, s.exists = []byte(pre), pre != "" // "" records a file that did not exist
+		}
+		plan = append(plan, s)
+	}
+	var changed []string
+	var errs []error
+	for _, s := range plan {
+		path := turnFilePath(workspace, s.path)
+		current, readErr := os.ReadFile(path)
+		switch {
+		case !s.exists && readErr == nil:
+			if err := os.Remove(path); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+		case s.exists && (readErr != nil || !bytes.Equal(current, s.want)):
+			if err := os.WriteFile(path, s.want, 0o644); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+		default:
+			continue
+		}
+		changed = append(changed, s.path)
+	}
+	result.WrittenPaths = append([]string(nil), snap.written...)
+	return changed, errors.Join(errs...)
+}
+
+func turnFilePath(workspace, p string) string {
+	if filepath.IsAbs(p) || workspace == "" {
+		return filepath.FromSlash(p)
+	}
+	return filepath.Join(workspace, filepath.FromSlash(p))
+}
+
+// undoRedRound undoes a forcing round that gave up with the suite red and
+// puts back the green test verdict the round started from. It reports whether
+// it undid the round.
+func undoRedRound(kind, workspace string, result *ExecutionResult, snap turnFiles, green TestVerification, err error) bool {
+	if err == nil || !errors.Is(err, ErrVerificationFailed) || result.TestCheck.Verdict() != VerifyFailed {
+		return false
+	}
+	failure := result.TestCheck.Output
+	restored, restoreErr := snap.restore(workspace, result)
+	if restoreErr != nil {
+		logging.Get(logging.CategorySession).Warn("could not undo the %s round (the final check will judge the workspace): %v", kind, restoreErr)
+		return false
+	}
+	result.TestCheck = green
+	logging.Get(logging.CategorySession).Warn(
+		"%s round gave up with the tests failing; restored %s as the round found them. Last failure:\n%s",
+		kind, strings.Join(restored, ", "), failure)
+	return true
 }
 
 // settleForcingRepair decides what a forcing round's error means for the

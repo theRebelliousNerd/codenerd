@@ -8,6 +8,39 @@ import (
 	"codenerd/internal/evidence"
 )
 
+// failedChecksSummary names what the final re-verification found failing: the
+// build's error lines and the tests that fail. The turn's error is what the
+// user and the verdict read; "failed mechanical checks" alone (ladder run
+// R1-4b) sent them to the session log to find out which.
+func failedChecksSummary(result *ExecutionResult) string {
+	var parts []string
+	if result.BuildCheck.Verdict() == VerifyFailed {
+		part := "build fails"
+		var errs []string
+		for _, line := range strings.Split(result.BuildCheck.Output, "\n") {
+			if line = strings.TrimSpace(line); vetFinding.MatchString(line) {
+				errs = append(errs, line)
+			}
+		}
+		if len(errs) > 0 {
+			part += ": " + strings.Join(errs, "; ")
+		} else if reason := strings.TrimSpace(result.BuildCheck.Reason); reason != "" {
+			part += ": " + reason
+		}
+		parts = append(parts, part)
+	}
+	if result.TestCheck.Verdict() == VerifyFailed {
+		part := "tests fail"
+		if names := topLevelFailedTests(result.TestCheck.Output); len(names) > 0 {
+			part += ": " + strings.Join(names, ", ")
+		} else if reason := strings.TrimSpace(result.TestCheck.Reason); reason != "" {
+			part += ": " + reason
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "; ")
+}
+
 // closeChangeEvidence runs after every model repair/critic edit. Later edits
 // invalidate earlier green checks before the turn is allowed to complete.
 func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionResult, before string) error {
@@ -43,7 +76,7 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 			// not proof of broken code: the stage stays artifact_changed and the
 			// turn is labeled unverified rather than failed.
 			if result.BuildCheck.Verdict() == VerifyFailed || result.TestCheck.Verdict() == VerifyFailed {
-				return fmt.Errorf("%w: final workspace failed mechanical checks", ErrVerificationFailed)
+				return fmt.Errorf("%w: final workspace failed mechanical checks: %s", ErrVerificationFailed, failedChecksSummary(result))
 			}
 		}
 	}
