@@ -635,6 +635,39 @@ func metaTerminalFailure(status string) bool {
 	return status == "failed" || status == "cancelled"
 }
 
+// shareReasoningTokens gives each reasoning block of a reply its share of the
+// reply's reasoning tokens, by ciphertext length; the last takes what is left,
+// so the shares add up to the count. The provider counts reasoning once per
+// reply, and the next turn replays each item: the broker measures a replayed
+// item by its share, because the length of its encrypted_content is no
+// measure of what replaying it costs (ladder run R1-4c).
+func shareReasoningTokens(blocks []types.ContentBlock, total int) {
+	if total <= 0 {
+		return
+	}
+	var idx []int
+	chars := 0
+	for i, b := range blocks {
+		if b.Kind == types.BlockThinking {
+			idx = append(idx, i)
+			chars += len(b.Signature)
+		}
+	}
+	given := 0
+	for k, i := range idx {
+		share := total - given
+		if k < len(idx)-1 {
+			if chars > 0 {
+				share = total * len(blocks[i].Signature) / chars
+			} else {
+				share = total / len(idx)
+			}
+		}
+		blocks[i].Tokens = share
+		given += share
+	}
+}
+
 // metaToolResponseFromReply converts a Responses reply into codeNERD's
 // vendor-neutral tool response.
 //
@@ -697,6 +730,7 @@ func metaToolResponseFromReply(reply *metaResponsesReply) *LLMToolResponse {
 			ThinkingTokens:      reply.Usage.OutputTokensDetails.ReasoningTokens,
 			CachedContentTokens: reply.Usage.InputTokensDetails.CachedTokens,
 		}
+		shareReasoningTokens(out.Blocks, reply.Usage.OutputTokensDetails.ReasoningTokens)
 	}
 	return out
 }

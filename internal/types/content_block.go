@@ -51,6 +51,14 @@ type ContentBlock struct {
 	// provider will accept back.
 	Redacted bool `json:"redacted,omitzero"`
 
+	// Tokens is, on a BlockThinking, what the provider counted for this
+	// reasoning when it produced it (its reasoning output tokens), where the
+	// provider reports that. The length of an encrypted signature is no
+	// measure of what replaying it costs -- ciphertext runs ~13 characters per
+	// reasoning token -- so the broker measures a redacted block by this.
+	// Zero when unknown.
+	Tokens int `json:"tokens,omitzero"`
+
 	// ID identifies a BlockToolUse (Anthropic `id`, OpenAI `tool_call.id`).
 	// On a BlockThinking it is the provider's reasoning-item id where one
 	// exists (OpenAI Responses `rs_...`); providers without item ids leave it

@@ -66,9 +66,20 @@ func measure(req *Request) Segments {
 			case types.BlockText:
 				n += utf8.RuneCountInString(b.Text)
 			case types.BlockThinking:
-				n += perThinkingOverheadChars +
-					utf8.RuneCountInString(b.Text) +
-					utf8.RuneCountInString(b.Signature)
+				n += perThinkingOverheadChars + utf8.RuneCountInString(b.Text)
+				if b.Redacted && b.Tokens > 0 {
+					// An encrypted signature is ciphertext (~13 characters
+					// per reasoning token), so its length is no measure of
+					// what replaying it costs: counted by length, one
+					// 22,853-token think made a request that fit read as
+					// 193,735 tokens and refused it (ladder run R1-4c). What
+					// the provider counted when it produced the reasoning
+					// bounds its replay, expressed in the characters this
+					// function measures.
+					n += int(float64(b.Tokens) * DefaultSeedRatio)
+				} else {
+					n += utf8.RuneCountInString(b.Signature)
+				}
 			case types.BlockToolUse:
 				n += perToolCallOverheadChars +
 					utf8.RuneCountInString(b.ID) +
