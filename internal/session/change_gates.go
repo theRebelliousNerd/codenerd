@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -183,7 +184,9 @@ func narrowToChangedLines(workspace string, result *ExecutionResult, uncovered [
 		if readErr != nil {
 			continue
 		}
-		changed[path] = changedLines(before, string(data))
+		// An absent or unknown preimage has no lines: the whole file is the
+		// turn's, the widest reading and the safe one for a coverage gate.
+		changed[path] = changedLines(before.Content, string(data))
 	}
 	return blocksInChangedLines(uncovered, changed)
 }
@@ -385,61 +388,68 @@ func (e *Executor) verifyAndRepairRemovedTests(
 // because the coverage round's own test was wrong three times over.
 type turnFiles struct {
 	written []string
-	content map[string][]byte
-	exists  map[string]bool
+	// pre is each written file as the round found it. A file that could not
+	// be read is an unknown preimage, not an absent one: the restore refuses
+	// it rather than deleting a file it merely failed to read.
+	pre map[string]PreImage
 }
 
 func snapshotTurnFiles(workspace string, result *ExecutionResult) turnFiles {
 	snap := turnFiles{
 		written: append([]string(nil), result.WrittenPaths...),
-		content: map[string][]byte{},
-		exists:  map[string]bool{},
+		pre:     map[string]PreImage{},
 	}
 	for _, p := range snap.written {
-		if data, err := os.ReadFile(turnFilePath(workspace, p)); err == nil {
-			snap.content[p], snap.exists[p] = data, true
-		}
+		snap.pre[p] = readPreImage(turnFilePath(workspace, p))
 	}
 	return snap
 }
 
 // restore puts the turn's files back as the round found them: a file the
 // round changed gets its content back, a file the round wrote for the first
-// time gets its pre-turn content, and one the round created is removed. A file
-// the round wrote with no record of what it held before is not guessed at: the
-// restore refuses before touching anything. It returns the paths it changed.
+// time gets its pre-turn content -- an empty file stays an empty file -- and
+// one the round created is removed. A file the round wrote whose earlier state
+// is unrecorded or unknown is not guessed at: the restore refuses before
+// touching anything. It returns the paths it changed; a path it could not put
+// back stays in WrittenPaths, so the gates that follow still see that write.
 func (snap turnFiles) restore(workspace string, result *ExecutionResult) ([]string, error) {
 	type step struct {
-		path   string
-		want   []byte
-		exists bool
+		path string
+		want PreImage
 	}
 	var plan []step
 	for _, p := range result.WrittenPaths {
-		s := step{path: p, want: snap.content[p], exists: snap.exists[p]}
-		if !slices.Contains(snap.written, p) {
-			pre, recorded := result.PreWriteContents[p]
-			if !recorded {
-				return nil, fmt.Errorf("%s was written by the round with no record of it before the turn", p)
-			}
-			s.want, s.exists = []byte(pre), pre != "" // "" records a file that did not exist
+		want, recorded := snap.pre[p]
+		if !recorded {
+			want, recorded = result.PreWriteContents[p]
 		}
-		plan = append(plan, s)
+		if !recorded {
+			return nil, fmt.Errorf("%s was written by the round with no record of it before the turn", p)
+		}
+		if !want.Known() {
+			return nil, fmt.Errorf("%s was written by the round and what it held before is unknown: %s", p, want.Unknown)
+		}
+		plan = append(plan, step{path: p, want: want})
 	}
-	var changed []string
+	var changed, unrestored []string
 	var errs []error
 	for _, s := range plan {
 		path := turnFilePath(workspace, s.path)
 		current, readErr := os.ReadFile(path)
+		// Only "does not exist" is absent: a path that is there but cannot
+		// be read as a file is still there, and must still be removed.
+		absent := errors.Is(readErr, fs.ErrNotExist)
 		switch {
-		case !s.exists && readErr == nil:
+		case !s.want.Existed && !absent:
 			if err := os.Remove(path); err != nil {
 				errs = append(errs, err)
+				unrestored = append(unrestored, s.path)
 				continue
 			}
-		case s.exists && (readErr != nil || !bytes.Equal(current, s.want)):
-			if err := os.WriteFile(path, s.want, 0o644); err != nil {
+		case s.want.Existed && (readErr != nil || !bytes.Equal(current, []byte(s.want.Content))):
+			if err := os.WriteFile(path, []byte(s.want.Content), 0o644); err != nil {
 				errs = append(errs, err)
+				unrestored = append(unrestored, s.path)
 				continue
 			}
 		default:
@@ -448,6 +458,11 @@ func (snap turnFiles) restore(workspace string, result *ExecutionResult) ([]stri
 		changed = append(changed, s.path)
 	}
 	result.WrittenPaths = append([]string(nil), snap.written...)
+	for _, p := range unrestored {
+		if !slices.Contains(result.WrittenPaths, p) {
+			result.WrittenPaths = append(result.WrittenPaths, p)
+		}
+	}
 	return changed, errors.Join(errs...)
 }
 

@@ -18,7 +18,7 @@ import (
 // attributeTestFailures compares the post-edit verification result against the
 // pre-turn state. Failures that also occur without this turn's edits are
 // pre-existing and must not be charged to the turn.
-func attributeTestFailures(ctx context.Context, workspace string, packages []string, writtenPaths []string, preWrite map[string]string, head TestVerification) TestVerification {
+func attributeTestFailures(ctx context.Context, workspace string, packages []string, writtenPaths []string, preWrite map[string]PreImage, head TestVerification) TestVerification {
 	if head.Outcome != VerifyFailed {
 		return head
 	}
@@ -123,7 +123,7 @@ func runBaselineTests(ctx context.Context, workspace, overlayPath, runArg string
 	}
 }
 
-func buildTestOverlay(workspace string, preWrite map[string]string) (string, string, error) {
+func buildTestOverlay(workspace string, preWrite map[string]PreImage) (string, string, error) {
 	tmpDir, err := os.MkdirTemp("", "test-baseline-*")
 	if err != nil {
 		return "", "", fmt.Errorf("create baseline overlay temp dir: %w", err)
@@ -146,18 +146,25 @@ func buildTestOverlay(workspace string, preWrite map[string]string) (string, str
 	return tmpDir, overlayPath, nil
 }
 
-func writeOverlayFiles(tmpDir, workspace string, preWrite map[string]string) (map[string]string, error) {
+// writeOverlayFiles maps each written path back to its preimage: absent
+// before the turn stays absent in the baseline, anything that existed --
+// empty included -- is its old bytes. A path whose preimage is unknown has no
+// baseline, and the overlay is refused rather than guessed.
+func writeOverlayFiles(tmpDir, workspace string, preWrite map[string]PreImage) (map[string]string, error) {
 	replace := make(map[string]string, len(preWrite))
 	idx := 0
-	for key, content := range preWrite {
+	for key, pre := range preWrite {
+		if !pre.Known() {
+			return nil, fmt.Errorf("no baseline for %s: its preimage is unknown (%s)", key, pre.Unknown)
+		}
 		abs := filepath.Join(workspace, filepath.FromSlash(key))
-		if content == "" {
+		if !pre.Existed {
 			replace[abs] = ""
 			continue
 		}
 		tmpFile := filepath.Join(tmpDir, fmt.Sprintf("overlay-%d.go", idx))
 		idx++
-		if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte(pre.Content), 0644); err != nil {
 			return nil, fmt.Errorf("write baseline overlay file %s: %w", tmpFile, err)
 		}
 		replace[abs] = tmpFile

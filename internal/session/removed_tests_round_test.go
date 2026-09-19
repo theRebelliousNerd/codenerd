@@ -174,7 +174,7 @@ func TestVerifyAndRepairRemovedTests_NoModelToAskFailsNamingThem(t *testing.T) {
 	result := &ExecutionResult{
 		SuccessfulWriteTools: 1,
 		WrittenPaths:         []string{"x_test.go"},
-		PreWriteContents:     map[string]string{"x_test.go": kept + "\nfunc TestGone(t *testing.T) {}\n"},
+		PreWriteContents:     map[string]PreImage{"x_test.go": existed(kept + "\nfunc TestGone(t *testing.T) {}\n")},
 	}
 	_, _, err := h.executor.verifyAndRepairRemovedTests(context.Background(), nil, "", nil, nil, nil, result)
 	if err == nil || !errors.Is(err, ErrVerificationFailed) || !strings.Contains(err.Error(), "x_test.go:TestGone") {
@@ -190,7 +190,7 @@ func TestRemovedTestListing(t *testing.T) {
 	const pre = "package a\n\nimport \"testing\"\n\ntype s struct{}\n\nfunc (s) TestGone() {}\n\n// TestGone is the contract.\nfunc TestGone(t *testing.T) { t.Log(\"gone\") }\n"
 	listing := removedTestListing(
 		[]string{"a/x_test.go:TestGone", "no-separator", "b/y_test.go:TestBroken"},
-		map[string]string{"a/x_test.go": pre, "b/y_test.go": "package b\nfunc TestBroken(t *testing.T) {"})
+		map[string]PreImage{"a/x_test.go": existed(pre), "b/y_test.go": existed("package b\nfunc TestBroken(t *testing.T) {")})
 	for _, want := range []string{
 		"a/x_test.go: TestGone\n```go\n// TestGone is the contract.\nfunc TestGone(t *testing.T) { t.Log(\"gone\") }\n```",
 		"b/y_test.go: TestBroken",

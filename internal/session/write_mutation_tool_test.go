@@ -101,22 +101,22 @@ func TestSnapshotPreWriteContents_KeepsTheContentBeforeTheFirstWrite(t *testing.
 	}
 	result := &ExecutionResult{}
 	snapshotPreWriteContents(result, map[string]any{"path": "a.go"}, ws)
-	if got := result.PreWriteContents["a.go"]; got != "old" {
-		t.Fatalf("PreWriteContents[%q]=%q want %q", "a.go", got, "old")
+	if got := result.PreWriteContents["a.go"]; got != existed("old") {
+		t.Fatalf("PreWriteContents[%q]=%+v want %+v", "a.go", got, existed("old"))
 	}
 	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("new"), 0o644); err != nil {
 		t.Fatalf("overwrite a.go: %v", err)
 	}
 	snapshotPreWriteContents(result, map[string]any{"path": "a.go"}, ws)
-	if got := result.PreWriteContents["a.go"]; got != "old" {
-		t.Fatalf("PreWriteContents[%q]=%q want %q after second snapshot", "a.go", got, "old")
+	if got := result.PreWriteContents["a.go"]; got != existed("old") {
+		t.Fatalf("PreWriteContents[%q]=%+v want %+v after second snapshot", "a.go", got, existed("old"))
 	}
 	snapshotPreWriteContents(result, map[string]any{"path": "missing.go"}, ws)
 	got, ok := result.PreWriteContents["missing.go"]
 	if !ok {
 		t.Fatalf("PreWriteContents missing key %q", "missing.go")
 	}
-	if got != "" {
-		t.Fatalf("PreWriteContents[%q]=%q want %q", "missing.go", got, "")
+	if got != (PreImage{}) {
+		t.Fatalf("PreWriteContents[%q]=%+v want the absent preimage", "missing.go", got)
 	}
 }

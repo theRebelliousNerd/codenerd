@@ -16,7 +16,7 @@ import (
 // A test is the contract for behaviour; a turn that makes the gates green
 // by removing one has not fixed anything. A test that moved — the same
 // name is in some other _test.go under the workspace — is not removed.
-func removedTestFunctions(workspace string, writtenPaths []string, preWrite map[string]string) []string {
+func removedTestFunctions(workspace string, writtenPaths []string, preWrite map[string]PreImage) []string {
 	present := workspaceTestNames(workspace)
 	var out []string
 	for _, p := range writtenPaths {
@@ -34,7 +34,7 @@ func removedTestFunctions(workspace string, writtenPaths []string, preWrite map[
 // removedTestFunctions reports it) with its source as the turn found it. The
 // harness holds the pre-write file, so putting a test back is a paste, not a
 // reconstruction from memory.
-func removedTestListing(removed []string, preWrite map[string]string) string {
+func removedTestListing(removed []string, preWrite map[string]PreImage) string {
 	var b strings.Builder
 	for _, entry := range removed {
 		i := strings.LastIndex(entry, ":")
@@ -43,7 +43,7 @@ func removedTestListing(removed []string, preWrite map[string]string) string {
 		}
 		path, name := entry[:i], entry[i+1:]
 		b.WriteString(path + ": " + name + "\n")
-		if src := testFuncSource(preWrite[path], name); src != "" {
+		if src := testFuncSource(preWrite[path].Content, name); src != "" {
 			b.WriteString("```go\n" + src + "\n```\n")
 		}
 		b.WriteString("\n")
@@ -77,12 +77,15 @@ func isTestPath(p string) bool {
 	return strings.HasSuffix(p, "_test.go")
 }
 
-func shouldCheck(path string, preWrite map[string]string) bool {
+// shouldCheck: a test file with a known preimage. One whose preimage is
+// unknown (it could not be read before the write) cannot be compared, so the
+// guard has nothing to say about it rather than reading it as empty.
+func shouldCheck(path string, preWrite map[string]PreImage) bool {
 	if !isTestPath(path) {
 		return false
 	}
-	_, ok := preWrite[path]
-	return ok
+	pre, ok := preWrite[path]
+	return ok && pre.Known()
 }
 
 func diskPath(workspace string, path string) string {
@@ -92,11 +95,11 @@ func diskPath(workspace string, path string) string {
 	return filepath.Join(workspace, path)
 }
 
-func missingInPath(workspace string, path string, preWrite map[string]string) []string {
+func missingInPath(workspace string, path string, preWrite map[string]PreImage) []string {
 	if !shouldCheck(path, preWrite) {
 		return nil
 	}
-	return diffTestNames(preWrite[path], diskPath(workspace, path))
+	return diffTestNames(preWrite[path].Content, diskPath(workspace, path))
 }
 
 func diffTestNames(beforeSrc string, currentDiskPath string) []string {

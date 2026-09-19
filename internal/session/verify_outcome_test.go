@@ -261,7 +261,7 @@ func TestVerifyAndRepairTests_PreExistingFailuresNeedNoRepair(t *testing.T) {
 	builds := &scriptVerifyRunner{script: []func(context.Context) ([]byte, error){verifyPass()}}
 	stubVerifySeams(t, time.Minute, time.Minute, builds.runWithCtx, tests.runWithCtx)
 	e, result := verifyGateExecutor(t)
-	result.PreWriteContents = map[string]string{"main.go": "package main\n"}
+	result.PreWriteContents = map[string]PreImage{"main.go": existed("package main\n")}
 	trp := &verifyProseRepair{}
 	_, _, err := e.verifyAndRepairTests(context.Background(), trp, "system", nil, nil, &jitconfig.EffectiveAgentRuntimeConfig{}, result)
 	if err != nil {

@@ -952,7 +952,7 @@ func snapshotPreWriteContents(result *ExecutionResult, args map[string]any, work
 			continue
 		}
 		if result.PreWriteContents == nil {
-			result.PreWriteContents = map[string]string{}
+			result.PreWriteContents = map[string]PreImage{}
 		}
 		if _, seen := result.PreWriteContents[normalized]; seen {
 			continue
@@ -961,12 +961,7 @@ func snapshotPreWriteContents(result *ExecutionResult, args map[string]any, work
 		if workspace != "" {
 			target = filepath.Join(workspace, filepath.FromSlash(normalized))
 		}
-		data, readErr := os.ReadFile(target)
-		if readErr != nil {
-			result.PreWriteContents[normalized] = ""
-			continue
-		}
-		result.PreWriteContents[normalized] = string(data)
+		result.PreWriteContents[normalized] = readPreImage(target)
 	}
 }
 

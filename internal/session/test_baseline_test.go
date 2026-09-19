@@ -56,7 +56,7 @@ func TestAttributeTestFailures_AllPreExistingPasses(t *testing.T) {
 		"calc.go":      origCalc,
 		"calc_test.go": testFile,
 	})
-	preWrite := map[string]string{"calc.go": origCalc}
+	preWrite := map[string]PreImage{"calc.go": existed(origCalc)}
 
 	// Turn edit: add an unrelated exported func, tests untouched.
 	writeWorkspaceFile(t, ws, "calc.go", origCalc+"\nfunc Unrelated() int { return 42 }\n")
@@ -95,7 +95,7 @@ func TestAttributeTestFailures_ExpiredDeadlineStillAttributes(t *testing.T) {
 		"calc.go":      origCalc,
 		"calc_test.go": testFile,
 	})
-	preWrite := map[string]string{"calc.go": origCalc}
+	preWrite := map[string]PreImage{"calc.go": existed(origCalc)}
 
 	// Turn edit: add an unrelated exported func, tests untouched.
 	writeWorkspaceFile(t, ws, "calc.go", origCalc+"\nfunc Unrelated() int { return 42 }\n")
@@ -126,7 +126,7 @@ func TestAttributeTestFailures_CanceledSkips(t *testing.T) {
 		Output:  "=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\nFAIL\n",
 		Command: []string{"go", "test", "."},
 	}
-	preWrite := map[string]string{"calc.go": "package verifyprobe\n"}
+	preWrite := map[string]PreImage{"calc.go": existed("package verifyprobe\n")}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -159,7 +159,7 @@ func TestAttributeTestFailures_MixedNewAndPreExisting(t *testing.T) {
 		"calc.go":      origCalc,
 		"calc_test.go": testFile,
 	})
-	preWrite := map[string]string{"calc.go": origCalc}
+	preWrite := map[string]PreImage{"calc.go": existed(origCalc)}
 
 	// Turn edit breaks Add, so TestOK is newly failing.
 	writeWorkspaceFile(t, ws, "calc.go", "package verifyprobe\n\nfunc Add(a, b int) int { return a + b + 1 }\n")
@@ -202,7 +202,7 @@ func TestAttributeTestFailures_TurnCreatedFileIsNew(t *testing.T) {
 
 	// Turn creates a new file that flips Extra via init.
 	writeWorkspaceFile(t, ws, "extra.go", "package verifyprobe\n\nfunc init() { Extra = \"broken\" }\n")
-	preWrite := map[string]string{"extra.go": ""}
+	preWrite := map[string]PreImage{"extra.go": {}}
 
 	head := verifyTests(context.Background(), ws, []string{"."})
 	if head.Outcome != VerifyFailed {
@@ -229,7 +229,7 @@ func TestAttributeTestFailures_BuildFailureUnchanged(t *testing.T) {
 		Output:  "package verifyprobe\ncalc.go:3: undefined: Foo\n[build failed]",
 		Command: []string{"go", "test", "."},
 	}
-	preWrite := map[string]string{"calc.go": "package verifyprobe\n"}
+	preWrite := map[string]PreImage{"calc.go": existed("package verifyprobe\n")}
 
 	got := attributeTestFailures(context.Background(), t.TempDir(), []string{"."}, []string{"calc.go"}, preWrite, head)
 	if got.Outcome != VerifyFailed {
@@ -254,7 +254,7 @@ func TestAttributeTestFailures_MissingSnapshotSkipsAttribution(t *testing.T) {
 		Output:  "=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\nFAIL\n",
 		Command: []string{"go", "test", "."},
 	}
-	preWrite := map[string]string{"calc.go": "package verifyprobe\n"}
+	preWrite := map[string]PreImage{"calc.go": existed("package verifyprobe\n")}
 	writtenPaths := []string{"calc.go", "extra.go"}
 
 	got := attributeTestFailures(context.Background(), t.TempDir(), []string{"."}, writtenPaths, preWrite, head)

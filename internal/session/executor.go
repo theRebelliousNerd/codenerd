@@ -741,12 +741,13 @@ type ExecutionResult struct {
 	// one that only wrote markdown and skip the compile it does not need.
 	WrittenPaths []string
 
-	// PreWriteContents holds the content of each written file, keyed by the
-	// same workspace-relative slash path as WrittenPaths, as it was before
-	// this turn's first successful or attempted write to it, an empty string
-	// for a file that did not exist, so post-edit signals can be narrowed to
-	// the lines the turn changed.
-	PreWriteContents map[string]string
+	// PreWriteContents holds each written path's preimage, keyed by the same
+	// workspace-relative slash path as WrittenPaths: what it held before this
+	// turn's first successful or attempted write to it. Post-edit signals are
+	// narrowed to the lines the turn changed, and an undone round puts it
+	// back -- an absent file, an empty one and an unreadable one are three
+	// different preimages (see PreImage).
+	PreWriteContents map[string]PreImage
 
 	// UntestedPaths records production Go files this turn wrote with no test
 	// file alongside them. A warning, not a failure — a turn may legitimately

@@ -633,7 +633,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	for path := range files {
 		key := canonicalizeWrittenPath(path, workspace)
 		before, ok := result.PreWriteContents[key]
-		if !ok || before == "" {
+		if !ok || before.Content == "" {
 			continue
 		}
 		abs := path
@@ -644,7 +644,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		if err != nil {
 			continue
 		}
-		if r := turnRemovals(before, string(data)); r != "" {
+		if r := turnRemovals(before.Content, string(data)); r != "" {
 			removals[path] = r
 		}
 	}

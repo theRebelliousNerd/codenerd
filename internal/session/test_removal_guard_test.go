@@ -17,7 +17,7 @@ func TestRemovedTestFunctions_DetectsDeletion(t *testing.T) {
 		t.Fatalf("write x_test.go: %v", err)
 	}
 	pre := "package a\n\nimport \"testing\"\n\nfunc TestKept(t *testing.T) {}\n\nfunc TestGone(t *testing.T) {}\n"
-	preWrite := map[string]string{filepath.Join("a", "x_test.go"): pre}
+	preWrite := map[string]PreImage{filepath.Join("a", "x_test.go"): existed(pre)}
 	got := removedTestFunctions(ws, []string{filepath.Join("a", "x_test.go")}, preWrite)
 	want := []string{filepath.Join("a", "x_test.go") + ":TestGone"}
 	if !reflect.DeepEqual(got, want) {
@@ -42,7 +42,7 @@ func TestRemovedTestFunctions_MovedTestIsNotRemoved(t *testing.T) {
 		t.Fatalf("write y_test.go: %v", err)
 	}
 	pre := "package a\n\nimport \"testing\"\n\nfunc TestKept(t *testing.T) {}\n\nfunc TestMoved(t *testing.T) {}\n"
-	preWrite := map[string]string{filepath.Join("a", "x_test.go"): pre}
+	preWrite := map[string]PreImage{filepath.Join("a", "x_test.go"): existed(pre)}
 	got := removedTestFunctions(ws, []string{filepath.Join("a", "x_test.go")}, preWrite)
 	if len(got) != 0 {
 		t.Fatalf("removedTestFunctions = %v, want empty", got)
@@ -59,7 +59,7 @@ func TestRemovedTestFunctions_RenameIsReported(t *testing.T) {
 		t.Fatalf("write x_test.go: %v", err)
 	}
 	pre := "package a\n\nimport \"testing\"\n\nfunc TestOldName(t *testing.T) {}\n"
-	preWrite := map[string]string{filepath.Join("a", "x_test.go"): pre}
+	preWrite := map[string]PreImage{filepath.Join("a", "x_test.go"): existed(pre)}
 	got := removedTestFunctions(ws, []string{filepath.Join("a", "x_test.go")}, preWrite)
 	want := []string{filepath.Join("a", "x_test.go") + ":TestOldName"}
 	if !reflect.DeepEqual(got, want) {
@@ -77,7 +77,7 @@ func TestRemovedTestFunctions_IgnoresNonTestFilesAndUnparseable(t *testing.T) {
 		t.Fatalf("write foo.go: %v", err)
 	}
 	preNonTest := "package a\n\nfunc Kept() {}\n\nfunc Gone() {}\n"
-	preWriteNonTest := map[string]string{filepath.Join("a", "foo.go"): preNonTest}
+	preWriteNonTest := map[string]PreImage{filepath.Join("a", "foo.go"): existed(preNonTest)}
 	if got := removedTestFunctions(ws, []string{filepath.Join("a", "foo.go")}, preWriteNonTest); len(got) != 0 {
 		t.Fatalf("removedTestFunctions non-test = %v, want empty", got)
 	}
@@ -86,7 +86,7 @@ func TestRemovedTestFunctions_IgnoresNonTestFilesAndUnparseable(t *testing.T) {
 		t.Fatalf("write x_test.go: %v", err)
 	}
 	preBad := "package a\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) {}\n"
-	preWriteBad := map[string]string{filepath.Join("a", "x_test.go"): preBad}
+	preWriteBad := map[string]PreImage{filepath.Join("a", "x_test.go"): existed(preBad)}
 	if got := removedTestFunctions(ws, []string{filepath.Join("a", "x_test.go")}, preWriteBad); len(got) != 0 {
 		t.Fatalf("removedTestFunctions unparseable = %v, want empty", got)
 	}
@@ -102,7 +102,7 @@ func TestVerifyCompletedToolTurn_RemovedTestFails(t *testing.T) {
 		t.Fatalf("write x_test.go: %v", err)
 	}
 	pre := "package a\n\nimport \"testing\"\n\nfunc TestKept(t *testing.T) {}\n\nfunc TestGone(t *testing.T) {}\n"
-	preWrite := map[string]string{filepath.Join("a", "x_test.go"): pre}
+	preWrite := map[string]PreImage{filepath.Join("a", "x_test.go"): existed(pre)}
 	got := removedTestFunctions(ws, []string{filepath.Join("a", "x_test.go")}, preWrite)
 	if len(got) != 1 {
 		t.Fatalf("removedTestFunctions = %v, want one removal", got)
@@ -121,7 +121,7 @@ func TestVerifyCompletedToolTurn_KeptTestPasses(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "a", "x_test.go"), []byte(kept), 0o644); err != nil {
 		t.Fatalf("write x_test.go: %v", err)
 	}
-	preWrite := map[string]string{filepath.Join("a", "x_test.go"): kept}
+	preWrite := map[string]PreImage{filepath.Join("a", "x_test.go"): existed(kept)}
 	if got := removedTestFunctions(ws, []string{filepath.Join("a", "x_test.go")}, preWrite); len(got) != 0 {
 		t.Fatalf("removedTestFunctions = %v, want empty", got)
 	}
