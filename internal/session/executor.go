@@ -741,6 +741,15 @@ type ExecutionResult struct {
 	// turn_owes_gate, external audit N01).
 	TestRunSinceLastWrite *tools.TestRun
 
+	// turn is this turn's key in the kernel (turnAtom), minted on first use:
+	// a forcing round asks the policy what the turn's writes owe before the
+	// closure asserts its verdict, and both ask about the same turn.
+	turn types.MangleAtom
+
+	// writtenAsserted holds each written path whose turn_written fact is
+	// asserted for this turn (assertTurnWrites).
+	writtenAsserted map[string]bool
+
 	// WrittenPaths records the target of every successful write mutation, so
 	// post-edit build verification can tell a turn that touched Go source from
 	// one that only wrote markdown and skip the compile it does not need.
@@ -2384,6 +2393,35 @@ func newTurnAtom() types.MangleAtom {
 	return types.MangleAtom(fmt.Sprintf("/turn_%d_%d", os.Getpid(), turnSeq.Add(1)))
 }
 
+// turnAtom is this turn's key in the kernel, minted the first time a forcing
+// round or the closure asks for it.
+func (r *ExecutionResult) turnAtom() types.MangleAtom {
+	if r.turn == "" {
+		r.turn = newTurnAtom()
+	}
+	return r.turn
+}
+
+// assertTurnWrites asserts turn_written for each path the turn has written
+// and not yet asserted, with its lower-case extension: the corpus decides from
+// the extension what evidence the write owes (turn_owes_gate). A turn only
+// adds writes, so a fact asserted before a forcing round is still true at the
+// closure.
+func (e *Executor) assertTurnWrites(turn types.MangleAtom, result *ExecutionResult) {
+	if result.writtenAsserted == nil {
+		result.writtenAsserted = make(map[string]bool, len(result.WrittenPaths))
+	}
+	for _, path := range result.WrittenPaths {
+		if result.writtenAsserted[path] {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if e.assertTurnFact(types.Fact{Predicate: "turn_written", Args: []any{turn, types.MangleString(path), types.MangleString(ext)}}) {
+			result.writtenAsserted[path] = true
+		}
+	}
+}
+
 // assertTurnFact asserts one fact of this turn's verdict and records it for
 // cleanupTurnFacts, which retracts exactly what was recorded.
 func (e *Executor) assertTurnFact(fact types.Fact) bool {
@@ -2461,12 +2499,7 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 			e.assertTurnFact(types.Fact{Predicate: "turn_created_test", Args: []any{turn, types.MangleString(pair[0]), types.MangleString(pair[1])}})
 		}
 	}
-	// Every path the turn wrote, with its lower-case extension: the corpus
-	// decides from the extension what evidence the write owes (turn_owes_gate).
-	for _, path := range result.WrittenPaths {
-		ext := strings.ToLower(filepath.Ext(path))
-		e.assertTurnFact(types.Fact{Predicate: "turn_written", Args: []any{turn, types.MangleString(path), types.MangleString(ext)}})
-	}
+	e.assertTurnWrites(turn, result)
 }
 
 // recordBuildState asserts this turn's mechanical gate verdicts as the facts

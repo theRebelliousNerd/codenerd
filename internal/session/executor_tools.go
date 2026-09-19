@@ -542,6 +542,19 @@ func (e *Executor) verifyCompletedToolTurn(
 		current = restored
 	}
 
+	// Writes the Go gates do not cover owe a test run the model started after
+	// its last write (N01). This round runs last: a write after it would reset
+	// the run it asks for.
+	ran, runErrs, runErr := e.verifyAndRepairTestRun(
+		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+	toolErrs = append(toolErrs, runErrs...)
+	if runErr != nil {
+		return current, toolErrs, runErr
+	}
+	if ran != nil {
+		current = ran
+	}
+
 	// Every round above can edit; the closure measures what they left, all
 	// gates at one revision, with no model in the loop.
 	return current, toolErrs, e.closeChangeEvidence(ctx, result, before)
@@ -2005,11 +2018,11 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 	// /unverified in turn_cost — the denominator could not count read-only
 	// work as verified at all (seen live on both chat probes).
 	//
-	// Every fact of the verdict carries this turn's own key, minted here: the
-	// kernel is shared with every executor CloneForTask made, and a concurrent
-	// turn with the same verb must neither read this turn's evidence nor
-	// lend it its own.
-	turn := newTurnAtom()
+	// Every fact of the verdict carries this turn's own key (the one a forcing
+	// round asked about, when one did): the kernel is shared with every
+	// executor CloneForTask made, and a concurrent turn with the same verb
+	// must neither read this turn's evidence nor lend it its own.
+	turn := result.turnAtom()
 	e.assertTurnEvidence(turn, verb, result)
 	hollowErr := e.consumeHollowSuccessVerdict(turn, verb, result)
 	// Capture the kernel's verdict BEFORE the deferred cleanup retracts
