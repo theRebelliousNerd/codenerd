@@ -97,6 +97,21 @@ next_action(/run_phase_checkpoint) :-
 phase_blocked(PhaseID, /checkpoint_failed) :-
     phase_checkpoint(PhaseID, _, /false, _, _).
 
+# A phase whose checkpoint never passed within its attempts closes /unverified
+# (orchestrator closePhaseUnverified): its tasks ran, its verification did not.
+# It is not /completed, so every hard dependent stays blocked
+# (has_incomplete_hard_dep), and when nothing else can run the campaign is
+# blocked on it by name rather than on "no eligible phases". It used to close
+# /completed and unlock the phases built on it (external audit N03).
+has_unverified_phase(CampaignID) :-
+    campaign_phase(_, CampaignID, _, _, /unverified, _).
+
+campaign_blocked(CampaignID, /phase_unverified) :-
+    current_campaign(CampaignID),
+    has_unverified_phase(CampaignID),
+    !has_eligible_phase(),
+    !has_in_progress_phase().
+
 # =============================================================================
 # Replanning Triggers
 # =============================================================================
@@ -154,4 +169,6 @@ campaign_blocked(CampaignID, /no_eligible_phases) :-
     current_campaign(CampaignID),
     !has_eligible_phase(),
     !has_in_progress_phase(),
-    has_incomplete_phase(CampaignID).
+    has_incomplete_phase(CampaignID),
+    !has_unverified_phase(CampaignID).
+

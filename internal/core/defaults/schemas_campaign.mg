@@ -343,6 +343,11 @@ Decl phase_blocked(PhaseID, Reason) bound [/string, /name].
 # campaign_blocked(CampaignID, Reason) - derived: campaign cannot proceed
 Decl campaign_blocked(CampaignID, Reason) bound [/string, /name].
 
+# has_unverified_phase(CampaignID) - derived: a phase of the campaign closed
+# /unverified (its checkpoint never passed within its attempts)
+Decl has_unverified_phase(CampaignID) bound [/string].
+
+
 # Bound-negation helper. A negated literal containing an anonymous wildcard
 # excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
 # projecting the wildcard away makes the negation actually filter.

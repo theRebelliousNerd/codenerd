@@ -31,7 +31,7 @@ const (
 	CampaignTypeMigration          CampaignType = "/migration"           // Technology migration
 	CampaignTypeRemediation        CampaignType = "/remediation"         // Fix issues across codebase
 	CampaignTypeAdversarialAssault CampaignType = "/adversarial_assault" // Long-horizon stress + adversarial probing
-	CampaignTypeRecurse CampaignType = "/recurse" // Self-improvement sweep over the subsystem DAG, wave after wave
+	CampaignTypeRecurse            CampaignType = "/recurse"             // Self-improvement sweep over the subsystem DAG, wave after wave
 	CampaignTypeCustom             CampaignType = "/custom"              // User-defined campaign
 )
 
@@ -57,6 +57,10 @@ const (
 	PhaseCompleted  PhaseStatus = "/completed"   // Finished successfully
 	PhaseFailed     PhaseStatus = "/failed"      // Failed
 	PhaseSkipped    PhaseStatus = "/skipped"     // Skipped (user decision or dependency)
+	// PhaseUnverified: the tasks ran and the checkpoint never passed within
+	// its attempts. Not completed: hard dependents stay blocked, and a resume
+	// re-arms the checkpoint.
+	PhaseUnverified PhaseStatus = "/unverified"
 )
 
 // TaskStatus represents the status of a campaign task.

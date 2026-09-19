@@ -51,6 +51,7 @@ func (o *Orchestrator) PrepareResume() error {
 	}
 
 	resetResumeTasks(o.campaign.Phases, maxRetries)
+	rearmUnverifiedPhases(o.campaign.Phases)
 
 	target := findResumeTargetPhase(o.campaign.Phases)
 	if target != nil && countResumableTasks(target) == 0 {
@@ -64,7 +65,21 @@ func (o *Orchestrator) PrepareResume() error {
 	return nil
 }
 
+// rearmUnverifiedPhases puts each phase whose checkpoint never passed back in
+// progress with a fresh attempt budget. A resume is the operator's signal that
+// the workspace may have changed, and the phase still owes its verification:
+// it is never marked completed here -- only a passing checkpoint does that.
+func rearmUnverifiedPhases(phases []Phase) {
+	for i := range phases {
+		if phases[i].Status == PhaseUnverified {
+			phases[i].Status = PhaseInProgress
+			phases[i].CheckpointFailures = 0
+		}
+	}
+}
+
 // resetResumeTasks returns every retryable task to pending unless it has
+
 // reached the attempt cap. Attempt history is kept untouched either way;
 // at-cap tasks are marked failed with a warning naming the task.
 func resetResumeTasks(phases []Phase, maxRetries int) {

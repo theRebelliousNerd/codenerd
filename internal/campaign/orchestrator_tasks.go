@@ -140,19 +140,23 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 				// Bounded retry (F-CKPT-2): a checkpoint that keeps failing — a tool
 				// error, or a review that a replan cannot fix — must not spin the
 				// phase in an endless failure→replan→re-checkpoint loop (each attempt
-				// is a full LLM checkpoint call). After the cap, record the phase as
-				// completed-with-UNVERIFIED-checkpoint and advance so the campaign
-				// still reaches a coherent terminal state and produces its output.
+				// is a full LLM checkpoint call). After the cap the phase closes
+				// /unverified: not completed, so its hard dependents stay blocked
+				// and, when nothing else can run, the campaign ends blocked on it
+				// by name. It used to be completed here -- /completed in the
+				// kernel, a completed-phase count, a success to the Northstar
+				// observer -- so a known failed checkpoint unlocked the phases
+				// built on it (external audit N03, 2026-09-19).
 				if attempts >= maxPhaseCheckpointAttempts {
-					logging.Get(logging.CategoryCampaign).Warn("Phase %s exhausted %d checkpoint attempts; advancing with UNVERIFIED checkpoint", phase.ID, maxPhaseCheckpointAttempts)
+					logging.Get(logging.CategoryCampaign).Warn("Phase %s exhausted %d checkpoint attempts; it closes UNVERIFIED and its hard dependents stay blocked", phase.ID, maxPhaseCheckpointAttempts)
 					o.emitEvent(EventCheckpointExhausted, phase.ID, "", failedSummary, map[string]any{
 						"attempts": attempts,
 						"max":      maxPhaseCheckpointAttempts,
 					})
-					o.completePhase(phase)
-					o.triggerRollingWave(ctx, phase)
+					o.closePhaseUnverified(phase, failedSummary)
 					return nil
 				}
+
 
 				// Seed a replan trigger so Replanner has a hard signal.
 				if err := o.kernel.Assert(core.Fact{

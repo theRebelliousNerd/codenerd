@@ -360,7 +360,12 @@ func (m *CampaignPageModel) renderPhase(p *campaign.Phase, index int) string {
 	} else if p.Status == campaign.PhaseFailed {
 		icon = "✗"
 		style = m.styles.Status.Error
+	} else if p.Status == campaign.PhaseUnverified {
+		// Ran, and never verified: not a check mark, and not quite a cross.
+		icon = "?"
+		style = m.styles.Status.Warning
 	}
+
 
 	line := fmt.Sprintf(" %s %s", icon, p.Name)
 	sb.WriteString(style.Render(line) + "\n")

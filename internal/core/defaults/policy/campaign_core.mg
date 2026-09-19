@@ -19,12 +19,17 @@ next_action(/campaign_complete) :-
 
 # Campaign Blocking Conditions
 
-# Campaign blocked if no eligible phases and none in progress
+# Campaign blocked if no eligible phases and none in progress -- unless a phase
+# closed /unverified explains it, which campaign_phases.mg names instead
+# (/phase_unverified). This rule is duplicated in campaign_phases.mg; both
+# copies carry the exclusion.
 campaign_blocked(CampaignID, /no_eligible_phases) :-
     current_campaign(CampaignID),
     !has_eligible_phase(),
     !has_in_progress_phase(),
-    has_incomplete_phase(CampaignID).
+    has_incomplete_phase(CampaignID),
+    !has_unverified_phase(CampaignID).
+
 
 # Campaign blocked if all remaining tasks are blocked
 campaign_blocked(CampaignID, /all_tasks_blocked) :-

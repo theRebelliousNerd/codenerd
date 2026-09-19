@@ -2,7 +2,10 @@ package campaign
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
+
 
 	"codenerd/internal/core"
 	"codenerd/internal/session"
@@ -19,11 +22,10 @@ import (
 // failure path and the success path converge two statements apart in
 // orchestrator_tasks.go and an early `completePhase` there would be silent.
 //
-// The one intended exception is the bounded escape hatch: after
-// maxPhaseCheckpointAttempts the phase advances with an UNVERIFIED checkpoint
-// rather than spinning failure -> replan -> re-checkpoint forever. That
-// exception is tested too, including the requirement that the failure is
-// recorded on the phase so "completed" is never mistaken for "verified".
+// The bounded escape hatch is not an exception to that: after
+// maxPhaseCheckpointAttempts the phase stops spinning failure -> replan ->
+// re-checkpoint and closes /unverified -- not completed -- so the phases built
+// on it stay blocked and a resume re-arms the checkpoint.
 func newCheckpointRegressionOrchestrator(t *testing.T, review string) (*Orchestrator, chan OrchestratorEvent) {
 	t.Helper()
 
@@ -140,42 +142,96 @@ func TestRunPhase_WhenCheckpointPasses_ShouldCompletePhase(t *testing.T) {
 	}
 }
 
-func TestRunPhase_WhenCheckpointExhausted_ShouldAdvanceWithFailureRecorded(t *testing.T) {
-	orch, events := newCheckpointRegressionOrchestrator(t, "FAIL: still broken")
-
-	for attempt := 1; attempt < maxPhaseCheckpointAttempts; attempt++ {
+// exhaustCheckpoints runs the phase until its checkpoint attempts are spent.
+func exhaustCheckpoints(t *testing.T, orch *Orchestrator) {
+	t.Helper()
+	for attempt := 1; attempt <= maxPhaseCheckpointAttempts; attempt++ {
 		if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
 			t.Fatalf("runPhase attempt %d returned error: %v", attempt, err)
 		}
 		if orch.campaign.Phases[0].Status == PhaseCompleted {
-			t.Fatalf("phase completed on attempt %d of %d; the escape hatch must only fire after the cap",
-				attempt, maxPhaseCheckpointAttempts)
+			t.Fatalf("phase completed on attempt %d of %d with every checkpoint failing", attempt, maxPhaseCheckpointAttempts)
 		}
 	}
+}
 
-	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
-		t.Fatalf("final runPhase returned error: %v", err)
-	}
+// External audit N03 (2026-09-19): the cap on failed checkpoints used to
+// complete the phase -- /completed in the kernel, a completed-phase count, a
+// success to the Northstar observer -- so a known failed checkpoint unlocked
+// the phases built on it. The phase closes /unverified now: announced, and not
+// completed anywhere.
+func TestRunPhase_WhenCheckpointExhausted_ThePhaseClosesUnverified(t *testing.T) {
+	orch, events := newCheckpointRegressionOrchestrator(t, "FAIL: still broken")
+	exhaustCheckpoints(t, orch)
 
 	phase := orch.campaign.Phases[0]
-	if phase.Status != PhaseCompleted {
-		t.Fatalf("after %d failed checkpoints the phase should advance UNVERIFIED rather than spin; status = %s",
-			maxPhaseCheckpointAttempts, phase.Status)
+	if phase.Status != PhaseUnverified {
+		t.Fatalf("after %d failed checkpoints status = %s, want %s", maxPhaseCheckpointAttempts, phase.Status, PhaseUnverified)
+	}
+	if orch.campaign.CompletedPhases != 0 {
+		t.Fatalf("CompletedPhases = %d, want 0: an unverified phase is not a completed one", orch.campaign.CompletedPhases)
 	}
 
 	seen := drainEventTypes(events)
 	if seen[EventCheckpointExhausted] == 0 {
-		t.Fatalf("advancing on an unverified phase must be announced with %s; got %v", EventCheckpointExhausted, seen)
+		t.Fatalf("closing a phase unverified must be announced with %s; got %v", EventCheckpointExhausted, seen)
+	}
+	if seen[EventPhaseCompleted] != 0 {
+		t.Fatalf("a phase_completed event was emitted for a phase whose checkpoint never passed; got %v", seen)
 	}
 
-	// "Completed" must never be readable as "verified": every checkpoint on
-	// record failed, and that record is what the report and the operator see.
+	var rows []string
+	for _, f := range orch.kernel.(*MockKernel).Facts {
+		if f.Predicate == "campaign_phase" && len(f.Args) > 4 {
+			rows = append(rows, fmt.Sprint(f.Args[4]))
+		}
+	}
+	if !slices.Contains(rows, "/unverified") || slices.Contains(rows, "/completed") {
+		t.Fatalf("kernel campaign_phase statuses = %v, want /unverified and never /completed", rows)
+	}
+
+	// Every checkpoint on record failed, and that record is what the report
+	// and the operator see.
 	if len(phase.Checkpoints) == 0 {
-		t.Fatal("no checkpoint records survived; a phase advanced unverified with no evidence of why")
+		t.Fatal("no checkpoint records survived; a phase closed unverified with no evidence of why")
 	}
 	for _, cp := range phase.Checkpoints {
 		if cp.Passed {
 			t.Fatalf("a passing checkpoint appeared on a phase whose verification never passed: %+v", cp)
 		}
+	}
+}
+
+// A resume re-arms the checkpoint: the phase is back in progress with a fresh
+// attempt budget, still not completed -- the debt survives -- and only a
+// passing checkpoint completes it.
+func TestPrepareResume_ReArmsAnUnverifiedPhase(t *testing.T) {
+	orch, _ := newCheckpointRegressionOrchestrator(t, "FAIL: still broken")
+	exhaustCheckpoints(t, orch)
+	// What the loop does when campaign_blocked(/phase_unverified) derives.
+	orch.campaign.Status = StatusFailed
+
+	if err := orch.PrepareResume(); err != nil {
+		t.Fatalf("PrepareResume: %v", err)
+	}
+	phase := orch.campaign.Phases[0]
+	if phase.Status != PhaseInProgress || phase.CheckpointFailures != 0 {
+		t.Fatalf("after resume status = %s, CheckpointFailures = %d; want %s with a fresh budget", phase.Status, phase.CheckpointFailures, PhaseInProgress)
+	}
+	if orch.campaign.CompletedPhases != 0 {
+		t.Fatalf("CompletedPhases = %d after resume, want 0", orch.campaign.CompletedPhases)
+	}
+
+	orch.checkpoint = NewCheckpointRunner(nil, &MockTaskExecutor{
+		ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+			return `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"verified phase\", /pass, \"fixed\", 95)"]}, "surface_response": "done"}`, nil
+		},
+	}, orch.workspace)
+	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
+		t.Fatalf("runPhase after resume: %v", err)
+	}
+	if orch.campaign.Phases[0].Status != PhaseCompleted || orch.campaign.CompletedPhases != 1 {
+		t.Fatalf("a passing checkpoint after resume must complete the phase: status = %s, CompletedPhases = %d",
+			orch.campaign.Phases[0].Status, orch.campaign.CompletedPhases)
 	}
 }

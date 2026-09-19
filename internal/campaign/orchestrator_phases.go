@@ -348,7 +348,68 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 }
 
 // completePhase marks a phase as complete.
+// closePhaseUnverified ends a phase whose tasks ran and whose checkpoint never
+// passed within its attempts. It is not a completion: CompletedPhases does not
+// move, the kernel's row says /unverified -- which every hard dependent reads
+// as incomplete (has_incomplete_hard_dep), so none of them starts -- the
+// Northstar observer is told the phase failed, and the status is persisted so
+// a resume finds the debt and re-arms the checkpoint (PrepareResume).
+func (o *Orchestrator) closePhaseUnverified(phase *Phase, failedSummary string) {
+	if phase == nil {
+		return
+	}
+	o.mu.Lock()
+	var found bool
+	var campaignID string
+	attempts := 0
+	for i := range o.campaign.Phases {
+		if o.campaign.Phases[i].ID == phase.ID {
+			logging.Campaign("=== Phase Unverified: %s (%s) ===", phase.Name, phase.ID)
+			o.campaign.Phases[i].Status = PhaseUnverified
+			attempts = o.campaign.Phases[i].CheckpointFailures
+			campaignID = o.campaign.ID
+			found = true
+			break
+		}
+	}
+	o.mu.Unlock()
+	if !found {
+		return
+	}
+
+	o.observePhaseDuration(phase.ID)
+	_ = o.kernel.RetractFact(core.Fact{
+		Predicate: "campaign_phase",
+		Args:      []any{phase.ID},
+	})
+	if err := o.kernel.Assert(core.Fact{
+		Predicate: "campaign_phase",
+		Args: []any{
+			phase.ID,
+			campaignID,
+			phase.Name,
+			phase.Order,
+			"/unverified",
+			phase.ContextProfile,
+		},
+	}); err != nil {
+		logging.Get(logging.CategoryCampaign).Error(
+			"Phase %s closed unverified but its /unverified campaign_phase fact was rejected; the kernel now has no row for it: %v",
+			phase.ID, err)
+	}
+
+	if o.northstarObserver != nil {
+		summary := fmt.Sprintf("checkpoint never passed in %d attempt(s): %s", attempts, failedSummary)
+		_ = o.northstarObserver.OnPhaseComplete(context.Background(), phase.ID, false, summary)
+	}
+
+	o.mu.Lock()
+	o.persistCampaign("phase unverified")
+	o.mu.Unlock()
+}
+
 func (o *Orchestrator) completePhase(phase *Phase) {
+
 	if phase == nil {
 		return
 	}
