@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"context"
 	"go/format"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"codenerd/internal/tactile"
+	"codenerd/internal/types"
 )
 
 func TestFormatWrittenGoFiles(t *testing.T) {
@@ -118,5 +120,64 @@ func TestFormatWrittenGoFiles_KeepsCRLF(t *testing.T) {
 	expected := tactile.NormalizeLineEnding(string(formattedLF), "\r\n")
 	if string(uglyOnDisk) != expected {
 		t.Errorf("crlf_ugly.go = %q, want %q", uglyOnDisk, expected)
+	}
+}
+
+func TestVerifyCompletedToolTurn_LateRoundWriteEndsFormatted(t *testing.T) {
+	const code = "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\nfunc main() {}\n"
+	const emptyTest = "package main\n\nimport \"testing\"\n\nfunc TestProbe(t *testing.T) {}\n"
+	// Doubled blank line between the two test functions: valid Go that
+	// passes, but not gofmt-clean. Mirrors the 2026-09-19 session where the
+	// coverage round's insert left exactly this and the turn still ended
+	// checks_passed with no second "gofmt: formatted" line.
+	const unformattedTest = "package main\n\nimport \"testing\"\n\nfunc TestProbe(t *testing.T) {}\n\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n"
+
+	h := newRepairHarness(t, nil)
+	initial := func() *types.LLMToolResponse {
+		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
+			h.writeCall("c1", "write_file", filepath.Join(h.ws, "main.go"), code),
+			h.writeCall("c2", "write_file", filepath.Join(h.ws, "main_test.go"), emptyTest),
+		}}
+	}
+	h.executor.llmClient = &MockToolResultsLLM{
+		MockLLMClient: &MockLLMClient{
+			CompleteWithToolsFunc: func(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
+				return initial(), nil
+			},
+		},
+		CompleteWithToolResultsFunc: func(_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			if last := history[len(history)-1]; strings.Contains(last.Text, "no test executes these lines") {
+				return &types.LLMToolResponse{Text: "testing Double", ToolCalls: []types.ToolCall{
+					h.writeCall("t1", "write_file", filepath.Join(h.ws, "main_test.go"), unformattedTest),
+				}}, nil
+			}
+			for _, m := range history {
+				if len(m.ToolResults) > 0 {
+					return &types.LLMToolResponse{Text: "done"}, nil
+				}
+			}
+			return initial(), nil
+		},
+	}
+	result, err := h.drive(t, "fix add a Double function")
+	if err != nil {
+		t.Fatalf("ProcessWithIntent: %v", err)
+	}
+	if result.TestCheck.Verdict() != VerifyPassed {
+		t.Fatalf("TestCheck = %+v, want passed", result.TestCheck)
+	}
+	data, readErr := os.ReadFile(filepath.Join(h.ws, "main_test.go"))
+	if readErr != nil {
+		t.Fatalf("reading main_test.go: %v", readErr)
+	}
+	if !strings.Contains(string(data), "TestDouble") {
+		t.Fatalf("the coverage round's test did not land on disk:\n%s", data)
+	}
+	formatted, fmtErr := format.Source(data)
+	if fmtErr != nil {
+		t.Fatalf("main_test.go does not parse after the turn: %v\n%s", fmtErr, data)
+	}
+	if !bytes.Equal(data, formatted) {
+		t.Fatalf("main_test.go is not gofmt-clean when the turn ends:\ngot:\n%s\nwant:\n%s", data, formatted)
 	}
 }

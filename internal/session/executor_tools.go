@@ -555,6 +555,22 @@ func (e *Executor) verifyCompletedToolTurn(
 		current = ran
 	}
 
+	// Every round above the early gofmt pass can write Go — the critic's
+	// uplift, the coverage tests, a vet or removed-test repair — so a turn
+	// that ends here can leave Go no round formatted (2026-09-19: a coverage
+	// insert left a doubled blank line and the turn still ended
+	// checks_passed). Format what the turn wrote again, last, so every Go
+	// file the turn wrote is gofmt-clean when the turn ends, whichever round
+	// wrote it. The closure below remeasures the gates on the workspace as
+	// it is now, so this formatting is verified like any other late edit.
+	// It runs after the test_run round because gofmt never starts a test
+	// process and so never resets the run that round asks for.
+	if result != nil && result.SuccessfulWriteTools > 0 && touchedGoFiles(result.WrittenPaths) {
+		if formatted := formatWrittenGoFiles(e.workspaceForVerification(), result.WrittenPaths); len(formatted) > 0 {
+			logging.Get(logging.CategorySession).Info("gofmt: formatted %d written file(s) at turn end: %s", len(formatted), strings.Join(formatted, ", "))
+		}
+	}
+
 	// Every round above can edit; the closure measures what they left, all
 	// gates at one revision, with no model in the loop.
 	return current, toolErrs, e.closeChangeEvidence(ctx, result, before)
