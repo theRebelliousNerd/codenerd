@@ -361,6 +361,32 @@ func languageOfFile(path string) string {
 	}
 }
 
+// targetNeeds asks the kernel what a compile aimed at a file of this language
+// will need (policy/jit_needs.mg, target_need/2), with the language bound as a
+// constant in the query. The kernel owns the answer; this only carries it into
+// the compilation context, where the atoms gated on those needs are served.
+func (e *Executor) targetNeeds(language string) []string {
+	if e.kernel == nil || !validMangleVerb(language) {
+		return nil
+	}
+	facts, err := e.kernel.Query(fmt.Sprintf("target_need(%s, Need)", language))
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("target_need query for %s failed: %v", language, err)
+		return nil
+	}
+	var needs []string
+	for _, f := range facts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		need := strings.TrimPrefix(types.ExtractString(f.Args[1]), "/")
+		if need != "" && !slices.Contains(needs, need) {
+			needs = append(needs, need)
+		}
+	}
+	return needs
+}
+
 // stepSystemPrompt compiles the system prompt for one planned step: the turn's
 // compilation context re-aimed at the step's file and that file's language, so
 // the selector serves the knowledge this step needs at the moment it starts
@@ -384,6 +410,7 @@ func (e *Executor) stepSystemPrompt(
 	if lang := languageOfFile(stepCtx.IntentTarget); lang != "" {
 		stepCtx.Language = lang
 	}
+	stepCtx.DerivedNeeds = e.targetNeeds(stepCtx.Language)
 	if cfg != nil && len(cfg.AllowedTools) > 0 && len(stepCtx.AvailableTools) == 0 {
 		stepCtx.AvailableTools = slices.Clone(cfg.AllowedTools)
 	}

@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"codenerd/internal/core"
@@ -516,9 +517,23 @@ func (a *PromptAtom) MatchesContext(cc *CompilationContext) bool {
 	return true
 }
 
-// hasWorldState checks if a world state is active in the context.
+// hasWorldState checks if a world state is active in the context: measured by
+// the executor, or derived by the kernel as a need (DerivedNeeds).
 // optimized to avoid allocating a slice of strings.
 func hasWorldState(cc *CompilationContext, state string) bool {
+	if measuredWorldState(cc, state) {
+		return true
+	}
+	for _, need := range cc.DerivedNeeds {
+		if strings.TrimPrefix(strings.TrimSpace(need), "/") == state {
+			return true
+		}
+	}
+	return false
+}
+
+// measuredWorldState reports the world states the executor measured.
+func measuredWorldState(cc *CompilationContext, state string) bool {
 	switch state {
 	case "failing_tests":
 		return cc.FailingTestCount > 0

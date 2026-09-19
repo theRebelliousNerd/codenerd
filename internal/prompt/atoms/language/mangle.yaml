@@ -1,49 +1,55 @@
 # Mangle Logic Programming Language Atoms
-# Google Mangle (Datalog variant) for codeNERD kernel
+# Mangle (TauCeti's canonical mangle-go) for the codeNERD kernel
 
 - id: "language/mangle/core"
   category: "language"
   subcategory: "mangle"
   priority: 95
-  is_mandatory: false
+  is_mandatory: true
   languages: ["/mangle"]
+  # Served with language/mangle/engine_truths_pinned when the kernel derives
+  # /authoring_mangle (policy/jit_needs.mg); relevance-admitted atoms add the rest.
+  world_states: ["authoring_mangle"]
   content: |
     ## MANGLE LANGUAGE CORE
 
-    Mangle is Google's Datalog variant for deductive databases.
+    Mangle is a deductive database programming language. codeNERD runs TauCeti's canonical
+    mangle-go engine (the v0.5.1 line), not Google's frozen 0.4.0 snapshot. A program is facts
+    (the EDB), rules that derive new facts (the IDB), and one `Decl` per predicate. In codeNERD
+    Go asserts what it measured (witnesses) and rules derive every decision (judgements): never
+    make Go assert a judgement, and never let a threshold live in Go when it can be a fact.
 
     ### SYNTAX BASICS
     ```mangle
-    # Facts (EDB - Extensional Database)
-    user("alice", "/admin").
-    user("bob", "/user").
-    file("/src/main.go", 100).
+    Decl user(Name, Role) bound [/string, /name].
+    Decl file_size(File, Bytes) bound [/string, /number].
+    Decl admin(Name) bound [/string].
+    Decl can_edit(Name, File) bound [/string, /string].
 
-    # Rules (IDB - Intensional Database)
-    admin(Name) :- user(Name, "/admin").
-    can_edit(User, File) :- admin(User), file(File, _).
+    user("alice", /admin).                 # a fact; every clause ends with '.'
+    user("bob", /viewer).
+    file_size("src/main.go", 100).
+
+    admin(Name) :- user(Name, /admin).     # a rule: Head :- Body.
+    can_edit(Name, File) :- admin(Name), file_size(File, Bytes).
     ```
 
-    ### VARIABLE CONVENTIONS
-    - **UPPERCASE**: Variables (unbound)
-    - **/lowercase**: Constants (atoms)
-    - **_**: Anonymous variable (don't care)
+    ### CONVENTIONS
+    - UPPERCASE is a variable. `/lowercase` is a name constant (enumerations, IDs, verbs).
+      `"quoted"` is a string. `/admin` and `"/admin"` are different values that never unify.
+    - `_` is a variable you do not care about. Never put one inside a negated literal: the
+      negation is silently deleted (see the engine truths).
+    - `#` starts a comment.
+    - Numbers are int64. A float in a number column aborts the whole fixpoint: use an integer
+      scale (0..100) for scores and percentages.
+    - Declare every predicate exactly once, before use, with `bound [...]` column types.
 
-    ### DATA TYPES
+    ### DATA
     ```mangle
-    # Strings
-    name("alice").
-
-    # Numbers
-    count(42).
-    price(19.99).
-
-    # Atoms (constants)
-    status(/active).
-    role(/admin).
-
-    # Lists
-    items([1, 2, 3]).
+    status(/active).          # name constant
+    label("free text").       # string
+    count(42).                # number
+    items([1, 2, 3]).         # list
     ```
 
 - id: "language/mangle/rules"

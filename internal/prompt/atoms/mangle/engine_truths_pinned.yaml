@@ -1,0 +1,74 @@
+# Engine truths on the pinned Mangle engine, each established by running it.
+# Source of record: Docs/journeys/M3-mangle-verification.md and the production
+# failures of 2026-09-18. Keep in step with the mangle-programming skill's
+# references/020-ENGINE_TRUTHS_v0.5.1.md.
+
+- id: "language/mangle/engine_truths_pinned"
+  category: "language"
+  subcategory: "mangle"
+  description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects"
+  priority: 96
+  is_mandatory: true
+  languages: ["/mangle"]
+  # Served when the kernel derives the need (policy/jit_needs.mg:
+  # target_need(/mangle, /authoring_mangle)), i.e. when the turn or the planned
+  # step is aimed at a .mg file -- and never otherwise.
+  world_states: ["authoring_mangle"]
+  content: |
+    ## THE PINNED MANGLE ENGINE: WHAT WAS VERIFIED BY RUNNING IT
+
+    The kernel runs TauCeti's canonical mangle-go (v0.5.1 line), not the frozen Google 0.4.0
+    snapshot. Where a document and this list disagree, this list was run on the engine.
+
+    ### A negation can vanish without an error
+    A negated literal that contains a wildcard, or a named variable no positive atom binds, is
+    DELETED from the clause: `q(X) :- p(X), !r(X, _).` evaluates as `q(X) :- p(X).`
+    Project first, then negate a fully bound predicate:
+    ```mangle
+    has_r(X) :- r(X, _).
+    q(X) :- p(X), !has_r(X).
+    has_stop() :- working_stop(_).          # zero-arity projection for "any"
+    go_on() :- working_control(_, _), !has_stop().
+    ```
+
+    ### Reducers and their real arity
+    - `fn:count()` takes NO argument; passing it a variable fails analysis.
+    - `fn:sum(X)`, `fn:max(X)`, `fn:min(X)`, `fn:avg(X)`. There is no `fn:mean`.
+    - `fn:collect(X)` keeps duplicates in unstable order; `fn:collect_distinct(X)` does not.
+    - No count-distinct reducer works (`fn:count_distinct` is "unknown function" in every
+      spelling). Facts are a set: project to the columns that define "distinct", then count.
+    ```mangle
+    user_product(User, Product) :- purchase(User, Product, Day).
+    products_per_user(User, N) :- user_product(User, Product)
+        |> do fn:group_by(User), let N = fn:count().
+    ```
+    - No `_` in the body of a `do`-transform rule: a single-atom body keeps the wildcard column
+      and the reducer sees every stored row. Name every column.
+    - An aggregate over no rows derives nothing, not zero: the zero case is its own rule with a
+      negated projection. One aggregation per rule; each is its own stratum.
+
+    ### External (virtual) predicates join on constants only
+    An `external()` premise whose input argument is a variable bound by an earlier atom PANICS
+    the evaluation. Inputs must be literal constants in the rule text. To follow a bound value
+    into a store, have Go assert the small relevant slice as facts for the turn.
+
+    ### Things that fail quietly
+    - A name constant ending a clause swallows the period after `=` or `!=` (`X != /done.`): put a
+      line break before the period, or reorder the comparison.
+    - One `Decl` per predicate in everything loaded together; a second one is a hard error.
+      An unknown Decl descriptor is accepted silently, so a typo there is never reported.
+    - A Go string that starts with `/` (at most two slashes, no file extension) arrives as a NAME;
+      a quoted `"/related_to"` in a rule stays a STRING; they never unify and the rule never
+      fires. Match the column's declared type on purpose.
+    - A float in a number column aborts the whole fixpoint. Scores are integers 0..100.
+    - Never mix numbers with lists or structs in one column: `0`, `0.0`, `[]`, `{}` can collapse
+      into one fact.
+
+    ### Cost
+    - Bodies run as nested loops in written order: selective, bound atoms first; never an
+      external or an aggregate as the first premise.
+    - Every evaluation re-derives everything from all resident facts; nothing is incremental and
+      nothing un-derives inside an evaluation. Keep bulk data out of the kernel.
+    - "fact size limit reached <predicate> N > LIMIT" names the predicate being evaluated when
+      the WHOLE store crossed the limit. That predicate is usually not the cause.
+    - Strata add across files loaded as one unit.

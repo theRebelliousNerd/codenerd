@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -281,6 +283,33 @@ type CompilationContext struct {
 	// world_state "no_tool_call_retry" so the JIT selects the
 	// system/tool_nudge/no_tool_call_retry atom.
 	PreviousAttemptNoToolCall bool
+
+	// DerivedNeeds are world states the KERNEL derived this compile will need
+	// (policy/jit_needs.mg: target_need/2 for the language of the file the
+	// compile is aimed at). They gate atoms exactly as the measured states
+	// above do -- an atom declaring world_states: [authoring_mangle] is served
+	// when, and only when, the kernel derives that need -- but Go does not
+	// decide them: the session executor asks the kernel at every compile
+	// boundary and copies the answer here. Values carry no leading slash.
+	DerivedNeeds []string
+}
+
+// derivedNeedsNotMeasured is DerivedNeeds normalized (no leading slash, no
+// empties) without the states the measured fields already produce, so a need
+// the kernel derived and a state the executor measured are one state, once.
+func (cc *CompilationContext) derivedNeedsNotMeasured() []string {
+	if len(cc.DerivedNeeds) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(cc.DerivedNeeds))
+	for _, raw := range cc.DerivedNeeds {
+		need := strings.TrimPrefix(strings.TrimSpace(raw), "/")
+		if need == "" || measuredWorldState(cc, need) || slices.Contains(out, need) {
+			continue
+		}
+		out = append(out, need)
+	}
+	return out
 }
 
 // NewCompilationContext creates a new CompilationContext with defaults.
@@ -343,6 +372,8 @@ func (cc *CompilationContext) WorldStates() []string {
 	if cc.PreviousAttemptNoToolCall {
 		states = append(states, "no_tool_call_retry")
 	}
+
+	states = append(states, cc.derivedNeedsNotMeasured()...)
 
 	return states
 }
@@ -460,6 +491,9 @@ func (cc *CompilationContext) Clone() *CompilationContext {
 	if cc.AvailableTools != nil {
 		clone.AvailableTools = make([]string, len(cc.AvailableTools))
 		copy(clone.AvailableTools, cc.AvailableTools)
+	}
+	if cc.DerivedNeeds != nil {
+		clone.DerivedNeeds = slices.Clone(cc.DerivedNeeds)
 	}
 	// ActivatedFacts is a map, so `clone := *cc` copied the header and left
 	// both contexts pointing at one set of buckets. Compilation runs under
@@ -593,7 +627,7 @@ func AllContextDimensions() []ContextDimension {
 		{
 			Name:        "world_state",
 			Description: "World model state indicators",
-			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn", "reflection_hits", "no_tool_call_retry"},
+			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn", "reflection_hits", "no_tool_call_retry", "authoring_mangle"},
 		},
 	}
 }
@@ -684,6 +718,7 @@ func (cc *CompilationContext) Hash() string {
 	writeBool("high_churn", cc.IsHighChurn)
 	writeBool("reflection_hits", cc.HasReflectionHits)
 	writeBool("previous_attempt_no_tool_call", cc.PreviousAttemptNoToolCall)
+	writeSet("derived_needs", cc.derivedNeedsNotMeasured())
 
 	writeInt("token_budget", cc.TokenBudget)
 	writeInt("reserved_tokens", cc.ReservedTokens)
@@ -849,6 +884,9 @@ func (cc *CompilationContext) GenerateFacts(style FactStyle) []any {
 	}
 	if cc.PreviousAttemptNoToolCall {
 		add("world_state", "state", "no_tool_call_retry")
+	}
+	for _, need := range cc.derivedNeedsNotMeasured() {
+		add("world_state", "state", need)
 	}
 
 	return facts

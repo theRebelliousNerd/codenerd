@@ -1202,6 +1202,7 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 	if lang := languageOfFile(intent.Target); lang != "" {
 		cc.Language = lang
 	}
+	cc.DerivedNeeds = e.targetNeeds(cc.Language)
 
 	// Drive vector atom selection.
 	//
