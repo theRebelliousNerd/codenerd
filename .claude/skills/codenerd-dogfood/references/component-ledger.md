@@ -4785,3 +4785,48 @@ streak does not move.
   wait; R1-4e's critic took 2 min 11 s for the same answer.
 - Rung-level: first run on the audit's tool-level briefs; the verdict was true. Next: N10, N09,
   N17, N18 for the streak.
+
+## R1-6, edit_lines refuses a valid edit inside a Go raw string: the fix turns the guard off below a quote it cannot read (2026-09-19, 14:55-15:13)
+
+Binary from `a9b4105d`. Brief (symptom only, the audit's N10, reproduced 13:05-14:06): `edit_lines`
+inside a Go raw string holding a Mangle program is refused as changing delimiter balance -- `q(X)
+:- p(X), (r(X).` for parens, `Decl p(A) bound [/string` for brackets -- though the Go file is as
+valid after as before. What should hold: an edit whose changed text lies inside a string literal or
+a comment is never refused for its delimiters; one that unbalances the file's code is still
+refused; tests pin both.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 18.0 | 38 (20 read_file, 5 grep, 4 run_tests, 2 git_operation, 2 edit_lines, 1 each search_code, mcp_call, insert_lines, glob, get_elements) | rc=0, `/done`, `checks_passed` -- **not landed**, reverted (diff kept in the scratchpad, `r1_6_diff.patch`) | 37, mean 42.5k, peak 59.4k, 1.57M total (998k cached by the provider), 45.1k out | `lines.go` +31/-8, `lines_balance_test.go` +51 |
+
+**What it did.** First edit at 14:59 (tool call 15): `checkDelimiterBalance` now scans the file's
+prefix before the edited range and seeds the old and new texts' scans with the lexer state it ends
+in (`countDelims`, a `delimState` carried between them), so text inside a raw string or a comment
+counts nothing. Two tests, the brief's two edits. It ran the one test, the package twice, and
+`./...` (the suite, about 6 minutes). Gates green (build 8.0 s, tests 5.6 s), no uncovered blocks.
+One wasted call: it sent `run_tests` through `mcp_call` (`"tool":"run_tests"`), which answered "no
+MCP servers are configured for this workspace". The critic took 1 min 59 s and found nothing.
+
+**The review (criterion 7).** Met: the brief's two edits pass; an edit inside a block comment now
+passes too (HEAD refuses it); below a backtick rune literal, a backtick inside a quoted string,
+escaped quotes, an escaped backslash, `'\''`, an apostrophe in a line comment, quotes in a block
+comment and a raw string holding quotes, an edit that drops a function's closing brace is still
+refused; an edit that closes a raw string and then drops a brace is refused. **Not met:** the
+prefix scan does not know a language's literals, so a quote it misreads leaves it "inside a
+string" for the rest of the file, and every edit below is exempt from the guard. A JavaScript
+regular expression holding a quote (`const re = /'/;`) and a Rust lifetime (`fn first<'a>(x: &'a
+str)`) each let an edit that drops a closing brace through; HEAD refuses both. The check covers
+`.rs` and `.js`, and nearly every Rust file has a lifetime. The brief's second half -- an edit that
+unbalances the file's code is still refused -- does not hold. A sound shape it did not reach: let
+only the states that can span a line cross one (a raw string, a block comment); in Go an
+interpreted string and a rune end at the line, and a Go file can be judged by parsing it before
+and after.
+
+**Harness observations.**
+- The verdict was true to its evidence; the evidence did not reach the property. Its tests were
+  the brief's two cases, both Go.
+- The critic, given a lexer change applied to the languages the check lists, reported nothing.
+- `mcp_call` is offered to the coder with no MCP server configured: a tool that can only fail
+  here. A tool that neither condenses the search, reduces turns nor offloads work is cruft; not
+  yet checked whether the catalogue omits it elsewhere.
+- Rung-level: streak stays 0 (R1-5 assisted, R1-6 not landed). Next: N09, N17, N18.

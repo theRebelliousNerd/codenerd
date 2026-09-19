@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 14:56
+- last updated: 2026-09-19 15:22
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -33,8 +33,12 @@ the protocol for a run, and the status of each rung with the run that moved it.
   reproduced with briefs ready -- then this brief again. R1-5 (N04: a failed `apply_edits` left the
   half-written file behind) landed **assisted** (`3d9ba680`): fix and tests codeNERD's, verdict true,
   one doubled blank line its coverage round left removed by hand -- the session formats a turn's Go
-  before the forcing rounds run, never after (N18) -- so the streak does not move. Next: N10, N09,
-  and the two harness briefs the run produced (N17, N18).
+  before the forcing rounds run, never after (N18) -- so the streak does not move. R1-6 (N10: a
+  valid edit inside a Go raw string refused for its delimiters) ended `/done` and did not land: the
+  fix scans the file's prefix for the lexer state at the edit, and a quote it cannot read -- a
+  JavaScript regex holding one, a Rust lifetime -- leaves it "inside a string" for the rest of the
+  file, so an edit below that drops a closing brace goes through where HEAD refuses it. The critic
+  found nothing. Next: N09, N17, N18.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
@@ -170,6 +174,7 @@ count until the rungs below it are passed.
 | G7 policy corpus | `nerd check-mangle internal/core/defaults/*.mg internal/core/defaults/policy/*.mg internal/core/defaults/schema/*.mg` | 3 of 135 files: each uses a predicate declared in a sibling file (`reviewer.mg`, `policy/task_stage.mg`, `policy/schemas_perception_latency.mg`) that the checker does not preload, though the kernel loads them together -- the checker disagrees with the kernel. 0 wildcard negations in the corpus |
 | G8 atom corpus | Mangle examples in `internal/prompt/atoms` that fail to load unmarked (`TestAtomCorpus_MangleExamplesTheEngineRejectsDoNotGrow`) | 344 at `f26140e1` (888 on 2026-09-18, 654 after `86e461f2`) |
 | G9 the corpus guards | `go test ./internal/prompt/ -run TestEmbeddedCorpus` | green |
+| G10 formatting | `go test ./internal/build/ -run TestRepository_EveryGoFileIsGofmtClean` (every tracked Go file, go/format) | 28 of 2,542 on `df85abe6`; 0 after `08419f76` |
 
 A gate that is not zero is a backlog of real problems: it is where R1-R5 briefs come from.
 Sized to the rungs, the backlog on `f26140e1` offers: single-file items (the final-verdict flake,
@@ -220,3 +225,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 08:31 | R1 | check-mangle v2 (R1-4d) | nerd fix | not landed, reverted: build, tests and vet green, six changed blocks executed by no test; the coverage round's second model call ran 368 s and the repair episode's 6.2-minute clock cut it with nothing returned, then `nerd fix`'s 25-minute default cut the critic. `/unverified`, and honestly so. Fixed by hand: no run-level clock anywhere (repair episode, CLI, `llm_timeouts`, campaigns). The fix (each policy file's Decls preloaded one by one) met v2's property but silently drops a Decl with a trailing comment (latent: `chaos.mg:40`, `:84`) and had no test | 25.1 | 77 | 1 | reverted |
 | 2026-09-19 13:51 | R1 | check-mangle v2 (R1-4e) | nerd fix | not landed, reverted: build, tests and vet green; the coverage round's own test failed -- the per-file preload dropped `reviewer.mg` (it uses a predicate a later file declares), so a brief file still failed. The model moved to a one-fragment load with the per-file loop as fallback; the round gave up with five defensive error branches uncovered, `/unverified` and saying so. Review: a sibling with a planted error still fails `intent_routing_rules.mg` through the fallback; 55 s and 482 warning lines on a clean corpus (HEAD 12.2 s). No harness blocker; the coverage prompt's ban on removing unreachable lines it named is recorded | 19.5 | 30 | 2 | reverted |
 | 2026-09-19 14:28 | R1 | apply_edits partial write (R1-5, N04) | nerd fix | **landed, assisted**: the failed file is put back and confirmed, or named; five fault-injection tests, all failing at HEAD; build, vet, tests green; review probes (first file, last of three, the restore failing, a write that failed after writing everything) pass. One doubled blank line removed by hand -- the coverage round's writes are never gofmt'd (N18) | 17.0 | 29 | 2 | 3d9ba680 |
+| 2026-09-19 14:55 | R1 | edit_lines delimiters inside a raw string (R1-6, N10) | nerd fix | not landed, reverted: `/done`, build, tests and the suite green; the brief's two edits pass and an edit in a block comment now does. Review: the prefix scan does not know a language's literals -- below a JS regex holding a quote or a Rust lifetime, an edit that drops a closing brace is accepted (HEAD refuses it). The critic found nothing | 18.0 | 38 | 2 | reverted |

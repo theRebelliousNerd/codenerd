@@ -16,10 +16,9 @@ becoming stale, or detached from the mutations it is supposed to describe.
 - landed: F7 (`247a2402`), F6 (`ac5c9b03`), F3 (`8dd5ef48`), F5 (`a6d4e572`), F1 (`662699eb`),
   N03 (`90100128`), N07 (`0b0a4d49`), N02 (`8c906461`), N01 (`b41565cf`), F2 with C3 (`6df972de`),
   F4 (`ad91108d` rollback with C4, `be3fa92e` isolation); L2 (`00482316`); C1 (`32f4d9c4`), C2
-  (`8b007804`); N04 by codeNERD (`3d9ba680`, ladder R1-5, assisted).
-- next, hand-built: L4 (below) before any R2+ campaign run; the N01 follow-on -- a forcing round
-  for `/test_run`, keyed on the kernel's `turn_owes_gate`, which needs the turn's evidence asserted
-  before the rounds run.
+  (`8b007804`); N04 by codeNERD (`3d9ba680`, ladder R1-5, assisted); L4 (`57f00dbc`); the N01
+  follow-on (`0915bfab`: a turn whose writes owe a test run is sent back to run one).
+- next, hand-built: L5 (below); L3.
 - next, as codeNERD ladder briefs (one or two files, symptom and evidence in hand): N10, N09, N17,
   N18 with briefs ready (scratchpad `brief_n10_*`, `brief_n09_*`, `brief_n17_*`; N18's below);
   N05, N06, N14 need an observation first (N14 is confirmed by reading only).
@@ -71,8 +70,20 @@ becoming stale, or detached from the mutations it is supposed to describe.
   only on a `/done` turn, which owes that gate green. So the checkpoint repeats a gate with a
   20-second clock -- a cold build here takes longer, the timeout reads as transient, and a good
   change is rolled back -- and, with tasks side by side, builds a tree holding a sibling's
-  half-finished edits. Whether the missing `CGO_CFLAGS` alone fails a build of this repository is
-  to be measured before the fix is chosen (delete the build, or share the session's gate). Open.
+  half-finished edits. Measured 14:55: `go build ./...` without `CGO_CFLAGS` succeeds here in 9.0 s
+  warm, so the missing environment was not itself fatal; the clock and the duplication were.
+  **Landed `57f00dbc`**: the checkpoint's build deleted (every mutating task that writes Go ends
+  in a session turn whose `/done` owes that gate); it keeps its file-existence check.
+- **L5 a tool-creation task completes without its tool.** `executeToolCreateTask`
+  (`orchestrator_task_handlers.go`) asserts `missing_tool_for` and polls for `tool_registered` for a
+  hardcoded 30 minutes; at the deadline it returns `{"status": "pending", ...}` with a nil error,
+  so the task is marked completed and the phase moves on with no tool. Open, hand-built (the
+  campaign's completion gate).
+- **N19 the working request drops history before the first kept round.** `prepareWorkingRequest`
+  (`working_context.go`) sends the loop's anchor and history from the earliest kept assistant
+  tool-call round onward; a user message with no tool round before it is not sent. Every production
+  caller reaches a forcing round after the turn's own tool calls, so nothing observed is lost today;
+  found building the N01 follow-on's test, which first passed an empty history. Latent.
 - **N17 the commit regime's sentence is sent twice.** In a repair round under the commit regime,
   each re-sent demand ends with "Reading is closed for this task..." twice: `repair_loop.go`
   appends it to the prompt, and the round's re-send (`build_verify.go`) appends it to that prompt
@@ -116,7 +127,7 @@ read, or a run where one is named). It is not a reproduction unless the row says
 | N07 | P1 | `run_impacted_tests` is a test execution by name alone; a dry run or an empty selection mints executed-test evidence | reproduced on `90100128`: a dry run counted `SuccessfulTestTools = 1` | hand (evidence) | **landed `0b0a4d49`** (a test run is a receipt the process-starting code records -- typed runner, `runGoTests`, shell test commands, the VirtualStore handler; the counter is `TestRunCalls`) |
 | N08 | P1 | The registered CodeDOM reader is per-line regex: misses generic funcs and `async def`, invents declarations inside raw strings | not yet checked | R2 (route readers to the parser) | open |
 | N09 | P2 | `get_element` returns the first same-named element; `A.Close` vs `B.Close` silently resolves to one | `elements.go` first match | codeNERD brief | open |
-| N10 | P2 | The edit delimiter guard counts only the replaced fragment, so a valid edit inside a multiline literal is refused | `lines.go:171-179`; R1-4d's log has one such refusal (08:34:57) to classify | codeNERD brief | open |
+| N10 | P2 | The edit delimiter guard counts only the replaced fragment, so a valid edit inside a multiline literal is refused | `lines.go:171-179`; R1-4d's log has one such refusal (08:34:57) to classify | codeNERD brief | open: R1-6's fix (not landed) turned the guard off below a JS regex or Rust lifetime |
 | N11 | P1 | A failed reread supersedes the successful observation of the same revision | not yet checked | R2 (working policy + store) | open |
 | N12 | P1 | Aggregate observations are stamped with the focused file's revision | not yet checked | R2 | open |
 | N13 | P1 | The working-context archive scope is random per executor (`rand.Text()`), so a resumed executor cannot reopen it | `working_context.go:125-126` | R2 | open |
