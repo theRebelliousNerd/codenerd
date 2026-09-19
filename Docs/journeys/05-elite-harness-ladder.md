@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 17:45
+- last updated: 2026-09-19 17:55
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -56,7 +56,11 @@ the protocol for a run, and the status of each rung with the run that moved it.
   (`aae24670`): the fix is right on all 15 overlap shapes the review probed and HEAD is wrong on 10,
   but the campaign suite passes with the declared lease's ancestor check taken back out -- the
   direction the brief reported is pinned by none of its five tests, so that test was added by
-  hand. The critic ran 5 min 19 s. Streak 0. Next: N09 again, N23, then R2 with V1.
+  hand. The critic ran 5 min 19 s. Streak 0. Two runs in a row whose tests pinned a helper or a
+  branch rather than the behaviour the brief named is what N22 was built for, and it landed
+  (`53eb3551`): a /fix, /create or /implement turn that wrote Go now owes `/pinned` -- every function
+  it changed, taken out on its own, must make a test it wrote fail -- with a forcing round before
+  the verdict. Next: N09 again (R1-12, the first run under the gate), then R2 with V1.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
@@ -142,7 +146,9 @@ problem in this repository, whose result is kept. All of these hold:
    post-edit (formatting, a comment) is recorded as such and caps the landing at "assisted".
 3. **The change is proven.** Tests that fail before and pass after (the reviewer checks the
    "fail before" by reverting the fix), and `go build ./...`, `go vet ./...` and `go test ./...`
-   green after.
+   green after. Since `53eb3551` the harness checks "fail before" itself, one changed function at
+   a time (N22); the reviewer still reverts the change as a whole, and looks for the behaviour a
+   function-shaped check cannot see (N22b).
 4. **The verdict is truthful.** codeNERD's own result says done only when its evidence shows it:
    no "done" over a test that never ran, no success line over a failed gate.
 5. **The failure is reproducible with codeNERD's own tools** (a command it may run), or the brief

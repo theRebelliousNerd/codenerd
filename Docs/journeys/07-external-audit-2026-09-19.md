@@ -106,12 +106,34 @@ becoming stale, or detached from the mutations it is supposed to describe.
   helper exists for stays unpinned. R1-10's five tests passed with its fix reverted at the call
   sites. The reviewer's fail-before check is mechanical: the executor holds each written file's
   preimage, and `go test -overlay` can run the turn's new tests against the preimages without
-  touching the tree. Open, hand-built (the completion gate).
+  touching the tree. **Landed `53eb3551`** (hand-built: the completion gate). The pinning gate
+  (`internal/session/pin_gate.go`) takes the turn's changes out one at a time -- a changed function
+  put back as it was, an added one removed, the file's imports reconciled -- overlays each on the
+  workspace and runs the tests the turn wrote: they fail or stop compiling, and the change is
+  pinned; they all pass, and it is not. Functions are compared by token stream, so a comment or a
+  re-layout is not a change. What a turn owes is policy (`turn_owes_gate(Turn, /pinned)` for /fix,
+  /create and /implement turns that wrote Go, from a new `turn_verb` fact); a refactor or an
+  optimisation keeps behaviour and owes nothing. A forcing round after coverage asks for the tests
+  that pin what is unpinned, and the verdict names `/change_not_pinned` otherwise.
+- **N22b the gate is function-shaped, and a change can be unpinned inside one.** R1-11's fix put
+  both directions of the overlap check in one function, so taking the function out fails the tests
+  either way and the gate is satisfied -- while the direction the report was about was pinned by
+  nothing (found by hand). Measured the same day with a prototype that mutates the lines the turn
+  changed and runs the turn's own tests: 16 mutants over 29 changed lines, 3 survived, and one of
+  them was exactly that gap (`if key == root` forced true, skipping the ancestor walk). Two
+  cautions from the same run: one mutant left the tests hanging for ten minutes, so a mutant needs
+  a bound derived from the baseline run; and `sort.Strings(held)` survived while changing nothing
+  observable -- the equivalent-mutant problem, which is why a mutation gate should charge a
+  surviving *condition* on a line the turn changed and not a dropped statement. Open.
 - **N23 the test repair round keeps a stale build failure.** Its recheck sets `result.BuildCheck`
   on a failed build and never on a passing one, so a later attempt that fixes the build leaves the
   failure recorded until the closure re-measures; and the round logs "giving the model one repair
   round" while it runs up to the repair budget's attempts. Found by R1-10's critic in code the
-  change did not touch. One file, a codeNERD brief.
+  change did not touch. Checked 2026-09-19: the stale record is latent, not observable -- nothing
+  reads `result.BuildCheck` between the round and the closure, which re-measures every gate, and
+  the critic's "turn signals" line passes `true, true` by construction. What is left is the log
+  line, which says one round and means up to the repair budget's. Not worth a run; fix it when
+  that file is open for another reason.
 - **N19 the working request drops history before the first kept round.** `prepareWorkingRequest`
   (`working_context.go`) sends the loop's anchor and history from the earliest kept assistant
   tool-call round onward; a user message with no tool round before it is not sent. Every production
