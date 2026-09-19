@@ -385,15 +385,24 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		return "", nil, err
 	}
 	budget := min((remaining-workingReplyReserve)*4, ceiling)
-	selected, err := loop.set.Select(ctx, loop.focus, loop.recent, shown, budget)
+	// The focused file's context is rendered first and its room reserved: it is
+	// the one copy the request carries (compile-time prompts leave it out when a
+	// working loop runs, withCompiledFileContext), and it is regenerated here
+	// every call so its outline's line ranges follow the edits. Observations
+	// fill what is left; before, the view was added only if it still fit after
+	// them, so a full section could drop the one thing every round needs.
+	view := e.withFileContext(ctx, "", loop.focus)
+	if len(view) > budget {
+		view = ""
+	}
+	selected, err := loop.set.Select(ctx, loop.focus, loop.recent, shown, budget-len(view))
 	if err != nil {
 		return "", nil, err
 	}
 	// Stable JIT instructions lead. The active state is regenerated each call;
 	// current code views and observations stay adjacent to the current request.
 	section := selected.Text
-	view := e.withFileContext(ctx, "", loop.focus)
-	if len(section)+len(view) <= budget {
+	if view != "" {
 		section = view + "\n" + section
 	}
 	if section != "" {

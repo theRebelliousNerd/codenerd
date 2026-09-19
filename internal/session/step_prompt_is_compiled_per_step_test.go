@@ -133,3 +133,39 @@ func TestTurnAimedAtAPolicyFileCompilesForMangle(t *testing.T) {
 		}
 	}
 }
+
+// The focused file's context is carried once per request. A working loop
+// renders it into every request itself (fresh, so the outline's line ranges
+// follow the edits); a compiled step prompt that also appended it sent the same
+// section twice on every call. Observed 2026-09-18 once the section carried the
+// target's outline: mean input per call rose from 37.5k to 44.7k tokens.
+func TestPlannedStep_FileContextIsSentOncePerRequest(t *testing.T) {
+	_, writeTool := registerStepTools(t)
+	plan := "STEP a.txt :: first\nSTEP b.txt :: second\n"
+	inner := newStepScriptProvider(plan, map[string][]types.ToolCall{
+		"a.txt": {{ID: "w-a", Name: writeTool, Input: map[string]any{"path": "a.txt", "content": "a"}}},
+		"b.txt": {{ID: "w-b", Name: writeTool, Input: map[string]any{"path": "b.txt", "content": "b"}}},
+	})
+	client := &stepPromptRecorder{stepScriptProvider: inner, systems: map[string][]string{}}
+	e := newPlannedStepsExecutor(t, client)
+	e.fileContext = &stubFileContext{section: "## Holographic Context (focused)\n\nbody"}
+	e.jitCompiler = &MockJITCompiler{
+		CompileFunc: func(_ context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error) {
+			return &prompt.CompilationResult{Prompt: "COMPILED " + cc.IntentTarget}, nil
+		},
+	}
+
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+	if _, _, err := e.runToolLoop(context.Background(), "TURN PROMPT", "write both",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
+		&prompt.CompilationContext{ShardID: "probe"}, result); err != nil {
+		t.Fatalf("runToolLoop: %v", err)
+	}
+	for file, systems := range client.systems {
+		for _, system := range systems {
+			if n := strings.Count(system, "## Holographic Context"); n != 1 {
+				t.Errorf("a request for step %s carried the file context %d times, want exactly once", file, n)
+			}
+		}
+	}
+}

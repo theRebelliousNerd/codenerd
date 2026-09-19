@@ -1121,6 +1121,24 @@ func (e *Executor) SetFileContextProvider(p FileContextProvider) {
 // withFileContext appends holographic per-file context to a compiled system
 // prompt. Mirrors withProjectInstructions: returns systemPrompt unchanged when
 // the provider is nil, the target is empty, or the rendered section is empty.
+// withCompiledFileContext adds the target's file context to a compiled system
+// prompt only when no working loop will render it. A working loop renders the
+// focused file's context into every request itself (prepareWorkingRequest),
+// fresh each round so its line ranges follow the edits; adding it at compile
+// time as well sent the same section twice on every call. Observed 2026-09-18
+// on planned steps and the no-tool retry, which appended it unconditionally
+// while the turn-level compile already skipped it: with the target's outline
+// in the section, mean input per call rose from 37.5k to 44.7k tokens.
+func (e *Executor) withCompiledFileContext(ctx context.Context, systemPrompt, target string) string {
+	e.mu.RLock()
+	hasWorkingWorld := e.workingWorld != nil
+	e.mu.RUnlock()
+	if hasWorkingWorld {
+		return systemPrompt
+	}
+	return e.withFileContext(ctx, systemPrompt, target)
+}
+
 func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target string) string {
 	if strings.TrimSpace(target) == "" {
 		return systemPrompt
@@ -2177,8 +2195,7 @@ func (e *Executor) retryWithNoToolNudge(
 	// project's write-protection rules from the retry — on precisely the turn
 	// where the model has already shown it is confused about what it may do.
 	// That is a safety regression, not just a context one.
-	retryPrompt := e.withProjectInstructions(compileResult.Prompt)
-	retryPrompt = e.withFileContext(ctx, retryPrompt, retryCtx.IntentTarget)
+	retryPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), retryCtx.IntentTarget)
 	return e.generateResponse(ctx, client, retryPrompt, userInput, cfg)
 }
 

@@ -421,8 +421,7 @@ func (e *Executor) stepSystemPrompt(
 		return turnPrompt
 	}
 	logging.Session("Step prompt compiled for %s (language=%s, %d chars)", stepCtx.IntentTarget, stepCtx.Language, len(compiled.Prompt))
-	stepPrompt := e.withProjectInstructions(compiled.Prompt)
-	return e.withFileContext(ctx, stepPrompt, stepCtx.IntentTarget)
+	return e.withCompiledFileContext(ctx, e.withProjectInstructions(compiled.Prompt), stepCtx.IntentTarget)
 }
 
 // runPlannedSteps runs each step as its own pass of the tool loop, gives a
