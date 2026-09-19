@@ -196,11 +196,6 @@ internal/campaign/.nerd/campaigns/c_test_triage/
 !.claude/skills/arch-propose/**
 !.claude/skills/corpus-build/
 !.claude/skills/corpus-build/**
-# The Mangle skill is how development agents learn the kernel's language; every example in it
-# is checked on the pinned engine, so it is versioned. (.codex/skills/mangle-programming is a
-# byte-identical copy regenerated from this one.)
-!.claude/skills/mangle-programming/
-!.claude/skills/mangle-programming/**
 
 
 # stress-tester skill (CLI live matrix surfaces) — track core docs

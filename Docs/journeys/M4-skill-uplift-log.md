@@ -3,7 +3,7 @@
 ## Status
 
 - last updated: 2026-09-19 03:00
-- done: 1 Before; 2 Decisions; 3 After; 4 Examples run; 5 Mirror; 6 Next uplift (hand-written by the merger after the uplift agent stalled twice); 7 Second pass: every example run and fixed, the tools checked against the engine, skill versioned (v1.1.0)
+- done: 1 Before; 2 Decisions; 3 After; 4 Examples run; 5 Mirror; 6 Next uplift (hand-written by the merger after the uplift agent stalled twice); 7 Second pass: every example run and fixed, the tools checked against the engine (v1.1.0)
 - open: the prompt atoms (section 7, "What the next pass should do")
 - NOTE (merger, 2026-09-18 15:15): the uplift agent stalled at 10:30 after writing section 1 and touched nothing in the skill directory (verified by mtime). Sections 2-6 are owed by the S11 relaunch, which starts from M0/M2/M3 as revised.
 
@@ -153,8 +153,9 @@ In the prompt corpus: the legislator atom taught `blocked(X) :- candidate_action
 !permitted(X, _, _).` as CORRECT (run, it blocks every action); fixed with the LSP cheatsheet's
 two-wildcard orphan rule, and pinned by `TestEmbeddedCorpus_TeachesNoWildcardNegation`.
 
-The skill is versioned from this pass on (`.gitignore` exception, like `arch-propose` and
-`corpus-build`); the `.codex` copy is regenerated from it.
+The skill stays gitignored with the rest of `.claude/skills/` (Steve, 2026-09-19: keep ignored
+paths ignored); this log is the tracked record of what changed in it. The `.codex` copy is
+regenerated from the `.claude` one.
 
 ### What the next pass should do
 
