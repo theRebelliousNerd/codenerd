@@ -26,7 +26,6 @@ All configurable limits in codeNERD with safe, aggressive, and chaos values for 
 
 | Limit | Config Key | Default | Safe | Aggressive | Chaos |
 |-------|-----------|---------|------|------------|-------|
-| Session Duration | `core_limits.max_session_duration_min` | 120 | 60 | 180 | 240 |
 | Shard Timeout | `shard_profiles.*.timeout_seconds` | 300-900 | 300 | 1200 | 3600 |
 | Action Timeout | `execution.action_timeout_seconds` | 300 | 180 | 600 | 1800 |
 
@@ -137,8 +136,7 @@ Modify `.nerd/config.json`:
   "core_limits": {
     "max_concurrent_shards": 8,
     "max_facts_in_kernel": 500000,
-    "max_total_memory_mb": 16384,
-    "max_session_duration_min": 180
+    "max_total_memory_mb": 16384
   },
   "mangle": {
     "max_derived_facts_limit": 200000
@@ -154,8 +152,7 @@ Modify `.nerd/config.json`:
   "core_limits": {
     "max_concurrent_shards": 16,
     "max_facts_in_kernel": 1000000,
-    "max_total_memory_mb": 32768,
-    "max_session_duration_min": 240
+    "max_total_memory_mb": 32768
   },
   "mangle": {
     "max_derived_facts_limit": 500000

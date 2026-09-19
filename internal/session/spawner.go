@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"codenerd/internal/broker"
-	appconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
@@ -279,7 +278,9 @@ type SpawnRequest struct {
 	// without inferring it from the task text.
 	IntentTarget string
 
-	// Timeout for the subagent's execution
+	// Timeout is a caller's own limit on the subagent's execution. Zero means
+	// none: the subagent runs under the caller's context and stops when the
+	// working policy derives a stall.
 	Timeout time.Duration
 
 	// SessionContext provides shared state (e.g., DreamMode, Blackboard)
@@ -338,10 +339,6 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		Timeout:                     req.Timeout,
 		MaxTurns:                    100,
 		SessionContext:              req.SessionContext,
-	}
-
-	if subCfg.Timeout == 0 {
-		subCfg.Timeout = appconfig.GetLLMTimeouts().ShardExecutionTimeout
 	}
 
 	// Phase 4: Create subagent

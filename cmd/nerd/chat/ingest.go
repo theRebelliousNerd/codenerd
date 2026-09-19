@@ -1,14 +1,12 @@
 package chat
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"codenerd/internal/config"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -22,7 +20,7 @@ import (
 
 func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().DocumentProcessingTimeout)
+		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
 		registry := m.loadAgentRegistry()

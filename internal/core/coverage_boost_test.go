@@ -766,14 +766,6 @@ func TestLimitsEnforcer_CheckMemory_WhenNoLimit_ShouldReturnNil(t *testing.T) {
 	}
 }
 
-func TestLimitsEnforcer_CheckSessionDuration_WhenNoLimit_ShouldReturnNil(t *testing.T) {
-	cfg := LimitsConfig{MaxSessionDurationMin: 0} // disabled
-	enforcer := NewLimitsEnforcer(cfg)
-	if err := enforcer.CheckSessionDuration(); err != nil {
-		t.Errorf("expected nil error when no limit, got: %v", err)
-	}
-}
-
 func TestLimitsEnforcer_CheckShardLimit_WhenNoLimit_ShouldReturnNil(t *testing.T) {
 	cfg := LimitsConfig{MaxConcurrentShards: 0} // disabled
 	enforcer := NewLimitsEnforcer(cfg)
@@ -787,34 +779,6 @@ func TestLimitsEnforcer_GetMemoryUtilization_WhenNoLimit_ShouldReturnZero(t *tes
 	enforcer := NewLimitsEnforcer(cfg)
 	if got := enforcer.GetMemoryUtilization(); got != 0.0 {
 		t.Errorf("expected 0.0, got %f", got)
-	}
-}
-
-func TestLimitsEnforcer_GetSessionUtilization_WhenNoLimit_ShouldReturnZero(t *testing.T) {
-	cfg := LimitsConfig{MaxSessionDurationMin: 0}
-	enforcer := NewLimitsEnforcer(cfg)
-	if got := enforcer.GetSessionUtilization(); got != 0.0 {
-		t.Errorf("expected 0.0, got %f", got)
-	}
-}
-
-func TestLimitsEnforcer_RemainingSessionTime_WhenNoLimit_ShouldReturnMaxDuration(t *testing.T) {
-	cfg := LimitsConfig{MaxSessionDurationMin: 0}
-	enforcer := NewLimitsEnforcer(cfg)
-	remaining := enforcer.RemainingSessionTime()
-	if remaining < 24*time.Hour {
-		t.Errorf("expected effectively unlimited remaining time, got %v", remaining)
-	}
-}
-
-func TestLimitsEnforcer_RemainingSessionTime_WhenExpired_ShouldReturnZero(t *testing.T) {
-	cfg := LimitsConfig{MaxSessionDurationMin: 1} // 1 minute
-	enforcer := NewLimitsEnforcer(cfg)
-	// Set session start in the past
-	enforcer.SetSessionStart(time.Now().Add(-2 * time.Hour))
-	remaining := enforcer.RemainingSessionTime()
-	if remaining != 0 {
-		t.Errorf("expected 0 remaining when expired, got %v", remaining)
 	}
 }
 
@@ -856,8 +820,7 @@ func TestLimitsEnforcer_GetStatus_ShouldReturnAllKeys(t *testing.T) {
 
 	expectedKeys := []string{
 		"memory_mb", "memory_limit_mb", "memory_utilization",
-		"session_elapsed", "session_limit", "session_remaining",
-		"session_utilization", "shard_limit",
+		"shard_limit",
 		"max_facts_in_kernel", "max_derived_facts",
 	}
 	for _, key := range expectedKeys {
@@ -869,39 +832,13 @@ func TestLimitsEnforcer_GetStatus_ShouldReturnAllKeys(t *testing.T) {
 
 func TestLimitsEnforcer_CheckAll_WhenShardLimitExceeded_ShouldReturnError(t *testing.T) {
 	cfg := LimitsConfig{
-		MaxTotalMemoryMB:      99999, // high to not trigger
-		MaxSessionDurationMin: 999,   // high to not trigger
-		MaxConcurrentShards:   2,
+		MaxTotalMemoryMB:    99999, // high to not trigger
+		MaxConcurrentShards: 2,
 	}
 	enforcer := NewLimitsEnforcer(cfg)
 	err := enforcer.CheckAll(5)
 	if err == nil {
 		t.Error("expected error when shard limit exceeded")
-	}
-}
-
-func TestLimitsEnforcer_CheckSessionDuration_WhenExpired_ShouldReturnError(t *testing.T) {
-	cfg := LimitsConfig{MaxSessionDurationMin: 1}
-	enforcer := NewLimitsEnforcer(cfg)
-	enforcer.SetSessionStart(time.Now().Add(-2 * time.Hour))
-	err := enforcer.CheckSessionDuration()
-	if err == nil {
-		t.Error("expected error when session expired")
-	}
-}
-
-func TestLimitsEnforcer_SessionCallbackFired_WhenTimeout(t *testing.T) {
-	cfg := LimitsConfig{MaxSessionDurationMin: 1}
-	enforcer := NewLimitsEnforcer(cfg)
-	enforcer.SetSessionStart(time.Now().Add(-2 * time.Hour))
-
-	called := false
-	enforcer.OnSessionTimeout(func(elapsed, limit time.Duration) {
-		called = true
-	})
-	enforcer.CheckSessionDuration()
-	if !called {
-		t.Error("expected session timeout callback to be called")
 	}
 }
 

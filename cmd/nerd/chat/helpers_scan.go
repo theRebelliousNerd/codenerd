@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"codenerd/internal/config"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
@@ -24,7 +23,7 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 		if force {
 			m.ReportStatus("Forcing full initialization...")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
+		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
 		// Detect project type for profile
@@ -231,7 +230,7 @@ func (m Model) runDocRefresh(force bool) tea.Cmd {
 		startTime := time.Now()
 		m.ReportStatus("Discovering documentation files...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().DocumentProcessingTimeout)
+		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
 		// Create initializer for doc processing (reuses init infrastructure)
@@ -239,7 +238,6 @@ func (m Model) runDocRefresh(force bool) tea.Cmd {
 			Workspace:    m.workspace,
 			LLMClient:    m.client,
 			ShardManager: m.shardMgr,
-			Timeout:      config.GetLLMTimeouts().DocumentProcessingTimeout,
 			Interactive:  false,
 		}
 

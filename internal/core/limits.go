@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-	"time"
 
 	"codenerd/internal/logging"
 )
@@ -19,21 +18,19 @@ import (
 
 // LimitsConfig holds the enforcement parameters.
 type LimitsConfig struct {
-	MaxTotalMemoryMB      int // Total RAM limit in MB
-	MaxConcurrentShards   int // Max parallel shards
-	MaxSessionDurationMin int // Auto-save interval / max session time
-	MaxFactsInKernel      int // EDB size limit
-	MaxDerivedFactsLimit  int // Mangle gas limit for inference
+	MaxTotalMemoryMB     int // Total RAM limit in MB
+	MaxConcurrentShards  int // Max parallel shards
+	MaxFactsInKernel     int // EDB size limit
+	MaxDerivedFactsLimit int // Mangle gas limit for inference
 }
 
 // DefaultLimitsConfig returns production defaults matching config.go.
 func DefaultLimitsConfig() LimitsConfig {
 	return LimitsConfig{
-		MaxTotalMemoryMB:      12288,  // 12GB RAM limit
-		MaxConcurrentShards:   12,     // Max 12 parallel shards (7 system + 5 user)
-		MaxSessionDurationMin: 120,    // 2 hour sessions
-		MaxFactsInKernel:      2000000, // Out-of-memory backstop, not a working budget
-		MaxDerivedFactsLimit:  5000000, // Runaway-rule backstop; a real repository's world derives past 500k
+		MaxTotalMemoryMB:     12288,   // 12GB RAM limit
+		MaxConcurrentShards:  12,      // Max 12 parallel shards (7 system + 5 user)
+		MaxFactsInKernel:     2000000, // Out-of-memory backstop, not a working budget
+		MaxDerivedFactsLimit: 5000000, // Runaway-rule backstop; a real repository's world derives past 500k
 	}
 }
 
@@ -41,33 +38,22 @@ func DefaultLimitsConfig() LimitsConfig {
 type LimitsEnforcer struct {
 	mu sync.RWMutex
 
-	config       LimitsConfig
-	sessionStart time.Time
+	config LimitsConfig
 
 	// Callbacks for violation handling
 	onMemoryViolation func(usedMB, limitMB int)
-	onSessionTimeout  func(elapsed, limit time.Duration)
 	onShardViolation  func(active, limit int)
 }
 
 // NewLimitsEnforcer creates a new enforcer with the given config.
 func NewLimitsEnforcer(cfg LimitsConfig) *LimitsEnforcer {
-	logging.Kernel("LimitsEnforcer initialized: memory=%dMB, shards=%d, session=%dmin, facts=%d, derived=%d",
-		cfg.MaxTotalMemoryMB, cfg.MaxConcurrentShards, cfg.MaxSessionDurationMin,
+	logging.Kernel("LimitsEnforcer initialized: memory=%dMB, shards=%d, facts=%d, derived=%d",
+		cfg.MaxTotalMemoryMB, cfg.MaxConcurrentShards,
 		cfg.MaxFactsInKernel, cfg.MaxDerivedFactsLimit)
 
 	return &LimitsEnforcer{
-		config:       cfg,
-		sessionStart: time.Now(),
+		config: cfg,
 	}
-}
-
-// SetSessionStart sets the session start time (for resumed sessions).
-func (le *LimitsEnforcer) SetSessionStart(t time.Time) {
-	le.mu.Lock()
-	defer le.mu.Unlock()
-	le.sessionStart = t
-	logging.KernelDebug("Session start time set to: %v", t)
 }
 
 // OnMemoryViolation sets the callback for memory limit violations.
@@ -75,13 +61,6 @@ func (le *LimitsEnforcer) OnMemoryViolation(fn func(usedMB, limitMB int)) {
 	le.mu.Lock()
 	defer le.mu.Unlock()
 	le.onMemoryViolation = fn
-}
-
-// OnSessionTimeout sets the callback for session timeout.
-func (le *LimitsEnforcer) OnSessionTimeout(fn func(elapsed, limit time.Duration)) {
-	le.mu.Lock()
-	defer le.mu.Unlock()
-	le.onSessionTimeout = fn
 }
 
 // OnShardViolation sets the callback for shard limit violations.
@@ -144,77 +123,6 @@ func (le *LimitsEnforcer) GetMemoryUtilization() float64 {
 	}
 	usedMB := le.GetMemoryUsage()
 	return float64(usedMB) / float64(le.config.MaxTotalMemoryMB)
-}
-
-// =============================================================================
-// SESSION DURATION ENFORCEMENT
-// =============================================================================
-
-// ErrSessionTimeout is returned when session duration exceeds the limit.
-var ErrSessionTimeout = fmt.Errorf("session timeout")
-
-// CheckSessionDuration checks if session duration is within limits.
-// Returns error if limit is exceeded.
-func (le *LimitsEnforcer) CheckSessionDuration() error {
-	if le.config.MaxSessionDurationMin <= 0 {
-		return nil // No limit configured
-	}
-
-	le.mu.RLock()
-	start := le.sessionStart
-	le.mu.RUnlock()
-
-	elapsed := time.Since(start)
-	limit := time.Duration(le.config.MaxSessionDurationMin) * time.Minute
-
-	if elapsed > limit {
-		logging.Get(logging.CategoryKernel).Warn("SESSION TIMEOUT: %v elapsed > %v limit",
-			elapsed.Round(time.Second), limit)
-
-		le.mu.RLock()
-		callback := le.onSessionTimeout
-		le.mu.RUnlock()
-
-		if callback != nil {
-			callback(elapsed, limit)
-		}
-
-		return fmt.Errorf("%w: %v elapsed exceeds %v limit", ErrSessionTimeout,
-			elapsed.Round(time.Second), limit)
-	}
-
-	return nil
-}
-
-// GetSessionDuration returns elapsed session time.
-func (le *LimitsEnforcer) GetSessionDuration() time.Duration {
-	le.mu.RLock()
-	defer le.mu.RUnlock()
-	return time.Since(le.sessionStart)
-}
-
-// GetSessionUtilization returns session duration utilization (0.0-1.0).
-func (le *LimitsEnforcer) GetSessionUtilization() float64 {
-	if le.config.MaxSessionDurationMin <= 0 {
-		return 0.0
-	}
-	elapsed := le.GetSessionDuration()
-	limit := time.Duration(le.config.MaxSessionDurationMin) * time.Minute
-	return float64(elapsed) / float64(limit)
-}
-
-// RemainingSessionTime returns how much time is left in the session.
-func (le *LimitsEnforcer) RemainingSessionTime() time.Duration {
-	if le.config.MaxSessionDurationMin <= 0 {
-		return time.Duration(1<<63 - 1) // Max duration (effectively unlimited)
-	}
-	elapsed := le.GetSessionDuration()
-	limit := time.Duration(le.config.MaxSessionDurationMin) * time.Minute
-	remaining := limit - elapsed
-	if remaining < 0 {
-		return 0
-	}
-	return remaining
 }
 
 // =============================================================================
@@ -316,9 +224,6 @@ func (le *LimitsEnforcer) CheckAll(activeShards int) error {
 	if err := le.CheckMemory(); err != nil {
 		return err
 	}
-	if err := le.CheckSessionDuration(); err != nil {
-		return err
-	}
 	if err := le.CheckShardLimit(activeShards); err != nil {
 		return err
 	}
@@ -331,10 +236,6 @@ func (le *LimitsEnforcer) GetStatus() map[string]any {
 		"memory_mb":           le.GetMemoryUsage(),
 		"memory_limit_mb":     le.config.MaxTotalMemoryMB,
 		"memory_utilization":  le.GetMemoryUtilization(),
-		"session_elapsed":     le.GetSessionDuration().String(),
-		"session_limit":       time.Duration(le.config.MaxSessionDurationMin) * time.Minute,
-		"session_remaining":   le.RemainingSessionTime().String(),
-		"session_utilization": le.GetSessionUtilization(),
 		"shard_limit":         le.config.MaxConcurrentShards,
 		"max_facts_in_kernel": le.config.MaxFactsInKernel,
 		"max_derived_facts":   le.config.MaxDerivedFactsLimit,

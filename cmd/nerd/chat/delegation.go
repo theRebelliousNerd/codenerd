@@ -15,7 +15,6 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
-	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
@@ -672,7 +671,7 @@ func clonePromptManifest(src *promptpkg.PromptManifest) *promptpkg.PromptManifes
 // spawnShard spawns a shard agent for a task
 func (m Model) spawnShard(shardType, task string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
+		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
 		startTime := time.Now()
@@ -744,7 +743,7 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 //   - ModeAdvisoryWithCritique: Advise → Execute → Critique (for /fix, /refactor)
 func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
+		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
 		startTime := time.Now()

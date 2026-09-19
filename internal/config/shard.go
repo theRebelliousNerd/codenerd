@@ -31,8 +31,7 @@ type ShardProfile struct {
 	// per-persona kernel; kernel shards partition predicates by domain).
 
 	// Execution Limits
-	MaxExecutionTimeSec int `yaml:"max_execution_time_sec" json:"max_execution_time_sec"` // Timeout per task
-	MaxRetries          int `yaml:"max_retries" json:"max_retries"`                       // Verification attempts per delegated task (VerifyWithRetry)
+	MaxRetries int `yaml:"max_retries" json:"max_retries"` // Verification attempts per delegated task (VerifyWithRetry)
 
 	// EnableLearning gates whether this shard's runs are recorded for prompt
 	// evolution (chat delegation and the session executor both honour it).
@@ -44,9 +43,6 @@ func applyShardDefaults(p ShardProfile) ShardProfile {
 	// Temperature and TopP are deliberately not defaulted: zero leaves the
 	// client's own default in force, so only a profile that chose a value
 	// changes sampling.
-	if p.MaxExecutionTimeSec == 0 {
-		p.MaxExecutionTimeSec = 300
-	}
 	if p.MaxRetries == 0 {
 		p.MaxRetries = 3
 	}
@@ -56,11 +52,10 @@ func applyShardDefaults(p ShardProfile) ShardProfile {
 // DefaultShardProfile returns a ShardProfile with sensible defaults.
 func DefaultShardProfile() *ShardProfile {
 	return &ShardProfile{
-		Temperature:         0.7,
-		TopP:                0.9,
-		MaxExecutionTimeSec: 300,
-		MaxRetries:          3,
-		EnableLearning:      true,
+		Temperature:    0.7,
+		TopP:           0.9,
+		MaxRetries:     3,
+		EnableLearning: true,
 	}
 }
 
@@ -68,32 +63,28 @@ func DefaultShardProfile() *ShardProfile {
 func DefaultShardProfiles() map[string]ShardProfile {
 	return map[string]ShardProfile{
 		"coder": {
-			Temperature:         0.7,
-			TopP:                0.9,
-			MaxExecutionTimeSec: 600,
-			MaxRetries:          3,
-			EnableLearning:      true,
+			Temperature:    0.7,
+			TopP:           0.9,
+			MaxRetries:     3,
+			EnableLearning: true,
 		},
 		"tester": {
-			Temperature:         0.5,
-			TopP:                0.9,
-			MaxExecutionTimeSec: 300,
-			MaxRetries:          3,
-			EnableLearning:      true,
+			Temperature:    0.5,
+			TopP:           0.9,
+			MaxRetries:     3,
+			EnableLearning: true,
 		},
 		"reviewer": {
-			Temperature:         0.3,
-			TopP:                0.9,
-			MaxExecutionTimeSec: 900,
-			MaxRetries:          2,
-			EnableLearning:      false,
+			Temperature:    0.3,
+			TopP:           0.9,
+			MaxRetries:     2,
+			EnableLearning: false,
 		},
 		"researcher": {
-			Temperature:         0.6,
-			TopP:                0.95,
-			MaxExecutionTimeSec: 600,
-			MaxRetries:          3,
-			EnableLearning:      true,
+			Temperature:    0.6,
+			TopP:           0.95,
+			MaxRetries:     3,
+			EnableLearning: true,
 		},
 	}
 }

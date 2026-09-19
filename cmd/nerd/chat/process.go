@@ -24,7 +24,6 @@ package chat
 
 import (
 	"codenerd/internal/autopoiesis"
-	"codenerd/internal/config"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -73,7 +72,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		if baseCtx == nil {
 			baseCtx = context.Background()
 		}
-		ctx, cancel := context.WithTimeout(baseCtx, config.GetLLMTimeouts().OODALoopTimeout)
+		ctx, cancel := context.WithCancel(baseCtx)
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)
 		}
@@ -882,12 +881,12 @@ func (m Model) processInput(input string) tea.Cmd {
 		// the goroutine just started. That's the source of every
 		// "articulation failed: context canceled" the user has been hitting.
 		// Build a fresh context for the goroutine, parented on shutdownCtx
-		// so Ctrl+C/D still cancels cleanly, with its own OODA budget.
+		// so Ctrl+C/D still cancels cleanly; the turn has no clock of its own.
 		streamBaseCtx := m.shutdownCtx
 		if streamBaseCtx == nil {
 			streamBaseCtx = context.Background()
 		}
-		streamCtx, streamCancel := context.WithTimeout(streamBaseCtx, config.GetLLMTimeouts().OODALoopTimeout)
+		streamCtx, streamCancel := context.WithCancel(streamBaseCtx)
 		if m.usageTracker != nil {
 			streamCtx = usage.NewContext(streamCtx, m.usageTracker)
 		}

@@ -211,12 +211,10 @@ nerd run "execute rm -rf /"  # Should be blocked by constitution
 | Failure | Trigger | Symptom |
 |---------|---------|---------|
 | Memory exceeded | >12GB usage | Warning logged (not enforced!) |
-| Session timeout | >120 min | Session terminates |
 | Shard limit | >4 concurrent | Queue blocking |
 
 **Config Limits:**
 - `max_total_memory_mb: 12288` - 12GB RAM limit
-- `max_session_duration_min: 120` - 2 hour session limit
 - `max_concurrent_shards: 4` - Shard limit
 
 ---

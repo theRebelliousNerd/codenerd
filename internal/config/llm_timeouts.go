@@ -2,14 +2,20 @@ package config
 
 import "time"
 
-// LLMTimeouts centralizes all timeout configuration for LLM operations.
+// LLMTimeouts centralizes the timeouts that bound a single LLM request.
 // This ensures consistency across the codebase and prevents timeout conflicts.
 //
 // KEY INSIGHT: In Go, the SHORTEST timeout in the chain wins.
 // If you have a 10-minute HTTP client but wrap the call in a 90-second context,
 // the context wins and the call fails after 90 seconds.
 //
-// This configuration provides canonical timeouts that all LLM operations should use.
+// Every field bounds one request (a call, its retries, a slot wait, a single
+// articulation or follow-up call). Nothing here bounds a run: until 2026-09-19
+// this struct also carried shard-execution, OODA-loop, campaign-phase,
+// document-processing and Ouroboros ceilings of 10-30 minutes ("calibrated for
+// GLM-4.7"), which cut hours-long agentic work that was still progressing. A
+// run now stops when the working policy derives a stall or a repeated failure,
+// or when the user's own --timeout expires.
 type LLMTimeouts struct {
 	// HTTPClientTimeout is the maximum time for HTTP operations including
 	// connection, TLS handshake, and full response body read.
@@ -42,48 +48,19 @@ type LLMTimeouts struct {
 	// Z.AI recommends 600ms between requests.
 	RateLimitDelay time.Duration `json:"rate_limit_delay"`
 
-	// ============================================================================
-	// Tier 2 - Operation Timeouts (multi-step operations that include LLM calls)
-	// ============================================================================
-
-	// ShardExecutionTimeout is the timeout for shard spawn and execution.
-	// Includes research, context building, LLM call, and post-processing.
-	ShardExecutionTimeout time.Duration `json:"shard_execution_timeout"`
-
-	// ArticulationTimeout is the timeout for articulation transducer LLM calls.
-	// These convert internal state to user-facing natural language.
+	// ArticulationTimeout bounds one articulation transducer call, which
+	// converts internal state to user-facing natural language.
 	ArticulationTimeout time.Duration `json:"articulation_timeout"`
 
-	// FollowUpTimeout is the timeout for quick follow-up responses.
-	// Used for clarification questions and simple responses.
+	// FollowUpTimeout bounds one quick follow-up call (a clarification
+	// question or a simple response).
 	FollowUpTimeout time.Duration `json:"follow_up_timeout"`
-
-	// OuroborosTimeout is the timeout for the tool generation pipeline.
-	// Includes detection, generation, safety check, and simulation stages.
-	OuroborosTimeout time.Duration `json:"ouroboros_timeout"`
-
-	// DocumentProcessingTimeout is the timeout for document ingestion and refresh.
-	// Includes vector embedding, storage, and knowledge synthesis.
-	DocumentProcessingTimeout time.Duration `json:"document_processing_timeout"`
-
-	// ============================================================================
-	// Tier 3 - Campaign Timeouts (long-running orchestration)
-	// ============================================================================
-
-	// CampaignPhaseTimeout is the timeout for a full campaign phase.
-	// Campaign phases may include multiple shard executions.
-	CampaignPhaseTimeout time.Duration `json:"campaign_phase_timeout"`
-
-	// OODALoopTimeout is the timeout for the full OODA loop (input processing).
-	// Covers Observe, Orient, Decide, Act cycle including perception and articulation.
-	OODALoopTimeout time.Duration `json:"ooda_loop_timeout"`
 }
 
 // DefaultLLMTimeouts returns sensible defaults for GLM-4.7 with large context windows.
 // These values are calibrated for the Z.AI API with 200K context and 128K output tokens.
 func DefaultLLMTimeouts() LLMTimeouts {
 	return LLMTimeouts{
-		// Tier 1 - Per-Call
 		HTTPClientTimeout:      10 * time.Minute, // GLM-4.7 needs extended timeout
 		SlotAcquisitionTimeout: 10 * time.Minute, // Wait for slow calls to complete
 		PerCallTimeout:         10 * time.Minute, // Match HTTP timeout to avoid conflicts
@@ -92,20 +69,8 @@ func DefaultLLMTimeouts() LLMTimeouts {
 		RetryBackoffMax:        30 * time.Second,
 		MaxRetries:             3,
 		RateLimitDelay:         600 * time.Millisecond,
-
-		// Tier 2 - Operation
-		// NOTE: Z.AI responses take 150+ seconds minimum for SIMPLE prompts.
-		// Complex prompts can take 5-10+ minutes. All values have generous buffers.
-		// Bug #3 fix: Increased from 20 to 30 min to account for API slot contention during high load
-		ShardExecutionTimeout:     30 * time.Minute, // Shard spawn includes research + LLM
-		ArticulationTimeout:       5 * time.Minute,  // Articulation transducer
-		FollowUpTimeout:           5 * time.Minute,  // ZAI simple prompts: 150s+
-		OuroborosTimeout:          10 * time.Minute, // Tool generation pipeline
-		DocumentProcessingTimeout: 20 * time.Minute, // Document ingestion and refresh
-
-		// Tier 3 - Campaign
-		CampaignPhaseTimeout: 30 * time.Minute, // Full campaign phase
-		OODALoopTimeout:      30 * time.Minute, // Full OODA loop
+		ArticulationTimeout:    5 * time.Minute, // Articulation transducer
+		FollowUpTimeout:        5 * time.Minute, // ZAI simple prompts: 150s+
 	}
 }
 
@@ -114,7 +79,6 @@ func DefaultLLMTimeouts() LLMTimeouts {
 // NOTE: Even "fast" operations need 150+ seconds minimum for ZAI simple prompts.
 func FastLLMTimeouts() LLMTimeouts {
 	return LLMTimeouts{
-		// Tier 1 - Per-Call (5 min for simple ZAI prompts)
 		HTTPClientTimeout:      5 * time.Minute,
 		SlotAcquisitionTimeout: 6 * time.Minute,
 		PerCallTimeout:         5 * time.Minute,
@@ -123,17 +87,8 @@ func FastLLMTimeouts() LLMTimeouts {
 		RetryBackoffMax:        10 * time.Second,
 		MaxRetries:             2,
 		RateLimitDelay:         600 * time.Millisecond,
-
-		// Tier 2 - Operation (ZAI simple prompts: 150s+)
-		ShardExecutionTimeout:     7 * time.Minute,
-		ArticulationTimeout:       5 * time.Minute,
-		FollowUpTimeout:           5 * time.Minute,
-		OuroborosTimeout:          7 * time.Minute,
-		DocumentProcessingTimeout: 7 * time.Minute,
-
-		// Tier 3 - Campaign
-		CampaignPhaseTimeout: 15 * time.Minute,
-		OODALoopTimeout:      15 * time.Minute,
+		ArticulationTimeout:    5 * time.Minute,
+		FollowUpTimeout:        5 * time.Minute,
 	}
 }
 
@@ -141,7 +96,6 @@ func FastLLMTimeouts() LLMTimeouts {
 // ZAI simple prompts take 150s+ minimum, so 5 min floor gives buffer for variance.
 func AggressiveLLMTimeouts() LLMTimeouts {
 	return LLMTimeouts{
-		// Tier 1 - Per-Call (5 min floor = 2x ZAI simple prompt minimum)
 		HTTPClientTimeout:      5 * time.Minute,
 		SlotAcquisitionTimeout: 6 * time.Minute,
 		PerCallTimeout:         5 * time.Minute,
@@ -150,17 +104,8 @@ func AggressiveLLMTimeouts() LLMTimeouts {
 		RetryBackoffMax:        5 * time.Second,
 		MaxRetries:             1,
 		RateLimitDelay:         600 * time.Millisecond,
-
-		// Tier 2 - Operation (5 min floor = 2x ZAI simple prompt minimum)
-		ShardExecutionTimeout:     5 * time.Minute,
-		ArticulationTimeout:       5 * time.Minute,
-		FollowUpTimeout:           5 * time.Minute,
-		OuroborosTimeout:          5 * time.Minute,
-		DocumentProcessingTimeout: 5 * time.Minute,
-
-		// Tier 3 - Campaign
-		CampaignPhaseTimeout: 10 * time.Minute,
-		OODALoopTimeout:      10 * time.Minute,
+		ArticulationTimeout:    5 * time.Minute,
+		FollowUpTimeout:        5 * time.Minute,
 	}
 }
 

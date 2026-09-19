@@ -1,11 +1,9 @@
 package chat
 
 import (
-	nerdconfig "codenerd/internal/config"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	coresys "codenerd/internal/system"
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -137,7 +135,7 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 			wizard.Name, wizard.Role, wizard.Topics,
 		)
 
-		ctx, cancel := context.WithTimeout(context.Background(), nerdconfig.GetLLMTimeouts().ShardExecutionTimeout)
+		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
 		result, err := m.spawnTask(ctx, "researcher", researchTask)

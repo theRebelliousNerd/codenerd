@@ -3,12 +3,10 @@
 package chat
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
 
-	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
@@ -62,27 +60,16 @@ func (m *Model) checkContinuation(shardType, task string, ret observation.Return
 // Returns either a continueMsg (more work) or continuationDoneMsg (complete).
 func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd {
 	return func() tea.Msg {
-		// Use per-shard execution timeout from config when available.
-		timeout := config.GetLLMTimeouts().ShardExecutionTimeout
-		if m.Config != nil {
-			profile := m.Config.GetShardProfile(shardType)
-			if profile.MaxExecutionTimeSec > 0 {
-				timeout = time.Duration(profile.MaxExecutionTimeSec) * time.Second
-			}
-		}
-
 		// Log start of subtask execution
 		logging.Get(logging.CategoryRouting).Info("Executing subtask %s (%s) with shard %s", subtaskID, description, shardType)
 
 		// Parent on the session's shutdown context so Ctrl+X cancels the
-		// in-flight shard call, not just the next step's pre-flight check.
-		// processInput does the same; a bare Background here made
-		// continuation steps uncancellable once started.
-		parent := m.shutdownCtx
-		if parent == nil {
-			parent = context.Background()
-		}
-		ctx, cancel := context.WithTimeout(parent, timeout)
+		// in-flight shard call, not just the next step's pre-flight check; a
+		// bare Background here made continuation steps uncancellable once
+		// started. No clock: a subtask runs while it makes progress (the
+		// per-shard max_execution_time_sec and the 30-minute shard ceiling
+		// were removed 2026-09-19).
+		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
 		if m.isInterrupted {

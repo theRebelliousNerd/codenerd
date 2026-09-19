@@ -183,10 +183,11 @@ type liveTimeouts struct {
 func resolveLiveTimeouts() liveTimeouts {
 	timeouts := config.GetLLMTimeouts()
 	return liveTimeouts{
-		boot: envDuration("CODENERD_LIVE_BOOT_TIMEOUT",
-			maxDuration(4*time.Minute, minDuration(12*time.Minute, timeouts.ShardExecutionTimeout))),
-		scan: envDuration("CODENERD_LIVE_SCAN_TIMEOUT",
-			maxDuration(6*time.Minute, minDuration(12*time.Minute, timeouts.DocumentProcessingTimeout))),
+		// A live test still needs a bound of its own so CI cannot hang; the
+		// harness's shard and ingestion ceilings it used to derive these from
+		// are gone (2026-09-19). 12 minutes is what they clamped to.
+		boot: envDuration("CODENERD_LIVE_BOOT_TIMEOUT", 12*time.Minute),
+		scan: envDuration("CODENERD_LIVE_SCAN_TIMEOUT", 12*time.Minute),
 		response: envDuration("CODENERD_LIVE_RESPONSE_TIMEOUT",
 			maxDuration(4*time.Minute, minDuration(10*time.Minute, timeouts.PerCallTimeout))),
 		shutdown: envDuration("CODENERD_LIVE_SHUTDOWN_TIMEOUT", 3*time.Minute),

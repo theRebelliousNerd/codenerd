@@ -50,15 +50,15 @@ func TestLLMTimeoutsConfig_UnknownProfileIsAnError(t *testing.T) {
 func TestLLMTimeoutsConfig_OverlaysOnProfile(t *testing.T) {
 	got, err := (&LLMTimeoutsConfig{
 		Profile:          "fast",
-		OODALoopTimeout:  "90s",
+		FollowUpTimeout:  "90s",
 		PerCallTimeout:   "1m30s",
 		RetryBackoffBase: "250ms",
 	}).Resolve()
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if got.OODALoopTimeout != 90*time.Second {
-		t.Errorf("OODALoopTimeout = %v, want 90s", got.OODALoopTimeout)
+	if got.FollowUpTimeout != 90*time.Second {
+		t.Errorf("FollowUpTimeout = %v, want 90s", got.FollowUpTimeout)
 	}
 	if got.PerCallTimeout != 90*time.Second {
 		t.Errorf("PerCallTimeout = %v, want 90s", got.PerCallTimeout)
@@ -67,9 +67,9 @@ func TestLLMTimeoutsConfig_OverlaysOnProfile(t *testing.T) {
 		t.Errorf("RetryBackoffBase = %v, want 250ms", got.RetryBackoffBase)
 	}
 	// Not overridden -> still the fast profile's value.
-	if got.ShardExecutionTimeout != FastLLMTimeouts().ShardExecutionTimeout {
-		t.Errorf("ShardExecutionTimeout = %v, want the fast profile value %v",
-			got.ShardExecutionTimeout, FastLLMTimeouts().ShardExecutionTimeout)
+	if got.StreamingTimeout != FastLLMTimeouts().StreamingTimeout {
+		t.Errorf("StreamingTimeout = %v, want the fast profile value %v",
+			got.StreamingTimeout, FastLLMTimeouts().StreamingTimeout)
 	}
 }
 
@@ -77,10 +77,10 @@ func TestLLMTimeoutsConfig_OverlaysOnProfile(t *testing.T) {
 // place — that silence is the exact failure mode this config replaced.
 func TestLLMTimeoutsConfig_MalformedDurationIsAnError(t *testing.T) {
 	for _, bad := range []string{"30", "thirty minutes", "-5m", "0s"} {
-		_, err := (&LLMTimeoutsConfig{OODALoopTimeout: bad}).Resolve()
+		_, err := (&LLMTimeoutsConfig{PerCallTimeout: bad}).Resolve()
 		if err == nil {
-			t.Errorf("OODALoopTimeout %q should be rejected", bad)
-		} else if !strings.Contains(err.Error(), "ooda_loop_timeout") {
+			t.Errorf("PerCallTimeout %q should be rejected", bad)
+		} else if !strings.Contains(err.Error(), "per_call_timeout") {
 			t.Errorf("error for %q should name the field, got: %v", bad, err)
 		}
 	}
@@ -111,7 +111,7 @@ func TestLLMTimeoutsConfig_MaxRetriesZeroIsHonoured(t *testing.T) {
 // real UserConfig shape — a mismatched tag would break the whole config file,
 // not just this field.
 func TestUserConfig_LLMTimeoutsRoundTrip(t *testing.T) {
-	raw := []byte(`{"llm_timeouts":{"profile":"fast","ooda_loop_timeout":"10m","max_retries":1}}`)
+	raw := []byte(`{"llm_timeouts":{"profile":"fast","per_call_timeout":"10m","max_retries":1}}`)
 	var cfg UserConfig
 	if err := decodeStrictJSON(raw, &cfg); err != nil {
 		t.Fatalf("strict decode failed — llm_timeouts is not wired into UserConfig: %v", err)
@@ -123,7 +123,7 @@ func TestUserConfig_LLMTimeoutsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if resolved.OODALoopTimeout != 10*time.Minute || resolved.MaxRetries != 1 {
+	if resolved.PerCallTimeout != 10*time.Minute || resolved.MaxRetries != 1 {
 		t.Errorf("round-trip lost values: %+v", resolved)
 	}
 

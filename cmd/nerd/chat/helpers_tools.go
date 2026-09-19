@@ -1,8 +1,6 @@
 package chat
 
 import (
-	"codenerd/internal/config"
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -120,7 +118,7 @@ func (m Model) renderToolInfo(toolName string) string {
 // runTool executes a generated tool asynchronously
 func (m Model) runTool(toolName, input string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
+		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
 		if m.autopoiesis == nil {
@@ -172,7 +170,7 @@ func (m Model) runTool(toolName, input string) tea.Cmd {
 // generateTool generates a new tool using the Ouroboros Loop
 func (m Model) generateTool(description string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().OuroborosTimeout)
+		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
 		if m.autopoiesis == nil {

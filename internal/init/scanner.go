@@ -1093,18 +1093,16 @@ func (i *Initializer) createDefaultConfig(path string) error {
 
 		// Shard profiles are populated dynamically below,
 		DefaultShard: &config.ShardProfile{
-			Temperature:         0.7,
-			TopP:                0.9,
-			MaxExecutionTimeSec: 300,
-			MaxRetries:          3,
-			EnableLearning:      true,
+			Temperature:    0.7,
+			TopP:           0.9,
+			MaxRetries:     3,
+			EnableLearning: true,
 		},
 		CoreLimits: &config.CoreLimits{
-			MaxTotalMemoryMB:      12288,
-			MaxConcurrentShards:   4,
-			MaxSessionDurationMin: 120,
-			MaxFactsInKernel:      250000,
-			MaxDerivedFactsLimit:  100000,
+			MaxTotalMemoryMB:     12288,
+			MaxConcurrentShards:  4,
+			MaxFactsInKernel:     250000,
+			MaxDerivedFactsLimit: 100000,
 		},
 		// No default MCP servers - internal capabilities use internal packages directly
 		Integrations: &config.IntegrationsConfig{

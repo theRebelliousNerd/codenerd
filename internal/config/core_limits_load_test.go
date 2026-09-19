@@ -68,7 +68,6 @@ func TestLoadUserConfig_ValidExplicitLimitsLoadUnchanged(t *testing.T) {
 		"max_total_memory_mb": 8192,
 		"max_concurrent_shards": 4,
 		"max_concurrent_api_calls": 3,
-		"max_session_duration_min": 60,
 		"max_facts_in_kernel": 50000,
 		"max_derived_facts_limit": 20000
 	}}`)
@@ -81,7 +80,6 @@ func TestLoadUserConfig_ValidExplicitLimitsLoadUnchanged(t *testing.T) {
 		"max_total_memory_mb",
 		"max_concurrent_shards",
 		"max_concurrent_api_calls",
-		"max_session_duration_min",
 		"max_facts_in_kernel",
 		"max_derived_facts_limit",
 	}
@@ -89,11 +87,10 @@ func TestLoadUserConfig_ValidExplicitLimitsLoadUnchanged(t *testing.T) {
 		limits.MaxTotalMemoryMB,
 		limits.MaxConcurrentShards,
 		limits.MaxConcurrentAPICalls,
-		limits.MaxSessionDurationMin,
 		limits.MaxFactsInKernel,
 		limits.MaxDerivedFactsLimit,
 	}
-	want := []int{8192, 4, 3, 60, 50000, 20000}
+	want := []int{8192, 4, 3, 50000, 20000}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("%s = %d, want %d", names[i], got[i], want[i])
@@ -127,7 +124,7 @@ func TestRemovedConfigKeys_FailLoudly(t *testing.T) {
 			if !strings.Contains(err.Error(), key) {
 				t.Fatalf("error does not name the removed key %q: %v", key, err)
 			}
-			if !strings.Contains(err.Error(), "removed tool-budget key") {
+			if !strings.Contains(err.Error(), "no longer a supported key") {
 				t.Fatalf("error does not say the key was removed: %v", err)
 			}
 			if !strings.Contains(err.Error(), "delete the key") {

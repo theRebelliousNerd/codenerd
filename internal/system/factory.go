@@ -1786,11 +1786,10 @@ func (s browserKernelSink) AddFacts(facts []mangle.Fact) error {
 func initShardManagement(bctx *bootContext) error {
 	coreLimits := bctx.appCfg.GetCoreLimits()
 	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
-		MaxTotalMemoryMB:      coreLimits.MaxTotalMemoryMB,
-		MaxConcurrentShards:   coreLimits.MaxConcurrentShards,
-		MaxSessionDurationMin: coreLimits.MaxSessionDurationMin,
-		MaxFactsInKernel:      coreLimits.MaxFactsInKernel,
-		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
+		MaxTotalMemoryMB:     coreLimits.MaxTotalMemoryMB,
+		MaxConcurrentShards:  coreLimits.MaxConcurrentShards,
+		MaxFactsInKernel:     coreLimits.MaxFactsInKernel,
+		MaxDerivedFactsLimit: coreLimits.MaxDerivedFactsLimit,
 	})
 	bctx.shardManager.SetLimitsEnforcer(limitsEnforcer)
 

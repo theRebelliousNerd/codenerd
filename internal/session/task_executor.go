@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	appconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
@@ -391,15 +390,16 @@ func (j *JITExecutor) SpawnConsultation(ctx context.Context, specialistName, tas
 func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext) (string, error) {
 	logging.Session("JITExecutor.ExecuteAsync: intent=%s", req.IntentVerb)
 
-	// Spawn subagent via Spawner. Timeout comes from the central LLM timeout
-	// config (user-tunable) instead of a hardcoded magic number.
+	// Spawn subagent via Spawner. No Timeout: the task runs under the caller's
+	// context (the user's --timeout, when set) and stops when the working
+	// policy derives a stall, never on a clock of the harness's own (the
+	// 30-minute shard ceiling was removed 2026-09-19).
 	spawnReq := SpawnRequest{
 		Name:           j.intentToAgentName(req.IntentVerb),
 		Task:           req.TaskText(),
 		Type:           SubAgentTypeEphemeral,
 		IntentVerb:     req.IntentVerb,
 		IntentTarget:   req.Target,
-		Timeout:        appconfig.GetLLMTimeouts().ShardExecutionTimeout,
 		SessionContext: sessionCtx,
 	}
 	// Spawner.Spawn() creates the agent. We must manually start it after tracking

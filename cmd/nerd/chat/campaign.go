@@ -45,14 +45,8 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			return campaignErrorMsg{err: fmt.Errorf("system not ready: shard manager not initialized")}
 		}
 
-		// Use shutdown context if available, otherwise create a new one
-		var ctx context.Context
-		var cancel context.CancelFunc
-		if m.shutdownCtx != nil {
-			ctx, cancel = context.WithTimeout(m.shutdownCtx, config.GetLLMTimeouts().CampaignPhaseTimeout)
-		} else {
-			ctx, cancel = context.WithTimeout(context.Background(), config.GetLLMTimeouts().CampaignPhaseTimeout)
-		}
+		// The session's context: quitting cancels the campaign; no phase clock.
+		ctx, cancel := m.sessionOperationContext()
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)
 		}

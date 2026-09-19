@@ -9,7 +9,7 @@ import (
 //
 // Why this type exists separately from LLMTimeouts: the runtime struct uses
 // time.Duration, which encoding/json marshals as an integer count of
-// NANOSECONDS ("shard_execution_timeout": 1800000000000). That is unreadable
+// NANOSECONDS ("per_call_timeout": 600000000000). That is unreadable
 // and effectively unwritable by hand, so the config surface takes strings that
 // time.ParseDuration understands ("30m", "90s", "1500ms").
 //
@@ -47,25 +47,17 @@ type LLMTimeoutsConfig struct {
 	// distinguishable from "key absent, use the profile value".
 	MaxRetries *int `json:"max_retries,omitempty"`
 
-	// --- Tier 2: operation ---
+	// --- single-call operations ---
 
-	// ShardExecutionTimeout bounds one shard's full run.
-	ShardExecutionTimeout string `json:"shard_execution_timeout,omitempty"`
-	// ArticulationTimeout bounds the articulation transducer.
+	// ArticulationTimeout bounds one articulation transducer call.
 	ArticulationTimeout string `json:"articulation_timeout,omitempty"`
-	// FollowUpTimeout bounds a follow-up turn.
+	// FollowUpTimeout bounds one follow-up call.
 	FollowUpTimeout string `json:"follow_up_timeout,omitempty"`
-	// OuroborosTimeout bounds the tool-generation pipeline.
-	OuroborosTimeout string `json:"ouroboros_timeout,omitempty"`
-	// DocumentProcessingTimeout bounds document ingestion/refresh.
-	DocumentProcessingTimeout string `json:"document_processing_timeout,omitempty"`
 
-	// --- Tier 3: campaign ---
-
-	// CampaignPhaseTimeout bounds one campaign phase.
-	CampaignPhaseTimeout string `json:"campaign_phase_timeout,omitempty"`
-	// OODALoopTimeout bounds one full Observe-Orient-Decide-Act loop.
-	OODALoopTimeout string `json:"ooda_loop_timeout,omitempty"`
+	// There is no key here that bounds a run. shard_execution_timeout,
+	// ooda_loop_timeout, campaign_phase_timeout, document_processing_timeout
+	// and ouroboros_timeout were removed on 2026-09-19; removedLLMTimeoutKeys
+	// rejects them by name at load.
 }
 
 // baseProfile returns the starting timeouts for the named profile.
@@ -124,13 +116,8 @@ func (c *LLMTimeoutsConfig) Resolve() (LLMTimeouts, error) {
 		{"retry_backoff_base", c.RetryBackoffBase, &t.RetryBackoffBase},
 		{"retry_backoff_max", c.RetryBackoffMax, &t.RetryBackoffMax},
 		{"rate_limit_delay", c.RateLimitDelay, &t.RateLimitDelay},
-		{"shard_execution_timeout", c.ShardExecutionTimeout, &t.ShardExecutionTimeout},
 		{"articulation_timeout", c.ArticulationTimeout, &t.ArticulationTimeout},
 		{"follow_up_timeout", c.FollowUpTimeout, &t.FollowUpTimeout},
-		{"ouroboros_timeout", c.OuroborosTimeout, &t.OuroborosTimeout},
-		{"document_processing_timeout", c.DocumentProcessingTimeout, &t.DocumentProcessingTimeout},
-		{"campaign_phase_timeout", c.CampaignPhaseTimeout, &t.CampaignPhaseTimeout},
-		{"ooda_loop_timeout", c.OODALoopTimeout, &t.OODALoopTimeout},
 	}
 	for _, f := range fields {
 		if err := applyDuration(f.name, f.raw, f.dst); err != nil {

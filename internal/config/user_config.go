@@ -536,7 +536,8 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	// Named rejection first: the strict decoder below would refuse a removed
 	// key as a generic unknown field, which reads like a typo and says nothing
 	// about the behaviour change behind it. One entry point for every removed
-	// key (core_limits' tool-budget keys from S3, features' diff_eval from S23).
+	// key (core_limits' tool-budget keys from S3, features' diff_eval from S23,
+	// the run-level wall clocks removed 2026-09-19).
 	if err := rejectRemovedKeys(data); err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
@@ -583,9 +584,9 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	SetLLMTimeouts(timeouts)
 	if cfg.LLMTimeouts != nil {
 		logging.Get(logging.CategoryBoot).Info(
-			"LLM timeouts: profile=%q ooda=%s shard=%s per_call=%s max_retries=%d",
-			cfg.LLMTimeouts.Profile, timeouts.OODALoopTimeout, timeouts.ShardExecutionTimeout,
-			timeouts.PerCallTimeout, timeouts.MaxRetries)
+			"LLM timeouts: profile=%q http=%s per_call=%s streaming=%s max_retries=%d",
+			cfg.LLMTimeouts.Profile, timeouts.HTTPClientTimeout, timeouts.PerCallTimeout,
+			timeouts.StreamingTimeout, timeouts.MaxRetries)
 	}
 
 	return cfg, nil
@@ -1241,9 +1242,8 @@ func (c *UserConfig) GetShardProfile(shardType string) ShardProfile {
 	// Ultimate fallback - sensible defaults. Sampling is left unset so the
 	// client's own default applies (see ShardProfile.Temperature).
 	return ShardProfile{
-		MaxExecutionTimeSec: 300,
-		MaxRetries:          3,
-		EnableLearning:      true,
+		MaxRetries:     3,
+		EnableLearning: true,
 	}
 }
 
@@ -1265,9 +1265,6 @@ func (c *UserConfig) GetCoreLimits() CoreLimits {
 	}
 	if limits.MaxConcurrentAPICalls == 0 {
 		limits.MaxConcurrentAPICalls = def.MaxConcurrentAPICalls
-	}
-	if limits.MaxSessionDurationMin == 0 {
-		limits.MaxSessionDurationMin = def.MaxSessionDurationMin
 	}
 	if limits.MaxFactsInKernel == 0 {
 		limits.MaxFactsInKernel = def.MaxFactsInKernel

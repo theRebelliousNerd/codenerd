@@ -2,8 +2,6 @@ package config
 
 import (
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 )
 
@@ -12,63 +10,20 @@ type CoreLimits struct {
 	MaxTotalMemoryMB      int `yaml:"max_total_memory_mb" json:"max_total_memory_mb"`           // Total RAM limit
 	MaxConcurrentShards   int `yaml:"max_concurrent_shards" json:"max_concurrent_shards"`       // Max parallel shards
 	MaxConcurrentAPICalls int `yaml:"max_concurrent_api_calls" json:"max_concurrent_api_calls"` // Max simultaneous LLM API calls
-	MaxSessionDurationMin int `yaml:"max_session_duration_min" json:"max_session_duration_min"` // Auto-save interval
 	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel"`           // EDB size limit
 	MaxDerivedFactsLimit  int `yaml:"max_derived_facts_limit" json:"max_derived_facts_limit"`   // Mangle gas limit (Bug #17)
 
-	// There is deliberately no tool-call or tool-round limit here. Until
-	// 2026-09-18 this struct carried max_tool_calls, max_tool_iterations,
-	// adaptive_tool_budget, tool_iteration_extension_size,
-	// max_tool_iteration_extensions and tool_loop_repeat_threshold. A turn now
-	// continues while the working policy (internal/context/working_set.mg)
-	// derives no working_stop over the facts the tool loop asserts, and it is
-	// bounded only by the user's wall-clock constraints (llm_timeouts,
-	// max_session_duration_min). removedToolBudgetKeys rejects the old keys by
+	// There is deliberately no tool-call, tool-round or session-time limit
+	// here. Until 2026-09-18 this struct carried max_tool_calls,
+	// max_tool_iterations, adaptive_tool_budget, tool_iteration_extension_size,
+	// max_tool_iteration_extensions and tool_loop_repeat_threshold, and until
+	// 2026-09-19 max_session_duration_min (a 2-hour session ceiling that
+	// nothing called yet). A turn continues while the working policy
+	// (internal/context/working_set.mg) derives no working_stop over the facts
+	// the tool loop asserts; the only wall clock on a run is the user's own
+	// --timeout. removedCoreLimitKeys (removed_keys.go) rejects the old keys by
 	// name so a config that still sets one fails to load instead of silently
 	// meaning nothing.
-}
-
-// removedToolBudgetKeys are core_limits keys deleted on 2026-09-18 when the
-// tool loop stopped being bounded by counts. They are rejected by name, with
-// the reason, rather than ignored: an ignored key is a user believing they
-// still have a ceiling that no longer exists.
-//
-// This is not a compatibility path. Nothing decodes, stores or honours these;
-// the load fails and the message says what to delete.
-var removedToolBudgetKeys = map[string]string{
-	"max_tool_calls":                "no count of tool calls ends a turn; delete the key",
-	"max_tool_iterations":           "no count of rounds ends a turn; delete the key",
-	"adaptive_tool_budget":          "there is no ceiling left to extend; delete the key",
-	"tool_iteration_extension_size": "there is no ceiling left to extend; delete the key",
-	"max_tool_iteration_extensions": "there is no ceiling left to extend; delete the key",
-	"tool_loop_repeat_threshold":    "the repeat span is policy: working_repeat_threshold in internal/context/working_set.mg; delete the key",
-}
-
-// rejectRemovedCoreLimitKeys names any deleted tool-budget key the user still
-// sets under core_limits. It runs before the strict decoder, whose own message
-// for an unknown field ("json: unknown field ...") names the key but not why
-// it is gone or what took its place. Returns nil when none are set.
-func rejectRemovedCoreLimitKeys(present map[string]bool) error {
-	if len(present) == 0 {
-		return nil
-	}
-	found := make([]string, 0, len(removedToolBudgetKeys))
-	for key := range removedToolBudgetKeys {
-		if present[key] {
-			found = append(found, key)
-		}
-	}
-	if len(found) == 0 {
-		return nil
-	}
-	sort.Strings(found)
-	details := make([]string, 0, len(found))
-	for _, key := range found {
-		details = append(details, fmt.Sprintf("%q (%s)", key, removedToolBudgetKeys[key]))
-	}
-	return fmt.Errorf(
-		"core_limits sets %d removed tool-budget key(s): %s. The tool loop is bounded by the working policy, not by counts; remove them from .nerd/config.json",
-		len(found), strings.Join(details, ", "))
 }
 
 // APISchedulerPolicy is user-facing configuration for the cooperative LLM API
@@ -149,7 +104,6 @@ func DefaultCoreLimits() *CoreLimits {
 		MaxTotalMemoryMB:      12288,
 		MaxConcurrentShards:   12,
 		MaxConcurrentAPICalls: 5,
-		MaxSessionDurationMin: 120,
 		MaxFactsInKernel:      2000000,
 		MaxDerivedFactsLimit:  5000000,
 	}

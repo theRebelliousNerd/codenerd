@@ -4,17 +4,15 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestLimitsEnforcer_CoverageExtra(t *testing.T) {
 	// 1. Test disabled limits (zeros)
 	cfgZero := LimitsConfig{
-		MaxTotalMemoryMB:      0,
-		MaxConcurrentShards:   0,
-		MaxSessionDurationMin: 0,
-		MaxFactsInKernel:      100,
-		MaxDerivedFactsLimit:  200,
+		MaxTotalMemoryMB:     0,
+		MaxConcurrentShards:  0,
+		MaxFactsInKernel:     100,
+		MaxDerivedFactsLimit: 200,
 	}
 	leZero := NewLimitsEnforcer(cfgZero)
 
@@ -23,16 +21,6 @@ func TestLimitsEnforcer_CoverageExtra(t *testing.T) {
 	}
 	if util := leZero.GetMemoryUtilization(); util != 0.0 {
 		t.Errorf("expected memory utilization 0.0 when disabled, got: %f", util)
-	}
-
-	if err := leZero.CheckSessionDuration(); err != nil {
-		t.Errorf("expected no session error when disabled, got: %v", err)
-	}
-	if util := leZero.GetSessionUtilization(); util != 0.0 {
-		t.Errorf("expected session utilization 0.0 when disabled, got: %f", util)
-	}
-	if rem := leZero.RemainingSessionTime(); rem <= 24*time.Hour {
-		t.Errorf("expected near infinite remaining session time, got: %v", rem)
 	}
 
 	if err := leZero.CheckShardLimit(100); err != nil {
@@ -51,9 +39,8 @@ func TestLimitsEnforcer_CoverageExtra(t *testing.T) {
 
 	// 2. Test Callback executions on limits triggered
 	cfgTrigger := LimitsConfig{
-		MaxTotalMemoryMB:      1, // Extremely low
-		MaxConcurrentShards:   2,
-		MaxSessionDurationMin: 10,
+		MaxTotalMemoryMB:    1, // Extremely low
+		MaxConcurrentShards: 2,
 	}
 	leTrigger := NewLimitsEnforcer(cfgTrigger)
 
@@ -68,23 +55,6 @@ func TestLimitsEnforcer_CoverageExtra(t *testing.T) {
 	}
 	if !memoryViolated {
 		t.Error("expected memory violation callback to be triggered")
-	}
-
-	// Session timeout callback
-	leTrigger.SetSessionStart(time.Now().Add(-20 * time.Minute))
-	sessionTimeoutCalled := false
-	leTrigger.OnSessionTimeout(func(elapsed, limit time.Duration) {
-		sessionTimeoutCalled = true
-	})
-	err = leTrigger.CheckSessionDuration()
-	if err == nil || !errors.Is(err, ErrSessionTimeout) {
-		t.Errorf("expected ErrSessionTimeout, got: %v", err)
-	}
-	if !sessionTimeoutCalled {
-		t.Error("expected session timeout callback to be triggered")
-	}
-	if rem := leTrigger.RemainingSessionTime(); rem != 0 {
-		t.Errorf("expected remaining session time 0 when expired, got: %v", rem)
 	}
 
 	// Shard limit callback
@@ -148,32 +118,18 @@ func TestLimitsEnforcer_CoverageExtra(t *testing.T) {
 func TestLimitsEnforcer_ExtraCornerCases(t *testing.T) {
 	// Trigger CheckAll memory error
 	cfgTrigger := LimitsConfig{
-		MaxTotalMemoryMB:      1,
-		MaxConcurrentShards:   2,
-		MaxSessionDurationMin: 10,
+		MaxTotalMemoryMB:    1,
+		MaxConcurrentShards: 2,
 	}
 	leTrigger := NewLimitsEnforcer(cfgTrigger)
 	if err := leTrigger.CheckAll(0); err == nil || !errors.Is(err, ErrMemoryLimitExceeded) {
 		t.Errorf("expected ErrMemoryLimitExceeded in CheckAll, got: %v", err)
 	}
 
-	// Trigger CheckAll session timeout error
-	cfgSession := LimitsConfig{
-		MaxTotalMemoryMB:      999999,
-		MaxConcurrentShards:   10,
-		MaxSessionDurationMin: 10,
-	}
-	leSession := NewLimitsEnforcer(cfgSession)
-	leSession.SetSessionStart(time.Now().Add(-20 * time.Minute))
-	if err := leSession.CheckAll(0); err == nil || !errors.Is(err, ErrSessionTimeout) {
-		t.Errorf("expected ErrSessionTimeout in CheckAll, got: %v", err)
-	}
-
 	// Trigger CheckAll shard limit error
 	cfgShard := LimitsConfig{
-		MaxTotalMemoryMB:      999999,
-		MaxConcurrentShards:   2,
-		MaxSessionDurationMin: 10,
+		MaxTotalMemoryMB:    999999,
+		MaxConcurrentShards: 2,
 	}
 	leShard := NewLimitsEnforcer(cfgShard)
 	if err := leShard.CheckAll(2); err == nil || !errors.Is(err, ErrTooManyShards) {

@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"codenerd/internal/config"
 	"codenerd/internal/session"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/usage"
@@ -155,7 +154,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 	for turn, ok := src.Next(); ok; turn, ok = src.Next() {
 		turnNum++
 		fmt.Printf("── turn %d ──\n%s\n", turnNum, turn)
-		turnCtx, turnCancel := context.WithTimeout(processCtx, config.GetLLMTimeouts().OODALoopTimeout)
+		turnCtx, turnCancel := context.WithCancel(processCtx)
 		stopHeartbeat := startHeartbeat(os.Stdout, heartbeatInterval)
 		start := time.Now()
 		result, procErr := cortex.SessionExecutor.Process(turnCtx, turn)

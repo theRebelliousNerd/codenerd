@@ -19,7 +19,6 @@ func TestValidateCoreLimits(t *testing.T) {
 		MaxTotalMemoryMB:      1024,
 		MaxConcurrentShards:   4,
 		MaxConcurrentAPICalls: 2,
-		MaxSessionDurationMin: 30,
 		MaxFactsInKernel:      10000,
 		MaxDerivedFactsLimit:  10000,
 	}

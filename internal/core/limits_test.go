@@ -2,7 +2,6 @@ package core
 
 import (
 	"testing"
-	"time"
 )
 
 func TestLimitsEnforcer_New(t *testing.T) {
@@ -23,10 +22,6 @@ func TestDefaultLimitsConfig(t *testing.T) {
 
 	if cfg.MaxConcurrentShards <= 0 {
 		t.Errorf("Expected positive MaxConcurrentShards, got %d", cfg.MaxConcurrentShards)
-	}
-
-	if cfg.MaxSessionDurationMin <= 0 {
-		t.Errorf("Expected positive MaxSessionDurationMin, got %d", cfg.MaxSessionDurationMin)
 	}
 }
 
@@ -51,30 +46,6 @@ func TestLimitsEnforcer_GetMemoryUsage(t *testing.T) {
 	}
 
 	t.Logf("Current memory usage: %d MB", usage)
-}
-
-func TestLimitsEnforcer_CheckSessionDuration(t *testing.T) {
-	cfg := DefaultLimitsConfig()
-	cfg.MaxSessionDurationMin = 60 // 60 minutes
-
-	enforcer := NewLimitsEnforcer(cfg)
-
-	err := enforcer.CheckSessionDuration()
-	if err != nil {
-		t.Errorf("Unexpected session timeout: %v", err)
-	}
-}
-
-func TestLimitsEnforcer_SetSessionStart(t *testing.T) {
-	enforcer := NewLimitsEnforcer(DefaultLimitsConfig())
-
-	pastTime := time.Now().Add(-1 * time.Hour)
-	enforcer.SetSessionStart(pastTime)
-
-	duration := enforcer.GetSessionDuration()
-	if duration < time.Hour {
-		t.Errorf("Expected duration >= 1 hour, got %v", duration)
-	}
 }
 
 func TestLimitsEnforcer_CheckShardLimit(t *testing.T) {
@@ -133,33 +104,14 @@ func TestLimitsEnforcer_EstimateCapacity(t *testing.T) {
 	}
 }
 
-func TestLimitsEnforcer_RemainingSessionTime(t *testing.T) {
-	cfg := DefaultLimitsConfig()
-	cfg.MaxSessionDurationMin = 60
-
-	enforcer := NewLimitsEnforcer(cfg)
-
-	remaining := enforcer.RemainingSessionTime()
-
-	// Should have most of the 60 minutes remaining
-	if remaining < 55*time.Minute {
-		t.Logf("Remaining time: %v (may be less if session started earlier)", remaining)
-	}
-}
-
 func TestLimitsEnforcer_Callbacks(t *testing.T) {
 	enforcer := NewLimitsEnforcer(DefaultLimitsConfig())
 
 	memoryCalled := false
-	sessionCalled := false
 	shardCalled := false
 
 	enforcer.OnMemoryViolation(func(used, limit int) {
 		memoryCalled = true
-	})
-
-	enforcer.OnSessionTimeout(func(elapsed, limit time.Duration) {
-		sessionCalled = true
 	})
 
 	enforcer.OnShardViolation(func(active, limit int) {
@@ -167,6 +119,6 @@ func TestLimitsEnforcer_Callbacks(t *testing.T) {
 	})
 
 	// Just verify callbacks can be set (they'll be called on violations)
-	t.Logf("Callbacks set: memory=%v, session=%v, shard=%v",
-		memoryCalled, sessionCalled, shardCalled)
+	t.Logf("Callbacks set: memory=%v, shard=%v",
+		memoryCalled, shardCalled)
 }
