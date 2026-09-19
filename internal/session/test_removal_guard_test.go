@@ -25,27 +25,68 @@ func TestRemovedTestFunctions_DetectsDeletion(t *testing.T) {
 	}
 }
 
-func TestRemovedTestFunctions_MovedTestIsNotRemoved(t *testing.T) {
+// guardWorkspace writes files (slash paths) under a fresh workspace.
+func guardWorkspace(t *testing.T, files map[string]string) string {
+	t.Helper()
 	ws := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(ws, "a"), 0o755); err != nil {
-		t.Fatalf("mkdir a: %v", err)
+	for rel, content := range files {
+		path := filepath.Join(ws, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.MkdirAll(filepath.Join(ws, "b"), 0o755); err != nil {
-		t.Fatalf("mkdir b: %v", err)
+	return ws
+}
+
+const (
+	guardPreA = "package a\n\nimport \"testing\"\n\nfunc TestKept(t *testing.T) {}\n\nfunc TestContract(t *testing.T) {}\n"
+	guardNowA = "package a\n\nimport \"testing\"\n\nfunc TestKept(t *testing.T) {}\n"
+)
+
+// External audit F6 (2026-09-19): deleting alpha.TestContract was accepted
+// because an unrelated beta.TestContract existed. A namesake in another
+// package is a different test; the deletion is a deletion.
+func TestRemovedTestFunctions_ANamesakeInAnotherPackageIsNotAMove(t *testing.T) {
+	ws := guardWorkspace(t, map[string]string{
+		"a/x_test.go": guardNowA,
+		"b/y_test.go": "package b\n\nimport \"testing\"\n\nfunc TestContract(t *testing.T) {}\n",
+	})
+	got := removedTestFunctions(ws, []string{"a/x_test.go"}, map[string]PreImage{"a/x_test.go": existed(guardPreA)})
+	if want := []string{"a/x_test.go:TestContract"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("removedTestFunctions = %v, want %v", got, want)
 	}
-	nowA := "package a\n\nimport \"testing\"\n\nfunc TestKept(t *testing.T) {}\n"
-	if err := os.WriteFile(filepath.Join(ws, "a", "x_test.go"), []byte(nowA), 0o644); err != nil {
-		t.Fatalf("write x_test.go: %v", err)
+}
+
+// A test that moved to another file of its own package is not removed --
+// including the package's external test package, which go test runs with it.
+func TestRemovedTestFunctions_AMoveWithinThePackageIsNotRemoved(t *testing.T) {
+	for name, movedTo := range map[string]string{
+		"same package":          "package a\n\nimport \"testing\"\n\nfunc TestContract(t *testing.T) {}\n",
+		"external test package": "package a_test\n\nimport \"testing\"\n\nfunc TestContract(t *testing.T) {}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			ws := guardWorkspace(t, map[string]string{"a/x_test.go": guardNowA, "a/z_test.go": movedTo})
+			got := removedTestFunctions(ws, []string{"a/x_test.go"}, map[string]PreImage{"a/x_test.go": existed(guardPreA)})
+			if len(got) != 0 {
+				t.Fatalf("removedTestFunctions = %v, want empty: the test moved within its package", got)
+			}
+		})
 	}
-	moved := "package b\n\nimport \"testing\"\n\nfunc TestMoved(t *testing.T) {}\n"
-	if err := os.WriteFile(filepath.Join(ws, "b", "y_test.go"), []byte(moved), 0o644); err != nil {
-		t.Fatalf("write y_test.go: %v", err)
-	}
-	pre := "package a\n\nimport \"testing\"\n\nfunc TestKept(t *testing.T) {}\n\nfunc TestMoved(t *testing.T) {}\n"
-	preWrite := map[string]PreImage{filepath.Join("a", "x_test.go"): existed(pre)}
-	got := removedTestFunctions(ws, []string{filepath.Join("a", "x_test.go")}, preWrite)
-	if len(got) != 0 {
-		t.Fatalf("removedTestFunctions = %v, want empty", got)
+}
+
+// A copy behind a build constraint the default build excludes does not run:
+// "moving" a test there removes it.
+func TestRemovedTestFunctions_ACopyTheBuildExcludesIsRemoved(t *testing.T) {
+	ws := guardWorkspace(t, map[string]string{
+		"a/x_test.go": guardNowA,
+		"a/z_test.go": "//go:build ignore\n\npackage a\n\nimport \"testing\"\n\nfunc TestContract(t *testing.T) {}\n",
+	})
+	got := removedTestFunctions(ws, []string{"a/x_test.go"}, map[string]PreImage{"a/x_test.go": existed(guardPreA)})
+	if want := []string{"a/x_test.go:TestContract"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("removedTestFunctions = %v, want %v", got, want)
 	}
 }
 

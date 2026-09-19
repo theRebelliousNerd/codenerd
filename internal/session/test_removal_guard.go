@@ -2,9 +2,9 @@ package session
 
 import (
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,19 +14,65 @@ import (
 // removedTestFunctions reports test functions that existed in a file the
 // turn wrote before the turn and are gone from the workspace afterwards.
 // A test is the contract for behaviour; a turn that makes the gates green
-// by removing one has not fixed anything. A test that moved — the same
-// name is in some other _test.go under the workspace — is not removed.
+// by removing one has not fixed anything.
+//
+// A test that moved is not removed, and a test moves within its package: the
+// same name in another _test.go file of the same directory that the default
+// build includes. A namesake in another package is a different test (external
+// audit F6, 2026-09-19: deleting alpha.TestContract was accepted because an
+// unrelated beta.TestContract existed -- ordinary names like TestParse make
+// that the common case, not a contrivance), and a copy behind a build tag the
+// default build excludes does not run.
 func removedTestFunctions(workspace string, writtenPaths []string, preWrite map[string]PreImage) []string {
-	present := workspaceTestNames(workspace)
 	var out []string
+	inPackage := map[string]map[string]bool{}
 	for _, p := range writtenPaths {
-		for _, n := range missingInPath(workspace, p, preWrite) {
+		missing := missingInPath(workspace, p, preWrite)
+		if len(missing) == 0 {
+			continue
+		}
+		dir := filepath.Dir(diskPath(workspace, p))
+		present, ok := inPackage[dir]
+		if !ok {
+			present = packageTestNames(dir)
+			inPackage[dir] = present
+		}
+		for _, n := range missing {
 			if !present[n] {
 				out = append(out, p+":"+n)
 			}
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// packageTestNames is every test function of the package in dir as the
+// default build sees it: each _test.go file there that build.Default includes,
+// internal and external test packages alike (go test runs both).
+func packageTestNames(dir string) map[string]bool {
+	out := map[string]bool{}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if e.IsDir() || !isTestPath(e.Name()) {
+			continue
+		}
+		if included, err := build.Default.MatchFile(dir, e.Name()); err != nil || !included {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		if names, ok := parseTestNames(string(data)); ok {
+			for n := range names {
+				out[n] = true
+			}
+		}
+	}
 	return out
 }
 
@@ -252,70 +298,4 @@ func selNameIsTesting(name string) bool {
 		}
 	}
 	return false
-}
-
-func workspaceTestNames(workspace string) map[string]bool {
-	out := map[string]bool{}
-	_ = filepath.WalkDir(workspace, makeWalkFn(out))
-	return out
-}
-
-func makeWalkFn(out map[string]bool) fs.WalkDirFunc {
-	return func(path string, d fs.DirEntry, err error) error {
-		if skipWalkDir(d) {
-			return filepath.SkipDir
-		}
-		tryCollectTestFile(path, d, out)
-		return nil
-	}
-}
-
-func skipWalkDir(d fs.DirEntry) bool {
-	if d == nil {
-		return false
-	}
-	if !d.IsDir() {
-		return false
-	}
-	return skippedDirName(d.Name())
-}
-
-func skippedDirName(name string) bool {
-	for _, want := range []string{".git", ".nerd", "vendor", "node_modules"} {
-		if name == want {
-			return true
-		}
-	}
-	return false
-}
-
-func isCollectable(path string, d fs.DirEntry) bool {
-	if d == nil {
-		return false
-	}
-	if d.IsDir() {
-		return false
-	}
-	return isTestPath(path)
-}
-
-func tryCollectTestFile(path string, d fs.DirEntry, out map[string]bool) {
-	if !isCollectable(path, d) {
-		return
-	}
-	mergeFileTests(path, out)
-}
-
-func mergeFileTests(path string, out map[string]bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	names, ok := parseTestNames(string(data))
-	if !ok {
-		return
-	}
-	for n := range names {
-		out[n] = true
-	}
 }
