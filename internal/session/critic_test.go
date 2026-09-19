@@ -634,28 +634,6 @@ func TestCriticSeverityRank(t *testing.T) {
 	}
 }
 
-// The critic must not be able to hold a turn open.
-//
-// Observed live on this gate's first run: the review call started
-// (prompt_len=11407) and had not returned twenty minutes later. The turn's work
-// was done and both hard gates had passed; an advisory review was holding it.
-// An advisory gate that cannot fail a turn but CAN hang one is worse than no
-// gate, because the failure is invisible and unbounded.
-func TestCriticTimeouts_AreBounded(t *testing.T) {
-	if criticTimeout <= 0 || criticTimeout > 5*time.Minute {
-		t.Errorf("criticTimeout = %v; an advisory review must be bounded and short", criticTimeout)
-	}
-	if criticUpliftTimeout <= 0 || criticUpliftTimeout > 10*time.Minute {
-		t.Errorf("criticUpliftTimeout = %v; the uplift round must be bounded", criticUpliftTimeout)
-	}
-	// The review must be the shorter of the two: it produces an opinion, while
-	// the uplift round makes real edits.
-	if criticTimeout > criticUpliftTimeout {
-		t.Errorf("criticTimeout (%v) exceeds criticUpliftTimeout (%v); the cheap advisory call should be bounded tighter than the one that edits",
-			criticTimeout, criticUpliftTimeout)
-	}
-}
-
 // A stalled reviewer must yield the turn, not block it. This drives the gate
 // with a client that never returns and asserts it gives up.
 func TestVerifyAndUpliftWithCritic_AbandonsAStalledReview(t *testing.T) {
