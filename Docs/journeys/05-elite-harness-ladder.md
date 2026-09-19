@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 16:35
+- last updated: 2026-09-19 17:07
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -47,7 +47,12 @@ the protocol for a run, and the status of each rung with the run that moved it.
   (N17) was stopped by the working policy (`read_only_stall`, 24 rounds, no edit) -- the harness's
   fault: the working focus froze on the last file read before the commit regime closed reading, so
   eleven recalls of the files it had to edit rendered another file's context each time (N21, fixed
-  `51e86c27`). The critic's own clocks are gone too (`8958ffb0`). Next: N17 again (R1-10), L3, N09.
+  `51e86c27`). The critic's own clocks are gone too (`8958ffb0`). R1-10 (N17 again) wrote 22 s after
+  reading closed and landed **assisted** (`2c373714`): the fix is codeNERD's, but its five tests
+  exercise the new helper and all pass with the fix reverted at its call sites -- the scenario
+  test the brief asked for was added by hand -- and it spans three files. The critic ran 4 min
+  51 s. Found: N22 (the forcing gate does not check that a turn's tests fail without its change)
+  and N23. Streak 0. Next: L3, then N09 again.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
@@ -242,3 +247,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 15:21 | R1 | a forcing round's Go never formatted (R1-7, N18) | nerd fix | **landed**: a second format pass at the end of the turn, before the closure re-measures the gates; a whole-turn test through ProcessWithIntent, failing at HEAD; build, vet, suite green. Nits: the early pass stays, its comment's "once" is stale | 19.7 | 57 | 2 | 24e9cc56 |
 | 2026-09-19 15:50 | R1 | get_element shared method names (R1-8, N09) | nerd fix | not landed, reverted: `/unverified` (12 changed blocks no test executes; the coverage round gave up) and true. Review: `A.Close`/`B.Close` reach their elements and a bare name over two receivers is refused; but a function `Close` beside a method `A.Close` is reached by no name (HEAD reached it), and Python/JS methods sharing a name are reached by none. The critic was cut at 3 minutes | 27.0 | 56 | 4 | reverted |
 | 2026-09-19 16:19 | R1 | the commit regime's sentence sent twice (R1-9, N17) | nerd fix | failed: `working_stop(/read_only_stall)`, 24 rounds, nothing written. It located the fix and read the harnesses; reading closed with its last read on `working_meter.go`, and eleven recalls of `build_verify.go`, `repair_loop.go` and neighbours each rendered `working_meter.go`'s context. Harness blocker N21, fixed `51e86c27` | 4.5 | 35 | 0 | -- |
+| 2026-09-19 16:34 | R1 | the commit regime's sentence sent twice, again (R1-10, N17) | nerd fix | **landed, assisted**: an idempotent append at both call sites; `/done`, suite green; its five tests pass with the fix reverted at the call sites, so the brief's scenario test was added by hand (fails with them reverted). Three files: not an R1 fix | 24.8 | 78 | 4 | 2c373714 |

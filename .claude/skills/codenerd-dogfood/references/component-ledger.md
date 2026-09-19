@@ -4947,3 +4947,43 @@ saves nothing under the old focus. The same brief runs again next (R1-10).
 - The stall stop worked as designed: a change task that could not reach a write was stopped by the
   policy, and the verdict said why.
 - Rung-level: streak 0.
+
+## R1-10, N17's brief again on the focus fix: the fix lands, its tests pin the helper and not the behaviour -- assisted (2026-09-19, 16:34-16:59)
+
+Binary from `584dd4b3` (N21's focus-follows-recall and the critic without its clocks in). Brief
+unchanged from R1-9.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 24.8 | 78 (43 recall_context, 21 read_file, 7 grep, 2 edit_lines, 1 each write_file, insert_lines, search_code, search_expand, glob) | rc=0, `/done`, `checks_passed` -- **landed, assisted**, `2c373714` (the behavioural test added by hand) | 53, mean 43.7k, peak 64.4k, 2.32M total (1.28M cached by the provider), 64.9k out | `working_meter.go` +18, `repair_loop.go` and `build_verify.go` one line each, `working_meter_regime_test.go` +92 (and `regime_resend_test.go` +95 by hand) |
+
+**What it did.** Reading closed after 31 tool calls (16:37:19); 22 seconds later it made its first
+edit -- where R1-9 had recalled for eleven rounds and stalled. `withRegimePrompt` appends the regime
+text only when the prompt does not already carry it, and both appends -- the repair loop's and the
+round's re-send -- use it. Build and tests green. The critic ran **4 min 51 s** (R1-8's, an hour
+earlier, was cut at 3 minutes) and reported three findings: the helper's uncovered empty-regime branch (the
+coverage round answered it), and two in code the change did not touch (below). The coverage round
+converged after 2 attempts; 43 recalls over the run.
+
+**Reviewed.** My probe of the brief's scenario -- the build repair loop driven by a model that only
+reads, every message counted -- passes with the change (18 requests, 48 messages carrying the
+sentence once) and fails at HEAD (twice from the 8th request on). Criterion 3 is not met by
+codeNERD's own tests: all five exercise `withRegimePrompt` directly and **pass with the two call
+sites reverted** to the blind append; the brief asked for a test of the repair round. The scenario
+test is added by hand (`regime_resend_test.go`); with it, fail-before holds. Criterion 7: nothing
+made worse. Three files for a fix the ladder counts as R1 (one file): it would not advance R1's
+streak even clean.
+
+**Harness observations.**
+- N21's fix held: the run wrote 22 seconds after reading closed.
+- H1's fix held: the review ran 4 min 51 s and was worth reading.
+- **N22, the forcing gate does not check that a turn's tests fail without its change.** Coverage
+  counts executed lines; a unit test of a new helper executes every line while the behaviour the
+  helper exists for stays unpinned. The reviewer's fail-before check -- revert the production
+  change, run the new tests -- is mechanical: the executor holds each written file's preimage, and
+  `go test -overlay` can run the turn's tests against the preimages without touching the tree.
+- **N23 (critic, pre-existing code):** in the test repair round's recheck, `result.BuildCheck` is
+  set on a failed build and never on a passing one, so a later attempt that fixes the build leaves
+  the failure recorded until the closure re-measures; and the round logs "giving the model one
+  repair round" while it runs up to the repair budget's attempts. One file, a codeNERD brief.
+- Rung-level: streak 0 (assisted, and three files).

@@ -98,6 +98,17 @@ becoming stale, or detached from the mutations it is supposed to describe.
   so once reading closed the focus stayed on the last file read. R1-9 recalled the files it had to
   edit eleven times while every request rendered `working_meter.go`, and stalled. Landed
   `51e86c27`: a recall moves the focus to the recalled record's file.
+- **N22 the forcing gate does not check that a turn's tests fail without its change.** Coverage
+  counts executed lines; a unit test of a new helper executes every line while the behaviour the
+  helper exists for stays unpinned. R1-10's five tests passed with its fix reverted at the call
+  sites. The reviewer's fail-before check is mechanical: the executor holds each written file's
+  preimage, and `go test -overlay` can run the turn's new tests against the preimages without
+  touching the tree. Open, hand-built (the completion gate).
+- **N23 the test repair round keeps a stale build failure.** Its recheck sets `result.BuildCheck`
+  on a failed build and never on a passing one, so a later attempt that fixes the build leaves the
+  failure recorded until the closure re-measures; and the round logs "giving the model one repair
+  round" while it runs up to the repair budget's attempts. Found by R1-10's critic in code the
+  change did not touch. One file, a codeNERD brief.
 - **N19 the working request drops history before the first kept round.** `prepareWorkingRequest`
   (`working_context.go`) sends the loop's anchor and history from the earliest kept assistant
   tool-call round onward; a user message with no tool round before it is not sent. Every production
@@ -153,5 +164,5 @@ read, or a run where one is named). It is not a reproduction unless the row says
 | N14 | P2 | Co-use statistics settle every nil-error turn as success, `/unverified` included | `executor.go:913-917` | codeNERD brief | open |
 | N15 | P2 | The impacted-test provider is process-global, last workspace wins | `run_impacted_tests.go:63-98` | R2 | open |
 | N16 | P2 | A contained symlink stops snapshot certification (fail-closed, a capability limit) | `change.go:173-174` | decision (Steve) | open |
-| N17 | P3 | Under the commit regime a repair round's re-sent demand carries the regime sentence twice | R1-5's coverage round (llm_io 14:43:28); `repair_loop.go` and `build_verify.go` each append it | codeNERD brief | open: R1-9 stalled on N21 (fixed); R1-10 runs the brief again |
+| N17 | P3 | Under the commit regime a repair round's re-sent demand carries the regime sentence twice | R1-5's coverage round (llm_io 14:43:28); `repair_loop.go` and `build_verify.go` each append it | codeNERD brief | **landed `2c373714`** by codeNERD (ladder R1-10, assisted: the scenario test by hand) |
 | N18 | P2 | Go written by the test, coverage, vet and critic rounds is never gofmt'd; the turn still reports `checks_passed` | R1-5 (one `gofmt: formatted` line, 14:38, before the coverage round's insert at 14:44) | codeNERD brief | **landed `24e9cc56`** by codeNERD (ladder R1-7) |
