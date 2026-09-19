@@ -2,6 +2,7 @@ package shell
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,5 +109,54 @@ func TestTypedVerification_NoRunnerIsAnError(t *testing.T) {
 	_, err := executeTypedVerification(shellWsCtx(root), map[string]any{"working_dir": root}, false)
 	if err == nil || !strings.Contains(err.Error(), "no supported project verification runner") {
 		t.Fatalf("want no-runner error, got %v", err)
+	}
+}
+
+// A build checks that the code compiles and changes nothing on disk — not
+// even for a single main package, where plain `go build` would drop an
+// executable next to the sources. Observed 2026-09-19: run_build on
+// ./cmd/nerd left a new nerd.exe in the repository root and rotated the
+// running binary aside as nerd.exe~.
+func TestTypedVerification_BuildLeavesNothingOnDisk(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module buildclean\n\ngo 1.22\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func() map[string]bool {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := map[string]bool{}
+		for _, e := range entries {
+			names[e.Name()] = true
+		}
+		return names
+	}
+	for _, pkgs := range []any{nil, []any{"."}} {
+		args := map[string]any{"working_dir": root}
+		if pkgs != nil {
+			args["packages"] = pkgs
+		}
+		before := snapshot()
+		if _, err := executeTypedVerification(shellWsCtx(root), args, false); err != nil {
+			t.Fatalf("packages %v: %v", pkgs, err)
+		}
+		after := snapshot()
+		for name := range after {
+			if !before[name] {
+				t.Fatalf("packages %v: build left %q behind", pkgs, name)
+			}
+		}
+		if len(after) != len(before) {
+			t.Fatalf("packages %v: workspace changed: before %v after %v", pkgs, before, after)
+		}
 	}
 }

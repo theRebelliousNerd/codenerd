@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -66,6 +67,7 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 		count = n
 	}
 	if argv[0] == "go" {
+		isBuild := !tests && len(argv) > 1 && argv[1] == "build"
 		argv = argv[:2]
 		if tests {
 			argv = append(argv, fmt.Sprintf("-count=%d", count))
@@ -110,8 +112,63 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 			if _, err := tools.ResolveWorkspacePath(tools.WithWorkspaceRoot(ctx, dir), "", base); err != nil {
 				return "", err
 			}
-			argv = append(argv, pkg)
 		}
+		if isBuild {
+			// A build checks that the code compiles and changes nothing on
+			// disk. Output goes into a per-invocation temp directory that is
+			// removed on return, so no binary is ever left behind in the
+			// workspace — not even for a single main package, where plain
+			// `go build` would otherwise drop (or, on Windows, rotate aside
+			// and replace) an executable next to the sources. A directory,
+			// not a file, because `go build -o` with a file target refuses
+			// more than one package at once, while a directory target
+			// accepts any package list: zero, one, or many main packages.
+			seconds, err := verificationTimeoutSeconds(args, tests)
+			if err != nil {
+				return "", err
+			}
+			tmpDir, err := os.MkdirTemp("", "nerd-build-*")
+			if err != nil {
+				return "", fmt.Errorf("create temp build output: %w", err)
+			}
+			defer os.RemoveAll(tmpDir)
+			run := func(buildArgv []string) (string, int, error) {
+				runCtx, cancel := context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
+				defer cancel()
+				cmd := newCommand(runCtx, buildArgv[0], buildArgv[1:]...)
+				cmd.Dir = dir
+				out, runErr := processutil.CombinedOutput(cmd)
+				code := 0
+				if cmd.ProcessState != nil {
+					code = cmd.ProcessState.ExitCode()
+				} else if runErr != nil {
+					code = -1
+				}
+				if runCtx.Err() != nil {
+					runErr = runCtx.Err()
+				}
+				return string(out), code, runErr
+			}
+			reported := append(append(append([]string{}, argv...), "-o", "<discarded-temp-dir>"), packages...)
+			out, code, runErr := run(append(append(append([]string{}, argv...), "-o", tmpDir), packages...))
+			if runErr != nil && strings.Contains(out, "no main packages to build") {
+				// Nothing in the package list is linkable, so `go build -o`
+				// refuses outright. A plain `go build` of such packages
+				// compiles and discards everything — there is no binary to
+				// emit — so it likewise changes nothing on disk.
+				plain := append(append([]string{}, argv...), packages...)
+				reported = plain
+				out, code, runErr = run(plain)
+			}
+			data, _ := json.Marshal(struct {
+				Argv      []string `json:"argv"`
+				Directory string   `json:"directory"`
+				ExitCode  int      `json:"exit_code"`
+				Output    string   `json:"output"`
+			}{reported, dir, code, out})
+			return string(data), runErr
+		}
+		argv = append(argv, packages...)
 	} else {
 		if _, exists := args["packages"]; exists {
 			return "", fmt.Errorf("packages currently requires a Go project")
