@@ -134,6 +134,14 @@ becoming stale, or detached from the mutations it is supposed to describe.
   the critic's "turn signals" line passes `true, true` by construction. What is left is the log
   line, which says one round and means up to the repair budget's. Not worth a run; fix it when
   that file is open for another reason.
+- **N24 a repair round could not see the test it broke.** The round closes the read tools after
+  its first round that writes nothing, and its prompt carried the runner's output only, so a model
+  that had not already read the failing test had no way to. R1-12 spent three attempts, 18 model
+  calls and 746.7k input tokens on 26 `recall_context` calls without an edit, and the turn died at
+  the test gate with the failure it started with. Fixed by hand: the prompt carries each failing
+  test's source as it is on disk, found in the package the runner named or beside the turn's own
+  writes -- the answer the removed-tests round already gives ("a paste, not a reconstruction from
+  memory").
 - **N19 the working request drops history before the first kept round.** `prepareWorkingRequest`
   (`working_context.go`) sends the loop's anchor and history from the earliest kept assistant
   tool-call round onward; a user message with no tool round before it is not sent. Every production

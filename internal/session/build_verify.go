@@ -347,7 +347,12 @@ func (e *Executor) verifyAndRepairTests(
 	spec := repairSpec{
 		kind:         "tests",
 		brokenPhrase: "edits broke the tests",
-		promptFor:    testRepairPrompt,
+		// The prompt carries the failing tests themselves (N24): this round
+		// closes the read tools after its first round that writes nothing, so
+		// a model that has not already read the test it broke cannot.
+		promptFor: func(seed string) string {
+			return testRepairPrompt(seed) + failingTestSection(workspace, seed, result.WrittenPaths)
+		},
 		// A test repair can break the build, so re-check both, cheapest
 		// first. Only an affirmative failure verdict fails here: a recheck
 		// that produced no verdict cannot prove the repair broke anything.

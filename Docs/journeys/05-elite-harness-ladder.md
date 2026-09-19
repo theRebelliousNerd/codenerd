@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 17:55
+- last updated: 2026-09-19 18:30
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -60,7 +60,12 @@ the protocol for a run, and the status of each rung with the run that moved it.
   branch rather than the behaviour the brief named is what N22 was built for, and it landed
   (`53eb3551`): a /fix, /create or /implement turn that wrote Go now owes `/pinned` -- every function
   it changed, taken out on its own, must make a test it wrote fail -- with a forcing round before
-  the verdict. Next: N09 again (R1-12, the first run under the gate), then R2 with V1.
+  the verdict. R1-12 (N09 again) **failed** at the test gate, where it should: its naming change
+  orphaned a package-level function and the package's own test caught it, the same class of
+  regression R1-8 produced from this brief. The repair loop then never wrote: three attempts, 18
+  model calls, 746.7k input tokens, 26 `recall_context` calls and no edit -- the round closes the
+  read tools and its prompt carried the test runner's output but not the failing test (N24, fixed
+  by hand). Streak 0. Next: R1-13 with the test source in hand, then R2 with V1.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
@@ -259,3 +264,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 16:19 | R1 | the commit regime's sentence sent twice (R1-9, N17) | nerd fix | failed: `working_stop(/read_only_stall)`, 24 rounds, nothing written. It located the fix and read the harnesses; reading closed with its last read on `working_meter.go`, and eleven recalls of `build_verify.go`, `repair_loop.go` and neighbours each rendered `working_meter.go`'s context. Harness blocker N21, fixed `51e86c27` | 4.5 | 35 | 0 | -- |
 | 2026-09-19 16:34 | R1 | the commit regime's sentence sent twice, again (R1-10, N17) | nerd fix | **landed, assisted**: an idempotent append at both call sites; `/done`, suite green; its five tests pass with the fix reverted at the call sites, so the brief's scenario test was added by hand (fails with them reverted). Three files: not an R1 fix | 24.8 | 78 | 4 | 2c373714 |
 | 2026-09-19 17:07 | R1 | overlapping write-set leases, a directory and a path under it (R1-11, L3) | nerd fix | **landed, assisted**: the `ancestors` parameter deleted and a descendant check added, so both the declared lease and the write-time check refuse an overlap either way; `/done`, suite green, right on all 15 probed shapes. Its five tests pin only the direction it found uncovered -- the suite passes with the reported direction's check removed -- so that test was added by hand | 19.2 | 33 | 2 | aae24670 |
+| 2026-09-19 17:49 | R1 | get_element shared method names, again (R1-12, N09) | nerd fix | **failed**: the naming change orphaned a package-level function (`ForbidsPath was not extracted`), caught by the package's own test; the repair loop then never wrote -- 3 attempts, 18 model calls, 746.7k input tokens, 26 recall_context calls, no edit (N24, fixed by hand). Reverted | 11.7 | 55 | 0 | -- |

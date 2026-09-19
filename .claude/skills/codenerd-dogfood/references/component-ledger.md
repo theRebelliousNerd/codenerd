@@ -5027,3 +5027,28 @@ check removed.
   would not have caught this one -- `claim` carries both directions, so taking the whole function
   out fails the tests either way. The gate is a floor, not the reviewer.
 - Rung-level: streak 0 (assisted).
+
+## R1-12, N09's brief again on get_element's shared names: the same regression, and a repair loop that never wrote -- failed (2026-09-19, 17:49-18:01)
+
+Binary from `53eb3551` (the pinning gate in). Brief unchanged from R1-8.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 11.7 | 55 (26 recall_context, 13 read_file, 4 grep, 3 glob, 3 edit_lines, 2 run_tests, 2 git_operation, 1 each search_code, insert_lines) | rc=1, **failed**: `edits broke the tests and the repair loop did not converge after 3 attempts` | repair episode alone: 18 calls, 746.7k in, 8.5k out | `elements.go` +52/-5, reverted |
+
+**What happened.** It rewrote element naming in `elements.go` and broke
+`TestExtractCodeElements_RealFileExtents`: "ForbidsPath was not extracted from nerdmd.go" -- a
+package-level function orphaned by the new naming, the same class of regression R1-8 produced from
+this brief (a function beside a same-named method unreachable by its only listed name). The test
+that caught it is the one the package already had. The change was reverted; its edits are in the
+run's `llm_io` log.
+
+**The repair loop never wrote.** Three attempts, each up to six rounds, and every round spent a
+tool call on `recall_context`: 26 recalls out of 55 tool calls, 18 model calls and 746.7k input
+tokens inside the episode, no edit. Under the commit regime the read tools are closed, so the
+model could not open the failing test -- and the test repair prompt carries the test *output*, not
+the test's source. The removed-tests round already hands back each deleted test's source, "a paste,
+not a reconstruction from memory"; the test round does not. **N24.**
+
+**Rung-level.** Streak 0. The pinning gate never ran: the turn died at the test gate, which is
+where it should die. What the run measures is the repair loop, not the gate.
