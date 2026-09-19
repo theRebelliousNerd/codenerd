@@ -36,7 +36,7 @@ func TestFileFallback_RefusesExistingTarget(t *testing.T) {
 	}
 	task := &Task{ID: "/task_fb_1", Type: TaskTypeFileModify, Description: "Modify " + rel, Artifacts: []TaskArtifact{{Type: "/file", Path: rel}}}
 
-	_, err := o.executeFileTaskFallback(context.Background(), task, rel)
+	_, err := o.executeFileTaskFallback(context.Background(), task, rel, nil)
 	if err == nil || !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("expected refusal naming the existing target, got %v", err)
 	}
@@ -58,7 +58,7 @@ func TestFileFallback_RefusesCreateOverExisting(t *testing.T) {
 	}
 	task := &Task{ID: "/task_fb_2", Type: TaskTypeFileCreate, Description: "Create " + rel, Artifacts: []TaskArtifact{{Type: "/doc", Path: rel}}}
 
-	_, err := o.executeFileTaskFallback(context.Background(), task, rel)
+	_, err := o.executeFileTaskFallback(context.Background(), task, rel, nil)
 	if err == nil || !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("expected refusal for create over an existing file, got %v", err)
 	}
@@ -73,7 +73,7 @@ func TestFileFallback_NilVirtualStoreRefuses(t *testing.T) {
 	rel := "docs/new_report.md"
 	task := &Task{ID: "/task_fb_3", Type: TaskTypeFileCreate, Description: "Create " + rel, Artifacts: []TaskArtifact{{Type: "/doc", Path: rel}}}
 
-	_, err := o.executeFileTaskFallback(context.Background(), task, rel)
+	_, err := o.executeFileTaskFallback(context.Background(), task, rel, nil)
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "virtualstore") {
 		t.Fatalf("expected refusal naming the missing VirtualStore, got %v", err)
 	}

@@ -2546,10 +2546,12 @@ func (e *Executor) assertSecurityViolation(actionAtom types.MangleAtom, reason s
 	}
 }
 
-// maxPayloadBytes caps the JSON-serialized tool args we'll push into the
-// Mangle kernel. Large blobs (file dumps, base64 images) bloat the fact store
-// and the permitted/pending_action comparison would never match anyway.
-const maxPayloadBytes = 100 * 1024 // 100 KB
+// MaxActionPayloadBytes caps the JSON-serialized action payload any caller
+// asserts into the Mangle kernel as pending_action/5 -- this executor, and the
+// campaign's direct-generation write. Large blobs (file dumps, base64 images)
+// bloat the fact store; a payload over the cap is refused, never truncated,
+// because permitted/3 is matched against the exact payload.
+const MaxActionPayloadBytes = 100 * 1024 // 100 KB
 
 // checkSafety verifies a tool call against the Constitutional Gate.
 func (e *Executor) checkSafety(call ToolCall) bool {
@@ -2612,12 +2614,12 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 	// Reject oversized payloads outright. Truncating would silently break the
 	// permitted-fact comparison (truncated payload != permitted payload), so
 	// the safer contract is: refuse loudly.
-	if len(payloadBytes) > maxPayloadBytes {
+	if len(payloadBytes) > MaxActionPayloadBytes {
 		logging.Get(logging.CategorySession).Error(
 			"Safety check denied: payload too large for kernel (%d bytes > %d)",
-			len(payloadBytes), maxPayloadBytes)
-		e.assertSecurityViolation(actionAtom, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), maxPayloadBytes))
-		return false, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), maxPayloadBytes)
+			len(payloadBytes), MaxActionPayloadBytes)
+		e.assertSecurityViolation(actionAtom, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), MaxActionPayloadBytes))
+		return false, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), MaxActionPayloadBytes)
 	}
 	payload := string(payloadBytes)
 	timestamp := time.Now().Unix()

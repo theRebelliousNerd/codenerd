@@ -3,6 +3,7 @@ package campaign
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -139,7 +140,7 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 			if len(task.Artifacts) > 0 {
 				targetPath = task.Artifacts[0].Path
 			}
-			return o.executeFileTaskFallback(ctx, task, targetPath)
+			return o.executeFileTaskFallback(ctx, task, targetPath, fmt.Errorf("shard %s failed: %w", shardType, err))
 		}
 		logging.Get(logging.CategoryCampaign).Error("Shard %s failed for task %s: %v", shardType, task.ID, err)
 		return nil, fmt.Errorf("shard %s failed: %w", shardType, err)
@@ -489,7 +490,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 		}
 		logging.Get(logging.CategoryCampaign).Warn("Coder shard failed for task %s, using fallback: %v", task.ID, err)
 		// Fallback to direct LLM if shard fails
-		return o.executeFileTaskFallback(ctx, task, targetPath)
+		return o.executeFileTaskFallback(ctx, task, targetPath, fmt.Errorf("coder shard failed for %s task %s on %s: %w", task.Type, task.ID, targetPath, err))
 	}
 
 	logging.CampaignDebug("Coder shard completed for task %s, result_len=%d", task.ID, len(result))
@@ -526,16 +527,30 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 		}
 		logging.Get(logging.CategoryCampaign).Warn("Coder shard returned but file not created or not a regular file: %s, using fallback", fullPath)
 		// Shard didn't write file - fall back to direct LLM
-		return o.executeFileTaskFallback(ctx, task, targetPath)
+		return o.executeFileTaskFallback(ctx, task, targetPath, fmt.Errorf("coder shard reported success for %s but did not write %s", task.ID, targetPath))
 	}
 
 	logging.Campaign("File verified after shard execution: %s", fullPath)
 	return map[string]any{"coder_result": result, "path": targetPath}, nil
 }
 
-// executeFileTaskFallback uses direct LLM when shard is unavailable.
-func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, targetPath string) (any, error) {
+// executeFileTaskFallback generates a deliverable document directly when the
+// shard that should have written it failed; cause is that failure. It writes
+// documents only. Code and configuration carry the turn's obligations -- tests,
+// coverage, vet, the verdict -- which a bare generation call does not, so a
+// coder stopped on them fails its task instead of landing the file another way
+// (campaign 1284b6bb: "hollow success blocked: turn created Go source ...
+// without a test file", then a request to "Generate the following file").
+// Every failure leads with cause: the task's error is what the retry and the
+// replanner read, and the fallback's own refusal is not why the work stopped.
+func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, targetPath string, cause error) (any, error) {
 	logging.CampaignDebug("Executing file task fallback for %s via direct LLM", task.ID)
+	fail := func(err error) error {
+		if cause == nil {
+			return err
+		}
+		return fmt.Errorf("%w; then the fallback: %w", cause, err)
+	}
 
 	// If no target path, try to extract from task description.
 	if targetPath == "" {
@@ -557,14 +572,14 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 			logging.Campaign("No target path for %s task %s; defaulting to campaign artifact %s", task.Type, task.ID, targetPath)
 		} else {
 			logging.Get(logging.CategoryCampaign).Error("No target path for file task %s and could not extract from description", task.ID)
-			return nil, fmt.Errorf("no target path specified for file task %s", task.ID)
+			return nil, fail(fmt.Errorf("no target path specified for file task %s", task.ID))
 		}
 	}
 
 	// Path traversal guard
 	cleanPath := filepath.Clean(targetPath)
 	if strings.HasPrefix(cleanPath, "..") || strings.HasPrefix(cleanPath, "/") || strings.HasPrefix(cleanPath, "\\") {
-		return nil, fmt.Errorf("path traversal attempt blocked for path: %s", targetPath)
+		return nil, fail(fmt.Errorf("path traversal attempt blocked for path: %s", targetPath))
 	}
 	targetPath = cleanPath
 
@@ -578,12 +593,19 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 	if info, statErr := os.Stat(statPath); statErr == nil {
 		if info.IsDir() {
 			logging.Get(logging.CategoryCampaign).Warn("Fallback refused for task %s: target %s is an existing directory; the fallback writes a single file, not a directory", task.ID, targetPath)
-			return nil, fmt.Errorf("fallback refused for %s: target %s is an existing directory and the fallback cannot write a directory", task.ID, targetPath)
+			return nil, fail(fmt.Errorf("fallback refused for %s: target %s is an existing directory and the fallback cannot write a directory", task.ID, targetPath))
 		}
 		if info.Mode().IsRegular() {
 			logging.Get(logging.CategoryCampaign).Warn("Fallback refused for task %s: target %s already exists; modify tasks need the coder path", task.ID, targetPath)
-			return nil, fmt.Errorf("fallback refused for %s: target %s exists (%d bytes); modify tasks need the coder path", task.ID, targetPath, info.Size())
+			return nil, fail(fmt.Errorf("fallback refused for %s: target %s exists (%d bytes); modify tasks need the coder path", task.ID, targetPath, info.Size()))
 		}
+	}
+
+	// Documents only: see the doc comment. Checked before anything is
+	// generated, so a refused target costs no model call.
+	if !isDeliverableDocument(targetPath) {
+		logging.Get(logging.CategoryCampaign).Warn("Fallback refused for task %s: %s is not a document; a coder stopped on code fails its task", task.ID, targetPath)
+		return nil, fail(fmt.Errorf("fallback refused for %s: %s is not a document; direct generation writes deliverables, never code or configuration", task.ID, targetPath))
 	}
 
 	// Front door only: repository writes go through the VirtualStore so
@@ -591,7 +613,7 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 	// fall back to a direct write around them.
 	if o.virtualStore == nil {
 		logging.Get(logging.CategoryCampaign).Warn("Fallback refused for task %s: no VirtualStore attached; refusing to write %s around the front door", task.ID, targetPath)
-		return nil, fmt.Errorf("fallback refused for %s: virtualStore is nil, cannot write %s through the VirtualStore", task.ID, targetPath)
+		return nil, fail(fmt.Errorf("fallback refused for %s: virtualStore is nil, cannot write %s through the VirtualStore", task.ID, targetPath))
 	}
 
 	// Holographic context: the fallback prompt carries upstream durable
@@ -611,7 +633,7 @@ Output ONLY the file content, no explanation or markdown fences:`, taskBlock, ta
 	content, err := o.llmClient.Complete(ctx, prompt)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("LLM file generation failed for task %s: %v", task.ID, err)
-		return nil, err
+		return nil, fail(fmt.Errorf("generate %s: %w", targetPath, err))
 	}
 
 	// Extract code block from LLM response (removes reasoning traces and markdown fences)
@@ -653,25 +675,43 @@ Output ONLY the file content, no explanation or markdown fences:`, taskBlock, ta
 	// contract the session executor follows. Assert it so the constitution
 	// decides (a critical path or an unsafe target is denied there, not here).
 	actionID := fmt.Sprintf("campaign-fallback-%s", task.ID)
+	// permitted/3 is matched against the exact payload the action is routed
+	// with: the canonical JSON the session executor asserts (json.Marshal of
+	// the args; over the cap refused, never truncated). This used to assert a
+	// {"content_bytes":N} summary instead, so no fallback write was ever
+	// permitted -- the kernel refused every document the model had just been
+	// asked to generate.
+	payload := map[string]any{"content": content}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fail(fmt.Errorf("encode the fallback write for %s: %w", targetPath, err))
+	}
+	if len(payloadJSON) > session.MaxActionPayloadBytes {
+		return nil, fail(fmt.Errorf("fallback refused for %s: the generated %s is %d bytes encoded, over the %d-byte action payload cap",
+			task.ID, targetPath, len(payloadJSON), session.MaxActionPayloadBytes))
+	}
 	if o.kernel != nil {
-		if err := o.kernel.Assert(core.Fact{
+		pending := core.Fact{
 			Predicate: "pending_action",
-			Args:      []any{actionID, core.MangleAtom("/write_file"), fullPath, `{"content_bytes":` + fmt.Sprint(len(content)) + `}`, time.Now().Unix()},
-		}); err != nil {
+			Args:      []any{actionID, core.MangleAtom("/write_file"), fullPath, string(payloadJSON), time.Now().Unix()},
+		}
+		if err := o.kernel.Assert(pending); err != nil {
 			logging.Get(logging.CategoryCampaign).Warn("Failed to assert pending_action for fallback write %s: %v", fullPath, err)
+		} else {
+			defer func() { _ = o.kernel.RetractFact(pending) }()
 		}
 	}
 	writeResult, err := o.virtualStore.RouteActionResult(ctx, core.Fact{
 		Predicate: "next_action",
-		Args:      []any{actionID, "write_file", fullPath, map[string]any{"content": content}},
+		Args:      []any{actionID, "write_file", fullPath, payload},
 	})
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("VirtualStore write failed for fallback file %s: %v", fullPath, err)
-		return nil, err
+		return nil, fail(err)
 	}
 	if !writeResult.Success {
 		logging.Get(logging.CategoryCampaign).Warn("VirtualStore refused fallback write for %s: %s", fullPath, writeResult.Error)
-		return nil, fmt.Errorf("fallback write for %s refused by VirtualStore: %s", targetPath, writeResult.Error)
+		return nil, fail(fmt.Errorf("fallback write for %s refused by VirtualStore: %s", targetPath, writeResult.Error))
 	}
 
 	logging.CampaignDebug("File fallback completed via VirtualStore: %s", fullPath)
@@ -1322,6 +1362,16 @@ _Regenerate this artifact with a healthier model/config before relying on it._
 }
 
 // getLangFromPath returns the language identifier for a file path.
+// isDeliverableDocument reports whether path names a prose document -- the
+// only kind of file the direct-generation fallback may write.
+func isDeliverableDocument(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown", ".txt", ".rst":
+		return true
+	}
+	return false
+}
+
 func getLangFromPath(path string) string {
 	ext := strings.TrimPrefix(filepath.Ext(path), ".")
 	switch ext {

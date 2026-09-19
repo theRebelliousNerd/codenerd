@@ -519,7 +519,7 @@ func TestTypeCoercion(t *testing.T) {
 	}
 
 	// Path traversal
-	_, err := o.executeFileTaskFallback(ctx, &Task{ID: "1", Description: "desc"}, "../../etc/passwd")
+	_, err := o.executeFileTaskFallback(ctx, &Task{ID: "1", Description: "desc"}, "../../etc/passwd", nil)
 	if err == nil || !strings.Contains(err.Error(), "path traversal attempt") {
 		t.Errorf("Expected path traversal error, got %v", err)
 	}
@@ -560,14 +560,15 @@ func TestExecuteFileTask_ShardFailure_Fallback(t *testing.T) {
 		},
 	}
 
-	// Shard fails -> fallback invoked. With no VirtualStore attached the
-	// fallback must refuse rather than write around the front door (it used to
-	// os.WriteFile here; campaign 149c512d lost a 251-line schema that way).
-	_, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "test.go"}}})
+	// Shard fails -> fallback invoked for a document, the only kind it writes.
+	// With no VirtualStore attached the fallback must refuse rather than write
+	// around the front door (it used to os.WriteFile here; campaign 149c512d
+	// lost a 251-line schema that way).
+	_, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "report.md"}}})
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "virtualstore") {
 		t.Fatalf("expected the fallback to refuse without a VirtualStore, got %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(o.workspace, "test.go")); statErr == nil {
+	if _, statErr := os.Stat(filepath.Join(o.workspace, "report.md")); statErr == nil {
 		t.Fatal("fallback wrote a file around the VirtualStore")
 	}
 }
@@ -589,13 +590,14 @@ func TestExecuteFileTask_VerificationFailure(t *testing.T) {
 		},
 	}
 
-	// Verification fails -> fallback invoked; with no VirtualStore attached it
-	// must refuse rather than write around the front door.
-	_, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "test.go"}}})
+	// Verification fails -> fallback invoked for a document; with no
+	// VirtualStore attached it must refuse rather than write around the front
+	// door.
+	_, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "report.md"}}})
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "virtualstore") {
 		t.Fatalf("expected the fallback to refuse without a VirtualStore, got %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(o.workspace, "test.go")); statErr == nil {
+	if _, statErr := os.Stat(filepath.Join(o.workspace, "report.md")); statErr == nil {
 		t.Fatal("fallback wrote a file around the VirtualStore")
 	}
 }

@@ -151,11 +151,11 @@ func TestExecutorConfigSnapshotConcurrentSet(t *testing.T) {
 }
 
 // TestExecutor_CheckSafety_MassivePayloadRejected verifies that payloads
-// exceeding maxPayloadBytes are rejected before being asserted into the
+// exceeding MaxActionPayloadBytes are rejected before being asserted into the
 // kernel's fact store, preventing GC spikes / OOMs.
 //
 // QA boundary items 4+5: massive payload truncation/guard before Kernel.Assert.
-// TODO: TEST_GAP: [User Request Extremes] Add a negative test where the overall payload size is just under `maxPayloadBytes`, but the extracted `target` string alone is massive (e.g., 90KB), to verify Mangle engine resilience against massive atom names.
+// TODO: TEST_GAP: [User Request Extremes] Add a negative test where the overall payload size is just under `MaxActionPayloadBytes`, but the extracted `target` string alone is massive (e.g., 90KB), to verify Mangle engine resilience against massive atom names.
 // TODO: TEST_GAP: [User Request Extremes] Implement a stress test that fires 10,000 rapid concurrent `checkSafety` calls to validate garbage collection pressure and Mangle EDB growth limits (e.g., the '50 million line monorepo' edge case).
 func TestExecutor_CheckSafety_MassivePayloadRejected(t *testing.T) {
 	mockKernel := &MockKernel{}
@@ -164,7 +164,7 @@ func TestExecutor_CheckSafety_MassivePayloadRejected(t *testing.T) {
 		config: DefaultExecutorConfig(),
 	}
 
-	// Build a payload that, once JSON-encoded, exceeds maxPayloadBytes (100KB).
+	// Build a payload that, once JSON-encoded, exceeds MaxActionPayloadBytes (100KB).
 	// 200,000 chars is comfortably over 100 KB (the JSON-encoded string adds
 	// quote characters and key overhead, but the raw value alone is enough).
 	huge := strings.Repeat("A", 200_000)
