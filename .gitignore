@@ -242,3 +242,8 @@ C:\\*
 # scaffolding, never a deliverable, and a stray `git add -A` should not be able
 # to land one. No tracked file has ever used this prefix.
 zz*_test.go
+
+# Claude Code plugin state. A plugin (the Jules scheduler MCP server) launched with
+# its cwd at the repo root and an unexpanded ${CLAUDE_PLUGIN_ROOT}, so it keeps its
+# SQLite state in a directory literally named that. It is the plugin's, not codeNERD's.
+/${CLAUDE_PLUGIN_ROOT}/
