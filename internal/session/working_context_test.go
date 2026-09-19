@@ -346,7 +346,61 @@ func TestRecordWorkingResult_RecallRestoresTheOriginalObservation(t *testing.T) 
 	if strings.Contains(hits, `"id":`) {
 		t.Fatalf("a recall must not be saved as a new observation; the archive holds %s", hits)
 	}
-	if loop.focus != "loop.go" {
-		t.Fatalf("a recall names no file and must not move the focus; focus = %q", loop.focus)
+	// The recalled record names its file, and the focus follows it there
+	// (N21); what a recall must not do is save a copy under the old focus.
+	if loop.focus != "loop_test.go" {
+		t.Fatalf("the focus must follow the recall to the recalled observation's file, loop_test.go; focus = %q", loop.focus)
+	}
+}
+
+// N21 (R1-9, 2026-09-19): under the commit regime a recall is the only way
+// left to look at code, and the focus -- whose context every request renders --
+// moved only on reads, so it froze on the last file read before reading
+// closed: eleven recalls of build_verify.go and repair_loop.go while every
+// request rendered working_meter.go, then a read-only stall. The request
+// after a recall renders the recalled file.
+func TestCompleteWithWorkingContext_RendersTheRecalledFileUnderTheCommitRegime(t *testing.T) {
+	e := newWorkingLoopExecutor(t, &MockLLMClient{})
+	e.config.TokenBudget = 200000
+	for _, name := range []string{"fix.go", "defs.go"} {
+		if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, name), []byte("package p // "+name+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := &stubFileContext{section: "outline"}
+	e.SetFileContextProvider(files)
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix the duplicate", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "fix.go"})
+	if err != nil {
+		t.Fatalf("beginWorkingLoop: %v", err)
+	}
+	t.Cleanup(closeLoop)
+	loop := activeWorkingLoop(ctx)
+
+	readFix := types.ToolCall{ID: "read-fix", Name: "read_file", Input: map[string]any{"path": "fix.go"}}
+	if err := e.recordWorkingResult(ctx, readFix, "body-of-fix", nil); err != nil {
+		t.Fatal(err)
+	}
+	readDefs := types.ToolCall{ID: "read-defs", Name: "read_file", Input: map[string]any{"path": "defs.go"}}
+	if err := e.recordWorkingResult(ctx, readDefs, "body-of-defs", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer e.enterCommitRegime(ctx)()
+	id := loop.observations[readFix.ID]
+	page, err := loop.set.Recall(ctx, id, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recall := types.ToolCall{ID: "recall-fix", Name: "recall_context", Input: map[string]any{"id": id}}
+	if err := e.recordWorkingResult(ctx, recall, page, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	files.calls = nil
+	provider := &captureProvider{MockLLMClient: &MockLLMClient{}}
+	if _, err := e.completeWithWorkingContext(ctx, provider, "system", nil, nil); err != nil {
+		t.Fatalf("completeWithWorkingContext: %v", err)
+	}
+	if len(files.calls) == 0 || files.calls[len(files.calls)-1] != "fix.go" {
+		t.Fatalf("the request after recalling fix.go rendered the context of %v; want fix.go", files.calls)
 	}
 }

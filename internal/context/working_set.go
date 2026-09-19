@@ -102,6 +102,16 @@ func (w *WorkingSet) Recall(ctx context.Context, id string, offset, limit int) (
 	return string(data), err
 }
 
+// Entity names the file an archived observation was recorded under, or ""
+// when the store holds no record with that id.
+func (w *WorkingSet) Entity(ctx context.Context, id string) (string, error) {
+	records, err := w.store.Records(ctx, []string{id})
+	if err != nil || len(records) == 0 {
+		return "", err
+	}
+	return records[0].Entity, nil
+}
+
 // Revision is content identity, not HEAD: uncommitted edits invalidate views.
 func (w *WorkingSet) Revision(entity string) string {
 	if entity == "" {

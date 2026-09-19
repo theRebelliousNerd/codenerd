@@ -205,9 +205,21 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	// The recalled observation becomes recent again and the call maps to it:
 	// the transcript carries the page while the round is kept, the section
 	// carries the record after, under its own file and revision.
+	//
+	// The focus follows it to the record's file (N21): what the model recalls
+	// is what it is working on, and the focus decides whose context -- the
+	// file's outline and current line ranges -- every request renders. Under
+	// the commit regime a recall is the only way left to look at code, and a
+	// focus that moved only on reads froze on the last file read before
+	// reading closed. R1-9 (2026-09-19): eleven recalls of build_verify.go,
+	// repair_loop.go and their neighbours while every request rendered
+	// working_meter.go, then a read-only stall with no edit made.
 	if call.Name == "recall_context" && toolErr == nil {
 		if id, _ := call.Input["id"].(string); id != "" {
 			loop.remember(call.ID, id)
+			if entity, err := loop.set.Entity(ctx, id); err == nil && entity != "" {
+				loop.focus = entity
+			}
 			return nil
 		}
 	}
