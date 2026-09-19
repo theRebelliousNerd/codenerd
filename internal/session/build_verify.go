@@ -307,22 +307,7 @@ func (e *Executor) verifyAndRepairTests(
 	}
 
 	verification, uncovered := gateTests(ctx, workspace, result, true)
-
-	// The profile is file-level, so without this a one-line edit in a large
-	// file reports every uncovered block of the file as code the turn wrote
-	// (observed 2026-09-11: 59 blocks for one line); a file with no pre-write
-	// snapshot keeps all its blocks.
-	if len(uncovered) > 0 && len(result.PreWriteContents) > 0 {
-		changed := make(map[string][]LineRange, len(result.PreWriteContents))
-		for path, before := range result.PreWriteContents {
-			data, readErr := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(path)))
-			if readErr != nil {
-				continue
-			}
-			changed[path] = changedLines(before, string(data))
-		}
-		uncovered = blocksInChangedLines(uncovered, changed)
-	}
+	uncovered = narrowToChangedLines(workspace, result, uncovered)
 	result.TestCheck = verification
 
 	// Coverage is reported whether or not the tests passed. Green tests over

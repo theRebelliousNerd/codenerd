@@ -388,14 +388,14 @@ const defaultSemanticTopK = 20
 // DefaultExecutorConfig returns sensible defaults.
 func DefaultExecutorConfig() ExecutorConfig {
 	return ExecutorConfig{
-		ToolTimeout:                defaultToolTimeout,
-		RepairMaxAttempts:          DefaultRepairMaxAttempts,
-		RepairWallClock:            DefaultRepairWallClock,
-		FinalAnswerReserve:         defaultFinalAnswerReserve,
-		EnableSafetyGate:           true,
-		TokenBudget:                DefaultTokenBudget(),
-		HistoryTurnWindow:          DefaultHistoryTurnWindow,
-		HistoryCharBudget:          DefaultHistoryCharBudget,
+		ToolTimeout:        defaultToolTimeout,
+		RepairMaxAttempts:  DefaultRepairMaxAttempts,
+		RepairWallClock:    DefaultRepairWallClock,
+		FinalAnswerReserve: defaultFinalAnswerReserve,
+		EnableSafetyGate:   true,
+		TokenBudget:        DefaultTokenBudget(),
+		HistoryTurnWindow:  DefaultHistoryTurnWindow,
+		HistoryCharBudget:  DefaultHistoryCharBudget,
 		// On by default: the failure this prevents (confident, non-compiling
 		// edits reported as complete) is silent, and a default-off guard against
 		// a silent failure protects nobody.
@@ -707,9 +707,13 @@ func (e *Executor) meteredContext(ctx context.Context) context.Context {
 // ExecutionResult holds the result of processing user input.
 type ExecutionResult struct {
 	// Acceptance is populated only by caller-authorized, revision-bound checks.
-	Acceptance            *evidence.Report
-	BuildCheck            BuildVerification
-	TestCheck             TestVerification
+	Acceptance *evidence.Report
+	BuildCheck BuildVerification
+	TestCheck  TestVerification
+	// VetCheck is `go vet` over the packages the turn wrote, judged on the
+	// turn's own files: a finding in a file the turn did not touch is not
+	// this turn's evidence.
+	VetCheck              BuildVerification
 	ChecksSnapshot        string
 	ChangeStage           string
 	acceptanceTransaction *evidence.Transaction
@@ -2527,12 +2531,49 @@ func (e *Executor) recordBuildState(verb string, result *ExecutionResult) {
 	}
 	record("build_state", types.MangleAtom("/build"), result.BuildCheck.Verdict())
 	record("test_state", types.MangleAtom("/test"), result.TestCheck.Verdict())
+	// Vet has no session-global: turn_gate is its only record.
+	switch result.VetCheck.Verdict() {
+	case VerifyPassed:
+		assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom(verb), types.MangleAtom("/vet"), types.MangleAtom("/passing")}})
+	case VerifyFailed:
+		assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom(verb), types.MangleAtom("/vet"), types.MangleAtom("/failing")}})
+	}
 	// Coverage debt rides with the gates: asserted here, retracted with them.
 	// The corpus withholds turn_verified while any holds and names it as
-	// turn_missing_evidence(Verb, /tests_not_written).
+	// turn_missing_evidence(Verb, /tests_not_written) or
+	// (Verb, /changed_code_unexecuted).
 	for _, path := range result.UntestedPaths {
 		assert(types.Fact{Predicate: "turn_untested", Args: []any{types.MangleAtom(verb), path}})
 	}
+	for _, path := range uncoveredPaths(result) {
+		assert(types.Fact{Predicate: "turn_uncovered", Args: []any{types.MangleAtom(verb), path}})
+	}
+}
+
+// uncoveredPaths names each file holding blocks of this turn's changed code
+// that no test executes, once, as the turn wrote it: the profile's
+// import-qualified path is matched to the written path it ends with, and a
+// block with no written match keeps its profile path.
+func uncoveredPaths(result *ExecutionResult) []string {
+	if result == nil || len(result.UncoveredBlocks) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var paths []string
+	for _, b := range result.UncoveredBlocks {
+		path := NormalizeCoverPath(b.File)
+		for _, written := range result.WrittenPaths {
+			if w := NormalizeCoverPath(written); w != "" && strings.HasSuffix(path, w) {
+				path = w
+				break
+			}
+		}
+		if !seen[path] {
+			seen[path] = true
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }
 
 // consumeHollowSuccessVerdict is the Go consumer of the policy-derived
@@ -2761,6 +2802,10 @@ func missingEvidenceSentence(atom string) string {
 		return "the tests were not verified green"
 	case "/tests_not_written":
 		return "production code was written with no test beside it"
+	case "/changed_code_unexecuted":
+		return "code this turn changed is executed by no test"
+	case "/vet_not_clean":
+		return "go vet reports problems in the files this turn changed"
 	default:
 		return strings.TrimPrefix(atom, "/")
 	}

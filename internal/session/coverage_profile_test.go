@@ -332,3 +332,20 @@ func TestParseCoverProfile_MatchesWindowsStyleWrittenPaths(t *testing.T) {
 		t.Fatalf("backslash-spelled written path did not match the profile: got %v", got)
 	}
 }
+
+// A block with no statements has nothing a test could execute. `func main() {}`
+// is such a block, and while the uncovered list went only to the log it was
+// noise; since the list is verdict evidence and drives a repair round, it
+// would ask for a test of nothing and hold the turn unverified for it.
+func TestParseCoverProfile_SkipsBlocksWithNoStatements(t *testing.T) {
+	profile := "mode: set\n" +
+		"codenerd/cmd/probe/main.go:3.13,3.14 0 0\n" +
+		"codenerd/cmd/probe/main.go:5.20,7.2 2 0\n"
+	got, err := parseCoverProfile(strings.NewReader(profile), []string{"cmd/probe/main.go"})
+	if err != nil {
+		t.Fatalf("parseCoverProfile: %v", err)
+	}
+	if len(got) != 1 || got[0].StartLine != 5 || got[0].NumStmts != 2 {
+		t.Fatalf("want only the two-statement block at line 5, got %+v", got)
+	}
+}

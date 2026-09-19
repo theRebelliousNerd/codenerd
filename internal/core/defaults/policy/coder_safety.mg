@@ -118,6 +118,25 @@ turn_tests_red(Verb) :- turn_gate(Verb, /test, /failing).
 Decl turn_untested(Verb, Path) bound [/name, /string].
 Decl turn_has_untested(Verb) bound [/name].
 turn_has_untested(Verb) :- turn_untested(Verb, _).
+
+# turn_uncovered is the rest of this turn's coverage debt: a file the turn
+# changed holding blocks, on the lines it changed, that no test executes
+# (the executor's coverage profile narrowed to the turn's own lines,
+# build_verify.go). turn_untested asks whether a test file exists beside the
+# code; this asks whether any test runs the code the turn wrote. Until
+# 2026-09-19 the list reached the log and an advisory critic only, and a turn
+# whose 27 new blocks no test executed was recorded /done.
+Decl turn_uncovered(Verb, Path) bound [/name, /string].
+Decl turn_has_uncovered(Verb) bound [/name].
+turn_has_uncovered(Verb) :- turn_uncovered(Verb, _).
+
+# `go vet` over the packages the turn wrote, judged on the turn's own files.
+# Only the red side withholds the verdict: a turn with no Go to vet asserts
+# no gate, and owing a green one would leave every non-Go write unverifiable.
+Decl turn_vet_green(Verb) bound [/name].
+Decl turn_vet_red(Verb) bound [/name].
+turn_vet_green(Verb) :- turn_gate(Verb, /vet, /passing).
+turn_vet_red(Verb) :- turn_gate(Verb, /vet, /failing).
 Decl has_turn_tools(Verb) bound [/name].
 Decl has_turn_write(Verb) bound [/name].
 Decl has_turn_test(Verb) bound [/name].
@@ -190,7 +209,7 @@ turn_done(Verb) :- turn_executed(Verb), turn_verified(Verb).
 # wrong in, which is the same argument test_coverage makes at the top of this
 # file.
 turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), !turn_wrote(Verb).
-turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), turn_wrote(Verb), turn_build_green(Verb), turn_tests_green(Verb), !turn_build_red(Verb), !turn_tests_red(Verb), !turn_has_untested(Verb).
+turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), turn_wrote(Verb), turn_build_green(Verb), turn_tests_green(Verb), !turn_build_red(Verb), !turn_tests_red(Verb), !turn_has_untested(Verb), !turn_has_uncovered(Verb), !turn_vet_red(Verb).
 turn_verified(Verb) :- turn_evidence(Verb, _, _, _, _, _), has_turn_acceptance(Verb).
 
 # has_turn_acceptance projects turn_acceptance/3 to a single argument, matching
@@ -219,6 +238,8 @@ turn_unverified(Verb) :- turn_executed(Verb), !turn_verified(Verb).
 turn_missing_evidence(Verb, /build_not_green) :- turn_unverified(Verb), !turn_build_green(Verb).
 turn_missing_evidence(Verb, /tests_not_green) :- turn_unverified(Verb), !turn_tests_green(Verb).
 turn_missing_evidence(Verb, /tests_not_written) :- turn_unverified(Verb), turn_has_untested(Verb).
+turn_missing_evidence(Verb, /changed_code_unexecuted) :- turn_unverified(Verb), turn_has_uncovered(Verb).
+turn_missing_evidence(Verb, /vet_not_clean) :- turn_unverified(Verb), turn_vet_red(Verb).
 
 # A red build is a failed turn, not merely an unverified one. turn_executed
 # already excludes it; this names it so the outcome can say /failed instead of

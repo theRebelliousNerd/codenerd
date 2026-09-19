@@ -490,6 +490,29 @@ func (e *Executor) verifyCompletedToolTurn(
 		current = tested
 	}
 
+	// The tests pass. Code the turn changed that no test executes, and go vet
+	// findings in its files, are evidence the verdict reads; the model gets
+	// its rounds to answer them first, the coverage round before vet so the
+	// tests it writes are vetted too.
+	covered, coverageErrs, coverageErr := e.verifyAndRepairCoverage(
+		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+	toolErrs = append(toolErrs, coverageErrs...)
+	if coverageErr != nil {
+		return current, toolErrs, coverageErr
+	}
+	if covered != nil {
+		current = covered
+	}
+	vetted, vetErrs, vetErr := e.verifyAndRepairVet(
+		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+	toolErrs = append(toolErrs, vetErrs...)
+	if vetErr != nil {
+		return current, toolErrs, vetErr
+	}
+	if vetted != nil {
+		current = vetted
+	}
+
 	// A turn that makes the gates green by removing a test has not fixed
 	// anything: a failing test is fixed by fixing the code, not by deleting
 	// the test. Runs after the test gate and the gofmt pass so a passing test

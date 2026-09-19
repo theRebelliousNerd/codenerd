@@ -170,8 +170,10 @@ func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, er
 			return nil, fmt.Errorf("malformed coverage line %d: invalid count %q: %w", lineNum, countStr, err)
 		}
 
-		// Only uncovered blocks are surfaced.
-		if count != 0 {
+		// Only uncovered blocks are surfaced, and only ones with a statement a
+		// test could execute: an empty body (`func main() {}`) is a block of
+		// zero statements, and reporting it asked for a test of nothing.
+		if count != 0 || numStmts == 0 {
 			continue
 		}
 
