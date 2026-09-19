@@ -25,9 +25,15 @@ var wrongExampleMarker = regexp.MustCompile(`(?i)(wrong|bad|incorrect|don't|do n
 // fn:Count, ...) about 600 times; the pinned engine parses neither. After the
 // rewrite: 2,102 blocks, 570 loading, 654 failing unmarked -- most of them
 // examples whose facts or declarations live elsewhere in the atom, a query
-// written as a clause, or a top-level `=`. The number may only go down: lower
-// it in the change that fixes more of them.
-const maxUnmarkedFailingExamples = 654
+// written as a clause, or a top-level `=`. 2026-09-19: the engine named the
+// predicates each failing example left undeclared and those Decls were added
+// (296 examples), `not p(X)` became `!p(X)` where that made the example load
+// (71), and negations of an atom holding a wildcard -- which the engine
+// deletes from the clause without a word -- became negations of a projection
+// (`has_p(X) :- p(X, _).` then `!has_p(X)`, 35): 972 loading, 344 failing
+// unmarked. The number may only go down: lower it in the change that fixes
+// more of them.
+const maxUnmarkedFailingExamples = 344
 
 func TestAtomCorpus_MangleExamplesTheEngineRejectsDoNotGrow(t *testing.T) {
 	corpus, err := prompt.LoadEmbeddedCorpus()

@@ -17,6 +17,7 @@
     
     ### Basic Structure
     ```mangle
+    Decl source(GroupKey, Value).
     result(GroupKey, AggValue) :-
         source(GroupKey, Value) |>
         do fn:group_by(GroupKey),
@@ -53,6 +54,7 @@
     
     ### Count by Group
     ```mangle
+    Decl file_topology(A1, A2, A3, A4, A5).
     files_per_lang(Lang, Count) :-
         file_topology(_, _, Lang, _, _) |>
         do fn:group_by(Lang),
@@ -61,6 +63,7 @@
     
     ### Sum by Group
     ```mangle
+    Decl item(Cat, Amount).
     total_by_category(Cat, Total) :-
         item(Cat, Amount) |>
         do fn:group_by(Cat),
@@ -69,6 +72,7 @@
     
     ### Multiple Aggregations
     ```mangle
+    Decl metric(Project, Value).
     stats(Project, Min, Max, Total) :-
         metric(Project, Value) |>
         do fn:group_by(Project),

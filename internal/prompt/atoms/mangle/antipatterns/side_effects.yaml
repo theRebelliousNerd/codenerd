@@ -570,8 +570,9 @@
     
     ```mangle
     # Step 1: Derive effects
+    Decl processed_data(Data).
     Decl file_to_write(Path, Content) bound [/string, /string].
-    
+
     file_to_write("/tmp/output.txt", Data) :-
         processed_data(Data).
     ```

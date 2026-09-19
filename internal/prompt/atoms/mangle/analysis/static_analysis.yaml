@@ -83,6 +83,7 @@
     
     Fix: Use correct arity
     ```mangle
+    Decl person(X, Y).
     result(X) :- person(X, Y).
     ```
     
@@ -143,9 +144,11 @@
     
     ```mangle
     # Rules
+    Decl parent(X, Y).
+    Decl person(X).
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- ancestor(X, Y), parent(Y, Z).
-    unrelated(X, Y) :- person(X), person(Y), not ancestor(X, Y).
+    unrelated(X, Y) :- person(X), person(Y), !ancestor(X, Y).
     ```
     
     **Dependencies**:
@@ -224,6 +227,8 @@
     **VALID**:
     ```mangle
     # X is bound, Y will be bound by parent
+    Decl person(X).
+    Decl parent(X, Y).
     has_child(X) :- person(X), parent(X, Y).
     ```
     

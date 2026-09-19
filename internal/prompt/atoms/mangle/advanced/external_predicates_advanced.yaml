@@ -82,9 +82,10 @@
     ### Mangle Usage
     ```mangle
     # Query specific key
+    Decl external_data(Key, Value).
     config(Value) :-
       external_data(/api_key, Value).
-    
+
     # Query all keys
     all_configs(Key, Value) :-
       external_data(Key, Value).
@@ -138,6 +139,7 @@
     ### Mangle Usage
     ```mangle
     # First call fetches from API, subsequent calls use cache
+    Decl cached_external_data(Key, Value).
     lookup(Key, Value) :-
       cached_external_data(Key, Value).
     ```
@@ -171,6 +173,7 @@
     ### Mangle Usage
     ```mangle
     # Only fetches /api_key, not all data
+    Decl lazy_fetch(X, Y).
     specific_config(Value) :-
       lazy_fetch(/api_key, Value).
     ```
@@ -210,14 +213,18 @@
     ### Mangle Usage
     ```mangle
     # Option 1: Stops if error
+    Decl has_error_key().
+    Decl fallible_predicate(X, Y).
+    Decl error(Key, Msg).
     result(Value) :-
       fallible_predicate(/key, Value).
-    
+
     # Option 3: Handle error explicitly
+    has_error_key() :- error(/key, _).
     result(Value) :-
       fallible_predicate(/key, Value),
-      not error(/key, _).
-    
+      !has_error_key().
+
     error_message(Key, Msg) :-
       error(Key, Msg).
     ```
@@ -298,6 +305,8 @@
     ### Mangle Usage
     ```mangle
     # Processes users one at a time, doesn't load all into memory
+    Decl user_from_db(Id, Name).
+    Decl user_total_spent(Id, Total).
     high_value_users(Id, Name) :-
       user_from_db(Id, Name),
       user_total_spent(Id, Total),
@@ -334,9 +343,10 @@
     
     ### Mangle Usage
     ```mangle
+    Decl is_recent(Timestamp).
     Decl event(Id, Timestamp) bound [/name, /number].
     event(/e1, 1700000000).
-    
+
     recent_events(Id) :-
       event(Id, Timestamp),
       is_recent(Timestamp).
@@ -437,6 +447,7 @@
     
     ### Mangle Usage
     ```mangle
+    Decl user_profile(Id, Profile).
     user_name(Id, Name) :-
       user_profile(Id, Profile),
       :match_field(Profile, /name, Name).

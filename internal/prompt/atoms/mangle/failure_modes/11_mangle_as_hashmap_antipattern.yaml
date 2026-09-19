@@ -83,13 +83,18 @@
     ### Correct Mangle Usage
     ```mangle
     # Schema for semantic matches (injected by Go)
+    Decl verb_composition(X, Y, Z).
+    Decl pending_action(A1, A2, A3, A4, A5).
+    Decl blocked_action(ActionType).
+    Decl requires_approval(ActionType).
+    Decl verb_priority(Higher, P1).
     Decl semantic_match(Input, Canonical, Verb, Score) bound [/string, /string, /name, /float64].
-    
+
     # Mangle handles DEDUCTION, not matching
     selected_verb(Verb) :-
         semantic_match(_, _, Verb, Score),
         Score >= 85.  # High-confidence threshold
-    
+
     # Verb composition (multi-step intents)
     compound_action(V1, V2) :-
         semantic_match(_, _, V1, S1),
@@ -97,14 +102,14 @@
         S1 >= 70,
         S2 >= 70,
         verb_composition(V1, V2, /sequential).
-    
+
     # Safety constraints
     permitted(ActionType, Target, Payload) :-
         selected_verb(ActionType),
         pending_action(_, ActionType, Target, Payload, _),
-        not blocked_action(ActionType),
-        not requires_approval(ActionType).
-    
+        !blocked_action(ActionType),
+        !requires_approval(ActionType).
+
     # Conflict resolution
     suppressed(Verb) :-
         selected_verb(Verb),
@@ -112,11 +117,11 @@
         verb_priority(Higher, P1),
         verb_priority(Verb, P2),
         P1 > P2.
-    
+
     final_action(Verb) :-
         selected_verb(Verb),
         permitted(Verb, _, _),
-        not suppressed(Verb).
+        !suppressed(Verb).
     ```
     
     ### Go Pre-Processor Pattern (Split-Brain Loader)
@@ -217,31 +222,39 @@
     
     ```mangle
     # ✓ Deductive reasoning based on facts
+    Decl semantic_match(A1, A2, A3, A4).
+    Decl direct_dep(X, Y).
+    Decl pending_action(A1, A2, A3, A4, A5).
+    Decl blocked_action(ActionType).
+    Decl user_has_permission(ActionType).
+    Decl candidate(A).
+    Decl better(B, A).
+    Decl compatible(V1, V2).
     selected_verb(Verb) :-
         semantic_match(_, _, Verb, Score),
         Score >= 85.
-    
+
     # ✓ Transitive closure (recursive logic)
     all_deps(X, Y) :- direct_dep(X, Y).
     all_deps(X, Z) :- direct_dep(X, Y), all_deps(Y, Z).
-    
+
     # ✓ Safety constraints
     permitted(ActionType, Target, Payload) :-
         selected_verb(ActionType),
         pending_action(_, ActionType, Target, Payload, _),
-        not blocked_action(ActionType),
+        !blocked_action(ActionType),
         user_has_permission(ActionType).
-    
+
     # ✓ Conflict resolution
     winning_choice(A) :-
         candidate(A),
-        not dominated(A).
-    
+        !dominated(A).
+
     dominated(A) :-
         candidate(A),
         candidate(B),
         better(B, A).
-    
+
     # ✓ Composition rules
     compound_action(V1, V2) :-
         semantic_match(_, _, V1, S1),

@@ -41,26 +41,37 @@
     ## Correct Code
     ```mangle
     # CORRECT - User is bound by user() first
-    non_admin(User) :- user(User), not admin(User).
+    Decl user(User).
+    Decl admin(User).
+    Decl candidate_x(X).
+    Decl candidate_y(Y).
+    Decl blocked(X, Y).
+    Decl source(X).
+    Decl excluded(X).
+    Decl node(X).
+    Decl edge(X, Y).
+    Decl parent(X, Y).
+    Decl child(Child).
+    non_admin(User) :- user(User), !admin(User).
     #                  ^^^^^^^^^^^ Generator predicate
-    
+
     # CORRECT - Both variables bound before negation
-    valid_pair(X, Y) :- candidate_x(X), candidate_y(Y), not blocked(X, Y).
-    
+    valid_pair(X, Y) :- candidate_x(X), candidate_y(Y), !blocked(X, Y).
+
     # CORRECT - Order matters: bind BEFORE negating
-    valid(X) :- source(X), not excluded(X).
-    
+    valid(X) :- source(X), !excluded(X).
+
     # CORRECT - All variables in negation are bound
     safe_edge(X, Y) :-
         node(X),
         node(Y),
-        not edge(X, Y).
-    
+        !edge(X, Y).
+
     # CORRECT - Finding children who DO have parents
     has_parent(Child) :- parent(_, Child).
-    
+
     # CORRECT - Finding orphans using closed world assumption
-    orphan(Child) :- child(Child), not has_parent(Child).
+    orphan(Child) :- child(Child), !has_parent(Child).
     #                ^^^^^^^^^^^^ Binds Child first
     ```
     

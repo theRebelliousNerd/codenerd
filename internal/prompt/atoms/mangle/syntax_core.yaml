@@ -41,6 +41,7 @@
     Use hash (`#`) for comments:
     ```mangle
     # This is a comment
+    Decl source(X).
     rule(X) :- source(X).  # Inline comment
     ```
     

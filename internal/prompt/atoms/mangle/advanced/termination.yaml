@@ -26,8 +26,9 @@
     #### Example: Transitive Closure (Terminates)
     ```mangle
     # Base case
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
-    
+
     # Recursive case
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
     ```
@@ -171,10 +172,11 @@
     #### Example
     ```mangle
     # Predicates: a, b, c
+    Decl data(X).
     a(X) :- b(X).
     b(X) :- c(X).
     c(X) :- data(X).  # Base data, no recursion
-    
+
     # Dependency graph: a → b → c → data
     # No cycles → Terminates
     ```
@@ -362,6 +364,7 @@
     #### Example: Graph Reachability
     ```mangle
     # Terminates if path exists, may not terminate if path doesn't exist
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
     reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
     ```

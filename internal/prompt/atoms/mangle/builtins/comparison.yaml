@@ -172,15 +172,16 @@
     
     ```mangle
     # Find minimum by checking nothing is smaller
+    Decl value(X).
     min_value(X) :-
       value(X),
-      not exists_smaller(X).
-    
+      !exists_smaller(X).
+
     exists_smaller(X) :-
       value(X),
       value(Y),
       :lt(Y, X).
-    
+
     # Find all pairs in order
     ordered_pair(X, Y) :- value(X), value(Y), :lt(X, Y).
     ```
@@ -247,10 +248,11 @@
     ### Ranking
     ```mangle
     # X is better than Y
+    Decl score(X, SX).
     better(X, Y) :- score(X, SX), score(Y, SY), :gt(SX, SY).
-    
+
     # Top performer (no one better)
-    top(X) :- score(X, _), not has_better(X).
+    top(X) :- score(X, _), !has_better(X).
     has_better(X) :- better(Y, X).
     ```
     
@@ -314,8 +316,10 @@
     
     ```mangle
     # BETTER - filter by predicate first
+    Decl rare_item(X).
+    Decl price(X, P).
     expensive(X) :- rare_item(X), price(X, P), :gt(P, 1000).
-    
+
     # WORSE - comparison doesn't reduce search space
     expensive(X) :- price(X, P), :gt(P, 1000), rare_item(X).
     ```

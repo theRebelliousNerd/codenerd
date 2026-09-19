@@ -161,9 +161,9 @@
     Decl all_items(Id) bound [/string].
     Decl blacklisted(Id) bound [/string].
     Decl allowed_items(Id) bound [/string].
-    
+
     # Only items NOT in blacklist
-    allowed_items(Id) :- all_items(Id), not blacklisted(Id).
+    allowed_items(Id) :- all_items(Id), !blacklisted(Id).
     ```
     
     ### Example
@@ -327,16 +327,18 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_email(UserId).
     Decl user(UserId) bound [/string].
     Decl email(UserId, Email) bound [/string, /string].
     Decl users_with_email(UserId) bound [/string].
     Decl users_without_email(UserId) bound [/string].
-    
+
     # Has email (data exists)
     users_with_email(UserId) :- email(UserId, _).
-    
+
     # Missing email (data does not exist)
-    users_without_email(UserId) :- user(UserId), not email(UserId, _).
+    has_email(UserId) :- email(UserId, _).
+    users_without_email(UserId) :- user(UserId), !has_email(UserId).
     ```
     
     ### Example

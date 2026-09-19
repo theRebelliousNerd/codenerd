@@ -54,6 +54,9 @@
     **Option 1:** Add base cases
     ```mangle
     # CORRECT - break cycle with base case
+    Decl position(X).
+    Decl has_move(X).
+    Decl move(X, Y).
     losing(X) :- position(X), !has_move(X).
     winning(X) :- move(X, Y), losing(Y).
     ```
@@ -62,12 +65,15 @@
     ```mangle
     # CORRECT - stratified into layers
     # Stratum 0: Base facts
+    Decl position(X).
+    Decl has_move(X).
+    Decl move(X, Y).
     terminal(X) :- position(X), !has_move(X).
-    
+
     # Stratum 1: Derive losing positions
     losing(X) :- terminal(X).
     losing(X) :- position(X), all_moves_losing(X).
-    
+
     # Stratum 2: Check all moves (no negation of stratum 1)
     all_moves_losing(X) :- move(X, Y), losing(Y).
     ```
@@ -121,18 +127,22 @@
     **Option 1:** Add binding predicate
     ```mangle
     # CORRECT - bind Y from another predicate
+    Decl source(X).
+    Decl target(Y).
     result(X, Y) :- source(X), target(Y).
     ```
     
     **Option 2:** Remove unbounded variable
     ```mangle
     # CORRECT - remove Y if not needed
+    Decl source(X).
     result(X) :- source(X).
     ```
     
     **Option 3:** Use constant or computation
     ```mangle
     # CORRECT - compute Y from X
+    Decl source(X).
     result(X, Y) :- source(X), Y = fn:plus(X, 1).
     ```
     
@@ -164,6 +174,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - bind X first, then use it
+    Decl source(X).
     result(Y) :- source(X), Y = fn:plus(X, 1).
     ```
     
@@ -196,6 +207,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - bind X first
+    Decl source(X).
     result(Y) :- source(X), Y = fn:plus(X, 1).
     ```
     
@@ -227,12 +239,17 @@
     **Option 1:** Bind variable positively first
     ```mangle
     # CORRECT - bind X from positive predicate
+    Decl category(Y).
+    Decl action(X).
+    Decl permitted(X).
     blocked(Y) :- category(Y), action(X), !permitted(X).
     ```
     
     **Option 2:** Use bound variables only
     ```mangle
     # CORRECT - use Y which is bound
+    Decl category(Y).
+    Decl permitted(Y).
     blocked(Y) :- category(Y), !permitted(Y).
     ```
     
@@ -267,6 +284,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - use a different variable name
+    Decl source(X, Y).
     result(Count) :- source(X, Y) |> do fn:group_by(Y), let Count = fn:count().
     ```
     
@@ -293,6 +311,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - all variables in transform are in body
+    Decl source(X, Y).
     result(Total) :- source(X, Y) |> do fn:group_by(Y), let Total = fn:sum(X).
     ```
     
@@ -318,6 +337,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - use actual function
+    Decl source(X).
     result(X) :- source(X) |> do fn:group_by(X).
     ```
     
@@ -349,6 +369,7 @@
     **Option 1:** Add to group_by
     ```mangle
     # CORRECT - group by both X and Y
+    Decl source(X, Y, Z).
     result(X, Y, Total) :-
         source(X, Y, Z) |>
         do fn:group_by(X, Y),
@@ -358,6 +379,7 @@
     **Option 2:** Remove ungrouped variable
     ```mangle
     # CORRECT - only use grouped variable
+    Decl source(X, Y, Z).
     result(X, Total) :-
         source(X, Y, Z) |>
         do fn:group_by(X),
@@ -367,6 +389,7 @@
     **Option 3:** Aggregate it
     ```mangle
     # CORRECT - aggregate Y
+    Decl source(X, Y, Z).
     result(X, YList, Total) :-
         source(X, Y, Z) |>
         do fn:group_by(X),
@@ -399,6 +422,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - distinct variables only
+    Decl source(X, Y, Z).
     result(X, Y) :- source(X, Y, Z) |> do fn:group_by(X, Y).
     ```
     
@@ -429,6 +453,7 @@
     
     **Option 1:** Add to group_by
     ```mangle
+    Decl source(X, Y, Z).
     result(X, Z) :-
         source(X, Y, Z) |>
         do fn:group_by(X, Z),
@@ -437,6 +462,7 @@
     
     **Option 2:** Remove from head
     ```mangle
+    Decl source(X, Y, Z).
     result(X) :-
         source(X, Y, Z) |>
         do fn:group_by(X),
@@ -519,12 +545,15 @@
     **Option 1:** Match the declaration
     ```mangle
     # CORRECT - use 2 args as declared
+    Decl person(X).
+    Decl related(X, Y).
     parent(X, Y) :- person(X), person(Y), related(X, Y).
     ```
     
     **Option 2:** Update declaration
     ```mangle
     # CORRECT - declare with 3 args
+    Decl person(X).
     Decl parent(X, Y, Z) bound [/string, /string, /string].
     parent(X, Y, Z) :- person(X), person(Y), person(Z).
     ```
@@ -573,6 +602,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - filter before group_by, let after
+    Decl source(X, Y).
     result(X, Total) :-
         source(X, Y),
         Y > 0 |>  # Filter in body, not transform
@@ -605,6 +635,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - single transform, filtering in body
+    Decl source(X, Y).
     result(X) :-
         source(X, Y),
         Y > 0 |>
@@ -634,6 +665,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - body before transform
+    Decl source(X).
     result(Count) :- source(X) |> do fn:group_by(X), let Count = fn:count().
     ```
     
@@ -681,6 +713,8 @@
     **How to Fix:**
     ```mangle
     # CORRECT - use different variables
+    Decl name_str(Name).
+    Decl age_int(Age).
     result(Name, Age) :- name_str(Name), age_int(Age).
     ```
     

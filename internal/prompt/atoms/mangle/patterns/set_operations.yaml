@@ -26,6 +26,8 @@
     ### Template
     ```mangle
     # Union: Items in A or B (or both)
+    Decl set_a(X).
+    Decl set_b(X).
     union(X) :- set_a(X).
     union(X) :- set_b(X).
     ```
@@ -95,9 +97,9 @@
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl difference(Elem) bound [/string].
-    
+
     # A - B: Items in A but not in B
-    difference(X) :- set_a(X), not set_b(X).
+    difference(X) :- set_a(X), !set_b(X).
     ```
     
     ### Example
@@ -126,12 +128,12 @@
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl symmetric_difference(Elem) bound [/string].
-    
+
     # In A but not B
-    symmetric_difference(X) :- set_a(X), not set_b(X).
-    
+    symmetric_difference(X) :- set_a(X), !set_b(X).
+
     # In B but not A
-    symmetric_difference(X) :- set_b(X), not set_a(X).
+    symmetric_difference(X) :- set_b(X), !set_a(X).
     ```
     
     ### Example
@@ -528,13 +530,13 @@
     ```mangle
     # All source files
     Decl source_file(File) bound [/string].
-    
+
     # Files covered by tests
     Decl covered_file(File) bound [/string].
-    
+
     # Uncovered files (difference)
     Decl uncovered_file(File) bound [/string].
-    uncovered_file(File) :- source_file(File), not covered_file(File).
+    uncovered_file(File) :- source_file(File), !covered_file(File).
     ```
     
     ### Dependency Resolution
@@ -555,13 +557,13 @@
     ```mangle
     # Symbols defined in scope A
     Decl defined_in_a(Symbol) bound [/string].
-    
+
     # Symbols used in scope B
     Decl used_in_b(Symbol) bound [/string].
-    
+
     # Undefined symbols (used but not defined)
     Decl undefined_symbol(Symbol) bound [/string].
-    undefined_symbol(Sym) :- used_in_b(Sym), not defined_in_a(Sym).
+    undefined_symbol(Sym) :- used_in_b(Sym), !defined_in_a(Sym).
     ```
     
     ## Set Algebra Laws (For Verification)

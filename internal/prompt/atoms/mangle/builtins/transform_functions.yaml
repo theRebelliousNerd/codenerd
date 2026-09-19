@@ -170,10 +170,11 @@
     
     ```mangle
     # From aggregation.mg
+    Decl observed(Subject, Verb, Topic, Weight, Description).
     aggregated(Subject, Verb, Topic, Sum)
       :- observed(Subject, Verb, Topic, Weight, _)
       |> do fn:group_by(Subject, Verb, Topic), let Sum = fn:sum(Weight).
-    
+
     # Explanation:
     # - Input: observed(Subject, Verb, Topic, Weight, Description)
     # - Group by: Subject, Verb, Topic (three-column grouping)
@@ -185,10 +186,11 @@
     
     ```mangle
     # Count all items
+    Decl item(X).
     total_count(Count) :-
       item(_)
       |> do fn:group_by(), let Count = fn:count().
-    
+
     # Explanation:
     # - Empty fn:group_by() means "aggregate everything"
     # - Results in single row with total count
@@ -198,6 +200,7 @@
     
     ```mangle
     # Statistics per category
+    Decl measurement(Cat, Value).
     category_stats(Cat, Count, Sum, Min, Max, Avg) :-
       measurement(Cat, Value)
       |> do fn:group_by(Cat),
@@ -212,6 +215,7 @@
     
     ```mangle
     # Sum only positive values per category
+    Decl value(Cat, Val).
     positive_sum(Cat, Sum) :-
       value(Cat, Val),
       :gt(Val, 0)  # Filter before pipeline
@@ -222,10 +226,11 @@
     
     ```mangle
     # From map_aggregation.mg
+    Decl user_language(User, Language).
     user_languages_list(User, Languages)
       :- user_language(User, Language)
       |> do fn:group_by(User), let Languages = fn:collect(Language).
-    
+
     # Explanation:
     # - Group by User
     # - Collect all Language values into a list
@@ -236,13 +241,15 @@
     
     ```mangle
     # From map_aggregation.mg
+    Decl user_language(User, Language).
+    Decl language_popularity(Language, Score).
     user_language_scores(User, LanguageScoreMap)
       :- user_language(User, Language),
          language_popularity(Language, Score)
       |> do fn:group_by(User), let LanguageScoreMap = fn:collect(Language, Score).
     # There is no map-building reducer: fn:collect with two arguments yields a list of
     # fn:pair(Key, Value), e.g. [fn:pair(/go, 9), fn:pair(/mg, 7)] (evaluated on the pinned engine).
-    
+
     # Explanation:
     # - Join user_language with language_popularity
     # - Group by User
@@ -389,6 +396,7 @@
     
     **Mangle Equivalent:**
     ```mangle
+    Decl items(X, Y, Z).
     category_total(Category, Total) :-
       items(_, Category, Amount)
       |> do fn:group_by(Category), let Total = fn:sum(Amount).
@@ -409,10 +417,11 @@
     **Solution:** Use multiple rules:
     ```mangle
     # ✓ CORRECT
+    Decl inner(Y).
     inner_sum(Sum) :-
       inner(Y)
       |> do fn:group_by(), let Sum = fn:sum(Y).
-    
+
     result(Count) :-
       inner_sum(Sum)
       |> do fn:group_by(), let Count = fn:count().
@@ -423,12 +432,13 @@
     
     ```mangle
     # SQL: SELECT Cat, SUM(Val) AS Total FROM ... GROUP BY Cat HAVING SUM(Val) > 100
-    
+
     # Mangle - two rules:
+    Decl item(Cat, Val).
     category_sum(Cat, Total) :-
       item(Cat, Val)
       |> do fn:group_by(Cat), let Total = fn:sum(Val).
-    
+
     large_categories(Cat, Total) :-
       category_sum(Cat, Total),
       :gt(Total, 100).
@@ -445,6 +455,8 @@
     **Solution:** Use separate rules:
     ```mangle
     # ✓ CORRECT
+    Decl data1(A).
+    Decl data2(B).
     sum1(X) :- data1(A) |> do fn:group_by(), let X = fn:sum(A).
     sum2(Y) :- data2(B) |> do fn:group_by(), let Y = fn:sum(B).
     result(X, Y) :- sum1(X), sum2(Y).
@@ -470,6 +482,7 @@
     
     ### Count Per Group
     ```mangle
+    Decl item(X, Y).
     count_by_category(Cat, Count) :-
       item(Cat, _)
       |> do fn:group_by(Cat), let Count = fn:count().
@@ -478,6 +491,7 @@
     ### Top N Per Group
     ```mangle
     # Find max score per player
+    Decl score(Player, Points).
     top_score(Player, MaxScore) :-
       score(Player, Points)
       |> do fn:group_by(Player), let MaxScore = fn:max(Points).
@@ -494,15 +508,16 @@
     ### Percentage Calculation
     ```mangle
     # Part 1: Category totals
+    Decl item(Cat, Amount).
     cat_total(Cat, Total) :-
       item(Cat, Amount)
       |> do fn:group_by(Cat), let Total = fn:sum(Amount).
-    
+
     # Part 2: Grand total
     grand_total(GTotal) :-
       item(_, Amount)
       |> do fn:group_by(), let GTotal = fn:sum(Amount).
-    
+
     # Part 3: Calculate percentage
     category_percentage(Cat, Pct) :-
       cat_total(Cat, Total),

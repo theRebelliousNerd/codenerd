@@ -47,6 +47,8 @@
     
     **Fix:** Require actual progress
     ```mangle
+    Decl start(X).
+    Decl edge(X, Y).
     reachable(X) :- start(X).
     reachable(Y) :- reachable(X), edge(X, Y).
     ```
@@ -70,11 +72,20 @@
     **Problem:**
     ```mangle
     # EXPLOSIVE - creates huge intermediate result
+    Decl big_table1(X).
+    Decl big_table2(Y).
+    Decl big_table3(Z).
     combo(X, Y, Z) :- big_table1(X), big_table2(Y), big_table3(Z).
     ```
     
     **Fix:** Add early filters
     ```mangle
+    Decl filter_condition(X).
+    Decl big_table1(X).
+    Decl related(X, Y).
+    Decl big_table2(Y).
+    Decl derives(Y, Z).
+    Decl big_table3(Z).
     combo(X, Y, Z) :-
         filter_condition(X),  # Reduce X first
         big_table1(X),
@@ -89,6 +100,8 @@
     ### 1. Always Limit Recursive Depth
     ```mangle
     # Safe recursive pattern
+    Decl start(Start).
+    Decl transition(Curr, Next).
     step(0, Start) :- start(Start).
     step(N, Next) :-
         step(M, Curr),
@@ -112,6 +125,8 @@
     ### 3. Filter Before Join
     ```mangle
     # Good: filter first, then join
+    Decl table1(X, Y).
+    Decl table2(X, Y).
     result(X, Y) :-
         X = /specific_value,  # Filter first
         table1(X, _),

@@ -38,21 +38,21 @@
     Decl user(UserId) bound [/string].
     Decl is_premium(UserId) bound [/string].
     Decl discount(UserId, Rate) bound [/string, /float64].
-    
+
     # Facts
     user("u1").
     user("u2").
     user("u3").
-    
+
     is_premium("u1").
     is_premium("u3").
-    
+
     # If premium, 20% discount
     discount(UserId, 0.20) :- is_premium(UserId).
-    
+
     # Else, 5% discount
-    discount(UserId, 0.05) :- user(UserId), not is_premium(UserId).
-    
+    discount(UserId, 0.05) :- user(UserId), !is_premium(UserId).
+
     # Query: discount(UserId, Rate)
     # Results:
     # discount("u1", 0.20)  # Premium
@@ -448,18 +448,20 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_has_value(Id).
     Decl item(Id) bound [/string].
     Decl has_value(Id, Value) bound [/string, /number].
     Decl result(Id, Output) bound [/string, /name].
-    
+
     # If has value and value > 100 -> /high
     result(Id, /high) :- has_value(Id, Value), Value > 100.
-    
+
     # If has value and value <= 100 -> /low
     result(Id, /low) :- has_value(Id, Value), Value <= 100.
-    
+
     # If no value -> /unknown
-    result(Id, /unknown) :- item(Id), not has_value(Id, _).
+    has_has_value(Id) :- has_value(Id, _).
+    result(Id, /unknown) :- item(Id), !has_has_value(Id).
     ```
     
     ### Example
@@ -486,22 +488,24 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_purchase(UserId).
     Decl user(UserId) bound [/string].
     Decl purchase(PurchaseId, UserId, Amount) bound [/string, /string, /number].
     Decl total_spent(UserId, Total) bound [/string, /number].
     Decl user_tier(UserId, Tier) bound [/string, /name].
-    
+
     # Derive total (intermediate predicate)
     total_spent(UserId, Total) :-
       purchase(PurchaseId, UserId, Amount)
       |> do fn:group_by(UserId),
          let Total = fn:sum(Amount).
-    
+
     # Condition based on derived total
     user_tier(UserId, /gold) :- total_spent(UserId, Total), Total > 10000.
     user_tier(UserId, /silver) :- total_spent(UserId, Total), Total > 5000, Total <= 10000.
     user_tier(UserId, /bronze) :- total_spent(UserId, Total), Total <= 5000.
-    user_tier(UserId, /none) :- user(UserId), not purchase(_, UserId, _).
+    has_purchase(UserId) :- purchase(_, UserId, _).
+    user_tier(UserId, /none) :- user(UserId), !has_purchase(UserId).
     ```
     
     ### Example
@@ -606,14 +610,14 @@
     ```mangle
     Decl file(Path, Extension) bound [/string, /string].
     Decl file_category(Path, Category) bound [/string, /name].
-    
+
     file_category(Path, /source) :- file(Path, Ext), Ext = "go".
     file_category(Path, /source) :- file(Path, Ext), Ext = "py".
     file_category(Path, /test) :- file(Path, Ext), Ext = "go", :match_field(Path, "test", _).
     file_category(Path, /config) :- file(Path, Ext), Ext = "json".
     file_category(Path, /config) :- file(Path, Ext), Ext = "yaml".
-    file_category(Path, /other) :- file(Path, Ext), not is_known_type(Ext).
-    
+    file_category(Path, /other) :- file(Path, Ext), !is_known_type(Ext).
+
     Decl is_known_type(Ext) bound [/string].
     is_known_type("go").
     is_known_type("py").

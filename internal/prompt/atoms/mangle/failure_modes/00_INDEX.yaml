@@ -219,12 +219,14 @@
     
     ### Correct Atom Usage
     ```mangle
+    Decl user(U).
     status(/user1, /active).          # CORRECT - atoms for identifiers
     status(U, /active) :- user(U).    # CORRECT - atom for constant
     ```
     
     ### Correct Aggregation
     ```mangle
+    Decl value(X).
     total(Sum) :-
         value(X) |>
         do fn:group_by(),
@@ -233,11 +235,14 @@
     
     ### Correct Negation
     ```mangle
-    valid(X) :- candidate(X), not excluded(X).  # CORRECT - X bound first
+    Decl candidate(X).
+    Decl excluded(X).
+    valid(X) :- candidate(X), !excluded(X).  # CORRECT - X bound first
     ```
     
     ### Correct Struct Access
     ```mangle
+    Decl record(R).
     name(N) :- record(R), :match_field(R, /name, N).  # CORRECT - explicit match
     ```
     

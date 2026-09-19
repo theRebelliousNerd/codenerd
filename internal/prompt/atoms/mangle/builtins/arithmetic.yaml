@@ -161,6 +161,8 @@
     **Manual Modulo Pattern:**
     ```mangle
     # mod(X, Y) = X - (X / Y) * Y
+    Decl value(X).
+    Decl divisor(Y).
     remainder(R) :-
       value(X),
       divisor(Y),

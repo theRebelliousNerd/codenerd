@@ -76,6 +76,7 @@
     
     **SAFE**:
     ```mangle
+    Decl thing(X).
     different(X, Y) :- thing(X), thing(Y), X != Y.
     ```
     
@@ -92,11 +93,15 @@
     **Examples**:
     ```mangle
     # Ages under 18
+    Decl person(X).
+    Decl age(X, A).
+    Decl price(X, P1).
+    Decl value(X, V).
     minor(X) :- person(X), age(X, A), A < 18.
-    
+
     # Price comparison
     cheaper(X, Y) :- price(X, P1), price(Y, P2), P1 < P2.
-    
+
     # Range check
     in_range(X) :- value(X, V), V < 100, V > 0.
     ```
@@ -334,8 +339,10 @@
     **Examples**:
     ```mangle
     # Find strings starting with "test"
+    Decl file(F).
+    Decl person_name(P, Name).
     test_files(F) :- file(F), :match_prefix(F, "test").
-    
+
     # Name starts with "Dr."
     doctor(P) :- person_name(P, Name), :match_prefix(Name, "Dr.").
     ```

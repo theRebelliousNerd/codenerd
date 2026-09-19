@@ -36,6 +36,7 @@
     
     ### Count
     ```mangle
+    Decl item(X, Y).
     items_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
@@ -44,6 +45,7 @@
     
     ### Sum
     ```mangle
+    Decl item(Cat, Value).
     total_by_category(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
@@ -52,6 +54,7 @@
     
     ### Min/Max
     ```mangle
+    Decl item(Cat, Value).
     value_range(Cat, Min, Max) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
@@ -114,6 +117,7 @@
     
     ### Single Variable Grouping
     ```mangle
+    Decl file(X, Y).
     count_by_lang(Lang, N) :-
         file(_, Lang) |>
         do fn:group_by(Lang),
@@ -122,6 +126,7 @@
     
     ### Multi-Variable Grouping
     ```mangle
+    Decl sale(Region, Product, Amount).
     sales_summary(Region, Product, Count, Revenue) :-
         sale(Region, Product, Amount) |>
         do fn:group_by(Region, Product),
@@ -131,6 +136,7 @@
     
     ### Grouping with No Variables (Global Aggregation)
     ```mangle
+    Decl item(X, Y).
     overall_total(GrandTotal) :-
         item(_, Value) |>
         do fn:group_by(),  # No grouping variables = single group
@@ -142,11 +148,12 @@
     ### Two-Level Aggregation
     ```mangle
     # Step 1: Category subtotals
+    Decl item(Cat, Value).
     category_total(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
         let Total = fn:sum(Value).
-    
+
     # Step 2: Grand total from subtotals
     grand_total(GrandTotal) :-
         category_total(_, Total) |>
@@ -208,10 +215,11 @@
     ### HAVING Clause Equivalent
     ```mangle
     # Categories with > 10 items
+    Decl item(X, Y).
     large_categories(Cat, N) :-
         count_per_category(Cat, N),
         N > 10.
-    
+
     count_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
@@ -223,6 +231,7 @@
     ### Running Total
     ```mangle
     # Assumes ordered data (e.g., by timestamp)
+    Decl item(Item, Timestamp, Value).
     running_total(Item, Timestamp, RunningSum) :-
         item(Item, Timestamp, Value),
         item(PrevItem, PrevTimestamp, PrevValue),
@@ -234,6 +243,7 @@
     ### Rank (Simulated)
     ```mangle
     # Count items with higher value
+    Decl item(Item, Value).
     rank(Item, Value, Rank) :-
         item(Item, Value),
         item(_, OtherValue),
@@ -246,6 +256,7 @@
     ### Row Number (Simulated)
     ```mangle
     # Assign sequential numbers within group
+    Decl item(Group, Item, Timestamp).
     row_number(Group, Item, RowNum) :-
         item(Group, Item, Timestamp),
         item(Group, OtherItem, OtherTimestamp),

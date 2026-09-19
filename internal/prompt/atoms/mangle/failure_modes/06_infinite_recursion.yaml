@@ -158,6 +158,7 @@
     ### Pattern 1: Transitive Closure (Finite Domain)
     ```mangle
     # Bounded by finite edge relation
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).                    # Base case
     reachable(X, Z) :- reachable(X, Y), edge(Y, Z).   # Recursive case
     # Terminates: Can only reach finitely many nodes via finite edges
@@ -166,6 +167,7 @@
     ### Pattern 2: Explicit Depth Counter
     ```mangle
     # Bounded by explicit depth limit
+    Decl parent(X, Y).
     ancestor_within_5(X, Y, 1) :- parent(X, Y).
     ancestor_within_5(X, Z, D) :-
         parent(X, Y),
@@ -189,14 +191,15 @@
     ```mangle
     # Each layer depends only on previous (lower) layers
     # Layer 1: Base facts
+    Decl path_length(X, Y, D).
     direct_dep(/app1, /lib1).
     direct_dep(/lib1, /core).
-    
+
     # Layer 2: Transitive closure
     all_deps(X, Y) :- direct_dep(X, Y).
     all_deps(X, Z) :- direct_dep(X, Y), all_deps(Y, Z).
     # Terminates: Limited by finite direct_dep facts
-    
+
     # Layer 3: Analysis (uses Layer 2, doesn't feed back)
     deep_dep(X, Y, D) :-
         all_deps(X, Y),
@@ -332,12 +335,13 @@
     ## Debugging Aid
     ```mangle
     # To debug infinite recursion, add counters to facts:
+    Decl my_recursive_pred(X, Y, Z).
     Decl debug_depth(Predicate, Depth) bound [/name, /number].
-    
+
     # Track maximum depth reached
     debug_depth(/my_recursive_pred, MaxDepth) :-
         my_recursive_pred(_, _, D) |>
         let MaxDepth = fn:max(D).
-    
+
     # If MaxDepth keeps growing → unbounded recursion!
     ```

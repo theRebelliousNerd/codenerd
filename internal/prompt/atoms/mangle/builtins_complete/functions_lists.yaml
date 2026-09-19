@@ -22,11 +22,13 @@
     **Examples**:
     ```mangle
     # Create list of three elements
+    Decl a(X).
+    Decl b(Y).
     numbers(L) :- L = fn:list(1, 2, 3).
-    
+
     # Equivalent to bracket notation
     numbers(L) :- L = [1, 2, 3].
-    
+
     # Dynamic list creation
     pair_list(L) :- a(X), b(Y), L = fn:list(X, Y).
     ```
@@ -258,6 +260,7 @@
     **Alternative using indices**:
     ```mangle
     # If you know the list length
+    Decl data(L).
     element_at_0(E) :- data(L), E = fn:list:get(L, 0).
     element_at_1(E) :- data(L), E = fn:list:get(L, 1).
     # ... etc
@@ -271,12 +274,13 @@
     
     ```mangle
     # Sum all elements in all lists
+    Decl data(L).
     total_sum(Sum) :-
         data(L),
         :match_cons(L, E, _)
         |> do fn:group_by(),
            let Sum = fn:sum(E).
-    
+
     # Count all elements across all lists
     total_count(Count) :-
         data(L),
@@ -316,8 +320,9 @@
     
     ```mangle
     # Check list equality
+    Decl data(L1).
     same_list(L1, L2) :- data(L1), data(L2), L1 = L2.
-    
+
     # Check list inequality
     different_list(L1, L2) :- data(L1), data(L2), L1 != L2.
     ```

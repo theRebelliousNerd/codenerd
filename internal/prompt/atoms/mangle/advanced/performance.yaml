@@ -33,6 +33,8 @@
     #### Good Example (Selective First)
     ```mangle
     # CORRECT: Filter first, then join
+    Decl small_filter(Y).
+    Decl huge_table(X).
     result(X, Y) :-
       small_filter(Y),         # 10 rows first
       Y = X,                   # Bind X early
@@ -54,6 +56,7 @@
     #### Good Example
     ```mangle
     # CORRECT: Bind ID immediately
+    Decl user(ID, Name, Email, Status, Department).
     find_user(Name, Email) :-
       ID = /user_12345,
       user(ID, Name, Email, Status, Department).
@@ -98,10 +101,13 @@
     #### Good Example
     ```mangle
     # CORRECT: Filter first, then check negation
+    Decl flagged_for_review(ID).
+    Decl user(ID, Name, Email).
+    Decl recent_login(ID).
     inactive_flagged_users(ID, Name) :-
       flagged_for_review(ID),            # Only 50 users
       user(ID, Name, Email),             # Lookup 50 specific users
-      not recent_login(ID).              # Only 50 negation checks
+      !recent_login(ID).              # Only 50 negation checks
     ```
     
     ### 5. Recursion Optimization
@@ -109,12 +115,13 @@
     #### Limit Recursion Depth
     ```mangle
     # Without limit: infinite recursion risk
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
-    
+
     # With depth limit
     Decl depth_limited_ancestor(Anc, Desc, Depth) bound [/name, /name, /number].
-    
+
     depth_limited_ancestor(X, Y, 1) :- parent(X, Y).
     depth_limited_ancestor(X, Z, D) :-
       parent(X, Y),
@@ -126,6 +133,9 @@
     #### Tail Recursion Optimization
     ```mangle
     # Non-tail recursive (builds call stack)
+    Decl leaf(Root).
+    Decl child(Root, C).
+    Decl descendant(Root, D).
     count_nodes(Root, Count) :-
       leaf(Root),
       Count = 1.
@@ -133,7 +143,7 @@
       child(Root, C),
       count_nodes(C, SubCount),
       Count = fn:plus(SubCount, 1).
-    
+
     # Better: Use aggregation instead
     node_count(Root, Count) :-
       descendant(Root, D)  # Compute all descendants first
@@ -219,10 +229,11 @@
     #### Good Patterns (Index-Friendly)
     ```mangle
     # Direct lookup by first argument (usually indexed)
+    Decl user(ID, Name, Email).
     user_by_id(Name) :-
       ID = /user_123,
       user(ID, Name, Email).
-    
+
     # Equality constraint (can use index)
     find_email(Email) :-
       user(/user_123, Name, Email).

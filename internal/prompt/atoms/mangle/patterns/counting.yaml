@@ -161,20 +161,22 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_product(CategoryId).
     Decl category(CategoryId) bound [/string].
     Decl product(ProductId, CategoryId) bound [/string, /string].
     Decl product_count(CategoryId, Count) bound [/string, /number].
-    
+
     # Categories with products
     product_count(CategoryId, Count) :-
       product(ProductId, CategoryId)
       |> do fn:group_by(CategoryId),
          let Count = fn:count().
-    
+
     # Categories with zero products
+    has_product(CategoryId) :- product(_, CategoryId).
     product_count(CategoryId, 0) :-
       category(CategoryId),
-      not product(_, CategoryId).
+      !has_product(CategoryId).
     ```
     
     ### Example

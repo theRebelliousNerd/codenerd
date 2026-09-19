@@ -25,6 +25,10 @@
     DELETED from the clause: `q(X) :- p(X), !r(X, _).` evaluates as `q(X) :- p(X).`
     Project first, then negate a fully bound predicate:
     ```mangle
+    Decl r(X, Y).
+    Decl p(X).
+    Decl working_stop(X).
+    Decl working_control(X, Y).
     has_r(X) :- r(X, _).
     q(X) :- p(X), !has_r(X).
     has_stop() :- working_stop(_).          # zero-arity projection for "any"
@@ -38,6 +42,7 @@
     - No count-distinct reducer works (`fn:count_distinct` is "unknown function" in every
       spelling). Facts are a set: project to the columns that define "distinct", then count.
     ```mangle
+    Decl purchase(User, Product, Day).
     user_product(User, Product) :- purchase(User, Product, Day).
     products_per_user(User, N) :- user_product(User, Product)
         |> do fn:group_by(User), let N = fn:count().

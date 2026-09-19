@@ -66,12 +66,14 @@
     **Option 2:** Fix typo
     ```mangle
     # If it's a typo, use correct name
+    Decl system_status(X).
     candidate_action(/monitor_server) :- system_status(/degraded).
     ```
     
     **Option 3:** Use existing predicate
     ```mangle
     # CORRECT - use declared predicate
+    Decl user_action(X).
     candidate_action(/monitor_server) :- user_action(/check_health).
     ```
     
@@ -146,6 +148,7 @@
     **Reproducing Example:**
     ```mangle
     # Schema missing declaration for helper predicate
+    Decl undeclared_helper(X).
     result(X) :- undeclared_helper(X).
     # ERROR during evaluation: no decl for predicate undeclared_helper
     ```
@@ -297,6 +300,7 @@
     **Option 2:** Use available function
     ```mangle
     # CORRECT - use existing function
+    Decl source(X).
     result(Y) :- source(X), Y = fn:plus(X, 1).
     ```
     
@@ -342,9 +346,10 @@
     **Option 1:** Declare missing predicates
     ```mangle
     # Add declarations
+    Decl user_intent(A1, A2, A3, A4, A5).
     Decl system_load(Load) bound [/number].
     Decl server_health(Status) bound [/name].
-    
+
     # Now rule is valid
     candidate_action(/fix_issue) :-
         user_intent(_, /query, /debug, Target, _),
@@ -356,6 +361,8 @@
     **Option 2:** Use available predicates
     ```mangle
     # CORRECT - use only declared predicates
+    Decl user_intent(A1, A2, A3, A4, A5).
+    Decl permitted(X, Y, Z).
     candidate_action(/fix_issue) :-
         user_intent(_, /query, /debug, Target, _),
         permitted(/fix_issue, Target, "").
@@ -476,6 +483,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - match variable names
+    Decl source(X).
     result(X) :- source(X), Y = fn:plus(X, 1).
     ```
     
@@ -614,12 +622,13 @@
     
     ```mangle
     # Base facts in schemas
+    Decl priority(X, Y).
     Decl user_action(Action) bound [/name].
     Decl permitted(ActionType, Target, Payload) bound [/name, /string, /string].
-    
+
     # Derived predicates in learned.mg (automatically available)
     candidate_action(Action) :- user_action(Action), permitted(Action, _, _).
-    
+
     # Can use candidate_action in other rules
     next_action(Action) :- candidate_action(Action), priority(Action, /high).
     ```

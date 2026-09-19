@@ -66,9 +66,9 @@
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl difference(Elem) bound [/string].
-    
+
     # A - B
-    difference(X) :- set_a(X), not set_b(X).
+    difference(X) :- set_a(X), !set_b(X).
     ```
     
     ### Example
@@ -125,11 +125,11 @@
     Decl child(ChildId, ParentId) bound [/string, /string].
     Decl parent(ParentId) bound [/string].
     Decl orphaned(ChildId) bound [/string].
-    
+
     # Children whose parent doesn't exist
     orphaned(ChildId) :-
       child(ChildId, ParentId),
-      not parent(ParentId).
+      !parent(ParentId).
     ```
     
     ### Example
@@ -152,12 +152,14 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_login_event(UserId).
     Decl user(UserId) bound [/string].
     Decl login_event(UserId, Timestamp) bound [/string, /number].
     Decl never_logged_in(UserId) bound [/string].
-    
+
     # Users with no login events
-    never_logged_in(UserId) :- user(UserId), not login_event(UserId, _).
+    has_login_event(UserId) :- login_event(UserId, _).
+    never_logged_in(UserId) :- user(UserId), !has_login_event(UserId).
     ```
     
     ### Example
@@ -184,12 +186,12 @@
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl xor_result(Elem) bound [/string].
-    
+
     # In A but not B
-    xor_result(X) :- set_a(X), not set_b(X).
-    
+    xor_result(X) :- set_a(X), !set_b(X).
+
     # In B but not A
-    xor_result(X) :- set_b(X), not set_a(X).
+    xor_result(X) :- set_b(X), !set_a(X).
     ```
     
     ### Example
@@ -216,9 +218,9 @@
     Decl has_issue_a(Id) bound [/string].
     Decl has_issue_b(Id) bound [/string].
     Decl clean_items(Id) bound [/string].
-    
+
     # Items with neither issue
-    clean_items(Id) :- item(Id), not has_issue_a(Id), not has_issue_b(Id).
+    clean_items(Id) :- item(Id), !has_issue_a(Id), !has_issue_b(Id).
     ```
     
     ### Example
@@ -246,12 +248,12 @@
     Decl candidate(Id, Value) bound [/string, /number].
     Decl excluded(Id) bound [/string].
     Decl result(Id, Value) bound [/string, /number].
-    
+
     # Candidates that are not excluded AND meet criteria
     result(Id, Value) :-
       candidate(Id, Value),
       Value > 100,
-      not excluded(Id).
+      !excluded(Id).
     ```
     
     ### Example
@@ -280,17 +282,17 @@
     Decl reachable(From, To) bound [/string, /string].
     Decl isolated(Node) bound [/string].
     Decl node(N) bound [/string].
-    
+
     # Derive reachable (Stratum 1)
     reachable(X, Y) :- edge(X, Y).
     reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
-    
+
     # All nodes
     node(X) :- edge(X, _).
     node(X) :- edge(_, X).
-    
+
     # Nodes not reachable from "start" (Stratum 2 - after reachable is computed)
-    isolated(X) :- node(X), not reachable("start", X).
+    isolated(X) :- node(X), !reachable("start", X).
     ```
     
     ### Example
@@ -315,22 +317,24 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_purchase(UserId).
     Decl purchase(UserId, Amount) bound [/string, /number].
     Decl total_spent(UserId, Total) bound [/string, /number].
     Decl low_spenders(UserId) bound [/string].
     Decl user(UserId) bound [/string].
-    
+
     # Calculate totals (Stratum 1)
     total_spent(UserId, Total) :-
       purchase(UserId, Amount)
       |> do fn:group_by(UserId),
          let Total = fn:sum(Amount).
-    
+
     # Users who spent less than threshold (Stratum 2)
     low_spenders(UserId) :- total_spent(UserId, Total), Total < 100.
-    
+
     # Users who never made purchases (Stratum 2)
-    low_spenders(UserId) :- user(UserId), not purchase(UserId, _).
+    has_purchase(UserId) :- purchase(UserId, _).
+    low_spenders(UserId) :- user(UserId), !has_purchase(UserId).
     ```
     
     ### Example
@@ -449,11 +453,13 @@
     
     ### Files Without Tests
     ```mangle
+    Decl has_test_file(File).
     Decl source_file(File) bound [/string].
     Decl test_file(TestFile, SourceFile) bound [/string, /string].
     Decl untested_files(File) bound [/string].
-    
-    untested_files(File) :- source_file(File), not test_file(_, File).
+
+    has_test_file(File) :- test_file(_, File).
+    untested_files(File) :- source_file(File), !has_test_file(File).
     ```
     
     ### Unreachable Code
@@ -462,13 +468,13 @@
     Decl called_by(Callee, Caller) bound [/string, /string].
     Decl reachable_from_main(FuncId) bound [/string].
     Decl dead_code(FuncId) bound [/string].
-    
+
     # Reachable from main
     reachable_from_main("main").
     reachable_from_main(Callee) :- reachable_from_main(Caller), called_by(Callee, Caller).
-    
+
     # Dead code
-    dead_code(FuncId) :- function(FuncId), not reachable_from_main(FuncId).
+    dead_code(FuncId) :- function(FuncId), !reachable_from_main(FuncId).
     ```
     
     ### Unhandled Error Paths
@@ -476,6 +482,6 @@
     Decl error_type(ErrorId) bound [/string].
     Decl handled_error(ErrorId) bound [/string].
     Decl unhandled_errors(ErrorId) bound [/string].
-    
-    unhandled_errors(ErrorId) :- error_type(ErrorId), not handled_error(ErrorId).
+
+    unhandled_errors(ErrorId) :- error_type(ErrorId), !handled_error(ErrorId).
     ```

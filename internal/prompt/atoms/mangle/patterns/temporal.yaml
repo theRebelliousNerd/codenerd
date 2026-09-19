@@ -325,18 +325,20 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_event(N).
     Decl event(Sequence, Timestamp) bound [/number, /number].
     Decl expected_sequence(N) bound [/number].
     Decl missing_event(N) bound [/number].
-    
+
     # Expected sequence: 1 through 10
     expected_sequence(1).
     expected_sequence(2).
     expected_sequence(3).
     # ... etc
-    
+
     # Gap: expected but not present
-    missing_event(N) :- expected_sequence(N), not event(N, _).
+    has_event(N) :- event(N, _).
+    missing_event(N) :- expected_sequence(N), !has_event(N).
     ```
     
     ### Example

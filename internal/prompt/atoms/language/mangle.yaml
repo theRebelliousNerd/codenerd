@@ -67,6 +67,9 @@
     # "head is true if body is true"
 
     # Single condition
+    Decl user(User, Role).
+    Decl permission(Role, File).
+    Decl file(X, Y).
     admin(X) :- user(X, "/admin").
 
     # Multiple conditions (AND)
@@ -97,6 +100,7 @@
     ### RECURSION
     ```mangle
     # Base case
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
 
     # Recursive case
@@ -115,6 +119,8 @@
     ### TRANSFORM SYNTAX
     ```mangle
     # Count
+    Decl user(X, Y).
+    Decl file(X, Y).
     user_count(Count) :-
         user(_, _) |> do fn:group_by(), let Count = fn:count().
 
@@ -183,6 +189,10 @@
     ### POLICY RULES
     ```mangle
     # Derive next action from intent
+    Decl user_intent(A1, A2, A3, A4, A5).
+    Decl safe_action(Action).
+    Decl pending_action(A1, A2, A3, A4, A5).
+    Decl dangerous_content(Action, Payload).
     next_action(/code) :-
         user_intent(_, /mutation, /create, _, _),
         safe_action(/code).

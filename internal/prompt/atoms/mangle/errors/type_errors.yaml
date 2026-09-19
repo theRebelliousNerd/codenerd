@@ -92,6 +92,9 @@
     **Option 1:** Use different variables
     ```mangle
     # CORRECT - separate variables for different types
+    Decl name(Name).
+    Decl person_id(Name, ID).
+    Decl score(ID, Score).
     result(Name, Score) :-
         name(Name),
         person_id(Name, ID),
@@ -101,6 +104,9 @@
     **Option 2:** Use type conversion (if supported)
     ```mangle
     # CORRECT - convert types explicitly
+    Decl name(X).
+    Decl id_from_name(X, XInt).
+    Decl score(XInt, Y).
     result(X, Y) :-
         name(X),
         id_from_name(X, XInt),
@@ -138,6 +144,8 @@
     **How to Fix:**
     ```mangle
     # CORRECT - compare compatible types
+    Decl age(A).
+    Decl name(N).
     result(A, N) :- age(A), name(N), A > 18.  # int comparison
     ```
     
@@ -168,6 +176,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - use variable
+    Decl person(P).
     result(Name) :- person(P), :match_field(P, /name, Name).
     ```
     
@@ -194,6 +203,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - bind P first
+    Decl person(P).
     result(Name) :- person(P), :match_field(P, /name, Name).
     ```
     
@@ -221,12 +231,14 @@
     **Option 1:** Use constant field name
     ```mangle
     # CORRECT - field name is constant
+    Decl person(P).
     result(Name) :- person(P), :match_field(P, /name, Name).
     ```
     
     **Option 2:** Match multiple fields separately
     ```mangle
     # CORRECT - check each field explicitly
+    Decl person(P).
     result(Name) :- person(P), :match_field(P, /name, Name).
     result(Age) :- person(P), :match_field(P, /age, Age).
     ```
@@ -262,6 +274,7 @@
     **Option 1:** Use correct field name
     ```mangle
     # CORRECT - use declared fields
+    Decl person(P).
     result(Name, Age) :-
         person(P),
         :match_field(P, /name, Name),
@@ -668,6 +681,8 @@
     **How to Fix:**
     ```mangle
     # CORRECT - use different variables
+    Decl name_string(Name).
+    Decl age_int(Age).
     result(Name, Age) :- name_string(Name), age_int(Age).
     ```
     

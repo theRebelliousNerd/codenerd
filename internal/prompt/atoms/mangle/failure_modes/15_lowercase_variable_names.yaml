@@ -112,8 +112,10 @@
     ### Descriptive Variables
     ```mangle
     # Better readability with descriptive names
+    Decl reports_to(Employee, Manager).
+    Decl file_path(Path).
     manages(Manager, Employee) :- reports_to(Employee, Manager).
-    
+
     # File path example
     contains_file(Directory, Filename) :-
         file_path(Path),

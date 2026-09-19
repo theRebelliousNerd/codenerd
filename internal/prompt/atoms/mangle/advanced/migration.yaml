@@ -44,6 +44,7 @@
     
     #### Mangle
     ```mangle
+    Decl edge(X, Y).
     path(X, Y) :- edge(X, Y).
     ```
     
@@ -92,7 +93,9 @@
     
     #### Mangle
     ```mangle
-    not_manager(Id) :- employee(Id, _), not manager(Id).
+    Decl employee(X, Y).
+    Decl manager(Id).
+    not_manager(Id) :- employee(Id, _), !manager(Id).
     ```
     
     **Change**: `!` → `not`
@@ -107,6 +110,7 @@
     
     #### Mangle
     ```mangle
+    Decl employee(X, Y, Z).
     dept_total(Dept, Total) :-
       employee(_, Dept, Salary)
       |> do fn:group_by(Dept),
@@ -127,8 +131,9 @@
     
     #### Mangle
     ```mangle
+    Decl item(Product, P).
     Decl cheapest(Product, Price) bound [/name, /number].
-    
+
     cheapest(Product, Price) :-
       item(Product, P)
       |> do fn:group_by(Product),
@@ -284,8 +289,9 @@
     
     #### Mangle
     ```mangle
+    Decl parent(Parent, Child).
     Decl all_children(Parent, Children).
-    
+
     all_children(Parent, Children) :-
       parent(Parent, Child)
       |> do fn:group_by(Parent),
@@ -413,10 +419,10 @@
     Decl user(Id) bound [/name].
     Decl banned(UserId) bound [/name].
     Decl not_banned(Id) bound [/name].
-    
+
     not_banned(Id) :-
       user(Id),
-      not banned(Id).
+      !banned(Id).
     ```
     
     ### HAVING

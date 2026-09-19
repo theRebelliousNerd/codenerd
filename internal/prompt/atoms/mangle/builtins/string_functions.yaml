@@ -313,6 +313,7 @@
     
     ### Sanitization
     ```mangle
+    Decl user_input(Input).
     safe_text(Output) :-
       user_input(Input),
       T1 = fn:string:replace(Input, "<script>", "", -1),

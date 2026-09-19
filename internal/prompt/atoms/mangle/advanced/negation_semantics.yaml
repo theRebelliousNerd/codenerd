@@ -113,9 +113,12 @@
     **Safe** (CORRECT):
     ```mangle
     # CORRECT: q is in lower stratum
+    Decl source(X).
+    Decl filter(X).
+    Decl candidate(X).
     base_data(X) :- source(X).
     q(X) :- base_data(X), filter(X).
-    p(X) :- candidate(X), not q(X).
+    p(X) :- candidate(X), !q(X).
     ```
     
     ## Negation Patterns
@@ -128,16 +131,16 @@
     Decl all_users(Id) bound [/name].
     Decl active_users(Id) bound [/name].
     Decl inactive_users(Id) bound [/name].
-    
+
     # Facts
     all_users(/u1). all_users(/u2). all_users(/u3).
     active_users(/u1). active_users(/u2).
-    
+
     # Set difference: all - active = inactive
     inactive_users(Id) :-
       all_users(Id),
-      not active_users(Id).
-    
+      !active_users(Id).
+
     # Result: {/u3}
     ```
     
@@ -146,19 +149,21 @@
     Check if a relationship does NOT exist.
     
     ```mangle
+    Decl has_login(Id).
     Decl user(Id) bound [/name].
     Decl login(UserId, Date) bound [/name, /string].
     Decl never_logged_in(Id) bound [/name].
-    
+
     # Facts
     user(/u1). user(/u2).
     login(/u1, "2024-01-15").
-    
+
     # Users who never logged in
+    has_login(Id) :- login(Id, _).
     never_logged_in(Id) :-
       user(Id),
-      not login(Id, _).  # No login record exists
-    
+      !has_login(Id).  # No login record exists
+
     # Result: {/u2}
     ```
     
@@ -170,19 +175,19 @@
     Decl employee(Id, Dept) bound [/name, /name].
     Decl training_complete(Id) bound [/name].
     Decl dept_fully_trained(Dept) bound [/name].
-    
+
     # Facts
     employee(/e1, /eng). employee(/e2, /eng).
     training_complete(/e1). training_complete(/e2).
-    
+
     # Department is fully trained if no employee lacks training
     dept_fully_trained(Dept) :-
       employee(_, Dept),  # Department has at least one employee
-      not untrained_employee(Dept).
-    
+      !untrained_employee(Dept).
+
     untrained_employee(Dept) :-
       employee(Id, Dept),
-      not training_complete(Id).
+      !training_complete(Id).
     ```
     
     **Logic**: ∀x ∈ Dept. trained(x) ≡ ¬∃x ∈ Dept. ¬trained(x)
@@ -195,17 +200,17 @@
     Decl conflict(A, B) bound [/name, /name].
     Decl assigned(Task, Person) bound [/name, /name].
     Decl valid_assignment(Task, Person) bound [/name, /name].
-    
+
     # Facts
     conflict(/alice, /bob).  # Alice and Bob can't work together
     assigned(/task1, /alice).
     assigned(/task2, /bob).
-    
+
     # Valid if no conflicting person is assigned to same task
     valid_assignment(Task, Person) :-
       assigned(Task, Person),
-      not conflicting_assignment(Task, Person).
-    
+      !conflicting_assignment(Task, Person).
+
     conflicting_assignment(Task, P1) :-
       assigned(Task, P1),
       assigned(Task, P2),
@@ -348,8 +353,11 @@
     2. **Use positive filtering when possible**
        ```mangle
        # Instead of: "not in set B"
-       not_in_b(X) :- all(X), not b(X).
-    
+       Decl all(X).
+       Decl b(X).
+       Decl a(X).
+       not_in_b(X) :- all(X), !b(X).
+           
        # Better: "in set A" (if A and B are disjoint)
        in_a(X) :- a(X).
        ```
@@ -410,12 +418,14 @@
     
     **Solution**: Check existence first.
     ```mangle
+    Decl item(X).
+    Decl candidate(X).
     has_items() :- item(_).
-    
+
     safe_check(X) :-
       has_items(),
       candidate(X),
-      not item(X).
+      !item(X).
     ```
     
     ## Summary Table

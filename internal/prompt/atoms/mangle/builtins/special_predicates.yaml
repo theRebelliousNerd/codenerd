@@ -355,6 +355,7 @@
     
     ### Whitelist Pattern
     ```mangle
+    Decl whitelist(List).
     in_whitelist(Item) :-
       whitelist(List),
       :list:member(Item, List).
@@ -376,6 +377,7 @@
     
     ### Boolean Flag Check
     ```mangle
+    Decl feature_flag(Feature, Enabled).
     is_enabled(Feature) :-
       feature_flag(Feature, Enabled),
       :filter(Enabled).

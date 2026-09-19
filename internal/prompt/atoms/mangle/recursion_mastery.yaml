@@ -18,8 +18,9 @@
     
     ```mangle
     # Base case
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
-    
+
     # Recursive case
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
     ```
@@ -29,6 +30,7 @@
     
     ```mangle
     # Symmetric reachability
+    Decl edge(X, Y).
     connected(X, Y) :- edge(X, Y).
     connected(X, Y) :- edge(Y, X).  # Symmetric
     connected(X, Z) :- connected(X, Y), connected(Y, Z).  # Transitive
@@ -50,8 +52,9 @@
     ### Path with Length
     ```mangle
     # Base: single hop
+    Decl edge(X, Y).
     path_len(X, Y, 1) :- edge(X, Y).
-    
+
     # Recursive: accumulate length
     path_len(X, Z, Len) :-
         edge(X, Y),
@@ -62,8 +65,9 @@
     ### Path with Cost/Weight
     ```mangle
     # Base: direct cost
+    Decl edge(X, Y, Cost).
     path_cost(X, Y, Cost) :- edge(X, Y, Cost).
-    
+
     # Recursive: accumulate cost
     path_cost(X, Z, TotalCost) :-
         edge(X, Y, Cost1),
@@ -89,9 +93,10 @@
     ### Detect Cycles (Back Edges)
     ```mangle
     # Reachability
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
     reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
-    
+
     # Back edge = cycle
     cycle_edge(X, Y) :-
         edge(X, Y),
@@ -100,6 +105,7 @@
     
     ### Check if Node Has Cycle
     ```mangle
+    Decl cycle_edge(X, Y).
     has_cycle(X) :- cycle_edge(X, _).
     ```
     
@@ -134,6 +140,7 @@
     
     ### Longest Path
     ```mangle
+    Decl path_len(X, Y, Len).
     longest(X, Y, MaxLen) :-
         path_len(X, Y, Len) |>
         do fn:group_by(X, Y),
@@ -143,14 +150,16 @@
     ### Maximum Depth (Tree)
     ```mangle
     # Root has depth 0
+    Decl root(Root).
+    Decl child(Parent, Node).
     depth(Root, 0) :- root(Root).
-    
+
     # Children have parent's depth + 1
     depth(Node, D) :-
         child(Parent, Node),
         depth(Parent, PD) |>
         let D = fn:plus(PD, 1).
-    
+
     # Find maximum depth
     max_depth(MaxD) :-
         depth(_, D) |>
@@ -180,17 +189,19 @@
     ### Game Theory (Winning/Losing Positions)
     ```mangle
     # Terminal losing position
+    Decl position(X).
+    Decl move(X, Y).
     losing(X) :-
         position(X),
-        not has_move(X).
-    
+        !has_move(X).
+
     has_move(X) :- move(X, _).
-    
+
     # Winning = can move to losing position
     winning(X) :-
         move(X, Y),
         losing(Y).
-    
+
     # NOT mutually recursive through negation (stratified)
     ```
     
@@ -198,12 +209,14 @@
     
     ### Simple Reachability
     ```mangle
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
     reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
     ```
     
     ### Dependency Closure
     ```mangle
+    Decl depends_direct(P, Lib).
     depends(P, Lib) :- depends_direct(P, Lib).
     depends(P, Lib) :-
         depends_direct(P, Q),
@@ -280,6 +293,7 @@
     
     ```mangle
     # SAFE: Bounded by existing edges
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
     reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
     # Terminates when all paths explored
@@ -304,6 +318,7 @@
     ### Safe Bounded Recursion
     ```mangle
     # Explicit depth limit
+    Decl edge(X, Y).
     path_bounded(X, Y, 1) :- edge(X, Y).
     path_bounded(X, Z, D) :-
         edge(X, Y),
@@ -317,9 +332,10 @@
     ### Connected Components (Union-Find Style)
     ```mangle
     # Symmetric edge
+    Decl edge(X, Y).
     symmetric_edge(X, Y) :- edge(X, Y).
     symmetric_edge(Y, X) :- edge(X, Y).
-    
+
     # Transitive closure
     same_component(X, Y) :- symmetric_edge(X, Y).
     same_component(X, Z) :-
@@ -423,9 +439,10 @@
     
     ```mangle
     # Right recursion (preferred style)
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
-    
+
     # Left recursion (equivalent, less common)
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- ancestor(X, Y), parent(Y, Z).

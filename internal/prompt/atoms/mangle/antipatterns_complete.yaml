@@ -44,6 +44,7 @@
     
     **CORRECT**:
     ```mangle
+    Decl sales(Region, Amount).
     region_sales(Region, Total) :-
         sales(Region, Amount) |>
         do fn:group_by(Region),
@@ -66,6 +67,7 @@
     
     **CORRECT**:
     ```mangle
+    Decl item(K, V).
     total(K, S) :-
         item(K, V) |>
         do fn:group_by(K),
@@ -133,7 +135,9 @@
     
     **CORRECT**:
     ```mangle
-    non_admin(User) :- user(User), not admin(User).
+    Decl user(User).
+    Decl admin(User).
+    non_admin(User) :- user(User), !admin(User).
     #                  ^^^^^^^^^^^ Generator predicate
     ```
     
@@ -177,7 +181,9 @@
     **CORRECT**:
     ```mangle
     # Add terminal condition
-    losing(X) :- position(X), not has_move(X).
+    Decl position(X).
+    Decl move(X, Y).
+    losing(X) :- position(X), !has_move(X).
     has_move(X) :- move(X, _).
     winning(X) :- move(X, Y), losing(Y).
     ```
@@ -196,6 +202,7 @@
     **CORRECT**:
     ```mangle
     # Bounded by finite domain
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
     reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
     # Terminates when all paths explored
@@ -217,6 +224,9 @@
     **CORRECT**:
     ```mangle
     # Only 1,000 checks
+    Decl filter(X, Y).
+    Decl table1(X).
+    Decl table2(Y).
     fast(X, Y) :-
         filter(X, Y),  # 1,000 matches first
         table1(X),
@@ -285,6 +295,7 @@
     
     **CORRECT**:
     ```mangle
+    Decl foo(X).
     parent(/a, /b).
     rule(X) :- foo(X).
     ```
@@ -300,6 +311,7 @@
     
     **CORRECT**:
     ```mangle
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ```
     
@@ -362,8 +374,10 @@
     **CORRECT**:
     ```mangle
     # Closed World Assumption
+    Decl known_status(X, Y).
+    Decl item(X).
     known(X) :- known_status(X, _).
-    unknown(X) :- item(X), not known(X).
+    unknown(X) :- item(X), !known(X).
     ```
     
     **Why**: Mangle uses Closed World Assumption - a fact either exists (true) or doesn't (false). No NULL/UNKNOWN.
@@ -437,6 +451,8 @@
     
     **CORRECT**:
     ```mangle
+    Decl other(X).
+    Decl source(Y).
     result(X, Y) :- other(X), source(Y).
     # OR
     result(X, Y) :- other(X), Y = 42.
@@ -454,6 +470,8 @@
     
     **CORRECT**:
     ```mangle
+    Decl foo(X, Y).
+    Decl bar(Y, Z).
     rule(X, Y) :- foo(X, Y), bar(Y, Z).
     ```
     
@@ -469,6 +487,8 @@
     
     **CORRECT** (understanding union):
     ```mangle
+    Decl a(X).
+    Decl b(X).
     p(X) :- a(X).
     p(X) :- b(X).
     # p is true if a OR b is true (union semantics)
@@ -502,6 +522,8 @@
     **CORRECT** (understanding all rules fire):
     ```mangle
     # Both rules execute, results are unioned
+    Decl fast_check(X).
+    Decl slow_check(X).
     result(X) :- fast_check(X).
     result(X) :- slow_check(X).
     # If slow_check derives something not in fast_check, it's included

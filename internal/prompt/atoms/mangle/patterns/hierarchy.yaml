@@ -24,8 +24,9 @@
     ### Template
     ```mangle
     # Direct parent-child
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
-    
+
     # Transitive: ancestor of ancestor
     ancestor(X, Z) :- ancestor(X, Y), parent(Y, Z).
     ```
@@ -128,16 +129,18 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_parent(X).
     Decl parent(Parent, Child) bound [/string, /string].
     Decl leaf(Node) bound [/string].
     Decl node(N) bound [/string].
-    
+
     # All nodes (parents and children)
     node(X) :- parent(X, _).
     node(X) :- parent(_, X).
-    
+
     # Leaf: node with no children
-    leaf(X) :- node(X), not parent(X, _).
+    has_parent(X) :- parent(X, _).
+    leaf(X) :- node(X), !has_parent(X).
     ```
     
     ### Example
@@ -285,23 +288,25 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_parent(Node).
     Decl parent(Parent, Child) bound [/string, /string].
     Decl child_count(Parent, Count) bound [/string, /number].
-    
+
     child_count(Parent, Count) :-
       parent(Parent, Child)
       |> do fn:group_by(Parent),
          let Count = fn:count().
-    
+
     # Include nodes with zero children
     Decl node(N) bound [/string].
     node(X) :- parent(X, _).
     node(X) :- parent(_, X).
-    
+
     Decl child_count_with_zero(Node, Count) bound [/string, /number].
-    
+
     child_count_with_zero(Node, Count) :- child_count(Node, Count).
-    child_count_with_zero(Node, 0) :- node(Node), not parent(Node, _).
+    has_parent(Node) :- parent(Node, _).
+    child_count_with_zero(Node, 0) :- node(Node), !has_parent(Node).
     ```
     
     ### Example

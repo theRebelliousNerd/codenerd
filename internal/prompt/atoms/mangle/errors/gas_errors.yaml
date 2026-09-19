@@ -263,6 +263,8 @@
     **Option 1:** Add selectivity
     ```mangle
     # CORRECT - filter to reduce results
+    Decl item(X).
+    Decl compatible(X, Y).
     related_pairs(X, Y) :-
         item(X),
         item(Y),
@@ -284,6 +286,10 @@
     **Option 3:** Split into smaller rules
     ```mangle
     # CORRECT - process in stages
+    Decl item(X).
+    Decl condition1(X).
+    Decl related(X, Y).
+    Decl final_filter(Y).
     stage1(X) :- item(X), condition1(X).
     stage2(X, Y) :- stage1(X), related(X, Y).
     result(X, Y) :- stage2(X, Y), final_filter(Y).

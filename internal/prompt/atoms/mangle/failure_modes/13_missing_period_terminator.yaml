@@ -47,23 +47,26 @@
     ## Correct Code
     ```mangle
     # CORRECT - Period on declaration
+    Decl condition1(X).
+    Decl condition2(Y).
+    Decl condition3(Z).
     Decl parent(X, Y).
-    
+
     # CORRECT - Period on fact
     parent(/alice, /bob).
-    
+
     # CORRECT - Period on rule
     ancestor(X, Y) :- parent(X, Y).
-    
+
     # CORRECT - Each rule needs its own period
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
-    
+
     # CORRECT - Multiple facts, each with period
     edge(/a, /b).
     edge(/b, /c).
     edge(/c, /d).
-    
+
     # CORRECT - Multiline rule still needs one period at end
     complex_rule(X, Y, Z) :-
         condition1(X),

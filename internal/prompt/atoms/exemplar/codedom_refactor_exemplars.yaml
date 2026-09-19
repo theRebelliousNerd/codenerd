@@ -155,9 +155,11 @@
     During the prepare phase, this rule fires:
 
     ```mangle
+    Decl snapshot:py_decorator(X, Y).
+    Decl candidate:py_decorator(X, Y).
     deny_edit(Ref, /auth_removed) :-
         snapshot:py_decorator(Ref, "login_required"),
-        not candidate:py_decorator(Ref, "login_required").
+        !candidate:py_decorator(Ref, "login_required").
     ```
 
     ### Response from System

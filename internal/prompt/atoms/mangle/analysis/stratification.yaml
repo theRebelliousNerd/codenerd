@@ -64,19 +64,20 @@
     
     ```mangle
     # Stratum 0 (base facts)
+    Decl person(X).
     parent(/alice, /bob).
     parent(/bob, /charlie).
-    
+
     # Stratum 1 (depends on stratum 0)
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
-    
+
     # Stratum 2 (uses negation of stratum 1)
     unrelated(X, Y) :-
         person(X),
         person(Y),
-        not ancestor(X, Y),
-        not ancestor(Y, X).
+        !ancestor(X, Y),
+        !ancestor(Y, X).
     ```
     
     **Why this works**:
@@ -88,11 +89,13 @@
     
     ```mangle
     # Stratum 0
+    Decl edge(X, Y).
+    Decl node(X).
     reachable(X, Y) :- edge(X, Y).
     reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
-    
+
     # Stratum 1
-    unreachable(X, Y) :- node(X), node(Y), not reachable(X, Y).
+    unreachable(X, Y) :- node(X), node(Y), !reachable(X, Y).
     ```
     
     Evaluation order:
@@ -153,6 +156,7 @@
     
     ```mangle
     # VALID - positive recursion in same stratum
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
     ```
@@ -161,10 +165,12 @@
     
     ```mangle
     # Stratum 0
+    Decl data(X).
+    Decl candidate(X).
     base(X) :- data(X).
-    
+
     # Stratum 1 - can negate stratum 0
-    derived(X) :- candidate(X), not base(X).
+    derived(X) :- candidate(X), !base(X).
     ```
     
     ## Stratified Evaluation Process
@@ -182,15 +188,16 @@
     
     ```mangle
     # Stratum 0
+    Decl node(X).
     edge(/a, /b).
     edge(/b, /c).
-    
+
     # Stratum 1
     path(X, Y) :- edge(X, Y).
     path(X, Z) :- path(X, Y), edge(Y, Z).
-    
+
     # Stratum 2
-    no_path(X, Y) :- node(X), node(Y), not path(X, Y).
+    no_path(X, Y) :- node(X), node(Y), !path(X, Y).
     ```
     
     **Evaluation steps**:
@@ -218,9 +225,10 @@
     ### Example SCC Analysis
     
     ```mangle
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- ancestor(X, Y), parent(Y, Z).
-    
+
     descendant(X, Y) :- ancestor(Y, X).
     ```
     
@@ -271,6 +279,7 @@
     
     ```mangle
     # VALID
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
     ```
     

@@ -24,8 +24,9 @@
     ### Template
     ```mangle
     # Direct edge
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
-    
+
     # Recursive step
     reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
     ```

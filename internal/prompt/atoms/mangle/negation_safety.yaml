@@ -37,25 +37,33 @@
     ### Pattern 1: Simple Exclusion
     ```mangle
     # Find users who are not blocked
-    active_user(U) :- user(U), not blocked(U).
+    Decl user(U).
+    Decl blocked(U).
+    active_user(U) :- user(U), !blocked(U).
     ```
     
     ### Pattern 2: Multiple Negations
     ```mangle
     # Each negated variable must be bound
+    Decl user(U).
+    Decl blocked(U).
+    Decl suspended(U).
+    Decl deleted(U).
     clean_user(U) :-
         user(U),
-        not blocked(U),
-        not suspended(U),
-        not deleted(U).
+        !blocked(U),
+        !suspended(U),
+        !deleted(U).
     ```
     
     ### Pattern 3: Conditional with Negation
     ```mangle
     # Check if a file exists but has no test
+    Decl file_topology(A1, A2, A3, A4, A5).
+    Decl test_coverage(F).
     untested_file(F) :-
         file_topology(F, _, _, _, /false),  # Binds F AND checks IsTestFile=/false
-        not test_coverage(F).
+        !test_coverage(F).
     ```
     
     ## Checklist Before Using `not`

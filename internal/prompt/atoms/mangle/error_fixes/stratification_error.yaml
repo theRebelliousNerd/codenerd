@@ -60,8 +60,10 @@
     **After:**
     ```mangle
     # Ground truth: explicit allow list
+    Decl explicit_allow(X).
+    Decl user(X).
     allowed(X) :- explicit_allow(X).
-    blocked(X) :- user(X), not allowed(X).
+    blocked(X) :- user(X), !allowed(X).
     ```
     
     ### 2. Use Positive Derivation
@@ -76,8 +78,10 @@
     **After:**
     ```mangle
     # Derive from game outcome
+    Decl game_result(X, Y).
+    Decl player(X).
     winner(X) :- game_result(X, /won).
-    loser(X) :- player(X), not winner(X).
+    loser(X) :- player(X), !winner(X).
     ```
     
     ### 3. Break Cycle with Intermediate
@@ -92,9 +96,11 @@
     **After:**
     ```mangle
     # Use explicit status as ground truth
+    Decl status(X, Y).
+    Decl user(X).
     has_active_status(X) :- status(X, /active).
     active(X) :- user(X), has_active_status(X).
-    inactive(X) :- user(X), not has_active_status(X).
+    inactive(X) :- user(X), !has_active_status(X).
     ```
     
     ## Prevention

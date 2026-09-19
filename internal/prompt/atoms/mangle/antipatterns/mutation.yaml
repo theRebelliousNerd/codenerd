@@ -617,15 +617,15 @@
     ```mangle
     Decl item(Id, Name) bound [/name, /string].
     Decl deleted(Id) bound [/name].
-    
+
     item(/i1, "Widget").
     item(/i2, "Gadget").
-    
+
     deleted(/i2).
-    
+
     active_item(Id, Name) :-
         item(Id, Name),
-        not deleted(Id).
+        !deleted(Id).
     ```
     
     ### 4. Retract-and-Replace (Go API)

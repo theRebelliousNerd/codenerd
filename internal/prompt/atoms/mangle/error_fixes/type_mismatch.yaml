@@ -31,6 +31,7 @@
     
     **After:**
     ```mangle
+    Decl status(X, Y).
     check(X) :- status(X, /active).
     ```
     
@@ -45,6 +46,7 @@
     
     **After:**
     ```mangle
+    Decl message(X, Y).
     log(X) :- message(X, "error_occurred").
     ```
     
@@ -59,6 +61,7 @@
     
     **After:**
     ```mangle
+    Decl metric(X, V).
     high(X) :- metric(X, V), V > 50.0.
     ```
     
@@ -73,6 +76,7 @@
     
     **After:**
     ```mangle
+    Decl count(X, N).
     many(X) :- count(X, N), N > 10.
     ```
     

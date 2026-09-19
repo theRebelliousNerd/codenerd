@@ -295,8 +295,9 @@
     ### Bug 1: Atom vs. String Confusion
     ```mangle
     # BUG: "active" is a string, should be /active (atom)
+    Decl active_user(Id).
     user_status(Id, "active") :- active_user(Id).
-    
+
     # FIX
     user_status(Id, /active) :- active_user(Id).
     ```
@@ -304,8 +305,9 @@
     ### Bug 2: Missing Base Case
     ```mangle
     # BUG: No base case, infinite recursion
+    Decl edge(X, Y).
     path(X, Z) :- edge(X, Y), path(Y, Z).
-    
+
     # FIX: Add base case
     path(X, Y) :- edge(X, Y).
     path(X, Z) :- edge(X, Y), path(Y, Z).
@@ -338,15 +340,18 @@
     ### Bug 5: Empty Aggregation
     ```mangle
     # BUG: If no employees, no result (expected 0)
+    Decl has_total_salary_agg().
+    Decl employee(Id, Salary).
     total_salary(Total) :-
       employee(Id, Salary)
       |> do fn:group_by(),
       let Total = fn:sum(Salary).
-    
+
     # FIX: Provide default
     total_salary(Total) :- total_salary_agg(Total).
-    total_salary(0) :- not total_salary_agg(_).
-    
+    has_total_salary_agg() :- total_salary_agg(_).
+    total_salary(0) :- !has_total_salary_agg().
+
     total_salary_agg(Total) :-
       employee(Id, Salary)
       |> do fn:group_by(),

@@ -31,7 +31,9 @@
     
     **Fix:** Add a binding predicate that defines the domain of X:
     ```mangle
-    safe(X) :- candidate(X), not dangerous(X).
+    Decl candidate(X).
+    Decl dangerous(X).
+    safe(X) :- candidate(X), !dangerous(X).
     ```
     
     ### For Head Variable Errors
@@ -44,6 +46,8 @@
     
     **Fix:** Ensure all head variables appear in the body:
     ```mangle
+    Decl source(X).
+    Decl derived(X, Y).
     result(X, Y) :- source(X), derived(X, Y).
     ```
     
@@ -71,7 +75,9 @@
     ### Solution: Add domain binding
     ```mangle
     # CORRECT - user() provides domain
-    blocked_user(U) :- user(U), not permitted_user(U).
+    Decl user(U).
+    Decl permitted_user(U).
+    blocked_user(U) :- user(U), !permitted_user(U).
     ```
     
     ### Problem: Unbound in head
@@ -83,5 +89,7 @@
     ### Solution: Derive or compute the result
     ```mangle
     # CORRECT - Result derived from process
+    Decl valid(Input).
+    Decl process(Input, Result).
     compute(Input, Result) :- valid(Input), process(Input, Result).
     ```

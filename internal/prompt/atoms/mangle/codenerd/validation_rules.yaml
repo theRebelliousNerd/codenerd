@@ -73,6 +73,7 @@
     
     **CORRECTION:**
     ```mangle
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ```
     
@@ -89,6 +90,7 @@
     
     **CORRECTION:**
     ```mangle
+    Decl item(X).
     total(Sum) :-
         item(X)
         |> do fn:group_by(),
@@ -111,6 +113,7 @@
     
     **CORRECTION:**
     ```mangle
+    Decl file_topology(A1, A2, A3, A4, A5).
     count_by_lang(Lang, Count) :-
         file_topology(_, _, Lang, _, _)
         |> do fn:group_by(Lang),
@@ -165,6 +168,7 @@
     
     **CORRECTION:**
     ```mangle
+    Decl base(Y).
     result(X) :- X = 5.  # Unification
     # OR in transform block:
     result(X) :-
@@ -193,6 +197,8 @@
     
     **CORRECTION:**
     ```mangle
+    Decl other(Y).
+    Decl related(X, Y).
     result(X) :- other(Y), related(X, Y).
     ```
     
@@ -209,7 +215,9 @@
     
     **CORRECTION:**
     ```mangle
-    safe(X) :- candidate(X), not distinct(X).
+    Decl candidate(X).
+    Decl distinct(X).
+    safe(X) :- candidate(X), !distinct(X).
     ```
     
     **Rule**: All variables in a negated atom MUST be bound by positive atoms first.
@@ -228,8 +236,10 @@
     ```mangle
     # Restructure into strict layers (strata)
     # No recursion through negation allowed
+    Decl input(X).
+    Decl other_base(X).
     base_fact(X) :- input(X).
-    p(X) :- base_fact(X), not q(X).
+    p(X) :- base_fact(X), !q(X).
     q(X) :- other_base(X).
     ```
     
@@ -246,6 +256,7 @@
     
     **CORRECTION:**
     ```mangle
+    Decl base(M).
     count(N) :-
         base(M),
         N = fn:plus(M, 1),
@@ -265,6 +276,7 @@
     
     **CORRECTION:**
     ```mangle
+    Decl huge_table(X).
     res(X) :- X = /specific_id, huge_table(X).  # Filter early
     ```
     
@@ -281,6 +293,7 @@
     
     **CORRECTION:**
     ```mangle
+    Decl data(X).
     check(X) :- data(X).  # If fact exists, it's not null
     ```
     
@@ -341,6 +354,8 @@
     
     **CORRECTION:**
     ```mangle
+    Decl map_data(Map).
+    Decl struct_data(S).
     result(Val) :- map_data(Map), :match_entry(Map, /key, Val).
     # OR for structs:
     result(Val) :- struct_data(S), :match_field(S, /key, Val).
@@ -437,6 +452,7 @@
     
     **CORRECTION:**
     ```mangle
+    Decl item(X).
     total(Sum) :-
         item(X)
         |> do fn:group_by(),

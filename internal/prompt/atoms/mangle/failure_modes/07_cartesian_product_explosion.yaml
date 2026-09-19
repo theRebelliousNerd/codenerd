@@ -56,12 +56,22 @@
     ## Correct Code
     ```mangle
     # CORRECT - Start with most selective predicate
+    Decl friends(X, Y).
+    Decl user(X).
+    Decl edge(X, Y).
+    Decl all_nodes(X).
+    Decl employee(ID, Name, Dept, Salary).
+    Decl related(X, Y, Category).
+    Decl file(X).
+    Decl function(Y).
+    Decl category(Category).
+    Decl node_info(Y, Data).
     fast(X, Y) :-
         friends(X, Y),     # 1,000 friendships
         user(X),           # Verify existence
         user(Y).           # Verify existence
     # Only processes 1K pairs!
-    
+
     # CORRECT - Filter early, join late
     efficient(X, Y, Z) :-
         edge(X, Y),        # 500 edges (most selective)
@@ -69,13 +79,13 @@
         all_nodes(X),      # Validate after filtering
         all_nodes(Y),
         all_nodes(Z).
-    
+
     # CORRECT - Bind variables early
     good_query(Name) :-
         ID = /emp_12345,                   # Bind constant first
         employee(ID, Name, Dept, Salary).  # Direct lookup
     # Processes only 1 row!
-    
+
     # CORRECT - Selective predicates first
     good_analysis(X, Y, Category) :-
         related(X, Y, Category),  # 10K relations (most selective)
@@ -83,7 +93,7 @@
         function(Y),              # Validate
         category(Category).       # Validate
     # Only 10K tuples processed!
-    
+
     # CORRECT - Use equality constraints early
     optimized(X, Y) :-
         X = /specific_id,    # Bind X immediately
@@ -261,6 +271,10 @@
     
     ```mangle
     # Left-to-right evaluation:
+    Decl pred1(X).
+    Decl pred2(Y).
+    Decl pred3(Z).
+    Decl filter(X, Y, Z).
     result(X, Y, Z) :- pred1(X), pred2(Y), pred3(Z), filter(X, Y, Z).
     #                  ^^^^^^^^  ^^^^^^^^  ^^^^^^^^  ^^^^^^^^^^^^^^^^
     #                     1         2         3            4

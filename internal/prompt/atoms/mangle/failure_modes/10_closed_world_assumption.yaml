@@ -367,11 +367,12 @@
     ```mangle
     # In SQL: If input is NULL, output is NULL
     # In Mangle: If input fact doesn't exist, rule doesn't fire
-    
+
     # Example: Computing sum
     # SQL: SUM(NULL) = NULL
     # Mangle: If no facts exist, sum predicate is not derived (FALSE by CWA)
-    
+
+    Decl value(X).
     total(Sum) :-
         value(X) |>
         let Sum = fn:sum(X).

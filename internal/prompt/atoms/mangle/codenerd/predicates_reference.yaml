@@ -215,10 +215,12 @@
     **Derivation**:
     ```mangle
     # Direct impact
+    Decl dependency_link(X, Y, Z).
+    Decl modified(Y).
     impacted(X) :-
         dependency_link(X, Y, _),
         modified(Y).
-    
+
     # Recursive closure
     impacted(X) :-
         dependency_link(X, Z, _),
@@ -376,11 +378,13 @@
     
     **Derivation**:
     ```mangle
+    Decl test_state(X).
+    Decl retry_count(N).
     next_action(/read_error_log) :-
         test_state(/failing),
         retry_count(N),
         N < 3.
-    
+
     next_action(/escalate_to_user) :-
         test_state(/failing),
         retry_count(N),
@@ -436,6 +440,8 @@
     
     **Derivation**:
     ```mangle
+    Decl user_intent(A1, A2, A3, A4, A5).
+    Decl file_topology(A1, A2, A3, A4, A5).
     active_strategy(/tdd_repair_loop) :-
         user_intent(_, /mutation, /fix, Target, _),
         file_topology(Target, _, _, _, /true).
@@ -443,6 +449,7 @@
     
     **Conflict Detection**:
     ```mangle
+    Decl active_strategy(A).
     strategy_conflict() :-
         active_strategy(A),
         active_strategy(B),
@@ -495,6 +502,7 @@
     
     **Spawning Rule**:
     ```mangle
+    Decl delegate_task(X, Y, Z).
     spawn_shard(ShardType) :-
         delegate_task(ShardType, _, _).
     ```
@@ -545,6 +553,7 @@
     
     **Derivation**:
     ```mangle
+    Decl activation(X, Y, Z).
     context_atom(Fact) :-
         activation(Fact, Score, _),
         Score > 30.
@@ -619,6 +628,8 @@
     
     **Derivation**:
     ```mangle
+    Decl potential_score(Verb, S).
+    Decl best_score(Max).
     selected_verb(Verb) :-
         potential_score(Verb, S),
         best_score(Max),
@@ -697,6 +708,8 @@
     
     **Derivation**:
     ```mangle
+    Decl campaign_phase(A1, A2, A3, A4).
+    Decl has_incomplete_dependency(CID, Phase).
     phase_ready(CID, Phase) :-
         campaign_phase(CID, Phase, _, /pending),
         !has_incomplete_dependency(CID, Phase).
@@ -750,6 +763,7 @@
     
     **Derivation**:
     ```mangle
+    Decl history(StepA, Hash).
     stagnation_detected() :-
         history(StepA, Hash),
         history(StepB, Hash),
@@ -770,6 +784,8 @@
     
     **Derivation**:
     ```mangle
+    Decl base_stability(StepID, Base).
+    Decl cumulative_penalty(StepID, Penalty).
     effective_stability(StepID, Effective) :-
         base_stability(StepID, Base),
         cumulative_penalty(StepID, Penalty),
@@ -809,6 +825,7 @@
     
     **Derivation**:
     ```mangle
+    Decl converged(StepID).
     should_complete(StepID) :-
         converged(StepID).
     ```

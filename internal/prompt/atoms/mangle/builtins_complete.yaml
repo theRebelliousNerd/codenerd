@@ -19,6 +19,7 @@
     ```
     **Usage**:
     ```mangle
+    Decl item(X, Y).
     items_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
@@ -31,6 +32,7 @@
     ```
     **Usage**:
     ```mangle
+    Decl item(Cat, Value).
     category_total(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
@@ -44,6 +46,7 @@
     ```
     **Usage**:
     ```mangle
+    Decl item(Cat, Value).
     value_range(Cat, Min, Max) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
@@ -57,6 +60,7 @@
     ```
     **Single variable**:
     ```mangle
+    Decl item(X, Y).
     count_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
@@ -65,6 +69,7 @@
     
     **Multiple variables**:
     ```mangle
+    Decl sale(Region, Product, Amount).
     stats(Region, Product, Count) :-
         sale(Region, Product, Amount) |>
         do fn:group_by(Region, Product),
@@ -169,11 +174,13 @@
     **Usage**:
     ```mangle
     # Extract single field
+    Decl volunteer_record(R).
+    Decl person_record(R).
     volunteer_name(ID, Name) :-
         volunteer_record(R),
         :match_field(R, /id, ID),
         :match_field(R, /name, Name).
-    
+
     # Extract multiple fields
     person_info(ID, Name, Age, City) :-
         person_record(R),
@@ -307,6 +314,7 @@
     
     ### Running Total (Window Function Simulation)
     ```mangle
+    Decl item(Item, Value).
     running_total(Item, RunningSum) :-
         item(Item, Value),
         item(PrevItem, PrevValue),

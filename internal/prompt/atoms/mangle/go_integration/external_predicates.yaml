@@ -87,8 +87,9 @@
     ### 3. Use in Mangle Code
     
     ```mangle
+    Decl number(X).
     Decl is_even(Number).
-    
+
     # Find even numbers
     even_number(X) :- number(X), is_even(X).
     ```
@@ -370,6 +371,7 @@
     **Usage**:
     ```mangle
     # Generate all colors
+    Decl enumerate_colors(C).
     all_colors(C) :- enumerate_colors(C).
     ```
     

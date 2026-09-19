@@ -25,6 +25,7 @@
     ### Template
     ```mangle
     # Group by single attribute
+    Decl data(Item, Group, Value).
     result(Group, AggValue) :-
       data(Item, Group, Value)
       |> do fn:group_by(Group),

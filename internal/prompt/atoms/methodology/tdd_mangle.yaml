@@ -35,6 +35,7 @@
     Write the Mangle rule to satisfy the case.
 
     ```mangle
+    Decl admin(User).
     access(User) :- admin(User).
     ```
 

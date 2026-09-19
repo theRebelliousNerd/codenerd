@@ -225,12 +225,14 @@
     
     **Example**:
     ```mangle
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ```
     
     ### Multiple Body Atoms
     
     ```mangle
+    Decl parent(X, Y).
     grandparent(X, Z) :-
         parent(X, Y),
         parent(Y, Z).
@@ -243,11 +245,13 @@
     ### Negation
     
     ```mangle
+    Decl person(X).
+    Decl ancestor(X, Y).
     unrelated(X, Y) :-
         person(X),
         person(Y),
-        not ancestor(X, Y),
-        not ancestor(Y, X).
+        !ancestor(X, Y),
+        !ancestor(Y, X).
     ```
     
     **Rules**:
@@ -262,6 +266,7 @@
     ### Equality
     
     ```mangle
+    Decl data(Y).
     result(X) :- data(Y), X = Y.
     result(X) :- data(X), X = 42.
     ```
@@ -273,6 +278,7 @@
     ### Inequality
     
     ```mangle
+    Decl person(X).
     different(X, Y) :- person(X), person(Y), X != Y.
     ```
     
@@ -283,6 +289,9 @@
     ### Comparison
     
     ```mangle
+    Decl person(X).
+    Decl age(X, A).
+    Decl price(X, P1).
     adult(X) :- person(X), age(X, A), A >= 18.
     cheaper(X, Y) :- price(X, P1), price(Y, P2), P1 < P2.
     ```
@@ -299,6 +308,8 @@
     ## Function Application
     
     ```mangle
+    Decl a(X).
+    Decl b(Y).
     result(R) :- a(X), b(Y), R = fn:plus(X, Y).
     ```
     
@@ -329,6 +340,7 @@
     ### Pair Matching
     
     ```mangle
+    Decl data(P).
     first_element(F) :- data(P), :match_pair(P, F, _).
     ```
     
@@ -342,12 +354,14 @@
     ### Map Matching
     
     ```mangle
+    Decl person(M).
     age(A) :- person(M), :match_entry(M, /age, A).
     ```
     
     ### Struct Matching
     
     ```mangle
+    Decl person(S).
     name(N) :- person(S), :match_field(S, /name, N).
     ```
     
@@ -406,8 +420,9 @@
     
     ```mangle
     # Base case
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
-    
+
     # Recursive case
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
     ```
@@ -422,6 +437,7 @@
     ## Multiple Rules for Same Predicate
     
     ```mangle
+    Decl edge(X, Y).
     path(X, Y) :- edge(X, Y).
     path(X, Z) :- edge(X, Y), path(Y, Z).
     ```
@@ -568,11 +584,13 @@
     
     ```mangle
     # All equivalent
+    Decl data(X).
+    Decl other(X).
     result(X) :- data(X).
     result(X):-data(X).
     result(X) :-
         data(X).
-    
+
     result(X) :-
         data(X),
         other(X).

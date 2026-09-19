@@ -25,39 +25,45 @@
     ### Template
     ```mangle
     # Use actual value if it exists
+    Decl has_data(X).
+    Decl data(X, Value).
+    Decl candidate(X).
     result(X, Value) :- data(X, Value).
-    
+
     # Use default if no actual value
+    has_data(X) :- data(X, _).
     result(X, DefaultValue) :-
       candidate(X),
-      not data(X, _),
+      !has_data(X),
       DefaultValue = "default".
     ```
     
     ### Complete Working Example
     ```mangle
     # Schema
+    Decl has_email(UserId).
     Decl user(UserId) bound [/string].
     Decl email(UserId, Email) bound [/string, /string].
     Decl user_email(UserId, Email) bound [/string, /string].
-    
+
     # Facts
     user("u1").
     user("u2").
     user("u3").
-    
+
     email("u1", "u1@example.com").
     email("u3", "u3@example.com").
     # u2 has no email
-    
+
     # Use actual email if it exists
     user_email(UserId, Email) :- email(UserId, Email).
-    
+
     # Use default email if no actual email
+    has_email(UserId) :- email(UserId, _).
     user_email(UserId, "no-email@example.com") :-
       user(UserId),
-      not email(UserId, _).
-    
+      !has_email(UserId).
+
     # Query: user_email(UserId, Email)
     # Results:
     # user_email("u1", "u1@example.com")
@@ -73,34 +79,40 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_primary_value(Id).
+    Decl has_secondary_value(Id).
+    Decl has_tertiary_value(Id).
     Decl entity(Id) bound [/string].
     Decl primary_value(Id, Value) bound [/string, /string].
     Decl secondary_value(Id, Value) bound [/string, /string].
     Decl tertiary_value(Id, Value) bound [/string, /string].
     Decl final_value(Id, Value) bound [/string, /string].
-    
+
     # Priority 1: Use primary if available
     final_value(Id, Value) :- primary_value(Id, Value).
-    
+
     # Priority 2: Use secondary if no primary
+    has_primary_value(Id) :- primary_value(Id, _).
     final_value(Id, Value) :-
       entity(Id),
-      not primary_value(Id, _),
+      !has_primary_value(Id),
       secondary_value(Id, Value).
-    
+
     # Priority 3: Use tertiary if no primary or secondary
+    has_secondary_value(Id) :- secondary_value(Id, _).
     final_value(Id, Value) :-
       entity(Id),
-      not primary_value(Id, _),
-      not secondary_value(Id, _),
+      !has_primary_value(Id),
+      !has_secondary_value(Id),
       tertiary_value(Id, Value).
-    
+
     # Priority 4: Use default if none available
+    has_tertiary_value(Id) :- tertiary_value(Id, _).
     final_value(Id, "DEFAULT") :-
       entity(Id),
-      not primary_value(Id, _),
-      not secondary_value(Id, _),
-      not tertiary_value(Id, _).
+      !has_primary_value(Id),
+      !has_secondary_value(Id),
+      !has_tertiary_value(Id).
     ```
     
     ### Example
@@ -134,20 +146,22 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_purchase(UserId).
     Decl user(UserId) bound [/string].
     Decl purchase(UserId, Amount) bound [/string, /number].
     Decl user_total(UserId, Total) bound [/string, /number].
-    
+
     # Users with purchases - sum them
     user_total(UserId, Total) :-
       purchase(UserId, Amount)
       |> do fn:group_by(UserId),
          let Total = fn:sum(Amount).
-    
+
     # Users with no purchases - default to 0
+    has_purchase(UserId) :- purchase(UserId, _).
     user_total(UserId, 0) :-
       user(UserId),
-      not purchase(UserId, _).
+      !has_purchase(UserId).
     ```
     
     ### Example
@@ -174,26 +188,30 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_own_value(Child).
+    Decl has_parent(Id).
     Decl node(Id) bound [/string].
     Decl parent(Child, Parent) bound [/string, /string].
     Decl own_value(Id, Value) bound [/string, /string].
     Decl effective_value(Id, Value) bound [/string, /string].
-    
+
     # Use own value if it exists
     effective_value(Id, Value) :- own_value(Id, Value).
-    
+
     # Inherit from parent if no own value
+    has_own_value(Child) :- own_value(Child, _).
     effective_value(Child, Value) :-
       node(Child),
-      not own_value(Child, _),
+      !has_own_value(Child),
       parent(Child, Parent),
       effective_value(Parent, Value).  # Recursive inheritance
-    
+
     # Root default (no parent, no own value)
+    has_parent(Id) :- parent(Id, _).
     effective_value(Id, "ROOT_DEFAULT") :-
       node(Id),
-      not own_value(Id, _),
-      not parent(Id, _).
+      !has_own_value(Id),
+      !has_parent(Id).
     ```
     
     ### Example
@@ -226,27 +244,29 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_custom_setting(UserId).
     Decl user(UserId, Country) bound [/string, /string].
     Decl custom_setting(UserId, Value) bound [/string, /string].
     Decl effective_setting(UserId, Value) bound [/string, /string].
-    
+
     # Use custom setting if exists
     effective_setting(UserId, Value) :- custom_setting(UserId, Value).
-    
+
     # Default varies by country
+    has_custom_setting(UserId) :- custom_setting(UserId, _).
     effective_setting(UserId, "US_DEFAULT") :-
       user(UserId, "USA"),
-      not custom_setting(UserId, _).
-    
+      !has_custom_setting(UserId).
+
     effective_setting(UserId, "EU_DEFAULT") :-
       user(UserId, "EU"),
-      not custom_setting(UserId, _).
-    
+      !has_custom_setting(UserId).
+
     effective_setting(UserId, "GLOBAL_DEFAULT") :-
       user(UserId, Country),
       Country != "USA",
       Country != "EU",
-      not custom_setting(UserId, _).
+      !has_custom_setting(UserId).
     ```
     
     ### Example
@@ -273,17 +293,19 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_actual_value(N).
     Decl expected_sequence(N) bound [/number].
     Decl actual_value(N, Value) bound [/number, /string].
     Decl complete_sequence(N, Value) bound [/number, /string].
-    
+
     # Use actual value if it exists
     complete_sequence(N, Value) :- actual_value(N, Value).
-    
+
     # Fill gaps with placeholder
+    has_actual_value(N) :- actual_value(N, _).
     complete_sequence(N, "MISSING") :-
       expected_sequence(N),
-      not actual_value(N, _).
+      !has_actual_value(N).
     ```
     
     ### Example
@@ -412,25 +434,31 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_user_name(UserId).
+    Decl has_user_email(UserId).
+    Decl has_user_phone(UserId).
     Decl user(UserId) bound [/string].
     Decl user_name(UserId, Name) bound [/string, /string].
     Decl user_email(UserId, Email) bound [/string, /string].
     Decl user_phone(UserId, Phone) bound [/string, /string].
     Decl user_profile(UserId, Name, Email, Phone) bound [/string, /string, /string, /string].
-    
+
     # Combine actuals with defaults
     Decl name_or_default(UserId, Name) bound [/string, /string].
     name_or_default(UserId, Name) :- user_name(UserId, Name).
-    name_or_default(UserId, "Anonymous") :- user(UserId), not user_name(UserId, _).
-    
+    has_user_name(UserId) :- user_name(UserId, _).
+    name_or_default(UserId, "Anonymous") :- user(UserId), !has_user_name(UserId).
+
     Decl email_or_default(UserId, Email) bound [/string, /string].
     email_or_default(UserId, Email) :- user_email(UserId, Email).
-    email_or_default(UserId, "no-email") :- user(UserId), not user_email(UserId, _).
-    
+    has_user_email(UserId) :- user_email(UserId, _).
+    email_or_default(UserId, "no-email") :- user(UserId), !has_user_email(UserId).
+
     Decl phone_or_default(UserId, Phone) bound [/string, /string].
     phone_or_default(UserId, Phone) :- user_phone(UserId, Phone).
-    phone_or_default(UserId, "no-phone") :- user(UserId), not user_phone(UserId, _).
-    
+    has_user_phone(UserId) :- user_phone(UserId, _).
+    phone_or_default(UserId, "no-phone") :- user(UserId), !has_user_phone(UserId).
+
     # Build complete profile
     user_profile(UserId, Name, Email, Phone) :-
       user(UserId),
@@ -464,22 +492,24 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_custom_discount(Id).
     Decl item(Id, BasePrice) bound [/string, /number].
     Decl custom_discount(Id, Discount) bound [/string, /float64].
     Decl effective_discount(Id, Discount) bound [/string, /float64].
-    
+
     # Use custom discount if exists
     effective_discount(Id, Discount) :- custom_discount(Id, Discount).
-    
+
     # Compute default: 10% for items over $1000, 5% otherwise
+    has_custom_discount(Id) :- custom_discount(Id, _).
     effective_discount(Id, 0.10) :-
       item(Id, BasePrice),
-      not custom_discount(Id, _),
+      !has_custom_discount(Id),
       BasePrice > 1000.
-    
+
     effective_discount(Id, 0.05) :-
       item(Id, BasePrice),
-      not custom_discount(Id, _),
+      !has_custom_discount(Id),
       BasePrice <= 1000.
     ```
     
@@ -605,10 +635,12 @@
     
     ### File Metadata Defaults
     ```mangle
+    Decl has_file_encoding(Path).
     Decl file(Path) bound [/string].
     Decl file_encoding(Path, Encoding) bound [/string, /string].
     Decl effective_encoding(Path, Encoding) bound [/string, /string].
-    
+
     effective_encoding(Path, Encoding) :- file_encoding(Path, Encoding).
-    effective_encoding(Path, "UTF-8") :- file(Path), not file_encoding(Path, _).
+    has_file_encoding(Path) :- file_encoding(Path, _).
+    effective_encoding(Path, "UTF-8") :- file(Path), !has_file_encoding(Path).
     ```

@@ -39,6 +39,7 @@
     
     **SAFE**: Variables bound in positive atoms
     ```mangle
+    Decl parent(X, Y).
     result(X, Y) :- parent(X, Y).
     ```
     `X` and `Y` are bound because they appear in the positive atom `parent(X, Y)`.
@@ -63,7 +64,8 @@
     
     **SAFE**: Variable bound before negation
     ```mangle
-    result(X) :- person(X), not parent(X, Y).
+    Decl person(X).
+    result(X) :- person(X), !parent(X, Y).
     ```
     `X` is bound by `person` first, then checked for absence in `parent`.
     
@@ -87,6 +89,8 @@
     Usage:
     ```mangle
     # SAFE: X is bound, Y will be bound by parent
+    Decl person(X).
+    Decl parent(X, Y).
     has_child(X) :- person(X), parent(X, Y).
     ```
     
@@ -109,6 +113,7 @@
     
     **SAFE** (corrected):
     ```mangle
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
     ```
@@ -133,7 +138,9 @@
     
     **SAFE** (corrected):
     ```mangle
-    safe(X) :- thing(X), not dangerous(X).
+    Decl thing(X).
+    Decl dangerous(X).
+    safe(X) :- thing(X), !dangerous(X).
     ```
     `X` is bound by `thing` first, then we check if it's NOT in `dangerous`.
     
@@ -156,6 +163,7 @@
     ### Unification Chains
     
     ```mangle
+    Decl parent(Y, Z).
     result(X) :- parent(Y, Z), X = Y.
     ```
     - `Y` is bound by `parent`
@@ -182,6 +190,7 @@
     
     ```mangle
     # SAFE
+    Decl person(X).
     different(X, Y) :- person(X), person(Y), X != Y.
     ```
     Both bound by `person`, then filtered by inequality.
@@ -199,6 +208,7 @@
     
     **VALID**:
     ```mangle
+    Decl age(Y, A1).
     result(X) :- age(Y, A1), age(Z, A2), X = fn:plus(A1, A2).
     ```
     

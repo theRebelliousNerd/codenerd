@@ -336,8 +336,10 @@
     
     ```mangle
     # ERROR
+    Decl numerator(N).
+    Decl denominator(D).
     result(R) :- numerator(N), denominator(D), R = fn:div(N, D).  # D could be 0
-    
+
     # FIX
     result(R) :- numerator(N), denominator(D), D != 0, R = fn:div(N, D).
     ```

@@ -103,19 +103,21 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_email(UserId).
     Decl user(UserId, Name) bound [/string, /string].
     Decl email(UserId, Email) bound [/string, /string].
     Decl user_with_email(UserId, Name, HasEmail) bound [/string, /string, /name].
-    
+
     # Users with email
     user_with_email(UserId, Name, /yes) :-
       user(UserId, Name),
       email(UserId, _).
-    
+
     # Users without email
+    has_email(UserId) :- email(UserId, _).
     user_with_email(UserId, Name, /no) :-
       user(UserId, Name),
-      not email(UserId, _).
+      !has_email(UserId).
     ```
     
     ### Example
@@ -464,8 +466,11 @@
     4. **Materialize Intermediate Results**: For complex multi-joins
        ```mangle
        # Stage 1
+       Decl pred1(X, Key).
+       Decl pred2(Y, Key).
+       Decl pred3(Y, Z).
        intermediate(X, Y) :- pred1(X, Key), pred2(Y, Key).
-    
+           
        # Stage 2
        final(X, Y, Z) :- intermediate(X, Y), pred3(Y, Z).
        ```
@@ -506,12 +511,14 @@
     
     ### Test-Code Coverage Join
     ```mangle
+    Decl has_covers(File).
     Decl test(TestId, TestFile) bound [/string, /string].
     Decl covers(TestId, SourceFile) bound [/string, /string].
     Decl source_file(File) bound [/string].
     Decl untested_files(File) bound [/string].
-    
+
+    has_covers(File) :- covers(_, File).
     untested_files(File) :-
       source_file(File),
-      not covers(_, File).
+      !has_covers(File).
     ```

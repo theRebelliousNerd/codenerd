@@ -16,6 +16,8 @@
     ### Selection (WHERE clause)
     ```mangle
     # Filter records by condition
+    Decl person(Person).
+    Decl age(Person, Age).
     adult(Person) :-
         person(Person),
         age(Person, Age),
@@ -25,6 +27,7 @@
     ### Projection (SELECT columns)
     ```mangle
     # Extract specific fields
+    Decl person_record(R).
     person_name(ID, Name) :-
         person_record(R),
         :match_field(R, /id, ID),
@@ -34,6 +37,8 @@
     ### Join (SQL JOIN)
     ```mangle
     # Natural join on shared variable
+    Decl employee(EmpID, EmpName, DeptID).
+    Decl department(DeptID, DeptName).
     employee_dept(EmpName, DeptName) :-
         employee(EmpID, EmpName, DeptID),
         department(DeptID, DeptName).
@@ -42,6 +47,9 @@
     ### Union (OR)
     ```mangle
     # Multiple rules = union
+    Decl employee(Person).
+    Decl contractor(Person).
+    Decl vendor(Person).
     contact(Person) :- employee(Person).
     contact(Person) :- contractor(Person).
     contact(Person) :- vendor(Person).
@@ -53,18 +61,22 @@
     ### Set Difference (NOT IN)
     ```mangle
     # Items in A but not in B
+    Decl set_a(X).
+    Decl set_b(X).
     difference(X) :-
         set_a(X),
-        not set_b(X).
+        !set_b(X).
     ```
     
     ### Left Anti-Join (SQL LEFT JOIN ... WHERE B IS NULL)
     ```mangle
     # Employees without departments
+    Decl employee(Emp).
+    Decl employee_dept(X, Y).
     unassigned_employee(Emp) :-
         employee(Emp),
-        not has_department(Emp).
-    
+        !has_department(Emp).
+
     has_department(Emp) :-
         employee_dept(Emp, _).
     ```
@@ -84,10 +96,12 @@
     ### Complement Set
     ```mangle
     # Items NOT matching condition
+    Decl user(User).
+    Decl user_status(X, Y).
     inactive(User) :-
         user(User),
-        not active(User).
-    
+        !active(User).
+
     active(User) :-
         user_status(User, /active).
     ```
@@ -97,8 +111,9 @@
     ### Transitive Closure (Reachability)
     ```mangle
     # Base case: direct edge
+    Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
-    
+
     # Recursive case: path via intermediate
     reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
     ```
@@ -106,9 +121,10 @@
     ### Ancestor/Descendant
     ```mangle
     # Ancestors
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
-    
+
     # Descendants (reverse)
     descendant(X, Y) :- ancestor(Y, X).
     ```
@@ -116,11 +132,13 @@
     ### Same Generation (via Common Ancestor)
     ```mangle
     # Same level in hierarchy
+    Decl root(Root).
+    Decl parent(P, Node).
     same_generation(X, Y) :-
         depth(X, D),
         depth(Y, D),
         X != Y.
-    
+
     depth(Root, 0) :- root(Root).
     depth(Node, D) :-
         parent(P, Node),
@@ -140,6 +158,7 @@
     ### Path with Cost
     ```mangle
     # Accumulate cost along path
+    Decl edge(X, Y, Cost).
     path_cost(X, Y, Cost) :- edge(X, Y, Cost).
     path_cost(X, Z, TotalCost) :-
         edge(X, Y, Cost1),
@@ -162,8 +181,10 @@
     ### Cycle Detection
     ```mangle
     # Detect if cycle exists from node
+    Decl edge(X, Y).
+    Decl reachable(Y, X).
     has_cycle(X) :- cycle_edge(X, _).
-    
+
     # Back edge creates cycle
     cycle_edge(X, Y) :-
         edge(X, Y),
@@ -188,6 +209,7 @@
     
     ### Count by Group
     ```mangle
+    Decl item(X, Y).
     count_per_category(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
@@ -196,6 +218,7 @@
     
     ### Sum by Group
     ```mangle
+    Decl sale(Region, Amount).
     total_by_region(Region, Total) :-
         sale(Region, Amount) |>
         do fn:group_by(Region),
@@ -214,6 +237,7 @@
     
     ### Multi-Dimensional Grouping
     ```mangle
+    Decl sale(Region, Product, Amount).
     sales_summary(Region, Product, Count, Revenue) :-
         sale(Region, Product, Amount) |>
         do fn:group_by(Region, Product),
@@ -224,6 +248,7 @@
     ### Conditional Aggregation (HAVING)
     ```mangle
     # Categories with more than 10 items
+    Decl count_per_category(Cat, N).
     large_categories(Cat, N) :-
         count_per_category(Cat, N),
         N > 10.
@@ -232,11 +257,12 @@
     ### Nested Aggregation
     ```mangle
     # Step 1: Subtotals
+    Decl item(Cat, Value).
     category_total(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
         let Total = fn:sum(Value).
-    
+
     # Step 2: Grand total from subtotals
     grand_total(GrandTotal) :-
         category_total(_, Total) |>
@@ -249,8 +275,9 @@
     ### Dependency Analysis
     ```mangle
     # Direct dependencies
+    Decl depends_direct(Project, Lib).
     depends(Project, Lib) :- depends_direct(Project, Lib).
-    
+
     # Transitive dependencies
     depends(Project, Lib) :-
         depends_direct(Project, Intermediate),
@@ -272,34 +299,42 @@
     ### Access Control (RBAC)
     ```mangle
     # Permission via direct grant
+    Decl grant(User, Resource, Action).
+    Decl user_role(User, Role).
+    Decl role_permission(Role, Resource, Action).
+    Decl deny(U, R, A).
     has_permission(User, Resource, Action) :-
         grant(User, Resource, Action).
-    
+
     # Permission via role
     has_permission(User, Resource, Action) :-
         user_role(User, Role),
         role_permission(Role, Resource, Action).
-    
+
     # Effective permissions (after denials)
     effective_permission(U, R, A) :-
         has_permission(U, R, A),
-        not deny(U, R, A).
+        !deny(U, R, A).
     ```
     
     ### Data Lineage
     ```mangle
     # Direct transformation
+    Decl transforms(Source, Target).
+    Decl joins(X, Y, Z).
+    Decl final_table(Table).
+    Decl source_table(Source).
     depends_on(Target, Source) :- transforms(Source, Target).
-    
+
     # Join dependency
     depends_on(Target, Source) :- joins(Source, _, Target).
     depends_on(Target, Source) :- joins(_, Source, Target).
-    
+
     # Transitive dependency
     depends_on(Target, Source) :-
         depends_on(Target, Intermediate),
         depends_on(Intermediate, Source).
-    
+
     # Source lineage (trace back to original sources)
     source_lineage(Table, Source) :-
         final_table(Table),
@@ -310,15 +345,18 @@
     ### Vulnerability Propagation
     ```mangle
     # Direct vulnerability
+    Decl project(Project).
+    Decl depends_on(Project, Lib, Version).
+    Decl cve_affects(Lib, Version, CVE, Severity).
     vulnerable_project(Project, CVE, Severity) :-
         project(Project),
         depends_on(Project, Lib, Version),
         cve_affects(Lib, Version, CVE, Severity).
-    
+
     # Transitive vulnerability
     has_dependency(Project, Lib, Version) :-
         depends_on(Project, Lib, Version).
-    
+
     has_dependency(Project, Lib, Version) :-
         depends_on(Project, Intermediate, _),
         has_dependency(Intermediate, Lib, Version).
@@ -397,6 +435,9 @@
     ### Join Ordering (Small to Large)
     ```mangle
     # Place most selective predicates first
+    Decl rare_condition(Y, Z).
+    Decl join_condition(X, Y).
+    Decl common_condition(X).
     efficient(X, Y, Z) :-
         rare_condition(Y, Z),      # 10 results
         join_condition(X, Y),      # 100 results after join
@@ -406,9 +447,11 @@
     ### Materialization (Reuse Expensive Computation)
     ```mangle
     # Materialize expensive intermediate result
+    Decl complex_computation(X, Y).
+    Decl cheap_step(Y, Z).
     expensive_step(X, Y) :-
         complex_computation(X, Y).
-    
+
     # Reuse materialized result
     final_result(X, Y, Z) :-
         expensive_step(X, Y),

@@ -405,6 +405,9 @@
     
     ### Build Struct from Predicates
     ```mangle
+    Decl user_name(User, Name).
+    Decl user_age(User, Age).
+    Decl user_email(User, Email).
     user_struct(User, Struct) :-
       user_name(User, Name),
       user_age(User, Age),

@@ -55,5 +55,6 @@
     
     ### After (Valid)
     ```mangle
+    Decl system_shard_unhealthy(X).
     candidate_action(/monitor) :- system_shard_unhealthy(/true).
     ```

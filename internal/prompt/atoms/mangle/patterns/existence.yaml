@@ -38,23 +38,25 @@
     ### Complete Working Example
     ```mangle
     # Schema
+    Decl has_user().
     Decl user(UserId) bound [/string].
     Decl has_users(Result) bound [/name].
     Decl has_no_users(Result) bound [/name].
-    
+
     # Facts
     user("u1").
     user("u2").
-    
+
     # Existence check
     has_users(/yes) :- user(_).
-    
+
     # Non-existence check
-    has_no_users(/yes) :- not user(_).
-    
+    has_user() :- user(_).
+    has_no_users(/yes) :- !has_user().
+
     # Query: has_users(R)
     # Result: has_users(/yes)
-    
+
     # Query: has_no_users(R)
     # Result: (empty - users exist)
     ```
@@ -67,12 +69,14 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_user_active().
     Decl user(UserId, Status) bound [/string, /name].
     Decl has_active_users(Result) bound [/name].
-    
+
     # Check if at least one active user exists
     has_active_users(/yes) :- user(_, /active).
-    has_active_users(/no) :- not user(_, /active).
+    has_user_active() :- user(_, /active).
+    has_active_users(/no) :- !has_user_active().
     ```
     
     ### Example
@@ -249,12 +253,14 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_related_to(Id).
     Decl entity(Id) bound [/string].
     Decl related_to(Id, TargetId) bound [/string, /string].
     Decl orphaned(Id) bound [/string].
-    
+
     # Entities without any relationships
-    orphaned(Id) :- entity(Id), not related_to(Id, _).
+    has_related_to(Id) :- related_to(Id, _).
+    orphaned(Id) :- entity(Id), !has_related_to(Id).
     ```
     
     ### Example
@@ -278,17 +284,19 @@
     ### Solution
     ```mangle
     # Schema
+    Decl has_in_both().
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl in_both(Elem) bound [/string].
     Decl intersection_exists(Result) bound [/name].
-    
+
     # Elements in both sets
     in_both(Elem) :- set_a(Elem), set_b(Elem).
-    
+
     # Check if intersection is non-empty
     intersection_exists(/yes) :- in_both(_).
-    intersection_exists(/no) :- not in_both(_).
+    has_in_both() :- in_both(_).
+    intersection_exists(/no) :- !has_in_both().
     ```
     
     ### Example
@@ -492,38 +500,44 @@
     
     ### Check if File Has Tests
     ```mangle
+    Decl has_test_covers(File).
     Decl source_file(File) bound [/string].
     Decl test_covers(TestFile, SourceFile) bound [/string, /string].
     Decl has_tests(File, Result) bound [/string, /name].
-    
+
     has_tests(File, /yes) :- source_file(File), test_covers(_, File).
-    has_tests(File, /no) :- source_file(File), not test_covers(_, File).
+    has_test_covers(File) :- test_covers(_, File).
+    has_tests(File, /no) :- source_file(File), !has_test_covers(File).
     ```
     
     ### Verify All Functions Are Documented
     ```mangle
+    Decl has_undocumented().
     Decl function(FuncId) bound [/string].
     Decl has_doc(FuncId) bound [/string].
     Decl all_documented(Result) bound [/name].
-    
+
     Decl undocumented(FuncId) bound [/string].
-    undocumented(FuncId) :- function(FuncId), not has_doc(FuncId).
-    
-    all_documented(/yes) :- not undocumented(_).
+    undocumented(FuncId) :- function(FuncId), !has_doc(FuncId).
+
+    has_undocumented() :- undocumented(_).
+    all_documented(/yes) :- !has_undocumented().
     all_documented(/no) :- undocumented(_).
     ```
     
     ### Check if Shard Has Completed Any Tasks
     ```mangle
+    Decl has_shard_executed_success(ShardId).
     Decl shard(ShardId) bound [/string].
     Decl shard_executed(ShardId, TaskId, Status) bound [/string, /string, /name].
     Decl has_completed_tasks(ShardId, Result) bound [/string, /name].
-    
+
     has_completed_tasks(ShardId, /yes) :-
       shard(ShardId),
       shard_executed(ShardId, _, /success).
-    
+
+    has_shard_executed_success(ShardId) :- shard_executed(ShardId, _, /success).
     has_completed_tasks(ShardId, /no) :-
       shard(ShardId),
-      not shard_executed(ShardId, _, /success).
+      !has_shard_executed_success(ShardId).
     ```

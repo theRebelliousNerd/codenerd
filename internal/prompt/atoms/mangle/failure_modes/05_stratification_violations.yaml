@@ -133,27 +133,31 @@
     ### Pattern 1: Termination Condition
     ```mangle
     # Recursive closure with base case
+    Decl parent(X, Y).
+    Decl person(X).
     ancestor(X, Y) :- parent(X, Y).  # Base
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).  # Recursive
-    
+
     # Filter AFTER closure is complete
     not_ancestor(X, Y) :-
         person(X),
         person(Y),
-        not ancestor(X, Y).  # Safe: ancestor fully computed
+        !ancestor(X, Y).  # Safe: ancestor fully computed
     ```
     
     ### Pattern 2: Explicit Depth/Counter
     ```mangle
     # Bounded recursion with explicit counter
+    Decl edge(X, Y).
+    Decl blacklist(X, Y).
     path(X, Y, 1) :- edge(X, Y).
     path(X, Z, D) :-
         edge(X, Y),
         path(Y, Z, D1),
         D = fn:plus(D1, 1),
         D < 10,              # Explicit bound
-        not blocked(X, Z).   # Safe: no cycle through blocked
-    
+        !blocked(X, Z).   # Safe: no cycle through blocked
+
     # blocked doesn't depend on path
     blocked(X, Y) :- blacklist(X, Y).
     ```
@@ -266,9 +270,11 @@
     ## Debugging Aid
     ```mangle
     # To find dependencies, add trace rules:
+    Decl rule_uses(A, B).
+    Decl rule_uses_negation(A, B).
     depends_on(A, B) :- rule_uses(A, B).  # Track which rules use which predicates
     depends_on_negated(A, B) :- rule_uses_negation(A, B).
-    
+
     # Find cycles:
     cycle(X) :- depends_on(X, X).
     cycle(X) :- depends_on(X, Y), cycle(Y).

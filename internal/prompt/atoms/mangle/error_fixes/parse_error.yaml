@@ -23,6 +23,7 @@
     
     **After:**
     ```mangle
+    Decl source(X).
     rule(X) :- source(X).
     ```
     
@@ -49,6 +50,7 @@
     
     **After:**
     ```mangle
+    Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ```
     
@@ -63,7 +65,9 @@
     
     **After:**
     ```mangle
-    safe(X) :- source(X), not dangerous(X).
+    Decl source(X).
+    Decl dangerous(X).
+    safe(X) :- source(X), !dangerous(X).
     ```
     
     ### 5. Missing `do` in Aggregation
@@ -76,6 +80,7 @@
     
     **After:**
     ```mangle
+    Decl source(X).
     count(N) :- source(_) |> do fn:group_by(), let N = fn:count().
     ```
     

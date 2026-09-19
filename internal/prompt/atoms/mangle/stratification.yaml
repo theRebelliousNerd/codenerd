@@ -52,8 +52,10 @@
     **After:**
     ```mangle
     # Base facts determine state
+    Decl user(X).
+    Decl has_permission(X).
     allowed(X) :- user(X), has_permission(X).
-    blocked(X) :- user(X), not allowed(X).
+    blocked(X) :- user(X), !allowed(X).
     ```
     
     ### 2. Break with Ground Facts
@@ -66,8 +68,10 @@
     **After:**
     ```mangle
     # Determine winner from game result (ground truth)
+    Decl game_result(X, Y).
+    Decl player(X).
     winner(X) :- game_result(X, /won).
-    loser(X) :- player(X), not winner(X).
+    loser(X) :- player(X), !winner(X).
     ```
     
     ### 3. Separate Domains
@@ -80,6 +84,7 @@
     **After:**
     ```mangle
     # Derive from explicit status
+    Decl status(X, Y).
     active(X) :- status(X, /active).
     inactive(X) :- status(X, /inactive).
     ```
@@ -96,14 +101,18 @@
     ### Default with Override
     ```mangle
     # Safe: defaults to open, override to close
-    open(X) :- domain(X), not closed(X).
+    Decl domain(X).
+    Decl explicitly_closed(X).
+    open(X) :- domain(X), !closed(X).
     closed(X) :- explicitly_closed(X).
     ```
     
     ### Hierarchical Negation
     ```mangle
     # Safe: each level only negates lower levels
+    Decl base_fact(X).
+    Decl domain(X).
     level1(X) :- base_fact(X).
-    level2(X) :- domain(X), not level1(X).
-    level3(X) :- domain(X), not level2(X), not level1(X).
+    level2(X) :- domain(X), !level1(X).
+    level3(X) :- domain(X), !level2(X), !level1(X).
     ```

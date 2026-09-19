@@ -211,6 +211,7 @@
     **How to Fix:**
     ```mangle
     # CORRECT - atom predicate first
+    Decl source(X).
     result(X) :- source(X) |> do fn:group_by(X).
     ```
     
@@ -230,6 +231,7 @@
     **Reproducing Example:**
     ```mangle
     # Missing declaration
+    Decl undefined_pred(X).
     result(X) :- undefined_pred(X).
     ```
     
@@ -407,6 +409,7 @@
     **Option 3:** Optimize query
     ```mangle
     # Add selectivity - filter early
+    Decl large_table(X, Y).
     result(X) :- X = /specific_id, large_table(X, Y).
     # NOT: result(X) :- large_table(X, Y), X = /specific_id.
     ```

@@ -98,19 +98,19 @@
     Decl employee(Id, Name) bound [/name, /string].
     Decl manager(Id) bound [/name].
     Decl non_manager(Id) bound [/name].
-    
+
     # Base facts (stratum 0)
     employee(/e1, "Alice").
     employee(/e2, "Bob").
     manager(/e1).
-    
+
     # Stratum 1: manager (no dependencies)
     # (already base facts)
-    
+
     # Stratum 2: non_manager (depends negatively on manager)
     non_manager(Id) :-
       employee(Id, Name),
-      not manager(Id).
+      !manager(Id).
     ```
     
     **Dependency graph**:
@@ -129,22 +129,22 @@
     Decl banned(Id) bound [/name].
     Decl active_user(Id) bound [/name].
     Decl safe_user(Id) bound [/name].
-    
+
     # Stratum 0: Base facts
     user(/u1).
     user(/u2).
     admin(/u1).
     banned(/u3).
-    
+
     # Stratum 1: active_user (negates banned)
     active_user(Id) :-
       user(Id),
-      not banned(Id).
-    
+      !banned(Id).
+
     # Stratum 2: safe_user (negates admin)
     safe_user(Id) :-
       active_user(Id),
-      not admin(Id).
+      !admin(Id).
     ```
     
     **Dependency graph**:
@@ -216,11 +216,12 @@
     #### After (Stratified)
     ```mangle
     # Admin is base fact
+    Decl user(X).
     Decl admin(Id) bound [/name].
     admin(/u1).
-    
+
     # Non-admin derives from admin
-    non_admin(X) :- user(X), not admin(X).
+    non_admin(X) :- user(X), !admin(X).
     ```
     
     ### Strategy 2: Break Cycle with Explicit Stratum
@@ -244,25 +245,28 @@
     #### After (Stratified)
     ```mangle
     # Stratum 0: Base permissions
+    Decl owner(User, Doc).
+    Decl shared(Doc, User).
+    Decl attempted_edit(User, Doc).
     owner_can_edit(User, Doc) :- owner(User, Doc).
-    
+
     # Stratum 1: Shared permissions (no negation)
     shared_can_edit(User, Doc) :-
       shared(Doc, User).
-    
+
     # Stratum 2: Blocked status (negates stratum 1)
     blocked(User, Doc) :-
-      not owner_can_edit(User, Doc),
-      not shared_can_edit(User, Doc),
+      !owner_can_edit(User, Doc),
+      !shared_can_edit(User, Doc),
       attempted_edit(User, Doc).
-    
+
     # Stratum 3: Final permission (negates stratum 2)
     can_edit(User, Doc) :-
       owner_can_edit(User, Doc).
-    
+
     can_edit(User, Doc) :-
       shared_can_edit(User, Doc),
-      not blocked(User, Doc).
+      !blocked(User, Doc).
     ```
     
     ## Detecting Stratification Violations
@@ -360,32 +364,36 @@
     
     ### Program
     ```mangle
+    Decl has_reachable(X).
+    Decl has_reachable_1(X).
     Decl node(Id) bound [/name].
     Decl edge(From, To) bound [/name, /name].
     Decl reachable(From, To) bound [/name, /name].
     Decl unreachable(From, To) bound [/name, /name].
     Decl isolated(Id) bound [/name].
-    
+
     # Stratum 0: Base facts
     node(/a). node(/b). node(/c).
     edge(/a, /b).
-    
+
     # Stratum 1: Reachability (positive recursion, same stratum OK)
     reachable(X, Y) :- edge(X, Y).
     reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
-    
+
     # Stratum 2: Unreachable (negates stratum 1)
     unreachable(X, Y) :-
       node(X),
       node(Y),
-      not reachable(X, Y),
+      !reachable(X, Y),
       X != Y.
-    
+
     # Stratum 3: Isolated nodes (negates stratum 1)
+    has_reachable(X) :- reachable(X, _).
+    has_reachable_1(X) :- reachable(_, X).
     isolated(X) :-
       node(X),
-      not reachable(X, _),
-      not reachable(_, X).
+      !has_reachable(X),
+      !has_reachable_1(X).
     ```
     
     **Dependency graph**:

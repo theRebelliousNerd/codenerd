@@ -424,8 +424,9 @@
     Attempting:
     ```mangle
     # file1.gl
+    Decl input(X).
     step1(X) :- input(X).
-    
+
     # file2.gl
     step2(X) :- step1(X).  # Assumes file1 loaded first
     ```

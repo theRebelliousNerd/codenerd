@@ -14,6 +14,7 @@
     ## Aggregation Syntax Recap
     
     ```mangle
+    Decl predicate(GroupKey, Value).
     result(GroupKey, AggValue) :-
       predicate(GroupKey, Value)
       |> do fn:group_by(GroupKey),
@@ -52,19 +53,22 @@
     
     ### Solution: Explicit Group Universe
     ```mangle
+    Decl has_employee_total(Dept).
+    Decl employee(Id, Dept, Salary).
     Decl department(Dept) bound [/name].
     department(/engineering).
     department(/marketing).
-    
+
     # Force all departments to appear
     dept_total_with_zero(Dept, Total) :-
       department(Dept),
       employee_total(Dept, Total).
-    
+
+    has_employee_total(Dept) :- employee_total(Dept, _).
     dept_total_with_zero(Dept, 0) :-
       department(Dept),
-      not employee_total(Dept, _).
-    
+      !has_employee_total(Dept).
+
     employee_total(Dept, Total) :-
       employee(Id, Dept, Salary)
       |> do fn:group_by(Dept),
@@ -92,11 +96,14 @@
     ### Solution: Default Values
     ```mangle
     # To ensure a result even if empty:
+    Decl has_total().
+    Decl total(Sum).
     total_or_zero(Sum) :-
       total(Sum).
-    
+
+    has_total() :- total(_).
     total_or_zero(0) :-
-      not total(_).
+      !has_total().
     ```
     
     ## Edge Case 3: Multiple Aggregations
@@ -366,6 +373,7 @@
     ### Safe (CORRECT)
     ```mangle
     # CORRECT: Dept is bound in body
+    Decl employee(Id, Dept, Salary).
     good_agg(Dept, Total) :-
       employee(Id, Dept, Salary)
       |> do fn:group_by(Dept),

@@ -22,11 +22,13 @@
     **Examples**:
     ```mangle
     # Create pair
+    Decl a(X).
+    Decl b(Y).
     coordinate(P) :- P = fn:pair(10, 20).
-    
+
     # Pair of different types
     person_age(P) :- P = fn:pair(/john, 30).
-    
+
     # Dynamic pair creation
     make_pair(P) :- a(X), b(Y), P = fn:pair(X, Y).
     ```
@@ -87,11 +89,14 @@
     **Examples**:
     ```mangle
     # 3-tuple (coordinate with z)
+    Decl a(X).
+    Decl b(Y).
+    Decl c(Z).
     point_3d(P) :- P = fn:tuple(10, 20, 30).
-    
+
     # 4-tuple (RGBA color)
     color(C) :- C = fn:tuple(255, 128, 0, 255).
-    
+
     # Dynamic tuple
     make_triple(T) :- a(X), b(Y), c(Z), T = fn:tuple(X, Y, Z).
     ```
@@ -101,6 +106,7 @@
     **Access**: Use pattern matching with `:match_pair` repeatedly:
     ```mangle
     # Extract elements from 3-tuple
+    Decl data(T).
     tuple_elements(A, B, C) :-
         data(T),
         :match_pair(T, A, Rest),  # Get first element
@@ -148,16 +154,19 @@
     
     **Extract value**:
     ```mangle
+    Decl person(M).
     person_name(N) :- person(M), :match_entry(M, /name, N).
     ```
     
     **Check key exists**:
     ```mangle
+    Decl person(M).
     has_age(M) :- person(M), :match_entry(M, /age, _).
     ```
     
     **Multiple field extraction**:
     ```mangle
+    Decl person(M).
     full_info(Name, Age) :-
         person(M),
         :match_entry(M, /name, Name),
@@ -194,11 +203,13 @@
     **Examples**:
     ```mangle
     # Create struct
+    Decl name(N).
+    Decl age(A).
     person(S) :- S = fn:struct(/name, "Alice", /age, 30, /city, "NYC").
-    
+
     # Equivalent brace notation
     person(S) :- S = {/name: "Alice", /age: 30, /city: "NYC"}.
-    
+
     # Dynamic struct
     make_struct(S) :-
         name(N),
@@ -219,11 +230,13 @@
     
     **Extract field**:
     ```mangle
+    Decl person(S).
     person_name(N) :- person(S), :match_field(S, /name, N).
     ```
     
     **Multiple field extraction**:
     ```mangle
+    Decl person(S).
     full_info(Name, Age) :-
         person(S),
         :match_field(S, /name, Name),

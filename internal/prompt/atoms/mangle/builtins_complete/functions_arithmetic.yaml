@@ -24,17 +24,23 @@
     **Examples**:
     ```mangle
     # Simple addition
+    Decl a(X).
+    Decl b(Y).
+    Decl current(M).
+    Decl leg1_price(P1).
+    Decl leg2_price(P2).
+    Decl c(C).
     total(T) :- a(X), b(Y), T = fn:plus(X, Y).
-    
+
     # Increment
     next(N) :- current(M), N = fn:plus(M, 1).
-    
+
     # Sum multiple values
     total_price(P) :-
         leg1_price(P1),
         leg2_price(P2),
         P = fn:plus(P1, P2).
-    
+
     # Chaining additions
     sum_three(S) :-
         a(A), b(B), c(C),
@@ -57,11 +63,15 @@
     **Examples**:
     ```mangle
     # Difference
+    Decl max_val(M).
+    Decl min_val(N).
+    Decl current(M).
+    Decl age(P1, A1).
     diff(D) :- max_val(M), min_val(N), D = fn:minus(M, N).
-    
+
     # Decrement
     prev(N) :- current(M), N = fn:minus(M, 1).
-    
+
     # Age difference
     age_gap(P1, P2, Gap) :-
         age(P1, A1),
@@ -85,11 +95,17 @@
     **Examples**:
     ```mangle
     # Area calculation
+    Decl width(W).
+    Decl height(H).
+    Decl value(V).
+    Decl a(A).
+    Decl b(B).
+    Decl c(C).
     area(A) :- width(W), height(H), A = fn:mult(W, H).
-    
+
     # Double a value
     double(D) :- value(V), D = fn:mult(V, 2).
-    
+
     # Product of multiple values
     product(P) :-
         a(A), b(B), c(C),
@@ -110,11 +126,16 @@
     **Examples**:
     ```mangle
     # Half value (rounded down)
+    Decl value(V).
+    Decl x(X).
+    Decl y(Y).
+    Decl total(T).
+    Decl count(C).
     half(H) :- value(V), H = fn:div(V, 2).
-    
+
     # Average of two numbers (integer division)
     avg(A) :- x(X), y(Y), Sum = fn:plus(X, Y), A = fn:div(Sum, 2).
-    
+
     # Per-item cost
     per_item(Cost) :- total(T), count(C), Cost = fn:div(T, C).
     ```
@@ -212,13 +233,17 @@
     **Examples**:
     ```mangle
     # Euclidean distance (simplified)
+    Decl dx_squared(DX2).
+    Decl dy_squared(DY2).
+    Decl sum_squares(S).
+    Decl variance(V).
     distance(D) :-
         dx_squared(DX2),
         dy_squared(DY2),
         sum_squares(S),
         S = fn:plus(DX2, DY2),  # This would need conversion to float
         D = fn:sqrt(S).
-    
+
     # Standard deviation computation (partial)
     std_dev_component(S) :- variance(V), S = fn:sqrt(V).
     ```
@@ -261,8 +286,11 @@
     
     ```mangle
     # Function: Add two specific values
+    Decl a(X).
+    Decl b(Y).
+    Decl item(X).
     total_of_two(T) :- a(X), b(Y), T = fn:plus(X, Y).
-    
+
     # Aggregator: Sum all values
     total_of_all(T) :-
         item(X)
@@ -291,6 +319,8 @@
     
     **Best Practice**: Ensure denominator is non-zero:
     ```mangle
+    Decl numerator(N).
+    Decl denominator(D).
     safe_div(Result) :-
         numerator(N),
         denominator(D),
@@ -362,13 +392,15 @@
     
     ```mangle
     # Discount for large orders
+    Decl base_price(Item, Base).
+    Decl quantity(Item, Q).
     discounted_price(Item, Price) :-
         base_price(Item, Base),
         quantity(Item, Q),
         Q >= 10,
         Discount = fn:div(Base, 10),  # 10% off
         Price = fn:minus(Base, Discount).
-    
+
     discounted_price(Item, Price) :-
         base_price(Item, Price),
         quantity(Item, Q),
