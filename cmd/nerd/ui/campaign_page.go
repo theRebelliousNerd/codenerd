@@ -366,7 +366,6 @@ func (m *CampaignPageModel) renderPhase(p *campaign.Phase, index int) string {
 		style = m.styles.Status.Warning
 	}
 
-
 	line := fmt.Sprintf(" %s %s", icon, p.Name)
 	sb.WriteString(style.Render(line) + "\n")
 

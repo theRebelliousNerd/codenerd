@@ -565,11 +565,17 @@ func TestWriteFileTool_Execute_RejectsUnparseableGo(t *testing.T) {
 	}
 	// A pre-existing file must be left untouched, not clobbered.
 	good := "package core\n\nfunc Good() {}\n"
-	if err := os.WriteFile(target, []byte(good), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(target, []byte(good), 0644); err != nil {
+		t.Fatal(err)
+	}
 	_, err = executeWriteFile(context.Background(), map[string]any{"path": target, "content": broken})
-	if err == nil { t.Fatal("expected syntax refusal on overwrite") }
+	if err == nil {
+		t.Fatal("expected syntax refusal on overwrite")
+	}
 	data, _ := os.ReadFile(target)
-	if string(data) != good { t.Fatal("existing file clobbered by refused write") }
+	if string(data) != good {
+		t.Fatal("existing file clobbered by refused write")
+	}
 }
 
 func TestWriteFileTool_Execute_AcceptsValidGo(t *testing.T) {
@@ -578,7 +584,9 @@ func TestWriteFileTool_Execute_AcceptsValidGo(t *testing.T) {
 	target := filepath.Join(tmpDir, "good.go")
 	good := "package core\n\nfunc Good() {}\n"
 	_, err := executeWriteFile(context.Background(), map[string]any{"path": target, "content": good})
-	if err != nil { t.Fatalf("valid Go write refused: %v", err) }
+	if err != nil {
+		t.Fatalf("valid Go write refused: %v", err)
+	}
 }
 
 func TestWriteFileTool_Execute_NonGoUnaffected(t *testing.T) {
@@ -587,7 +595,9 @@ func TestWriteFileTool_Execute_NonGoUnaffected(t *testing.T) {
 	target := filepath.Join(tmpDir, "notes.txt")
 	notGo := "package core\n\nfunc Broken( {\n"
 	_, err := executeWriteFile(context.Background(), map[string]any{"path": target, "content": notGo})
-	if err != nil { t.Fatalf("non-Go write refused: %v", err) }
+	if err != nil {
+		t.Fatalf("non-Go write refused: %v", err)
+	}
 }
 
 func TestEditFileTool_Execute_RejectsUnparseableGo(t *testing.T) {
@@ -595,13 +605,17 @@ func TestEditFileTool_Execute_RejectsUnparseableGo(t *testing.T) {
 	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	target := filepath.Join(tmpDir, "edit.go")
 	start := "package core\n\nfunc Good() {}\n"
-	if err := os.WriteFile(target, []byte(start), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(target, []byte(start), 0644); err != nil {
+		t.Fatal(err)
+	}
 	_, err := executeEditFile(context.Background(), map[string]any{"path": target, "old_text": "func Good() {}", "new_text": "func Good( {"})
 	if err == nil || !strings.Contains(err.Error(), "Go syntax invalid") {
 		t.Fatalf("breaking edit err = %v, want syntax refusal", err)
 	}
 	data, _ := os.ReadFile(target)
-	if string(data) != start { t.Fatal("file left broken by refused edit") }
+	if string(data) != start {
+		t.Fatal("file left broken by refused edit")
+	}
 }
 
 func TestEditFileTool_Execute_AcceptsValidGoEdit(t *testing.T) {
@@ -609,8 +623,11 @@ func TestEditFileTool_Execute_AcceptsValidGoEdit(t *testing.T) {
 	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	target := filepath.Join(tmpDir, "edit.go")
 	start := "package core\n\nfunc Good() {}\n"
-	if err := os.WriteFile(target, []byte(start), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(target, []byte(start), 0644); err != nil {
+		t.Fatal(err)
+	}
 	_, err := executeEditFile(context.Background(), map[string]any{"path": target, "old_text": "Good", "new_text": "Better"})
-	if err != nil { t.Fatalf("valid edit refused: %v", err) }
+	if err != nil {
+		t.Fatalf("valid edit refused: %v", err)
+	}
 }
-

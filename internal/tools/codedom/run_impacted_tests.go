@@ -449,7 +449,6 @@ func runGoTests(ctx context.Context, projectRoot string, packages []string, time
 		tools.RecordTestRun(ctx, tools.TestRun{Argv: cmd.Args, ExitCode: cmd.ProcessState.ExitCode()})
 	}
 
-
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("Command: go %s\n", strings.Join(args, " ")))
 	result.WriteString(fmt.Sprintf("Directory: %s\n\n", projectRoot))

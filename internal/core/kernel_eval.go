@@ -429,7 +429,7 @@ func (k *RealKernel) Clone() *RealKernel {
 		policy:            k.policy,
 		learned:           k.learned,
 		loadedPolicyFiles: make(map[string]struct{}, len(k.loadedPolicyFiles)),
-		sandbox:           k.sandbox, // A clone of a trial kernel is still a trial kernel
+		sandbox:           k.sandbox,         // A clone of a trial kernel is still a trial kernel
 		schemaValidator:   k.schemaValidator, // Share validator (read-only)
 		initialized:       k.initialized,
 		manglePath:        k.manglePath,

@@ -127,8 +127,8 @@ func TestE2E_PromptCompiler_Smoke_BasicCompilation(t *testing.T) {
 	mockLLM := newMockPromptCompilerLLMClient()
 
 	cc := &prompt.CompilationContext{
-		UserIntent:  "test intent",
-		IntentVerb:  "test",
+		UserIntent: "test intent",
+		IntentVerb: "test",
 		// 8000 fits the real mandatory skeleton (~4200 tokens) plus the
 		// 500-token default headroom reserved for LLM output; a budget at
 		// or below headroom correctly fails closed with nothing left for
@@ -336,7 +336,6 @@ func TestE2E_PromptCompiler_ContractViolation_PiggybackStarvation(t *testing.T) 
 	}
 }
 
-
 // TestE2E_PromptCompiler_ResourceExhaustion_MillionAtoms verifies Fit() survives 1,000,000 inputs without OOMing.
 func TestE2E_PromptCompiler_ResourceExhaustion_MillionAtoms(t *testing.T) {
 	if testing.Short() {
@@ -442,7 +441,6 @@ func TestE2E_PromptCompiler_CascadingFailure_MalformedJSON(t *testing.T) {
 		t.Errorf("Expected fallback parse method for malformed envelope, got %q", result.ParseMethod)
 	}
 }
-
 
 // TestE2E_PromptCompiler_Recovery_LLMTimeout verifies the system recovers on the next turn after a failure.
 func TestE2E_PromptCompiler_Recovery_LLMTimeout(t *testing.T) {

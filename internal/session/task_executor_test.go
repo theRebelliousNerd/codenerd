@@ -699,4 +699,3 @@ func TestJITExecutor_Execute_ConstraintReachesPrompt(t *testing.T) {
 		t.Fatalf("constraint never reached the model prompt; saw %d prompts", len(seen))
 	}
 }
-

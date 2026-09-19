@@ -62,7 +62,7 @@ func TestE2E_Dreamer_VirtualStore_NilContext(t *testing.T) {
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
-			"e2e-action-1", // ActionID (first slot of next_action/4)
+			"e2e-action-1",                // ActionID (first slot of next_action/4)
 			string(core.ActionDeleteFile), // Destructive
 			"important.txt",
 			map[string]any{},
@@ -258,7 +258,7 @@ func TestE2E_Dreamer_VirtualStore_MalformedFact(t *testing.T) {
 		Predicate: "next_action",
 		Args: []any{
 			"e2e-action-1", // ActionID (first slot of next_action/4)
-			nil, // Invalid type for action type (unparseable Type slot)
+			nil,            // Invalid type for action type (unparseable Type slot)
 			"target",
 			map[string]any{},
 		},
@@ -394,7 +394,7 @@ func TestE2E_Dreamer_VirtualStore_Recovery(t *testing.T) {
 	validFact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
-			"e2e-action-1", // ActionID (first slot of next_action/4)
+			"e2e-action-1",              // ActionID (first slot of next_action/4)
 			string(core.ActionReadFile), // Non-destructive
 			"readme.md",
 			map[string]any{},
@@ -660,7 +660,7 @@ func TestE2E_Dreamer_VirtualStore_CacheInvalidation(t *testing.T) {
 	fact2 := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
-			"e2e-action-1", // ActionID (first slot of next_action/4)
+			"e2e-action-1",              // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile), // Different action, same target
 			strings.Repeat("D", 5000),
 			map[string]any{},
@@ -728,7 +728,7 @@ func TestE2E_Dreamer_VirtualStore_DataIntegrity(t *testing.T) {
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
-			"e2e-action-1", // ActionID (first slot of next_action/4)
+			"e2e-action-1",               // ActionID (first slot of next_action/4)
 			string(core.ActionWriteFile), // Destructive, should hit dreamer
 			"integrity.txt",
 			map[string]any{"content": "sensitive_data"},

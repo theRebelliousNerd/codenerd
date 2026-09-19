@@ -61,7 +61,7 @@ func tagRoundTripFixture() *PromptAtom {
 	return &PromptAtom{
 		ID: "uplift/tagged", Version: 1, Category: CategoryProtocol,
 		Content: "tagged content", TokenCount: 4, ContentHash: "hash",
-		Priority: 50,
+		Priority:         50,
 		OperationalModes: []string{"active"},
 		CampaignPhases:   []string{"planning"},
 		BuildLayers:      []string{"domain_core"},

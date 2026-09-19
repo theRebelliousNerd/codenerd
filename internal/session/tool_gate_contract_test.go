@@ -33,8 +33,8 @@ func TestIntentRequiresToolCall_AdapterVerbs(t *testing.T) {
 		"/explain":  false,
 		"/review":   false,
 		// Malformed input fails closed to false, never panics or queries.
-		"":          false,
-		"not-a-verb": false,
+		"":             false,
+		"not-a-verb":   false,
 		"/two/slashes": false,
 		"with space":   false,
 	}

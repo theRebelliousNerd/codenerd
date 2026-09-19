@@ -366,7 +366,7 @@ func TestRun_EmitsPinnedVariantsToOverlay(t *testing.T) {
 	fc := &fakeClient{
 		provider: "anthropic", model: "claude-opus-4-20260501", supports: true,
 		searchResult: groundedResult("Use clear instructions.", "https://docs.example.com/prompting"),
-		completion: "changed: true\nrationale: \"tightened per docs\"\ncontent: |\n  REWRITTEN ATOM BODY\n",
+		completion:   "changed: true\nrationale: \"tightened per docs\"\ncontent: |\n  REWRITTEN ATOM BODY\n",
 	}
 	client := groundingClient{identifyingClient{fc}}
 	var ticks []Progress

@@ -260,14 +260,14 @@ func TestMangleRoutingKernel_RejectsInjection(t *testing.T) {
 // TestCleanRoutingAtom pins atom normalization for kernel asserts.
 func TestCleanRoutingAtom(t *testing.T) {
 	cases := map[string]string{
-		"implement":   "/implement",
-		"/implement":  "/implement",
-		"  spaced  ":  "/spaced",
-		"":            "",
-		"/":           "",
-		"two words":   "",
-		"tab\there":   "",
-		"error_logs":  "/error_logs",
+		"implement":  "/implement",
+		"/implement": "/implement",
+		"  spaced  ": "/spaced",
+		"":           "",
+		"/":          "",
+		"two words":  "",
+		"tab\there":  "",
+		"error_logs": "/error_logs",
 	}
 	for in, want := range cases {
 		if got := cleanRoutingAtom(in); got != want {

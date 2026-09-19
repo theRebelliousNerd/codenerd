@@ -249,7 +249,6 @@ func TestE2E_PromptCompilerLLM_ResourceExhaustion_10MBPayload(t *testing.T) {
 	}
 }
 
-
 // TestE2E_PromptCompilerLLM_Temporal_StreamingCancellation injects context cancellation mid-stream.
 // Contract Violated: Context cancellation must terminate LLM streaming goroutines immediately.
 func TestE2E_PromptCompilerLLM_Temporal_StreamingCancellation(t *testing.T) {

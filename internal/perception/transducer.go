@@ -595,4 +595,3 @@ func ClosePerceptionLayer() error {
 	logging.Perception("Perception layer closed")
 	return nil
 }
-

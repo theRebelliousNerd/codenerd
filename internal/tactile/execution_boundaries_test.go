@@ -14,9 +14,9 @@ func TestDirectTimeoutKill(t *testing.T) {
 	ex := NewDirectExecutor()
 	ctx := context.Background()
 	res, err := ex.Execute(ctx, Command{
-		Binary:  "sleep",
+		Binary:    "sleep",
 		Arguments: []string{"30"},
-		Limits:  &ResourceLimits{TimeoutMs: 200},
+		Limits:    &ResourceLimits{TimeoutMs: 200},
 	})
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
@@ -41,7 +41,7 @@ func TestDirectOutputTruncationCap(t *testing.T) {
 	ctx := context.Background()
 	// sh -c 'head -c 4096 /dev/zero | tr "\0" "x"' avoids shell-glob portability issues.
 	res, err := ex.Execute(ctx, Command{
-		Binary: "sh",
+		Binary:    "sh",
 		Arguments: []string{"-c", `head -c 4096 /dev/zero | tr '\0' 'x'`},
 	})
 	if err != nil {
@@ -72,9 +72,9 @@ func TestCompositeFailClosedOnMissingSandboxBackend(t *testing.T) {
 	})
 	ctx := context.Background()
 	_, err := ce.Execute(ctx, Command{
-		Binary:  "sh",
+		Binary:    "sh",
 		Arguments: []string{"-c", "exit 0"},
-		Sandbox: &SandboxConfig{Mode: SandboxFirejail},
+		Sandbox:   &SandboxConfig{Mode: SandboxFirejail},
 	})
 	if err == nil {
 		t.Fatal("expected error for unregistered firejail backend, got nil (fail-open!)")
@@ -91,7 +91,7 @@ func TestCompositeFailClosedOnMissingSandboxBackend(t *testing.T) {
 func TestDirectNonZeroExitShape(t *testing.T) {
 	ex := NewDirectExecutor()
 	res, err := ex.Execute(context.Background(), Command{
-		Binary: "sh",
+		Binary:    "sh",
 		Arguments: []string{"-c", "exit 7"},
 	})
 	if err != nil {

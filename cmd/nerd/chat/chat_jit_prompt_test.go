@@ -385,7 +385,7 @@ func TestSystemPromptIsNotEchoedIntoTheUserMessage(t *testing.T) {
 			"user message begins: %q", firstN(userPrompt, 200))
 	}
 	if strings.Contains(userPrompt, "System Instructions:") {
-		t.Fatalf("the user message still opens with the \"System Instructions:\" header; "+
+		t.Fatalf("the user message still opens with the \"System Instructions:\" header; " +
 			"the echo seam is back")
 	}
 }

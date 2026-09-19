@@ -87,8 +87,8 @@ func TestLearnedRuleHeadAtomWiring(t *testing.T) {
 		t.Fatalf("load failed: %v", err)
 	}
 	bad := []string{
-		`outer(X :- user_intent(A, B, C, D, E).`, // missing close paren
-		`Outer(X) :- user_intent(A, B, C, D, E).`, // uppercase head
+		`outer(X :- user_intent(A, B, C, D, E).`,          // missing close paren
+		`Outer(X) :- user_intent(A, B, C, D, E).`,         // uppercase head
 		`outer("unclosed) :- user_intent(A, B, C, D, E).`, // broken string
 	}
 	for _, rule := range bad {

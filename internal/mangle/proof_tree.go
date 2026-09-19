@@ -49,13 +49,13 @@ type DerivationTrace struct {
 
 // ProofTreeTracer tracks derivations during query execution.
 type ProofTreeTracer struct {
-	mu        sync.RWMutex
-	engine    *Engine
-	traces    map[string]*DerivationTrace // Cache of recent traces by query
-	traceOrder []string                   // Insertion order for FIFO eviction
-	maxCache  int                         // Max traces to cache
-	nodeIDSeq int64                       // Sequence for generating node IDs
-	ruleIndex map[string][]RuleSpec       // Index of rules by head predicate
+	mu         sync.RWMutex
+	engine     *Engine
+	traces     map[string]*DerivationTrace // Cache of recent traces by query
+	traceOrder []string                    // Insertion order for FIFO eviction
+	maxCache   int                         // Max traces to cache
+	nodeIDSeq  int64                       // Sequence for generating node IDs
+	ruleIndex  map[string][]RuleSpec       // Index of rules by head predicate
 }
 
 // RuleSpec describes a rule from policy.mg for tracing purposes.
@@ -70,11 +70,11 @@ type RuleSpec struct {
 // NewProofTreeTracer creates a new tracer for an engine.
 func NewProofTreeTracer(engine *Engine) *ProofTreeTracer {
 	return &ProofTreeTracer{
-		engine:    engine,
-		traces:    make(map[string]*DerivationTrace),
-		maxCache:  100,
+		engine:     engine,
+		traces:     make(map[string]*DerivationTrace),
+		maxCache:   100,
 		traceOrder: make([]string, 0, 100),
-		ruleIndex: make(map[string][]RuleSpec),
+		ruleIndex:  make(map[string][]RuleSpec),
 	}
 }
 

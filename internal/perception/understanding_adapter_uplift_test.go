@@ -153,7 +153,7 @@ func TestUnderstandingToIntent_NoOrphanVerb(t *testing.T) {
 // /none and missing — the membership half above is what tells them apart).
 func TestTaxonomyCorpus_AdapterVerbsResolvePersonas(t *testing.T) {
 	withPersona := map[string]string{
-		"/deploy": "coder",
+		"/deploy":  "coder",
 		"/migrate": "coder", "/optimize": "coder", "/document": "coder",
 		"/scaffold": "coder", "/format": "coder", "/create": "coder",
 		"/fix": "coder", "/refactor": "coder", "/git": "coder", "/debug": "coder",
@@ -223,10 +223,10 @@ func TestIsBackupQuestionSignal_MutationDominates(t *testing.T) {
 		semantic string
 		want     bool
 	}{
-		{"modify", "state", false},       // existing contract: action requests stay non-question
+		{"modify", "state", false}, // existing contract: action requests stay non-question
 		{"implement", "recommendation", false},
 		{"optimize", "state", false},
-		{"review", "state", true},        // verdict-seeking questions stay questions
+		{"review", "state", true}, // verdict-seeking questions stay questions
 		{"investigate", "state", true},
 		{"verify", "state", true},
 		{"explain", "recommendation", true},

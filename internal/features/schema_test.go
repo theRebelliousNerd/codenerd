@@ -85,7 +85,7 @@ func TestPerShardFacts_ShouldRemainOptInEvenWhenFullyEnabled(t *testing.T) {
 	// PerShardFacts being the single exception is the point.
 	for name, p := range map[string]*bool{
 		"FlightRecorder": cfg.FlightRecorder,
-		"Provenance": cfg.Provenance, "SystemShards": cfg.SystemShards,
+		"Provenance":     cfg.Provenance, "SystemShards": cfg.SystemShards,
 		"DarkMode": cfg.DarkMode, "SkipOnboarding": cfg.SkipOnboarding,
 		"TaxonomyFast": cfg.TaxonomyFast,
 	} {

@@ -22,14 +22,14 @@ import (
 
 // LSPServer provides language intelligence for Mangle files.
 type LSPServer struct {
-	mu          sync.RWMutex
-	engine      *Engine
-	documents   map[string]*Document    // Open documents by URI
-	definitions map[string][]Definition // Definitions by symbol name
-	references  map[string][]Reference  // References by symbol name
-	diagnostics map[string][]Diagnostic // Diagnostics by file URI
-	hover       map[string]string       // Hover documentation by symbol
-	shutdownRequested atomic.Bool      // Set by the exit notification
+	mu                sync.RWMutex
+	engine            *Engine
+	documents         map[string]*Document    // Open documents by URI
+	definitions       map[string][]Definition // Definitions by symbol name
+	references        map[string][]Reference  // References by symbol name
+	diagnostics       map[string][]Diagnostic // Diagnostics by file URI
+	hover             map[string]string       // Hover documentation by symbol
+	shutdownRequested atomic.Bool             // Set by the exit notification
 }
 
 // Document represents an open Mangle file.
@@ -120,9 +120,9 @@ var (
 	// can only match at position zero, so `head(X) :- body(X)` (with the
 	// usual space after :-) indexed zero body predicates.
 	lspBodyPredicatePattern = regexp.MustCompile(`(\w+)\s*\(`)
-	lspNameConstantPattern = regexp.MustCompile(`/[\w_]+`)
-	lspRulePattern = regexp.MustCompile(`^(\w+)\s*\([^)]*\)\s*:-`)
-	lspDeclPattern = regexp.MustCompile(`^Decl\s+(\w+)\s*\(`)
+	lspNameConstantPattern  = regexp.MustCompile(`/[\w_]+`)
+	lspRulePattern          = regexp.MustCompile(`^(\w+)\s*\([^)]*\)\s*:-`)
+	lspDeclPattern          = regexp.MustCompile(`^Decl\s+(\w+)\s*\(`)
 )
 
 // ============================================================================
@@ -166,7 +166,6 @@ func (s *LSPServer) indexDocumentLocked(uri string, content string) {
 	s.clearFileEntriesLocked(filePath)
 
 	lines := strings.Split(content, "\n")
-
 
 	for lineNum, line := range lines {
 		line = strings.TrimSpace(line)

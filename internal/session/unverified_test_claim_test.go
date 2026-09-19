@@ -180,4 +180,3 @@ func TestUnverifiedClaimVariousOutputs(t *testing.T) {
 		}
 	}
 }
-

@@ -88,9 +88,9 @@ func (c *boundedClient) CompleteWithToolResults(ctx context.Context, s string, h
 var catalog = []string{"read_file", "list_files", "write_file", "edit_file", "run_tests"}
 
 type comparison struct {
-	Mode             string            `json:"mode"`
-	Model            string            `json:"model"`
-	MaxLLMCalls int `json:"max_llm_calls"`
+	Mode        string `json:"mode"`
+	Model       string `json:"model"`
+	MaxLLMCalls int    `json:"max_llm_calls"`
 	// MaxToolCalls is the minimal baseline's own per-turn cap. The codeNERD
 	// mode has no such cap; its loop ends when the working policy says so.
 	MaxToolCalls     int               `json:"max_tool_calls"`

@@ -15,8 +15,8 @@ type countingEngine struct {
 	vec   []float32
 }
 
-func (e *countingEngine) Name() string       { return "counting" }
-func (e *countingEngine) Dimensions() int    { return e.dims }
+func (e *countingEngine) Name() string    { return "counting" }
+func (e *countingEngine) Dimensions() int { return e.dims }
 func (e *countingEngine) Embed(ctx context.Context, text string) ([]float32, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
