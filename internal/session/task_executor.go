@@ -348,7 +348,7 @@ func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sess
 		preset.Constraint = strings.TrimSpace(req.Constraint)
 	}
 	result, err := exec.ProcessWithIntent(ctx, inlineTask, preset)
-	observed := observedReturn(j.intentToAgentName(req.IntentVerb), inlineTask, result)
+	observed := withTurnWrites(observedReturn(j.intentToAgentName(req.IntentVerb), inlineTask, result), exec.workspaceForVerification(), result)
 	if err != nil {
 		// Still surface any partial response text for diagnostics, but never
 		// treat hollow/tool failure as success for CLI one-shots.

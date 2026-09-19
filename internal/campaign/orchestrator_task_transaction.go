@@ -79,6 +79,7 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 		return nil, fmt.Errorf("capture execution snapshot for %s: %w", taskIDOrUnknown(task), snapErr)
 	}
 
+	o.beginAttemptWrites(task)
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logging.Get(logging.CategoryCampaign).Error(
@@ -88,11 +89,7 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 				string(debug.Stack()),
 			)
 			panicErr := fmt.Errorf("panic during mutating task %s: %v", taskIDOrUnknown(task), recovered)
-			if rollbackErr := o.rollbackTaskExecutionSnapshot(snapshot); rollbackErr != nil {
-				err = fmt.Errorf("%w (rollback failed: %v)", panicErr, rollbackErr)
-			} else {
-				err = panicErr
-			}
+			err = o.undoFailedAttempt(task, snapshot, panicErr)
 			result = nil
 		}
 	}()
@@ -102,14 +99,10 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 		err = validateFileModifyOutcome(task, snapshot)
 	}
 	if err == nil {
+		o.takeAttemptWrites(task)
 		return result, nil
 	}
-
-	if rollbackErr := o.rollbackTaskExecutionSnapshot(snapshot); rollbackErr != nil {
-		return nil, fmt.Errorf("%w (rollback failed: %v)", err, rollbackErr)
-	}
-
-	return nil, err
+	return nil, o.undoFailedAttempt(task, snapshot, err)
 }
 
 // validateFileModifyOutcome requires a file_modify task to change at least one

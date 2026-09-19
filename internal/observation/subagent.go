@@ -147,6 +147,29 @@ type Return struct {
 	// built from it because a consumer deriving "this needs tests" must join
 	// on the paths, not parse the sentence.
 	Untested []string `json:"untested,omitempty"`
+
+	// Writes is each path the turn wrote, with what it held before the turn
+	// and what the turn left: the record a caller needs to undo this turn's
+	// writes without clobbering a later writer's. It is file content, kept for
+	// the process that ran the turn, and never serialized.
+	Writes []FileWrite `json:"-"`
+}
+
+// FileWrite is one path a turn wrote: Before is what it held before the
+// turn's first write to it, After what the turn left when it ended.
+type FileWrite struct {
+	Path   string
+	Before FileState
+	After  FileState
+}
+
+// FileState is a path's content at one moment. Known is false when the path
+// could not be read for a reason other than not existing: nothing may be
+// restored over it, or matched against it.
+type FileState struct {
+	Known   bool
+	Exists  bool
+	Content string
 }
 
 // Done reports whether the producer's kernel verdict for the turn is /done.

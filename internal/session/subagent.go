@@ -315,7 +315,7 @@ func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
 	// This is the only point at which the write set, the build verdict and the
 	// test verdict for this run are all in scope together.
 	s.mu.Lock()
-	s.observed = observedReturn(s.config.Name, task, result)
+	s.observed = withTurnWrites(observedReturn(s.config.Name, task, result), s.executor.workspaceForVerification(), result)
 	if s.observed.Failure == "" && err != nil {
 		s.observed.Failure = err.Error()
 	}
