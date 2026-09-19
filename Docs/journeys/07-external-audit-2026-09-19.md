@@ -20,7 +20,8 @@ becoming stale, or detached from the mutations it is supposed to describe.
   follow-on (`0915bfab`: a turn whose writes owe a test run is sent back to run one).
 - next, hand-built: L5 (below); L3.
 - next, as codeNERD ladder briefs (one or two files, symptom and evidence in hand): N10, N09, N17,
-  N18 with briefs ready (scratchpad `brief_n10_*`, `brief_n09_*`, `brief_n17_*`; N18's below);
+  N18 with briefs ready (scratchpad `brief_n10_*`, `brief_n09_*`, `brief_n17_*`; N18 landed
+  `24e9cc56`, R1-7);
   N05, N06, N14 need an observation first (N14 is confirmed by reading only).
 
 ## Found here while working the audit
@@ -78,7 +79,20 @@ becoming stale, or detached from the mutations it is supposed to describe.
   (`orchestrator_task_handlers.go`) asserts `missing_tool_for` and polls for `tool_registered` for a
   hardcoded 30 minutes; at the deadline it returns `{"status": "pending", ...}` with a nil error,
   so the task is marked completed and the phase moves on with no tool. Open, hand-built (the
-  campaign's completion gate).
+  campaign's completion gate). Its second half: the kernel's `missing_tool_for` becomes work only
+  through `autopoiesis.Orchestrator.ProcessKernelDelegations`, which the interactive boot paths
+  poll every 2 s and `cmd_instruction.go` calls once; its own comment says campaigns "do not poll
+  at all -- they call ProcessKernelDelegations once at the point in the turn where a delegation
+  could exist", and `executeToolCreateTask` never calls it. So a headless campaign's tool-creation
+  task always waits the full 30 minutes for a registration nothing produces. The campaign
+  orchestrator has no handle on autopoiesis, so the fix is wiring through its config and every
+  campaign boot path: an R2 candidate.
+- **N20 the MCP verbs are offered with no MCP server configured.** Every persona's catalogue
+  carries `mcp_map`, `mcp_probe`, `mcp_call`, `mcp_expand` and `mcp_context` "regardless of how
+  many servers are connected" (`prompt/config_factory.go`), a deliberate fixed cost; with zero
+  servers they are schemas on every turn that can only fail, and R1-6 sent `run_tests` through
+  `mcp_call` ("no MCP servers are configured for this workspace"). The catalogue is not derived
+  (S21); open.
 - **N19 the working request drops history before the first kept round.** `prepareWorkingRequest`
   (`working_context.go`) sends the loop's anchor and history from the earliest kept assistant
   tool-call round onward; a user message with no tool round before it is not sent. Every production
@@ -135,4 +149,4 @@ read, or a run where one is named). It is not a reproduction unless the row says
 | N15 | P2 | The impacted-test provider is process-global, last workspace wins | `run_impacted_tests.go:63-98` | R2 | open |
 | N16 | P2 | A contained symlink stops snapshot certification (fail-closed, a capability limit) | `change.go:173-174` | decision (Steve) | open |
 | N17 | P3 | Under the commit regime a repair round's re-sent demand carries the regime sentence twice | R1-5's coverage round (llm_io 14:43:28); `repair_loop.go` and `build_verify.go` each append it | codeNERD brief | open |
-| N18 | P2 | Go written by the test, coverage, vet and critic rounds is never gofmt'd; the turn still reports `checks_passed` | R1-5 (one `gofmt: formatted` line, 14:38, before the coverage round's insert at 14:44) | codeNERD brief | open |
+| N18 | P2 | Go written by the test, coverage, vet and critic rounds is never gofmt'd; the turn still reports `checks_passed` | R1-5 (one `gofmt: formatted` line, 14:38, before the coverage round's insert at 14:44) | codeNERD brief | **landed `24e9cc56`** by codeNERD (ladder R1-7) |

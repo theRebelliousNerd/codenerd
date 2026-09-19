@@ -4830,3 +4830,45 @@ and after.
   here. A tool that neither condenses the search, reduces turns nor offloads work is cruft; not
   yet checked whether the catalogue omits it elsewhere.
 - Rung-level: streak stays 0 (R1-5 assisted, R1-6 not landed). Next: N09, N17, N18.
+
+## R1-7, a forcing round's Go is never formatted: landed (2026-09-19, 15:21-15:41)
+
+Binary from `727e8ddd` (L4, the N01 follow-on and the G10 formatting gate in). Brief (symptom only,
+N18, found in R1-5): a turn ended `/done`, `checks_passed`, with a test file that was not
+gofmt-clean -- the session log shows one "gofmt: formatted" line at 14:38 and the coverage round's
+insert into the same file at 14:44; what should hold: every Go file a turn wrote is gofmt-clean when
+the turn ends, whichever round wrote it; a test pins it.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 19.7 | 57 (38 read_file, 8 grep, 3 run_tests, 2 search_code, 2 edit_lines, 1 each run_build, list_files, insert_lines, git_operation) | rc=0, `/done`, `checks_passed` -- **landed**, `24e9cc56` | 37, mean 54.4k, peak 72.2k, 2.01M total (1.00M cached by the provider), 31.5k out | `executor_tools.go` +16, `gofmt_written_test.go` +61 |
+
+**What it did.** First edit at 15:24 (tool call 21): `verifyCompletedToolTurn` runs
+`formatWrittenGoFiles` a second time, last -- after the `/test_run` round, before
+`closeChangeEvidence` -- with a comment that says why (every round above the early pass can write
+Go) and why there (the closure re-measures the gates on what the pass left; gofmt starts no test
+process, so the `/test_run` receipt stands). Its test drives a whole turn through
+`ProcessWithIntent` on the repair harness: the coverage round writes a test file with a doubled
+blank line, and the file on disk must be gofmt-clean when the turn ends. It ran that test and the
+session package (3 min 17 s under the test gate). The critic (2 min 20 s) reported one finding --
+a tautological `err != nil` at `executor_tools.go:2318`, in code the change did not touch -- and
+the model left it.
+
+**Reviewed.** The test fails with `executor_tools.go` at HEAD ("main_test.go is not gofmt-clean
+when the turn ends") and passes with the fix; gofmt and vet clean; the whole suite green (89 of 89, uncached, 15:44-15:49).
+Criterion 7: the closure re-measures build, tests with coverage (re-narrowed at the formatted
+revision) and vet, so the late pass leaves no stale line numbers in the evidence; the probe of the
+turn's end state reads `checks_passed` with every gate passed (the harness's mock kernel has no
+policy, so its outcome is `/unverified` either way); a file that no longer parses is skipped;
+CRLF is kept (`TestFormatWrittenGoFiles_KeepsCRLF`). Nits kept: the early pass stays -- it runs
+before the forcing rounds, where the model still edits by line number, which its own doc comment
+("formatting at turn end ... no line number the model is still editing by can shift under it")
+argues against -- and that comment's "once" is now stale. The critic's finding is real and
+pre-existing (a lint-class nit for G4/G5).
+
+**Harness observations.**
+- The N01 follow-on ran live: `turn_written` was asserted under `/turn_51084_1` before the
+  `/test_run` round asked the policy, and the closure kept the same key.
+- R1-7 is the first run on a binary that forces formatting at the end of a turn; from here a
+  forcing round's write cannot cap a landing at "assisted".
+- Rung-level: **streak 1** (R1-7). Next: N09, N17, L3.

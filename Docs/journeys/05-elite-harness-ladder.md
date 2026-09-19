@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 15:22
+- last updated: 2026-09-19 15:50
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -38,7 +38,9 @@ the protocol for a run, and the status of each rung with the run that moved it.
   fix scans the file's prefix for the lexer state at the edit, and a quote it cannot read -- a
   JavaScript regex holding one, a Rust lifetime -- leaves it "inside a string" for the rest of the
   file, so an edit below that drops a closing brace goes through where HEAD refuses it. The critic
-  found nothing. Next: N09, N17, N18.
+  found nothing. R1-7 (N18: a forcing round's Go was never gofmt'd) **landed** (`24e9cc56`): the
+  turn formats what it wrote again, last, before the closure re-measures the gates; a whole-turn
+  test, failing at HEAD; no hand edit. **Streak 1.** Next: N09, N17, L3 (briefs ready).
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
@@ -106,7 +108,11 @@ C1-C5 from the R1-2 campaign comparison (`campaign_1284b6bb`); V1 found while fi
   writes through `internal/tools/core` and is unaffected; the store's route serves the campaign
   fallback, the system router, `cmd_instruction.go`, `pending_action.go` and the interactive gate.
   A multi-file fix (the handler and whatever its callers rely on it to strip): an R2 candidate for
-  codeNERD.
+  codeNERD. **Worse than first measured (2026-09-19 15:25, probed on `727e8ddd`):** the helper looks
+  for any bare fence first, whatever the file type, so a Go file whose package comment shows a
+  fenced example is written as the example's inside alone (`//\tx := 1\n//` -- the package clause
+  and every declaration gone), and a Markdown document with an untagged fence is written as that
+  block's inside. The first R2 brief (scratchpad `brief_v1_*`).
 
 ## What counts as a landing
 
@@ -226,3 +232,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 13:51 | R1 | check-mangle v2 (R1-4e) | nerd fix | not landed, reverted: build, tests and vet green; the coverage round's own test failed -- the per-file preload dropped `reviewer.mg` (it uses a predicate a later file declares), so a brief file still failed. The model moved to a one-fragment load with the per-file loop as fallback; the round gave up with five defensive error branches uncovered, `/unverified` and saying so. Review: a sibling with a planted error still fails `intent_routing_rules.mg` through the fallback; 55 s and 482 warning lines on a clean corpus (HEAD 12.2 s). No harness blocker; the coverage prompt's ban on removing unreachable lines it named is recorded | 19.5 | 30 | 2 | reverted |
 | 2026-09-19 14:28 | R1 | apply_edits partial write (R1-5, N04) | nerd fix | **landed, assisted**: the failed file is put back and confirmed, or named; five fault-injection tests, all failing at HEAD; build, vet, tests green; review probes (first file, last of three, the restore failing, a write that failed after writing everything) pass. One doubled blank line removed by hand -- the coverage round's writes are never gofmt'd (N18) | 17.0 | 29 | 2 | 3d9ba680 |
 | 2026-09-19 14:55 | R1 | edit_lines delimiters inside a raw string (R1-6, N10) | nerd fix | not landed, reverted: `/done`, build, tests and the suite green; the brief's two edits pass and an edit in a block comment now does. Review: the prefix scan does not know a language's literals -- below a JS regex holding a quote or a Rust lifetime, an edit that drops a closing brace is accepted (HEAD refuses it). The critic found nothing | 18.0 | 38 | 2 | reverted |
+| 2026-09-19 15:21 | R1 | a forcing round's Go never formatted (R1-7, N18) | nerd fix | **landed**: a second format pass at the end of the turn, before the closure re-measures the gates; a whole-turn test through ProcessWithIntent, failing at HEAD; build, vet, suite green. Nits: the early pass stays, its comment's "once" is stale | 19.7 | 57 | 2 | 24e9cc56 |
