@@ -109,7 +109,7 @@ func (m *writeSetLockManager) acquire(
 	}()
 
 	for {
-		if m.claim(taskID, paths, false) == "" {
+		if m.claim(taskID, paths) == "" {
 			return &writeSetLockLease{
 				manager: m,
 				taskID:  taskID,
@@ -159,12 +159,13 @@ func (m *writeSetLockManager) refuseOutsideWorkspace(writeSet []string) error {
 }
 
 // tryAcquire takes writeSet for taskID when no other task holds any of it --
-// or a directory above any of it -- and otherwise returns, without waiting,
-// the task that does. A write taken at the moment it happens cannot wait: two
-// tasks each holding a path the other is about to write would wait on each
-// other forever. The directory check is what makes a directory write set
-// cover its files: the declared lease is keyed by the directory, and a file
-// under it has a key of its own.
+// the same path, or a directory above or below any of it -- and otherwise
+// returns, without waiting, the task that does. A write taken at the moment
+// it happens cannot wait: two tasks each holding a path the other is about
+// to write would wait on each other forever. The directory checks are what
+// make a directory write set cover its files in either direction: the
+// declared lease is keyed by the directory, and a file under it has a key
+// of its own.
 func (m *writeSetLockManager) tryAcquire(taskID string, writeSet []string) (lease *writeSetLockLease, heldBy string, err error) {
 	if m == nil {
 		return nil, "", fmt.Errorf("lock manager is nil")
@@ -179,27 +180,33 @@ func (m *writeSetLockManager) tryAcquire(taskID string, writeSet []string) (leas
 	if len(paths) == 0 {
 		return nil, "", nil
 	}
-	if holder := m.claim(taskID, paths, true); holder != "" {
+	if holder := m.claim(taskID, paths); holder != "" {
 		return nil, holder, nil
 	}
 	return &writeSetLockLease{manager: m, taskID: taskID, paths: paths}, "", nil
 }
 
 // claim takes every path for taskID, or none of them: it returns the task
-// holding the first path another task has -- or, with ancestors, a directory
-// above one inside the workspace -- and "" when it took them all. A task
-// re-entering its own paths counts each again, so its releases balance.
-func (m *writeSetLockManager) claim(taskID string, paths []string, ancestors bool) (heldBy string) {
+// holding the first path another task has -- the same path, or a directory
+// above or below one inside the workspace -- and "" when it took them all.
+// A task re-entering its own paths counts each again, so its releases
+// balance.
+func (m *writeSetLockManager) claim(taskID string, paths []string) (heldBy string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	root := normalizeAbsolutePath(m.workspace, m.workspace)
+	held := make([]string, 0, len(m.owners))
+	for key := range m.owners {
+		held = append(held, key)
+	}
+	sort.Strings(held)
 	for _, p := range paths {
 		for key := p; ; {
-			if state, held := m.owners[key]; held && state.taskID != taskID {
+			if state, ok := m.owners[key]; ok && state.taskID != taskID {
 				return state.taskID
 			}
-			if !ancestors || key == root {
+			if key == root {
 				break
 			}
 			parent := key[:max(strings.LastIndexByte(key, '/'), 0)]
@@ -207,6 +214,14 @@ func (m *writeSetLockManager) claim(taskID string, paths []string, ancestors boo
 				break
 			}
 			key = parent
+		}
+		prefix := p + "/"
+		for _, key := range held {
+			if strings.HasPrefix(key, prefix) {
+				if state := m.owners[key]; state.taskID != taskID {
+					return state.taskID
+				}
+			}
 		}
 	}
 	for _, p := range paths {
