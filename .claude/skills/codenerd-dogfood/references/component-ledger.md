@@ -4416,3 +4416,72 @@ and `TestRecordWorkingResult_RecallRestoresTheOriginalObservation`; all three fa
 query is literal (`instr`), and the model wrote a regex. The compiled system prompt reached 49k
 tokens, most of it generic Go guidance (failure modes, profiling, benchmarking) for a timing fix.
 The same brief is rerun on the fixed binary.
+
+
+## R1-1b, the same brief on the fixed window: two files written, /done, and nothing fixed (2026-09-19, 02:50-03:06)
+
+Binary from `7856287c` (the window keeps earlier files in view). Brief re-measured on that tree:
+40 of 40 fail with 32 busy loops, so the bar is 40 of 40 passing there.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 15.6 | 46 (20 read_file, 17 recall_context, 4 edit_lines, 3 grep, 2 search_code) | rc=0, `/done`, "verified by evidence: build and tests green" -- **reverted** | 37 calls, mean 54.5k, peak 77.5k, 2.02M total, 39.8k out | `executor_tools.go` +18, the test +1 |
+
+**The window held.** Candidates grew with the reads (1, 3, 4, 6, 8, up to 22), 8-12 observations
+selected at 60-120 KB; the test's body was in the section when the model re-read it. First edit
+at 4.8 minutes, against 24 read-only rounds and no edit before the fix.
+
+**What it wrote.** (1) The continuation-policy query bounded by the exploration cutoff, and a
+timeout there sent to the forced final answer -- but with `pendingResultsRecorded=true` before
+the batch's results reach history, so every real provider would get a `tool_use` with no
+`tool_result` (a 400); the test's fake client does not check pairing. (2) In the test, one struct
+field that nothing reads or writes. Its intended test edit -- "check guarantees instead of timing":
+drop the reserved-time assertion for a count of tools at the final call -- was refused by the
+delimiter guard (the new content lost the function's closing brace; the message said so), and
+never retried. Then 17 `recall_context` calls under the commit regime, most of them searches for
+functions it had never read (`describeToolLoopFailure`, `forceDeadlineFinalAnswer`, "query
+execution timed out"): with reading closed, recall became the way to explore.
+
+**Measured after:** 40 of 40 still fail with 32 busy loops, with the same failure mix plus one new
+one ("final completion returned neither text nor a tool call").
+
+**The verdict is the finding.** `/done` and "verified by evidence" rested on a build and a test
+run that were green before the change too: the brief's failure was never reproduced, so nothing
+showed the fix worked, and the harness said it did. Landing criterion 4 (a truthful verdict)
+failed along with the fix. Recorded for the verdict seam (S4): a bug-fix turn's evidence needs a
+red before its green, or the verdict must say it has none.
+
+
+## R1-2, check-mangle judges a policy file in kernel context: the headline works, the landing does not (2026-09-19, 03:09-03:35)
+
+Binary from `7856287c`. Brief (symptom only): `nerd check-mangle` rejects three of 135 policy
+files the kernel loads, each for a predicate declared in a sibling file; its help promises
+"exactly as the kernel loads them"; what should hold: kernel-accepted files pass, real errors
+still fail with the engine's message, tests pin both.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 25.3 | 108 (34 read_file, 32 recall_context, 13 grep, 13 edit_lines, 3 run_build, 3 list_files, 3 git_operation, 2 run_tests, 2 glob, 1 run_impacted_tests, 1 insert_lines, 1 edit_file) | rc=0, `/done` -- **reverted** (diff kept in the merger's scratchpad) | 83 calls, mean 44.3k, peak 64.2k, 3.68M total, 74.2k out | `cmd_mangle_check.go` +167/-29, its test: one comment |
+
+**What it got right.** It read how the kernel boots its corpus and built the check from the
+kernel's own inventory (`core.DefaultCorpusText`, `core.DefaultPolicyFiles`), preferring the
+on-disk file so a working-tree edit is what gets checked, and loading target plus corpus in one
+call. Measured: all 135 corpus files OK in 19 s (was 132); an external probe with an undeclared
+predicate still fails with the engine's message.
+
+**What it got wrong.** (1) A duplicated `return true, nil`: `go vet` reports unreachable code, so
+G2 goes from 0 to 1. (2) `sameFile`, left from a discarded approach, is unused: staticcheck U1000
++1. (3) Every corpus member now checks the whole corpus, so a real error in one policy file is
+reported under every file's name -- measured on a temp copy: an error planted in
+`stage_context.mg` came back as "ERROR in task_stage.mg" and "ERROR in reviewer.mg". (4) No test:
+the test file's only change is a comment. The verdict said `/done` beside "Evidence:
+artifact_changed" -- the snapshot moved after the checks (see 5) while the kernel's gates were
+green: two answers to one question.
+
+**Harness finding, the sharpest of the day.** (5) `run_build {"packages":["./cmd/nerd"]}` ran
+`go build ./cmd/nerd` in the workspace root, and for a single main package Go writes the
+executable there: it replaced the running `nerd.exe` with a binary built from the agent's
+half-finished edits and left the live one as `nerd.exe~` in the repo root (the run warned:
+"Created in the repository root, undeclared: nerd.exe~"). A verification tool must not produce
+artifacts, least of all the harness. Next brief (R1-3), since codeNERD can reproduce it with its
+own tools. Also: the post-edit gate is build + tests; `go vet` is not in it, so (1) passed as done.
