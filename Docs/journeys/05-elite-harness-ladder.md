@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 18:30
+- last updated: 2026-09-19 18:55
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -65,7 +65,10 @@ the protocol for a run, and the status of each rung with the run that moved it.
   regression R1-8 produced from this brief. The repair loop then never wrote: three attempts, 18
   model calls, 746.7k input tokens, 26 `recall_context` calls and no edit -- the round closes the
   read tools and its prompt carried the test runner's output but not the failing test (N24, fixed
-  by hand). Streak 0. Next: R1-13 with the test source in hand, then R2 with V1.
+  by hand). Streak 0. The gate now also asks what a change decides (`7f02f4d2`, N22b): every condition
+  on a changed line held at a constant, the survivors recorded and handed to the model rather than
+  charged -- five of eight survivors on a hand-written change were guards nothing could pin. Next:
+  R1-13 with the test source in hand, then R2 with V1.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the

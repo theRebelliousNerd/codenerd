@@ -123,8 +123,13 @@ becoming stale, or detached from the mutations it is supposed to describe.
   them was exactly that gap (`if key == root` forced true, skipping the ancestor walk). Two
   cautions from the same run: one mutant left the tests hanging for ten minutes, so a mutant needs
   a bound derived from the baseline run; and `sort.Strings(held)` survived while changing nothing
-  observable -- the equivalent-mutant problem, which is why a mutation gate should charge a
-  surviving *condition* on a line the turn changed and not a dropped statement. Open.
+  observable -- the equivalent-mutant problem. **Landed `7f02f4d2`, recorded rather than charged.**
+  Every condition on a line the turn changed is held true and false and the turn's tests are run
+  against it; the survivors reach the log, the turn's record and the pinning round's prompt, and
+  the verdict still reads the declarations only. The reason is a measurement: on N24's own commit
+  26 units gave 8 survivors and five were guards whose forcing changes nothing observable, so a
+  charge would sometimes be unanswerable. The tests are run once unmutated first, which bounds
+  every mutant at twice that run plus a minute; a loop condition is only held false.
 - **N23 the test repair round keeps a stale build failure.** Its recheck sets `result.BuildCheck`
   on a failed build and never on a passing one, so a later attempt that fixes the build leaves the
   failure recorded until the closure re-measures; and the round logs "giving the model one repair
