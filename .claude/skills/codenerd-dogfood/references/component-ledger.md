@@ -4678,3 +4678,57 @@ extractor ends a Decl at the first line ending in "."; a Decl with a trailing co
 (`chaos.mg:40`, `:84`) swallows the lines after it and fails to load, and the error is discarded,
 so those predicates silently vanish from every other file's context (latent: nothing outside
 `chaos.mg` uses them today). No test.
+
+## R1-4e, brief v2 on a binary with no run-level clock: an honest /unverified, and its own test found its bug (2026-09-19, 13:51-14:10)
+
+Binary from `06947d43` (no run-level clock; the external audit's F1-F3, F5-F7, N01-N03, N07 and
+F2/C3/C4 in). Brief v2 unchanged. The symptom reproduced on the binary first: the same three files
+rejected, 132 OK.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 19.5 | 30 (11 read_file, 5 grep, 4 edit_file, 3 recall_context, 2 run_tests, 2 list_files, 1 each search_code, glob, edit_lines) | rc=0, `/unverified`: "code this turn changed is executed by no test" (five blocks named) -- **not landed**, reverted (diff kept in the scratchpad) | 24, mean 49.1k, peak 63.4k, 1.18M total (receipts exclude cached), 56.5k out | `cmd_mangle_check.go` +71/-9, its test +135 |
+
+**What happened.** 22 tool calls to the first edit (13:55): `preloadSharedSchemas` loads the whole
+on-disk corpus (`*.mg`, `policy/*.mg`, `schema/*.mg`) one file at a time into a fresh engine per
+checked file, a fragment that does not analyze dropped with a warning. It then chose `run_tests` on
+`./...` -- the whole suite, 5 minutes under load -- and the executor's gates passed: build (9.9 s),
+tests (22.7 s), one changed block no test executes. The critic thought for 2 min 11 s (12.7k output
+tokens) and found nothing. The coverage round opened; its first model call thought for 2 min 17 s
+and no clock cut it (R1-4d's died here). The test it wrote was the brief's own check -- the three
+files pass -- and it FAILED: `intent_routing_rules.mg` still could not find `file_contains`,
+because `reviewer.mg`, which declares it, was dropped from the preload for using `review_finding`
+from a file that sorts after it. The model named it ("fixing the ordering bug") and in attempts 2-3
+moved to the kernel's shape: the whole corpus as one fragment, the per-file loop kept as the
+fallback when that fails. Attempt 2 broke the build (an unused import) and attempt 3 fixed it;
+the round gave up at 3 with the suite green and five defensive error branches uncovered
+(`if err != nil { continue }` after `Glob` and `ReadFile`), and the verdict named them.
+
+**The review (criterion 7), on the final diff.** Met: the three files pass; the whole corpus
+135/135; wrong arity, an unsafe variable and an undeclared predicate still fail with the engine's
+message; a Decl with a trailing comment is kept (R1-4d's bug); a sibling's working-tree Decl is
+seen. Not met: a malformed Decl planted in `task_stage.mg` fails `intent_routing_rules.mg` too,
+and an undeclared predicate planted in `activation.mg` fails it as well -- a broken sibling sends
+every file to the per-file fallback, which is order-dependent, and `intent_routing_rules.mg` loses
+`reviewer.mg`. That is the property brief v2 says holds today and must still hold. Also: the clean
+corpus takes 55 s (HEAD: 12.2 s) and prints 482 warning lines; two of its tests run
+`standalone: true` and so do not test the kernel-context behaviour they are named for; one asserts
+`filepath.Glob("[")` fails (the standard library). A sound shape it did not reach: retry the
+fragments that failed until a pass loads nothing new -- order-free, and a broken sibling stays
+out alone.
+
+**Harness observations.**
+- The verdict was true at every step: green gates reported green, the missing coverage named,
+  `/unverified` rather than `/done`. The forcing round did what it is for: the first green pass
+  was green because no test pinned the behaviour, and the test it forced exposed the defect.
+- The coverage round forbids removing the lines it names ("they are the change"). Two of the five
+  are `if err != nil { continue }` after `filepath.Glob` on a constant, well-formed pattern -- no
+  input reaches them -- so the model wrote a test for `Glob("[")` that could not cover them. A
+  rule for unreachable lines the turn itself added is open (JIT atom, not Go prose).
+- One wasted call: the model passed a precondition token's id (`obs:fr:ad4e70ddadc8`, a file
+  read's fingerprint for stale-edit refusal) to `recall_context` as an archived-observation id;
+  the tool's error named the difference. The token's `obs:` spelling invites the mistake.
+- Rung-level: R1-4 has now failed six ways; each blocker before this one was the harness (window,
+  removed-tests guard, coverage give-up, broker, clocks) and each was fixed. This one is the fix's
+  design. Next: the audit's tool-level briefs (N04, N10, N09 reproduced) for the R1 streak, and
+  this brief again once a streak exists.

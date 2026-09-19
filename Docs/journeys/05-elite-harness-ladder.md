@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 11:55
+- last updated: 2026-09-19 14:20
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -25,8 +25,12 @@ the protocol for a run, and the status of each rung with the run that moved it.
   episode's, then `nerd fix`'s 25-minute default). Steve, on seeing it: "there should not be
   timeouts like that... some agentic runs are like hours long." No run-level clock is left
   (`c9f8212d`, `4316415f`, `02e4c8dd`, `f91c39b6`, `856ff1fe`; program of record
-  `06-unattended-hardening.md`). Next: brief v2 again (R1-4e) on that binary, and the external
-  audit's tool-level findings as rung-1 briefs (`07-external-audit-2026-09-19.md`).
+  `06-unattended-hardening.md`). R1-4e (brief v2 on `06947d43`, no clock left) ended
+  `/unverified` truthfully: its forced coverage test exposed an order-dependent preload, the model
+  moved to the kernel's one-fragment load with the old loop as fallback, and the review found a
+  broken sibling still fails an unrelated file through that fallback -- a design defect in the fix,
+  not a harness blocker. Next: the audit's tool-level briefs for the streak -- N04, N10 and N09 are
+  reproduced with briefs ready -- then this brief again.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
@@ -205,3 +209,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 07:22 | R1 | R1-2 again (R1-4b), removed-tests round in | nerd fix | not landed, reverted: build and tests green, then the coverage round's own test failed three times (it counted a marker four schema files also contain) and the round left it in place; the final check failed the turn without naming why. Fixed by hand: a red give-up is undone, the final check names what failed. The fix (whole corpus in one program) blames all 135 files for one sibling's error -- criterion 7; brief v2 states that property | 20.6 | 49 | 2 | reverted |
 | 2026-09-19 08:02 | R1 | check-mangle v2 (R1-4c) | nerd fix | not landed, reverted: after a 22,853-token think the broker counted the replayed encrypted reasoning by its ciphertext length and refused the next request as window_exceeded (193,735 counted; the day's think-then-request pairs cost a fraction of their estimate). Fixed by hand: a redacted think is measured by the reasoning tokens the provider counted. The unfinished fix (the disk file with the embedded corpus) met v2's property | 12.8 | 40 | 1 + a repro | reverted |
 | 2026-09-19 08:31 | R1 | check-mangle v2 (R1-4d) | nerd fix | not landed, reverted: build, tests and vet green, six changed blocks executed by no test; the coverage round's second model call ran 368 s and the repair episode's 6.2-minute clock cut it with nothing returned, then `nerd fix`'s 25-minute default cut the critic. `/unverified`, and honestly so. Fixed by hand: no run-level clock anywhere (repair episode, CLI, `llm_timeouts`, campaigns). The fix (each policy file's Decls preloaded one by one) met v2's property but silently drops a Decl with a trailing comment (latent: `chaos.mg:40`, `:84`) and had no test | 25.1 | 77 | 1 | reverted |
+| 2026-09-19 13:51 | R1 | check-mangle v2 (R1-4e) | nerd fix | not landed, reverted: build, tests and vet green; the coverage round's own test failed -- the per-file preload dropped `reviewer.mg` (it uses a predicate a later file declares), so a brief file still failed. The model moved to a one-fragment load with the per-file loop as fallback; the round gave up with five defensive error branches uncovered, `/unverified` and saying so. Review: a sibling with a planted error still fails `intent_routing_rules.mg` through the fallback; 55 s and 482 warning lines on a clean corpus (HEAD 12.2 s). No harness blocker; the coverage prompt's ban on removing unreachable lines it named is recorded | 19.5 | 30 | 2 | reverted |
