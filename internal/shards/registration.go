@@ -108,7 +108,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// Facts negated by coder/commit rules whose positive side is
 				// world-model data; a negation evaluated in a shard that never
 				// holds the fact always succeeds (blind negation).
-				"path_in_workspace", "doc_exists_for", "created_source",
+				"path_in_workspace", "doc_exists_for",
 				"suppression", "file_content", "entry_point",
 				// The tool registry (tool_registry.go) is joined against
 				// file_topology by tool_routing.mg and against the shared
@@ -138,6 +138,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// hollow_success / turn_done) sit beside the diagnostics and
 				// build state their negations read.
 				"turn_evidence", "turn_acceptance", "turn_created_source", "build_state",
+				"turn_created_test",
 				"turn_gate",
 				"turn_untested",
 				"turn_uncovered",

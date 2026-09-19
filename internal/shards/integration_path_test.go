@@ -14,13 +14,15 @@ func TestCompletionIntegrationRequiresLoadedPathAndBehavioralWitness(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := k.Assert(core.Fact{Predicate: "turn_evidence", Args: []any{core.MangleAtom("/fix"), int64(1), int64(1), int64(0), core.MangleAtom("/false"), core.MangleAtom("/false")}}); err != nil {
+	turn := core.MangleAtom("/turn_integration")
+	if err := k.Assert(core.Fact{Predicate: "turn_evidence", Args: []any{turn, core.MangleAtom("/fix"), int64(1), int64(1), int64(0), core.MangleAtom("/false"), core.MangleAtom("/false")}}); err != nil {
 		t.Fatal(err)
 	}
 	if facts, err := k.Query("turn_done"); err != nil || len(facts) != 0 {
 		t.Fatalf("missing acceptance derived done: %v %v", facts, err)
 	}
-	if err := k.Assert(core.Fact{Predicate: "turn_acceptance", Args: []any{core.MangleAtom("/fix"), "contract", "snapshot"}}); err != nil {
+	if err := k.Assert(core.Fact{Predicate: "turn_acceptance", Args: []any{turn, "contract", "snapshot"}}); err != nil {
+
 		t.Fatal(err)
 	}
 	if facts, err := k.Query("turn_done"); err != nil || len(facts) != 1 {

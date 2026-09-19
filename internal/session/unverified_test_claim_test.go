@@ -146,15 +146,12 @@ func TestUnverifiedClaimRetracted(t *testing.T) {
 	if err := e.checkHollowSuccess(result); err == nil {
 		t.Fatal("first turn must fail")
 	}
-	if facts, err := e.kernel.Query("claimed_test_output"); err != nil {
-		t.Fatalf("query claimed_test_output: %v", err)
-	} else if len(facts) != 0 {
-		t.Fatalf("claimed_test_output must be retracted, got %v", facts)
-	}
-	if facts, err := e.kernel.Query("executed_test_tool"); err != nil {
-		t.Fatalf("query executed_test_tool: %v", err)
-	} else if len(facts) != 0 {
-		t.Fatalf("executed_test_tool must be retracted, got %v", facts)
+	for _, predicate := range []string{"turn_evidence", "hollow_success"} {
+		if facts, err := e.kernel.Query(predicate); err != nil {
+			t.Fatalf("query %s: %v", predicate, err)
+		} else if len(facts) != 0 {
+			t.Fatalf("%s must be retracted with the turn, got %v", predicate, facts)
+		}
 	}
 	clean := unverifiedResult("all good, no test output here", 0)
 	if err := e.checkHollowSuccess(clean); err != nil {
@@ -184,29 +181,6 @@ func TestUnverifiedClaimVariousOutputs(t *testing.T) {
 			t.Fatalf("marker %q with test tool must pass, got: %v", marker, err)
 		}
 	}
-}
-
-func TestUnverifiedClaimMangleString(t *testing.T) {
-	e := newUnverifiedExec(t)
-	fact := types.Fact{Predicate: "claimed_test_output", Args: []any{types.MangleString("/create")}}
-	if err := e.kernel.Assert(fact); err != nil {
-		t.Fatalf("assert claimed_test_output: %v", err)
-	}
-	facts, err := e.kernel.Query("claimed_test_output")
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if len(facts) == 0 {
-		t.Fatal("expected claimed_test_output fact")
-	}
-	got, ok := facts[0].Args[0].(string)
-	if !ok {
-		t.Fatalf("arg must be string, got %T", facts[0].Args[0])
-	}
-	if got != "/create" {
-		t.Fatalf("arg = %q want %q", got, "/create")
-	}
-	_ = e.kernel.RetractFact(fact)
 }
 
 func TestIsTestToolRecognises(t *testing.T) {

@@ -41,6 +41,8 @@ func TestCorpus_TurnVerificationRulesLoadAndDerive(t *testing.T) {
 		{"has_turn_acceptance", 1}, {"turn_done", 1}, {"turn_executed", 1},
 		{"turn_gate", 3}, {"turn_build_green", 1}, {"turn_build_red", 1},
 		{"turn_tests_green", 1}, {"turn_tests_red", 1},
+		{"turn_evidence", 7}, {"hollow_success", 2}, {"has_hollow_success", 1},
+		{"turn_created_source", 2}, {"turn_created_test", 3}, {"turn_missing_test", 2},
 	} {
 		if ok, reason := validatePredicateDeclaration(k, pred.name, pred.arity); !ok {
 			t.Fatalf("%s/%d must be declared in the shipped corpus: %s", pred.name, pred.arity, reason)
@@ -68,10 +70,11 @@ func TestCorpus_TurnVerificationRulesLoadAndDerive(t *testing.T) {
 	// recordBuildState does, and prove nothing on their own (F2).
 	assert(types.Fact{Predicate: "build_state", Args: []any{types.MangleAtom("/passing")}})
 	assert(types.Fact{Predicate: "test_state", Args: []any{types.MangleAtom("/passing")}})
-	assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom("/create"), types.MangleAtom("/build"), types.MangleAtom("/passing")}})
-	assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom("/create"), types.MangleAtom("/test"), types.MangleAtom("/passing")}})
+	turn := types.MangleAtom("/turn_corpus")
+	assert(types.Fact{Predicate: "turn_gate", Args: []any{turn, types.MangleAtom("/build"), types.MangleAtom("/passing")}})
+	assert(types.Fact{Predicate: "turn_gate", Args: []any{turn, types.MangleAtom("/test"), types.MangleAtom("/passing")}})
 	assert(types.Fact{Predicate: "turn_evidence", Args: []any{
-		types.MangleAtom("/create"), 1, 1, 1,
+		turn, types.MangleAtom("/create"), 1, 1, 1,
 		types.MangleAtom("/false"), types.MangleAtom("/false"),
 	}})
 
@@ -89,5 +92,57 @@ func TestCorpus_TurnVerificationRulesLoadAndDerive(t *testing.T) {
 	}
 	if got := count("turn_missing_evidence"); got != 0 {
 		t.Fatalf("turn_missing_evidence = %d, want 0 for a verified turn", got)
+	}
+}
+
+// External audit F1 (2026-09-19): the verdict relations were keyed by verb, so
+// two turns with the same verb on one kernel -- a campaign's tasks share it --
+// were one turn to the corpus. Turn A measured both gates green; turn B, the
+// same /fix, measured its build only. B is not verified by A's test gate, B's
+// missing test evidence is named against B alone, and A's verdict is A's.
+func TestCorpus_TurnVerdictsAreKeyedByTurnNotVerb(t *testing.T) {
+	k, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("the shipped corpus must load and stratify: %v", err)
+	}
+	a, b := types.MangleAtom("/turn_a"), types.MangleAtom("/turn_b")
+	for _, f := range []types.Fact{
+		{Predicate: "turn_gate", Args: []any{a, types.MangleAtom("/build"), types.MangleAtom("/passing")}},
+		{Predicate: "turn_gate", Args: []any{a, types.MangleAtom("/test"), types.MangleAtom("/passing")}},
+		{Predicate: "turn_evidence", Args: []any{a, types.MangleAtom("/fix"), 1, 1, 1, types.MangleAtom("/false"), types.MangleAtom("/false")}},
+		{Predicate: "turn_gate", Args: []any{b, types.MangleAtom("/build"), types.MangleAtom("/passing")}},
+		{Predicate: "turn_evidence", Args: []any{b, types.MangleAtom("/fix"), 1, 1, 0, types.MangleAtom("/false"), types.MangleAtom("/false")}},
+	} {
+		if aerr := k.Assert(f); aerr != nil {
+			t.Fatalf("assert %s%v: %v", f.Predicate, f.Args, aerr)
+		}
+	}
+	rows := func(pred string) map[string][]string {
+		t.Helper()
+		facts, qerr := k.Query(pred)
+		if qerr != nil {
+			t.Fatalf("query %s: %v", pred, qerr)
+		}
+		out := map[string][]string{}
+		for _, f := range facts {
+			key := types.ExtractString(f.Args[0])
+			rest := ""
+			if len(f.Args) > 1 {
+				rest = types.ExtractString(f.Args[1])
+			}
+			out[key] = append(out[key], rest)
+		}
+		return out
+	}
+	done := rows("turn_done")
+	if len(done[string(a)]) != 1 || len(done[string(b)]) != 0 {
+		t.Fatalf("turn_done = %v, want turn A only: B's test gate never ran", done)
+	}
+	missing := rows("turn_missing_evidence")
+	if got := missing[string(b)]; len(got) != 1 || got[0] != "/tests_not_green" {
+		t.Fatalf("turn_missing_evidence for B = %v, want [/tests_not_green]", got)
+	}
+	if got := missing[string(a)]; len(got) != 0 {
+		t.Fatalf("turn_missing_evidence for A = %v, want none: B's gap is not A's", got)
 	}
 }

@@ -9,6 +9,10 @@ import (
 // These tests exercise the loaded production completion rules. Executed tools
 // and an absence of hollow success establish turn_executed. turn_done also
 // needs a host-issued acceptance witness; a clean write alone is insufficient.
+// testTurn is the turn key a test's evidence carries. Each test owns its
+// kernel, so one key serves; production mints one per turn (newTurnAtom).
+const testTurn types.MangleAtom = "/turn_test"
+
 type turnCounts struct {
 	tools  int
 	writes int
@@ -20,6 +24,7 @@ func assertTurnEvidence(t *testing.T, e *Executor, verb string, c turnCounts) {
 	fact := types.Fact{
 		Predicate: "turn_evidence",
 		Args: []any{
+			testTurn,
 			types.MangleAtom(verb),
 			c.tools,
 			c.writes,
@@ -41,7 +46,7 @@ func assertBuildFailing(t *testing.T, e *Executor, verb string) {
 	t.Helper()
 	if err := e.kernel.Assert(types.Fact{
 		Predicate: "turn_gate",
-		Args:      []any{types.MangleAtom(verb), types.MangleAtom("/build"), types.MangleAtom("/failing")},
+		Args:      []any{testTurn, types.MangleAtom("/build"), types.MangleAtom("/failing")},
 	}); err != nil {
 		t.Fatalf("assert turn_gate(%s, /build, /failing): %v", verb, err)
 	}
@@ -85,7 +90,7 @@ func TestTurnDone_FailedBuildCannotDeriveDone(t *testing.T) {
 	if facts, err := e.kernel.Query("turn_done"); err != nil {
 		t.Fatalf("query turn_done: %v", err)
 	} else if len(facts) != 0 {
-		t.Fatalf("turn_done must not derive while turn_gate(/create, /build, /failing) holds, got %v", facts)
+		t.Fatalf("turn_done must not derive while turn_gate(%s, /build, /failing) holds, got %v", testTurn, facts)
 	}
 }
 
@@ -94,7 +99,7 @@ func TestTurnDone_FailedBuildCannotDeriveDone(t *testing.T) {
 // firing at all.
 func TestTurnDone_CleanCreateDerivesDone(t *testing.T) {
 	e := newObligationExec(t)
-	if err := e.kernel.Assert(types.Fact{Predicate: "turn_acceptance", Args: []any{types.MangleAtom("/create"), "caller-contract", "current-snapshot"}}); err != nil {
+	if err := e.kernel.Assert(types.Fact{Predicate: "turn_acceptance", Args: []any{testTurn, "caller-contract", "current-snapshot"}}); err != nil {
 		t.Fatal(err)
 	}
 

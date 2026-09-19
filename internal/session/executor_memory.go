@@ -135,11 +135,11 @@ func compilationAtomsJSON(compileResult *prompt.CompilationResult) string {
 // the rule restated in Go, in front of the rule. On a turn without a contract
 // the kernel was never asked, so /done was unreachable whatever the corpus
 // derived.
-func (e *Executor) captureTurnOutcome(result *ExecutionResult, hollowErr error) {
+func (e *Executor) captureTurnOutcome(turn types.MangleAtom, result *ExecutionResult, hollowErr error) {
 	if result == nil {
 		return
 	}
-	verdict := e.consumeTurnDoneSignal(strings.TrimSpace(result.Intent.Verb))
+	verdict := e.consumeTurnDoneSignal(turn, strings.TrimSpace(result.Intent.Verb))
 	result.MissingEvidence = verdict.Missing
 
 	switch {

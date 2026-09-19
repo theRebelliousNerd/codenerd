@@ -1963,7 +1963,7 @@ func isHollowSuccessError(err error) bool {
 //
 // Dream mode is exempt: speculative subagents must not be forced to mutate.
 func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
-	defer e.cleanupPerTurnCoverageFacts()
+	defer e.cleanupTurnFacts()
 	if result == nil {
 		return nil
 	}
@@ -1992,15 +1992,21 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 	// earned turn_done and every /explain or /review turn was recorded as
 	// /unverified in turn_cost — the denominator could not count read-only
 	// work as verified at all (seen live on both chat probes).
-	e.assertTurnEvidence(verb, result)
-	hollowErr := e.consumeHollowSuccessVerdict(verb, result)
+	//
+	// Every fact of the verdict carries this turn's own key, minted here: the
+	// kernel is shared with every executor CloneForTask made, and a concurrent
+	// turn with the same verb must neither read this turn's evidence nor
+	// lend it its own.
+	turn := newTurnAtom()
+	e.assertTurnEvidence(turn, verb, result)
+	hollowErr := e.consumeHollowSuccessVerdict(turn, verb, result)
 	// Capture the kernel's verdict BEFORE the deferred cleanup retracts
 	// turn_evidence — after that the derivation is gone and turn_cost could
 	// never record /done. captureTurnOutcome performs the single kernel read
 	// (consumeTurnDoneSignal) for turn_done, turn_build_failed and
 	// turn_missing_evidence; it runs on EVERY path, read-only verbs included,
 	// so no surface is left to invent an outcome of its own.
-	e.captureTurnOutcome(result, hollowErr)
+	e.captureTurnOutcome(turn, result, hollowErr)
 	if !requiresTools {
 		// A read-only intent is measured but never failed for hollowness: an
 		// explain or review turn may legitimately quote test output it read.
@@ -2017,10 +2023,17 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 	return nil
 }
 
+// recordGoFileCreations records the Go files this turn created -- a source, or
+// a test with the source it pairs with by the x_test.go convention -- in the
+// executor's own per-turn record. assertTurnEvidence asserts them for the
+// turn's verdict, keyed by the turn.
+//
+// It used to assert created_source and test_file_for into the shared kernel
+// here. test_file_for is the world scanner's predicate, and the end-of-turn
+// cleanup retracted what this asserted and, on a turn that had asserted
+// nothing, every test_file_for fact there was: the world's test-to-source map
+// went with it (external audit F1, 2026-09-19).
 func (e *Executor) recordGoFileCreations(preExist map[string]bool, canonicalToPhys map[string]string) {
-	if e.kernel == nil || len(preExist) == 0 {
-		return
-	}
 	for canonical, existed := range preExist {
 		if existed {
 			continue
@@ -2031,152 +2044,46 @@ func (e *Executor) recordGoFileCreations(preExist map[string]bool, canonicalToPh
 			}
 		}
 		lower := strings.ToLower(canonical)
-		if strings.HasSuffix(lower, "_test.go") {
-			base := canonical[:len(canonical)-len("_test.go")]
-			source := base + ".go"
-			fact := types.Fact{Predicate: "test_file_for", Args: []any{types.MangleString(canonical), types.MangleString(source)}}
-			if err := e.kernel.Assert(fact); err != nil {
-				logging.Get(logging.CategorySession).Debug("recordGoFileCreations: failed to assert test_file_for %q: %v", canonical, err)
-				continue
-			}
+		switch {
+		case strings.HasSuffix(lower, "_test.go"):
+			source := canonical[:len(canonical)-len("_test.go")] + ".go"
 			e.mu.Lock()
-			e.perTurnTestFileForFacts = append(e.perTurnTestFileForFacts, fact)
+			e.turnCreatedTests = append(e.turnCreatedTests, [2]string{canonical, source})
 			e.mu.Unlock()
-			logging.Get(logging.CategorySession).Debug("asserted test_file_for(%q, %q)", canonical, source)
-			continue
-		}
-		if strings.HasSuffix(lower, ".go") {
-			fact := types.Fact{Predicate: "created_source", Args: []any{types.MangleString(canonical)}}
-			if err := e.kernel.Assert(fact); err != nil {
-				logging.Get(logging.CategorySession).Debug("recordGoFileCreations: failed to assert created_source %q: %v", canonical, err)
-				continue
-			}
+			logging.Get(logging.CategorySession).Debug("turn created test %q for %q", canonical, source)
+		case strings.HasSuffix(lower, ".go"):
 			e.mu.Lock()
-			e.perTurnCreatedSourceFacts = append(e.perTurnCreatedSourceFacts, fact)
+			e.turnCreatedSources = append(e.turnCreatedSources, canonical)
 			e.mu.Unlock()
-			logging.Get(logging.CategorySession).Debug("asserted created_source(%q)", canonical)
+			logging.Get(logging.CategorySession).Debug("turn created source %q", canonical)
 		}
 	}
 }
-func (e *Executor) cleanupPerTurnCoverageFacts() {
+
+// cleanupTurnFacts retracts every fact this turn's verdict asserted and
+// clears the turn's record of the files it created. It retracts nothing it did
+// not assert: the kernel is shared, and another executor's live evidence or
+// the world scanner's facts are not orphans of this turn. An earlier version
+// swept whole predicate populations whenever the turn had tracked nothing,
+// which is what an early-return turn looks like -- and in that state it
+// retracted a concurrent turn's evidence and every test_file_for fact the
+// world held (external audit F1, 2026-09-19).
+func (e *Executor) cleanupTurnFacts() {
+	e.mu.Lock()
+	facts := e.turnFacts
+	e.turnFacts = nil
+	e.turnCreatedSources = nil
+	e.turnCreatedTests = nil
+	e.mu.Unlock()
 	if e.kernel == nil {
 		return
-	}
-	e.mu.Lock()
-	created := append([]types.Fact(nil), e.perTurnCreatedSourceFacts...)
-	testFacts := append([]types.Fact(nil), e.perTurnTestFileForFacts...)
-	claimed := append([]types.Fact(nil), e.perTurnClaimedTestOutputFacts...)
-	executed := append([]types.Fact(nil), e.perTurnExecutedTestToolFacts...)
-	turnEvidence := append([]types.Fact(nil), e.perTurnEvidenceFacts...)
-	buildState := append([]types.Fact(nil), e.perTurnBuildStateFacts...)
-	e.perTurnCreatedSourceFacts = nil
-	e.perTurnTestFileForFacts = nil
-	e.perTurnClaimedTestOutputFacts = nil
-	e.perTurnExecutedTestToolFacts = nil
-	e.perTurnEvidenceFacts = nil
-	e.perTurnBuildStateFacts = nil
-	e.mu.Unlock()
-	for _, f := range created {
-		if err := e.kernel.RetractFact(f); err != nil {
-			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract created_source %v: %v", f.Args, err)
-		}
-	}
-	for _, f := range testFacts {
-		if err := e.kernel.RetractFact(f); err != nil {
-			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract test_file_for %v: %v", f.Args, err)
-		}
-	}
-	for _, f := range claimed {
-		if err := e.kernel.RetractFact(f); err != nil {
-			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract claimed_test_output %v: %v", f.Args, err)
-		}
-	}
-	for _, f := range executed {
-		if err := e.kernel.RetractFact(f); err != nil {
-			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract executed_test_tool %v: %v", f.Args, err)
-		}
-	}
-	for _, f := range turnEvidence {
-		if err := e.kernel.RetractFact(f); err != nil {
-			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract turn_evidence %v: %v", f.Args, err)
-		}
 	}
 	// A red build is evidence about THIS turn. Left asserted it would exclude
 	// turn_executed for every later turn in the session, so a single failed
 	// compile would make the session permanently unable to finish anything.
-	for _, f := range buildState {
+	for _, f := range facts {
 		if err := e.kernel.RetractFact(f); err != nil {
-			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract %s %v: %v", f.Predicate, f.Args, err)
-		}
-	}
-	// Direct kernel asserts (verify_created2 helpers) are not tracked in perTurn lists.
-	// Retract any remaining coverage facts so the next turn starts clean and
-	// stale facts do not leak forever.
-	if len(created) == 0 && len(testFacts) == 0 && len(claimed) == 0 && len(executed) == 0 && len(turnEvidence) == 0 {
-		if facts, err := e.kernel.Query("created_source"); err == nil {
-			for _, f := range facts {
-				if err := e.kernel.RetractFact(f); err != nil {
-					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct created_source %v: %v", f.Args, err)
-				}
-			}
-		}
-		if facts, err := e.kernel.Query("test_file_for"); err == nil {
-			for _, f := range facts {
-				if err := e.kernel.RetractFact(f); err != nil {
-					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct test_file_for %v: %v", f.Args, err)
-				}
-			}
-		}
-		if facts, err := e.kernel.Query("claimed_test_output"); err == nil {
-			for _, f := range facts {
-				if err := e.kernel.RetractFact(f); err != nil {
-					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct claimed_test_output %v: %v", f.Args, err)
-				}
-			}
-		}
-		if facts, err := e.kernel.Query("executed_test_tool"); err == nil {
-			for _, f := range facts {
-				if err := e.kernel.RetractFact(f); err != nil {
-					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct executed_test_tool %v: %v", f.Args, err)
-				}
-			}
-		}
-		if facts, err := e.kernel.Query("turn_evidence"); err == nil {
-			for _, f := range facts {
-				if err := e.kernel.RetractFact(f); err != nil {
-					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct turn_evidence %v: %v", f.Args, err)
-				}
-			}
-		}
-	}
-	// A leaked claimed_test_output would fail every later turn forever, which is
-	// worse than the defect it guards. Ensure no orphan of either predicate
-	// survives even when the turn asserted coverage facts via the other predicates.
-	if len(claimed) == 0 {
-		if facts, err := e.kernel.Query("claimed_test_output"); err == nil {
-			for _, f := range facts {
-				if err := e.kernel.RetractFact(f); err != nil {
-					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract orphan claimed_test_output %v: %v", f.Args, err)
-				}
-			}
-		}
-	}
-	if len(executed) == 0 {
-		if facts, err := e.kernel.Query("executed_test_tool"); err == nil {
-			for _, f := range facts {
-				if err := e.kernel.RetractFact(f); err != nil {
-					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract orphan executed_test_tool %v: %v", f.Args, err)
-				}
-			}
-		}
-	}
-	if len(turnEvidence) == 0 {
-		if facts, err := e.kernel.Query("turn_evidence"); err == nil {
-			for _, f := range facts {
-				if err := e.kernel.RetractFact(f); err != nil {
-					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract orphan turn_evidence %v: %v", f.Args, err)
-				}
-			}
+			logging.Get(logging.CategorySession).Warn("cleanupTurnFacts: failed to retract %s%v: %v", f.Predicate, f.Args, err)
 		}
 	}
 }

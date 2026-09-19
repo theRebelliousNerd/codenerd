@@ -9,7 +9,7 @@ import (
 // S4 made turn_verified read test_state(/passing) as the host's own record of
 // what the test runner returned. S1 made recordBuildState the producer that
 // writes it, tracked it in perTurnBuildStateFacts and retracted it in
-// cleanupPerTurnCoverageFacts — "a red build is evidence about THIS turn".
+// cleanupTurnFacts — "a red build is evidence about THIS turn".
 //
 // test_state/1 is not that producer's private predicate. Three other producers
 // write it and none of them is per-turn:
@@ -52,7 +52,7 @@ func TestTurnVerified_DoesNotReuseAnEarlierTurnsTestState(t *testing.T) {
 	}
 	// Turn N ends. Nothing retracts it: it was not asserted by
 	// recordBuildState, so it is not in perTurnBuildStateFacts.
-	e.cleanupPerTurnCoverageFacts()
+	e.cleanupTurnFacts()
 	if got := queryCount(t, e, "test_state"); got != 1 {
 		t.Fatalf("precondition: the foreign test_state survives the turn cleanup, got %d facts", got)
 	}
@@ -62,15 +62,15 @@ func TestTurnVerified_DoesNotReuseAnEarlierTurnsTestState(t *testing.T) {
 	result := writeTurnResult()
 	result.TestCheck = TestVerification{Outcome: VerifySkipped, Reason: "only tag-gated packages; compile-checked with go vet"}
 
-	e.assertTurnEvidence("/create", result)
-	e.captureTurnOutcome(result, nil)
+	e.assertTurnEvidence(testTurn, "/create", result)
+	e.captureTurnOutcome(testTurn, result, nil)
 
 	if got := queryCount(t, e, "turn_verified"); got != 0 {
 		t.Errorf("turn_verified = %d: this turn ran no test gate, so the only test_state in the "+
 			"kernel is an earlier turn's. Verification must rest on evidence measured AFTER the edit.", got)
 	}
 	if result.TurnOutcome == types.MangleAtom("/done") {
-		t.Errorf("TurnOutcome = /done on a turn whose tests were never run: the verdict was bought "+
+		t.Errorf("TurnOutcome = /done on a turn whose tests were never run: the verdict was bought " +
 			"with a test_state left behind by the run_tests tool call in an earlier turn")
 	}
 }
@@ -97,7 +97,7 @@ func TestTurnVerified_ReadsThisTurnsGateNotTheSessionsRed(t *testing.T) {
 
 		// This turn's own gates: build green, tests green, measured after the edit.
 		result := writeTurnResult()
-		e.assertTurnEvidence("/create", result)
+		e.assertTurnEvidence(testTurn, "/create", result)
 
 		if got := queryCount(t, e, "test_state"); got != 2 {
 			t.Fatalf("precondition: both test_state values must coexist, got %d facts", got)
@@ -106,7 +106,7 @@ func TestTurnVerified_ReadsThisTurnsGateNotTheSessionsRed(t *testing.T) {
 			t.Errorf("turn_verified = %d: this turn's own gate ran green after the edit; a red left "+
 				"behind by another producer is older evidence and must not outrank it", got)
 		}
-		e.captureTurnOutcome(result, nil)
+		e.captureTurnOutcome(testTurn, result, nil)
 		if result.TurnOutcome != types.MangleAtom("/done") {
 			t.Errorf("TurnOutcome = %v, want /done: the verdict read the session's stale red instead "+
 				"of this turn's gate", result.TurnOutcome)
@@ -119,7 +119,7 @@ func TestTurnVerified_ReadsThisTurnsGateNotTheSessionsRed(t *testing.T) {
 		// This turn's own gates: build green, tests RED.
 		result := writeTurnResult()
 		result.TestCheck = TestVerification{Ran: true, OK: false, Outcome: VerifyFailed}
-		e.assertTurnEvidence("/create", result)
+		e.assertTurnEvidence(testTurn, "/create", result)
 
 		if got := queryCount(t, e, "turn_verified"); got != 0 {
 			t.Errorf("turn_verified = %d with this turn's own test gate red", got)
@@ -127,7 +127,7 @@ func TestTurnVerified_ReadsThisTurnsGateNotTheSessionsRed(t *testing.T) {
 		if got := queryCount(t, e, "turn_missing_evidence"); got == 0 {
 			t.Errorf("a turn whose own tests are red must name what is missing")
 		}
-		e.captureTurnOutcome(result, nil)
+		e.captureTurnOutcome(testTurn, result, nil)
 		if result.TurnOutcome == types.MangleAtom("/done") {
 			t.Errorf("TurnOutcome = /done on a turn whose own test gate failed")
 		}

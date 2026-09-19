@@ -170,6 +170,8 @@ func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 		"turn_gate", "turn_build_green", "turn_build_red", "turn_tests_green", "turn_tests_red",
 		"turn_untested", "turn_has_untested",
 		"turn_uncovered", "turn_has_uncovered", "turn_vet_green", "turn_vet_red",
+		"turn_created_test", "turn_test_coverage", "turn_missing_test",
+		"hollow_success", "has_hollow_success", "has_turn_tools", "has_turn_write", "has_turn_test",
 		"build_state", "test_state":
 		return false
 	}

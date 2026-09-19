@@ -19,7 +19,7 @@ func TestTurnThatWroteUntestedProductionCodeIsNotDone(t *testing.T) {
 
 		result := writeTurnResult() // build green, tests green, measured after the edit
 		result.UntestedPaths = []string{"internal/widget/widget.go"}
-		e.assertTurnEvidence("/create", result)
+		e.assertTurnEvidence(testTurn, "/create", result)
 
 		if got := queryCount(t, e, "turn_untested"); got != 1 {
 			t.Fatalf("turn_untested = %d, want 1: the executor must hand the corpus the coverage debt it measured", got)
@@ -27,7 +27,7 @@ func TestTurnThatWroteUntestedProductionCodeIsNotDone(t *testing.T) {
 		if got := queryCount(t, e, "turn_verified"); got != 0 {
 			t.Errorf("turn_verified = %d on a turn that wrote production code with no test beside it", got)
 		}
-		e.captureTurnOutcome(result, nil)
+		e.captureTurnOutcome(testTurn, result, nil)
 		if result.TurnOutcome == types.MangleAtom("/done") {
 			t.Errorf("TurnOutcome = /done for a turn that wrote untested production code")
 		}
@@ -46,12 +46,12 @@ func TestTurnThatWroteUntestedProductionCodeIsNotDone(t *testing.T) {
 		e := newObligationExec(t)
 
 		result := writeTurnResult()
-		e.assertTurnEvidence("/create", result)
+		e.assertTurnEvidence(testTurn, "/create", result)
 
 		if got := queryCount(t, e, "turn_verified"); got != 1 {
 			t.Errorf("turn_verified = %d: with no coverage debt the green gates must still verify the turn", got)
 		}
-		e.captureTurnOutcome(result, nil)
+		e.captureTurnOutcome(testTurn, result, nil)
 		if result.TurnOutcome != types.MangleAtom("/done") {
 			t.Errorf("TurnOutcome = %v, want /done", result.TurnOutcome)
 		}

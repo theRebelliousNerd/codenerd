@@ -239,10 +239,10 @@ Decl execution_tag(RequestID, Key, Value) bound [/string, /string, /string].
 # Turn evidence is owned by policy/coder_safety.mg (Decls + derived
 # hollow_success/turn_done); the session executor asserts it per turn.
 
-# turn_created_source(File) - per-turn scoping for the new-source test obligation.
-# Asserted alongside created_source for files created this turn; retracted with
-# the other per-turn facts so a leaked created_source cannot fail later turns.
-Decl turn_created_source(File) bound [/string].
+# turn_created_source(Turn, File) - a Go source file the turn created, keyed by
+# the turn that created it (coder_safety.mg, turn_missing_test). Asserted with
+# the turn's other evidence and retracted with it.
+Decl turn_created_source(Turn, File) bound [/name, /string].
 
 # turn_cost(SessionID, TurnNum, PromptTokens, CompletionTokens, ToolCalls, VerifiedOutcome)
 # Per-turn cost denominator for tokens-per-verified-work. Asserted once per

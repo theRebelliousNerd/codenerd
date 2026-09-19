@@ -58,7 +58,7 @@ func TestTurnDone_DerivesFromEvidenceWithoutAcceptance(t *testing.T) {
 	e := newObligationExec(t)
 	result := writeTurnResult()
 
-	e.assertTurnEvidence("/create", result)
+	e.assertTurnEvidence(testTurn, "/create", result)
 
 	if got := queryCount(t, e, "turn_executed"); got != 1 {
 		t.Fatalf("a clean write turn with green gates must derive turn_executed, got %d facts", got)
@@ -76,7 +76,7 @@ func TestTurnDone_DerivesFromEvidenceWithoutAcceptance(t *testing.T) {
 		t.Fatalf("a verified turn must derive no turn_unverified, got %d facts", got)
 	}
 
-	e.captureTurnOutcome(result, nil)
+	e.captureTurnOutcome(testTurn, result, nil)
 	if result.TurnOutcome != types.MangleAtom("/done") {
 		t.Fatalf("TurnOutcome = %q, want /done — the outcome must bind to the derivation", result.TurnOutcome)
 	}
@@ -93,7 +93,7 @@ func TestTurnDone_ReadOnlyTurnIsDoneWithoutGates(t *testing.T) {
 	e := newObligationExec(t)
 	result := readOnlyTurnResult()
 
-	e.assertTurnEvidence("/explain", result)
+	e.assertTurnEvidence(testTurn, "/explain", result)
 
 	if got := queryCount(t, e, "build_state"); got != 0 {
 		t.Fatalf("a read-only turn runs no gate, so no build_state, got %d facts", got)
@@ -102,7 +102,7 @@ func TestTurnDone_ReadOnlyTurnIsDoneWithoutGates(t *testing.T) {
 		t.Fatalf("a read-only turn that ran must derive turn_done, got %d facts", got)
 	}
 
-	e.captureTurnOutcome(result, nil)
+	e.captureTurnOutcome(testTurn, result, nil)
 	if result.TurnOutcome != types.MangleAtom("/done") {
 		t.Fatalf("TurnOutcome = %q, want /done for a completed read-only turn", result.TurnOutcome)
 	}
@@ -115,7 +115,7 @@ func TestTurnDone_BuildFailingExcludes(t *testing.T) {
 	result := writeTurnResult()
 	result.BuildCheck = BuildVerification{Ran: true, OK: false, Outcome: VerifyFailed}
 
-	e.assertTurnEvidence("/create", result)
+	e.assertTurnEvidence(testTurn, "/create", result)
 
 	if got := queryCount(t, e, "turn_executed"); got != 0 {
 		t.Fatalf("turn_executed must not derive while the build is red, got %d facts", got)
@@ -127,7 +127,7 @@ func TestTurnDone_BuildFailingExcludes(t *testing.T) {
 		t.Fatalf("a red build must derive turn_build_failed, got %d facts", got)
 	}
 
-	e.captureTurnOutcome(result, nil)
+	e.captureTurnOutcome(testTurn, result, nil)
 	if result.TurnOutcome != types.MangleAtom("/failed") {
 		t.Fatalf("TurnOutcome = %q, want /failed for a red build", result.TurnOutcome)
 	}
@@ -141,7 +141,7 @@ func TestTurnOutcome_UnverifiedNamesMissingEvidence(t *testing.T) {
 	result := writeTurnResult()
 	result.TestCheck = TestVerification{Outcome: VerifySkipped}
 
-	e.assertTurnEvidence("/create", result)
+	e.assertTurnEvidence(testTurn, "/create", result)
 
 	if got := queryCount(t, e, "turn_executed"); got != 1 {
 		t.Fatalf("a green build with no test run still executed, got %d turn_executed facts", got)
@@ -153,7 +153,7 @@ func TestTurnOutcome_UnverifiedNamesMissingEvidence(t *testing.T) {
 		t.Fatalf("expected exactly one turn_unverified, got %d facts", got)
 	}
 
-	e.captureTurnOutcome(result, nil)
+	e.captureTurnOutcome(testTurn, result, nil)
 	if result.TurnOutcome != types.MangleAtom("/unverified") {
 		t.Fatalf("TurnOutcome = %q, want /unverified", result.TurnOutcome)
 	}
@@ -188,8 +188,8 @@ func TestTurnOutcome_UnverifiedNamesBothGatesWhenNeitherRan(t *testing.T) {
 	result.BuildCheck = BuildVerification{Outcome: VerifySkipped}
 	result.TestCheck = TestVerification{Outcome: VerifySkipped}
 
-	e.assertTurnEvidence("/create", result)
-	e.captureTurnOutcome(result, nil)
+	e.assertTurnEvidence(testTurn, "/create", result)
+	e.captureTurnOutcome(testTurn, result, nil)
 
 	if result.TurnOutcome != types.MangleAtom("/unverified") {
 		t.Fatalf("TurnOutcome = %q, want /unverified when no gate ran", result.TurnOutcome)
@@ -210,7 +210,7 @@ func TestTurnDone_AcceptancePathStillSufficient(t *testing.T) {
 	result.TestCheck = TestVerification{Outcome: VerifySkipped}
 	result.Acceptance = &acceptanceReportFixture
 
-	e.assertTurnEvidence("/create", result)
+	e.assertTurnEvidence(testTurn, "/create", result)
 
 	if got := queryCount(t, e, "turn_acceptance"); got != 1 {
 		t.Fatalf("expected the acceptance witness to reach the kernel, got %d facts", got)
@@ -222,7 +222,7 @@ func TestTurnDone_AcceptancePathStillSufficient(t *testing.T) {
 		t.Fatalf("acceptance alone must still derive turn_done, got %d facts", got)
 	}
 
-	e.captureTurnOutcome(result, nil)
+	e.captureTurnOutcome(testTurn, result, nil)
 	if result.TurnOutcome != types.MangleAtom("/done") {
 		t.Fatalf("TurnOutcome = %q, want /done on the acceptance path", result.TurnOutcome)
 	}
@@ -253,8 +253,10 @@ func TestLearningTrainsOnlyOnDerivedDone(t *testing.T) {
 			wantVerified: false,
 		},
 		{
-			name:         "redBuildIsNotAWin",
-			mutate:       func(r *ExecutionResult) { r.BuildCheck = BuildVerification{Ran: true, OK: false, Outcome: VerifyFailed} },
+			name: "redBuildIsNotAWin",
+			mutate: func(r *ExecutionResult) {
+				r.BuildCheck = BuildVerification{Ran: true, OK: false, Outcome: VerifyFailed}
+			},
 			wantOutcome:  types.MangleAtom("/failed"),
 			wantVerified: false,
 		},
@@ -266,13 +268,13 @@ func TestLearningTrainsOnlyOnDerivedDone(t *testing.T) {
 			result := writeTurnResult()
 			tc.mutate(result)
 
-			e.assertTurnEvidence("/create", result)
-			e.captureTurnOutcome(result, nil)
+			e.assertTurnEvidence(testTurn, "/create", result)
+			e.captureTurnOutcome(testTurn, result, nil)
 
 			// The per-turn facts are retracted before persistTurn runs, which
 			// is where resolveTurnOutcome is called. If it re-derived, it would
 			// be asking a kernel that has already forgotten the turn.
-			e.cleanupPerTurnCoverageFacts()
+			e.cleanupTurnFacts()
 
 			outcome := e.resolveTurnOutcome(result)
 			if outcome != tc.wantOutcome {

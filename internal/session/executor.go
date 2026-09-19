@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -198,31 +199,23 @@ type Executor struct {
 	workingWorld WorkingWorld
 	workingScope string
 
-	// perTurnCreatedSourceFacts tracks created_source facts asserted this turn.
-	// perTurnTestFileForFacts tracks test_file_for facts asserted this turn.
-	// Both are managed under mu and cleared by checkHollowSuccess, which runs
-	// on every path including an errored turn (TestErroredTurnStillClosesAndRetractsItsFacts).
-	perTurnCreatedSourceFacts []types.Fact
-	perTurnTestFileForFacts   []types.Fact
+	// turnCreatedSources and turnCreatedTests are the Go files this turn
+	// created, as recordGoFileCreations saw them: a source, and a test with
+	// the source it pairs with. They are this executor's own record; nothing
+	// reaches the shared kernel until the turn's verdict is asked, when
+	// assertTurnEvidence asserts them keyed by the turn. Managed under mu and
+	// cleared by checkHollowSuccess, which runs on every path including an
+	// errored turn (TestErroredTurnStillClosesAndRetractsItsFacts).
+	turnCreatedSources []string
+	turnCreatedTests   [][2]string
 
-	// perTurnTurnCreatedSourceFacts tracks turn_created_source facts asserted
-	// this turn for per-turn scoping of the new-source obligation. Managed
-	// under mu and cleared with the other per-turn facts.
-	perTurnTurnCreatedSourceFacts []types.Fact
-
-	// perTurnClaimedTestOutputFacts tracks claimed_test_output facts asserted this turn.
-	// perTurnExecutedTestToolFacts tracks executed_test_tool facts asserted this turn.
-	// Both are managed under mu and cleared by checkHollowSuccess (via
-	// cleanupPerTurnCoverageFacts) on every path to prevent stale facts from
-	// failing later turns — a leaked fact would fail every later turn forever.
-	perTurnClaimedTestOutputFacts []types.Fact
-	perTurnExecutedTestToolFacts  []types.Fact
-	perTurnEvidenceFacts          []types.Fact
-
-	// perTurnBuildStateFacts tracks build_state facts asserted this turn via
-	// recordBuildState. Retracted with the other per-turn facts so a red build
-	// cannot block later turns forever.
-	perTurnBuildStateFacts []types.Fact
+	// turnFacts is every kernel fact this turn's verdict asserted -- the
+	// turn-keyed evidence and the session-global build_state/test_state the
+	// same gates write -- and cleanupTurnFacts retracts exactly these on every
+	// path. Nothing else is ever retracted: the kernel is shared with every
+	// executor CloneForTask made and with the world scanner, and their facts
+	// are not this turn's to clear (external audit F1, 2026-09-19).
+	turnFacts []types.Fact
 
 	// gateUnavailableWarned ensures the "interactive executive gate
 	// unavailable" warning is logged exactly once per executor lifetime, no
@@ -2365,27 +2358,50 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 	return processed.Surface
 }
 
-// assertTurnEvidence records one turn_evidence fact capturing this turn's
-// observable outcome (Go measures) so the policy corpus can derive the
-// verdict (Mangle decides). Exactly one fact is asserted per turn; cleanup
-// retracts it on every checkHollowSuccess path so a later turn never sees
-// stale evidence. Also asserts claimed_test_output/executed_test_tool so the
-// legacy unverified_test_claim rule keeps working alongside the new verdict.
-func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
+// turnSeq numbers turn verdicts across the process, so two executors sharing a
+// kernel never mint the same turn.
+var turnSeq atomic.Uint64
+
+// newTurnAtom mints the key every fact of one turn verdict carries. The kernel
+// is shared -- CloneForTask hands the same one to every delegated task, and a
+// campaign runs tasks side by side -- so the verb cannot be a turn's identity:
+// two concurrent /fix turns read each other's gates under it (external audit
+// F1, 2026-09-19). The process id keeps two processes' turns apart in anything
+// that outlives one of them.
+func newTurnAtom() types.MangleAtom {
+	return types.MangleAtom(fmt.Sprintf("/turn_%d_%d", os.Getpid(), turnSeq.Add(1)))
+}
+
+// assertTurnFact asserts one fact of this turn's verdict and records it for
+// cleanupTurnFacts, which retracts exactly what was recorded.
+func (e *Executor) assertTurnFact(fact types.Fact) bool {
+	if err := e.kernel.Assert(fact); err != nil {
+		logging.Get(logging.CategorySession).Warn("failed to assert %s%v: %v", fact.Predicate, fact.Args, err)
+		return false
+	}
+	e.mu.Lock()
+	e.turnFacts = append(e.turnFacts, fact)
+	e.mu.Unlock()
+	logging.Get(logging.CategorySession).Debug("asserted %s%v", fact.Predicate, fact.Args)
+	return true
+}
+
+// assertTurnEvidence records this turn's observable outcome (Go measures) as
+// facts keyed by the turn, so the policy corpus can derive the verdict (Mangle
+// decides): one turn_evidence fact, the gates, the coverage debt, the
+// acceptance witness and the files the turn created. cleanupTurnFacts retracts
+// them on every checkHollowSuccess path, so a later turn never sees them, and
+// they are keyed by turn, so a concurrent one never does either.
+func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result *ExecutionResult) {
 	if e.kernel == nil || result == nil {
 		return
 	}
 	// The mechanical gates are evidence about the workspace, and the policy
 	// corpus already asks for them by name. Assert them before turn_evidence
-	// so !turn_build_red(Verb) can exclude turn_executed on the same pass.
-	e.recordBuildState(verb, result)
+	// so !turn_build_red(Turn) can exclude turn_executed on the same pass.
+	e.recordBuildState(turn, result)
 	if result.Acceptance != nil && result.Acceptance.Status == "verified" {
-		fact := types.Fact{Predicate: "turn_acceptance", Args: []any{types.MangleAtom(verb), result.Acceptance.ContractID, result.Acceptance.After}}
-		if err := e.kernel.Assert(fact); err == nil {
-			e.mu.Lock()
-			e.perTurnEvidenceFacts = append(e.perTurnEvidenceFacts, fact)
-			e.mu.Unlock()
-		}
+		e.assertTurnFact(types.Fact{Predicate: "turn_acceptance", Args: []any{turn, result.Acceptance.ContractID, result.Acceptance.After}})
 	}
 	claimedOutput := types.MangleAtom("/false")
 	if responsePresentsTestRunnerOutput(result.Response) {
@@ -2402,79 +2418,41 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 	if result.TestCheck.Ran {
 		testRuns++
 	}
-	evidence := types.Fact{Predicate: "turn_evidence", Args: []any{
+	e.assertTurnFact(types.Fact{Predicate: "turn_evidence", Args: []any{
+		turn,
 		types.MangleAtom(verb),
 		result.SuccessfulToolCalls,
 		result.SuccessfulWriteTools,
 		testRuns,
 		claimedOutput,
 		dreamMode,
-	}}
-	if err := e.kernel.Assert(evidence); err != nil {
-		logging.Get(logging.CategorySession).Warn("failed to assert turn_evidence for %s: %v", verb, err)
-	} else {
-		e.mu.Lock()
-		e.perTurnEvidenceFacts = append(e.perTurnEvidenceFacts, evidence)
-		e.mu.Unlock()
-	}
-	if responsePresentsTestRunnerOutput(result.Response) {
-		fact := types.Fact{Predicate: "claimed_test_output", Args: []any{types.MangleString(verb)}}
-		if err := e.kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategorySession).Warn("failed to assert claimed_test_output for %s: %v", verb, err)
-		} else {
-			e.mu.Lock()
-			e.perTurnClaimedTestOutputFacts = append(e.perTurnClaimedTestOutputFacts, fact)
-			e.mu.Unlock()
-			logging.Get(logging.CategorySession).Debug("asserted claimed_test_output(%q)", verb)
-		}
-	}
-	if testRuns > 0 {
-		fact := types.Fact{Predicate: "executed_test_tool", Args: []any{types.MangleString(verb)}}
-		if err := e.kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategorySession).Warn("failed to assert executed_test_tool for %s: %v", verb, err)
-		} else {
-			e.mu.Lock()
-			e.perTurnExecutedTestToolFacts = append(e.perTurnExecutedTestToolFacts, fact)
-			e.mu.Unlock()
-			logging.Get(logging.CategorySession).Debug("asserted executed_test_tool(%q)", verb)
-		}
-	}
-	// Per-turn scoping for the new-source obligation: mirror every
-	// created_source tracked this turn into turn_created_source so the policy
-	// rule joins only files created this turn. Leaked or scanner-derived
-	// created_source facts (untracked) never gain a turn_created_source peer
-	// and cannot fail later turns.
+	}})
+	// The files this turn created, from the executor's own record: the
+	// new-source obligation (turn_missing_test) joins only these, so a file
+	// another turn created -- or one the world scanner found -- cannot raise
+	// or discharge it.
 	e.mu.RLock()
-	created := append([]types.Fact(nil), e.perTurnCreatedSourceFacts...)
-	scoped := make(map[string]struct{}, len(e.perTurnTurnCreatedSourceFacts))
-	for _, f := range e.perTurnTurnCreatedSourceFacts {
-		if len(f.Args) > 0 {
-			scoped[types.ExtractString(f.Args[0])] = struct{}{}
+	sources := append([]string(nil), e.turnCreatedSources...)
+	tests := append([][2]string(nil), e.turnCreatedTests...)
+	e.mu.RUnlock()
+	seen := make(map[string]bool, len(sources)+len(tests))
+	for _, file := range sources {
+		if !seen[file] {
+			seen[file] = true
+			e.assertTurnFact(types.Fact{Predicate: "turn_created_source", Args: []any{turn, types.MangleString(file)}})
 		}
 	}
-	e.mu.RUnlock()
-	for _, f := range created {
-		if len(f.Args) == 0 {
-			continue
+	for _, pair := range tests {
+		if key := pair[0] + "\x00" + pair[1]; !seen[key] {
+			seen[key] = true
+			e.assertTurnFact(types.Fact{Predicate: "turn_created_test", Args: []any{turn, types.MangleString(pair[0]), types.MangleString(pair[1])}})
 		}
-		file := types.ExtractString(f.Args[0])
-		if _, ok := scoped[file]; ok {
-			continue
-		}
-		tf := types.Fact{Predicate: "turn_created_source", Args: []any{types.MangleString(file)}}
-		if err := e.kernel.Assert(tf); err != nil {
-			logging.Get(logging.CategorySession).Debug("assertTurnEvidence: failed to assert turn_created_source %q: %v", file, err)
-			continue
-		}
-		e.mu.Lock()
-		e.perTurnTurnCreatedSourceFacts = append(e.perTurnTurnCreatedSourceFacts, tf)
-		e.mu.Unlock()
 	}
 }
 
 // recordBuildState asserts this turn's mechanical gate verdicts as the facts
-// the policy corpus reads: build_state/1 from BuildCheck and test_state/1 from
-// TestCheck.
+// the policy corpus reads: turn_gate/3 for this turn, build_state/1 and
+// test_state/1 for the session.
 //
 // Until this existed the field below it tracked was written by nothing —
 // perTurnBuildStateFacts named a recordBuildState that was not in the tree, the
@@ -2492,24 +2470,14 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 // Two facts per gate. build_state/1 and test_state/1 are the session-global
 // workspace state the rest of the corpus reads (commit_gate.mg, tdd_loop.mg,
 // context_compilation.mg) and other producers also write. turn_gate/3 is the
-// same measurement keyed by this turn's verb, and it is the only gate evidence
-// the turn verdict (coder_safety.mg turn_verified / turn_executed /
+// same measurement keyed by this turn, and it is the only gate evidence the
+// turn verdict (coder_safety.mg turn_verified / turn_executed /
 // turn_build_failed) reads: a global left behind by an earlier turn's tool
-// call is not this turn's evidence (REVIEW-wave1 F2). Both are retracted with
-// the turn's other evidence.
-func (e *Executor) recordBuildState(verb string, result *ExecutionResult) {
+// call is not this turn's evidence (REVIEW-wave1 F2), and neither is a
+// concurrent turn's gate. Both are retracted with the turn's other evidence.
+func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResult) {
 	if e.kernel == nil || result == nil {
 		return
-	}
-	assert := func(fact types.Fact) {
-		if err := e.kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategorySession).Warn("failed to assert %s%v: %v", fact.Predicate, fact.Args, err)
-			return
-		}
-		e.mu.Lock()
-		e.perTurnBuildStateFacts = append(e.perTurnBuildStateFacts, fact)
-		e.mu.Unlock()
-		logging.Get(logging.CategorySession).Debug("asserted %s%v", fact.Predicate, fact.Args)
 	}
 	record := func(global string, gate types.MangleAtom, verdict VerifyOutcome) {
 		var state types.MangleAtom
@@ -2521,27 +2489,24 @@ func (e *Executor) recordBuildState(verb string, result *ExecutionResult) {
 		default:
 			return
 		}
-		assert(types.Fact{Predicate: global, Args: []any{state}})
-		assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom(verb), gate, state}})
+		if global != "" {
+			e.assertTurnFact(types.Fact{Predicate: global, Args: []any{state}})
+		}
+		e.assertTurnFact(types.Fact{Predicate: "turn_gate", Args: []any{turn, gate, state}})
 	}
 	record("build_state", types.MangleAtom("/build"), result.BuildCheck.Verdict())
 	record("test_state", types.MangleAtom("/test"), result.TestCheck.Verdict())
 	// Vet has no session-global: turn_gate is its only record.
-	switch result.VetCheck.Verdict() {
-	case VerifyPassed:
-		assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom(verb), types.MangleAtom("/vet"), types.MangleAtom("/passing")}})
-	case VerifyFailed:
-		assert(types.Fact{Predicate: "turn_gate", Args: []any{types.MangleAtom(verb), types.MangleAtom("/vet"), types.MangleAtom("/failing")}})
-	}
+	record("", types.MangleAtom("/vet"), result.VetCheck.Verdict())
 	// Coverage debt rides with the gates: asserted here, retracted with them.
 	// The corpus withholds turn_verified while any holds and names it as
-	// turn_missing_evidence(Verb, /tests_not_written) or
-	// (Verb, /changed_code_unexecuted).
+	// turn_missing_evidence(Turn, /tests_not_written) or
+	// (Turn, /changed_code_unexecuted).
 	for _, path := range result.UntestedPaths {
-		assert(types.Fact{Predicate: "turn_untested", Args: []any{types.MangleAtom(verb), path}})
+		e.assertTurnFact(types.Fact{Predicate: "turn_untested", Args: []any{turn, path}})
 	}
 	for _, path := range uncoveredPaths(result) {
-		assert(types.Fact{Predicate: "turn_uncovered", Args: []any{types.MangleAtom(verb), path}})
+		e.assertTurnFact(types.Fact{Predicate: "turn_uncovered", Args: []any{turn, path}})
 	}
 }
 
@@ -2571,24 +2536,41 @@ func uncoveredPaths(result *ExecutionResult) []string {
 	return paths
 }
 
+// turnRows returns the rows of a turn-keyed predicate that belong to this
+// turn. Every verdict relation carries the turn as its first argument, and a
+// row with another turn's key is another execution's verdict.
+func (e *Executor) turnRows(predicate string, turn types.MangleAtom) ([]types.Fact, error) {
+	facts, err := e.kernel.Query(predicate)
+	if err != nil {
+		return nil, err
+	}
+	var own []types.Fact
+	for _, f := range facts {
+		if len(f.Args) > 0 && types.ExtractString(f.Args[0]) == string(turn) {
+			own = append(own, f)
+		}
+	}
+	return own, nil
+}
+
 // consumeHollowSuccessVerdict is the Go consumer of the policy-derived
 // hollow_success verdict. hollow_success carries the failure reason; a
-// present fact fails the turn with the matching hollow-success error.
-// Query failures degrade to the imperative legacy fallbacks below so
-// MockKernel unit tests and degraded kernels still gate.
-func (e *Executor) consumeHollowSuccessVerdict(verb string, result *ExecutionResult) error {
+// present fact for this turn fails it with the matching hollow-success error.
+// Query failures degrade to the imperative fallbacks below so MockKernel unit
+// tests and degraded kernels still gate.
+func (e *Executor) consumeHollowSuccessVerdict(turn types.MangleAtom, verb string, result *ExecutionResult) error {
 	if e.kernel == nil {
 		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: nil kernel, using Go fallback checks (verb %s)", verb)
 		return nil
 	}
-	if hollowFacts, qerr := e.kernel.Query("hollow_success"); qerr != nil {
+	if hollowFacts, qerr := e.turnRows("hollow_success", turn); qerr != nil {
 		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: hollow_success query failed: %v", qerr)
 	} else if len(hollowFacts) > 0 {
 		reasons := make([]string, 0, len(hollowFacts))
 		for _, hf := range hollowFacts {
 			r := ""
-			if len(hf.Args) > 0 {
-				r = types.ExtractString(hf.Args[0])
+			if len(hf.Args) > 1 {
+				r = types.ExtractString(hf.Args[1])
 			}
 			reasons = append(reasons, r)
 		}
@@ -2616,43 +2598,29 @@ func (e *Executor) consumeHollowSuccessVerdict(verb string, result *ExecutionRes
 		case "response presents test-runner output but no test-execution tool ran":
 			return newHollowSuccessError("response presents test-runner output but no test-execution tool ran this turn (verb %s)", verb)
 		case "new source was created without a test file":
-			if missingFacts, merr := e.kernel.Query("missing_test_for"); merr == nil && len(missingFacts) > 0 {
-				e.mu.RLock()
-				createdSet := make(map[string]struct{}, len(e.perTurnCreatedSourceFacts))
-				for _, f := range e.perTurnCreatedSourceFacts {
-					if len(f.Args) > 0 {
-						createdSet[types.ExtractString(f.Args[0])] = struct{}{}
+			// The reason derives from turn_missing_test for this turn, so the
+			// file it names is this turn's creation and nothing older.
+			var files []string
+			if missing, merr := e.turnRows("turn_missing_test", turn); merr == nil {
+				for _, f := range missing {
+					if len(f.Args) > 1 {
+						files = append(files, types.ExtractString(f.Args[1]))
 					}
-				}
-				e.mu.RUnlock()
-				var matched []string
-				for _, f := range missingFacts {
-					if len(f.Args) == 0 {
-						continue
-					}
-					file := types.ExtractString(f.Args[0])
-					if _, ok := createdSet[file]; ok {
-						matched = append(matched, file)
-					}
-				}
-				if len(matched) > 0 {
-					sort.Strings(matched)
-					return newHollowSuccessError("turn created Go source %s without a test file (verb %s)", matched[0], verb)
 				}
 			}
-			// No per-turn creation matched (stale or scanner-derived fact):
-			// leave the switch without erroring, so a leaked fact cannot fail
-			// later turns forever. Cleanup retracts per-turn facts on every
-			// path via defer. (Go cases do not fall through, so reaching the
-			// end of this one is the exit; the explicit break was a no-op.)
+			if len(files) == 0 {
+				return newHollowSuccessError("turn created Go source without a test file (verb %s)", verb)
+			}
+			sort.Strings(files)
+			return newHollowSuccessError("turn created Go source %s without a test file (verb %s)", files[0], verb)
 		default:
 			return newHollowSuccessError("policy blocked hollow completion for intent %s (reason %s)", verb, reason)
 		}
 	}
-	// Fallback for kernels without the new turn_evidence rules (unit-test
-	// mocks, older snapshots): imperative checks mirror the policy verdict
-	// so MockKernel turns still gate. Policy decides when available; this
-	// only runs when no hollow_success fact was derived.
+	// Fallback for kernels without the turn_evidence rules (unit-test mocks):
+	// imperative checks mirror the policy verdict so MockKernel turns still
+	// gate. Policy decides when available; this only runs when no
+	// hollow_success fact was derived for the turn.
 	if result != nil {
 		if e.intentRequiresToolCall(verb) || e.writeOrientedIntent(verb) {
 			if result.SuccessfulToolCalls == 0 {
@@ -2668,37 +2636,6 @@ func (e *Executor) consumeHollowSuccessVerdict(verb string, result *ExecutionRes
 				verb, result.ToolCallsExecuted,
 			)
 		}
-	}
-	// Fallback for kernels without the new turn_evidence rules (unit-test
-	// mocks, older snapshots): consult the legacy derived predicates.
-	if unverified, err := e.kernel.Query("unverified_test_claim"); err != nil {
-		logging.Get(logging.CategorySession).Warn("checkHollowSuccess: unverified_test_claim query failed: %v", err)
-	} else if len(unverified) > 0 {
-		return newHollowSuccessError("response presents test-runner output but no test-execution tool ran this turn (verb %s)", verb)
-	}
-	if facts, err := e.kernel.Query("missing_test_for"); err != nil {
-		logging.Get(logging.CategorySession).Warn("checkHollowSuccess: missing_test_for query failed: %v", err)
-	} else if len(facts) > 0 {
-		e.mu.RLock()
-		createdSet := make(map[string]struct{}, len(e.perTurnCreatedSourceFacts))
-		for _, f := range e.perTurnCreatedSourceFacts {
-			if len(f.Args) > 0 {
-				createdSet[types.ExtractString(f.Args[0])] = struct{}{}
-			}
-		}
-		e.mu.RUnlock()
-		for _, f := range facts {
-			if len(f.Args) == 0 {
-				continue
-			}
-			file := types.ExtractString(f.Args[0])
-			if _, ok := createdSet[file]; ok {
-				return newHollowSuccessError("turn created Go source %s without a test file (verb %s)", file, verb)
-			}
-		}
-		// No per-turn creation matched (stale or scanner-derived fact):
-		// fall through so a leaked fact cannot fail later turns forever.
-		// Cleanup retracts per-turn facts on every path via defer.
 	}
 	return nil
 }
@@ -2738,7 +2675,7 @@ type turnVerdict struct {
 // (turn_verified, coder_safety.mg) and this is where that lands. It must be
 // called while the per-turn facts are still asserted — cleanup retracts them
 // and the derivation goes with them.
-func (e *Executor) consumeTurnDoneSignal(verb string) turnVerdict {
+func (e *Executor) consumeTurnDoneSignal(turn types.MangleAtom, verb string) turnVerdict {
 	var v turnVerdict
 	if e.kernel == nil {
 		logging.Get(logging.CategorySession).Debug("turn verdict: no kernel to ask for verb %s", verb)
@@ -2746,23 +2683,23 @@ func (e *Executor) consumeTurnDoneSignal(verb string) turnVerdict {
 	}
 	v.Answered = true
 
-	if doneFacts, derr := e.kernel.Query("turn_done"); derr != nil {
+	if doneFacts, derr := e.turnRows("turn_done", turn); derr != nil {
 		logging.Get(logging.CategorySession).Debug("turn verdict: turn_done query failed: %v", derr)
 		v.Answered = false
 	} else {
 		v.Done = len(doneFacts) > 0
 		if len(doneFacts) > 1 {
-			logging.Get(logging.CategorySession).Debug("turn verdict: turn_done count=%d for verb %s (expected at most one per turn_evidence)", len(doneFacts), verb)
+			logging.Get(logging.CategorySession).Debug("turn verdict: turn_done count=%d for turn %s (expected at most one)", len(doneFacts), turn)
 		}
 	}
 
-	if failFacts, ferr := e.kernel.Query("turn_build_failed"); ferr != nil {
+	if failFacts, ferr := e.turnRows("turn_build_failed", turn); ferr != nil {
 		logging.Get(logging.CategorySession).Debug("turn verdict: turn_build_failed query failed: %v", ferr)
 	} else {
 		v.BuildFailed = len(failFacts) > 0
 	}
 
-	if missingFacts, merr := e.kernel.Query("turn_missing_evidence"); merr != nil {
+	if missingFacts, merr := e.turnRows("turn_missing_evidence", turn); merr != nil {
 		logging.Get(logging.CategorySession).Debug("turn verdict: turn_missing_evidence query failed: %v", merr)
 	} else {
 		seen := make(map[string]struct{}, len(missingFacts))
@@ -2783,7 +2720,7 @@ func (e *Executor) consumeTurnDoneSignal(verb string) turnVerdict {
 		sort.Strings(v.Missing)
 	}
 
-	logging.Get(logging.CategorySession).Debug("turn verdict for %s: done=%t build_failed=%t missing=%v", verb, v.Done, v.BuildFailed, v.Missing)
+	logging.Get(logging.CategorySession).Debug("turn verdict for %s (%s): done=%t build_failed=%t missing=%v", verb, turn, v.Done, v.BuildFailed, v.Missing)
 	return v
 }
 

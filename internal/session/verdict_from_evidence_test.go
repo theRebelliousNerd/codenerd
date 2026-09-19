@@ -180,7 +180,7 @@ func TestBuildFailure_ExcludesTurnExecuted(t *testing.T) {
 
 	result := mutationResult()
 	result.BuildCheck = BuildVerification{Ran: true, OK: false, Outcome: VerifyFailed}
-	e.assertTurnEvidence("/create", result)
+	e.assertTurnEvidence(testTurn, "/create", result)
 
 	if got := queryCount(t, e, "build_state"); got != 1 {
 		t.Fatalf("expected exactly one build_state fact asserted from BuildCheck, got %d", got)
@@ -199,7 +199,7 @@ func TestPassingBuildDerivesTurnExecuted(t *testing.T) {
 	result := mutationResult()
 	result.BuildCheck = BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed}
 	result.TestCheck = TestVerification{Ran: true, OK: true, Outcome: VerifyPassed}
-	e.assertTurnEvidence("/create", result)
+	e.assertTurnEvidence(testTurn, "/create", result)
 
 	facts, err := e.kernel.Query("build_state")
 	if err != nil {
@@ -228,7 +228,7 @@ func TestSkippedGateAssertsNoState(t *testing.T) {
 	result := mutationResult()
 	result.BuildCheck = BuildVerification{Outcome: VerifySkipped}
 	result.TestCheck = TestVerification{Outcome: VerifySkipped}
-	e.assertTurnEvidence("/create", result)
+	e.assertTurnEvidence(testTurn, "/create", result)
 
 	if got := queryCount(t, e, "build_state"); got != 0 {
 		t.Errorf("a skipped build must assert no build_state, got %d facts", got)
@@ -247,12 +247,12 @@ func TestPerTurnBuildStateIsRetracted(t *testing.T) {
 
 	result := mutationResult()
 	result.BuildCheck = BuildVerification{Ran: true, OK: false, Outcome: VerifyFailed}
-	e.assertTurnEvidence("/create", result)
+	e.assertTurnEvidence(testTurn, "/create", result)
 	if got := queryCount(t, e, "build_state"); got != 1 {
 		t.Fatalf("expected build_state asserted for this turn, got %d", got)
 	}
 
-	e.cleanupPerTurnCoverageFacts()
+	e.cleanupTurnFacts()
 
 	if got := queryCount(t, e, "build_state"); got != 0 {
 		t.Fatalf("build_state must not survive its own turn, got %d facts", got)
