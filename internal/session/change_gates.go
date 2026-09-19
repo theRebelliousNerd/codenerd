@@ -243,7 +243,7 @@ func (e *Executor) verifyAndRepairVet(
 			}
 			// A vet repair that breaks the tests has repaired nothing: the
 			// round keeps the suite as green as it found it.
-			tv, _ := gateTests(epCtx, workspace, result, false)
+			tv, _ := gateOwnTests(epCtx, workspace, result, false)
 			if tv.Verdict() == VerifyPassed || tv.Verdict() == VerifyFailed {
 				tv.Repair = result.TestCheck.Repair
 				result.TestCheck = tv
@@ -343,7 +343,7 @@ func (e *Executor) verifyAndRepairCoverage(
 	if result.TestCheck.Repair != nil {
 		// A test repair ran after the blocks were measured and may have
 		// changed them: measure again before asking for anything.
-		v, uncovered := gateTests(ctx, workspace, result, true)
+		v, uncovered := gateOwnTests(ctx, workspace, result, true)
 		if v.Verdict() != VerifyPassed {
 			return nil, nil, nil
 		}
@@ -365,7 +365,7 @@ func (e *Executor) verifyAndRepairCoverage(
 		brokenPhrase: "code this turn changed is executed by no test",
 		promptFor:    coverageRepairPrompt,
 		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
-			v, uncovered := gateTests(epCtx, workspace, result, true)
+			v, uncovered := gateOwnTests(epCtx, workspace, result, true)
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
 				// The test gate's own repair record stays with it; this
 				// round's record is its own.
@@ -456,7 +456,7 @@ func (e *Executor) verifyAndRepairRemovedTests(
 			if len(removed) > 0 {
 				return false, missing(), VerifyFailed
 			}
-			v, _ := gateTests(epCtx, workspace, result, false)
+			v, _ := gateOwnTests(epCtx, workspace, result, false)
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
 				// The test gate's own repair record stays with it.
 				v.Repair = result.TestCheck.Repair

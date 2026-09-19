@@ -766,7 +766,7 @@ func (e *Executor) verifyAndRepairPinning(
 		},
 		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
 			testsBroke = false
-			v, _ := gateTests(epCtx, workspace, result, false)
+			v, _ := gateOwnTests(epCtx, workspace, result, false)
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
 				v.Repair = result.TestCheck.Repair
 				result.TestCheck = v

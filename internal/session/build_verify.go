@@ -384,8 +384,23 @@ func (e *Executor) verifyAndRepairTests(
 
 // gateTests runs the post-edit test gate over the packages the turn wrote:
 // go test (with coverage and baseline attribution) on packages the default
-// tags can build, go vet -tags on packages whose files are all tag-gated.
+// tags can build, go vet -tags on packages whose files are all tag-gated, and
+// then -- when those pass -- the tests of the packages that import them
+// (N25, importer_packages.go), because a contract the turn changed is kept by
+// its callers and not by itself.
 func gateTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
+	v, uncovered := gateOwnTests(ctx, workspace, result, withCoverage)
+	if v.Verdict() != VerifyPassed {
+		return v, uncovered
+	}
+	if imp := verifyImporters(ctx, workspace, result); imp.Verdict() == VerifyFailed {
+		return imp, uncovered
+	}
+	return v, uncovered
+}
+
+// gateOwnTests is the gate over the turn's own packages.
+func gateOwnTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
 	runnable, gated := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
 	if len(gated) > 0 {
 		if failed, ok := vetTagGatedPackages(ctx, workspace, gated); !ok {
