@@ -4,7 +4,7 @@
 
 - last updated: 2026-09-19 03:00
 - done: 1 Before; 2 Decisions; 3 After; 4 Examples run; 5 Mirror; 6 Next uplift (hand-written by the merger after the uplift agent stalled twice); 7 Second pass: every example run and fixed, the tools checked against the engine (v1.1.0)
-- open: the prompt atoms (section 7, "What the next pass should do")
+- open: the rest of the prompt atoms (section 7, "What the next pass should do", item 1: 344 left)
 - NOTE (merger, 2026-09-18 15:15): the uplift agent stalled at 10:30 after writing section 1 and touched nothing in the skill directory (verified by mtime). Sections 2-6 are owed by the S11 relaunch, which starts from M0/M2/M3 as revised.
 
 Branch: `dogfood/c2-closure`. Repo: `C:/CodeProjects/codeNERD`. Scratch: `C:/Temp/mangle-study/`.
@@ -163,7 +163,13 @@ regenerated from the `.claude` one.
    `fn:multiply` / `fn:filter` in `mangle/builtins_complete.yaml`, let-only reducer stages in the
    antipattern atoms, and 654 fenced examples that fail to load (the ratchet in
    `cmd/tools/validate_prompt_atoms`). Run the same method there: it is what codeNERD's own agents
-   learn from.
+   learn from. **2026-09-19, `f26140e1`:** the method ran over the atoms -- 296 missing Decls added
+   from the engine's diagnostics, 71 `not` rewritten to `!`, 35 wildcard negations rewritten as
+   negations of a projection; 972 of 2,102 examples load and the ratchet is 344. Left: top-level
+   `=`, queries written as clauses, `fn:divide`/`fn:multiply`, comparisons over unbound variables,
+   `external` Decl syntax, let-only stages, three wildcard negations, and the 625 examples the
+   ratchet skips as marked wrong-way (unaudited: in the skill, some of those were broken CORRECT
+   blocks).
 2. Add the dropped-negation check to `nerd check-mangle` itself (compare negated-atom counts per
    clause before and after analysis), so it is caught in any file, not only by the corpus guard.
 3. Items 4 and 5 of section 6 stand.
