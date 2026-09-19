@@ -517,6 +517,18 @@ func (e *Executor) verifyCompletedToolTurn(
 	if covered != nil {
 		current = covered
 	}
+	// Executed is not pinned: a change is pinned when a test the turn wrote
+	// fails without it (N22). After coverage, whose tests it counts; before
+	// vet, which vets the tests it asks for.
+	pinned, pinErrs, pinErr := e.verifyAndRepairPinning(
+		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+	toolErrs = append(toolErrs, pinErrs...)
+	if pinErr != nil {
+		return current, toolErrs, pinErr
+	}
+	if pinned != nil {
+		current = pinned
+	}
 	vetted, vetErrs, vetErr := e.verifyAndRepairVet(
 		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 	toolErrs = append(toolErrs, vetErrs...)

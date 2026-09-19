@@ -33,13 +33,15 @@ var acceptanceReportFixture = evidence.Report{
 // points assertTurnEvidence and captureTurnOutcome. Nothing is stubbed.
 
 // writeTurnResult is the ExecutionResult shape a completed write-oriented turn
-// produces, with both mechanical gates green. Callers dial the gates back to
-// express the case they are testing.
+// produces, with every mechanical gate its Go write owes green: the build, the
+// tests, and the pinning gate a behaviour change owes. Callers dial the gates
+// back to express the case they are testing.
 func writeTurnResult() *ExecutionResult {
 	res := mutationResult()
 	res.WrittenPaths = []string{"pkg/foo.go"}
 	res.BuildCheck = BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed}
 	res.TestCheck = TestVerification{Ran: true, OK: true, Outcome: VerifyPassed}
+	res.PinCheck = BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed}
 	return res
 }
 

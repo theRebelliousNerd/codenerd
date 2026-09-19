@@ -77,9 +77,10 @@ Decl turn_missing_evidence(Turn, Missing) bound [/name, /name].
 Decl turn_acceptance(Turn, Contract, Snapshot) bound [/name, /string, /string].
 Decl has_turn_acceptance(Turn) bound [/name].
 # turn_gate is THIS turn's post-edit gate as the session executor measured it
-# (recordBuildState): Gate is /build, /test or /vet, Verdict is /passing or
-# /failing, and only an affirmative verdict is ever asserted. The verdict rules
-# below read the evidence of the turn they judge and nothing else.
+# (recordBuildState): Gate is /build, /test, /vet, /test_run or /pinned;
+# Verdict is /passing or /failing, and only an affirmative verdict is ever
+# asserted. The verdict rules below read the evidence of the turn they judge
+# and nothing else.
 # build_state/1 and test_state/1 are the session-global workspace state --
 # written by the same gates, but also by the run_tests tool the model invokes,
 # the TDD loop's state machine and the log reader, none of them per-turn -- and
@@ -179,6 +180,27 @@ turn_owes_gate(Turn, /test) :- turn_write_class(Turn, /go).
 turn_owes_gate(Turn, /test_run) :- turn_write_class(Turn, /other).
 turn_owes_gate(Turn, /build) :- turn_wrote(Turn), !has_turn_written(Turn).
 turn_owes_gate(Turn, /test) :- turn_wrote(Turn), !has_turn_written(Turn).
+
+# A turn that exists to change behaviour owes tests that pin the change
+# (external audit N22, 2026-09-19): each function it changed, put back as it
+# was -- or, when it added the function, taken out -- must make a test the turn
+# wrote fail or stop compiling. Coverage asks whether a test executes the
+# changed code; this asks whether a test would notice the change gone. Ladder
+# run R1-10: five new tests executed every line of a new helper and all five
+# passed with the two call sites the fix was for put back as they were. The
+# executor measures it with go test -overlay, one change at a time
+# (internal/session/pin_gate.go), and records turn_gate(Turn, /pinned, _).
+#
+# Only intents that exist to change behaviour owe it: a refactor or an
+# optimisation keeps behaviour by definition, so no test can fail without it,
+# and documentation has none to pin. turn_verb is the intent the turn serves,
+# asserted by the executor before its forcing rounds ask what the turn owes.
+Decl turn_verb(Turn, Verb) bound [/name, /name].
+Decl behavior_change_intent(Verb) bound [/name].
+behavior_change_intent(/fix).
+behavior_change_intent(/create).
+behavior_change_intent(/implement).
+turn_owes_gate(Turn, /pinned) :- turn_verb(Turn, Verb), behavior_change_intent(Verb), turn_write_class(Turn, /go).
 
 # An owed gate is met by this turn's affirmative verdict and nothing older; a
 # gate that recorded both verdicts is red, so the green one cannot carry it.
@@ -307,6 +329,8 @@ turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_
 turn_missing_evidence(Turn, /tests_not_written) :- turn_unverified(Turn), turn_has_untested(Turn).
 turn_missing_evidence(Turn, /changed_code_unexecuted) :- turn_unverified(Turn), turn_has_uncovered(Turn).
 turn_missing_evidence(Turn, /vet_not_clean) :- turn_unverified(Turn), turn_vet_red(Turn).
+turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_unmet_gate(Turn, /pinned).
+turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_red_gate(Turn, /pinned).
 
 # A red build is a failed turn, not merely an unverified one. turn_executed
 # already excludes it; this names it so the outcome can say /failed instead of

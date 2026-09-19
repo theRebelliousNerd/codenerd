@@ -701,7 +701,11 @@ type ExecutionResult struct {
 	// VetCheck is `go vet` over the packages the turn wrote, judged on the
 	// turn's own files: a finding in a file the turn did not touch is not
 	// this turn's evidence.
-	VetCheck              BuildVerification
+	VetCheck BuildVerification
+	// PinCheck is the pinning gate (pin_gate.go): whether each function the
+	// turn changed, taken out on its own, makes a test the turn wrote fail.
+	// Measured only for a turn the policy says owes it (/pinned).
+	PinCheck              BuildVerification
 	ChecksSnapshot        string
 	ChangeStage           string
 	acceptanceTransaction *evidence.Transaction
@@ -749,6 +753,10 @@ type ExecutionResult struct {
 	// writtenAsserted holds each written path whose turn_written fact is
 	// asserted for this turn (assertTurnWrites).
 	writtenAsserted map[string]bool
+
+	// verbAsserted is set once turn_verb is asserted for this turn
+	// (assertTurnVerb).
+	verbAsserted bool
 
 	// WrittenPaths records the target of every successful write mutation, so
 	// post-edit build verification can tell a turn that touched Go source from
@@ -2422,6 +2430,20 @@ func (e *Executor) assertTurnWrites(turn types.MangleAtom, result *ExecutionResu
 	}
 }
 
+// assertTurnVerb asserts turn_verb, the intent the turn serves, once: what
+// the turn's writes owe can depend on it (a behaviour change owes /pinned), and
+// a forcing round asks before the closure asserts turn_evidence, which carries
+// the verb too.
+func (e *Executor) assertTurnVerb(turn types.MangleAtom, verb string, result *ExecutionResult) {
+	verb = strings.TrimSpace(verb)
+	if result.verbAsserted || verb == "" {
+		return
+	}
+	if e.assertTurnFact(types.Fact{Predicate: "turn_verb", Args: []any{turn, types.MangleAtom(verb)}}) {
+		result.verbAsserted = true
+	}
+}
+
 // assertTurnFact asserts one fact of this turn's verdict and records it for
 // cleanupTurnFacts, which retracts exactly what was recorded.
 func (e *Executor) assertTurnFact(fact types.Fact) bool {
@@ -2499,6 +2521,7 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 			e.assertTurnFact(types.Fact{Predicate: "turn_created_test", Args: []any{turn, types.MangleString(pair[0]), types.MangleString(pair[1])}})
 		}
 	}
+	e.assertTurnVerb(turn, verb, result)
 	e.assertTurnWrites(turn, result)
 }
 
@@ -2552,6 +2575,8 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	record("", types.MangleAtom("/vet"), result.VetCheck.Verdict())
 	// The test run after the last write has no session-global either.
 	record("", types.MangleAtom("/test_run"), result.testRunVerdict())
+	// Nor does the pinning gate.
+	record("", types.MangleAtom("/pinned"), result.PinCheck.Verdict())
 	// Coverage debt rides with the gates: asserted here, retracted with them.
 	// The corpus withholds turn_verified while any holds and names it as
 	// turn_missing_evidence(Turn, /tests_not_written) or
@@ -2808,6 +2833,8 @@ func missingEvidenceSentence(atom string) string {
 		return "go vet reports problems this turn introduced"
 	case "/test_run_not_green":
 		return "no test run passed after this turn's last write"
+	case "/change_not_pinned":
+		return "a change this turn made is pinned by no test it wrote: the tests still pass with the change taken out"
 	default:
 		return strings.TrimPrefix(atom, "/")
 	}

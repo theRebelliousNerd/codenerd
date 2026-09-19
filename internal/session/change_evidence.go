@@ -117,6 +117,14 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 		fresh.Repair = inheritRepair(fresh.Verdict(), result.TestCheck.Repair)
 		result.TestCheck = fresh
 		result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
+		// The pinning gate, where the turn owes it, over the tests as they
+		// are now; a red suite leaves it unmeasured -- the turn fails on the
+		// tests.
+		if e.kernel != nil && result.TestCheck.Verdict() == VerifyPassed && e.turnOwesGate(result, "/pinned") {
+			pin := verifyPinning(ctx, workspace, result)
+			pin.Repair = inheritRepair(pin.Verdict(), result.PinCheck.Repair)
+			result.PinCheck = pin
+		}
 	}
 	if cfg.VerifyBuildAfterEdits {
 		fresh := verifyVet(ctx, workspace, result.WrittenPaths, result.PreWriteContents)

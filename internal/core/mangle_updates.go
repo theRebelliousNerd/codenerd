@@ -175,6 +175,9 @@ func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 		// otherwise extend to reclassify its own code as documentation.
 		"turn_written", "write_class", "known_write_ext", "has_turn_written", "turn_write_class",
 		"turn_owes_gate", "turn_unmet_gate", "turn_red_gate", "has_unmet_gate", "has_red_gate",
+		// What a behaviour change owes (N22): the turn's intent and the table
+		// of intents that owe /pinned.
+		"turn_verb", "behavior_change_intent",
 		"hollow_success", "has_hollow_success", "has_turn_tools", "has_turn_write", "has_turn_test",
 		"build_state", "test_state":
 		return false

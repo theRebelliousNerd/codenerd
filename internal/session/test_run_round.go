@@ -70,6 +70,7 @@ func (e *Executor) verifyAndRepairTestRun(
 // reading of the extensions.
 func (e *Executor) turnOwesGate(result *ExecutionResult, gate string) bool {
 	turn := result.turnAtom()
+	e.assertTurnVerb(turn, result.Intent.Verb, result)
 	e.assertTurnWrites(turn, result)
 	rows, err := e.turnRows("turn_owes_gate", turn)
 	if err != nil {
