@@ -4542,3 +4542,46 @@ alone to tell that failure (a load flake, since fixed at its cause) from its own
 it; vet and staticcheck clean; full suite 88 of 89, the one failure the known final-verdict flake.
 Nits kept: one new golangci errcheck finding (`defer os.RemoveAll`), and the build path repeats the
 shared tail's run-and-encode lines rather than reusing them. The verdict was true.
+
+
+## R1-4, the check-mangle brief again under the forcing gate: every gate held, the removed-tests guard refused the turn (2026-09-19, 06:37-06:51)
+
+Binary from `10223378` (code-identical to `ffdac0ea`); model meta `muse-spark-1.3-contributor`. Brief:
+R1-2's, unchanged, re-verified against the binary first (132 of 135 OK, the same three errors, the
+help text's "exactly as the kernel loads them").
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 14.2 | 63 (27 read_file, 13 grep, 7 list_files, 6 edit_lines, 4 run_tests, 2 git_operation, 1 each write_file, search_code, recall_context, insert_lines) | rc=1, "turn removed test(s) without replacing them" -- **not landed**, reverted (diff in the merger's scratchpad) | 46 calls, mean 43.4k, peak 60.8k, 2.00M total (1.18M cached), 38.1k out | `cmd_mangle_check.go` +68/-20, its test file +165/-65 |
+
+**What the forcing gate did (`fd3c1d99`, first production run).** Build green (39 s), tests green
+(16 s), then "Code this turn changed is executed by no test (3 block(s)); giving the model repair
+rounds": the first coverage attempt's test failed, the loop backtracked, the second converged (4
+model calls, 4 tool calls); vet clean. Unlike R1-2 the tests were written before the first run --
+`KernelAcceptedPolicyFilesPass`, `RealErrorsStillFail` (undeclared predicate, wrong arity, unsafe
+variable), `DeclNameArity`, and the dedup branch the coverage round asked for.
+
+**Why it did not land.** The model wrote the test file whole (`write_file`) and three existing
+tests were not in it: `EvalPrintsWhatTheProgramDerives`, `ReportsUndeclaredPredicates`,
+`StandaloneSkipsTheSharedSchemas`. Measured afterwards: all three pass against the new checker --
+they were not carried over, not broken. The removed-tests guard was the one gate with no repair
+round, so fourteen minutes of work that had passed every other gate were refused. Harness fix,
+hand-built (completion gate): `279b73fe`, the guard hands the model each deleted test's source and
+reruns the tests.
+
+**The fix itself, reviewed anyway.** Decl-only preloading: the Decl lines of every
+`defaults/*.mg` and `defaults/policy/*.mg` sibling are loaded, deduplicated by name/arity, before
+the checked file. Measured on a scratch copy of the corpus: 135 of 135 OK; a planted unsafe rule
+in `stage_context.mg` is reported there and only there. But a planted malformed Decl in
+`task_stage.mg` breaks the batched preload for every other file -- 84 files report ERROR, with
+positions in the concatenated preload (`1719:19`) that name no file. Decls are found by a
+single-line regex, so a Decl whose qualifiers continue on the next line is skipped; the inventory
+is a directory glob, not the kernel's own list of policy files (R1-2's first attempt used
+`core.DefaultPolicyFiles`).
+
+**Found the same morning, not by this run** (while testing the fix for campaign defect C5): the
+campaign fallback asserted a `pending_action` payload the kernel's permission check can never
+match, so every fallback write was refused; and
+`VirtualStore.handleWriteFile` rewrites what it is given (`extractCodeBlockForFile` trims every
+write and, for Go, drops everything before `package`), so the store's own validator reports a hash
+mismatch on any content that ends in a newline. Both are in the ladder's defect list.

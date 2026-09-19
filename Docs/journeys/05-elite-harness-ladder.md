@@ -11,29 +11,32 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 06:40
+- last updated: 2026-09-19 07:20
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
   run re-reported old passes for every package whose tests touch no files -- a timing flake there
   could never show; they do not count. R0's other clause (a run's verdict matches its evidence) is
-  reviewed on every codeNERD run: true for R1-3; R1-4 is the first run under the forcing gate.
-- current rung: R1 -- one landing (R1-3), two more in a row to pass.
+  reviewed on every codeNERD run: true for R1-3 and R1-4 (R1-4 failed and said so).
+- current rung: R1 -- streak 0: R1-3 landed, R1-4 was refused by the removed-tests guard. Next: the
+  same brief again on `279b73fe`, where that guard hands the deleted tests back.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
   boot test now names whatever still holds the workspace after `Close` instead of failing only in
-  TempDir's cleanup)
-- open: the campaign defects the R1-2 comparison found (below); G6 needs a toolchain download
+  TempDir's cleanup); the removed-tests guard's repair round (`279b73fe`: a turn that deleted
+  tests is handed each one's source to put back and the tests are rerun, where it used to fail on
+  the spot -- R1-4's blocker)
+- open: the harness defects below (C1-C4, V1); G6 needs a toolchain download
   (asked); codeNERD cannot run the gates it will be asked to clear -- no typed tool runs `go vet`,
   staticcheck or golangci-lint for the model (the forcing gate runs vet itself, the model cannot),
   and `nerd fix --acceptance` takes failing tests, not a gate. G4/G5 items are therefore not rung-1
   probes (criterion 5), and R5 (clear a class of findings) and R7 (measure the gates, pick the
   next item) need that tool first.
 
-### Campaign defects to fix before R2 runs as a campaign
+### Harness defects to fix before R2
 
-From the R1-2 comparison (`campaign_1284b6bb`):
+C1-C5 from the R1-2 campaign comparison (`campaign_1284b6bb`); V1 found while fixing C5:
 
 - **C1 targets fixed before research.** Every write set was decided when the plan was made, before
   phase 0's research ran. Phase 2's task targets `internal/cli/check-mangle.go`, a path that does
@@ -60,7 +63,21 @@ From the R1-2 comparison (`campaign_1284b6bb`):
   file" and writes the answer through the VirtualStore: permission and write validation apply, the
   turn's obligations (tests, coverage, vet, verdict) do not. In R1-2 it was refused only because the
   blocked turn had already written the file; C2's retype is what made it reachable. The completion
-  gate's reach -- hand-built, not a codeNERD brief.
+  gate's reach -- hand-built, not a codeNERD brief. Fixing it found the bypass latent: the fallback
+  asserted a `pending_action` payload (`{"content_bytes":N}`) the kernel's permission check, which
+  matches the exact routed payload, never matches, so every fallback write was refused -- the
+  document deliverables it exists for (F-DOC-1) included -- after the model had generated them.
+  Correcting the payload alone would have opened the bypass; the fix lands both: documents only,
+  the canonical payload, and every refusal leading with the coder's reason.
+- **V1 the VirtualStore does not write what it is given.** `handleWriteFile` passes every
+  `write_file` through `extractCodeBlockForFile`, which trims the content and, for a Go file,
+  drops everything before the first `package ` -- a `//go:build` line or a licence header. The
+  store's own `FileWriteValidator` then reports "content hash mismatch" for any content that ends
+  in a newline (measured: the campaign's degraded-generation placeholder). The coder's tool loop
+  writes through `internal/tools/core` and is unaffected; the store's route serves the campaign
+  fallback, the system router, `cmd_instruction.go`, `pending_action.go` and the interactive gate.
+  A multi-file fix (the handler and whatever its callers rely on it to strip): an R2 candidate for
+  codeNERD.
 
 ## What counts as a landing
 
@@ -82,6 +99,13 @@ problem in this repository, whose result is kept. All of these hold:
    loops) cannot be told red from green inside the run, so it is not a rung-1 probe.
 6. **The file count is the fix's, not the noise's.** Files edited to fix the problem, tests
    included, count; generated files and formatting churn do not.
+7. **The review finds no defect the change introduces** (added 2026-09-19 07:20, before R1-4's
+   rerun). The reviewer measures the change beyond its own tests -- planted errors, the inputs next
+   to the ones the tests use -- and a behaviour the change makes worse than before fails the
+   landing even when every test and gate is green. Nits (style, a missed reuse) are recorded and
+   do not. R1-3 met it; R1-4's fix would not have: a malformed Decl planted in `task_stage.mg` was
+   reported in that file alone before (measured, beside the three rejections the brief is about)
+   and in 84 files after, none of them naming it.
 
 Every run, landed or not, is recorded in the dogfood ledger
 (`.claude/skills/codenerd-dogfood/references/component-ledger.md`) with the brief, minutes, tool
@@ -165,3 +189,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 03:09 | R1 | R1-2 check-mangle in kernel context | nerd fix | not landed, reverted: the corpus passes (135/135) and real errors still fail, but `go vet` unreachable code, an unused function, every corpus error misattributed to every file, and no test. Its `run_build` replaced the running nerd.exe (became R1-3) | 25.3 | 108 | 2 | reverted |
 | 2026-09-19 03:38 | R1 | R1-2, same brief | campaign `--type remediation` | not landed: timed out at 60 min in phase 3 of 4 with the tree not building. Plan targets guessed before research, modify retyped to create, a retry without its reason, a rollback scoped to declared targets | 60.1 | -- | 1 + a doc | reverted |
 | 2026-09-19 04:41 | R1 | R1-3 run_build leaves artifacts | nerd fix | **landed**: fix + a test that fails before and passes after; found and fixed its own regression from a full-suite run | 23.9 | 52 | 2 | `df4a3063` |
+| 2026-09-19 06:37 | R1 | R1-2 again (R1-4), forcing-gate binary | nerd fix | not landed, reverted: every gate held -- build, tests, the new coverage round (converged in two attempts), vet -- then the removed-tests guard refused the turn: a whole-file `write_file` of the test file dropped three existing tests that still pass against the new code. The guard was the one gate with no round (fixed by hand, `279b73fe`). The fix: corpus 135/135 and rule errors attributed right, but one malformed Decl cascades into 84 misattributed errors | 14.2 | 63 | 2 | reverted |
