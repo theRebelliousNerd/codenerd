@@ -6,10 +6,14 @@ whether it can keep running while it does.
 
 ## Status
 
-- last updated: 2026-09-19 10:50
-- in progress: **H1 run-level wall clocks.** Step 1 (the repair episode clock) is in review;
-  steps 2-4 follow in order (the CLI `--timeout` default, the `llm_timeouts` operation tier,
-  campaign defaults).
+- last updated: 2026-09-19 12:30
+- landed: **H1 run-level wall clocks**, all four steps -- the repair episode clock (`4316415f`),
+  the CLI `--timeout` default (`02e4c8dd`), the `llm_timeouts` operation tier, per-shard and
+  session ceilings (`f91c39b6`), campaign defaults (`856ff1fe`). What bounds a run now: the
+  user's own `--timeout`, the progress stops (`working_stop`, the repair-attempt bound), and
+  per-request bounds.
+- next in H1: the request bounds tighter than the per-call bound (the critic's 3 m and 5 m,
+  below) and `defaultToolTimeout`.
 - open: the census tool (one inventory per class below, generated, not hand-kept); a ratchet
   test per class; limit hits and gaps asserted as facts the kernel can derive repair obligations
   from.
@@ -84,6 +88,12 @@ replace this list):
 - **Repair episode clock**: 5 m plus the measured gate time (`session/repair_loop.go`). R1-4d:
   the coverage round's call was cut at 368 s with nothing returned. Step 1 removes it.
 - Request bounds, kept for now: HTTP 10 m, per call 10 m, streaming 15 m, slot acquisition 10 m.
+  **`criticTimeout` 3 m and `criticUpliftTimeout` 5 m** (`session/build_verify.go`) are request
+  bounds tighter than the per-call bound, pinned by `TestCriticTimeouts_AreBounded` (review
+  <= 5 m). They were set after a review hung for twenty minutes when the client had no bound of
+  its own; it has one now. A reasoning model reviewing a large change can legitimately take
+  longer (R1-4d's coverage call ran 368 s), and a cut review is a missing opinion: derivable
+  (the slot's measured call durations), not a constant.
   **`defaultToolTimeout` 5 m** (`session/executor.go:363`) is per tool run, but this repo's full
   suite takes 5 minutes and `cmd/nerd/chat` alone 2-8 minutes under load, so a model's
   `run_tests` on either is cut: derivable (a command's measured duration), not a constant.
@@ -121,7 +131,45 @@ the CLI's own output), goroutines whose panics are not logged.
 Census pending: maps and slices that only grow, tables with no retention, logs with no rotation,
 caches with no eviction.
 
+### H7 memory safety
+
+A data race in Go is undefined behaviour, not a wrong value: a torn slice or interface header
+writes through a stale pointer, and the damage lands wherever the layout puts it. For a process
+meant to run for weeks that is the worst class there is -- the failure appears far from its cause,
+in whatever runs next, and moves when unrelated code changes the binary's layout.
+
+- **Found 2026-09-19, landing N03**: four chat tests drove the Bubble Tea model from 5-100
+  goroutines (unlocked `append` to `m.history`, concurrent `View()`/`Update()`), swallowing panics
+  with `recover()`. They wrote over a Go runtime global (the Green Tea GC's AVX-512 feature flag,
+  proven with a linkname probe: false at init, true mid-run) and the GC then executed AVX-512 on a
+  CPU without it (`0xc000001d` in `expandAVX512_60`). The trigger was an unrelated change to
+  embedded `.mg` files that moved the data layout. The race detector: 25 reports in those four
+  tests. Deleted -- Bubble Tea confines the model to its program goroutine, so there was no
+  contract to test.
+- Census pending: `go test -race` over the whole tree, then a ratchet (no new race reports).
+
 ### H6 swallowed failures
+
+
+- **`HolographicCodeScope.ensureDeepFacts`** (`internal/system/holographic_code_scope.go:111`),
+  the thesis's Case A (08): six silent exits -- a failed deep scan is a Warn and a return, the
+  kernel's retract and load errors are `_ =` in both branches, a failed stat or map is
+  `continue`, and `Open`/`Refresh` return nil regardless. The store-less branch records a fresh
+  fingerprint after a failed load, so the file's facts stay missing until it changes again.
+
+- **`RealKernel.Assert` accepts a fact whose arity disagrees with its `Decl`**, without an error.
+  Found while landing F1 (`662699eb`): the corpus test still asserted the old 6-argument
+  `turn_evidence` against the new 7-argument Decl, the assert succeeded, and the fact derived
+  nothing. Any producer left on an old shape after a Decl change goes silent rather than failing.
+  `validatePredicateDeclaration` exists (`core/mangle_updates.go`) but only the model-update
+  filter calls it.
+- **The campaign policy defines the same rules in two or three files**: `campaign_core.mg`,
+  `campaign_phases.mg`, `campaign_planning.mg` and `campaign_tasks.mg` each carry
+  `campaign_blocked /no_eligible_phases`, `/all_tasks_blocked`, `phase_eligible`,
+  `has_incomplete_hard_dep`, `current_phase` and more. Rules union, so an edit to one copy leaves
+  the other deriving the old conclusion; N03 had to change both copies of `/no_eligible_phases`.
+  Consolidate to one home per rule.
 
 Census pending: `_ = err` on a path that matters, `recover()` that does not log, errors reduced to
 a boolean.
+

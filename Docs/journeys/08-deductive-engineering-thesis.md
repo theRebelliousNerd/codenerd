@@ -11,7 +11,7 @@ says so; a row is adopted when the mechanism it names is found in the code.
 
 ## Status
 
-- last updated: 2026-09-19 12:40
+- last updated: 2026-09-19 12:30
 - verified here: Case A (below), the empty-selection testing obligation (= 07 N07), progress
   without run clocks (landed before the thesis arrived: `4316415f`, `02e4c8dd`, `f91c39b6`,
   `856ff1fe`).
