@@ -315,15 +315,16 @@
       false.  # Placeholder; real implementation needs fact IDs
     
     # Better approach: use aggregation
+    # value/1 is already a set, so counting it IS the distinct count.
     distinct_count(Count) :-
       value(X)
       |> do fn:group_by(),
-      let Count = fn:count_distinct(X).
+      let Count = fn:count().
     
     total_count(Count) :-
       value(X)
       |> do fn:group_by(),
-      let Count = fn:count(X).
+      let Count = fn:count().
     
     all_distinct() :-
       distinct_count(D),

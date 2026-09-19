@@ -391,7 +391,7 @@
     avg_salary(Avg) :-
       employee(Id, Name, Salary)
       |> do fn:group_by(),
-      let Avg = fn:mean(Salary).
+      let Avg = fn:avg(Salary).
     
     high_earner(Name) :-
       employee(Id, Name, Salary),
@@ -437,7 +437,7 @@
     large_dept(DeptId, Count) :-
       employee(Id, DeptId)
       |> do fn:group_by(DeptId),
-      let Count = fn:count(Id),
+      let Count = fn:count(),
       Count > 10.
     ```
     
@@ -562,7 +562,7 @@
       employee(EId, EName, DeptId, Salary),
       department(DeptId, DeptName)
       |> do fn:group_by(DeptId, DeptName),
-      let AvgSal = fn:mean(Salary),
+      let AvgSal = fn:avg(Salary),
       AvgSal > 100000.0.
     ```
     

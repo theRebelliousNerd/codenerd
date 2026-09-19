@@ -127,7 +127,7 @@
     count_items(Count) :-
       item(Id)
       |> do fn:group_by(),
-      let Count = fn:count(Id).
+      let Count = fn:count().
     
     # Query: count_items(?Count) → {3}
     # Expected 5 items? Missing data!

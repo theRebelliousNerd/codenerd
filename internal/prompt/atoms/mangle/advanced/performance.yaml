@@ -138,7 +138,7 @@
     node_count(Root, Count) :-
       descendant(Root, D)  # Compute all descendants first
       |> do fn:group_by(Root),
-      let Count = fn:count(D).
+      let Count = fn:count().
     ```
     
     ### 6. Aggregation Performance
@@ -149,7 +149,7 @@
     expensive_avg(Dept, Avg) :-
       employee(ID, Name, Dept, Salary)
       |> do fn:group_by(Dept),
-      let Avg = fn:mean(Salary),
+      let Avg = fn:avg(Salary),
       Avg > 100000.  # Filter after aggregation
     
     # GOOD: Filter first, then aggregate
@@ -157,7 +157,7 @@
       Dept = /engineering,               # Filter department first
       employee(ID, Name, Dept, Salary)
       |> do fn:group_by(Dept),
-      let Avg = fn:mean(Salary).
+      let Avg = fn:avg(Salary).
     ```
     
     #### Multiple Aggregations on Same Data
@@ -166,7 +166,7 @@
     dept_stats_bad(Dept, Avg, Max) :-
       employee(ID, Name, Dept, Salary)
       |> do fn:group_by(Dept),
-      let Avg = fn:mean(Salary).
+      let Avg = fn:avg(Salary).
     
     dept_max_bad(Dept, Max) :-
       employee(ID, Name, Dept, Salary)
@@ -177,10 +177,10 @@
     dept_stats_good(Dept, Avg, Max, Min, Count) :-
       employee(ID, Name, Dept, Salary)
       |> do fn:group_by(Dept),
-      let Avg = fn:mean(Salary),
+      let Avg = fn:avg(Salary),
       let Max = fn:max(Salary),
       let Min = fn:min(Salary),
-      let Count = fn:count(ID).
+      let Count = fn:count().
     ```
     
     ### 7. Avoiding Redundant Computation

@@ -406,7 +406,7 @@
       event(Id, Data),
       :match_field(Data, /user, User)
       |> do fn:group_by(User),
-      let Count = fn:count(Id).
+      let Count = fn:count().
     
     # Result:
     #   user_event_count(/alice, 2)

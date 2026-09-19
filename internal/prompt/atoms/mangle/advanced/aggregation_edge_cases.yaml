@@ -118,8 +118,8 @@
       sale(Product, Amount)
       |> do fn:group_by(Product),
       let Total = fn:sum(Amount),
-      let Avg = fn:mean(Amount),
-      let Count = fn:count(Amount).
+      let Avg = fn:avg(Amount),
+      let Count = fn:count().
     
     # Result: product_stats(/widget, 450, 150.0, 3)
     ```
@@ -178,13 +178,13 @@
     dept_avg(Dept, Avg) :-
       employee(Id, Dept, Salary)
       |> do fn:group_by(Dept),
-      let Avg = fn:mean(Salary).
+      let Avg = fn:avg(Salary).
     
     # Stratum 2: Aggregate over department averages
     company_avg_of_avgs(CompanyAvg) :-
       dept_avg(Dept, Avg)
       |> do fn:group_by(),
-      let CompanyAvg = fn:mean(Avg).
+      let CompanyAvg = fn:avg(Avg).
     
     # Result: company_avg_of_avgs(100000.0)
     #   dept_avg(/eng, 110000.0)
@@ -263,11 +263,15 @@
     purchase(/alice, /widget).  # Duplicate purchase
     purchase(/alice, /gadget).
     
-    # Count distinct products per user
+    # Count distinct products per user. There is no working count-distinct
+    # reducer on the pinned engine (fn:count_distinct is declared but not
+    # wired: "unknown function"). Facts are a set, so project to the columns
+    # that define "distinct" and count the projection.
+    user_product(User, Product) :- purchase(User, Product).
     user_product_count(User, Count) :-
-      purchase(User, Product)
+      user_product(User, Product)
       |> do fn:group_by(User),
-      let Count = fn:count_distinct(Product).
+      let Count = fn:count().
     
     # Result: user_product_count(/alice, 2)
     #   (widget appears twice, but counted once)
@@ -339,7 +343,7 @@
     dept_title_avg(Dept, Title, Avg) :-
       employee(Id, Dept, Title, Salary)
       |> do fn:group_by(Dept, Title),
-      let Avg = fn:mean(Salary).
+      let Avg = fn:avg(Salary).
     
     # Result:
     #   dept_title_avg(/eng, /senior, 125000.0)
@@ -373,9 +377,9 @@
     | Function | Purpose | Example |
     |----------|---------|---------|
     | `fn:sum(X)` | Sum of values | `fn:sum(Salary)` |
-    | `fn:count(X)` | Count of values (including duplicates) | `fn:count(Id)` |
-    | `fn:count_distinct(X)` | Count of unique values | `fn:count_distinct(Product)` |
-    | `fn:mean(X)` | Average (mean) | `fn:mean(Score)` |
+    | `fn:count()` | Count of values (including duplicates) | `fn:count()` |
+    | (no reducer) | Count of unique values | project to the distinct columns in a helper rule, then `fn:count()` |
+    | `fn:avg(X)` | Average (mean) | `fn:avg(Score)` |
     | `fn:min(X)` | Minimum value | `fn:min(Price)` |
     | `fn:max(X)` | Maximum value | `fn:max(Price)` |
     | `fn:collect(X)` | Collect values into list | `fn:collect(Name)` |
@@ -417,7 +421,7 @@
        count_good(N) :-
          data(X)
          |> do fn:group_by(),
-         let N = fn:count(X).
+         let N = fn:count().
        ```
     
     ## Checklist
@@ -426,6 +430,6 @@
     - [ ] Filtering happens before `|>` pipe
     - [ ] All grouping variables are bound in rule body
     - [ ] Nested aggregations use separate strata
-    - [ ] Using appropriate aggregate function (count vs count_distinct)
+    - [ ] Distinct counts go through a projection rule, then `fn:count()` (no count-distinct reducer works)
     - [ ] Not re-computing same aggregate multiple times
     - [ ] Handling case where input predicate has no facts
