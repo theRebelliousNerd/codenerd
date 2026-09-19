@@ -179,7 +179,12 @@ func TestMangleWatcher_HandleEventAndDebounce(t *testing.T) {
 	}
 	defer mw.watcher.Close()
 
-	mw.debounceDur = 1 * time.Millisecond
+	// "Not yet settled" and "settled" are set by the debounce window, not by
+	// how fast the test runs: a 1ms window made step 3 fail whenever more than
+	// a millisecond passed between handleEvent and the process call, which a
+	// loaded machine does (full suite, 2026-09-19). An hour cannot elapse here;
+	// zero has always elapsed.
+	mw.debounceDur = time.Hour
 
 	ctx := context.Background()
 
@@ -221,8 +226,8 @@ func TestMangleWatcher_HandleEventAndDebounce(t *testing.T) {
 		t.Error("Expected events to remain in debounce map before settle time")
 	}
 
-	// 4. Wait for settle and process
-	time.Sleep(2 * time.Millisecond)
+	// 4. Settle and process
+	mw.debounceDur = 0
 
 	// Create dummy files for test1 and test2 so they can be read
 	err = os.MkdirAll(mw.mangleDir, 0755)

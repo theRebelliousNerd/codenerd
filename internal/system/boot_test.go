@@ -2,6 +2,9 @@ package system
 
 import (
 	"context"
+	"os"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -17,11 +20,12 @@ func TestBootCortexEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	cortex, err := BootCortex(ctx, t.TempDir(), "", nil)
+	ws := t.TempDir()
+	cortex, err := BootCortex(ctx, ws, "", nil)
 	if err != nil {
 		t.Fatalf("BootCortex: %v", err)
 	}
-	defer cortex.Close()
+	defer requireWorkspaceReleased(t, cortex, ws)
 	if cortex == nil {
 		t.Fatal("BootCortex returned nil cortex")
 	}
@@ -45,5 +49,41 @@ func TestBootCortexEndToEnd(t *testing.T) {
 	}
 	if cortex.Workspace == "" {
 		t.Error("Cortex.Workspace should be set after boot")
+	}
+}
+
+// requireWorkspaceReleased closes the cortex and requires every file it opened
+// under the workspace to be released. On Windows an open handle blocks
+// removal; a close step that times out (runCloseStep) is abandoned, not
+// stopped, so its goroutine can hold a store past Close. That happened once in
+// a loaded full suite (2026-09-19) -- surfacing only as TempDir's cleanup
+// error on .nerd/knowledge.db with no clue to the holder -- and not in four
+// boots beside 32 busy loops. When it happens again the failure names the
+// holder: the stacks of every live codenerd goroutine. It then waits for the
+// release so the cleanup error does not bury the finding.
+func requireWorkspaceReleased(t *testing.T, cortex *Cortex, ws string) {
+	t.Helper()
+	closeErr := cortex.Close()
+	err := os.RemoveAll(ws)
+	if err == nil {
+		return
+	}
+	buf := make([]byte, 1<<23)
+	n := runtime.Stack(buf, true)
+	var live []string
+	for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+		if strings.Contains(g, "codenerd/") {
+			live = append(live, g)
+		}
+	}
+	t.Errorf("workspace still held after Cortex.Close (close error: %v): %v\n%d codenerd goroutine(s) alive:\n%s",
+		closeErr, err, len(live), strings.Join(live, "\n\n"))
+	start := time.Now()
+	for time.Since(start) < time.Minute {
+		time.Sleep(500 * time.Millisecond)
+		if os.RemoveAll(ws) == nil {
+			t.Logf("workspace released %v after Close returned", time.Since(start).Round(time.Millisecond))
+			return
+		}
 	}
 }
