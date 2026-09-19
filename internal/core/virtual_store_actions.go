@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/observation"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
+	"codenerd/internal/tools"
 	toolscore "codenerd/internal/tools/core"
 )
 
@@ -440,11 +441,13 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 	if result != nil {
 		output = result.Output()
 		success = err == nil && result.Success && result.ExitCode == 0 && result.Error == ""
+		tools.RecordTestRun(ctx, tools.TestRun{Argv: append([]string{hostBinary}, hostArgs...), ExitCode: result.ExitCode})
 	} else if err != nil {
 		output = err.Error()
 	}
 
 	testState := "/passing"
+
 	if !success {
 		testState = "/failing"
 		logging.Get(logging.CategoryVirtualStore).Warn("Tests failed: %v", err)

@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
-	"codenerd/internal/projectdoc"
-	"codenerd/internal/types"
 )
 
 func TestResponsePresentsTestRunnerOutput(t *testing.T) {
@@ -68,13 +66,13 @@ func newUnverifiedExec(t *testing.T) *Executor {
 	return e
 }
 
-func unverifiedResult(response string, successfulTestTools int) *ExecutionResult {
+func unverifiedResult(response string, testRunCalls int) *ExecutionResult {
 	res := &ExecutionResult{
 		Response:             response,
 		ToolCallsExecuted:    2,
 		SuccessfulToolCalls:  2,
 		SuccessfulWriteTools: 1,
-		SuccessfulTestTools:  successfulTestTools,
+		TestRunCalls:         testRunCalls,
 	}
 	res.Intent.Verb = "/fix"
 	res.Intent.Category = "/mutation"
@@ -183,77 +181,3 @@ func TestUnverifiedClaimVariousOutputs(t *testing.T) {
 	}
 }
 
-func TestIsTestToolRecognises(t *testing.T) {
-	cases := []struct {
-		name string
-		args map[string]any
-		want bool
-	}{
-		{"run_tests", nil, true},
-		{"run_impacted_tests", nil, true},
-		{"go test", map[string]any{"command": "go test ./..."}, true},
-		{"pytest", map[string]any{"command": "pytest"}, true},
-		{"pytest full", map[string]any{"command": "python -m pytest"}, true},
-		{"cargo", map[string]any{"command": "cargo test"}, true},
-	}
-	for _, c := range cases {
-		tool := c.name
-		if c.name == "go test" || c.name == "pytest" || c.name == "pytest full" || c.name == "cargo" {
-			tool = "run_command"
-		}
-		got := isTestExecutionTool(tool, c.args)
-		if got != c.want {
-			t.Errorf("isTestExecutionTool(%q, %v)=%v want %v", tool, c.args, got, c.want)
-		}
-		if got2 := projectdoc.IsTestExecutionTool(tool, c.args); got2 != c.want {
-			t.Errorf("projectdoc.IsTestExecutionTool(%q)=%v want %v", tool, got2, c.want)
-		}
-	}
-}
-
-func TestIsTestToolRejects(t *testing.T) {
-	cases := []struct {
-		name string
-		args map[string]any
-	}{
-		{"write_file", map[string]any{"path": "a.go", "content": "package a"}},
-		{"read_file", map[string]any{"path": "a.go"}},
-		{"edit_file", map[string]any{"path": "a.go"}},
-	}
-	for _, c := range cases {
-		if isTestExecutionTool(c.name, c.args) {
-			t.Errorf("isTestExecutionTool(%q) must be false", c.name)
-		}
-	}
-}
-
-func simulateTestIncrement(result *ExecutionResult, call types.ToolCall) {
-	result.ToolCallsExecuted++
-	result.SuccessfulToolCalls++
-	if isWriteMutationTool(call.Name) {
-		result.SuccessfulWriteTools++
-	}
-	if isTestExecutionTool(call.Name, call.Input) {
-		result.SuccessfulTestTools++
-	}
-}
-
-func TestSuccessfulTestToolsCounting(t *testing.T) {
-	result := &ExecutionResult{}
-	simulateTestIncrement(result, types.ToolCall{Name: "run_tests", Input: map[string]any{}})
-	if result.SuccessfulTestTools != 1 || result.SuccessfulWriteTools != 0 {
-		t.Fatalf("after run_tests got test=%d write=%d want 1,0", result.SuccessfulTestTools, result.SuccessfulWriteTools)
-	}
-	simulateTestIncrement(result, types.ToolCall{Name: "run_command", Input: map[string]any{"command": "go test ./..."}})
-	if result.SuccessfulTestTools != 2 {
-		t.Fatalf("after go test got test=%d want 2", result.SuccessfulTestTools)
-	}
-	simulateTestIncrement(result, types.ToolCall{Name: "write_file", Input: map[string]any{"path": "a.go"}})
-	if result.SuccessfulWriteTools != 1 || result.SuccessfulTestTools != 2 {
-		t.Fatalf("after write_file got test=%d write=%d want 2,1", result.SuccessfulTestTools, result.SuccessfulWriteTools)
-	}
-	simulateTestIncrement(result, types.ToolCall{Name: "read_file", Input: map[string]any{"path": "a.go"}})
-	if result.SuccessfulTestTools != 2 || result.SuccessfulWriteTools != 1 {
-		t.Fatalf("read_file must not increment, got test=%d write=%d", result.SuccessfulTestTools, result.SuccessfulWriteTools)
-	}
-}

@@ -282,7 +282,7 @@ func TestJourney_FabricatedTestOutputOnQueryTurnIsNotDone(t *testing.T) {
 		t.Fatal("nil result with nil error")
 	}
 	t.Logf("fabricated output verdict: outcome=%q tools=%d writes=%d tests=%d response=%q",
-		result.TurnOutcome, result.ToolCallsExecuted, result.SuccessfulWriteTools, result.SuccessfulTestTools, result.Response)
+		result.TurnOutcome, result.ToolCallsExecuted, result.SuccessfulWriteTools, result.TestRunCalls, result.Response)
 	if result.TurnOutcome == types.MangleAtom("/done") || result.TurnOutcome == types.MangleAtom("/unverified") || result.TurnOutcome == "" {
 		t.Fatalf("TurnOutcome = %q, want the kernel /hollow verdict for runner output with no test tool", result.TurnOutcome)
 	}

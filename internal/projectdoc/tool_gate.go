@@ -160,44 +160,6 @@ func IsWriteMutationTool(name string) bool {
 	}
 }
 
-// IsTestExecutionTool reports whether a tool call actually executes a test suite.
-func IsTestExecutionTool(name string, args map[string]any) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "run_tests", "run_impacted_tests":
-		return true
-	}
-	if !IsShellTool(name) {
-		return false
-	}
-	cmd := strings.ToLower(strings.TrimSpace(ShellCommand(args)))
-	if cmd == "" {
-		return false
-	}
-	for _, prefix := range []string{
-		"go test",
-		"gotestsum",
-		"pytest",
-		"python -m pytest",
-		"python3 -m pytest",
-		"cargo test",
-		"npm test",
-		"npm run test",
-		"yarn test",
-		"pnpm test",
-		"dotnet test",
-		"mvn test",
-		"gradle test",
-		"./gradlew test",
-		"ctest",
-		"bazel test",
-	} {
-		if hasCommandPrefix(cmd, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 // IsShellTool reports whether a tool name can route a command to a host shell
 // or process executor. run_command is the registered modular tool; the others
 // cover VirtualStore action aliases and defensive future registry names.

@@ -198,9 +198,13 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	code := 0
 	if cmd.ProcessState != nil {
 		code = cmd.ProcessState.ExitCode()
+		if tests {
+			tools.RecordTestRun(ctx, tools.TestRun{Argv: argv, ExitCode: code})
+		}
 	} else if runErr != nil {
 		code = -1
 	}
+
 	// The output is returned whole. A build or test log is exactly the kind
 	// of result the working context archives and pages; cutting it here would
 	// hand the model the head of a log whose failures are at the tail.

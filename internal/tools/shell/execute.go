@@ -220,6 +220,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		cmd.Stderr = &stderr
 
 		runErr := processutil.Run(cmd)
+		recordIfTestCommand(ctx, command, cmd)
 
 		output := stdout.String()
 		if stderr.Len() > 0 {
@@ -327,6 +328,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	cmd.Stderr = &stderr
 
 	runErr := processutil.Run(cmd)
+	recordIfTestCommand(ctx, command, cmd)
 
 	output := stdout.String()
 	if stderr.Len() > 0 {
@@ -355,7 +357,18 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	return output, nil
 }
 
+// recordIfTestCommand records a test run when the command line that was just
+// run is a test runner's and its process started. The receipt is the only
+// evidence a tool call executed tests (tools.TestRun).
+func recordIfTestCommand(ctx context.Context, commandLine string, cmd *exec.Cmd) {
+	if cmd.ProcessState == nil || !tools.IsTestCommand(commandLine) {
+		return
+	}
+	tools.RecordTestRun(ctx, tools.TestRun{Argv: cmd.Args, ExitCode: cmd.ProcessState.ExitCode()})
+}
+
 // BashTool returns a tool for executing bash scripts.
+
 func BashTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "bash",
@@ -447,6 +460,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 	cmd.Stderr = &stderr
 
 	err = processutil.Run(cmd)
+	recordIfTestCommand(ctx, script, cmd)
 
 	output := stdout.String()
 	if stderr.Len() > 0 {

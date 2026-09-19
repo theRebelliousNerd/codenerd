@@ -910,8 +910,16 @@ func (e *Executor) executeAndRecordToolCall(
 	if isWriteMutationTool(call.Name) {
 		snapshotPreWriteContents(result, call.Input, e.workspaceForVerification())
 	}
-	out, err := e.executeToolCall(ctx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
+	toolCtx, testRuns := tools.WithTestRunLog(ctx)
+	out, err := e.executeToolCall(toolCtx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
 	result.ToolCallsExecuted++
+	// A test execution is a test process the tool layer started and recorded
+	// (tools.TestRun), whether its tests passed or failed. A tool's name is
+	// not one: run_impacted_tests counted when it was a dry run or selected
+	// nothing (external audit N07, 2026-09-19).
+	if len(testRuns()) > 0 {
+		result.TestRunCalls++
+	}
 	memoryErr := e.recordWorkingResult(ctx, call, out, err)
 	if err != nil {
 		return out, errors.Join(err, memoryErr)
@@ -924,9 +932,6 @@ func (e *Executor) executeAndRecordToolCall(
 			logging.Get(logging.CategorySession).Warn(
 				"successful write %s returned invalid target metadata: %v", call.Name, err)
 		}
-	}
-	if isTestExecutionTool(call.Name, call.Input) {
-		result.SuccessfulTestTools++
 	}
 	return out, memoryErr
 }
@@ -1096,10 +1101,6 @@ func isWriteMutationTool(name string) bool {
 	// wrapper so this package's tests and call sites are unchanged, and so the
 	// session gate and the registry-level guard cannot drift apart.
 	return projectdoc.IsWriteMutationTool(name)
-}
-
-func isTestExecutionTool(name string, args map[string]any) bool {
-	return projectdoc.IsTestExecutionTool(name, args)
 }
 
 // SetProjectDoc attaches the workspace's parsed nerd.md.

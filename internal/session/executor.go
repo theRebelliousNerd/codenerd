@@ -724,10 +724,12 @@ type ExecutionResult struct {
 	// intents that only produced prose or non-mutating tool calls.
 	SuccessfulWriteTools int
 
-	// SuccessfulTestTools counts tool calls that actually executed a test suite
-	// and completed without error, and it exists so a claimed test result can
-	// be checked against a real one rather than taken on trust.
-	SuccessfulTestTools int
+	// TestRunCalls counts tool calls that started a test process, as the tool
+	// layer recorded it (tools.TestRun) -- whether its tests passed or failed.
+	// It exists so a claimed test result can be checked against a real run
+	// rather than taken on trust; a tool's name, a dry run or an empty
+	// selection is not a run.
+	TestRunCalls int
 
 	// WrittenPaths records the target of every successful write mutation, so
 	// post-edit build verification can tell a turn that touched Go source from
@@ -2414,7 +2416,8 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 	// A test run by the executor's own post-edit gate is execution, not a
 	// claim: the model may quote that output in its answer. Only a run that
 	// actually ran counts; a skipped gate produced nothing to quote.
-	testRuns := result.SuccessfulTestTools
+	testRuns := result.TestRunCalls
+
 	if result.TestCheck.Ran {
 		testRuns++
 	}

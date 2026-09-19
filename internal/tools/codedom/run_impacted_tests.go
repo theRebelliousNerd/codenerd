@@ -442,6 +442,13 @@ func runGoTests(ctx context.Context, projectRoot string, packages []string, time
 	cmd.Dir = projectRoot
 
 	output, err := cmd.CombinedOutput()
+	// The only place this tool runs a test: a dry run, an empty selection
+	// and a call with no known edit return before here, and none of them is
+	// a test execution.
+	if cmd.ProcessState != nil {
+		tools.RecordTestRun(ctx, tools.TestRun{Argv: cmd.Args, ExitCode: cmd.ProcessState.ExitCode()})
+	}
+
 
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("Command: go %s\n", strings.Join(args, " ")))
