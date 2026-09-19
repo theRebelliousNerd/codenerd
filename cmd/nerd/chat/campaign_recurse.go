@@ -225,7 +225,6 @@ func (m Model) buildRecurseOrchestrator(camp *campaign.Campaign, progressChan ch
 		EventChan:            eventChan,
 		AutoReplan:           true,
 		CheckpointOnFail:     true,
-		DisableTimeouts:      true,
 		MaxParallelTasks:     1,
 		IntelligenceGatherer: intelligenceGatherer,
 		AdvisoryBoard:        advisoryBoard,

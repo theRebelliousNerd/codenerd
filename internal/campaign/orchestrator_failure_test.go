@@ -229,7 +229,6 @@ func newFailureTestOrchestrator(t *testing.T, maxRetries int) (*Orchestrator, *M
 		TaskExecutor:     &MockTaskExecutor{},
 		EventChan:        eventCh,
 		MaxRetries:       maxRetries,
-		DisableTimeouts:  true,
 		CheckpointOnFail: false,
 		AutoReplan:       false,
 	})

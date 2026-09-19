@@ -246,7 +246,6 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 		Executor:            tactile.NewDirectExecutor(),
 		VirtualStore:        &core.VirtualStore{},
 		MaxParallelTasks:    2,
-		DisableTimeouts:     true,
 		WriteSetLockTimeout: 1 * time.Second,
 		WriteSetLockRetry:   200 * time.Millisecond,
 		WriteSetLockPoll:    20 * time.Millisecond,

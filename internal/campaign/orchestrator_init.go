@@ -321,18 +321,12 @@ func (o *Orchestrator) SetToolPregenerator(pregenerator *ToolPregenerator) {
 }
 
 func applyOrchestratorDefaults(cfg *OrchestratorConfig) {
-	// Apply timeout defaults unless explicitly disabled.
-	if cfg.DisableTimeouts {
-		cfg.CampaignTimeout = 0
-		cfg.TaskTimeout = 0
-	} else {
-		if cfg.CampaignTimeout == 0 {
-			cfg.CampaignTimeout = 4 * time.Hour
-		}
-		if cfg.TaskTimeout == 0 {
-			cfg.TaskTimeout = 30 * time.Minute
-		}
-	}
+	// No timeout defaults: CampaignTimeout and TaskTimeout are a caller's
+	// own limits, and zero means none. Until 2026-09-19 a zero became 4 hours
+	// per campaign and 30 minutes per task unless DisableTimeouts was set --
+	// which every long-horizon caller (assault, recurse, the campaign runner)
+	// had to remember to do. A campaign stops when it stops making progress,
+	// and each model request is bounded by its client.
 	if cfg.MaxRetries == 0 {
 		cfg.MaxRetries = 3
 	}

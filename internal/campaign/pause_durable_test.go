@@ -23,7 +23,7 @@ func TestDurablePauseSurvivesSnapshotSaveAndStopsRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := NewOrchestrator(OrchestratorConfig{Workspace: root, Kernel: k, LLMClient: &MockLLMClient{}, TaskExecutor: &MockTaskExecutor{}, Executor: tactile.NewDirectExecutor(), VirtualStore: &core.VirtualStore{}, DisableTimeouts: true})
+	o, err := NewOrchestrator(OrchestratorConfig{Workspace: root, Kernel: k, LLMClient: &MockLLMClient{}, TaskExecutor: &MockTaskExecutor{}, Executor: tactile.NewDirectExecutor(), VirtualStore: &core.VirtualStore{}})
 	if err != nil {
 		t.Fatal(err)
 	}

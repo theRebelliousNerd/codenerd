@@ -133,9 +133,8 @@ type OrchestratorConfig struct {
 	AutoReplan           bool          // Auto-replan on too many failures
 	ReplanThreshold      int           // Failures before replan (default 3)
 	MaxParallelTasks     int           // Max tasks to run in parallel (default 3)
-	CampaignTimeout      time.Duration // Max total campaign runtime (default: 4 hours)
-	TaskTimeout          time.Duration // Max time per task (default: 30 minutes)
-	DisableTimeouts      bool          // Disable all timeouts for long-horizon campaigns
+	CampaignTimeout      time.Duration // Caller's own limit on the whole campaign; zero means none
+	TaskTimeout          time.Duration // Caller's own limit per task; zero means none
 	HeartbeatEvery       time.Duration // Emit heartbeat/progress every N duration (default: 15s)
 	AutosaveEvery        time.Duration // Persist campaign every N duration (default: 1m)
 	TaskResultCacheLimit int           // Max task results kept for context injection (default: 100)

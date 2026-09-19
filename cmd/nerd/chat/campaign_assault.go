@@ -102,7 +102,6 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 			EventChan:            eventChan,
 			AutoReplan:           true,
 			CheckpointOnFail:     true,
-			DisableTimeouts:      true,
 			MaxParallelTasks:     1,
 			IntelligenceGatherer: intelligenceGatherer,
 			AdvisoryBoard:        advisoryBoard,

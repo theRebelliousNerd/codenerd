@@ -266,7 +266,6 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 		VirtualStore:         s.VirtualStore,
 		AutoReplan:           true,
 		CheckpointOnFail:     true,
-		DisableTimeouts:      true,
 		IntelligenceGatherer: intelligenceGatherer,
 		AdvisoryBoard:        advisoryBoard,
 		EdgeCaseDetector:     edgeCaseDetector,

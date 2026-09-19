@@ -177,7 +177,6 @@ func TestRunPhase_CancellationDrainsWorkers(t *testing.T) {
 		TaskExecutor:     &MockTaskExecutor{ExecuteFunc: blockUntilCancel},
 		MaxRetries:       3,
 		MaxParallelTasks: 2,
-		DisableTimeouts:  true,
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
