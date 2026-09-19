@@ -416,6 +416,24 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
+		// 1.4.3 THE DERIVED /clarify LANE IS BINDING. route_decision(/clarify, /none)
+		// means the kernel judged the request too ambiguous to act on. Until
+		// 2026-09-18 that judgement held only while a clarifier shard answered:
+		// when the shard was unavailable and the kernel had no canned question,
+		// every gate above fell through with a warning and the turn streamed an
+		// ordinary answer to a request the executive had just refused to act on
+		// (found by the test nerd fix wrote for this lane). The shard supplies
+		// better wording; it does not decide whether the question is asked.
+		if routeWantsClarify {
+			logging.Routing("[processInput] DECIDE: /clarify derived and no clarifier answered; asking the fallback question")
+			return clarificationMsg{
+				Question:      clarifyFallbackQuestion(intent),
+				Options:       []string{},
+				Context:       input,
+				PendingIntent: &intent,
+			}
+		}
+
 		// 1.5 MULTI-STEP TASK DETECTION: Check if task requires multiple steps
 		// This implements autonomous multi-step execution without campaigns.
 		// The kernel's route decision is authoritative; the legacy detector

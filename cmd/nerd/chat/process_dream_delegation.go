@@ -602,3 +602,18 @@ func defaultVerbForShard(shardType string) string {
 		return ""
 	}
 }
+
+// clarifyFallbackQuestion is the question asked when the kernel derives
+// /clarify and no clarifier produced wording. It names what the perceived
+// intent is missing; it does not decide that anything is missing.
+func clarifyFallbackQuestion(intent perception.Intent) string {
+	verb := strings.TrimPrefix(strings.TrimSpace(intent.Verb), "/")
+	if verb == "" {
+		verb = "do"
+	}
+	target := strings.TrimSpace(intent.Target)
+	if target == "" || target == "none" {
+		return fmt.Sprintf("I can't tell what to %s yet. Which file, symbol or behavior do you mean, and what should be true when it's done?", verb)
+	}
+	return fmt.Sprintf("Before I %s %s: what exactly should change, and what should be true when it's done?", verb, target)
+}
