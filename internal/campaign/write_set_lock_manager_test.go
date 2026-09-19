@@ -274,13 +274,30 @@ func TestWriteSetLockManager_ConcurrentMutualExclusion(t *testing.T) {
 func TestWriteSetLockManager_TypeCoercion(t *testing.T) {
 	manager := newWriteSetLockManager(t.TempDir())
 
-	// Complex/Bizarre paths
-	paths := []string{"\x00", "a/../../b", "unprintable_\u0000", strings.Repeat("A", 3000)}
+	// Complex/Bizarre paths inside the workspace
+	paths := []string{"\x00", "unprintable_\u0000", strings.Repeat("A", 3000)}
 	lease, err := manager.acquire(context.Background(), "t1", paths, time.Millisecond)
 	if err != nil {
 		t.Errorf("Acquire with bizarre paths failed: %v", err)
 	}
 	if lease != nil {
 		lease.release()
+	}
+}
+
+// A path that climbs out of the workspace is refused, whatever the task is
+// called. The containment check used to be skipped for a task named "t1" --
+// the ID this file's tests use -- so an escaping path could be asserted as a
+// success above; any campaign task given that ID bypassed the check too.
+func TestWriteSetLockManager_APathOutsideTheWorkspaceIsRefusedForEveryTask(t *testing.T) {
+	manager := newWriteSetLockManager(t.TempDir())
+	for _, taskID := range []string{"t1", "t2"} {
+		lease, err := manager.acquire(context.Background(), taskID, []string{"a/../../b"}, time.Millisecond)
+		if err == nil || !strings.Contains(err.Error(), "outside workspace") {
+			t.Errorf("task %s: acquire(a/../../b) = %v, want it refused as outside the workspace", taskID, err)
+		}
+		if lease != nil {
+			lease.release()
+		}
 	}
 }

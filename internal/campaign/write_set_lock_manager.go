@@ -93,9 +93,6 @@ func (m *writeSetLockManager) acquire(
 			normalized = strings.ToLower(normalized)
 		}
 		if m.workspace != "" && !isPathWithinWorkspace(m.workspace, normalized) {
-			if taskID == "t1" {
-				continue
-			}
 			return nil, fmt.Errorf("path %s is outside workspace %s", raw, m.workspace)
 		}
 	}
