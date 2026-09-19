@@ -262,6 +262,24 @@ func workingRegimeText(regime string) string {
 	return ""
 }
 
+// withRegimePrompt appends the regime text to prompt exactly once. Callers
+// re-send the same failing prompt across rounds of one repair attempt, and the
+// prompt may already carry the regime sentence from an earlier append (repair
+// attempt N under the commit regime, or a round re-sent inside repairRound):
+// a blind append repeats the sentence every time the message is re-sent, so
+// the model receives it twice in a row. A prompt that already contains the
+// regime text is returned unchanged.
+func withRegimePrompt(prompt, regime string) string {
+	text := workingRegimeText(regime)
+	if strings.TrimSpace(text) == "" {
+		return prompt
+	}
+	if strings.Contains(prompt, text) {
+		return prompt
+	}
+	return prompt + "\n\n" + text
+}
+
 // appendWorkingNudge delivers a policy-derived nudge by appending it to the
 // round's last tool result.
 func appendWorkingNudge(results []types.ToolResult, nudge string) []types.ToolResult {

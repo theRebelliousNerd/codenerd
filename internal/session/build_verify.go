@@ -558,7 +558,7 @@ func (e *Executor) repairRound(
 			// Either freshly closed, or already closed where the previous
 			// round executed tools without writing (read without writing):
 			// carry the failing output plus the regime text into the next call.
-			*history = append(*history, types.Message{Role: "user", Text: prompt + "\n\n" + workingRegimeText(commitRegime)})
+			*history = append(*history, types.Message{Role: "user", Text: withRegimePrompt(prompt, commitRegime)})
 		}
 	}
 	return last, llmCalls, allCalls, repairErrs, toolResults, wrote, nil

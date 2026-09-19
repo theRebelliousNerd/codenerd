@@ -216,7 +216,7 @@ func (e *Executor) repairLoop(
 			prompt += "\n\nPrior repair attempts this episode (do not repeat what already failed):\n" + summary
 		}
 		if useCommitRegime {
-			prompt += "\n\n" + workingRegimeText(commitRegime)
+			prompt = withRegimePrompt(prompt, commitRegime)
 		}
 		regimeNote := ""
 		if useCommitRegime {
