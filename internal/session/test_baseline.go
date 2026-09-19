@@ -51,7 +51,7 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 		logging.SessionDebug("test gate: no baseline attribution: context canceled: %v", ctx.Err())
 		return head
 	}
-	tmpDir, overlayPath, err := buildTestOverlay(workspace, preWrite)
+	tmpDir, overlayPath, _, err := buildTestOverlay(workspace, preWrite)
 	if err != nil {
 		logging.SessionDebug("test gate: no baseline attribution: overlay could not be built: %v", err)
 		return head
@@ -123,27 +123,32 @@ func runBaselineTests(ctx context.Context, workspace, overlayPath, runArg string
 	}
 }
 
-func buildTestOverlay(workspace string, preWrite map[string]PreImage) (string, string, error) {
+// buildTestOverlay writes a go build overlay that puts each written file back
+// as it was before the turn. It returns the overlay's directory (the caller
+// removes it), the overlay file, and the replacements: each written file's
+// absolute path mapped to the file standing in for it, "" for one the turn
+// created.
+func buildTestOverlay(workspace string, preWrite map[string]PreImage) (string, string, map[string]string, error) {
 	tmpDir, err := os.MkdirTemp("", "test-baseline-*")
 	if err != nil {
-		return "", "", fmt.Errorf("create baseline overlay temp dir: %w", err)
+		return "", "", nil, fmt.Errorf("create baseline overlay temp dir: %w", err)
 	}
 	replace, err := writeOverlayFiles(tmpDir, workspace, preWrite)
 	if err != nil {
 		os.RemoveAll(tmpDir)
-		return "", "", err
+		return "", "", nil, err
 	}
 	overlayBytes, err := json.Marshal(map[string]map[string]string{"Replace": replace})
 	if err != nil {
 		os.RemoveAll(tmpDir)
-		return "", "", fmt.Errorf("marshal baseline overlay: %w", err)
+		return "", "", nil, fmt.Errorf("marshal baseline overlay: %w", err)
 	}
 	overlayPath := filepath.Join(tmpDir, "overlay.json")
 	if err := os.WriteFile(overlayPath, overlayBytes, 0644); err != nil {
 		os.RemoveAll(tmpDir)
-		return "", "", fmt.Errorf("write baseline overlay %s: %w", overlayPath, err)
+		return "", "", nil, fmt.Errorf("write baseline overlay %s: %w", overlayPath, err)
 	}
-	return tmpDir, overlayPath, nil
+	return tmpDir, overlayPath, replace, nil
 }
 
 // writeOverlayFiles maps each written path back to its preimage: absent

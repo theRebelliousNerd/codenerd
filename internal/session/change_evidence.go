@@ -119,7 +119,7 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 		result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
 	}
 	if cfg.VerifyBuildAfterEdits {
-		fresh := verifyVet(ctx, workspace, result.WrittenPaths)
+		fresh := verifyVet(ctx, workspace, result.WrittenPaths, result.PreWriteContents)
 		fresh.Repair = inheritRepair(fresh.Verdict(), result.VetCheck.Repair)
 		result.VetCheck = fresh
 	}

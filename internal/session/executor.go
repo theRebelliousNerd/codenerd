@@ -2800,7 +2800,7 @@ func missingEvidenceSentence(atom string) string {
 	case "/changed_code_unexecuted":
 		return "code this turn changed is executed by no test"
 	case "/vet_not_clean":
-		return "go vet reports problems in the files this turn changed"
+		return "go vet reports problems this turn introduced"
 	default:
 		return strings.TrimPrefix(atom, "/")
 	}

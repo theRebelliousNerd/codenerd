@@ -8,35 +8,115 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"codenerd/internal/types"
 )
 
-// go vet is package-wide; the turn owns only what it wrote. A finding in a
-// file the turn did not touch is not this turn's evidence, and on Windows vet
-// prints backslashed, workspace-relative paths under a "# pkg" header.
-func TestVetFindingsInFiles_KeepsOnlyTheTurnsOwnFiles(t *testing.T) {
-	output := strings.Join([]string{
+// A finding is what it says about a file, not where it sits: an edit above it
+// moves its line. The turn's findings are the ones vet did not report before
+// the turn, counted, so a second copy of an old finding is still new. On
+// Windows vet prints backslashed, workspace-relative paths under a "# pkg"
+// header, and lines without a position are not findings.
+func TestNewVetFindings_AFindingIsItsFileAndMessageNotItsLine(t *testing.T) {
+	ws := t.TempDir()
+	resolve := func(p string) string { return workspaceFile(ws, p) }
+	before := vetDiagnostics(strings.Join([]string{
 		"# codenerd/cmd/nerd",
 		`cmd\nerd\cmd_mangle_check.go:286:2: unreachable code`,
-		`cmd\nerd\other.go:12:3: fmt.Sprintf format %d has arg s of wrong type string`,
-		"# codenerd/internal/widget",
-		"internal/widget/widget.go:9:1: result of fmt.Sprintf call not used",
 		"vet: some diagnostic without a position",
-	}, "\n")
-	written := []string{"cmd/nerd/cmd_mangle_check.go", "internal/widget/widget.go"}
+	}, "\n"), resolve)
+	now := vetDiagnostics(strings.Join([]string{
+		"# codenerd/cmd/nerd",
+		`cmd\nerd\cmd_mangle_check.go:301:2: unreachable code`,
+		`cmd\nerd\cmd_mangle_check.go:340:2: unreachable code`,
+		"# codenerd/internal/widget",
+		"internal/widget/use.go:9:1: Use passes lock by value: widget.State contains sync.Mutex",
+	}, "\n"), resolve)
 
-	got := vetFindingsInFiles(output, written)
+	got := newVetFindings(now, before)
 
 	want := []string{
-		`cmd\nerd\cmd_mangle_check.go:286:2: unreachable code`,
-		"internal/widget/widget.go:9:1: result of fmt.Sprintf call not used",
+		`cmd\nerd\cmd_mangle_check.go:340:2: unreachable code`,
+		"internal/widget/use.go:9:1: Use passes lock by value: widget.State contains sync.Mutex",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("vetFindingsInFiles =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		t.Fatalf("newVetFindings =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if none := vetFindingsInFiles(output, []string{"internal/elsewhere/x.go"}); len(none) != 0 {
-		t.Fatalf("findings in files the turn did not write must not count, got %v", none)
+}
+
+// vetWorkspace writes a module under a fresh workspace (slash paths) and
+// returns the workspace.
+func vetWorkspace(t *testing.T, files map[string]string) string {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("needs the go toolchain")
+	}
+	return guardWorkspace(t, files)
+}
+
+const (
+	vetStateBefore = "package p\n\ntype State struct {\n\tN int\n}\n"
+	vetStateMutex  = "package p\n\nimport \"sync\"\n\ntype State struct {\n\tMu sync.Mutex\n\tN  int\n}\n"
+	vetUse         = "package p\n\nfunc Consume(s State) int { return s.N }\n"
+	vetUnreachable = "\nfunc Old() int {\n\treturn 1\n\tprintln(\"never\")\n\treturn 2\n}\n"
+)
+
+// External audit F5 (2026-09-19): the turn adds a lock to State in state.go;
+// vet reports it in use.go, which the turn did not touch. The gate kept only
+// findings in written files and called this a pass.
+func TestVerifyVet_ACauseInAWrittenFileReportedInAnother(t *testing.T) {
+	ws := vetWorkspace(t, map[string]string{"go.mod": "module vetprobe\n\ngo 1.25\n", "p/state.go": vetStateMutex, "p/use.go": vetUse})
+
+	v := verifyVet(context.Background(), ws, []string{"p/state.go"}, map[string]PreImage{"p/state.go": existed(vetStateBefore)})
+
+	if v.Verdict() != VerifyFailed || !strings.Contains(v.Output, "use.go") || !strings.Contains(v.Output, "passes lock by value") {
+		t.Fatalf("verifyVet = %+v, want failed naming use.go's copied lock", v)
+	}
+}
+
+// A finding that was there before the turn is the workspace's, in a file the
+// turn wrote -- where the turn's edit moved its line and vet prints the
+// baseline's copy under the overlay's temporary path -- or in one it did not.
+func TestVerifyVet_AFindingThatPredatesTheTurnIsNotCharged(t *testing.T) {
+	stateBefore := vetStateBefore + vetUnreachable
+	stateNow := "package p\n\n// State is the probe's state.\ntype State struct {\n\tN int\n\tM int\n}\n" + vetUnreachable
+	ws := vetWorkspace(t, map[string]string{"go.mod": "module vetprobe\n\ngo 1.25\n", "p/state.go": stateNow, "p/use.go": vetUse + strings.Replace(vetUnreachable, "Old", "Older", 1)})
+
+	v := verifyVet(context.Background(), ws, []string{"p/state.go"}, map[string]PreImage{"p/state.go": existed(stateBefore)})
+
+	if v.Verdict() != VerifyPassed {
+		t.Fatalf("verifyVet = %+v, want passed: both findings were there before the turn", v)
+	}
+}
+
+// Without a baseline the gate cannot tell old from new, and attribution it
+// cannot make is not a pass: every finding in the packages is charged.
+func TestVerifyVet_WithoutABaselineEveryFindingIsCharged(t *testing.T) {
+	ws := vetWorkspace(t, map[string]string{"go.mod": "module vetprobe\n\ngo 1.25\n", "p/state.go": vetStateBefore, "p/use.go": vetUse + vetUnreachable})
+
+	v := verifyVet(context.Background(), ws, []string{"p/state.go"}, map[string]PreImage{"p/state.go": {Unknown: "permission denied"}})
+
+	if v.Verdict() != VerifyFailed || !strings.Contains(v.Output, "use.go") || !strings.Contains(v.Reason, "no pre-turn vet") {
+		t.Fatalf("verifyVet = %+v, want failed naming use.go, with the missing baseline as the reason", v)
+	}
+}
+
+// A vet run that fails without naming a finding is not evidence of anything,
+// and in particular not a pass.
+func TestVerifyVet_AFailureThatNamesNoFindingIsNotAPass(t *testing.T) {
+	stubVerifySeams(t, time.Minute, time.Minute, func(context.Context, string, []string, string, []string) ([]byte, error) {
+		return []byte("go: error obtaining buildID for go tool vet: exit status 1\n"), errors.New("exit status 1")
+	}, verifyPassAsRunner())
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "x.go"), []byte("package p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	v := verifyVet(context.Background(), ws, []string{"x.go"}, map[string]PreImage{"x.go": {}})
+
+	if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
+		t.Fatalf("verifyVet = %+v, want neither passed nor failed: vet named no finding", v)
 	}
 }
 

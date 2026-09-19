@@ -28,35 +28,76 @@ import (
 // the tests that harden the change; the harness makes it write them.
 
 // vetFinding matches one positioned go vet diagnostic: path:line:col: message.
-var vetFinding = regexp.MustCompile(`^(.+\.go):\d+:\d+: `)
+var vetFinding = regexp.MustCompile(`^(.+\.go):\d+:\d+: (.*)$`)
 
-// vetFindingsInFiles keeps the diagnostics go vet printed for files the turn
-// wrote. Vet runs package-wide and prints paths relative to the workspace,
-// backslashed on Windows; a finding in a file the turn did not touch is not
-// this turn's evidence.
-func vetFindingsInFiles(output string, written []string) []string {
-	var own []string
+// vetDiagnostic is one go vet finding: the line vet printed, and its identity
+// -- the file it names and what it says, without the position, so an edit
+// above a finding moves its line and not what it is.
+type vetDiagnostic struct {
+	line string
+	key  string
+}
+
+// vetDiagnostics parses vet's positioned findings. resolve maps the path vet
+// printed to the workspace-relative file it stands for.
+func vetDiagnostics(output string, resolve func(string) string) []vetDiagnostic {
+	var out []vetDiagnostic
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimRight(line, "\r")
 		m := vetFinding.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
-		file := NormalizeCoverPath(m[1])
-		for _, w := range written {
-			if nw := NormalizeCoverPath(w); nw != "" && (file == nw || strings.HasSuffix(file, "/"+nw) || strings.HasSuffix(nw, "/"+file)) {
-				own = append(own, line)
-				break
-			}
+		out = append(out, vetDiagnostic{line: line, key: resolve(m[1]) + "\x00" + m[2]})
+	}
+	return out
+}
+
+// workspaceFile resolves a path vet printed -- relative to the workspace it
+// ran in, backslashed on Windows -- to the workspace-relative slash path.
+func workspaceFile(workspace, printed string) string {
+	abs := printed
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(workspace, abs)
+	}
+	if rel, err := filepath.Rel(workspace, abs); err == nil {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.ToSlash(filepath.Clean(abs))
+}
+
+// newVetFindings is what the turn introduced: each finding vet reports now,
+// less as many of the same finding as it reported before the turn.
+func newVetFindings(now, before []vetDiagnostic) []string {
+	seen := make(map[string]int, len(before))
+	for _, d := range before {
+		seen[d.key]++
+	}
+	var own []string
+	for _, d := range now {
+		if seen[d.key] > 0 {
+			seen[d.key]--
+			continue
 		}
+		own = append(own, d.line)
 	}
 	return own
 }
 
-// verifyVet runs go vet over the untagged packages the turn wrote and judges
-// the result on the turn's own files. Tag-gated packages are vetted by the
-// test gate with their tags already (gateTests).
-func verifyVet(ctx context.Context, workspace string, written []string) BuildVerification {
+// verifyVet runs go vet over the untagged packages the turn wrote and charges
+// the turn with the findings it introduced, wherever vet reports them. Tag-gated
+// packages are vetted by the test gate with their tags already (gateTests).
+//
+// A finding's position is not its cause: a lock added to a struct in one file
+// is reported where another file copies the struct. External audit F5
+// (2026-09-19): this gate kept only findings in files the turn wrote, so that
+// case -- state.go written, "passes lock by value" in use.go -- was a pass.
+// The turn's findings are now the difference from the same packages vetted as
+// they were before the turn (vetBaseline); a finding that was already there is
+// the workspace's, in whichever file. Without a baseline every finding in the
+// packages is charged: attribution the gate cannot make is not a pass. Nor is
+// a vet run that failed without naming a finding.
+func verifyVet(ctx context.Context, workspace string, written []string, preWrite map[string]PreImage) BuildVerification {
 	start := time.Now()
 	runnable, _ := splitTagGatedPackages(workspace, packagesForPaths(written))
 	if len(runnable) == 0 {
@@ -64,29 +105,94 @@ func verifyVet(ctx context.Context, workspace string, written []string) BuildVer
 	}
 	command := append([]string{"go", "vet"}, runnable...)
 	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), buildVerifyTimeout, command[0], command[1:], verifyBuildRunner)
-	elapsed := time.Since(start)
 	switch outcome {
 	case VerifyPassed:
-		return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: elapsed}
+		return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: time.Since(start)}
 	case VerifyFailed:
-		own := vetFindingsInFiles(string(out), written)
-		if len(own) == 0 {
-			// Vet failed, but on nothing this turn wrote: the finding is the
-			// workspace's, and it is not this turn's to answer for.
-			logging.Get(logging.CategorySession).Warn(
-				"go vet reported findings only in files this turn did not write:\n%s", strings.TrimSpace(string(out)))
-			return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Reason: "findings only in files the turn did not write", Duration: elapsed}
+		now := vetDiagnostics(string(out), func(p string) string { return workspaceFile(workspace, p) })
+		if len(now) == 0 {
+			return BuildVerification{Ran: true, Output: strings.TrimSpace(string(out)), Outcome: VerifyIndeterminate, Command: command,
+				Reason: "go vet failed and named no finding to judge", Duration: time.Since(start)}
 		}
-		return BuildVerification{Ran: true, Output: strings.Join(own, "\n"), Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed}
+		var own []string
+		before, ok, why := vetBaseline(ctx, workspace, runnable, preWrite)
+		if ok {
+			own = newVetFindings(now, before)
+		} else {
+			for _, d := range now {
+				own = append(own, d.line)
+			}
+			reason = "no pre-turn vet to compare with (" + why + "): every finding in the packages the turn wrote is charged to it"
+		}
+		if len(own) == 0 {
+			logging.Get(logging.CategorySession).Warn(
+				"go vet reports only findings that were there before this turn:\n%s", strings.TrimSpace(string(out)))
+			return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Reason: "every finding predates the turn", Duration: time.Since(start)}
+		}
+		return BuildVerification{Ran: true, Output: strings.Join(own, "\n"), Outcome: VerifyFailed, Command: command, Reason: reason, Duration: time.Since(start)}
 	default:
-		return BuildVerification{Ran: len(out) > 0, Output: strings.TrimSpace(string(out)), Outcome: outcome, Command: command, Reason: reason, Duration: elapsed}
+		return BuildVerification{Ran: len(out) > 0, Output: strings.TrimSpace(string(out)), Outcome: outcome, Command: command, Reason: reason, Duration: time.Since(start)}
 	}
 }
 
+// vetBaseline vets the packages as they were before the turn: each file the
+// turn wrote is overlaid with its preimage, and one it created is absent. Vet
+// prints a finding inside an overlaid file under the overlay's temporary
+// path, which is mapped back to the file it stands for, so the findings are
+// keyed as the post-turn run's are. ok is false, with the reason, when there
+// is no baseline to compare with.
+func vetBaseline(ctx context.Context, workspace string, packages []string, preWrite map[string]PreImage) (findings []vetDiagnostic, ok bool, why string) {
+	if len(preWrite) == 0 {
+		return nil, false, "no record of the written files before the turn"
+	}
+	tmpDir, overlayPath, replace, err := buildTestOverlay(workspace, preWrite)
+	if err != nil {
+		return nil, false, err.Error()
+	}
+	defer os.RemoveAll(tmpDir)
+	standsFor := make(map[string]string, len(replace))
+	for abs, tmp := range replace {
+		if tmp != "" {
+			standsFor[overlayKey(tmp)] = abs
+		}
+	}
+	resolve := func(printed string) string {
+		abs := printed
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workspace, abs)
+		}
+		if orig, found := standsFor[overlayKey(abs)]; found {
+			return workspaceFile(workspace, orig)
+		}
+		return workspaceFile(workspace, printed)
+	}
+	args := append([]string{"vet", "-overlay", overlayPath}, packages...)
+	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), buildVerifyTimeout, "go", args, verifyBuildRunner)
+	switch outcome {
+	case VerifyPassed:
+		return nil, true, ""
+	case VerifyFailed:
+		if findings = vetDiagnostics(string(out), resolve); len(findings) == 0 {
+			return nil, false, "the pre-turn vet failed and named no finding"
+		}
+		return findings, true, ""
+	default:
+		return nil, false, fmt.Sprintf("the pre-turn vet did not finish: %s", reason)
+	}
+}
+
+// overlayKey compares paths the way the file system does here: Windows
+// paths are case-insensitive, and the overlay's own names never differ only
+// by case.
+func overlayKey(p string) string {
+	return strings.ToLower(filepath.Clean(p))
+}
+
 func vetRepairPrompt(findings string) string {
-	return "go vet reports these problems in the files you changed:\n\n```\n" + findings + "\n```\n\n" +
-		"Fix each one in the code, then stop; go vet will be run again. Do not silence a finding " +
-		"with a directive or by moving the code out of the file: the finding describes a defect " +
+	return "go vet reports these problems in the packages you changed, and they were not there before this turn:\n\n```\n" + findings + "\n```\n\n" +
+		"A finding can be reported in a file you did not edit when your edit caused it -- a lock added to a struct is " +
+		"reported where the struct is copied. Fix each one at its cause, then stop; go vet will be run again. Do not " +
+		"silence a finding with a directive or by moving the code out of the file: the finding describes a defect " +
 		"(unreachable code, a wrong format verb, a copied lock), and the fix is to remove the defect."
 }
 
@@ -110,7 +216,7 @@ func (e *Executor) verifyAndRepairVet(
 		return nil, nil, nil
 	}
 	workspace := e.workspaceForVerification()
-	result.VetCheck = verifyVet(ctx, workspace, result.WrittenPaths)
+	result.VetCheck = verifyVet(ctx, workspace, result.WrittenPaths, result.PreWriteContents)
 	if result.VetCheck.Verdict() != VerifyFailed || trp == nil {
 		return nil, nil, nil
 	}
@@ -119,7 +225,7 @@ func (e *Executor) verifyAndRepairVet(
 	testsBroke := false
 	spec := repairSpec{
 		kind:         "vet",
-		brokenPhrase: "go vet reports problems in the files this turn changed",
+		brokenPhrase: "go vet reports problems this turn introduced",
 		promptFor: func(seed string) string {
 			if testsBroke {
 				return vetBrokeTestsPrompt(seed)
@@ -128,7 +234,7 @@ func (e *Executor) verifyAndRepairVet(
 		},
 		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
 			testsBroke = false
-			v := verifyVet(epCtx, workspace, result.WrittenPaths)
+			v := verifyVet(epCtx, workspace, result.WrittenPaths, result.PreWriteContents)
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
 				result.VetCheck = v
 			}
