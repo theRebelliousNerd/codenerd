@@ -1,0 +1,14 @@
+{
+  "interactable": 500,
+  "geometry": 500,
+  "table_a": 10000,
+  "table_b": 10000,
+  "table_c": 10000,
+  "big_table_1": 50000,
+  "big_table_2": 50000,
+  "big_table_3": 50000,
+  "pred_1": 5000,
+  "pred_2": 5000,
+  "pred_3": 5000,
+  "filter": 100
+}

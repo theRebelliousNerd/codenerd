@@ -2,9 +2,9 @@
 
 ## Status
 
-- last updated: 2026-09-18 20:20
-- done: 1 Before; 2 Decisions; 3 After; 4 Examples run; 5 Mirror; 6 Next uplift (hand-written by the merger after the uplift agent stalled twice)
-- open: none for this pass; see section 6
+- last updated: 2026-09-19 03:00
+- done: 1 Before; 2 Decisions; 3 After; 4 Examples run; 5 Mirror; 6 Next uplift (hand-written by the merger after the uplift agent stalled twice); 7 Second pass: every example run and fixed, the tools checked against the engine, skill versioned (v1.1.0)
+- open: the prompt atoms (section 7, "What the next pass should do")
 - NOTE (merger, 2026-09-18 15:15): the uplift agent stalled at 10:30 after writing section 1 and touched nothing in the skill directory (verified by mtime). Sections 2-6 are owed by the S11 relaunch, which starts from M0/M2/M3 as revised.
 
 Branch: `dogfood/c2-closure`. Repo: `C:/CodeProjects/codeNERD`. Scratch: `C:/Temp/mangle-study/`.
@@ -109,3 +109,60 @@ The one-screen syntax block in `SKILL.md` section 4, completed with its `Decl`s,
 3. Add the dropped-negation lint (negated-atom count per clause before and after analysis) to `nerd check-mangle`; 020 item 1 is still caught only by reading.
 4. When the upstream external-predicate fix lands (020 item 5), rewrite Pattern A's section and `policy/knowledge.mg`'s comment.
 5. Teach provenance (Pattern F) with a runnable `DerivationRecorder` example once `nerd why` uses it.
+
+## 7. Second pass (2026-09-19): every example run, the tools checked against the engine
+
+Method: a scratch Go probe loaded every fenced `mangle` block in the skill through a fresh pinned
+engine (the path `nerd check-mangle` uses) and sorted failures into unmarked, marked-as-wrong and
+fragment; then every marked and fragment failure was read too, because the heuristic buckets hid
+broken "CORRECT" blocks. Each replacement was run first with `nerd check-mangle --standalone
+--eval` (added in `a978b7b8`) and checked for the facts it should derive, not only for loading.
+
+| | before | after |
+|---|---|---|
+| fenced Mangle blocks | 261 | 220 (listings that are not programs became `text`) |
+| load on the pinned engine | 59 | 206 |
+| fail without saying so | 115 | 0 |
+| marked wrong-way, failing for the reason their text gives | some, often for another reason | 14 |
+| skill size | 2.0 MB | 522 KB |
+
+What was wrong, by class: `not` for negation (the syntax reference's summary table taught it);
+predicates used with no `Decl` (85 blocks, fixed by declaring what the engine named); Prolog
+`[H|T]` lists; `fn:filter`, `fn:divide`, `fn:multiply`, `fn:mod`, `fn:len`, `fn:concat`,
+`fn:map_get`; `do A, do B` in one stage and let-only stages; unbound variables in comparisons,
+heads and `:match_field`; float comparisons; underscores in variables; a name constant swallowing
+the period; wildcard negations (the starter template had five, each silently deleted); a
+flagship example that joined `/log4j` against `"log4j"` and could never derive; "CORRECT" type
+declarations with one bound for two columns; a claim that there are no list/map/union/any bound
+types (there are, capitalised). New engine truths 17-28 in `020-ENGINE_TRUTHS_v0.5.1.md`,
+including: negation is reordered and comparisons are not; source facts are not checked against
+bounds; the engine's own spec spells `bounds`, which does not parse; struct literals in a premise
+do not destructure; temporal literals cannot evaluate in codeNERD (no temporal store); `fundep` +
+`merge` lattices load and never finish evaluating.
+
+Tools: `mangle-cli.js` (an error on the canonical `bound [/name, /name]` form), `validate_mangle.py`
+(VALID for a duplicate Decl), `trace_query.py` and `explain_derivation.py` (no result, and a
+negation read as a positive premise), `analyze_module.py`, `dead_code.py`,
+`validate_go_mangle.py`, `generate_stubs.py` (imports `github.com/google/mangle`) and
+`generate_template.py` were deleted with their docs (`CLI_*.md`, `VALIDATION_TOOLS.md`, READMEs).
+`diagnose_stratification.py` and `profile_rules.py` stayed as advisory helpers after agreeing
+with the engine. `EXAMPLES.md` (the first half of `300-PATTERN_LIBRARY.md`, byte for byte) and
+`assets/codenerd-schemas.mg` (a stale copy of the kernel's own schema) were deleted.
+
+In the prompt corpus: the legislator atom taught `blocked(X) :- candidate_action(X),
+!permitted(X, _, _).` as CORRECT (run, it blocks every action); fixed with the LSP cheatsheet's
+two-wildcard orphan rule, and pinned by `TestEmbeddedCorpus_TeachesNoWildcardNegation`.
+
+The skill is versioned from this pass on (`.gitignore` exception, like `arch-propose` and
+`corpus-build`); the `.codex` copy is regenerated from it.
+
+### What the next pass should do
+
+1. The prompt atoms carry the same classes of error: `not` in at least 12 places, `fn:divide` /
+   `fn:multiply` / `fn:filter` in `mangle/builtins_complete.yaml`, let-only reducer stages in the
+   antipattern atoms, and 654 fenced examples that fail to load (the ratchet in
+   `cmd/tools/validate_prompt_atoms`). Run the same method there: it is what codeNERD's own agents
+   learn from.
+2. Add the dropped-negation check to `nerd check-mangle` itself (compare negated-atom counts per
+   clause before and after analysis), so it is caught in any file, not only by the corpus guard.
+3. Items 4 and 5 of section 6 stand.
