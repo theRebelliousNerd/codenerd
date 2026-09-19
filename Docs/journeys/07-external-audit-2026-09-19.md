@@ -12,16 +12,16 @@ becoming stale, or detached from the mutations it is supposed to describe.
 
 ## Status
 
-- last updated: 2026-09-19 13:50
+- last updated: 2026-09-19 14:27
 - landed: F7 (`247a2402`), F6 (`ac5c9b03`), F3 (`8dd5ef48`), F5 (`a6d4e572`), F1 (`662699eb`),
   N03 (`90100128`), N07 (`0b0a4d49`), N02 (`8c906461`), N01 (`b41565cf`), F2 with C3 (`6df972de`),
-  F4's rollback half with C4 (`ad91108d`).
-- next, hand-built: F4's isolation half (a lease taken at write time, not plan time) before any R2+
-  campaign run. N01 follow-on: a forcing round for `/test_run` -- a turn that owes a test run and
-  never started one ends `/unverified` with the run named, and nothing yet sends it back to run it.
+  F4 (`ad91108d` rollback with C4, `be3fa92e` isolation); L2 (`00482316`).
+- next, hand-built: C1 with C2 (below) before any R2+ campaign run; the N01 follow-on -- a forcing
+  round for `/test_run`, keyed on the kernel's `turn_owes_gate`, which needs the turn's evidence
+  asserted before the rounds run.
 - next, as codeNERD ladder briefs (one or two files, tool code, symptom and evidence in hand):
-  N04 (reproduced 13:30: a partial second write leaves `b.txt` truncated after the rollback),
-  N10, N09, N05, N06, N14.
+  N04, N10 and N09 reproduced with briefs ready (scratchpad `brief_n04_*`, `brief_n10_*`,
+  `brief_n09_*`); N05, N06, N14 need an observation first (N14 is confirmed by reading only).
 
 ## Found here while working the audit
 
@@ -31,6 +31,33 @@ becoming stale, or detached from the mutations it is supposed to describe.
   model-facing `run_tests`/`run_build` tools are typed and refuse a `command`; this path is reached
   by kernel-routed actions. Whether any producer lets model text into that payload is unaudited --
   safety-gate territory, hand-built.
+- **L2 a test ID inside the lock manager's containment check.** `acquire` skipped the
+  out-of-workspace refusal for a task named `"t1"` so a test asserting that an escaping path is
+  granted could pass; any campaign task given that ID took a lease outside the workspace.
+  Landed `00482316` (the exemption deleted, the test corrected, the refusal pinned for every ID).
+- **L3 declared-set leases compare exact keys.** A task that declared the directory
+  `internal/foo` and one that declared `internal/foo/x.go` are not serialized at plan time: the
+  lock manager keys a lease by the path as declared. F4's write-time guard checks ancestors, so
+  the write itself is caught; the plan-time acquisition still admits both tasks at once, and one
+  of them then has its write refused. Open.
+- **N09, N10 reproduced (13:05-14:06) for codeNERD briefs.** N10: an `edit_lines` change inside a
+  Go raw string holding a Mangle program is refused as unbalancing delimiters, though the Go file
+  is as valid after it -- the same guard meets every edit to a test's embedded program. N09:
+  `get_element "Close"` returns `A.Close` silently and `B.Close` answers to no name the tool
+  accepts.
+- **C1/C2 together: a plan's targets are corrected by what the campaign has learned, not guessed
+  once.** Studied 2026-09-19 13:58. The rolling-wave refinement (`Replanner.RefineNextPhase`,
+  `replan.go`) is shown each completed task's description and status only -- not its result
+  (the research findings the task result cache and the durable artifacts hold) -- and each
+  upcoming task's description and type, not its write set. Its JSON parser accepts a `write_set`
+  the prompt never asks for. So a target phase 0's research proved wrong (R1-2: phase 2 aimed at
+  `internal/cli/check-mangle.go`; the command is `cmd/nerd/cmd_mangle_check.go`, which phase 0
+  found) cannot be corrected, and `reconcileTaskTypeWithWriteSet` then turns the missing modify
+  target into a create at the wrong path (C2). Shape of the fix: the refinement's context carries
+  the completed tasks' results and the upcoming tasks' write sets, with each write-set path
+  marked present or absent on disk; a `/file_modify` whose targets are all absent is named to the
+  refinement as a plan error to correct, never retyped; the instruction to correct targets from
+  the research lives in the replanner's prompt atom (JIT), not in Go prose.
 
 ## Routing rule
 
@@ -51,7 +78,7 @@ read, or a run where one is named). It is not a reproduction unless the row says
 | F1 | P1 | Transient turn facts keyed by verb, not execution: `turn_evidence(Verb,…)`, `turn_gate(Verb,…)`, unkeyed `hollow_success` on the kernel `CloneForTask` shares; cleanup can sweep another executor's facts | reproduced on `a6d4e572`: B closed `/done` on A's test gate; B's cleanup took A's verdict; an early-return turn swept A's `turn_evidence` | hand | **landed `662699eb`** (every verdict relation keyed by a minted turn atom; cleanup retracts only what the turn asserted; created files are the executor's record, not `created_source`/`test_file_for` in the shared kernel; the legacy claim predicates deleted) |
 | F2 | P1 | Campaign `spawnTask` takes the string route and drops the typed outcome, so `/unverified` with a nil error completes the task (the ladder's C3/C4) | known (C3/C4) | hand, before R2+ campaigns | **landed `6df972de`**, with C3 (the campaign reads the observed return and fails any outcome but `/done` by its missing evidence; the retry carries the last failed attempt's error; a prose-only executor is refused at construction) |
 | F3 | P1 | Gate order build→tests→coverage→vet→removed-tests→**critic**→close: the critic edits after the last guard, and the final closure refreshes tests only (`gateTests(…, false)`, second return discarded) | seven regressions fail on `a9534981` | hand | **landed `8dd5ef48`** (the closure re-measures build, tests with coverage, vet and the test inventory at the final revision; the critic runs before the forcing rounds; a broken uplift is undone) |
-| F4 | P1 | Declared write sets lock and snapshot; actual writes outside them are neither isolated nor rolled back (the ladder's C4) | known (C4); reproduced on `6df972de`: a retry found the failed attempt's import in a file outside the set | hand, before R2+ campaigns | rollback half **landed `ad91108d`** (the observed return carries each write's preimage and postimage; a failed attempt's writes are undone compare-and-swap, never over a later writer's). Isolation half open: leases cover declared paths only |
+| F4 | P1 | Declared write sets lock and snapshot; actual writes outside them are neither isolated nor rolled back (the ladder's C4) | known (C4); reproduced on `6df972de`: a retry found the failed attempt's import in a file outside the set | hand, before R2+ campaigns | **landed**: rollback `ad91108d` (the observed return carries each write's preimage and postimage; a failed attempt's writes are undone compare-and-swap, never over a later writer's); isolation `be3fa92e` (a write takes the path's lease at the moment it happens, without waiting; a path another task holds, or a directory above it, is refused by name) |
 | F5 | P1 | `go vet` findings in files the turn did not write become `VerifyPassed`; a cause in `state.go` (a mutex added) diagnosed in `use.go` is discarded | the audit's case passed vet on `8dd5ef48` | hand | **landed `a6d4e572`** (findings are the difference from the same packages vetted before the turn, by file and message; no baseline charges every finding; a failure naming nothing is indeterminate). Reverse dependencies are not vetted, as they are not tested -- with N05 |
 | F6 | P1 | A deleted test is excused when any test anywhere shares its name | `workspaceTestNames`; fails on `247a2402` as the audit said | hand | **landed `ac5c9b03`** (a test moves only within its package directory, among files the default build includes; a copy behind `//go:build ignore` is a removal) |
 | F7 | P2 | Rollback deletes a pre-existing empty file (`exists = pre != ""`) | reproduced on `f91c39b6` | hand | **landed `247a2402`** (also: unreadable ≠ absent in the snapshot, the current-state read and the test-baseline overlay; an undo that fails stays written) |

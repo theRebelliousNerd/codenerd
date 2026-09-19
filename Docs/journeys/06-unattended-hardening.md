@@ -169,6 +169,17 @@ in whatever runs next, and moves when unrelated code changes the binary's layout
   `has_incomplete_hard_dep`, `current_phase` and more. Rules union, so an edit to one copy leaves
   the other deriving the old conclusion; N03 had to change both copies of `/no_eligible_phases`.
   Consolidate to one home per rule.
+- **A test ID inside a production gate.** `writeSetLockManager.acquire` skipped its workspace
+  containment check when the task was named `"t1"` (`if taskID == "t1" { continue }`, since the
+  2026-05-28 "sync"), so `TestWriteSetLockManager_TypeCoercion` could assert that a path climbing
+  out of the workspace is granted. Any campaign task given that ID took a lease outside the
+  workspace. Removed with the test corrected (L2). The class to hunt: a literal from a test file
+  (an ID, a path, a name) compared inside non-test code -- a gate bent to fit a test instead of the
+  test fixed. A census is a grep for the IDs the test files use (`"t1"`, `"task_1"`, `"test-`)
+  against non-test sources. Run 2026-09-19 14:03
+  over non-test Go (`(==|!=) "t1"|"task_1"|"test-..."|"mock..."|"fake-..."`): one hit, this one;
+  `emitter.go`'s exact `["file_topology","test_state"]` check is placeholder detection (a model
+  parroting the schema's example values), not a shim.
 
 Census pending: `_ = err` on a path that matters, `recover()` that does not log, errors reduced to
 a boolean.
