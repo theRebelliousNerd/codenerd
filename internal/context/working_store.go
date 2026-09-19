@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -200,5 +201,12 @@ func (s *WorkingStore) Read(ctx context.Context, id string, offset, limit int) (
 	err := s.db.QueryRowContext(ctx, `SELECT id,entity,revision,kind,step,failed,substr(body,?,?),length(body)
 		FROM working_records WHERE scope=? AND id=?`, offset+1, limit, s.scope, id).
 		Scan(&r.ID, &r.Entity, &r.Revision, &r.Kind, &r.Step, &r.Failed, &r.Body, &length)
+	if errors.Is(err, sql.ErrNoRows) {
+		// The model reads this: a driver's "sql: no rows in result set" gave it
+		// nothing to act on, and on 2026-09-18 two such failures in a row, with
+		// a refused edit between them, ended a turn on the working policy's
+		// tool-failure stop.
+		return WorkingRecord{}, 0, fmt.Errorf("no archived observation has id %q in this task's working context (ids appear in the working section and in \"Observation archived\" pointers); recall_context with query=<text> searches the archive when the id is unknown", id)
+	}
 	return r, length, err
 }

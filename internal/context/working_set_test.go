@@ -43,6 +43,11 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 	defer other.Close()
 	_, err = other.Recall(t.Context(), "0", 0, 1000)
 	require.Error(t, err, "sibling scopes cannot recover each other's records")
+	// The model reads this error: it names the id and the way forward, not the
+	// driver's "sql: no rows in result set".
+	require.Contains(t, err.Error(), `no archived observation has id "0"`)
+	require.Contains(t, err.Error(), "query=")
+	require.NotContains(t, err.Error(), "sql: no rows")
 }
 
 // The working policy decides continuation from the loop's whole-turn report,
