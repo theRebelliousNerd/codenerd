@@ -60,3 +60,37 @@ func TestEmbeddedCorpus_TeachesOnlyReducersThePinnedEngineAccepts(t *testing.T) 
 		}
 	}
 }
+
+// A wildcard inside a negated atom is the pinned engine's quietest trap: with one
+// wildcard the negation is deleted from the clause with no error, so
+// `blocked(X) :- candidate_action(X), !permitted(X, _, _).` blocks every action
+// (run 2026-09-19 with `nerd check-mangle --eval`); with a second wildcard in the
+// same body analysis reports "variable X1 is not bound". The legislator atom,
+// which teaches codeNERD's agents to write permission policy, presented the first
+// form as CORRECT. An atom may show the form only on a line that says it is wrong
+// or explains the deletion; the working idiom is a projection:
+// `has_permit(X) :- permitted(X, _, _).` then `!has_permit(X)`.
+func TestEmbeddedCorpus_TeachesNoWildcardNegation(t *testing.T) {
+	corpus, err := LoadEmbeddedCorpus()
+	if err != nil {
+		t.Fatalf("LoadEmbeddedCorpus: %v", err)
+	}
+	wildcardNegation := regexp.MustCompile(`![a-z_][a-z_0-9:]*\(\s*_\s*[,)]|![a-z_][a-z_0-9:]*\([^)]*[, ]_\s*[,)]`)
+	explains := regexp.MustCompile(`(?i)wrong|deleted|evaluates as|silently|rejected|never reported`)
+	for _, atom := range corpus.All() {
+		lines := strings.Split(atom.Content, "\n")
+		for i, line := range lines {
+			if !wildcardNegation.MatchString(line) {
+				continue
+			}
+			context := line
+			if i > 0 {
+				context = lines[i-1] + "\n" + line
+			}
+			if !explains.MatchString(context) {
+				t.Errorf("atom %s teaches a wildcard inside a negated atom, which the pinned engine silently deletes: %q (project first: has_x(X) :- x(X, _). then !has_x(X))",
+					atom.ID, strings.TrimSpace(line))
+			}
+		}
+	}
+}

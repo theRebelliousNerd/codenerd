@@ -1046,6 +1046,30 @@ func (e *Engine) GetFacts(predicate string) ([]Fact, error) {
 	return results, err
 }
 
+// AtomStrings returns every fact the store holds for predicate, each rendered
+// by the engine itself (ast.Atom.String) and sorted. GetFacts converts
+// constants to Go values, which folds a name and a string with the same text
+// into one Go string and prints lists, maps and pairs by their symbol; a tool
+// that shows a user what a program derived needs the engine's own spelling.
+func (e *Engine) AtomStrings(predicate string) ([]string, error) {
+	e.mu.RLock()
+	sym, ok := e.predicateIndex[predicate]
+	store := e.store
+	e.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("predicate %s is not declared", predicate)
+	}
+
+	var atoms []string
+	err := store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
+		atoms = append(atoms, atom.String())
+		return nil
+	})
+	sort.Strings(atoms)
+	return atoms, err
+}
+
 // GetStats returns overall statistics for the fact store.
 func (e *Engine) GetStats() Stats {
 	e.mu.RLock()

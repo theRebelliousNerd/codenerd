@@ -51,14 +51,19 @@
     ### Aggregation (CRITICAL - NOT inline)
     ```
     # WRONG: total(S) :- item(X), S = fn:sum(X).
-    # CORRECT:
-    total(S) :- item(_, V) |> let S = fn:sum(V).
+    # WRONG: total(S) :- item(_, V) |> let S = fn:sum(V).   (no `do`: fails at evaluation)
+    # CORRECT: a do stage first, then the reducer; name every column
+    total(S) :- item(Name, V) |> do fn:group_by(), let S = fn:sum(V).
     ```
 
     ### Negation (requires bound variables)
     ```
-    # WRONG: blocked(X) :- !permitted(X, _, _).
-    # CORRECT: blocked(X) :- candidate_action(X), !permitted(X, _, _).
+    # WRONG: blocked(X) :- !permitted(X, _, _).   (X only in the negation: rejected)
+    # WRONG: blocked(X) :- candidate_action(X), !permitted(X, _, _).
+    #   (a wildcard in a negated atom is silently deleted: this blocks every action)
+    # CORRECT: project to the bound columns first, then negate the projection
+    has_permit(X) :- permitted(X, _, _).
+    blocked(X) :- candidate_action(X), !has_permit(X).
     ```
 
 - id: "identity/legislator/declared_predicates"
@@ -151,12 +156,19 @@
 
     UNSAFE (will be rejected):
     ```
-    blocked(X) :- !permitted(X, _, _).  # X only in negation
+    blocked(X) :- !permitted(X, _, _).  # WRONG: X only in the negation (rejected)
     ```
 
-    SAFE:
+    WRONG, and never reported: a wildcard (`_`) in a negated atom is silently
+    deleted, so this blocks every candidate action:
     ```
-    blocked(X) :- candidate_action(X), !permitted(X, _, _).  # X bound by candidate_action
+    blocked(X) :- candidate_action(X), !permitted(X, _, _).  # WRONG: negation silently deleted
+    ```
+
+    SAFE: every variable of the negated atom is bound, and there are no wildcards in it:
+    ```
+    has_permit(X) :- permitted(X, _, _).                 # project first
+    blocked(X) :- candidate_action(X), !has_permit(X).   # X bound by candidate_action
     ```
 
     ### Rule 2: Stratification

@@ -43,8 +43,10 @@
     # Rule using built-in comparison (variables bound before comparison)
     adult(Name) :- person(Name, Age), :gt(Age, 18).
     
-    # Negation with proper binding (variable bound before negation)
-    orphan(X) :- person(X, _), !parent(_, X).
+    # Negation with proper binding: project first, so the negated atom has no wildcard
+    # (`!parent(_, X)` is rejected: "variable X1 is not bound")
+    has_parent(X) :- parent(_, X).
+    orphan(X) :- person(X, _), !has_parent(X).
     
     # Transform with proper group_by usage
     total(Sum) :- numbers(N) |> do fn:group_by(), let Sum = fn:sum(N).
