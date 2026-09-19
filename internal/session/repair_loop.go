@@ -57,6 +57,26 @@ func (e *Executor) repairBudgetFor() RepairBudget {
 	return b
 }
 
+// repairClockWithGateTime adds the harness's own measured cost to the episode
+// clock: every attempt ends in a re-run of the gates that failed, and how long
+// those gates take is a fact about the repository, measured on the run that
+// seeded this repair (result.BuildCheck / TestCheck Duration). The wall clock is
+// the model's budget to read, diagnose and edit; without this, a repository
+// whose gate takes a minute spends most of a five-minute episode re-running its
+// own tests. Observed 2026-09-18: a repair of cmd/nerd/chat (26 s of tests plus
+// a full build per recheck) "exhausted its 5m0s wall clock after 2 attempts"
+// of the 3 it was allowed.
+func repairClockWithGateTime(budget RepairBudget, result *ExecutionResult) time.Duration {
+	if result == nil || budget.MaxAttempts <= 0 {
+		return budget.WallClock
+	}
+	gate := result.BuildCheck.Duration + result.TestCheck.Duration
+	if gate <= 0 {
+		return budget.WallClock
+	}
+	return budget.WallClock + time.Duration(budget.MaxAttempts)*gate
+}
+
 // RepairCost is the episode cost ledger: every attempt, model call, tool
 // call, backtrack, and token the repair consumed.
 type RepairCost struct {
@@ -192,6 +212,7 @@ func (e *Executor) repairLoop(
 	spec repairSpec,
 ) (*types.LLMToolResponse, []string, *RepairRecord, error) {
 	budget := e.repairBudgetFor()
+	budget.WallClock = repairClockWithGateTime(budget, result)
 	rec := &RepairRecord{Kind: spec.kind, InitialFailure: seedOutput}
 	epCtx, cancelEpisode := repairEpisodeContext(ctx, budget.WallClock)
 	defer cancelEpisode()
