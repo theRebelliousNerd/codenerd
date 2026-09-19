@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
-	"codenerd/internal/tactile"
 )
 
 // findWorkspaceFileByBase walks workspace for a file with the given basename
@@ -38,7 +37,18 @@ func findWorkspaceFileByBase(workspace, base string) string {
 	return found
 }
 
-// runTaskMicroCheckpoint enforces a minimal per-task verification gate.
+// runTaskMicroCheckpoint enforces a minimal per-task verification gate: a
+// mutating task left at least one of its paths on disk.
+//
+// It no longer builds the tree (ladder L4). The build it ran -- `go build
+// ./...` through the tactile executor, a 20-second limit, the executor's
+// environment allowlist -- predates the turn's own gates: the turn a mutating
+// task runs has already built ./... under the session's build gate
+// (verifyBuild: the project's build environment, its own bound), and a task
+// completes only on a /done turn, which owes that gate green. The second
+// build added nothing when tasks ran one at a time, failed a good change when
+// it took longer than 20 seconds, and with tasks side by side built a tree
+// holding a sibling's half-finished edits.
 func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) error {
 	if task == nil || !isMutatingTaskType(task.Type) {
 		return nil
@@ -55,7 +65,7 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 	}
 	// Ladder C2: what the attempt wrote is where its change landed -- a
 	// modification whose planned target was a guess changes existing code
-	// elsewhere -- so those paths are checked, and built, with the declared ones.
+	// elsewhere -- so those paths are checked with the declared ones.
 	for _, w := range o.attemptWrites(task) {
 		writeSet = append(writeSet, w.Path)
 	}
@@ -101,39 +111,5 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 	if !anyExists {
 		return fmt.Errorf("micro-checkpoint: none of planned write_set paths exist: %v", writeSet)
 	}
-
-	if hasGoFiles(writeSet) && fileExists(o.workspace, "go.mod") {
-		if o.executor == nil {
-			return fmt.Errorf("micro-checkpoint executor unavailable for go build verification")
-		}
-		cmd := tactile.Command{
-			Binary:           "go",
-			Arguments:        []string{"build", "./..."},
-			WorkingDirectory: o.workspace,
-			Limits: &tactile.ResourceLimits{
-				TimeoutMs: 20000,
-			},
-		}
-		res, err := o.executor.Execute(ctx, cmd)
-		if err != nil {
-			out := ""
-			if res != nil {
-				out = res.Output()
-			}
-			return fmt.Errorf("micro-checkpoint go build failed: %w: %s", err, out)
-		}
-		if res != nil && res.ExitCode != 0 {
-			return fmt.Errorf("micro-checkpoint go build failed with exit code %d: %s", res.ExitCode, res.Output())
-		}
-	}
 	return nil
-}
-
-func hasGoFiles(paths []string) bool {
-	for _, p := range paths {
-		if strings.EqualFold(filepath.Ext(p), ".go") {
-			return true
-		}
-	}
-	return false
 }

@@ -2,7 +2,6 @@ package campaign
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,24 +54,6 @@ func TestFindWorkspaceFileByBase(t *testing.T) {
 	}
 }
 
-func TestHasGoFiles(t *testing.T) {
-	tests := []struct {
-		paths    []string
-		expected bool
-	}{
-		{[]string{"foo.txt", "bar.js"}, false},
-		{[]string{"foo.txt", "bar.go"}, true},
-		{[]string{"foo.GO"}, true},
-		{[]string{}, false},
-	}
-
-	for _, tt := range tests {
-		if got := hasGoFiles(tt.paths); got != tt.expected {
-			t.Errorf("hasGoFiles(%v) = %v; want %v", tt.paths, got, tt.expected)
-		}
-	}
-}
-
 // mockExecutor implements tactile.Executor for testing
 type mockExecutor struct {
 	tactile.Executor // embed to satisfy interface
@@ -107,7 +88,6 @@ func TestRunTaskMicroCheckpoint(t *testing.T) {
 		name        string
 		task        *Task
 		workspace   string
-		executor    tactile.Executor
 		setupFiles  func(ws string)
 		expectError bool
 		errorMsg    string
@@ -158,77 +138,6 @@ func TestRunTaskMicroCheckpoint(t *testing.T) {
 			workspace:   workspace,
 			expectError: false,
 		},
-		{
-			name: "go build succeeds",
-			task: &Task{
-				Type:     TaskTypeFileModify,
-				WriteSet: []string{existingFile},
-			},
-			workspace: workspace,
-			executor: &mockExecutor{
-				executeFunc: func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
-					return &tactile.ExecutionResult{Success: true, ExitCode: 0, Stdout: "build ok"}, nil
-				},
-			},
-			setupFiles: func(ws string) {
-				goModFile := filepath.Join(ws, "go.mod")
-				_ = os.WriteFile(goModFile, []byte("module example.com/test"), 0644)
-			},
-			expectError: false,
-		},
-		{
-			name: "go build fails with exit code",
-			task: &Task{
-				Type:     TaskTypeFileModify,
-				WriteSet: []string{existingFile},
-			},
-			workspace: workspace,
-			executor: &mockExecutor{
-				executeFunc: func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
-					return &tactile.ExecutionResult{Success: true, ExitCode: 1, Stdout: "compile error"}, nil
-				},
-			},
-			setupFiles: func(ws string) {
-				goModFile := filepath.Join(ws, "go.mod")
-				_ = os.WriteFile(goModFile, []byte("module example.com/test"), 0644)
-			},
-			expectError: true,
-			errorMsg:    "go build failed with exit code 1",
-		},
-		{
-			name: "go build fails with error",
-			task: &Task{
-				Type:     TaskTypeFileModify,
-				WriteSet: []string{existingFile},
-			},
-			workspace: workspace,
-			executor: &mockExecutor{
-				executeFunc: func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
-					return nil, fmt.Errorf("timeout")
-				},
-			},
-			setupFiles: func(ws string) {
-				goModFile := filepath.Join(ws, "go.mod")
-				_ = os.WriteFile(goModFile, []byte("module example.com/test"), 0644)
-			},
-			expectError: true,
-			errorMsg:    "micro-checkpoint go build failed",
-		},
-		{
-			name: "no executor available for go build",
-			task: &Task{
-				Type:     TaskTypeFileModify,
-				WriteSet: []string{existingFile},
-			},
-			workspace: workspace,
-			executor:  nil, // force nil executor
-			setupFiles: func(ws string) {
-				goModFile := filepath.Join(ws, "go.mod")
-				_ = os.WriteFile(goModFile, []byte("module example.com/test"), 0644)
-			},
-			expectError: true,
-			errorMsg:    "executor unavailable",
-		},
 	}
 
 	for _, tt := range tests {
@@ -244,7 +153,6 @@ func TestRunTaskMicroCheckpoint(t *testing.T) {
 
 			o := &Orchestrator{
 				workspace: tt.workspace,
-				executor:  tt.executor,
 			}
 
 			err := o.runTaskMicroCheckpoint(context.Background(), tt.task)
@@ -359,116 +267,5 @@ func TestMicroCheckpoint_AlternateFileExists(t *testing.T) {
 	err = o.runTaskMicroCheckpoint(context.Background(), task)
 	if err != nil {
 		t.Fatalf("expected nil error for existing alternate file, got %v", err)
-	}
-}
-
-func TestMicroCheckpoint_GoBuild(t *testing.T) {
-	workspace := t.TempDir()
-	file := filepath.Join(workspace, "exists.go")
-	err := os.WriteFile(file, []byte(""), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	modFile := filepath.Join(workspace, "go.mod")
-	err = os.WriteFile(modFile, []byte("module test"), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	mockExec := &mockTactileExecutor{
-		res: &tactile.ExecutionResult{ExitCode: 0},
-	}
-
-	o := &Orchestrator{workspace: workspace, executor: mockExec}
-	task := &Task{
-		Type:     TaskTypeFileModify,
-		WriteSet: []string{"exists.go"},
-	}
-	err = o.runTaskMicroCheckpoint(context.Background(), task)
-	if err != nil {
-		t.Fatalf("expected nil error for successful go build, got %v", err)
-	}
-}
-
-func TestMicroCheckpoint_GoBuild_Failed(t *testing.T) {
-	workspace := t.TempDir()
-	file := filepath.Join(workspace, "exists.go")
-	err := os.WriteFile(file, []byte(""), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	modFile := filepath.Join(workspace, "go.mod")
-	err = os.WriteFile(modFile, []byte("module test"), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	mockExec := &mockTactileExecutor{
-		res: &tactile.ExecutionResult{ExitCode: 1, Stdout: "build failed"},
-	}
-
-	o := &Orchestrator{workspace: workspace, executor: mockExec}
-	task := &Task{
-		Type:     TaskTypeFileModify,
-		WriteSet: []string{"exists.go"},
-	}
-	err = o.runTaskMicroCheckpoint(context.Background(), task)
-	if err == nil {
-		t.Fatal("expected error for failed go build, got nil")
-	}
-	if err != nil && err.Error() != "micro-checkpoint go build failed with exit code 1: build failed" {
-		t.Fatalf("unexpected error message: %v", err)
-	}
-}
-
-func TestMicroCheckpoint_GoBuild_ExecError(t *testing.T) {
-	workspace := t.TempDir()
-	file := filepath.Join(workspace, "exists.go")
-	err := os.WriteFile(file, []byte(""), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	modFile := filepath.Join(workspace, "go.mod")
-	err = os.WriteFile(modFile, []byte("module test"), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	mockExec := &mockTactileExecutor{
-		err: fmt.Errorf("executor error"),
-	}
-
-	o := &Orchestrator{workspace: workspace, executor: mockExec}
-	task := &Task{
-		Type:     TaskTypeFileModify,
-		WriteSet: []string{"exists.go"},
-	}
-	err = o.runTaskMicroCheckpoint(context.Background(), task)
-	if err == nil {
-		t.Fatal("expected error for executor error, got nil")
-	}
-}
-
-func TestMicroCheckpoint_GoBuild_NoExecutor(t *testing.T) {
-	workspace := t.TempDir()
-	file := filepath.Join(workspace, "exists.go")
-	err := os.WriteFile(file, []byte(""), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	modFile := filepath.Join(workspace, "go.mod")
-	err = os.WriteFile(modFile, []byte("module test"), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	o := &Orchestrator{workspace: workspace}
-	task := &Task{
-		Type:     TaskTypeFileModify,
-		WriteSet: []string{"exists.go"},
-	}
-	err = o.runTaskMicroCheckpoint(context.Background(), task)
-	if err == nil {
-		t.Fatal("expected error for missing executor, got nil")
 	}
 }
