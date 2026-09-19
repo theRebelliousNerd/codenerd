@@ -917,8 +917,10 @@ func (e *Executor) executeAndRecordToolCall(
 	// (tools.TestRun), whether its tests passed or failed. A tool's name is
 	// not one: run_impacted_tests counted when it was a dry run or selected
 	// nothing (external audit N07, 2026-09-19).
-	if len(testRuns()) > 0 {
+	if runs := testRuns(); len(runs) > 0 {
 		result.TestRunCalls++
+		last := runs[len(runs)-1]
+		result.TestRunSinceLastWrite = &last
 	}
 	memoryErr := e.recordWorkingResult(ctx, call, out, err)
 	if err != nil {
@@ -928,6 +930,8 @@ func (e *Executor) executeAndRecordToolCall(
 	result.SuccessfulToolCalls++
 	if isWriteMutationTool(call.Name) {
 		result.SuccessfulWriteTools++
+		// A run before this write says nothing about what the write left.
+		result.TestRunSinceLastWrite = nil
 		if err := recordWrittenPaths(result, call.Input, e.workspaceForVerification()); err != nil {
 			logging.Get(logging.CategorySession).Warn(
 				"successful write %s returned invalid target metadata: %v", call.Name, err)

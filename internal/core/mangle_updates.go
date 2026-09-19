@@ -171,6 +171,10 @@ func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 		"turn_untested", "turn_has_untested",
 		"turn_uncovered", "turn_has_uncovered", "turn_vet_green", "turn_vet_red",
 		"turn_created_test", "turn_test_coverage", "turn_missing_test",
+		// What a write owes (N01): write_class is the table a model could
+		// otherwise extend to reclassify its own code as documentation.
+		"turn_written", "write_class", "known_write_ext", "has_turn_written", "turn_write_class",
+		"turn_owes_gate", "turn_unmet_gate", "turn_red_gate", "has_unmet_gate", "has_red_gate",
 		"hollow_success", "has_hollow_success", "has_turn_tools", "has_turn_write", "has_turn_test",
 		"build_state", "test_state":
 		return false

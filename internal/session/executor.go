@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -730,6 +731,15 @@ type ExecutionResult struct {
 	// rather than taken on trust; a tool's name, a dry run or an empty
 	// selection is not a run.
 	TestRunCalls int
+
+	// TestRunSinceLastWrite is the last test process the tool layer recorded
+	// after this turn's last successful write, or nil when none has run since
+	// it; every successful write resets it. It is the /test_run gate's
+	// measurement: a write the Go gates do not cover -- anything but Go and
+	// documentation -- is verified by a test run the model started once it had
+	// stopped writing, and that run's exit decides (coder_safety.mg
+	// turn_owes_gate, external audit N01).
+	TestRunSinceLastWrite *tools.TestRun
 
 	// WrittenPaths records the target of every successful write mutation, so
 	// post-edit build verification can tell a turn that touched Go source from
@@ -2451,6 +2461,12 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 			e.assertTurnFact(types.Fact{Predicate: "turn_created_test", Args: []any{turn, types.MangleString(pair[0]), types.MangleString(pair[1])}})
 		}
 	}
+	// Every path the turn wrote, with its lower-case extension: the corpus
+	// decides from the extension what evidence the write owes (turn_owes_gate).
+	for _, path := range result.WrittenPaths {
+		ext := strings.ToLower(filepath.Ext(path))
+		e.assertTurnFact(types.Fact{Predicate: "turn_written", Args: []any{turn, types.MangleString(path), types.MangleString(ext)}})
+	}
 }
 
 // recordBuildState asserts this turn's mechanical gate verdicts as the facts
@@ -2501,6 +2517,8 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	record("test_state", types.MangleAtom("/test"), result.TestCheck.Verdict())
 	// Vet has no session-global: turn_gate is its only record.
 	record("", types.MangleAtom("/vet"), result.VetCheck.Verdict())
+	// The test run after the last write has no session-global either.
+	record("", types.MangleAtom("/test_run"), result.testRunVerdict())
 	// Coverage debt rides with the gates: asserted here, retracted with them.
 	// The corpus withholds turn_verified while any holds and names it as
 	// turn_missing_evidence(Turn, /tests_not_written) or
@@ -2510,6 +2528,20 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	}
 	for _, path := range uncoveredPaths(result) {
 		e.assertTurnFact(types.Fact{Predicate: "turn_uncovered", Args: []any{turn, path}})
+	}
+}
+
+// testRunVerdict is the /test_run gate's verdict: passed when the last test
+// run since the turn's last write exited 0, failed when it exited otherwise,
+// skipped -- no verdict -- when none ran since it.
+func (r *ExecutionResult) testRunVerdict() VerifyOutcome {
+	switch {
+	case r.TestRunSinceLastWrite == nil:
+		return VerifySkipped
+	case r.TestRunSinceLastWrite.ExitCode == 0:
+		return VerifyPassed
+	default:
+		return VerifyFailed
 	}
 }
 
@@ -2741,6 +2773,8 @@ func missingEvidenceSentence(atom string) string {
 		return "code this turn changed is executed by no test"
 	case "/vet_not_clean":
 		return "go vet reports problems this turn introduced"
+	case "/test_run_not_green":
+		return "no test run passed after this turn's last write"
 	default:
 		return strings.TrimPrefix(atom, "/")
 	}

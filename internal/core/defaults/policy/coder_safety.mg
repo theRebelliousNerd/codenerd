@@ -128,6 +128,65 @@ Decl turn_vet_red(Turn) bound [/name].
 turn_vet_green(Turn) :- turn_gate(Turn, /vet, /passing).
 turn_vet_red(Turn) :- turn_gate(Turn, /vet, /failing).
 
+# What a write owes is policy, not a property of the gate code (external audit
+# N01, 2026-09-19). Until then the compile and test gates ran only when a .go
+# file was written while turn_verified demanded both green for every write, so
+# a document, a policy file or another language's code had no affirmative
+# completion path: /unverified however well it was done.
+#
+# The executor asserts each path the turn wrote with its lower-case extension
+# (turn_written) -- a measurement. write_class maps an extension to the class of
+# evidence it owes; an extension the table does not name is /other. .txt is
+# /other, not /doc: testdata golden files are .txt, and changing one changes
+# what the tests assert.
+#
+#   /go     the executor's own gates: /build and /test (vet and coverage debt
+#           withhold the verdict below as before)
+#   /doc    nothing mechanical: nothing compiles or runs a document, and owing
+#           a gate it cannot have would leave it unverifiable. Stated here so
+#           a reader does not infer it from an absence.
+#   /other  /test_run: a test process the tool layer started after the turn's
+#           last write, whose exit was 0 (the executor reads the receipts
+#           internal/tools records -- N07 -- and asserts the gate)
+#
+# A write-oriented turn with no recorded write -- dream mode, or a write tool
+# whose path was not recorded -- owes both Go gates: the cautious side, as
+# before.
+Decl turn_written(Turn, Path, Ext) bound [/name, /string, /string].
+Decl write_class(Ext, Class) bound [/string, /name].
+Decl known_write_ext(Ext) bound [/string].
+Decl has_turn_written(Turn) bound [/name].
+Decl turn_write_class(Turn, Class) bound [/name, /name].
+Decl turn_owes_gate(Turn, Gate) bound [/name, /name].
+Decl turn_unmet_gate(Turn, Gate) bound [/name, /name].
+Decl turn_red_gate(Turn, Gate) bound [/name, /name].
+Decl has_unmet_gate(Turn) bound [/name].
+Decl has_red_gate(Turn) bound [/name].
+
+write_class(".go", /go).
+write_class(".md", /doc).
+write_class(".markdown", /doc).
+write_class(".rst", /doc).
+write_class(".adoc", /doc).
+known_write_ext(Ext) :- write_class(Ext, _).
+
+has_turn_written(Turn) :- turn_written(Turn, _, _).
+turn_write_class(Turn, Class) :- turn_written(Turn, _, Ext), write_class(Ext, Class).
+turn_write_class(Turn, /other) :- turn_written(Turn, _, Ext), !known_write_ext(Ext).
+
+turn_owes_gate(Turn, /build) :- turn_write_class(Turn, /go).
+turn_owes_gate(Turn, /test) :- turn_write_class(Turn, /go).
+turn_owes_gate(Turn, /test_run) :- turn_write_class(Turn, /other).
+turn_owes_gate(Turn, /build) :- turn_wrote(Turn), !has_turn_written(Turn).
+turn_owes_gate(Turn, /test) :- turn_wrote(Turn), !has_turn_written(Turn).
+
+# An owed gate is met by this turn's affirmative verdict and nothing older; a
+# gate that recorded both verdicts is red, so the green one cannot carry it.
+turn_unmet_gate(Turn, Gate) :- turn_owes_gate(Turn, Gate), !turn_gate(Turn, Gate, /passing).
+turn_red_gate(Turn, Gate) :- turn_owes_gate(Turn, Gate), turn_gate(Turn, Gate, /failing).
+has_unmet_gate(Turn) :- turn_unmet_gate(Turn, _).
+has_red_gate(Turn) :- turn_red_gate(Turn, _).
+
 # A turn that created new Go source owes a test for it. turn_created_source
 # and turn_created_test are the files this turn created, as the executor
 # recorded them; they are the turn's, not the world's. The executor used to
@@ -209,14 +268,11 @@ turn_done(Turn) :- turn_executed(Turn), turn_verified(Turn).
 # somehow recorded both is not verified on the strength of the green.
 #
 # A turn that changed nothing has no workspace claim to verify, so execution is
-# the whole of what it can owe. A turn that wrote owes both gates green: the
-# fact space records turn_created_source (files CREATED this turn) but has no
-# evidence predicate for a file MODIFIED this turn, so the corpus cannot tell a
-# markdown write from a Go one. Owing both gates is the cautious direction to be
-# wrong in, which is the same argument test_coverage makes at the top of this
-# file.
+# the whole of what it can owe. A turn that wrote owes every gate its writes
+# owe (turn_owes_gate above), each green and none red, and no coverage debt or
+# vet finding of its own.
 turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), !turn_wrote(Turn).
-turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_wrote(Turn), turn_build_green(Turn), turn_tests_green(Turn), !turn_build_red(Turn), !turn_tests_red(Turn), !turn_has_untested(Turn), !turn_has_uncovered(Turn), !turn_vet_red(Turn).
+turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_wrote(Turn), !has_unmet_gate(Turn), !has_red_gate(Turn), !turn_has_untested(Turn), !turn_has_uncovered(Turn), !turn_vet_red(Turn).
 turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), has_turn_acceptance(Turn).
 
 # has_turn_acceptance projects turn_acceptance/3 to a single argument, matching
@@ -242,8 +298,12 @@ turn_wrote(Turn) :- turn_evidence(Turn, Verb, _, _, _, _, _), write_oriented_int
 # for a turn that wrote nothing (those verify), so no spurious reason is
 # produced for a read-only turn.
 turn_unverified(Turn) :- turn_executed(Turn), !turn_verified(Turn).
-turn_missing_evidence(Turn, /build_not_green) :- turn_unverified(Turn), !turn_build_green(Turn).
-turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), !turn_tests_green(Turn).
+turn_missing_evidence(Turn, /build_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /build).
+turn_missing_evidence(Turn, /build_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /build).
+turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test).
+turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /test).
+turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test_run).
+turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /test_run).
 turn_missing_evidence(Turn, /tests_not_written) :- turn_unverified(Turn), turn_has_untested(Turn).
 turn_missing_evidence(Turn, /changed_code_unexecuted) :- turn_unverified(Turn), turn_has_uncovered(Turn).
 turn_missing_evidence(Turn, /vet_not_clean) :- turn_unverified(Turn), turn_vet_red(Turn).
