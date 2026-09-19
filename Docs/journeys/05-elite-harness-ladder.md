@@ -11,22 +11,26 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 07:20
+- last updated: 2026-09-19 08:05
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
   run re-reported old passes for every package whose tests touch no files -- a timing flake there
   could never show; they do not count. R0's other clause (a run's verdict matches its evidence) is
-  reviewed on every codeNERD run: true for R1-3 and R1-4 (R1-4 failed and said so).
-- current rung: R1 -- streak 0: R1-3 landed, R1-4 was refused by the removed-tests guard. Next: the
-  same brief again on `279b73fe`, where that guard hands the deleted tests back.
+  reviewed on every codeNERD run: true for R1-3, R1-4 and R1-4b (both failed and said so; R1-4b's
+  message did not say why, fixed in `27a4f0db`).
+- current rung: R1 -- streak 0: R1-3 landed; R1-4 was refused by the removed-tests guard, R1-4b by
+  its own coverage round. Next: the check-mangle brief v2 (it states the property both fixes broke:
+  an error is reported against the file that has it) on `27a4f0db`.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
   boot test now names whatever still holds the workspace after `Close` instead of failing only in
   TempDir's cleanup); the removed-tests guard's repair round (`279b73fe`: a turn that deleted
   tests is handed each one's source to put back and the tests are rerun, where it used to fail on
-  the spot -- R1-4's blocker)
+  the spot -- R1-4's blocker); a forcing round that gives up with the suite red is undone to its
+  last green state, the vet round keeps the tests green, and the final check names what failed
+  (`27a4f0db` -- R1-4b's blocker)
 - open: the harness defects below (C1-C4, V1); G6 needs a toolchain download
   (asked); codeNERD cannot run the gates it will be asked to clear -- no typed tool runs `go vet`,
   staticcheck or golangci-lint for the model (the forcing gate runs vet itself, the model cannot),
@@ -190,3 +194,4 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 03:38 | R1 | R1-2, same brief | campaign `--type remediation` | not landed: timed out at 60 min in phase 3 of 4 with the tree not building. Plan targets guessed before research, modify retyped to create, a retry without its reason, a rollback scoped to declared targets | 60.1 | -- | 1 + a doc | reverted |
 | 2026-09-19 04:41 | R1 | R1-3 run_build leaves artifacts | nerd fix | **landed**: fix + a test that fails before and passes after; found and fixed its own regression from a full-suite run | 23.9 | 52 | 2 | `df4a3063` |
 | 2026-09-19 06:37 | R1 | R1-2 again (R1-4), forcing-gate binary | nerd fix | not landed, reverted: every gate held -- build, tests, the new coverage round (converged in two attempts), vet -- then the removed-tests guard refused the turn: a whole-file `write_file` of the test file dropped three existing tests that still pass against the new code. The guard was the one gate with no round (fixed by hand, `279b73fe`). The fix: corpus 135/135 and rule errors attributed right, but one malformed Decl cascades into 84 misattributed errors | 14.2 | 63 | 2 | reverted |
+| 2026-09-19 07:22 | R1 | R1-2 again (R1-4b), removed-tests round in | nerd fix | not landed, reverted: build and tests green, then the coverage round's own test failed three times (it counted a marker four schema files also contain) and the round left it in place; the final check failed the turn without naming why. Fixed by hand: a red give-up is undone, the final check names what failed. The fix (whole corpus in one program) blames all 135 files for one sibling's error -- criterion 7; brief v2 states that property | 20.6 | 49 | 2 | reverted |

@@ -4585,3 +4585,34 @@ match, so every fallback write was refused; and
 `VirtualStore.handleWriteFile` rewrites what it is given (`extractCodeBlockForFile` trims every
 write and, for Go, drops everything before `package`), so the store's own validator reports a hash
 mismatch on any content that ends in a newline. Both are in the ladder's defect list.
+
+
+## R1-4b, the same brief once the removed-tests guard had a round: the coverage round took the change down (2026-09-19, 07:22-07:42)
+
+Binary from `7b8f246c` (the removed-tests round `279b73fe` and the campaign fallback `ece5a41c`
+in). Brief: R1-2's, unchanged.
+
+| minutes | tool calls | outcome | model calls, input per call | files |
+|---|---|---|---|---|
+| 20.6 | 49 (14 read_file, 13 recall_context, 5 grep, 5 edit_lines, 3 search_code, 3 list_files, 2 run_tests, 2 glob, 1 run_build, 1 edit_file) | rc=1, "final workspace failed mechanical checks" -- **not landed**, reverted | 45 calls, mean 44.9k, peak 62.1k, 2.02M total (1.17M cached), 43.1k out -- of it the coverage round 15 calls, 744k in | `cmd_mangle_check.go` +77/-19, its test +229 (nothing dropped this time) |
+
+**What happened.** Build green, tests green (07:34). The coverage round found 5 blocks no test ran;
+each of its three attempts left the same failure: the model's
+`TestCheckMangle_CombinedContextAcceptsKernelPolicyFiles` counted `# Target: ` markers in the
+combined program and expected one -- but four schema files (`schemas_intent`, `schemas_knowledge`,
+`schemas_learning`, `schemas_shards`) carry `# Target:` comments of their own, so there were five.
+The test was wrong, the code was not, and the model never asked why the count was five (attempt 2
+edited nothing; attempt 3 ran under the commit regime). The round gave up, its failing test stayed,
+and the final re-verification failed the turn with a message that named neither the check nor the
+test. Harness fix, hand-built: a forcing round that gives up with the suite red is undone to its
+last green state (the fix survives, the debt is named), the vet round keeps the suite green too,
+and the final check names what failed.
+
+**The fix itself.** A different design from R1-4's: the whole corpus (every schema, policy and root
+module but the target) concatenated with the target into one program, loaded in one call. Measured
+on a scratch copy: 135 of 135 OK clean; with one unsafe rule planted in `stage_context.mg` all 135
+files report ERROR, each blamed for the planted rule ("ERROR in benchmarks.mg: ... planted_unsafe").
+The current checker reports a planted rule error, or a malformed Decl, in the file that has it and
+nowhere else (measured). Criterion 7 fails either way. Both attempts cascaded a sibling's error into
+every file; the brief never stated that property, so v2 of the brief states it (an error is
+reported against the file that has it; today that holds and must still hold).
