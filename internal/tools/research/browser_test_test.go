@@ -123,3 +123,12 @@ func extractBrowserTestYAML(t *testing.T, raw string) string {
 	}
 	return value
 }
+
+// TODO: Edge Case (Null/Empty): Verify behavior when `operation` is an empty string or omitted.
+// TODO: Edge Case (Type Coercion): Verify `since_ms` gracefully handles stringified numbers or invalid types.
+// TODO: Edge Case (User Extremes): Ensure `run` enforces a hard cap on the number of actions executed, identical to the generation limit.
+// TODO: Edge Case (User Extremes): Verify `settle_timeout_ms` strictly enforces its documented 10000ms hard cap.
+// TODO: Edge Case (State Conflicts): Simulate session termination during `run` to ensure graceful failure without panics.
+// TODO: Edge Case (Mangle): Test `subtractBrowserFacts` with complex nested arguments to ensure fingerprinting does not collide or panic.
+// TODO: Edge Case (Null/Empty): Verify the fallback mechanism in `create` when both `test` and `test_yaml` are empty, specifically checking the `session_id` requirement.
+// TODO: Edge Case (User Extremes): Test passing a massive (e.g., 10MB) invalid YAML string to ensure the parser does not cause OOM or excessive CPU utilization.
