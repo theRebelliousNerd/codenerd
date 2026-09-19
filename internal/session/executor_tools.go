@@ -907,11 +907,18 @@ func (e *Executor) executeAndRecordToolCall(
 	cfg *config.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (string, error) {
+	var guardErr error
 	if isWriteMutationTool(call.Name) {
-		snapshotPreWriteContents(result, call.Input, e.workspaceForVerification())
+		// A write the guard refuses never runs: no preimage, no write.
+		if guardErr = guardWrite(ctx, call.Input, e.workspaceForVerification()); guardErr == nil {
+			snapshotPreWriteContents(result, call.Input, e.workspaceForVerification())
+		}
 	}
 	toolCtx, testRuns := tools.WithTestRunLog(ctx)
-	out, err := e.executeToolCall(toolCtx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
+	out, err := "", guardErr
+	if guardErr == nil {
+		out, err = e.executeToolCall(toolCtx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
+	}
 	result.ToolCallsExecuted++
 	// A test execution is a test process the tool layer started and recorded
 	// (tools.TestRun), whether its tests passed or failed. A tool's name is

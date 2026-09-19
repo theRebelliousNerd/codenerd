@@ -44,6 +44,9 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 		IntentVerb: intent,
 		Task:       o.withPreviousAttempt(task, input),
 	}
+	if task != nil {
+		ctx = session.WithWriteGuard(ctx, o.writeGuard(task))
+	}
 	ret, err := observed.ExecuteObserved(ctx, req)
 	o.recordAttemptWrites(task, ret.Writes)
 	if err != nil {

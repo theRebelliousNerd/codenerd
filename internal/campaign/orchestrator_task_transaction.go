@@ -79,7 +79,7 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 		return nil, fmt.Errorf("capture execution snapshot for %s: %w", taskIDOrUnknown(task), snapErr)
 	}
 
-	o.beginAttemptWrites(task)
+	o.beginAttempt(task)
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logging.Get(logging.CategoryCampaign).Error(
@@ -99,7 +99,7 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 		err = validateFileModifyOutcome(task, snapshot)
 	}
 	if err == nil {
-		o.takeAttemptWrites(task)
+		o.endAttempt(task).release()
 		return result, nil
 	}
 	return nil, o.undoFailedAttempt(task, snapshot, err)

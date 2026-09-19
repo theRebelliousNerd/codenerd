@@ -75,26 +75,8 @@ func (m *writeSetLockManager) acquire(
 		return nil, fmt.Errorf("write_set lock acquisition requires non-empty task id")
 	}
 
-	// Gate out-of-workspace lock requests with distinct errors
-	for _, raw := range writeSet {
-		if strings.TrimSpace(raw) == "" || strings.ContainsRune(raw, '\x00') {
-			continue
-		}
-		path := raw
-		if !filepath.IsAbs(path) && m.workspace != "" {
-			path = filepath.Join(m.workspace, path)
-		}
-		abs, err := filepath.Abs(path)
-		if err != nil {
-			abs = filepath.Clean(path)
-		}
-		normalized := filepath.ToSlash(filepath.Clean(abs))
-		if runtime.GOOS == "windows" {
-			normalized = strings.ToLower(normalized)
-		}
-		if m.workspace != "" && !isPathWithinWorkspace(m.workspace, normalized) {
-			return nil, fmt.Errorf("path %s is outside workspace %s", raw, m.workspace)
-		}
+	if err := m.refuseOutsideWorkspace(writeSet); err != nil {
+		return nil, err
 	}
 
 	paths := normalizeWriteSetPaths(m.workspace, writeSet)
@@ -127,7 +109,7 @@ func (m *writeSetLockManager) acquire(
 	}()
 
 	for {
-		if ok := m.tryAcquirePaths(taskID, paths); ok {
+		if m.claim(taskID, paths, false) == "" {
 			return &writeSetLockLease{
 				manager: m,
 				taskID:  taskID,
@@ -149,17 +131,84 @@ func (m *writeSetLockManager) acquire(
 	}
 }
 
-func (m *writeSetLockManager) tryAcquirePaths(taskID string, paths []string) bool {
+// refuseOutsideWorkspace returns an error naming the first path in writeSet
+// that resolves outside the workspace. Empty and NUL-carrying entries are
+// skipped here; normalizeWriteSetPaths drops them.
+func (m *writeSetLockManager) refuseOutsideWorkspace(writeSet []string) error {
+	for _, raw := range writeSet {
+		if strings.TrimSpace(raw) == "" || strings.ContainsRune(raw, '\x00') {
+			continue
+		}
+		path := raw
+		if !filepath.IsAbs(path) && m.workspace != "" {
+			path = filepath.Join(m.workspace, path)
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			abs = filepath.Clean(path)
+		}
+		normalized := filepath.ToSlash(filepath.Clean(abs))
+		if runtime.GOOS == "windows" {
+			normalized = strings.ToLower(normalized)
+		}
+		if m.workspace != "" && !isPathWithinWorkspace(m.workspace, normalized) {
+			return fmt.Errorf("path %s is outside workspace %s", raw, m.workspace)
+		}
+	}
+	return nil
+}
+
+// tryAcquire takes writeSet for taskID when no other task holds any of it --
+// or a directory above any of it -- and otherwise returns, without waiting,
+// the task that does. A write taken at the moment it happens cannot wait: two
+// tasks each holding a path the other is about to write would wait on each
+// other forever. The directory check is what makes a directory write set
+// cover its files: the declared lease is keyed by the directory, and a file
+// under it has a key of its own.
+func (m *writeSetLockManager) tryAcquire(taskID string, writeSet []string) (lease *writeSetLockLease, heldBy string, err error) {
+	if m == nil {
+		return nil, "", fmt.Errorf("lock manager is nil")
+	}
+	if strings.TrimSpace(taskID) == "" {
+		return nil, "", fmt.Errorf("write_set lock acquisition requires non-empty task id")
+	}
+	if err := m.refuseOutsideWorkspace(writeSet); err != nil {
+		return nil, "", err
+	}
+	paths := normalizeWriteSetPaths(m.workspace, writeSet)
+	if len(paths) == 0 {
+		return nil, "", nil
+	}
+	if holder := m.claim(taskID, paths, true); holder != "" {
+		return nil, holder, nil
+	}
+	return &writeSetLockLease{manager: m, taskID: taskID, paths: paths}, "", nil
+}
+
+// claim takes every path for taskID, or none of them: it returns the task
+// holding the first path another task has -- or, with ancestors, a directory
+// above one inside the workspace -- and "" when it took them all. A task
+// re-entering its own paths counts each again, so its releases balance.
+func (m *writeSetLockManager) claim(taskID string, paths []string, ancestors bool) (heldBy string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	root := normalizeAbsolutePath(m.workspace, m.workspace)
 	for _, p := range paths {
-		state, held := m.owners[p]
-		if held && state.taskID != taskID {
-			return false
+		for key := p; ; {
+			if state, held := m.owners[key]; held && state.taskID != taskID {
+				return state.taskID
+			}
+			if !ancestors || key == root {
+				break
+			}
+			parent := key[:max(strings.LastIndexByte(key, '/'), 0)]
+			if parent == "" || parent == key || len(parent) < len(root) {
+				break
+			}
+			key = parent
 		}
 	}
-
 	for _, p := range paths {
 		if state, held := m.owners[p]; held {
 			state.count++
@@ -167,7 +216,7 @@ func (m *writeSetLockManager) tryAcquirePaths(taskID string, paths []string) boo
 			m.owners[p] = &ownerState{taskID: taskID, count: 1}
 		}
 	}
-	return true
+	return ""
 }
 
 func (m *writeSetLockManager) releasePaths(taskID string, paths []string) {

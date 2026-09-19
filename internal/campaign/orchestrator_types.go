@@ -4,7 +4,6 @@ import (
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/northstar"
-	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
@@ -36,9 +35,10 @@ type Orchestrator struct {
 	virtualStore *core.VirtualStore
 	transducer   perception.Transducer
 
-	// attemptWrites is each open attempt's turns' writes, by task ID
+	// attempts is each open attempt's record -- its turns' writes and the
+	// leases its write guard took -- by task ID
 	// (orchestrator_attempt_writes.go). Guarded by mu.
-	attemptWrites map[string][]observation.FileWrite
+	attempts map[string]*attemptRecord
 
 	// Campaign-specific components
 	contextPager                *ContextPager
