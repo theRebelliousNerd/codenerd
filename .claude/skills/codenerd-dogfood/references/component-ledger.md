@@ -4282,3 +4282,23 @@ planned step now compiles its own prompt for its own file and language (`e434033
 a `.mg` file gets the corpus's 119 `/mangle` atoms when it starts instead of the Go prompt the
 turn began with.
 
+
+## Same brief, third run, on the binary with the tag gate and per-step prompts: an honest rc=1 (2026-09-18, 20:04-20:30)
+
+Binary from `72af35b6`. Brief q1b unchanged (as `q1c`). 25.2 minutes, 98 tool calls, rc=1:
+"edits broke the tests and the repair loop exhausted its 5m0s wall clock after 2 attempts"
+(10 LLM calls, **547k tokens in**, 10k out). This time the test carried no build tag, the gate
+compiled and ran it, and it failed: `processInput("fix it") with RouteClarify returned
+chat.streamStartMsg, want clarifier-lane message`. The verdict matched the tree. The test is held
+out of the tree (scratchpad `process_clarify_test.go.q1c_held`).
+
+**Reading.** Two things. (1) The verdict machinery now tells the truth on this brief in both
+directions it has been tried: a hidden test is run (`f8290327`), a failing one fails the turn.
+(2) The failure may be a finding rather than a bad test: with a `RouteClarify` decision the chat
+returns a stream start, not a clarification message -- either the `/clarify` lane consumes the
+decision and then streams anyway, or the clarifier's first message IS a stream start and the test's
+expectation is wrong. Not yet determined; it is the next thing to read, by hand, before another
+run is spent on it. The repair loop's cost is the other open item: ~55k tokens in per call to
+produce ~1k out, twice, inside a five-minute clock. "Step prompt compiled" does not appear in this
+run's log: the task planned as a single step, so the per-step compile (`e434033b`) had nothing to do.
+
