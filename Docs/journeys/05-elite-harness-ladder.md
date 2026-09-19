@@ -11,12 +11,56 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 05:30
-- current rung: R1 -- one landing (R1-3), two more in a row to pass; R0 suite 1 of 3 green after
-  the two load flakes were fixed at their cause
-- open: the forcing gate (changed code no test executes, and `go vet`, become verdict evidence with
-  a repair round -- R1-2 failed on exactly those); the campaign defects the R1-2 comparison found;
-  G6 needs a toolchain download (asked)
+- last updated: 2026-09-19 06:40
+- **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
+  G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
+  cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
+  run re-reported old passes for every package whose tests touch no files -- a timing flake there
+  could never show; they do not count. R0's other clause (a run's verdict matches its evidence) is
+  reviewed on every codeNERD run: true for R1-3; R1-4 is the first run under the forcing gate.
+- current rung: R1 -- one landing (R1-3), two more in a row to pass.
+- landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
+  findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
+  passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
+  boot test now names whatever still holds the workspace after `Close` instead of failing only in
+  TempDir's cleanup)
+- open: the campaign defects the R1-2 comparison found (below); G6 needs a toolchain download
+  (asked); codeNERD cannot run the gates it will be asked to clear -- no typed tool runs `go vet`,
+  staticcheck or golangci-lint for the model (the forcing gate runs vet itself, the model cannot),
+  and `nerd fix --acceptance` takes failing tests, not a gate. G4/G5 items are therefore not rung-1
+  probes (criterion 5), and R5 (clear a class of findings) and R7 (measure the gates, pick the
+  next item) need that tool first.
+
+### Campaign defects to fix before R2 runs as a campaign
+
+From the R1-2 comparison (`campaign_1284b6bb`):
+
+- **C1 targets fixed before research.** Every write set was decided when the plan was made, before
+  phase 0's research ran. Phase 2's task targets `internal/cli/check-mangle.go`, a path that does
+  not exist; the command lives in `cmd/nerd/cmd_mangle_check.go`, which phase 0 found. Nothing
+  carries research results back into the tasks that follow it.
+- **C2 a missing modify target becomes a create.** `reconcileTaskTypeWithWriteSet`
+  (`internal/campaign/decomposer_planning.go`) retypes a `/file_modify` whose write set does not
+  exist to `/file_create` (planned `/file_modify`, executed `/file_create`), so a wrong guess turns
+  into a new file at the wrong path instead of a plan error.
+- **C3 a retry drops its reason.** The retry re-spawned the same create task without the failure
+  that stopped it, and the create-only fallback refused because the file now existed.
+- **C4 rollback covers the declared write set, not the attempt's writes.** It removed the created
+  file and kept the coder's edit to `cmd_mangle_check.go` -- outside the set -- which imported it,
+  so the tree stopped building. `TestRollback_KeepsFilesOutsideTheWriteSet` pins today's
+  behaviour; a fix has to tell the attempt's own writes from anyone else's. The campaign cannot
+  today: it spawns through `TaskExecutor.Execute`, which returns the shard's prose, while the
+  typed return (`observation.Return`, on `session.TaskResult.Observed`) already carries the
+  attempt's write set (`Changed`), its own error (`Failure`) and the kernel's verdict (`Outcome`).
+  C3 and C4 share that root: the typed result (S1) stops one seam short of the campaign.
+- **C5 a gated coder turn has a way around its gate.** When the coder shard fails a `/file_create`
+  task for any reason but a cancel -- including the test obligation ("hollow success blocked: turn
+  created Go source ... without a test file") -- `executeFileTaskFallback`
+  (`internal/campaign/orchestrator_task_handlers.go`) asks the model to "Generate the following
+  file" and writes the answer through the VirtualStore: permission and write validation apply, the
+  turn's obligations (tests, coverage, vet, verdict) do not. In R1-2 it was refused only because the
+  blocked turn had already written the file; C2's retype is what made it reachable. The completion
+  gate's reach -- hand-built, not a codeNERD brief.
 
 ## What counts as a landing
 
@@ -70,7 +114,7 @@ count until the rungs below it are passed.
 |---|---|---|
 | G1 build | `go build ./...` | 0 errors |
 | G2 vet | `go vet -tags sqlite_vec ./...` (every package) | 0 |
-| G3 tests | `go test ./...`, three consecutive green runs (no flakes) | 88 of 89 on `f26140e1`: `TestRunToolLoop_ReservesTimeForFinalVerdict` fails 1 in ~6 runs alone ("compile working context: context deadline exceeded") |
+| G3 tests | `go test -count=1 ./...`, three consecutive green runs (no flakes; uncached, or a run re-reports old passes) | 88 of 89 on `f26140e1`: `TestRunToolLoop_ReservesTimeForFinalVerdict` fails 1 in ~6 runs alone ("compile working context: context deadline exceeded") |
 | G4 staticcheck | `staticcheck -tags sqlite_vec ./...` | 103: 95 unused (U1000; 24 of them in `cmd/nerd/cmd_campaign.go`), 3 SA4000, 2 SA5011, 1 SA4023, 1 SA9003 |
 | G5 golangci-lint | `golangci-lint run --build-tags sqlite_vec --max-issues-per-linter=0 --max-same-issues=0 ./...` (default linters; without the two caps it prints 169 and hides the rest) | 3,286: errcheck 1,851 (1,176 in tests), staticcheck 1,319 (1,190 are QF1012 `WriteString(fmt.Sprintf(...))`), unused 95, ineffassign 16, govet 5 (`reflect.Ptr`) |
 | G6 vulnerabilities | `govulncheck -tags sqlite_vec ./...` | 11 reachable: 8 in the standard library (go1.26.4, fixed in 1.26.6), 2 in `google.golang.org/grpc` v1.81.1, 1 in `golang.org/x/text` v0.37.0 |
