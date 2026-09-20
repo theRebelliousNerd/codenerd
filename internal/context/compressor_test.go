@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"slices"
 )
@@ -192,7 +192,7 @@ func TestAtomExtractionAndKernel(t *testing.T) {
 	// Turn with control packet atoms
 	// Use 5 args to match standard user_intent schema: ID, Category, Verb, Target, Constraint
 	atomStr := "user_intent(\"id\", \"/test_cat\", \"/test_verb\", \"target\", \"constraint\")."
-	packet := &perception.ControlPacket{
+	packet := &articulation.ControlPacket{
 		MangleUpdates: []string{atomStr},
 	}
 

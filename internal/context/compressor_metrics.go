@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
-	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
 
@@ -220,7 +220,7 @@ func cloneCompressedTurns(turns []CompressedTurn) []CompressedTurn {
 		out[i].ActionAtoms = cloneFacts(t.ActionAtoms)
 		out[i].ResultAtoms = cloneFacts(t.ResultAtoms)
 		out[i].MangleUpdates = append([]string(nil), t.MangleUpdates...)
-		out[i].MemoryOperations = append([]perception.MemoryOperation(nil), t.MemoryOperations...)
+		out[i].MemoryOperations = append([]articulation.MemoryOperation(nil), t.MemoryOperations...)
 	}
 	return out
 }

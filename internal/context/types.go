@@ -6,8 +6,8 @@
 package context
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
 	"time"
 )
 
@@ -192,7 +192,7 @@ type CompressedTurn struct {
 
 	// Metadata
 	MangleUpdates    []string // Raw mangle_updates from control packet
-	MemoryOperations []perception.MemoryOperation
+	MemoryOperations []articulation.MemoryOperation
 
 	// IMPORTANT: No surface text stored - this is the key to compression
 }
@@ -319,7 +319,7 @@ type Turn struct {
 
 	// Parsed outputs (from Piggyback Protocol)
 	SurfaceResponse string
-	ControlPacket   *perception.ControlPacket
+	ControlPacket   *articulation.ControlPacket
 
 	// Extracted atoms
 	ExtractedAtoms []core.Fact
@@ -331,7 +331,7 @@ type TurnResult struct {
 	CommittedAtoms []core.Fact
 
 	// Memory operations performed
-	MemoryOps []perception.MemoryOperation
+	MemoryOps []articulation.MemoryOperation
 
 	// Whether compression was triggered
 	CompressionTriggered bool

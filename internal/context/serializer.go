@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
-	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
 
@@ -318,7 +318,7 @@ const (
 // =============================================================================
 
 // ExtractAtomsFromControlPacket extracts Mangle atoms from a control packet.
-func ExtractAtomsFromControlPacket(packet *perception.ControlPacket) ([]core.Fact, error) {
+func ExtractAtomsFromControlPacket(packet *articulation.ControlPacket) ([]core.Fact, error) {
 	if packet == nil {
 		return nil, nil
 	}

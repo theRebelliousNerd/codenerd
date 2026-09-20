@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 )
 
@@ -1939,7 +1940,7 @@ func TestIntent_ShouldStoreAllFields(t *testing.T) {
 		Confidence: 0.95,
 		Ambiguity:  []string{"semantic_type=causation"},
 		Response:   "I'll fix that.",
-		MemoryOperations: []MemoryOperation{
+		MemoryOperations: []articulation.MemoryOperation{
 			{Op: "promote_to_long_term", Key: "pref", Value: "tabs"},
 		},
 	}

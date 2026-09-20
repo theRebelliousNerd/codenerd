@@ -23,6 +23,7 @@
 package chat
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
@@ -958,9 +959,9 @@ func (m Model) processInput(input string) tea.Cmd {
 
 			// SEMANTIC COMPRESSION
 			if m.compressor != nil {
-				var memOps []perception.MemoryOperation
+				var memOps []articulation.MemoryOperation
 				for _, op := range artOutput.MemoryOperations {
-					memOps = append(memOps, perception.MemoryOperation(op))
+					memOps = append(memOps, articulation.MemoryOperation(op))
 				}
 
 				allMangleUpdates := mangleUpdates
@@ -997,8 +998,8 @@ func (m Model) processInput(input string) tea.Cmd {
 					}
 				}
 
-				controlPacket := &perception.ControlPacket{
-					IntentClassification: perception.IntentClassification{
+				controlPacket := &articulation.ControlPacket{
+					IntentClassification: articulation.IntentClassification{
 						Category: intent.Category,
 						Verb:     intent.Verb,
 						Target:   intent.Target,

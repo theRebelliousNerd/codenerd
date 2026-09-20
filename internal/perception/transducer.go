@@ -12,26 +12,14 @@ import (
 	"codenerd/internal/logging"
 )
 
-// =============================================================================
-// TYPE ALIASES - Unified Piggyback Protocol Types
-// =============================================================================
-// These types are canonically defined in the articulation package.
-// We re-export them here for backward compatibility and convenience.
-
-// PiggybackEnvelope is an alias for articulation.PiggybackEnvelope
-type PiggybackEnvelope = articulation.PiggybackEnvelope
-
-// ControlPacket is an alias for articulation.ControlPacket
-type ControlPacket = articulation.ControlPacket
-
-// IntentClassification is an alias for articulation.IntentClassification
-type IntentClassification = articulation.IntentClassification
-
-// MemoryOperation is an alias for articulation.MemoryOperation
-type MemoryOperation = articulation.MemoryOperation
-
-// SelfCorrection is an alias for articulation.SelfCorrection
-type SelfCorrection = articulation.SelfCorrection
+// The Unified Piggyback Protocol types are NOT re-exported here. They are
+// canonically defined in the articulation package and every caller, inside
+// this package and outside it, names them from there. Five aliases used to
+// stand here "for backward compatibility and convenience", which is the
+// forwarding shim the NO SHIMS rule forbids: they broke no import cycle --
+// this package already imports articulation directly -- so all they bought
+// was a second spelling of one truth. transducer_noshim_test.go turns red if
+// any of them comes back.
 
 // =============================================================================
 // VERB CORPUS - Comprehensive Natural Language Understanding
@@ -325,14 +313,14 @@ func refineCategory(input string, defaultCategory string) string {
 
 // Intent represents the parsed user intent (Cortex 1.5.0 §3.1).
 type Intent struct {
-	Category         string            // /query, /mutation, /instruction
-	Verb             string            // /explain, /refactor, /debug, /generate, /init, /research, /remember, etc.
-	Target           string            // Primary target of the action
-	Constraint       string            // Constraints on the action
-	Confidence       float64           // Confidence score for the intent
-	Ambiguity        []string          // Ambiguous parts that need clarification
-	Response         string            // Natural language response (Piggyback Protocol)
-	MemoryOperations []MemoryOperation // Memory operations for learning/forgetting (Cold Storage)
+	Category         string                         // /query, /mutation, /instruction
+	Verb             string                         // /explain, /refactor, /debug, /generate, /init, /research, /remember, etc.
+	Target           string                         // Primary target of the action
+	Constraint       string                         // Constraints on the action
+	Confidence       float64                        // Confidence score for the intent
+	Ambiguity        []string                       // Ambiguous parts that need clarification
+	Response         string                         // Natural language response (Piggyback Protocol)
+	MemoryOperations []articulation.MemoryOperation // Memory operations for learning/forgetting (Cold Storage)
 
 	// TransientFailure marks an intent that is degraded because the language
 	// model was temporarily unreachable (a transient 5xx / 503 that survived

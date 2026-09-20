@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -198,7 +199,7 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 // fell through to nothing at all. Whatever is decided about implementing it,
 // an operation the model was told to emit must not vanish without a word, and
 // the next operation added to that enum must not either.
-func (c *Compressor) processMemoryOperation(op perception.MemoryOperation) {
+func (c *Compressor) processMemoryOperation(op articulation.MemoryOperation) {
 	switch op.Op {
 	case "promote_to_long_term":
 		logging.ContextDebug("Memory op: promote_to_long_term key=%s", op.Key)

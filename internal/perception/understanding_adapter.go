@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
@@ -552,14 +553,14 @@ func (t *UnderstandingTransducer) mapSemanticToCategory(semanticType, actionType
 }
 
 // extractMemoryOperations extracts memory operations from Understanding.
-func (t *UnderstandingTransducer) extractMemoryOperations(u *Understanding) []MemoryOperation {
-	var ops []MemoryOperation
+func (t *UnderstandingTransducer) extractMemoryOperations(u *Understanding) []articulation.MemoryOperation {
+	var ops []articulation.MemoryOperation
 
 	switch strings.ToLower(strings.TrimSpace(u.ActionType)) {
 	case "remember":
 		// "Remember that X" -> store X
 		if u.Scope.Target != "" {
-			ops = append(ops, MemoryOperation{
+			ops = append(ops, articulation.MemoryOperation{
 				Op:    "promote_to_long_term",
 				Key:   "preference",
 				Value: u.Scope.Target,
@@ -568,7 +569,7 @@ func (t *UnderstandingTransducer) extractMemoryOperations(u *Understanding) []Me
 	case "forget":
 		// "Forget X" -> remove X
 		if u.Scope.Target != "" {
-			ops = append(ops, MemoryOperation{
+			ops = append(ops, articulation.MemoryOperation{
 				Op:  "forget",
 				Key: u.Scope.Target,
 			})
