@@ -161,6 +161,63 @@ becoming stale, or detached from the mutations it is supposed to describe.
   extracted" while the rename that did it was one line of their own diff. Fixed by hand `ca7b31bf`:
   the build and test repair prompts carry the diff of the turn's writes, preimage on the left, a
   created file marked as created.
+- **N27 a forcing round stated its own subject over a red test run.** `coverageRepairPrompt`
+  opens with the constant *"The tests pass, but no test executes these lines of code you changed:"*
+  and the block under it is whatever the round's recheck last returned -- which on a red recheck is
+  a FAIL trace. R1-16 (2026-09-19) got all three of its remaining attempts that way, was told to
+  write more tests and forbidden the production fix the failure needed, and weakened its own
+  assertion to escape. The seam: `repairSpec.promptFor` took only the failing output, so it could
+  not see what the recheck already knew; `vet` and `pinning` had each smuggled it back through an
+  ad-hoc `testsBroke` local. Fixed by hand `2e48c308`: `recheck` reports a `repairFailure`
+  {Output, TestsBroke} and `repairSpec.prompt` chooses, with a shared default so no round can fall
+  through to a false preamble. Both ad-hoc locals deleted.
+- **N28 an importer check with no verdict was reported as a pass, under a clock shorter than the
+  suite it gated.** R1-18 printed `build ok | tests ok | 0 uncovered | 0 findings` over a gate that
+  timed out: `gateTests` propagated only `VerifyFailed` from `verifyImporters`, so an indeterminate
+  or canceled run fell through to the pass measured on the turn's *own* packages. The clock that
+  produced it was `testVerifyTimeout = 4 * time.Minute`, hardcoded -- `internal/session`'s own tests
+  take 259 s, so any turn touching a package it imports could never have its importers verified.
+  Both introduced with the importer gate itself (`c4c097fc`). Fixed by hand `8f88be65`: the merge is
+  a named decision (`mergeImporterVerdict`), and both verification budgets are zero, with a
+  non-positive budget meaning unbounded rather than already-expired.
+- **N29 the removed-tests gate could not tell a dead test from a hidden one.** A turn that deletes
+  dead code must delete its tests, and the gate refused every such turn -- R1-18 wrote the better
+  change (the span-balance heuristic replaced by the whole-file Go parser check already called on
+  the next line) and was failed for deleting the two tests whose only subject was the function it
+  deleted. Until this, no turn could delete dead code through codeNERD at all. Fixed by hand: a
+  removed test is released only when the same turn deleted a function that test names, matched on
+  the whole identifier (`tokenText` writes an identifier as `IDENT <name>`), so a near-name does
+  not release anything.
+- **N30 the CodeDOM fact layer was dark in every agent run.** `code_element` answered 1,175 queries
+  with no row in R1-16 while `code_defines` answered 950 of 1,216 from the same kernel. Four breaks,
+  any one sufficient: the `user_intent` a run asserts carries the brief *prose* in the target
+  position, so `file_topology(Target, ...)` cannot match; `codedom_edit.mg` keys on
+  `/current_intent` while the run asserts `/task_intent_1`; the session executor never consults
+  `next_action` at all, so `next_action(/open_file)` is unreachable from this path; and the
+  handlers emit scope facts only under an already-open scope. Cost beyond the empty query: all 197
+  lines of `policy/codedom_edit.mg` key on `code_element`, so edit safety, breaking-change risk,
+  the API-handler warnings and the CodeDOM activation boosts derived nothing. Fixed by hand
+  `e78e7241` on Steve's call ("fix the codedom dude! add capability"): the run parses the file its
+  focus names into the layer, replaced per file by content digest. Full write-up in
+  [08-codedom-journeys-2026-09-19.md](08-codedom-journeys-2026-09-19.md).
+- **N31 grounding capability detection is defeated by the broker passthrough.** `NewGroundingHelper`
+  decides whether a client can ground by type assertion, and the broker's `core` implements every
+  method of `GroundingController` as a silent forward that no-ops when the underlying client lacks
+  it. So the assertion succeeds for every provider: on a Meta config the log prints "Gemini
+  grounding: Google Search enabled", the call forwards into the Muse Spark client, falls off the
+  `ok` check, and nothing is enabled -- while that model's own native search is never reached. A
+  wrapper that forwards every optional interface makes `client.(Capability)` meaningless. Open.
+- **N32 tool parity is broken between the registry and the kernel.** `registry=3 kernel=9
+  unknown_in_kernel=[go_build go_fmt go_lint go_mod_tidy go_test go_vet]` on every boot. Note that
+  `go_lint` is in the kernel while the model has no lint tool (G4/G5). Open.
+- **N33 `shard_status/3` is asserted with no Decl.** "the fact is stored but no rule can read it,
+  and Query will not return it." Open.
+- **N34 token counting drifts 14.7% for `muse-spark-1.3-contributor`.** Predicted 1,235,137 against
+  1,343,721 billed over 20 calls. The broker's own warning says a persistent gap means `measure()`
+  no longer matches what the client sends -- so every window-budget decision is made on a wrong
+  tokenizer. Open.
+- **N35 `project_forbidden_path` costs 0.9 s per query.** 14 queries, 12.7 s, all answering, on the
+  write path. Open.
 - **N19 the working request drops history before the first kept round.** `prepareWorkingRequest`
   (`working_context.go`) sends the loop's anchor and history from the earliest kept assistant
   tool-call round onward; a user message with no tool round before it is not sent. Every production

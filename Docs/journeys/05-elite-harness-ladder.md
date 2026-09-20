@@ -81,6 +81,23 @@ the protocol for a run, and the status of each rung with the run that moved it.
   prompt (N24 held) and the model still hunted a broken extractor, because the one thing that
   explains the failure -- the rename in its own diff -- was never in front of it (**N26**, fixed by
   hand `ca7b31bf`: the build and test rounds carry the diff of the turn's writes). Streak 0.
+  R1-16 (N09 a fourth time) got the fix almost whole and its own coverage test found a real bug in
+  the helper it had just written (`goReceiverBaseType("func (a *pkg.A[T, U]) Close() error")` = `"U]"`,
+  want `"A"`) -- and then **every remaining round told it "The tests pass"** above that FAIL trace,
+  asked for more tests, and forbade the production fix the failure needed, so it weakened its own
+  assertion to escape (**N27**, fixed by hand `2e48c308`: a round's prompt is chosen from what its
+  recheck reported, and two of the seven rounds were already carrying an ad-hoc `testsBroke` boolean
+  doing this by hand). R1-17 fixed the search projection the new importer gate had caught and
+  **landed**; with R1-13 and R1-14 its work shipped as `e216f275`, the whole N09 fix written by
+  codeNERD across three briefs with no hand edit -- three prompts, so no rung moves. R1-18 (doc 08's
+  D2, the delimiter guard refusing valid edits) wrote **the better change and was refused for it**:
+  it deleted the span-balance heuristic and leaned on the whole-file Go parser check already called
+  on the next line, which meant deleting the two tests whose only subject was the deleted function,
+  and the removed-tests gate cannot tell a dead test from a hidden one. Until that was fixed no turn
+  could delete dead code through codeNERD at all. Hand-fixed: a removed test is released only when
+  the same turn deleted a function that test names. The run also exposed the gate reporting
+  `tests ok` over a four-minute timeout on six importer packages (`8f88be65`). Streak 0 -- and R1-18
+  is the first failure that was entirely the harness's.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the

@@ -26,6 +26,7 @@ import (
 func removedTestFunctions(workspace string, writtenPaths []string, preWrite map[string]PreImage) []string {
 	var out []string
 	inPackage := map[string]map[string]bool{}
+	deleted := deletedProductionFuncs(workspace, writtenPaths, preWrite)
 	for _, p := range writtenPaths {
 		missing := missingInPath(workspace, p, preWrite)
 		if len(missing) == 0 {
@@ -38,13 +39,86 @@ func removedTestFunctions(workspace string, writtenPaths []string, preWrite map[
 			inPackage[dir] = present
 		}
 		for _, n := range missing {
-			if !present[n] {
-				out = append(out, p+":"+n)
+			if present[n] || testSubjectWasDeleted(preWrite[p].Content, n, deleted) {
+				continue
 			}
+			out = append(out, p+":"+n)
 		}
 	}
 	sort.Strings(out)
 	return out
+}
+
+// deletedProductionFuncs is every function the turn removed outright from a
+// non-test Go file it wrote, by bare name.
+//
+// A file the turn created has no pre-image and deletes nothing; a file whose
+// pre-image or current content does not parse is skipped rather than read as
+// having deleted everything in it.
+func deletedProductionFuncs(workspace string, writtenPaths []string, preWrite map[string]PreImage) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range writtenPaths {
+		if isTestPath(p) || !strings.HasSuffix(p, ".go") {
+			continue
+		}
+		pre, ok := preWrite[p]
+		if !ok || !pre.Existed {
+			continue
+		}
+		before, ok := funcDecls(pre.Content)
+		if !ok {
+			continue
+		}
+		after := map[string]funcDecl{}
+		if data, err := os.ReadFile(diskPath(workspace, p)); err == nil {
+			parsed, ok := funcDecls(string(data))
+			if !ok {
+				continue
+			}
+			after = parsed
+		}
+		for name := range before {
+			if _, survives := after[name]; survives {
+				continue
+			}
+			// funcKey reports a method as "Recv.Name"; a call site names the
+			// method alone.
+			if i := strings.LastIndex(name, "."); i >= 0 {
+				name = name[i+1:]
+			}
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// testSubjectWasDeleted reports whether the removed test named a function the
+// same turn deleted from production -- in which case the test is deleted with
+// its subject, not in place of fixing it (ladder run R1-18, 2026-09-19).
+//
+// The test is read from its pre-image, since it is gone from disk. Matching is
+// on the whole identifier: tokenText writes one token per line and an
+// identifier as "IDENT <name>", so a test naming netDelimitersOf is not
+// released by the deletion of netDelimiters.
+func testSubjectWasDeleted(beforeSrc, testName string, deleted map[string]bool) bool {
+	if len(deleted) == 0 || beforeSrc == "" {
+		return false
+	}
+	decls, ok := funcDecls(beforeSrc)
+	if !ok {
+		return false
+	}
+	decl, ok := decls[testName]
+	if !ok {
+		return false
+	}
+	for _, line := range strings.Split(decl.tokens, "\n") {
+		name, isIdent := strings.CutPrefix(line, "IDENT ")
+		if isIdent && deleted[name] {
+			return true
+		}
+	}
+	return false
 }
 
 // packageTestNames is every test function of the package in dir as the
