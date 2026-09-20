@@ -2613,6 +2613,23 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 		}
 	}()
 
+	// 2b. A delete git can undo is not the irreversible act the permission
+	// gate guards, so the constitution is told when that is the case and can
+	// derive permitted for exactly those. Everything else -- untracked, dirty,
+	// outside the workspace, or unknown -- asserts nothing and stays denied.
+	// See delete_recoverable.go for why this is narrowed rather than removed.
+	if recoverable, ok := e.recoverableDeleteFact(context.Background(), actionAtom, target); ok {
+		if err := e.kernel.Assert(recoverable); err != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to assert file_recoverable: %v", err)
+		} else {
+			defer func() {
+				if err := e.kernel.RetractFact(recoverable); err != nil {
+					logging.Get(logging.CategorySession).Warn("Failed to retract file_recoverable: %v", err)
+				}
+			}()
+		}
+	}
+
 	// 3. Query permitted(Action, Target, Payload) using the kernel's grounded
 	// pattern form. This avoids scanning the whole permitted relation on the
 	// normal allowed path. The bare-predicate fallback preserves compatibility

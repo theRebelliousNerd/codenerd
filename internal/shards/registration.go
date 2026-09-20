@@ -158,6 +158,17 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"permitted_action",
 				"permission_check_result",
 				"permitted",
+				// Homed on purpose, and it is the same kind of decision the
+				// note below defers: it makes a permission path live. The
+				// difference is that this one was asked for. The executor
+				// asserts file_recoverable(Target) only for a /delete_file
+				// whose target git tracks with nothing staged and nothing
+				// modified, and constitution.mg joins it against
+				// pending_action, so it has to live in this shard or the rule
+				// cannot fire -- which the shard-join audit caught before this
+				// shipped, as a "split join [file_recoverable@cortex,
+				// pending_action@policy]".
+				"file_recoverable",
 				"blocked",
 				"constitution",
 				"commit_barrier",

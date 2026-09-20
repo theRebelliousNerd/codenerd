@@ -16,6 +16,24 @@ permitted(Action, Target, Payload) :-
     pending_action(_, Action, Target, Payload, _),
     admin_override(User).
 
+# A delete the repository can undo.
+#
+# requires_permission(/delete_file) stays, and so does the refusal for every
+# other delete. This rule fires only when the executor has asserted
+# file_recoverable(Target), which it does only for a target git tracks with
+# nothing staged and nothing modified -- `git checkout -- <path>` restores the
+# exact bytes. The premise the permission exists to enforce, that deletion
+# cannot be undone, is false for exactly this case.
+#
+# Untracked files, files with uncommitted work, paths outside the workspace and
+# anything the check cannot determine assert no fact and stay denied.
+# dangerous_content is still consulted, as on the safe_action path.
+permitted(/delete_file, Target, Payload) :-
+    pending_action(_, /delete_file, Target, Payload, _),
+    file_recoverable(Target),
+    !dangerous_content(/delete_file, Payload),
+    !dangerous_content(/delete_file, Target).
+
 # Downstream executor bridge:
 permitted(Action, Target, Payload) :-
     permitted_action(ActionID, Action, Target, Payload, _),

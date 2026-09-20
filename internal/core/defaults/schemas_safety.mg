@@ -32,6 +32,16 @@ Decl blocked_pattern(Pattern) bound [/string].
 # dangerous_content(ActionType, Payload) - derived predicate for content-based blocking
 Decl dangerous_content(ActionType, Payload) bound [/name, /string].
 
+# file_recoverable(Path) - the workspace can restore this exact file
+#
+# Asserted by the executor, per tool call, only for a /delete_file whose target
+# git tracks with nothing staged and nothing modified, so `git checkout` puts
+# back the exact bytes. Retracted with the pending_action it accompanies.
+# Untracked files, files with uncommitted work, paths outside the workspace and
+# anything the check cannot determine assert nothing, so deleting them still
+# requires human approval. See session/delete_recoverable.go.
+Decl file_recoverable(Path) bound [/string].
+
 # admin_override(User)
 Decl admin_override(User) bound [/string].
 
