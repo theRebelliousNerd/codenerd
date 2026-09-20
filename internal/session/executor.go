@@ -200,6 +200,12 @@ type Executor struct {
 	workingWorld WorkingWorld
 	workingScope string
 
+	// codeElements parses the file a turn is looking at into the CodeDOM fact
+	// layer, and codedom is what this run has put there. Narrow interface for
+	// the same reason fileContext is one. See codedom_scope.go.
+	codeElements CodeElementSource
+	codedom      *codedomScope
+
 	// turnCreatedSources and turnCreatedTests are the Go files this turn
 	// created, as recordGoFileCreations saw them: a source, and a test with
 	// the source it pairs with. They are this executor's own record; nothing

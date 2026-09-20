@@ -2107,6 +2107,12 @@ func initFinalExecutors(bctx *bootContext) error {
 	if fileContextProvider != nil {
 		bctx.sessionExecutor.SetFileContextProvider(fileContextProvider)
 	}
+	// The working set above queries code_element for every entity it selects.
+	// Nothing populated that predicate in a headless run -- only the CodeDOM
+	// scope does, and only VirtualStore.handleOpenFile opens one, which the
+	// session path never dispatches. The executor now parses the file each turn
+	// is looking at into the layer itself. See session/codedom_scope.go.
+	bctx.sessionExecutor.SetCodeElementSource(world.NewCodeElementFacts(bctx.workspace))
 
 	bctx.sessionSpawner = session.NewSpawner(
 		sessionKernel,

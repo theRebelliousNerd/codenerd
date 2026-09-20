@@ -199,11 +199,55 @@ The fact-producing handlers emit scope facts only under `if scope != nil && scop
 So the working context pays for 1175 queries a run into a fact space that is empty by
 construction, and the richest structural facts codedom can produce never reach the window.
 
-**This is S13, and it is a decision, not a brief.** Either agent runs open a scope for the files
-in focus (the facts arrive, and J1's hand-re-orientation stops being necessary), or the query is
-deleted. Today it is the worst of both. Landing the delete would be clean, green, correctly
-tested — and would foreclose the better fix, so it must not be handed to codeNERD before the
-decision is made.
+**S13 decided (Steve, 2026-09-19 21:5x): "fix the codedom dude! add capability."** Agent runs
+open a scope. The delete is off the table.
+
+#### Why the scope is empty — the full chain, verified
+
+It is not only that `code_element` is session-scope. Four independent links are broken, and any
+one of them alone would be enough:
+
+1. **The turn's target is prose.** The `user_intent` fact a `nerd fix` run asserts is
+   `user_intent(/task_intent_1, /mutation, /fix, "<the entire brief text>")`. Every kernel rule
+   that keys on the target being a file therefore cannot match.
+2. **The intent id does not match either.** `codedom_edit.mg` keys on `/current_intent`; the run
+   asserts `/task_intent_1`.
+3. **The session executor never consults `next_action`.** Zero references in `internal/session`.
+   So `next_action(/open_file)` is unreachable from `nerd fix` whatever the facts say — the
+   VirtualStore codedom handlers are reachable only from the chat path.
+4. **Only an open scope emits the facts.** `handleEditLines` and friends emit `ScopeFacts()`
+   under `if scope != nil && scope.IsInScope(path)`, and only `handleOpenFile` opens one.
+
+The cost of link 1 is larger than the scope: **all 197 lines of `codedom_edit.mg` derive
+nothing.** Edit safety (`edit_unsafe`, `element_edit_blocked`), breaking-change risk
+(`breaking_change_risk` over `element_visibility` and `element_parent`), API-handler awareness,
+and the CodeDOM activation boosts are all keyed on `code_element`. The policy is written,
+stratified and dead.
+
+Note what is *not* a defect: the working context's `"."` focus. `normalizeWorkingEntity`
+(`internal/session/working_context.go:171`) resolves a non-path target to the workspace root on
+purpose — *"an intent target is often a phrase describing the change, not a file"* — so
+observations are not filed under a sentence. D5 is the documented behaviour of link 1, not a
+separate bug.
+
+#### The fix
+
+Everything needed already exists; nothing new produces facts:
+
+| piece | where |
+|---|---|
+| parse a file into `code_element` + `element_signature`/`_visibility`/`_parent`/`code_interactable` | `world.ParserFactory.EmitAllFacts`, via `FileScope.ScopeFacts()` |
+| open the scope and return those facts | `VirtualStore.handleOpenFile` (`ActionOpenFile`) |
+| a handle to dispatch it | `Executor.virtualStore` |
+| the kernel those facts land in | the main kernel — `SetWorkingWorld(bctx.kernel)`, so the working set's `code_element` query reads the same store |
+| staleness after an edit | `handleEditLines`/`handleInsertLines` refresh the scope once it is open; `clearCodeDOMFacts` replaces it |
+
+So the change is: **an agent run establishes a CodeDOM scope over the files it is working on.**
+The executor measures the focus (it already knows every path the turn reads and writes); the
+kernel keeps every decision that follows. That adds a writer row to the ownership matrix in
+`internal/world/world_predicates.go`, whose comment today lists only "CodeDOM scope (session)"
+with a session lifetime — an agent turn is the run's equivalent of "what the user is looking
+at", and gets a turn lifetime.
 
 ### D4 no blast-radius edit has ever been made
 

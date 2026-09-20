@@ -239,6 +239,10 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	}
 	if entity != "" {
 		loop.focus = normalizeWorkingEntity(entity, e.workspaceForVerification())
+		// The focus is what this run is looking at, so it is what the CodeDOM
+		// fact layer holds: the elements of the file the turn just touched,
+		// re-parsed whenever an edit changed it (codedom_scope.go).
+		e.scopeFocusFile(loop.focus)
 	}
 	// args feeds a hash that becomes Kind, Kind is persisted on the record and
 	// is what working_set.mg selects observations by. A discarded marshal error
