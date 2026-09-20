@@ -69,5 +69,4 @@ test_passed
 tester_task
 thunderdome_battle
 tool_language
-turn_age_category
 unhandled_case_count_computed

@@ -47,6 +47,19 @@ var (
 	starvedHeadRe = regexp.MustCompile(`^([a-z_][a-zA-Z0-9_]*)\s*\(`)
 	starvedAtomRe = regexp.MustCompile(`\b([a-z_][a-zA-Z0-9_]*)\s*\(`)
 	starvedGoRe   = regexp.MustCompile(`"([a-z_][a-zA-Z0-9_]*)"`)
+	// A fact written as source text rather than a name: AssertString and
+	// ParseFactString take a whole clause, so the predicate appears as
+	// `"pred(` inside a format string and never as a bare `"pred"`. Missing
+	// this form cost a dogfood run: turn_age_category is asserted by
+	// context/compressor_metrics.go via
+	// AssertString(fmt.Sprintf("turn_age_category(%q, %s)", ...)), the gate
+	// could not see it, the predicate sat on the starved list as a false
+	// positive, and the run -- briefed on that false premise -- added an
+	// unused `const ... = "turn_age_category"` whose comment said it existed
+	// so "the starved-predicate gate sees this file as the producer".
+	// A gate that can be satisfied by a string literal teaches writing string
+	// literals.
+	starvedAssertStringRe = regexp.MustCompile(`"([a-z_][a-zA-Z0-9_]*)\(`)
 	// An external-predicate registration, which is production only when the
 	// corpus also declares the predicate external(). See goStringLiterals.
 	starvedRegRe = regexp.MustCompile(`mkPred\(\s*"([a-z_][a-zA-Z0-9_]*)"`)
@@ -173,6 +186,10 @@ func goStringLiterals(t *testing.T, root string) (all, registered, asserts map[s
 			src := string(data)
 			for _, m := range starvedGoRe.FindAllStringSubmatch(src, -1) {
 				out[m[1]] = struct{}{}
+			}
+			for _, m := range starvedAssertStringRe.FindAllStringSubmatch(src, -1) {
+				out[m[1]] = struct{}{}
+				asserts[m[1]] = struct{}{}
 			}
 			for _, m := range starvedRegRe.FindAllStringSubmatch(src, -1) {
 				registered[m[1]] = struct{}{}

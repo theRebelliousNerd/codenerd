@@ -719,6 +719,13 @@ func (c *Compressor) maskedObservationTurns() map[string]bool {
 		return nil
 	}
 
+	// The mask/preserve rules derive solely from turn_age_category, which only
+	// Go produces: asserted from the compressor's turn tracking as plain facts,
+	// never via an external predicate. Assert a fresh category for every known
+	// turn before querying so both queries below return rows during a real
+	// compression instead of an empty set.
+	c.assertTurnAgeCategories(c.recentTurns)
+
 	maskFacts, err := c.kernel.Query("should_mask_observation")
 	if err != nil {
 		logging.Get(logging.CategoryContext).Warn("maskedObservationTurns: should_mask_observation query failed: %v", err)
