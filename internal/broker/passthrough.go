@@ -1,5 +1,7 @@
 package broker
 
+import "codenerd/internal/types"
+
 // Pass-through accessors.
 //
 // These are unconditional on purpose, and the reasoning is worth recording
@@ -101,6 +103,20 @@ func (c *core) IsURLContextEnabled() bool {
 		return p.IsURLContextEnabled()
 	}
 	return false
+}
+
+// SupportsGrounding implements types.GroundingCapable: it reports what the
+// client underneath can do, not what this wrapper's method set implies.
+//
+// The setters below stay unconditional for the reason at the top of this file.
+// The capability answer cannot: it selects a control flow, and every client the
+// broker meters would otherwise answer yes. Measured 2026-09-19 -- all 11 runs
+// on a Meta provider logged "Gemini grounding: Google Search enabled", and the
+// fourteen call sites that branch on this answer took the grounded path against
+// a client that grounds nothing.
+func (c *core) SupportsGrounding() bool {
+	_, ok := c.underlying.(types.GroundingController)
+	return ok
 }
 
 // SetEnableGoogleSearch implements types.GroundingController.

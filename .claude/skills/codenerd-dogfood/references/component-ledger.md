@@ -5276,3 +5276,52 @@ see whether the result is valid." Four lines of Python, available the whole time
 
 **Rung-level.** Streak 0. R1-16 through R1-19 were each a case of the run being right and
 something else being wrong: three harness defects (N27, N28, N29) and, here, the brief.
+
+## R2-1, grounding capability: the right direction, blocked by a test that argues for the defect (2026-09-19, 23:14-23:39)
+
+First multi-file measurement, run out of rung order deliberately (R1's streak is 0) to learn
+whether a two-file change is reachable at all. Binary from `489262c5`. Brief symptom-only from
+N31, with the evidence measured first this time: all 11 runs on disk log
+`Gemini grounding: Google Search enabled` on `provider = meta`, both lines sit inside branches
+entered only on the capability report, 14 call sites branch on it, and no run has ever logged a
+captured grounding source.
+
+| minutes | outcome | files touched |
+|---|---|---|
+| 25.4 | rc=1, **failed**: `edits broke the tests and the repair loop did not converge after 3 attempts` (18 llm calls, 1,070.2k in, 9.1k out) | 5: `autopoiesis_orchestrator.go`, `broker/passthrough.go`, `broker/wrap.go`, `research/grounding.go`, `research/thinking.go` -- reverted |
+
+**It found the right seam.** It moved the grounding methods off `core` and into `wrap.go`, which
+is where the architecture puts a capability that selects a control flow. Then:
+
+```
+passthrough_test.go:129: c.SetEnableGoogleSearch undefined (type *core has no field or method ...)
+```
+
+**An existing test pins the defect and argues for it in a comment:**
+
+> "A probe that succeeds and then calls a method forwarding to nothing is indistinguishable from
+> a probe that failed and skipped the call, which is the whole argument for making these
+> unconditional."
+
+`TestSettersForwardAndAreInertWithoutSupport` encodes the current design as a contract, so the
+fix necessarily breaks it, and the test-repair prompt's standing posture is *"the test states the
+required behaviour."* Its escape hatch ("if -- and only if -- you can show the test itself asserts
+something incorrect, say so explicitly") was never taken. Three attempts, a million input tokens,
+no convergence.
+
+**Why it was hand-finished.** The constraint that decides this is invisible from the symptom:
+`Wrap` composes **one of eight shapes from three gating capabilities**, so adding grounding as a
+fourth gate means sixteen hand-written shapes. That is almost certainly why it was left
+unconditional, and it makes "move it behind a gate" the wrong fix. The line that actually matters
+is narrower -- **forwarding a setter is safe; answering a capability question falsely is not** --
+and `optional.go` had already drawn it. So the setters stay exactly as they are, the test and its
+argument survive untouched, and the wrapper gains one truthful answer, `SupportsGrounding()`.
+`NewGroundingHelper` believes a reported capability over the shape of a method set.
+
+**N36 for the audit.** A test that encodes a defect as a contract makes that defect unfixable
+through codeNERD: the removed-tests gate will not let it go, and the repair prompt tells the model
+the test is right. The escape hatch exists and was not used. Worth measuring how often a failing
+test is the wrong one.
+
+**Rung-level.** R2 not attempted as a rung; this was a measurement and it says a 5-file change is
+within reach mechanically, and out of reach whenever a test encodes the thing being fixed.

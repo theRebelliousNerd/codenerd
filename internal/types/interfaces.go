@@ -282,6 +282,10 @@ type GroundingProvider interface {
 //	    gc.SetEnableGoogleSearch(true)
 //	    gc.SetURLContextURLs([]string{"https://docs.example.com"})
 //	}
+//
+// That assertion is conclusive only for a client nothing has wrapped. A
+// decorator may implement these methods for every client it meters; ask
+// GroundingCapable below when one might be in the way.
 type GroundingController interface {
 	GroundingProvider
 
@@ -294,6 +298,27 @@ type GroundingController interface {
 	// SetURLContextURLs sets the URLs for URL Context grounding.
 	// Max 20 URLs, 34MB each per Gemini API limits.
 	SetURLContextURLs(urls []string)
+}
+
+// GroundingCapable is how a client that wraps another answers the capability
+// question truthfully.
+//
+// A decorator may forward the GroundingController setters unconditionally --
+// calling a setter that forwards to a client which ignores it is
+// indistinguishable from not calling it, which is the whole argument in
+// broker/passthrough.go. It may NOT answer the capability question that way:
+// that answer selects a control flow (fourteen call sites take a grounded path
+// on it, building documentation URL lists and calling CompleteWithGrounding
+// instead of Complete), and broker/optional.go states that capabilities which
+// select control flow must stay conditional.
+//
+// Implementing this lets a wrapper keep forwarding and still report what the
+// client underneath can actually do. A client nothing has wrapped does not
+// need it: its own method set is conclusive.
+type GroundingCapable interface {
+	// SupportsGrounding reports whether grounding actually reaches a client
+	// that can serve it.
+	SupportsGrounding() bool
 }
 
 // PiggybackToolProvider is an optional interface for LLM clients that should

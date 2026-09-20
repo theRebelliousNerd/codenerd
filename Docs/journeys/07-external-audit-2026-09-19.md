@@ -200,6 +200,14 @@ becoming stale, or detached from the mutations it is supposed to describe.
   `e78e7241` on Steve's call ("fix the codedom dude! add capability"): the run parses the file its
   focus names into the layer, replaced per file by content digest. Full write-up in
   [08-codedom-journeys-2026-09-19.md](08-codedom-journeys-2026-09-19.md).
+- **N36 a test that encodes a defect as a contract makes it unfixable through codeNERD.**
+  R2-1 (2026-09-19) found the right seam for N31 and was failed by
+  `TestSettersForwardAndAreInertWithoutSupport`, whose comment argues *for* the design being
+  fixed. The removed-tests gate will not let such a test go, and the test-repair prompt's standing
+  posture is "the test states the required behaviour"; its escape hatch ("if -- and only if -- you
+  can show the test itself asserts something incorrect, say so explicitly and explain why") was
+  never taken in three attempts and a million input tokens. Open: measure how often the failing
+  test is the wrong one, and whether the escape hatch is reachable in practice.
 - **N31 grounding capability detection is defeated by the broker passthrough.** `NewGroundingHelper`
   decides whether a client can ground by type assertion, and the broker's `core` implements every
   method of `GroundingController` as a silent forward that no-ops when the underlying client lacks

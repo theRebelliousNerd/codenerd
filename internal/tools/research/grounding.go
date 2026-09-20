@@ -44,7 +44,21 @@ func NewGroundingHelper(client types.LLMClient) *GroundingHelper {
 	if gc, ok := client.(types.GroundingController); ok {
 		h.controller = gc
 		h.provider = gc
+		// A method set is conclusive for a client nothing has wrapped, and
+		// misleading for one that has been: the broker implements these
+		// methods for EVERY client it meters, so the assertion above succeeds
+		// whatever is underneath. A wrapper that reports its underlying
+		// client's capability is believed over the shape of its own methods --
+		// measured 2026-09-19, when all 11 runs on a Meta provider logged
+		// "Gemini grounding: Google Search enabled" and fourteen call sites
+		// took the grounded path against a client that grounds nothing.
 		h.isGrounding = true
+		if cap, ok := client.(types.GroundingCapable); ok {
+			h.isGrounding = cap.SupportsGrounding()
+		}
+		if !h.isGrounding {
+			h.controller = nil
+		}
 	} else if gp, ok := client.(types.GroundingProvider); ok {
 		// Read-only grounding access
 		h.provider = gp
