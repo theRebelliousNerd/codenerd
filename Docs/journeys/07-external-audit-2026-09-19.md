@@ -200,6 +200,64 @@ becoming stale, or detached from the mutations it is supposed to describe.
   `e78e7241` on Steve's call ("fix the codedom dude! add capability"): the run parses the file its
   focus names into the layer, replaced per file by content digest. Full write-up in
   [08-codedom-journeys-2026-09-19.md](08-codedom-journeys-2026-09-19.md).
+- **N41 two turns closed /done over work their own text said was unfinished, and the mechanism
+  is NOT yet established.** R5 run 3: 11 of 189 forwarding stubs removed, verdict `/done`,
+  "Evidence: artifact_changed. Verified by evidence: the build and the tests were both measured
+  green after the final edit" -- one paragraph after "I cannot execute the remaining 177
+  deletions ... Requesting re-invocation." R5 run 4: 85 of 189 removed, `/done`, "Final deletion
+  batch -- the remaining 48 files."
+
+  A first hypothesis -- that `/doc` has no `turn_owes_gate` rule, so every negation in
+  `turn_verified`'s write branch is vacuous for a markdown turn -- was written, fixed, tested,
+  and then **disproved by measurement**: a doc-only turn already owes `/build` and `/test`, so
+  `has_unmet_gate` holds and the branch does not fire. The change was reverted unshipped.
+
+  What the attempt did establish is that a **minimal policy harness does not reproduce the
+  production derivation**, so nothing can be concluded from one. Loading six schema files and
+  asserting `turn_gate(/turn_1, /build, /passing)` alongside `turn_owes_gate(/turn_1, /build)`
+  still derives `turn_unmet_gate(/turn_1, /build)` -- the negated literal
+  `!turn_gate(Turn, Gate, /passing)`, with both variables bound and no wildcard, excludes
+  nothing. In production the same corpus reaches `/done`, so the difference is the other ~128
+  files and the stratification they induce. Whether the negation is sound on the full kernel is
+  the next measurement, and it is the load-bearing one: if `turn_unmet_gate` cannot exclude a
+  met gate, the completion gate is not measuring what its rules say.
+
+  Do not brief this. Completion logic is hand-built, and the harness that would test a fix is
+  the thing currently in question.
+
+- **N42 the commit regime withdraws the tools a removal sweep needs to finish.** R5 run 3:
+  75 tool calls -- 29 `recall_context`, 15 `read_file`, 11 `grep`, 11 `delete_file` -- with the
+  session log recording the regime engaging "after 35 executed tool call(s)". One grep per
+  deletion, so 35 calls bought 11 files, and when the read tools closed the remaining 177 became
+  unfindable. The regime is right about what it was built for; a removal sweep legitimately
+  alternates find and delete and looks identical from outside.
+
+  Telling the model its own tool surface in the brief -- one search can return the whole set now
+  that a cap announces itself, and a round may carry many calls -- took the same task from 11
+  files to 85 and from 3 tool calls to 88 deletes. So the regime was not the binding constraint;
+  the search pattern was. Recorded rather than changed.
+
+  A batch `delete_file` was considered and NOT built: `checkSafetyWithGate` extracts ONE target
+  and asserts one `pending_action` and one `file_recoverable`, so a call carrying 189 paths would
+  be gated on whichever path the extractor picked and the other 188 would ride in behind it.
+
+- **N43 the class was matched structurally, and three real documents were destroyed.** R5 run 4
+  deleted 88 files: 85 were genuine forwarding stubs from a sealed list, and three were not --
+  `cli/02-CURRENT-STATE-CLI.md` (7,053 bytes), `cli/03-GAP-ANALYSIS-CLI.md` (2,962) and
+  `prompt/06-PUBLIC-API-AND-TYPES.md` (5,729), all of them real inventories and gap matrices.
+
+  The brief defined the class by content -- "the test is whether anything is left once you take
+  the redirect away" -- and the match was made on shape. Elsewhere in the corpus a
+  package-suffixed name (`02-CURRENT-STATE-WORLD.md`) IS a stub left by the 2026-07-13 rebuild;
+  `cli/` never got that rebuild, so there the suffixed files are the live documents and there is
+  no unsuffixed sibling. `prompt/` has two files claiming slot `06`, which is the same shape a
+  superseded pair makes. Every structural signal pointed the right way and the content did not.
+
+  183 `read_file` calls preceded 88 deletions, so files were being read; reading did not prevent
+  it. The honest reading is that a filename rule, once it has explained 85 cases, is not
+  abandoned for the 86th. A content test is the only thing that separates them, and it is cheap:
+  a redirect stub is under 2 KB and has nothing left when its links are removed.
+
 - **N39 a gate certified inert code, and the four corpus gates had three more holes.**
   Fixed `64e7ab7a`, `a6a4afc3`, `77790de3`, `52b7c5f1`, all hand-built because these gates score
   the dogfood ladder. (1) All four counted `internal/testing/` as production Go -- a harness

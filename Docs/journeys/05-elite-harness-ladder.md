@@ -269,6 +269,52 @@ list" -- which cannot happen, and is what made R2-2's Decl-only change look comp
 82 entries -> 72, and one genuinely starved atom (`pytest_failure /assertion`) surfaced
 that a coincidental string in a test simulator's keyword list had been silencing.
 
+## Picking a starved predicate: 29 of 61 lead anywhere (2026-09-20)
+
+Choosing R2 targets one at a time stopped working. Seven candidates were verified before
+briefing and seven dissolved -- not because the predicate was wrongly listed, but because
+what it feeds is itself read by nothing. `file_line_count` is the clean example: it is
+genuinely starved, its consumer `long_file_warning` is genuinely derived, and
+`long_file_warning` appears in exactly one place in the repository, the rule that derives
+it. Fixing the producer would build a chain to nowhere.
+
+So the question was measured instead (`scripts/starved_reachability.py` -- `scripts/` is
+gitignored here, so the script is in the tree but untracked and this section is its record):
+walk forward from
+each starved predicate through rule body -> rule head, and ask whether anything reachable is
+queried by production Go.
+
+| | |
+|---|---|
+| starved predicates | 61 |
+| reach a predicate Go queries | **29** |
+| reach nothing Go reads | 32 |
+
+Only the 29 are rung material; the 32 are a different question (whether the subsystem should
+exist at all), and answering it by wiring a producer would be the worst kind of progress.
+
+Two cautions from building it. The first version reported 0 of 61, which was the script and
+not the corpus -- Python's `str.partition` returns `(before, sep, after)`, so the rule body
+was bound to the separator and every rule looked bodiless. A measurement that says
+"everything is dead" deserves the same suspicion as one that says "everything is fine".
+The second: reachability says a chain ENDS somewhere Go reads, not that fixing one link
+makes that endpoint fire -- every other link has to hold too.
+
+What it surfaced, and the R2 target that came out of it: `turn_age_category`.
+`internal/context/compressor_metrics.go:722` and `:732` query `should_mask_observation` and
+`should_preserve_reasoning` on every compression. Both derive from `turn_age_category`
+(`policy/context_compilation.mg:135-145`), under a header saying these rules "replace
+LLM-based summarization with kernel-derived masking decisions", and
+`schemas_context.mg:54-58` says the fact is "asserted by Go from the compressor's turn
+tracking". Nothing asserts it. So no turn is ever masked, and the invariant the second query
+exists to enforce -- "we mask observations, never reasoning" -- is checked against an empty
+set every time. A live consumer, a documented producer that does not exist, and a plain Go
+assert as the fix: the shape R2 is defined as.
+
+Also visible in the 29: `coverage_goal` and `coverage_metric` reach `block_commit`, and
+`element_action` reaches `blocked_action`. Those are the commit gate and the permission
+surface, which stay hand-built.
+
 ## R6 scoped (2026-09-20)
 
 Measured before briefing, so the rung has a target rather than an adjective:
@@ -442,3 +488,7 @@ it is run both ways and the ledger records which landed and at what cost.
 | -- | R1/R2 | R1-15 through R1-19, R2-1, R2-2 | -- | rows not written at the time; per-run detail is in the dogfood ledger. Recorded here rather than reconstructed, because guessing a run's minutes and tool calls to fill a table is how a measurement becomes a story | -- | -- | -- | -- |
 | 2026-09-20 00:35 | R2 | `turn_references_symbol` undeclared (R2-2) | nerd fix | **not landed**, reverted: `/done`, every gate green, 2 files -- and the change was a `Decl` and nothing else, against a brief that required "dropped or declared AND given a consumer". The baseline's own guidance invited it by promising that declaring alone "moves it to the starved-predicate list", which cannot happen (fixed `a6a4afc3`). Its target has since left the list anyway under `64e7ab7a`: the predicate was asserted only by `internal/testing` | 13 | -- | 2 | reverted |
 | 2026-09-20 01:44 | R2 | target size/complexity, four starved predicates (R2-3) | nerd fix | **not landed**, reverted: `/unverified` and honestly so -- no tests, baseline not regenerated. The code is good (a new `virtual_store_target.go`, named thresholds, the complex bar matched to `intent_routing_rules.mg`'s existing `N > 50`) and **inert**: it registers four external handlers against plain Decls, and `kernel_eval.go` keeps a callback only when `decl.IsExternal()`. It cannot be completed as designed either -- marking the Decls `external()` sends a bound `Target` into `arg.(ast.Constant)` (topdown.go:99) and panics. The gate said "4 predicate(s) now have a producer"; fixed `52b7c5f1` | 67.2 | ~70 | 2 | reverted |
+| 2026-09-20 12:05 | R5 | 189 forwarding stubs in Docs/architecture (R5-1) | nerd fix | **failed**: refused on the first file -- `delete_file` hits `requires_permission(/delete_file)` and cannot self-authorize. Worked around it by emptying files to zero lines, which is worse than the stub; said so honestly. Three verbatim examples in the brief produced a literal three-step plan. Blocker fixed `93504014` (architect chose: recoverable deletes self-authorize) | 10.0 | 3 | 0 | -- |
+| 2026-09-20 12:09 | R5 | same brief, delete gate open (R5-2) | nerd fix | **failed**: `working_stop(/repeated_cycle)` after 3 calls. grep returned exactly its cap of 100 for a class of 189 and said nothing, so the model -- which had already raised max_results -- re-ran the identical search and was stopped for it. Its pattern was correct. Blocker fixed `697b260e` | 4.0 | 3 | 0 | -- |
+| 2026-09-20 12:24 | R5 | same brief, cap announced (R5-3) | nerd fix | **not landed**, reverted: 11 of 189 deleted, **11 of 11 correct**. 75 calls, one grep per delete; the commit regime closed the read tools after 35 and the remaining 177 became unfindable. Closed `/done` while asking to be re-invoked (N41) | 15.5 | 75 | 11 | reverted |
+| 2026-09-20 12:42 | R5 | brief names the tool surface (R5-4) | nerd fix | **not landed**, reverted: 88 deleted, 85 correct and **3 real documents destroyed** -- `cli/` never got the 2026-07-13 rebuild, so its suffixed filenames are the live docs, and the class was matched by filename rather than content (N43). 183 reads preceded 88 deletes. Closed `/done` over 85 of 189 | 24.0 | ~290 | 88 | reverted |
