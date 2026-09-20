@@ -222,6 +222,33 @@ func TruncationNotice(shown, total int, unit string) string {
 	return fmt.Sprintf("%s %d of %d %s] …", clampMarkerPrefix, total-shown, total, unit)
 }
 
+// CapReachedNotice renders the marker for a list that stopped AT a cap without
+// counting what was left, which TruncationNotice cannot express because it
+// needs a total.
+//
+// A search that breaks out of its walk at the limit does not know how many
+// more there were, and saying "100 matches" is then indistinguishable from
+// having found exactly 100. Measured 2026-09-20: grep returned exactly its cap
+// for a class with 189 members and said nothing, so the model -- which had
+// already raised max_results once -- re-ran the identical search, the working
+// policy saw two identical rounds and derived working_stop(/repeated_cycle),
+// and the task ended after three tool calls. A silent cap does not lose
+// information politely; it produces a confident wrong count and a loop.
+//
+// remedy names the way out, so the notice is actionable rather than merely
+// honest.
+func CapReachedNotice(shown int, unit, remedy string) string {
+	if shown <= 0 {
+		return ""
+	}
+	notice := fmt.Sprintf("%s at the cap of %d %s; there may be more] …",
+		clampMarkerPrefix, shown, unit)
+	if strings.TrimSpace(remedy) != "" {
+		notice += " " + remedy
+	}
+	return notice
+}
+
 // IsClamped reports whether text carries a truncation marker. Tests assert on
 // this rather than on the marker's exact wording.
 func IsClamped(text string) bool {

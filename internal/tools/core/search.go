@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 )
 
 // argInt extracts an integer tool argument, tolerating the numeric types that
@@ -196,7 +197,14 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 		return "No files found matching pattern: " + pattern, nil
 	}
 
-	return strings.Join(matches, "\n"), nil
+	// Same silent cap as grep had: the walk stops at maxResults with SkipAll,
+	// so a full page is indistinguishable from an exact count.
+	out := strings.Join(matches, "\n")
+	if len(matches) >= maxResults {
+		out += "\n" + types.CapReachedNotice(len(matches), "files",
+			"Raise max_results or narrow the pattern.")
+	}
+	return out, nil
 }
 
 // GrepTool returns a tool for searching file contents.
@@ -453,6 +461,16 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 		for _, ctx := range m.Context {
 			sb.WriteString(fmt.Sprintf("  %s\n", ctx))
 		}
+	}
+
+	// Stopping at the cap and saying nothing reports a cap as a count. The
+	// caller cannot tell "there are exactly 100" from "there are at least
+	// 100", and the only move left to a model that wants the rest is the same
+	// search again -- which the working policy reads as a repeated cycle and
+	// stops the turn for. See CapReachedNotice.
+	if len(matches) >= search.maxResults {
+		sb.WriteString(types.CapReachedNotice(len(matches), "matches",
+			"Raise max_results, narrow path or file_pattern, or make the pattern more specific.") + "\n")
 	}
 
 	return sb.String(), nil

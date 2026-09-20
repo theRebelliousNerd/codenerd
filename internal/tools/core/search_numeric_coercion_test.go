@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codenerd/internal/types"
 )
 
 // This file is the regression for the silent-limit bug in search.go:
@@ -23,7 +25,21 @@ func countGlobResults(result string) int {
 	if result == "" {
 		return 0
 	}
-	return len(strings.Split(result, "\n"))
+	n := 0
+	for _, l := range strings.Split(result, "\n") {
+		// A capped search appends a truncation notice saying so. It is
+		// metadata about the answer, not one of the results, so it must not
+		// be counted as a file -- these tests are about how many results the
+		// cap produced.
+		if types.IsClamped(l) {
+			continue
+		}
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 // helper: count grep matches (one primary line per match, context lines are indented)
@@ -37,6 +53,11 @@ func countGrepMatches(result string) int {
 		// primary match lines are "file:line: content" without leading spaces;
 		// context lines are prefixed with two spaces.
 		if strings.HasPrefix(l, "  ") {
+			continue
+		}
+		// The truncation notice a capped search appends is metadata about the
+		// answer, not a match; counting it would report cap+1 results.
+		if types.IsClamped(l) {
 			continue
 		}
 		if strings.TrimSpace(l) == "" {
