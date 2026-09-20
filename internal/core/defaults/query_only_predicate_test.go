@@ -130,7 +130,7 @@ func currentQueryOnlyPredicates(t *testing.T) (names []string, sites map[string]
 	}
 	root := repoRootFrom(t, cwd)
 
-	_, mangleProduced, _ := mangleCorpus(t, filepath.Join(root, "internal", "core", "defaults"))
+	_, mangleProduced, _, _ := mangleCorpus(t, filepath.Join(root, "internal", "core", "defaults"))
 	queried, goProduced := goQueriedAndProduced(t, root)
 
 	sites = make(map[string][]string)

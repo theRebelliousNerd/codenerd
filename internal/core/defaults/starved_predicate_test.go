@@ -47,6 +47,9 @@ var (
 	starvedHeadRe = regexp.MustCompile(`^([a-z_][a-zA-Z0-9_]*)\s*\(`)
 	starvedAtomRe = regexp.MustCompile(`\b([a-z_][a-zA-Z0-9_]*)\s*\(`)
 	starvedGoRe   = regexp.MustCompile(`"([a-z_][a-zA-Z0-9_]*)"`)
+	// An external-predicate registration, which is production only when the
+	// corpus also declares the predicate external(). See goStringLiterals.
+	starvedRegRe = regexp.MustCompile(`mkPred\(\s*"([a-z_][a-zA-Z0-9_]*)"`)
 	// statementSplit ends a Mangle statement at a '.' that closes a line.
 	statementSplit = regexp.MustCompile(`\.\s*(?:\n|$)`)
 )
@@ -71,11 +74,16 @@ func repoRootFrom(t *testing.T, dir string) string {
 // mangleCorpus reads every .mg file under the defaults corpus and returns the
 // declared predicates, the predicates some rule head or ground fact produces,
 // and the predicates some rule body reads.
-func mangleCorpus(t *testing.T, corpusDir string) (declared map[string]string, produced, consumed map[string]struct{}) {
+// It also returns the predicates whose Decl carries an external() descriptor,
+// because only those reach an external handler at evaluation: RealKernel
+// registers a callback only when the Decl is external (kernel_eval.go, the
+// decl.IsExternal() filter), and silently drops every other registration.
+func mangleCorpus(t *testing.T, corpusDir string) (declared map[string]string, produced, consumed, externalDecl map[string]struct{}) {
 	t.Helper()
 	declared = make(map[string]string)
 	produced = make(map[string]struct{})
 	consumed = make(map[string]struct{})
+	externalDecl = make(map[string]struct{})
 
 	err := filepath.WalkDir(corpusDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".mg") {
@@ -91,6 +99,9 @@ func mangleCorpus(t *testing.T, corpusDir string) (declared map[string]string, p
 			lines = append(lines, strings.SplitN(l, "#", 2)[0])
 			if m := starvedDeclRe.FindStringSubmatch(lines[len(lines)-1]); m != nil {
 				declared[m[1]] = path
+				if strings.Contains(lines[len(lines)-1], "external()") {
+					externalDecl[m[1]] = struct{}{}
+				}
 			}
 		}
 		for _, stmt := range statementSplit.Split(strings.Join(lines, "\n"), -1) {
@@ -113,7 +124,7 @@ func mangleCorpus(t *testing.T, corpusDir string) (declared map[string]string, p
 	if err != nil {
 		t.Fatalf("walk corpus: %v", err)
 	}
-	return declared, produced, consumed
+	return declared, produced, consumed, externalDecl
 }
 
 // goStringLiterals returns every lowercase identifier appearing as a quoted
@@ -123,9 +134,30 @@ func mangleCorpus(t *testing.T, corpusDir string) (declared map[string]string, p
 // possibly produced. The cost of a false "produced" is one missed finding; the
 // cost of a false "starved" is a failing test that sends someone hunting for a
 // bug that is not there.
-func goStringLiterals(t *testing.T, root string) map[string]struct{} {
+//
+// There is one case where that is not over-approximation but a wrong answer, so
+// the pieces needed to judge it are returned too. `mkPred("p", ...)` in
+// BuildExternalPredicates registers a handler for p, and RealKernel keeps that
+// registration only when the corpus declares p with an external() descriptor --
+// kernel_eval.go filters the callback map by decl.IsExternal() and drops the
+// rest without a word. Against a plain Decl the handler never runs, yet the
+// registration and the handler body both put p's name in a Go string.
+//
+// Measured 2026-09-20: a dogfood run added four such registrations
+// (target_is_large, target_is_complex, target_word_count,
+// target_contains_multiple_files) against plain Decls, and this gate reported
+// all four as "no longer starved". Nothing had changed -- the rules they feed
+// still derive nothing, and the run's own verdict was /unverified.
+//
+// So `registered` is every mkPred name and `asserts` is every real kernel
+// assert (the same boundary-anchored literal the undeclared gate counts). A
+// predicate with a live production route -- a rule head, an Assert, or an
+// external() Decl -- is produced; an inert registration is not.
+func goStringLiterals(t *testing.T, root string) (all, registered, asserts map[string]struct{}) {
 	t.Helper()
 	out := make(map[string]struct{}, 4096)
+	registered = make(map[string]struct{})
+	asserts = make(map[string]struct{})
 	for _, sub := range []string{"internal", "cmd"} {
 		err := filepath.WalkDir(filepath.Join(root, sub), func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
@@ -138,8 +170,18 @@ func goStringLiterals(t *testing.T, root string) map[string]struct{} {
 			if readErr != nil {
 				return nil
 			}
-			for _, m := range starvedGoRe.FindAllStringSubmatch(string(data), -1) {
+			src := string(data)
+			for _, m := range starvedGoRe.FindAllStringSubmatch(src, -1) {
 				out[m[1]] = struct{}{}
+			}
+			for _, m := range starvedRegRe.FindAllStringSubmatch(src, -1) {
+				registered[m[1]] = struct{}{}
+			}
+			// undeclaredAssertRe is the sibling gate's literal for a real
+			// kernel assert, shared so the two gates agree on what writing a
+			// fact looks like.
+			for _, m := range undeclaredAssertRe.FindAllStringSubmatch(src, -1) {
+				asserts[m[1]] = struct{}{}
 			}
 			return nil
 		})
@@ -147,7 +189,27 @@ func goStringLiterals(t *testing.T, root string) map[string]struct{} {
 			t.Fatalf("walk %s: %v", sub, err)
 		}
 	}
-	return out
+	return out, registered, asserts
+}
+
+// goProduces reports whether pred's presence in Go is evidence that something
+// fills it.
+//
+// Every mention counts, as before, unless pred is registered as an external
+// predicate. Then the registration is the claim being tested: it reaches the
+// engine only behind an external() Decl, so without one the only remaining
+// evidence is a real kernel assert. This is deliberately narrow -- it says
+// nothing about predicates nobody registers, and a registered predicate that is
+// also asserted stays produced.
+func goProduces(pred string, registered, asserts, externalDecl map[string]struct{}) bool {
+	if _, isReg := registered[pred]; !isReg {
+		return true
+	}
+	if _, isExternal := externalDecl[pred]; isExternal {
+		return true
+	}
+	_, asserted := asserts[pred]
+	return asserted
 }
 
 // currentStarvedPredicates computes the live inventory.
@@ -159,8 +221,8 @@ func currentStarvedPredicates(t *testing.T) []string {
 	}
 	root := repoRootFrom(t, cwd)
 
-	declared, produced, consumed := mangleCorpus(t, filepath.Join(root, "internal", "core", "defaults"))
-	goNames := goStringLiterals(t, root)
+	declared, produced, consumed, externalDecl := mangleCorpus(t, filepath.Join(root, "internal", "core", "defaults"))
+	goNames, registered, asserts := goStringLiterals(t, root)
 
 	var starved []string
 	for pred := range consumed {
@@ -170,7 +232,7 @@ func currentStarvedPredicates(t *testing.T) []string {
 		if _, hasProducer := produced[pred]; hasProducer {
 			continue
 		}
-		if _, inGo := goNames[pred]; inGo {
+		if _, inGo := goNames[pred]; inGo && goProduces(pred, registered, asserts, externalDecl) {
 			continue
 		}
 		starved = append(starved, pred)
