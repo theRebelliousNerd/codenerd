@@ -53,7 +53,7 @@ func TestExtractCodeElements_RealFileExtents(t *testing.T) {
 
 	var found bool
 	for _, el := range elements {
-		if el.Name != "ForbidsPath" {
+		if el.Name != "ForbidsPath" && !strings.HasSuffix(el.Name, ".ForbidsPath") {
 			continue
 		}
 		found = true

@@ -209,8 +209,46 @@ func ElementsFromSource(path, content string) []CodeElement {
 	}
 	sort.Strings(typeNames)
 
+	isPy := ext == "py"
+	_, hasMethod := patterns["method"]
+	isBrace := hasMethod && ext != "go" && ext != "py"
+
+	type pyScope struct {
+		name    string
+		indent  int
+		isClass bool
+	}
+	var pyStack []pyScope
+	braceDepth := 0
+	type braceScope struct {
+		name  string
+		depth int
+	}
+	var braceStack []braceScope
+	pyClassRe := regexp.MustCompile(`^\s*class\s+(\w+)`)
+	pyDefRe := regexp.MustCompile(`^\s*def\s+(\w+)\s*\(`)
+	braceClassRe := regexp.MustCompile(`^\s*(?:export\s+)?(?:public\s+)?(?:abstract\s+)?class\s+(\w+)`)
+
 	var elements []CodeElement
 	for idx, line := range lines {
+		var pyEnclosing string
+		if isPy {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				curIndent := indentLevel(line)
+				for len(pyStack) > 0 && curIndent <= pyStack[len(pyStack)-1].indent {
+					pyStack = pyStack[:len(pyStack)-1]
+				}
+				if len(pyStack) > 0 && pyStack[len(pyStack)-1].isClass {
+					pyEnclosing = pyStack[len(pyStack)-1].name
+				}
+			}
+		}
+		if isBrace {
+			for len(braceStack) > 0 && braceStack[len(braceStack)-1].depth >= braceDepth {
+				braceStack = braceStack[:len(braceStack)-1]
+			}
+		}
 		for _, elemType := range typeNames {
 			pattern := patterns[elemType]
 			if matches := pattern.FindStringSubmatch(line); matches != nil {
@@ -221,8 +259,20 @@ func ElementsFromSource(path, content string) []CodeElement {
 				} else {
 					endLine = findBraceEndLine(lines, idx)
 				}
+				name := matches[1]
+				if ext == "go" && elemType == "method" {
+					if recv := goReceiverBase(line); recv != "" {
+						name = recv + "." + name
+					}
+				}
+				if isPy && elemType == "method" && pyEnclosing != "" {
+					name = pyEnclosing + "." + name
+				}
+				if isBrace && elemType == "method" && len(braceStack) > 0 {
+					name = braceStack[len(braceStack)-1].name + "." + name
+				}
 				elements = append(elements, CodeElement{
-					Name:      matches[1],
+					Name:      name,
 					Type:      elemType,
 					File:      path,
 					StartLine: startLine,
@@ -231,9 +281,204 @@ func ElementsFromSource(path, content string) []CodeElement {
 				})
 			}
 		}
+		if isPy {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				curIndent := indentLevel(line)
+				if m := pyClassRe.FindStringSubmatch(line); m != nil {
+					pyStack = append(pyStack, pyScope{name: m[1], indent: curIndent, isClass: true})
+				} else if m := pyDefRe.FindStringSubmatch(line); m != nil {
+					pyStack = append(pyStack, pyScope{name: m[1], indent: curIndent, isClass: false})
+				}
+			}
+		}
+		if isBrace {
+			if m := braceClassRe.FindStringSubmatch(line); m != nil {
+				braceStack = append(braceStack, braceScope{name: m[1], depth: braceDepth})
+			}
+			braceDepth += braceNetChange(line)
+		}
 	}
-
 	return elements
+}
+
+func braceNetChange(line string) int {
+	inSingle := false
+	inDouble := false
+	inBacktick := false
+	escaped := false
+	delta := 0
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inSingle {
+			if c == '\\' {
+				escaped = true
+			} else if c == '\'' {
+				inSingle = false
+			}
+			continue
+		}
+		if inDouble {
+			if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inDouble = false
+			}
+			continue
+		}
+		if inBacktick {
+			if c == '\\' {
+				escaped = true
+			} else if c == '`' {
+				inBacktick = false
+			}
+			continue
+		}
+		switch c {
+		case '\'':
+			inSingle = true
+		case '"':
+			inDouble = true
+		case '`':
+			inBacktick = true
+		case '/':
+			if i+1 < len(line) && line[i+1] == '/' {
+				i = len(line)
+			}
+		case '{':
+			delta++
+		case '}':
+			delta--
+		}
+	}
+	return delta
+}
+
+// goReceiverBase extracts the receiver type base name from a Go method
+// declaration line, e.g. "func (b *B) Close() error" yields "B". The second
+// return reports whether a receiver was present. Pointer markers, generic
+// instantiations ("Box[T]"), and package qualifiers ("pkg.T") are stripped so
+// the qualifier stays a plain identifier that get_element can match.
+func goReceiverBase(line string) string {
+	base, _ := splitReceiverName(line)
+	return base
+}
+
+// splitReceiverName parses the receiver out of a Go method declaration line.
+// It returns the base type name and true when the line declares a method with
+// a receiver; otherwise it returns "", false.
+func splitReceiverName(line string) (string, bool) {
+	open := strings.Index(line, "(")
+	if open == -1 {
+		return "", false
+	}
+	// The receiver is the first parenthesized group, and only when it appears
+	// before the "func" keyword's argument list: a method declaration starts
+	// with "func" followed by "(".
+	rest := strings.TrimSpace(line[:open])
+	if !strings.HasSuffix(rest, "func") {
+		return "", false
+	}
+	close := strings.Index(line[open:], ")")
+	if close == -1 {
+		return "", false
+	}
+	recv := strings.TrimSpace(line[open+1 : open+close])
+	if recv == "" {
+		return "", false
+	}
+	fields := strings.Fields(recv)
+	typeExpr := fields[len(fields)-1]
+	typeExpr = strings.TrimPrefix(typeExpr, "*")
+	if idx := strings.Index(typeExpr, "["); idx != -1 {
+		typeExpr = typeExpr[:idx]
+	}
+	if idx := strings.LastIndex(typeExpr, "."); idx != -1 {
+		typeExpr = typeExpr[idx+1:]
+	}
+	if typeExpr == "" {
+		return "", false
+	}
+	return typeExpr, true
+}
+
+// normalizeReceiver canonicalizes a Go receiver reference so lookups agree
+// with the base names get_elements stores: "B", "*B", "(B)", "(*B)",
+// "pkg.B" and "Box[T]" all normalize to "B" (or "Box").
+func normalizeReceiver(s string) string {
+	s = strings.TrimSpace(s)
+	for len(s) >= 2 && strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	}
+	s = strings.TrimPrefix(s, "*")
+	s = strings.TrimSpace(s)
+	for len(s) >= 2 && strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	}
+	s = strings.TrimPrefix(s, "*")
+	s = strings.TrimSpace(s)
+	if idx := strings.Index(s, "["); idx != -1 {
+		s = s[:idx]
+	}
+	if idx := strings.LastIndex(s, "."); idx != -1 {
+		s = s[idx+1:]
+	}
+	for len(s) >= 2 && strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	}
+	s = strings.TrimPrefix(s, "*")
+	return strings.TrimSpace(s)
+}
+
+// parseElementRef splits a get_element query into receiver and method parts.
+// Bare names ("Close") report qualified=false. Receiver-qualified names
+// ("B.Close", "*B.Close", "(*B).Close", "pkg.B.Close") report the normalized
+// receiver and method with qualified=true.
+func parseElementRef(ref string) (recv, method string, qualified bool) {
+	ref = strings.TrimSpace(ref)
+	dot := strings.LastIndex(ref, ".")
+	if dot == -1 {
+		return "", ref, false
+	}
+	method = strings.TrimSpace(ref[dot+1:])
+	recvPart := strings.TrimSpace(ref[:dot])
+	if method == "" || recvPart == "" {
+		return "", ref, false
+	}
+	if idx := strings.Index(method, "("); idx != -1 {
+		method = strings.TrimSpace(method[:idx])
+	}
+	if method == "" {
+		return "", ref, false
+	}
+	if idx := strings.LastIndex(recvPart, "."); idx != -1 {
+		recvPart = strings.TrimSpace(recvPart[idx+1:])
+	}
+	recv = normalizeReceiver(recvPart)
+	if recv == "" {
+		return "", ref, false
+	}
+	return recv, method, true
+}
+
+// splitStoredName splits a stored element name into receiver and method
+// parts. Names without a dot (functions, structs, bare names) report
+// isMethod=false with the full name as method.
+func splitStoredName(stored string) (recv, method string, isMethod bool) {
+	dot := strings.LastIndex(stored, ".")
+	if dot == -1 {
+		return "", stored, false
+	}
+	recv = strings.TrimSpace(stored[:dot])
+	method = strings.TrimSpace(stored[dot+1:])
+	if recv == "" || method == "" {
+		return "", stored, false
+	}
+	return recv, method, true
 }
 
 // findBraceEndLine computes the end line for brace-based languages by counting
@@ -433,11 +678,62 @@ func executeGetElement(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("failed to extract elements: %w", err)
 	}
 
-	for _, e := range elements {
-		if e.Name == name {
-			output, _ := json.MarshalIndent(e, "", "  ")
-			return string(output), nil
+	// Query may be bare ("Close") or receiver-qualified ("B.Close",
+	// "(*B).Close", "*B.Close", "pkg.B.Close"). Parentheses, pointer
+	// markers, generic arguments and package qualifiers are stripped so
+	// every name get_elements shows is accepted here.
+	qRecv, qMethod, qQualified := parseElementRef(name)
+	var matches []CodeElement
+	if qQualified {
+		for _, e := range elements {
+			eRecv, eMethod, eIsMethod := splitStoredName(e.Name)
+			if !eIsMethod {
+				continue
+			}
+			if eMethod != qMethod {
+				continue
+			}
+			if normalizeReceiver(eRecv) != qRecv {
+				if goReceiverBase(e.Signature) != qRecv {
+					continue
+				}
+			}
+			matches = append(matches, e)
 		}
+	} else {
+		// Bare name: prefer exact full-name matches so a function stays
+		// fetchable when a method shares its suffix (func Close vs A.Close).
+		// Only when no exact match exists, fall back to method-suffix
+		// matches so a lone method stays fetchable by its bare name.
+		for _, e := range elements {
+			if e.Name == qMethod {
+				matches = append(matches, e)
+			}
+		}
+		if len(matches) == 0 {
+			for _, e := range elements {
+				_, eMethod, eIsMethod := splitStoredName(e.Name)
+				if !eIsMethod {
+					continue
+				}
+				if eMethod != qMethod {
+					continue
+				}
+				matches = append(matches, e)
+			}
+		}
+	}
+	if len(matches) == 1 {
+		output, _ := json.MarshalIndent(matches[0], "", "  ")
+		return string(output), nil
+	}
+	if len(matches) > 1 {
+		qualified := make([]string, 0, len(matches))
+		for _, e := range matches {
+			qualified = append(qualified, e.Name)
+		}
+		sort.Strings(qualified)
+		return "", fmt.Errorf("element %q is ambiguous (%d matches); use one of: %s", name, len(matches), strings.Join(qualified, ", "))
 	}
 
 	return "", fmt.Errorf("element not found: %s", name)

@@ -394,12 +394,23 @@ func Project(s Search, read SourceReader, limits Limits) CodeSearchResult {
 				continue
 			}
 
-			ref := file + ":" + element.Name
+			name := element.Name
+			// A hit inside a method sits inside the enclosing class too. The
+			// projection must name the innermost symbol -- the method -- never
+			// the class that contains it, so strip the class qualifier codedom
+			// adds to tell declarations apart (Widget.encode -> encode).
+			if element.Type == "method" {
+				if idx := strings.LastIndex(name, "."); idx != -1 {
+					name = name[idx+1:]
+				}
+			}
+
+			ref := file + ":" + name
 			sym, seen := symbols[ref]
 			if !seen {
 				sym = &Symbol{
 					Ref:       ref,
-					Name:      element.Name,
+					Name:      name,
 					Kind:      element.Type,
 					File:      file,
 					StartLine: element.StartLine,

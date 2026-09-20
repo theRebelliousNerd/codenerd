@@ -596,3 +596,29 @@ func TestShared_ShouldBeOneStoreForEveryProducer(t *testing.T) {
 		t.Fatalf("a handle minted through Shared must resolve through Shared: %v", err)
 	}
 }
+
+func TestProject_WhenMethodHitHasClassQualifier_ShouldStripToBareMethodName(t *testing.T) {
+	t.Parallel()
+
+	py := "class Widget:\n    def encode(self):\n        return encode_all()\n"
+	s := Search{
+		Query: "encode",
+		Match: []Match{{File: "w.py", Line: 3, Text: "return encode_all()"}},
+	}
+
+	r := Project(s, fixedReader(map[string]string{"w.py": py}), Limits{})
+
+	if len(r.Symbols) != 1 {
+		t.Fatalf("symbols = %v, want exactly one bare-method symbol", refsOf(r))
+	}
+	got := r.Symbols[0]
+	if got.Ref != "w.py:encode" {
+		t.Errorf("symbol ref = %q, want %q; the projection must strip the class qualifier codedom adds", got.Ref, "w.py:encode")
+	}
+	if got.Name != "encode" {
+		t.Errorf("symbol name = %q, want %q; the innermost symbol is the method, never the enclosing class", got.Name, "encode")
+	}
+	if got.Kind != "method" {
+		t.Errorf("symbol kind = %q, want method", got.Kind)
+	}
+}
