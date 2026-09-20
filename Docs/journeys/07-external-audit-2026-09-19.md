@@ -207,23 +207,29 @@ becoming stale, or detached from the mutations it is supposed to describe.
   deletions ... Requesting re-invocation." R5 run 4: 85 of 189 removed, `/done`, "Final deletion
   batch -- the remaining 48 files."
 
-  A first hypothesis -- that `/doc` has no `turn_owes_gate` rule, so every negation in
-  `turn_verified`'s write branch is vacuous for a markdown turn -- was written, fixed, tested,
-  and then **disproved by measurement**: a doc-only turn already owes `/build` and `/test`, so
-  `has_unmet_gate` holds and the branch does not fire. The change was reverted unshipped.
+  **The mechanism is now established, and it is a deliberate decision rather than a defect.**
+  On the full kernel a doc-only turn derives `turn_owes_gate` 0 rows, `has_unmet_gate` 0, and
+  `turn_done` 1: it owes nothing, so every gate `turn_verified`'s write branch negates holds
+  vacuously and the turn is done for having written one markdown file. Three named tests pin
+  exactly that -- `turn_write_class_test.go` "a document owes no gate" (wantDone: true),
+  `test_run_gate_test.go` "aDocumentIsDoneOnExecution" ("nothing compiles or runs a document"),
+  and `TestVerifyCompletedToolTurn_ADocumentEditOwesNoTestRun`. A change making `/doc` owe
+  `/test_run` and blocking doc-only verification was written, proved fail-before/pass-after on
+  `NewRealKernel`, and reverted when the suite showed it contradicting all three.
 
-  What the attempt did establish is that a **minimal policy harness does not reproduce the
-  production derivation**, so nothing can be concluded from one. Loading six schema files and
-  asserting `turn_gate(/turn_1, /build, /passing)` alongside `turn_owes_gate(/turn_1, /build)`
-  still derives `turn_unmet_gate(/turn_1, /build)` -- the negated literal
-  `!turn_gate(Turn, Gate, /passing)`, with both variables bound and no wildcard, excludes
-  nothing. In production the same corpus reaches `/done`, so the difference is the other ~128
-  files and the stratification they induce. Whether the negation is sound on the full kernel is
-  the next measurement, and it is the load-bearing one: if `turn_unmet_gate` cannot exclude a
-  met gate, the completion gate is not measuring what its rules say.
+  So the gap is not a missing gate. It is that completion is measured by gates, gates measure
+  the repository, and no gate can see the scope of what was asked. The reasoning behind
+  done-on-execution is sound in its own terms -- holding a turn hostage to a gate a document can
+  never satisfy would be worse -- and the consequence is that a docs task which did 6% of the
+  work reports success. Closing it means deriving an acceptance contract from the brief, which
+  is the `turn_acceptance` path that already exists and is opt-in, not another entry in
+  `turn_owes_gate`. That is an architectural decision and the architect's to make.
 
-  Do not brief this. Completion logic is hand-built, and the harness that would test a fix is
-  the thing currently in question.
+  A methodological note worth more than the finding: the same question answered the OPPOSITE way
+  on a six-file policy harness, where a doc turn appeared to owe `/build` and `/test` and
+  `turn_unmet_gate` would not exclude a passing gate. Loading a subset of the corpus changes
+  which rules exist. A claim about the kernel is only worth what `NewRealKernel` says.
+
 
 - **N42 the commit regime withdraws the tools a removal sweep needs to finish.** R5 run 3:
   75 tool calls -- 29 `recall_context`, 15 `read_file`, 11 `grep`, 11 `delete_file` -- with the
