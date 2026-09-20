@@ -234,6 +234,136 @@ is the finding.
 Rungs are climbed in order; a later rung's run may happen earlier as a probe, but it does not
 count until the rungs below it are passed.
 
+## Choosing rung material (2026-09-20)
+
+A rung needs work that is real, determinate, and multi-file by nature. The first
+vehicle tried for R2 was `undeclared_asserts.txt` -- Go asserting a predicate no
+`.mg` declares. It is the wrong material above R1, and the reason is worth keeping.
+
+Every entry on that list resolves to a judgment, not an edit: declare it, delete the
+assert, or wire a consumer. Five candidates were examined before briefing and all
+five were design decisions, three of them gate defects rather than code defects:
+
+| candidate | what it actually was |
+|---|---|
+| `turn_references_symbol` | asserted only by `internal/testing/context_harness`; a test harness writing into a production baseline |
+| `success_pattern`, `failure_pattern`, `correction_pattern` | `FactPredicate:` on `types.ShardLearning` -- a LearningStore row label that `core/dream_router.go` says "has no Decl anywhere and must not get one" |
+| `atom_depends` | the Mangle route for a capability Go already implements in `prompt/resolver.go`; deleting it moves away from the north star, wiring it is a redesign |
+| `atom_exclusive` | plumbed through six files and enforced by nothing -- and declared by 0 of 351 atoms, so there is no symptom to brief |
+
+Briefing any of them would have produced R2-2's outcome or worse: the `success_pattern`
+brief would have instructed codeNERD to declare three predicates the design forbids
+declaring. The list is a fine R1 vehicle and a bad R2+ one.
+
+`starved_predicates.txt` is the opposite shape and is the vehicle from here. A starved
+predicate already has its consumer -- a rule reads it -- so "does anything want this?"
+is settled and only the producer is in question, which the rule body specifies exactly.
+That makes the fix determinate and naturally two-sided: a Go assertor and the rule that
+reads it, which is what R2 is defined as.
+
+Three gate fixes landed first, because the scoreboard was wrong in three ways
+(`64e7ab7a`, `a6a4afc3`, `77790de3`): test support counted as production Go in all four
+corpus gates, the undeclared scan read `FactPredicate:` as a kernel assert, and the
+guidance promised that declaring without a consumer "moves it to the starved-predicate
+list" -- which cannot happen, and is what made R2-2's Decl-only change look complete.
+82 entries -> 72, and one genuinely starved atom (`pytest_failure /assertion`) surfaced
+that a coincidental string in a test simulator's keyword list had been silencing.
+
+## R6 scoped (2026-09-20)
+
+Measured before briefing, so the rung has a target rather than an adjective:
+
+| measure | value |
+|---|---|
+| real Go packages under `internal/` + `cmd/` | 91 |
+| directories under `Docs/architecture` | 41 (40 real packages + `_rebuild`) |
+| markdown files | 929, ~4.8 MB |
+| docs citing at least one repo path | 379 |
+| **docs citing no path at all** | **550 (59%)** |
+| path citations | 3,576 |
+| dead citations | 141 (3.9%), 20 distinct paths |
+| line numbers past end of file | 0 |
+
+It refutes "the citations are wrong": 96.1% of cited paths exist and no cited line
+number is past its file's end. The largest single error is stale rather than invented --
+`cmd/nerd/chat/session_boot.go` is cited 65 times and was deleted by `5bcd12f8`
+("delete the dead legacy boot path"), so the docs describe a boot path the repo removed
+on purpose. One citation is `internal/foo.go`.
+
+### 189 of the 929 files are forwarding stubs
+
+The dominant finding, and it is a standing-rule violation rather than a quality
+judgement. The 2026-07-13 rebuild renamed the package-suffixed files
+(`02-CURRENT-STATE-WORLD.md` -> `02-CURRENT-STATE.md`,
+`03-GAP-ANALYSIS-CONTEXT.md` -> `03-GAP-ANALYSIS.md`) and dropped five slots
+(`01-DOMAIN-MODEL`, `04-INVARIANTS-AND-GATES`, `05-CROSS-SYSTEM-WIRING`,
+`06-TESTING-STRATEGY`, `08-FAILURE-MODES`) -- and left every original file in place as
+a redirect. 189 files across 29 packages, 20% of the corpus by file count and 0.6% by
+bytes (29 KB of 4.6 MB), whose entire content is a pointer somewhere else:
+
+    # Redirect
+    This filename is a **legacy stub**. Use:
+    - [01-VISION.md](01-VISION.md)
+    ...
+    Rebuilt 2026-07-13.
+
+That is the pattern the architect's 2026-09-01 ruling names item by item: no
+"forwarding stub, exec wrapper, re-export, alias, compat path, deprecated-but-kept
+entry, or 'old path still works' note", because it "lets two truths coexist so the next
+reader cannot tell which one is live". The heading is not even consistent across them --
+"# Moved", "# Redirect", "# SUPERSEDED", "# Superseded", "**legacy stub**" -- because
+each was written by a separate per-package agent, which is the vertical generation the
+north star warns about, visible in the shims themselves.
+
+They are also entirely orphaned: **no markdown link anywhere in the repository resolves
+to any of them**, inside `Docs/architecture` or outside it. (A first count said 20 live
+docs linked to `01-DOMAIN-MODEL`; that was a grep for the string, which the stubs' own
+bodies contain -- corrected by resolving links to files.) So the whole set can be
+deleted with nothing to repoint, which is what makes it the R5 vehicle: 189 files from
+one prompt, a determinate membership test, and the only real risk being over-reach onto
+a genuine doc that happens to use the word "superseded". That risk is what the rung
+tests, and the verification catches it: the corpus must lose exactly the files whose
+entire body is a redirect, and `git diff --stat` must show no deletion of anything
+larger than a notice.
+
+### The rest of the corpus is unfalsifiable, not wrong
+
+Excluding the stubs, quality splits sharply by template slot -- share of that slot's
+files citing any repo path:
+
+| slot | files | cite code | avg size |
+|---|---|---|---|
+| `IMPLEMENTED_SPEC.md` | 40 | 98% | 21.3 KB |
+| `08-WIRING-AND-INTEGRATION.md` | 39 | 100% | 5.5 KB |
+| `TODO.md` | 39 | 87% | 7.1 KB |
+| `07-DEPENDENCY-MAP.md` | 38 | 84% | 3.6 KB |
+| `02-CURRENT-STATE.md` | 39 | 82% | 6.5 KB |
+| `06-PUBLIC-API-AND-TYPES.md` | 39 | 33% | 6.5 KB |
+| **`05-INTERNAL-ARCHITECTURE.md`** | 39 | **28%** | 6.3 KB |
+| **`09-SAFETY-AND-INVARIANTS.md`** | 39 | **28%** | 5.5 KB |
+| `04-ARCHITECTURAL-PRINCIPLES.md` | 39 | 15% | 3.6 KB |
+| `12-FAILURE-MODES.md` | 39 | 13% | 5.7 KB |
+| `01-VISION.md` | 39 | 10% | 4.2 KB |
+
+A VISION doc that cites no code is doing its job. A doc named INTERNAL-ARCHITECTURE
+that cites no code in 72% of packages is 6 KB of prose about code it never points at,
+and SAFETY-AND-INVARIANTS at the same rate is worse, because an invariant nobody can
+locate cannot be checked. Those two slots, plus 12-FAILURE-MODES (a failure mode that
+names no site is not a failure mode), are where the rewrite earns its keep.
+
+Coverage is the other half: 41 of 91 packages have any doc at all.
+
+This is why the corpus reads as substantial and cites as nothing, and why the standing
+instruction never to use `Docs/architecture` as evidence is correct without being a
+statement that its sentences are false.
+
+R6's verification therefore has a deterministic half that needs no reviewer: every path
+a doc cites resolves, every line number is within its file, no two files claim the same
+numbered slot, and no package that exists is undocumented. The judgment half -- is the
+claim true, is anything important missing -- stays with the reviewer, reading a sample
+per package against the code. The checker is `doc_citation_check.py`; it belongs in the
+tree before the rung is attempted, so the rung is scored rather than admired.
+
 ## The error-free gates
 
 "Error free" means every gate at zero on `main`, each measured by a command anyone can run:
@@ -309,3 +439,6 @@ it is run both ways and the ledger records which landed and at what cost.
 | 2026-09-19 17:49 | R1 | get_element shared method names, again (R1-12, N09) | nerd fix | **failed**: the naming change orphaned a package-level function (`ForbidsPath was not extracted`), caught by the package's own test; the repair loop then never wrote -- 3 attempts, 18 model calls, 746.7k input tokens, 26 recall_context calls, no edit (N24, fixed by hand). Reverted | 11.7 | 55 | 0 | -- |
 | 2026-09-19 18:27 | R1 | get_element shared method names, third time (R1-13, N09) | nerd fix | **not landed**: the qualified names the brief asked for, first time with no repair round; the review found a Go function beside a same-named method and every Python/JS method unfetchable. The pinning gate's first production run: 21 declarations pinned, 12 decisions recorded advisory -- two of them the branches the defects live in | 42.3 | 127 | 3 | -- |
 | 2026-09-19 19:16 | R1 | the two names R1-13 took away (R1-14) | nerd fix | **not landed**: both fixed and 15 probe shapes hold, but `go test ./...` fails in internal/observation -- a contract the gate never ran (N25). The pinning round refused two attempts and forced the round-trip test | 18.3 | ~60 | 3 | -- |
+| -- | R1/R2 | R1-15 through R1-19, R2-1, R2-2 | -- | rows not written at the time; per-run detail is in the dogfood ledger. Recorded here rather than reconstructed, because guessing a run's minutes and tool calls to fill a table is how a measurement becomes a story | -- | -- | -- | -- |
+| 2026-09-20 00:35 | R2 | `turn_references_symbol` undeclared (R2-2) | nerd fix | **not landed**, reverted: `/done`, every gate green, 2 files -- and the change was a `Decl` and nothing else, against a brief that required "dropped or declared AND given a consumer". The baseline's own guidance invited it by promising that declaring alone "moves it to the starved-predicate list", which cannot happen (fixed `a6a4afc3`). Its target has since left the list anyway under `64e7ab7a`: the predicate was asserted only by `internal/testing` | 13 | -- | 2 | reverted |
+| 2026-09-20 01:44 | R2 | target size/complexity, four starved predicates (R2-3) | nerd fix | **not landed**, reverted: `/unverified` and honestly so -- no tests, baseline not regenerated. The code is good (a new `virtual_store_target.go`, named thresholds, the complex bar matched to `intent_routing_rules.mg`'s existing `N > 50`) and **inert**: it registers four external handlers against plain Decls, and `kernel_eval.go` keeps a callback only when `decl.IsExternal()`. It cannot be completed as designed either -- marking the Decls `external()` sends a bound `Target` into `arg.(ast.Constant)` (topdown.go:99) and panics. The gate said "4 predicate(s) now have a producer"; fixed `52b7c5f1` | 67.2 | ~70 | 2 | reverted |
