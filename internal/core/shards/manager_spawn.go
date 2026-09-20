@@ -319,13 +319,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		}); err != nil {
 			logging.Get(logging.CategoryShards).Error("Failed to assert active_shard for %s: %v", id, err)
 		}
-
-		if err := sm.kernel.Assert(types.Fact{
-			Predicate: "shard_status",
-			Args:      []any{id, "/running", task},
-		}); err != nil {
-			logging.Get(logging.CategoryShards).Error("Failed to assert shard_status for %s: %v", id, err)
-		}
 	}
 
 	if sm.kernel != nil {
@@ -413,13 +406,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 					}); err != nil {
 						logging.Get(logging.CategoryShards).Error("Failed to retract active_shard for %s (panic cleanup): %v", id, err)
 					}
-
-					if err := sm.kernel.RetractFact(types.Fact{
-						Predicate: "shard_status",
-						Args:      []any{id, "/running", task},
-					}); err != nil {
-						logging.Get(logging.CategoryShards).Error("Failed to retract shard_status for %s (panic cleanup): %v", id, err)
-					}
 				}
 				sm.recordResult(id, "", panicErr)
 			}
@@ -490,13 +476,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 				Args:      []any{id, shardTypeAtom},
 			}); err != nil {
 				logging.Get(logging.CategoryShards).Error("Failed to retract active_shard for %s: %v", id, err)
-			}
-
-			if err := sm.kernel.RetractFact(types.Fact{
-				Predicate: "shard_status",
-				Args:      []any{id, "/running", task},
-			}); err != nil {
-				logging.Get(logging.CategoryShards).Error("Failed to retract shard_status for %s: %v", id, err)
 			}
 		}
 	}()

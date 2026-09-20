@@ -76,7 +76,6 @@ search_results
 self_correction
 self_correction_hypothesis
 self_correction_triggered
-shard_status
 subclass_of
 success_pattern
 systemic_investigating
