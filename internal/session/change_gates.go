@@ -222,24 +222,18 @@ func (e *Executor) verifyAndRepairVet(
 	}
 	logging.Get(logging.CategorySession).Warn("go vet rejects this turn's files; giving the model repair rounds:\n%s", result.VetCheck.Output)
 	snap, green, vetBefore := snapshotTurnFiles(workspace, result), result.TestCheck, result.VetCheck
-	testsBroke := false
 	spec := repairSpec{
-		kind:         "vet",
-		brokenPhrase: "go vet reports problems this turn introduced",
-		promptFor: func(seed string) string {
-			if testsBroke {
-				return vetBrokeTestsPrompt(seed)
-			}
-			return vetRepairPrompt(seed)
-		},
-		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
-			testsBroke = false
+		kind:             "vet",
+		brokenPhrase:     "go vet reports problems this turn introduced",
+		promptFor:        vetRepairPrompt,
+		brokeTestsPrompt: vetBrokeTestsPrompt,
+		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			v := verifyVet(epCtx, workspace, result.WrittenPaths, result.PreWriteContents)
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
 				result.VetCheck = v
 			}
 			if v.Verdict() != VerifyPassed {
-				return false, v.Output, v.Verdict()
+				return false, repairFailure{Output: v.Output}, v.Verdict()
 			}
 			// A vet repair that breaks the tests has repaired nothing: the
 			// round keeps the suite as green as it found it.
@@ -249,10 +243,9 @@ func (e *Executor) verifyAndRepairVet(
 				result.TestCheck = tv
 			}
 			if tv.Verdict() != VerifyPassed {
-				testsBroke = tv.Verdict() == VerifyFailed
-				return false, tv.Output, tv.Verdict()
+				return false, repairFailure{Output: tv.Output, TestsBroke: tv.Verdict() == VerifyFailed}, tv.Verdict()
 			}
-			return true, "", VerifyPassed
+			return true, repairFailure{}, VerifyPassed
 		},
 		followups: func() []string {
 			return []string{"go vet " + strings.Join(packagesForPaths(result.WrittenPaths), " ")}
@@ -364,7 +357,7 @@ func (e *Executor) verifyAndRepairCoverage(
 		kind:         "coverage",
 		brokenPhrase: "code this turn changed is executed by no test",
 		promptFor:    coverageRepairPrompt,
-		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
+		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			v, uncovered := gateOwnTests(epCtx, workspace, result, true)
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
 				// The test gate's own repair record stays with it; this
@@ -374,15 +367,18 @@ func (e *Executor) verifyAndRepairCoverage(
 			}
 			if v.Verdict() != VerifyPassed {
 				// The new tests broke something: the failure is what the next
-				// round works from; a round that ends here is undone below.
-				return false, v.Output, v.Verdict()
+				// round works from, and it is the suite, not this round's
+				// subject -- a coverage prompt over it tells the model the
+				// tests pass above a FAIL trace. A round that ends here is
+				// undone below.
+				return false, repairFailure{Output: v.Output, TestsBroke: v.Verdict() == VerifyFailed}, v.Verdict()
 			}
 			result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
 			snap, green, greenBlocks = snapshotTurnFiles(workspace, result), result.TestCheck, result.UncoveredBlocks
 			if len(result.UncoveredBlocks) == 0 {
-				return true, "", VerifyPassed
+				return true, repairFailure{}, VerifyPassed
 			}
-			return false, uncoveredList(result.UncoveredBlocks, result.WrittenPaths), VerifyFailed
+			return false, repairFailure{Output: uncoveredList(result.UncoveredBlocks, result.WrittenPaths)}, VerifyFailed
 		},
 		followups: func() []string {
 			runnable, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
@@ -451,10 +447,10 @@ func (e *Executor) verifyAndRepairRemovedTests(
 		kind:         "removed_tests",
 		brokenPhrase: "the turn deleted tests that existed before it",
 		promptFor:    removedTestsRepairPrompt,
-		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
+		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			removed = removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents)
 			if len(removed) > 0 {
-				return false, missing(), VerifyFailed
+				return false, repairFailure{Output: missing()}, VerifyFailed
 			}
 			v, _ := gateOwnTests(epCtx, workspace, result, false)
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
@@ -463,9 +459,11 @@ func (e *Executor) verifyAndRepairRemovedTests(
 				result.TestCheck = v
 			}
 			if v.Verdict() != VerifyPassed {
-				return false, "The deleted tests are back, and the tests fail:\n\n```\n" + v.Output + "\n```", v.Verdict()
+				// The tests are back and red: the round's own subject is
+				// discharged, so it stops asking for them back.
+				return false, repairFailure{Output: v.Output, TestsBroke: v.Verdict() == VerifyFailed}, v.Verdict()
 			}
-			return true, "", VerifyPassed
+			return true, repairFailure{}, VerifyPassed
 		},
 		followups: func() []string {
 			if len(removed) > 0 {

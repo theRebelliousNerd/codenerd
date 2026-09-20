@@ -754,34 +754,29 @@ func (e *Executor) verifyAndRepairPinning(
 	}
 	logging.Get(logging.CategorySession).Warn("the tests this turn wrote do not pin its change; giving the model rounds to write ones that do:\n%s", result.PinCheck.Output)
 	snap, green, greenPin := snapshotTurnFiles(workspace, result), result.TestCheck, result.PinCheck
-	testsBroke := false
 	spec := repairSpec{
 		kind:         "pinning",
 		brokenPhrase: "the tests this turn wrote pass without a change it made",
 		promptFor: func(seed string) string {
-			if testsBroke {
-				return pinningBrokeTestsPrompt(seed)
-			}
 			return pinningRepairPrompt(seed) + advisorySection(result.PinAdvisory)
 		},
-		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
-			testsBroke = false
+		brokeTestsPrompt: pinningBrokeTestsPrompt,
+		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			v, _ := gateOwnTests(epCtx, workspace, result, false)
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
 				v.Repair = result.TestCheck.Repair
 				result.TestCheck = v
 			}
 			if v.Verdict() != VerifyPassed {
-				testsBroke = v.Verdict() == VerifyFailed
-				return false, v.Output, v.Verdict()
+				return false, repairFailure{Output: v.Output, TestsBroke: v.Verdict() == VerifyFailed}, v.Verdict()
 			}
 			p := verifyPinning(epCtx, workspace, result, true)
 			result.PinCheck = p
 			snap, green, greenPin = snapshotTurnFiles(workspace, result), result.TestCheck, p
 			if p.Verdict() == VerifyPassed {
-				return true, "", VerifyPassed
+				return true, repairFailure{}, VerifyPassed
 			}
-			return false, p.Output, p.Verdict()
+			return false, repairFailure{Output: p.Output}, p.Verdict()
 		},
 		followups: func() []string {
 			runnable, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))

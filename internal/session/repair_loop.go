@@ -140,8 +140,25 @@ func repairEpisodeContext(parent context.Context) (context.Context, context.Canc
 	}
 }
 
-// repairSpec describes one gate's repair episode: how to prompt from failing
-// output, how to recheck, and what follow-ups to record on give-up.
+// repairFailure is what a recheck reports when it did not pass: the output
+// that seeds the next attempt, and whether that output is this round's own
+// subject or a test suite the round's edits broke on the way.
+//
+// Both are needed to write the prompt, and the verdict alone cannot tell them
+// apart -- either way it is VerifyFailed. Ladder run R1-16 (2026-09-19) is
+// what a round that cannot tell looks like: the model's coverage test found a
+// real bug in the helper the turn had just written, the suite went red, and
+// every remaining round opened "The tests pass, but no test executes these
+// lines of code you changed:" above the FAIL trace, asked for more tests, and
+// forbade the production fix the failure needed. The model weakened its own
+// assertion to get out, and the turn ended /unverified.
+type repairFailure struct {
+	Output     string
+	TestsBroke bool
+}
+
+// repairSpec describes one gate's repair episode: how to prompt from a
+// failure, how to recheck, and what follow-ups to record on give-up.
 type repairSpec struct {
 	kind string
 	// brokenPhrase is the gate's contract phrase for failure errors
@@ -149,13 +166,46 @@ type repairSpec struct {
 	// single-round repair used so existing consumers keep matching; the
 	// new cost and attempt evidence rides after it.
 	brokenPhrase string
-	promptFor    func(failingOutput string) string
-	// recheck re-verifies after an attempt. It reports passed, the failing
-	// output when failed (which seeds the next attempt), and the raw verdict
-	// for cancel/indeterminate handling.
-	recheck func(ctx context.Context) (passed bool, failingOutput string, verdict VerifyOutcome)
+	// promptFor writes the round's prompt from output that shows the round's
+	// own subject.
+	promptFor func(failingOutput string) string
+	// brokeTestsPrompt writes it instead when the recheck reports a suite this
+	// round's edits broke on the way. A round that leaves it nil gets
+	// brokeTestsPrompt's shared wording: no round states its own subject over
+	// a red run.
+	brokeTestsPrompt func(testOutput string) string
+	// recheck re-verifies after an attempt. It reports passed, the failure
+	// when failed (which seeds the next attempt), and the raw verdict for
+	// cancel/indeterminate handling.
+	recheck func(ctx context.Context) (passed bool, failure repairFailure, verdict VerifyOutcome)
 	// followups builds actionable next commands for the give-up record.
 	followups func() []string
+}
+
+// prompt is the only way a round's prompt is written, so that the choice is
+// made from what the recheck reported rather than from each round remembering
+// to ask.
+func (s repairSpec) prompt(f repairFailure) string {
+	if !f.TestsBroke {
+		return s.promptFor(f.Output)
+	}
+	if s.brokeTestsPrompt != nil {
+		return s.brokeTestsPrompt(f.Output)
+	}
+	return brokeTestsRepairPrompt(f.Output)
+}
+
+// brokeTestsRepairPrompt is what a round says when its own edits left the
+// suite red. The failure is the suite, not the round's subject, so the round
+// says nothing about its subject until the suite is green again. Rounds whose
+// subject changes which side is at fault -- vet keeps the behaviour its tests
+// pin, pinning suspects the test it just wrote -- say so themselves.
+func brokeTestsRepairPrompt(testOutput string) string {
+	return "The tests fail after your last edit:\n\n```\n" + testOutput + "\n```\n\n" +
+		"This is not what this round asked for; it is what your edit did on the way. Get the suite " +
+		"green before anything else, then the round resumes. Fix whichever side is wrong -- the code " +
+		"or the test you just wrote -- and say which it was. Do not delete or weaken a test that " +
+		"existed before this turn."
 }
 
 // repairLoop runs bounded read→diagnose→edit→verify iterations until the
@@ -192,7 +242,9 @@ func (e *Executor) repairLoop(
 
 	var last *types.LLMToolResponse
 	var allErrs []string
-	seed := seedOutput
+	// The seeding failure is the round's own subject: the gate measured it
+	// before any repair edit existed to break anything.
+	failure := repairFailure{Output: seedOutput}
 	useCommitRegime := false
 
 	for attempt := 1; attempt <= budget.MaxAttempts; attempt++ {
@@ -207,11 +259,11 @@ func (e *Executor) repairLoop(
 			return nil, allErrs, rec, fmt.Errorf(
 				"%w: %s and the turn's deadline passed after %d repair attempt(s) (cost=%s) and the workspace still fails. Follow-ups: %s. Last failure:\n%s",
 				ErrVerificationFailed, spec.brokenPhrase, attempt-1, rec.Cost.String(),
-				strings.Join(rec.Followups, "; "), seed)
+				strings.Join(rec.Followups, "; "), failure.Output)
 		}
 
 		att := RepairAttempt{Index: attempt, Started: time.Now()}
-		prompt := spec.promptFor(seed)
+		prompt := spec.prompt(failure)
 		if summary := repairHistorySummary(rec.Attempts); summary != "" {
 			prompt += "\n\nPrior repair attempts this episode (do not repeat what already failed):\n" + summary
 		}
@@ -229,7 +281,7 @@ func (e *Executor) repairLoop(
 		allErrs = append(allErrs, repairErrs...)
 		if err != nil {
 			att.Verdict = VerifyIndeterminate
-			att.SeedExcerpt = excerpt(seed, repairRetainedOutputCap)
+			att.SeedExcerpt = excerpt(failure.Output, repairRetainedOutputCap)
 			rec.Attempts = append(rec.Attempts, att)
 			rec.Cost.Attempts++
 			rec.Cost.Backtracks++
@@ -237,7 +289,7 @@ func (e *Executor) repairLoop(
 			return nil, allErrs, rec, fmt.Errorf(
 				"%w: %s and the repair loop failed on attempt %d (%v) (cost=%s). Follow-ups: %s. Last failure:\n%s",
 				ErrVerificationFailed, spec.brokenPhrase, attempt, err, rec.Cost.String(),
-				strings.Join(rec.Followups, "; "), seed)
+				strings.Join(rec.Followups, "; "), failure.Output)
 		}
 		last = repaired
 		// One attempt may span several model calls (its read-diagnose-edit
@@ -255,9 +307,9 @@ func (e *Executor) repairLoop(
 		}
 		att.Wrote = wrote
 
-		passed, failingOutput, verdict := spec.recheck(epCtx)
+		passed, rechecked, verdict := spec.recheck(epCtx)
 		att.Verdict = verdict
-		att.SeedExcerpt = excerpt(failingOutput, repairRetainedOutputCap)
+		att.SeedExcerpt = excerpt(rechecked.Output, repairRetainedOutputCap)
 		rec.Attempts = append(rec.Attempts, att)
 		rec.Cost.Attempts++
 
@@ -274,7 +326,7 @@ func (e *Executor) repairLoop(
 			return last, allErrs, rec, fmt.Errorf("repair canceled during re-verification: %w", context.Canceled)
 		case verdict == VerifyFailed:
 			rec.Cost.Backtracks++
-			seed = failingOutput
+			failure = rechecked
 			if !wrote {
 				useCommitRegime = true
 			}
@@ -300,7 +352,7 @@ func (e *Executor) repairLoop(
 	return nil, allErrs, rec, fmt.Errorf(
 		"%w: %s and the repair loop did not converge after %d attempts (cost=%s). Follow-ups: %s. Last failure:\n%s",
 		ErrVerificationFailed, spec.brokenPhrase, budget.MaxAttempts, rec.Cost.String(),
-		strings.Join(rec.Followups, "; "), seed)
+		strings.Join(rec.Followups, "; "), failure.Output)
 }
 
 // repairHistorySummary compacts prior attempts for the next prompt: what was

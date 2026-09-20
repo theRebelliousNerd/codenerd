@@ -50,11 +50,12 @@ func (e *Executor) verifyAndRepairTestRun(
 		promptFor: func(shortfall string) string {
 			return testRunPrompt(result.WrittenPaths, shortfall)
 		},
-		recheck: func(context.Context) (bool, string, VerifyOutcome) {
+		recheck: func(context.Context) (bool, repairFailure, VerifyOutcome) {
 			if result.testRunVerdict() == VerifyPassed {
-				return true, "", VerifyPassed
+				return true, repairFailure{}, VerifyPassed
 			}
-			return false, testRunShortfall(result), VerifyFailed
+			// The shortfall is a missing run, not a red suite.
+			return false, repairFailure{Output: testRunShortfall(result)}, VerifyFailed
 		},
 		followups: func() []string {
 			return []string{"run_tests over the tests that exercise " + strings.Join(result.WrittenPaths, ", ")}

@@ -506,9 +506,9 @@ func TestRepairLoop_CancelBeforeStart(t *testing.T) {
 	spec := repairSpec{
 		kind:      "tests",
 		promptFor: func(seed string) string { return testRepairPrompt(seed, "") },
-		recheck: func(ctx context.Context) (bool, string, VerifyOutcome) {
+		recheck: func(ctx context.Context) (bool, repairFailure, VerifyOutcome) {
 			t.Fatal("recheck must not run on a canceled episode")
-			return false, "", VerifyCanceled
+			return false, repairFailure{}, VerifyCanceled
 		},
 		followups: func() []string { return []string{"go test ./..."} },
 	}

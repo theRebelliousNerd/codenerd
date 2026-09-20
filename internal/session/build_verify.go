@@ -254,14 +254,15 @@ func (e *Executor) verifyAndRepairBuild(
 		promptFor: func(seed string) string {
 			return buildRepairPrompt(seed) + turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents)
 		},
-		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
+		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			r := verifyBuild(epCtx, workspace, nil)
 			// Only affirmative verdicts move the check: an indeterminate
 			// recheck leaves the original failure standing.
 			if r.Verdict() == VerifyPassed || r.Verdict() == VerifyFailed {
 				result.BuildCheck = r
 			}
-			return r.Verdict() == VerifyPassed, r.Output, r.Verdict()
+			// The build is this round's subject, so a failure is always on it.
+			return r.Verdict() == VerifyPassed, repairFailure{Output: r.Output}, r.Verdict()
 		},
 		followups: func() []string {
 			return repairFollowups(workspace, nil, result, "build")
@@ -361,18 +362,20 @@ func (e *Executor) verifyAndRepairTests(
 		// A test repair can break the build, so re-check both, cheapest
 		// first. Only an affirmative failure verdict fails here: a recheck
 		// that produced no verdict cannot prove the repair broke anything.
-		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
+		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			if rb := verifyBuild(epCtx, workspace, nil); rb.Verdict() == VerifyFailed {
 				result.BuildCheck = rb
-				return false, rb.Output, VerifyFailed
+				// testRepairPrompt reads a compile failure out of the output
+				// itself, so this round keeps its own prompt either way.
+				return false, repairFailure{Output: rb.Output}, VerifyFailed
 			} else if rb.Verdict() == VerifyCanceled {
-				return false, "", VerifyCanceled
+				return false, repairFailure{}, VerifyCanceled
 			}
 			rt, _ := gateTests(epCtx, workspace, result, false)
 			if rt.Verdict() == VerifyPassed || rt.Verdict() == VerifyFailed {
 				result.TestCheck = rt
 			}
-			return rt.Verdict() == VerifyPassed, rt.Output, rt.Verdict()
+			return rt.Verdict() == VerifyPassed, repairFailure{Output: rt.Output}, rt.Verdict()
 		},
 		followups: func() []string {
 			runnable, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))

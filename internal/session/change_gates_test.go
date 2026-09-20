@@ -206,7 +206,7 @@ func TestDouble(t *testing.T) {
 
 	// answer: "test" writes doubleTest, "wrongTest" writes wrongTest, anything
 	// else declines.
-	drive := func(t *testing.T, answer string) (*ExecutionResult, string, error) {
+	drive := func(t *testing.T, answer string) (*ExecutionResult, string, []string, error) {
 		t.Helper()
 		h := newRepairHarness(t, nil)
 		initial := func() *types.LLMToolResponse {
@@ -216,6 +216,7 @@ func TestDouble(t *testing.T) {
 			}}
 		}
 		coveragePrompt := ""
+		var seeds []string
 		h.executor.llmClient = &MockToolResultsLLM{
 			MockLLMClient: &MockLLMClient{
 				CompleteWithToolsFunc: func(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -223,6 +224,9 @@ func TestDouble(t *testing.T) {
 				},
 			},
 			CompleteWithToolResultsFunc: func(_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+				if last := history[len(history)-1]; len(last.ToolResults) == 0 && last.Text != "" {
+					seeds = append(seeds, last.Text)
+				}
 				if last := history[len(history)-1]; strings.Contains(last.Text, "no test executes these lines") {
 					coveragePrompt = last.Text
 					content := ""
@@ -254,11 +258,11 @@ func TestDouble(t *testing.T) {
 		if readErr == nil && answer == "wrongTest" && string(data) != emptyTest {
 			t.Fatalf("a round that gave up on a red suite must leave the test file as it found it:\n%s", data)
 		}
-		return result, coveragePrompt, err
+		return result, coveragePrompt, seeds, err
 	}
 
 	t.Run("theModelWritesTheTest", func(t *testing.T) {
-		result, prompt, err := drive(t, "test")
+		result, prompt, _, err := drive(t, "test")
 		if err != nil {
 			t.Fatalf("ProcessWithIntent: %v", err)
 		}
@@ -280,7 +284,7 @@ func TestDouble(t *testing.T) {
 	// gives up having turned a green suite red is undone; the debt it leaves is
 	// the uncovered code, as when the model declines.
 	t.Run("theModelsTestFailsAndTheRoundIsUndone", func(t *testing.T) {
-		result, prompt, err := drive(t, "wrongTest")
+		result, prompt, _, err := drive(t, "wrongTest")
 		if err != nil {
 			t.Fatalf("a coverage round must not fail the change it was covering: %v", err)
 		}
@@ -295,8 +299,39 @@ func TestDouble(t *testing.T) {
 		}
 	})
 
+	// Ladder run R1-16 (2026-09-19): the coverage round's own test found a real
+	// bug in the helper the turn had just written, the suite went red, and every
+	// remaining round opened "The tests pass, but no test executes these lines
+	// of code you changed:" above the FAIL trace -- then asked for more tests
+	// and forbade the production fix the failure needed ("Do not change the
+	// production code ... they are the change"). The model weakened its own
+	// assertion to get out. A round states its own subject only over output
+	// that shows that subject; a red run is a red run in every round.
+	t.Run("noRoundClaimsTheTestsPassOverAFailingRun", func(t *testing.T) {
+		_, _, seeds, err := drive(t, "wrongTest")
+		if err != nil {
+			t.Fatalf("a coverage round must not fail the change it was covering: %v", err)
+		}
+		red := 0
+		for _, seed := range seeds {
+			if !strings.Contains(seed, "--- FAIL:") {
+				continue
+			}
+			red++
+			if strings.Contains(seed, "The tests pass") {
+				t.Fatalf("a round handed the model a failing test run under a preamble claiming the tests pass:\n%s", seed)
+			}
+			if strings.Contains(seed, "Do not change the production code") {
+				t.Fatalf("a round forbade the production fix while showing the failure that needs it:\n%s", seed)
+			}
+		}
+		if red == 0 {
+			t.Fatal("the model was never handed the failing run its own test caused")
+		}
+	})
+
 	t.Run("theModelDoesNotAndTheDebtStays", func(t *testing.T) {
-		result, prompt, err := drive(t, "decline")
+		result, prompt, _, err := drive(t, "decline")
 		if err != nil {
 			t.Fatalf("a coverage round that does not converge must not fail the turn: %v", err)
 		}
