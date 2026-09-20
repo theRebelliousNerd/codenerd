@@ -49,6 +49,21 @@ import (
 // non-test Go counts as producible, with or without its leading slash. The cost
 // of a false "produced" is one missed finding; the cost of a false "starved" is
 // a failing gate sending someone after a bug that is not there.
+//
+// What that trade costs, measured 2026-09-20 on one rule. tester.mg selects
+// pytest_failure on nine error categories, and no production Go asserts that
+// predicate at all, so all nine are starved. Two are on the baseline: /fixture
+// and /assertion. The other seven — /attribute /import /key /runtime /type
+// /unknown /value — are ordinary English words that appear in quotes somewhere
+// in 348k lines of Go, so the scan will exempt them however the corpus changes.
+// The over-approximation is not a small constant: for an atom whose name is a
+// common word it is total, and the gate can never speak about it.
+//
+// /assertion reached the baseline only because internal/testing/ stopped being
+// scanned as production. It had been exempt on one string in a test simulator's
+// keyword list (context_harness/simulator.go: {"test_failure", "assertion",
+// "test_result"}) — a coincidental word in test support silencing a production
+// rule. See isProductionGo in undeclared_assert_test.go.
 
 // THE FOURTH DIRECTION, AND WHY IT IS NOT GATED HERE.
 //
@@ -179,7 +194,7 @@ func goAtomLiterals(t *testing.T, root string) map[string]struct{} {
 			if err != nil || d.IsDir() {
 				return nil
 			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			if !isProductionGo(path) {
 				return nil
 			}
 			data, readErr := os.ReadFile(path)

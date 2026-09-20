@@ -50,6 +50,35 @@ var (
 	undeclaredAssertRe = regexp.MustCompile(`Predicate:\s*"([a-z_][a-zA-Z0-9_]*)"`)
 )
 
+// isProductionGo reports whether a path is Go the shipped binary runs, which
+// is what all four corpus gates in this package claim to measure.
+//
+// Naming is not the whole test. A harness imported by tests in other packages
+// cannot be named _test.go, so internal/testing/ compiles like ordinary code
+// and slipped past a suffix check. Seven predicates sat on the undeclared list
+// asserted only by internal/testing/context_harness -- turn_references_symbol,
+// turn_campaign_phase, active_issue, issue_description, issue_error_type,
+// issue_mentioned_file, project_pattern -- so the list told a reader to declare
+// a production predicate in order that a test could write it. In the other
+// three gates the same leak runs the other way: a predicate or atom named only
+// by the harness counts as used, and the gate under-reports.
+//
+// Excluding the tree hides nothing. Nothing outside internal/testing imports
+// it, and context_harness's back-reference path reads its own Go slice
+// (real_engine.go allFacts) rather than querying the kernel, so its asserts
+// being invisible to the fixpoint is not what any test there depends on.
+//
+// Same shape as the dot-directory exclusion in declaredPredicateNames: a file
+// that is not the production corpus must not move a production measurement.
+func isProductionGo(path string) bool {
+	slash := filepath.ToSlash(path)
+	if !strings.HasSuffix(slash, ".go") || strings.HasSuffix(slash, "_test.go") {
+		return false
+	}
+	return !strings.Contains(slash, "/testdata/") &&
+		!strings.Contains(slash, "/internal/testing/")
+}
+
 // declaredPredicateNames collects every predicate the .mg corpus declares.
 //
 // Names only, not arities. The runtime warning checks name and arity together
@@ -107,10 +136,7 @@ func assertedPredicateNames(t *testing.T, root string) map[string]string {
 			continue
 		}
 		err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
-				return nil
-			}
-			if strings.HasSuffix(path, "_test.go") || strings.Contains(filepath.ToSlash(path), "/testdata/") {
+			if err != nil || info.IsDir() || !isProductionGo(path) {
 				return nil
 			}
 			data, readErr := os.ReadFile(filepath.Clean(path))

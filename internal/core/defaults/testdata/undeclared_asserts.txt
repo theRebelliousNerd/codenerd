@@ -8,7 +8,6 @@
 # Declaring it alone just moves it to the starved-predicate list.
 #
 # Regenerate: CODENERD_UPDATE_UNDECLARED=1 go test ./internal/core/defaults/ -run TestUndeclaredAssertBudget
-active_issue
 active_task
 analyzing_root_cause
 anomaly_investigating
@@ -52,14 +51,10 @@ hypothesis
 impact_radius
 interrogative_mode
 investigation_phase
-issue_description
-issue_error_type
-issue_mentioned_file
 learned_intent
 memory_operation
 ouroboros_phase
 ouroboros_register_failed
-project_pattern
 pytest_execution
 python_command_executed
 python_environment
@@ -88,5 +83,3 @@ tool_failed
 tool_generating
 tool_refining
 transaction_state
-turn_campaign_phase
-turn_references_symbol

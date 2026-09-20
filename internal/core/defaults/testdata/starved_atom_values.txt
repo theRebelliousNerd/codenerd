@@ -29,6 +29,7 @@ invariant_value	/deadlock_detected
 invariant_value	/goroutine_count
 invariant_value	/http_500_rate
 invariant_value	/p99_latency_ms
+pytest_failure	/assertion
 pytest_failure	/fixture
 raw_finding	/maintainability
 reviewer_task	/style_check

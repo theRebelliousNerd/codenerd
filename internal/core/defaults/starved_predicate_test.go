@@ -131,7 +131,7 @@ func goStringLiterals(t *testing.T, root string) map[string]struct{} {
 			if err != nil || d.IsDir() {
 				return nil
 			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			if !isProductionGo(path) {
 				return nil
 			}
 			data, readErr := os.ReadFile(path)
