@@ -54,6 +54,14 @@ type Spawner struct {
 	fileContext  FileContextProvider
 	workingWorld WorkingWorld
 
+	// codeElements parses the file a turn is looking at into the CodeDOM fact
+	// layer. It MUST be forwarded to every spawned subagent: `nerd fix`
+	// delegates to a coder shard, so the shard's executor is the one that
+	// needs it, and a provider set only on the session executor reaches
+	// nothing that does work (measured: the layer stayed empty for a whole run
+	// after it was wired in factory.go alone). See codedom_scope.go.
+	codeElements CodeElementSource
+
 	// executorConfig is the tool-loop budget inherited from the parent session.
 	// Nil means subagents keep DefaultExecutorConfig (8 iterations), preserving
 	// pre-fix behaviour when no parent budget has been supplied. When set,
@@ -185,6 +193,22 @@ func (s *Spawner) currentFileContext() FileContextProvider {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.fileContext
+}
+
+// SetCodeElementSource attaches the CodeDOM parser every subagent spawned from
+// here on inherits. Mirrors SetFileContextProvider. Nil means subagents run
+// with the CodeDOM fact layer empty, which is the behaviour before it existed.
+func (s *Spawner) SetCodeElementSource(src CodeElementSource) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.codeElements = src
+}
+
+// currentCodeElements reads the CodeDOM parser slot under the read lock.
+func (s *Spawner) currentCodeElements() CodeElementSource {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.codeElements
 }
 
 // SetExecutorConfig installs the executor config every subagent spawned from
@@ -360,6 +384,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	}
 	if fc := s.currentFileContext(); fc != nil {
 		agent.executor.SetFileContextProvider(fc)
+	}
+	if src := s.currentCodeElements(); src != nil {
+		agent.executor.SetCodeElementSource(src)
 	}
 	s.mu.RLock()
 	agent.executor.SetWorkingWorld(s.workingWorld)

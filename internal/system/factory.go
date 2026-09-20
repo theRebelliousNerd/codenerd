@@ -2112,7 +2112,8 @@ func initFinalExecutors(bctx *bootContext) error {
 	// scope does, and only VirtualStore.handleOpenFile opens one, which the
 	// session path never dispatches. The executor now parses the file each turn
 	// is looking at into the layer itself. See session/codedom_scope.go.
-	bctx.sessionExecutor.SetCodeElementSource(world.NewCodeElementFacts(bctx.workspace))
+	codeElements := world.NewCodeElementFacts(bctx.workspace)
+	bctx.sessionExecutor.SetCodeElementSource(codeElements)
 
 	bctx.sessionSpawner = session.NewSpawner(
 		sessionKernel,
@@ -2128,6 +2129,9 @@ func initFinalExecutors(bctx *bootContext) error {
 	if fileContextProvider != nil {
 		bctx.sessionSpawner.SetFileContextProvider(fileContextProvider)
 	}
+	// The shard is what does the work: `nerd fix` delegates, so the CodeDOM
+	// fact layer has to reach the spawned executor and not only the session's.
+	bctx.sessionSpawner.SetCodeElementSource(codeElements)
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
 	// Same meter for spawned subagents: their executors are fresh builds, not
