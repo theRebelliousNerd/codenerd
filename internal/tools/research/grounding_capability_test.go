@@ -20,8 +20,8 @@ func (plainClient) CompleteWithTools(context.Context, string, string, []types.To
 func (plainClient) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
 	return nil, nil
 }
-func (plainClient) GetModel() string                                   { return "plain" }
-func (plainClient) SetModel(string)                                    {}
+func (plainClient) GetModel() string { return "plain" }
+func (plainClient) SetModel(string)  {}
 
 // groundingClient controls grounding, as the Gemini client does.
 type groundingClient struct {

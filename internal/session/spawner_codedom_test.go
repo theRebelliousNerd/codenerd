@@ -75,3 +75,17 @@ func TestSpawner_Spawn_NoCodeElementSourceIsQuiet(t *testing.T) {
 	}
 	agent.executor.scopeFocusFile("anything.go") // must not panic
 }
+
+// CloneForTask is the executor a `nerd fix` turn actually runs on:
+// JITExecutor.executeObserved calls it (task_executor.go). The CodeDOM fact
+// layer was wired onto the session executor and the Spawner, and measured dark
+// on the very next run -- 17 tool calls, not one scope line -- because neither
+// is what does the work. Three construction paths, and a provider has to be on
+// all three.
+func TestCloneForTask_InheritsCodeElementSource(t *testing.T) {
+	e := NewExecutor(&MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	e.SetCodeElementSource(stubCodeElements{})
+	if e.CloneForTask().codeElements == nil {
+		t.Fatal("a delegated task cannot reach the CodeDOM fact layer; every nerd fix turn runs on this clone")
+	}
+}

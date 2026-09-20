@@ -5325,3 +5325,47 @@ test is the wrong one.
 
 **Rung-level.** R2 not attempted as a rung; this was a measurement and it says a 5-file change is
 within reach mechanically, and out of reach whenever a test encodes the thing being fixed.
+
+## R1-20, shard_status: a correct change, and the gate that could not see it was already pinned (2026-09-20, 00:01-00:24)
+
+Binary from `14f9eafc`. Brief verified before it was written: the warning appears in all 11 runs
+on disk, 22 times, and `shard_status` is the only predicate in the tree that draws it.
+
+| minutes | outcome | files |
+|---|---|---|
+| 22.6 | rc=0, `/unverified`, `missing=[/change_not_pinned]` | `internal/core/shards/manager_spawn.go`, `internal/core/defaults/testdata/undeclared_asserts.txt` |
+
+**The change is right.** All three `shard_status` assert/retract sites removed; `active_shard`,
+which is declared and read, left alone; and the repository's undeclared-assert baseline updated in
+the same change rather than a new test bolted on.
+
+**And it was already pinned -- the gate just could not see it.** Reverting `manager_spawn.go` with
+the baseline as the turn left it makes `TestUndeclaredAssertBudget` fail, naming the predicate and
+the file. The pinning gate (N22, hand-built) only ever ran tests the TURN wrote, so with none
+written it reported
+
+    This turn changed the functions below and wrote no test,
+    so nothing would notice if a change were lost
+
+which was asserted and never checked. The guard lives in `internal/core/defaults`, three packages
+away from the code it guards, which no per-package or importer scope would have reached either.
+
+**What it cost:** three pinning repair attempts, 18 model calls, **940,761 input tokens** writing a
+`probe_test.go` that should not exist; the round gave up with the suite red and restored the file
+as it found it (the undo working); and a correct, already-pinned change ended `/unverified`.
+
+**Fixed by hand.** Before asking the model for a test, the gate now puts the turn's production
+changes back and asks the repository -- `go test -overlay ... -failfast ./...`. Anything that fails
+is a pin. Two tests: an existing test in another package notices, and a change nothing pins is
+still reported unpinned so the gate keeps its teeth. The old sentence now describes a measurement
+that was actually taken.
+
+**Third wiring path found the same run.** The CodeDOM fact layer was still dark: 17 tool calls, no
+scope line. `nerd fix` runs on `j.executor.CloneForTask()` (`task_executor.go:325`) -- a third
+construction path after the session executor and the Spawner. I had concluded earlier it had no
+production callers, from a grep piped through `head` that cut the one real caller. Same error shape
+as the D2 retraction, four hours apart: a truncated search read as an exhaustive one.
+
+**Rung-level.** Not a landing as it stands -- the verdict is `/unverified`. It is the first run
+whose only obstacle was a gate reporting something it had not measured, and with that gate fixed
+the same change would have passed. Re-run pending on a rebuilt binary.

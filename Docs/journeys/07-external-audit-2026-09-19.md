@@ -200,6 +200,20 @@ becoming stale, or detached from the mutations it is supposed to describe.
   `e78e7241` on Steve's call ("fix the codedom dude! add capability"): the run parses the file its
   focus names into the layer, replaced per file by content digest. Full write-up in
   [08-codedom-journeys-2026-09-19.md](08-codedom-journeys-2026-09-19.md).
+- **N37 the pinning gate reported a change unpinned without checking whether anything pinned it.**
+  It ran only the tests the TURN wrote, so a turn that correctly wrote none -- because a repo-wide
+  invariant test already covered its change -- was told "nothing would notice if a change were
+  lost". R1-20 (2026-09-20) deleted three asserts of an undeclared predicate and updated the
+  undeclared-assert baseline; `TestUndeclaredAssertBudget`, three packages away, fails the moment
+  the production file goes back. Cost: 3 repair attempts, 18 model calls, 940,761 input tokens
+  writing a test that should not exist, and a correct change ending `/unverified`. Fixed by hand:
+  the gate puts the turn's production changes back and runs the suite with `-failfast` before
+  asking the model for a test. The claim is now a measurement.
+- **N38 a provider must be wired on three construction paths, not one.** The CodeDOM fact layer
+  (N30) was wired onto the session executor, measured dark, then onto the Spawner, measured dark
+  again: `nerd fix` runs on `j.executor.CloneForTask()` (`task_executor.go:325`), which copies an
+  explicit list that did not include it. Worth an audit of what else `CloneForTask` and
+  `Spawner.Spawn` fail to carry.
 - **N36 a test that encodes a defect as a contract makes it unfixable through codeNERD.**
   R2-1 (2026-09-19) found the right seam for N31 and was failed by
   `TestSettersForwardAndAreInertWithoutSupport`, whose comment argues *for* the design being

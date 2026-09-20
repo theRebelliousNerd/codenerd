@@ -79,6 +79,18 @@ func TestVerifyPinning_AChangeWithNoTestOfTheTurnsIsUnpinned(t *testing.T) {
 	if v.Verdict() != VerifyFailed || !strings.Contains(v.Output, "wrote no test") {
 		t.Fatalf("verdict = %s:\n%s\nwant failed, naming that the turn wrote no test", v.Verdict(), v.Output)
 	}
+	// Both are still charged, and N37 (2026-09-20) does not change that.
+	//
+	// Greet: helper_test.go calls Greet("x") and asserts nothing about it, so
+	// putting Greet back leaves the suite green -- nothing pins it.
+	//
+	// polite: the turn created helper.go, so taking that change back out means
+	// deleting the file, and the tree stops compiling before any test can run.
+	// A caller that no longer resolves says the symbol is USED, not that what
+	// it does is checked, so the gate treats a compile failure as no answer and
+	// still asks for the test. N37 only credits a change whose removal makes a
+	// test FAIL -- which is R1-20's shape, where the revert puts deleted code
+	// back and an existing invariant test goes red.
 	for _, want := range []string{"calc.go: Greet", "helper.go: polite (added by this turn)"} {
 		if !strings.Contains(v.Output, want) {
 			t.Errorf("the listing does not name %q:\n%s", want, v.Output)

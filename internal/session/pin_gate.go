@@ -541,7 +541,27 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 		if gated > 0 {
 			return BuildVerification{Outcome: VerifyIndeterminate, Reason: fmt.Sprintf("the %d test(s) this turn wrote are behind build tags the gate does not run", gated), Duration: time.Since(start)}
 		}
-		return BuildVerification{Ran: true, Outcome: VerifyFailed, Output: noTurnTestsListing(units),
+		// A turn that wrote no test may still be pinned by one that already
+		// existed: R1-20 (2026-09-20) deleted three asserts and updated the
+		// repo's undeclared-assert baseline, which TestUndeclaredAssertBudget
+		// pins exactly -- from another package, where this gate could not see
+		// it. Ask the repository, one change at a time, before asking the
+		// model, and list only what nothing answered for.
+		var unheld []pinUnit
+		for _, u := range units {
+			if pinned, _ := pinnedByExistingTests(ctx, workspace, u); !pinned {
+				unheld = append(unheld, u)
+			}
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return BuildVerification{Outcome: VerifyCanceled, Reason: "canceled while measuring", Duration: time.Since(start)}
+		}
+		if len(unheld) == 0 {
+			return BuildVerification{Ran: true, Outcome: VerifyPassed,
+				Reason:   "the turn wrote no test; every change it made is pinned by a test the repository already had",
+				Duration: time.Since(start)}
+		}
+		return BuildVerification{Ran: true, Outcome: VerifyFailed, Output: noTurnTestsListing(unheld),
 			Reason: "the turn changed functions and wrote no test", Duration: time.Since(start)}
 	}
 	runArg := baselineRunRegex(names)
@@ -686,7 +706,9 @@ func noTurnTestsListing(units []pinUnit) string {
 	for _, u := range units {
 		labels = append(labels, u.label())
 	}
-	return "This turn changed the functions below and wrote no test, so nothing would notice if a change were lost:\n\n```\n" +
+	return "This turn changed the functions below and wrote no test. The whole suite was run with " +
+		"the turn's changes taken back out and nothing failed, so nothing in the repository would " +
+		"notice if one of these were lost:\n\n```\n" +
 		strings.Join(labels, "\n") + "\n```"
 }
 

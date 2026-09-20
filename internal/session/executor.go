@@ -579,6 +579,13 @@ func (e *Executor) CloneForTask() *Executor {
 	// context from; a delegated task acts on the same workspace, so it reads
 	// the same world.
 	clone.workingWorld = e.workingWorld
+	// Same workspace, same CodeDOM fact layer. This clone is the executor a
+	// `nerd fix` turn actually runs on (task_executor.go: executeObserved
+	// calls CloneForTask), so a provider missing here is missing from every
+	// delegated task -- which is what happened: the layer was wired onto the
+	// session executor and the spawner, measured dark on the next run because
+	// neither is what does the work.
+	clone.codeElements = e.codeElements
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister (task runs must not be recorded as session turns),
 	// EffectiveAgentRuntimeConfig (set per task by the caller).
