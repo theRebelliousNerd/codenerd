@@ -249,7 +249,11 @@ func (e *Executor) verifyAndRepairBuild(
 	spec := repairSpec{
 		kind:         "build",
 		brokenPhrase: "edits broke the build",
-		promptFor:    buildRepairPrompt,
+		// The round is shown the turn's own edits (N26): a compiler error
+		// names a line, and what put it there is the diff.
+		promptFor: func(seed string) string {
+			return buildRepairPrompt(seed) + turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents)
+		},
 		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
 			r := verifyBuild(epCtx, workspace, nil)
 			// Only affirmative verdicts move the check: an indeterminate
@@ -351,7 +355,8 @@ func (e *Executor) verifyAndRepairTests(
 		// closes the read tools after its first round that writes nothing, so
 		// a model that has not already read the test it broke cannot.
 		promptFor: func(seed string) string {
-			return testRepairPrompt(seed, failingTestSection(workspace, seed, result.WrittenPaths))
+			return testRepairPrompt(seed, failingTestSection(workspace, seed, result.WrittenPaths)) +
+				turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents)
 		},
 		// A test repair can break the build, so re-check both, cheapest
 		// first. Only an affirmative failure verdict fails here: a recheck
