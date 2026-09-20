@@ -1,74 +1,54 @@
-# diff — Architecture Corpus (`internal/diff`)
+# internal/diff
 
-> Last verified against codebase: 2026-07-13  
-> Status: Living Reference Document  
-> Language: Go (module `codenerd`)  
-> Primary package: `internal/diff/`  
-> Scale: **1** non-test Go file ≈ **379** lines; **2** test files ≈ **949** lines; **0** `.mg`
+Line diffs for the agent loop and the TUI, computed with `sergi/go-diff`
+(`diffmatchpatch`) and cached in a bounded in-process LRU.
 
-## Scope
+Verified 2026-09-20 against commit `231cfa7` (`main`). The package is two
+production files — `internal/diff/diff.go` (557 lines) and
+`internal/diff/cache.go` (265 lines) — plus five test files
+(`benchmark_test.go`, `cache_test.go`, `diff_comprehensive_test.go`,
+`diff_test.go`, `word_span_test.go`).
 
-This corpus documents **`internal/diff`**: a small, battle-tested text-diff utility that wraps
-[`github.com/sergi/go-diff/diffmatchpatch`](https://github.com/sergi/go-diff) and produces
-structured `FileDiff` / `Hunk` / `Line` values for consumers (primarily the interactive
-diff-approval TUI in `cmd/nerd/ui/diffview.go`).
+## Pipeline in one paragraph
 
-It is **not**:
+`ComputeDiff` (`internal/diff/diff.go:243-307`) short-circuits binary input
+(`containsNullByte`, `internal/diff/diff.go:24-26`), looks the pair up in the
+cache under a key of two content hashes plus both lengths plus the context
+width (`fingerprint`, `internal/diff/diff.go:141-157`; `cacheKey`,
+`internal/diff/diff.go:121-129`), and on a miss runs
+`DiffLinesToChars`/`DiffMain`/`DiffCleanupSemantic`/`DiffCharsToLines`,
+converts the result to line operations (`diffsToOperations`,
+`internal/diff/diff.go:343-400`), groups them into hunks with context
+(`groupIntoHunks`, `internal/diff/diff.go:403-486`), and caches a deep copy.
+`ComputeWordLevelDiff` (`internal/diff/diff.go:530-551`) is a separate,
+uncached per-line-pair span comparison returning `WordSpan` values.
 
-- A Git porcelain / unified-diff parser  
-- A kernel, shard, VirtualStore route, or Mangle policy surface  
-- The TUI that *renders* diffs (`cmd/nerd/ui/` — see `Docs/architecture/cli/`)
+## Public API
 
-## Document map
+| Symbol | Where | Notes |
+|---|---|---|
+| `Engine` | `internal/diff/diff.go:108-112` | holds dmp instance, cache, options |
+| `Options` | `internal/diff/diff.go:162-191` | `ContextLines`, `DisableCache`, `MaxCacheEntries`, `MaxCacheBytes`, `Timeout`, `VerifyCacheContent` |
+| `NewEngine` / `NewEngineWith` | `internal/diff/diff.go:214-230` | zero `Options` == defaults; timeout default 5s (`diffTimeout`, `internal/diff/diff.go:14`) |
+| `DefaultEngine` | `internal/diff/diff.go:238` | singleton behind the package-level functions |
+| `(*Engine).ComputeDiff` / `ComputeDiff` | `internal/diff/diff.go:243-312` | file diff with caching |
+| `(*Engine).ComputeWordLevelDiff` / `ComputeWordLevelDiff` | `internal/diff/diff.go:530-556` | uncached word spans |
+| `(*Engine).ClearCache` / `(*Engine).Stats` | `internal/diff/diff.go:518-520`, `233-235` | clear keeps cumulative counters; `Stats` is `internal/diff/cache.go:28-43` |
+| `FileDiff` / `Hunk` / `Line` | `internal/diff/diff.go:98-105`, `89-95`, `82-86` | flags `IsNew`, `IsDelete`, `IsBinary` on `FileDiff` |
+| `LineContext` / `LineAdded` / `LineRemoved` / `LineHeader` | `internal/diff/diff.go:43-57` | the engine never emits `LineHeader`; it is UI-owned |
+| `WordSpan` (`SpanEqual`/`SpanDelete`/`SpanInsert`) | `internal/diff/diff.go:62-79` | replaced the old raw `diffmatchpatch.Diff` return |
 
-| Doc | Role |
-|-----|------|
-| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | Authoritative living architecture + inventory |
-| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment scores |
-| [01-VISION.md](01-VISION.md) | Target product/architecture vision |
-| [02-CURRENT-STATE.md](02-CURRENT-STATE.md) | Precise on-disk inventory |
-| [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) | Spec vs reality, priorities, non-gaps |
-| [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md) | Binding design principles |
-| [05-INTERNAL-ARCHITECTURE.md](05-INTERNAL-ARCHITECTURE.md) | Components, data flow, algorithms |
-| [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) | Exported types and functions |
-| [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md) | Upstream/downstream with evidence |
-| [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) | How callers integrate |
-| [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) | Bounds, concurrency, binary gates |
-| [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) | Tests, gaps, commands |
-| [11-OBSERVABILITY.md](11-OBSERVABILITY.md) | Logging/metrics (mostly none) |
-| [12-FAILURE-MODES.md](12-FAILURE-MODES.md) | Concrete failure modes + mitigations |
-| [TODO.md](TODO.md) / [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) / [_progress.md](_progress.md) | Governance |
+## Consumers
 
-## Fact-flow position
+- `internal/session/turn_diff.go:62` — `renderFileDiff` calls package-level
+  `diff.ComputeDiff` (i.e. `DefaultEngine`) to show a repair round its own edits.
+- `cmd/nerd/ui/diffview.go:907-917` — the TUI keeps one private `uiDiffEngine`
+  (`diff.NewEngine()`), exposed via `CreateDiffFromStrings` and
+  `DiffEngineStats`; `cmd/nerd/ui/word_highlight_test.go:141-159` pins that the
+  view and the helper share that single engine.
 
-```
-user_intent → kernel → next_action → VirtualStore → (file write / propose edit)
-                                                      │
-                                                      ▼
-                         old/new strings ──► internal/diff.ComputeDiff
-                                                      │
-                                                      ▼
-                         FileDiff ──► cmd/nerd/ui DiffApprovalView ──► human y/n
-```
+## Further reading
 
-`internal/diff` is a **pure library** on the Act/presentation edge. It does not assert
-Mangle facts, does not consult `permitted(...)`, and does not talk to the LLM.
-
-## Verify
-
-```powershell
-go test ./internal/diff/...
-go test -race ./internal/diff/...
-go test ./cmd/nerd/ui/ -run 'Diff|Word'
-```
-
-Benchmarks (optional):
-
-```powershell
-go test ./internal/diff/ -bench=. -benchmem
-```
-
-## Quality bar
-
-Modeled on `Docs/architecture/cli/`: real file inventory, control-flow diagrams, reverse-dep
-evidence, and honest gaps — **not** auto-generated inventory stubs.
+- `INTERNALS.md` — pipeline stages, cache design, and the invariants the tests pin.
+- `WIRING-AND-NOT-BUILT.md` — what is reachable, what exists but nothing calls,
+  and what the design assumes that the code does not do.
