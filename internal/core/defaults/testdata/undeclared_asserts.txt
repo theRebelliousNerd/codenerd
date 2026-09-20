@@ -5,7 +5,13 @@
 # fixpoint only derives what the program declares.
 #
 # Fix one by declaring it AND giving it a consumer, or by dropping the assert.
-# Declaring it alone just moves it to the starved-predicate list.
+#
+# Declaring it alone is not the fix, and no gate will tell you so. A
+# predicate that is declared, written by Go, and read by no rule body is
+# the fourth direction (see starved_atom_value_test.go) and this package
+# deliberately does not measure it: it is NOT starved, which requires a
+# rule to read it, and it is no longer undeclared. It leaves this list and
+# arrives nowhere. Check the consumer yourself.
 #
 # Regenerate: CODENERD_UPDATE_UNDECLARED=1 go test ./internal/core/defaults/ -run TestUndeclaredAssertBudget
 active_task

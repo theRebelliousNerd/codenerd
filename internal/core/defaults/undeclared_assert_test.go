@@ -210,7 +210,13 @@ func TestUndeclaredAssertBudget(t *testing.T) {
 		sb.WriteString("# fixpoint only derives what the program declares.\n")
 		sb.WriteString("#\n")
 		sb.WriteString("# Fix one by declaring it AND giving it a consumer, or by dropping the assert.\n")
-		sb.WriteString("# Declaring it alone just moves it to the starved-predicate list.\n")
+		sb.WriteString("#\n")
+		sb.WriteString("# Declaring it alone is not the fix, and no gate will tell you so. A\n")
+		sb.WriteString("# predicate that is declared, written by Go, and read by no rule body is\n")
+		sb.WriteString("# the fourth direction (see starved_atom_value_test.go) and this package\n")
+		sb.WriteString("# deliberately does not measure it: it is NOT starved, which requires a\n")
+		sb.WriteString("# rule to read it, and it is no longer undeclared. It leaves this list and\n")
+		sb.WriteString("# arrives nowhere. Check the consumer yourself.\n")
 		sb.WriteString("#\n")
 		sb.WriteString("# Regenerate: CODENERD_UPDATE_UNDECLARED=1 go test ./internal/core/defaults/ -run TestUndeclaredAssertBudget\n")
 		for _, p := range current {
@@ -262,7 +268,8 @@ func TestUndeclaredAssertBudget(t *testing.T) {
 
 Assert will return nil and the fact will not be readable by any rule or query.
 Declare the predicate and give it a consumer, or drop the assert. Declaring it
-without a consumer only moves it to the starved-predicate list.
+without a consumer takes it off this list and puts it on no other: a predicate
+read by no rule body is not starved, and no gate here measures it.
 
 If it is deliberate, record it with:
   CODENERD_UPDATE_UNDECLARED=1 go test ./internal/core/defaults/ -run TestUndeclaredAssertBudget
