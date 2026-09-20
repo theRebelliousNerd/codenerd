@@ -35,12 +35,21 @@ const (
 	VerifyCanceled VerifyOutcome = "canceled"
 )
 
-// Verification budgets. A cold `go build ./...` takes tens of seconds, so the
-// ceiling is generous. Variables (not constants) so tests can shrink them;
+// Verification budgets. Zero: the harness puts no wall clock on building or
+// testing the workspace. Variables (not constants) so tests can bound them;
 // see the seam note below.
+//
+// They were four minutes each, which is shorter than the suite they gate --
+// internal/session's own tests take 259 s, and the test gate runs the packages
+// that import what a turn wrote. Ladder run R1-18 (2026-09-19) hit it on six
+// importer packages and reported "tests ok" over a check that never finished.
+// Steve, on the first of these clocks: "there should not be timeouts like
+// that... some agentic runs are like hours long." A run's only wall clock is
+// the one the user asks for with --timeout; an operator cancel still kills a
+// verification at any point.
 var (
-	buildVerifyTimeout = 4 * time.Minute
-	testVerifyTimeout  = 4 * time.Minute
+	buildVerifyTimeout time.Duration
+	testVerifyTimeout  time.Duration
 )
 
 // verifyCommandRunner executes one verification subprocess. The ctx carries
@@ -98,7 +107,17 @@ func runVerificationCommand(parent context.Context, dir string, env []string, bu
 		// A pre-expired parent deadline does not apply: verification keeps
 		// its own budget.
 	}
-	budgetCtx, cancel := context.WithTimeout(context.Background(), budget)
+	// A non-positive budget is unbounded, not expired: context.WithTimeout
+	// with zero is already done, so "no budget" would otherwise mean "no time
+	// at all" and every verification would come back indeterminate before its
+	// command started.
+	var budgetCtx context.Context
+	var cancel context.CancelFunc
+	if budget > 0 {
+		budgetCtx, cancel = context.WithTimeout(context.Background(), budget)
+	} else {
+		budgetCtx, cancel = context.WithCancel(context.Background())
+	}
 	defer cancel()
 	done := make(chan verifyRunResult, 1)
 	go func() {

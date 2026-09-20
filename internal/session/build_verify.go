@@ -401,10 +401,26 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 	if v.Verdict() != VerifyPassed {
 		return v, uncovered
 	}
-	if imp := verifyImporters(ctx, workspace, result); imp.Verdict() == VerifyFailed {
-		return imp, uncovered
+	return mergeImporterVerdict(v, verifyImporters(ctx, workspace, result)), uncovered
+}
+
+// mergeImporterVerdict is what the gate reports once the turn's own packages
+// have passed and the importer check has run.
+//
+// Only an affirmative pass, or a check that had nothing to run, leaves the
+// turn's own pass standing. Anything else is the gate's answer, including a
+// check that produced no verdict: ladder run R1-18 (2026-09-19) hit the
+// four-minute verification budget on six importer packages and still printed
+// "build ok | tests ok", because the old form propagated VerifyFailed alone and
+// everything else fell through to the pass measured on other packages. A
+// timeout is not proof that the importers passed.
+func mergeImporterVerdict(own, imp TestVerification) TestVerification {
+	switch imp.Verdict() {
+	case VerifyPassed, VerifySkipped:
+		return own
+	default:
+		return imp
 	}
-	return v, uncovered
 }
 
 // gateOwnTests is the gate over the turn's own packages.
