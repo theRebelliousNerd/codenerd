@@ -97,7 +97,17 @@ the protocol for a run, and the status of each rung with the run that moved it.
   could delete dead code through codeNERD at all. Hand-fixed: a removed test is released only when
   the same turn deleted a function that test names. The run also exposed the gate reporting
   `tests ok` over a four-minute timeout on six importer packages (`8f88be65`). Streak 0 -- and R1-18
-  is the first failure that was entirely the harness's.
+  is the first failure that was entirely the harness's. R1-19 ran the same brief with that gate
+  fixed and produced a competent change to **a defect that does not exist**: D2 claimed the
+  delimiter guard refused valid edits and asserted their output "parses and compiles", which was
+  never measured. Net delimiter balance is conserved, so refusing when the span's net changes is
+  refusing exactly the edits that unbalance the file -- the guard was correct by construction, and
+  every cited refusal would have broken the file. The run's change is kept on its merits (an
+  already-unbalanced file can now be repaired; `}{` is caught by a stack where a net count passes
+  it; all fifteen extensions keep their check) but it is **not a landing**: criterion 1 is that the
+  run fixed the named symptom. The rule that comes out of it -- **a finding does not enter a brief
+  until its falsifying check has been run**; for a refusal, apply the edit and see whether the
+  result is valid.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the

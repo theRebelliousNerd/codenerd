@@ -139,32 +139,42 @@ Eight words, no reason to prefer it, nothing about what it saves. The repo's too
 a tool exists to condense the search space, reduce turns, or offload cognition. `get_elements`
 does the first; nothing tells the model so, and the measured ratio is 20:1 against it.
 
-### D2 the delimiter guard refuses correct refactors
+### D2 RETRACTED -- the delimiter guard was right, and this finding was not checked
 
-4 of the 5 `edit_lines` refusals, across 3 runs and 2 files, are the same guard:
+**This finding was wrong, and it was briefed to codeNERD before anyone verified it.** It is left
+here rather than deleted because the way it was wrong is the useful part.
 
-```
-refusing edit: it changes delimiter balance in …/elements.go
-(braces: replaced text had net -1, new content has net +0).
-The lines you replaced were holding a delimiter your new content does not reproduce,
-which would leave the file unparseable below the edit.
-```
+What it claimed: 4 of 5 `edit_lines` refusals were the guard rejecting valid restructurings, and
+*"the file that edit produces is valid: it parses, it compiles."* That last sentence was never
+measured. It was inferred from the refusals looking like refactors, and it went into an R1 brief
+as evidence.
 
-In the clearest case (`20260919_235331`) the model was replacing
+Why it is false, by arithmetic rather than by opinion. **Net delimiter balance is conserved.** For
+a file that starts balanced, replacing span `S` with content `N` leaves the file at
+`0 - net(S) + net(N)`. The old guard refused exactly when `net(S) != net(N)` -- which is exactly
+when the result is unbalanced. On a balanced file the guard was correct *by construction*, and no
+refactor that keeps the file balanced can trip it, however far a block boundary moves.
 
-```go
-for _, e := range elements {
-    if e.Name == name {
-```
+The five refusals with reported deltas were `+2 -> +1`, `+0 -> -1`, `-1 -> +0`, `+0 -> +1` and
+`-1 -> +0`. Every one would have left the file unbalanced. The guard caught five partial edits;
+the model widened its range and continued, which is the loop working.
 
-with a loop that collects matches and a following `switch`. The file is balanced after that
-edit; the *span* is not. The guard's premise — a replaced span must preserve its own net
-delimiter balance — is false for any refactor that moves a block boundary. Audit N10 recorded
-this for raw strings; these four are ordinary Go.
+What was actually wrong with the guard is smaller, and none of it was in the brief:
 
-The cost is not the refusal. It is what the model does next: in R1-16 it was refused a
-restructuring, could not reach the fix the round demanded, and weakened its own test assertion
-instead.
+- **It refused repairs.** A file that is already unbalanced could not be edited back into shape,
+  because any repairing edit necessarily changes the span's net.
+- **It counted instead of nesting.** Net counts accept `}{`; only a stack rejects it.
+- Its message told the model to "widen the range to cover both ends", which is right, and the
+  model did exactly that each time.
+
+**The lesson about briefs.** A symptom-only brief carries evidence; this one carried a conclusion
+formatted as evidence. Given a confident false premise a good agent does what R1-19 did -- it
+fixes the stated problem competently. The four-line check that would have refuted the premise
+(apply the edit, run `gofmt -e`) was available the whole time and was not run.
+
+R1-19's change is judged on its own merits in the ledger: it keeps every refusal that mattered,
+adds the repair path and the nesting check, and does not fix the symptom the brief named, because
+there was none.
 
 ### D3 the structural fact layer is produced by a path the model cannot reach
 
@@ -242,6 +252,21 @@ Everything needed already exists; nothing new produces facts:
 | the kernel those facts land in | the main kernel — `SetWorkingWorld(bctx.kernel)`, so the working set's `code_element` query reads the same store |
 | staleness after an edit | `handleEditLines`/`handleInsertLines` refresh the scope once it is open; `clearCodeDOMFacts` replaces it |
 
+#### The wiring gap the first attempt shipped with
+
+`e78e7241` wired the source onto the session executor in `factory.go` and was measured dark on the
+very next run: R1-19 made 24 tool calls and logged not one `codedom scope` line. `nerd fix`
+delegates to a coder shard, and the **Spawner** builds that shard's executor itself, forwarding the
+parent's state one call at a time -- `SetProjectDoc`, `SetFileContextProvider`, `SetWorkingWorld`
+(`spawner.go:355-366`). A new provider that is not added to that list reaches the session executor
+and never the shard that does the work.
+
+This is the repo's own warning about itself ("this codebase frequently has partially wired features
+and dormant integration points") reproduced in a single commit, by the change that was fixing
+another instance of it. The tests covered the scope's behaviour -- facts land, an edit replaces
+them, an unchanged file parses once -- and nothing asserted that a spawned shard could reach it,
+which is the only thing that mattered in production. A capability test is not a wiring test.
+
 So the change is: **an agent run establishes a CodeDOM scope over the files it is working on.**
 The executor measures the focus (it already knows every path the turn reads and writes); the
 kernel keeps every decision that follows. That adds a writer row to the ownership matrix in
@@ -274,14 +299,20 @@ unadvertised in the one sentence the model is given about it.
 
 Ordered by measured cost:
 
-1. **D2** — 17% of edits refused, and the refusals push the model into worse changes. Smallest
-   fix, largest immediate effect. The guard should ask whether the *file* parses, not whether
-   the *span* balances.
-2. **D3** — decide the scope question. Until then the query is pure cost.
-3. **D1** — the tool descriptions, and a JIT atom that fires when a task names a symbol.
-4. **D5** — resolve the focus to a file before querying the world for it.
-5. **D4** — follows from 1-3; the structural tools cannot be chosen while they are unadvertised
+1. **D3** — the scope layer. Decided and landed (`e78e7241` + the Spawner wiring); this was the
+   whole of the gap between "the kernel has the math" and what a turn actually gets.
+2. **D1** — the tool descriptions, and a JIT atom that fires when a task names a symbol. This is
+   now the largest measured cost: 261 raw reads against 13 structural ones.
+3. **D4** — follows from D1; the structural tools cannot be chosen while they are unadvertised
    and the line tools are the only ones that work.
+4. ~~**D2**~~ — retracted above. The 17% refusal rate is real and was the right thing to notice;
+   the conclusion drawn from it was not, and the check that would have caught that took four
+   lines. **D5** is likewise not a defect: the `"."` focus is documented, deliberate behaviour.
+
+What the retraction costs is worth stating: one 24-minute run spent fixing a non-problem, and a
+number in a study that has to be walked back. What it bought is the rule that replaces the habit
+that produced it -- **a finding does not enter a brief until the falsifying check has been run**,
+and for a refusal the check is always "apply it and see whether the result is valid."
 
 Then measure again: the read_file-to-structural ratio, the refusal rate, and how much of the
 working section's code-fact budget is actually filled.

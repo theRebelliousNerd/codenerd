@@ -5232,3 +5232,47 @@ halves hand-fixed in `8f88be65`.
 
 **Rung-level.** Streak 0. R1-18 is the first run whose failure was entirely the harness's: the
 change it wrote was better than what it replaced.
+
+## R1-19, the delimiter guard again: a competent fix to a defect that did not exist (2026-09-19, 22:36-23:00)
+
+Binary from `01a1ff49` (N27, N28, N29, N30 all in). Brief: doc 08's D2, plus one added
+requirement -- whatever replaces the guard must still refuse an edit that leaves any of the
+fifteen covered extensions unparseable.
+
+| minutes | outcome | files |
+|---|---|---|
+| 24.1 | rc=0, `/done`, verdict true | `lines.go`, `lines_balance_test.go`, `lines_delimiters_test.go` (new, 10 tests) |
+
+**The brief was wrong and I wrote it.** D2 claimed the guard refused valid restructurings and
+asserted *"the file that edit produces is valid: it parses, it compiles."* That was never
+measured -- it was inferred from the refusals looking like refactors. Net delimiter balance is
+conserved: for a balanced file, replacing span S with N leaves `-net(S) + net(N)`, so refusing
+when `net(S) != net(N)` is refusing exactly the edits that unbalance the file. The guard was
+correct by construction. All five cited refusals (`+2->+1`, `+0->-1`, `-1->+0`, `+0->+1`,
+`-1->+0`) would have broken the file; the model widened its range each time and carried on,
+which is the loop working. Retracted in doc 08.
+
+**What the run produced, judged on merit.** Probed end-to-end through `edit_lines` on six shapes:
+a dropped closing brace is still refused; a valid non-Go restructuring is accepted; a Rust
+lifetime (`&'a str`) and a JS apostrophe in a comment do not false-refuse. Two genuine gains
+neither the brief nor the finding mentioned:
+
+- **an already-unbalanced file can now be repaired** -- before, every repairing edit necessarily
+  changed the span's net and was refused, so a broken file was unfixable through `edit_lines`;
+- **misordering is caught** -- `delimitersBalanced` keeps a stack, and `}{` passes a net count.
+
+For `.go` it defers to `go/parser`, which is authoritative, and falls through to the existing
+syntax guard for a non-delimiter parse error. All fifteen extensions keep their check, so it does
+not repeat R1-18's silent nine-language regression -- the added requirement did its job.
+
+**Not a landing.** Criterion 1 is that the run fixed the named symptom, and the named symptom was
+not real. It also left `netDelimiters` called only from its own test; removed by hand with that
+test, which is the deletion `01a1ff49` had just made legal.
+
+**What it cost and what it bought.** One 24-minute run on a non-problem and a retraction in a
+study. Against that: the rule that replaces the habit -- **a finding does not enter a brief until
+its falsifying check has been run**, and for a refusal that check is always "apply the edit and
+see whether the result is valid." Four lines of Python, available the whole time.
+
+**Rung-level.** Streak 0. R1-16 through R1-19 were each a case of the run being right and
+something else being wrong: three harness defects (N27, N28, N29) and, here, the brief.

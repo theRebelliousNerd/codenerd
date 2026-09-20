@@ -3,6 +3,8 @@ package codedom
 import (
 	"context"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"path/filepath"
 	"strings"
 
@@ -129,17 +131,19 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	result = append(result, newLines...)
 	result = append(result, lines[endIdx:]...)
 
-	// Refuse an edit that drops a delimiter the replaced range was holding.
-	// Observed repeatedly: a replacement range ends on a closing brace, the new
-	// content omits it, and the file silently stops parsing several
-	// declarations later. Failing here costs one retry; not failing costs a
-	// corrupted file that looks like a successful write.
-	if err := checkDelimiterBalance(path, startLine, lines[startIdx:endIdx], newLines); err != nil {
+	// Refuse an edit that would leave the whole file delimiter-unbalanced.
+	// A span-level comparison refuses valid restructurings that move a block
+	// boundary: the replaced span and the new content legitimately hold
+	// different delimiter counts while the file as a whole stays balanced.
+	// Only the whole file decides, so build the candidate output first and
+	// judge that. Failing here costs one retry; not failing costs a corrupted
+	// file that looks like a successful write.
+	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	if err := checkDelimiterBalance(path, startLine, lines[startIdx:endIdx], string(content), output); err != nil {
 		return "", err
 	}
 
 	// Write back
-	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
 	if err := tools.RejectGoSyntaxRegression(path, content, []byte(output)); err != nil {
 		return "", err
 	}
@@ -157,8 +161,8 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 		numberedLines(lines[startIdx:endIdx], startLine)), nil
 }
 
-// checkDelimiterBalance refuses a replacement whose net brace/bracket/paren
-// balance differs from the text it replaces.
+// checkDelimiterBalance refuses an edit that would leave the whole file
+// delimiter-unbalanced.
 //
 // The failure this prevents: an edit_lines range that ends on a closing brace,
 // replaced by content that omits it. The write succeeds, the tool reports
@@ -166,108 +170,162 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 // error surfaces detached from its cause, often after several more edits have
 // been layered on top. That is the worst shape of bug for an unattended run.
 //
+// A span-level comparison cannot tell that failure apart from a valid
+// restructuring that moves a block boundary: the replaced span and the new
+// content legitimately hold different delimiter counts while the file as a
+// whole stays balanced. Only the whole file decides, so this judges the
+// candidate output, not the span delta.
+//
 // Only applied to source files whose delimiters are structural. Comments and
 // string literals are skipped so a brace inside them cannot trip the check.
-func checkDelimiterBalance(path string, startLine int, oldLines, newLines []string) error {
+func checkDelimiterBalance(path string, startLine int, oldLines []string, beforeFull, afterFull string) error {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go", ".java", ".c", ".h", ".cpp", ".hpp", ".cs", ".rs", ".js", ".jsx", ".ts", ".tsx", ".kt", ".swift", ".scala":
 	default:
-		return nil // not a brace-structured language; nothing to check
-	}
-
-	oldNet := netDelimiters(strings.Join(oldLines, "\n"))
-	newNet := netDelimiters(strings.Join(newLines, "\n"))
-
-	var offenders []string
-	for _, d := range []struct {
-		name  string
-		open  rune
-		close rune
-	}{{"braces", '{', '}'}, {"brackets", '[', ']'}, {"parens", '(', ')'}} {
-		if oldNet[d.open] != newNet[d.open] {
-			offenders = append(offenders, fmt.Sprintf(
-				"%s: replaced text had net %+d, new content has net %+d",
-				d.name, oldNet[d.open], newNet[d.open]))
-		}
-	}
-	if len(offenders) == 0 {
 		return nil
 	}
 
-	return fmt.Errorf(
-		"refusing edit: it changes delimiter balance in %s (%s).\n"+
-			"The lines you replaced were holding a delimiter your new content does not reproduce, "+
-			"which would leave the file unparseable below the edit.\n"+
-			"Replaced lines %d-%d were:\n%s\n"+
-			"Re-read the exact range with get_element or read_file, include every closing delimiter "+
-			"the range contained, and retry. If the imbalance is intentional (you are deliberately "+
-			"moving a block), make the matching edit in the same call or widen the range to cover both ends",
-		path, strings.Join(offenders, "; "),
-		startLine, startLine+len(oldLines)-1, numberedLines(oldLines, startLine))
+	// For Go the parser is authoritative for parseability: an edit whose
+	// result parses must be accepted even when the replaced span and the new
+	// content hold different numbers of delimiters (block boundaries move).
+	// The delimiter check remains as the refusal message for the common
+	// unbalanced case, and as the only guard for the fourteen non-Go
+	// extensions with no parser here.
+	if strings.EqualFold(filepath.Ext(path), ".go") {
+		if isGoParseable(afterFull) {
+			return nil
+		}
+		if !isGoParseable(beforeFull) {
+			// Already broken: allow incremental repair; the Go syntax
+			// regression guard decides (it permits invalid->invalid).
+			return nil
+		}
+		if delimitersBalanced(afterFull) {
+			// Balanced yet unparseable for a non-delimiter reason: let the
+			// Go syntax guard report the real parse error.
+			return nil
+		}
+	} else {
+		if delimitersBalanced(afterFull) {
+			return nil
+		}
+		if !delimitersBalanced(beforeFull) {
+			// Already unbalanced: allow incremental repair.
+			return nil
+		}
+	}
+
+	return fmt.Errorf("refusing edit: it changes delimiter balance in %s (whole-file result is delimiter-unbalanced).\n"+
+		"The lines you replaced were holding a delimiter your new content does not reproduce,\n"+
+		"which would leave the file unparseable below the edit.\n"+
+		"Replaced lines %d-%d were:\n%s",
+		path, startLine, startLine+len(oldLines)-1, numberedLines(oldLines, startLine))
 }
 
-// netDelimiters counts opens minus closes per delimiter, ignoring anything
-// inside a string, rune, raw literal, or comment.
-func netDelimiters(src string) map[rune]int {
-	net := map[rune]int{'{': 0, '[': 0, '(': 0}
+func isGoParseable(src string) bool {
+	_, err := parser.ParseFile(token.NewFileSet(), "edit.go", src, parser.AllErrors)
+	return err == nil
+}
 
-	var inLine, inBlock, inStr, inRune, inRaw, esc bool
+// delimitersBalanced reports whether src has properly nested and ordered
+// delimiters when strings and comments are ignored. It is a whole-file
+// heuristic for the fourteen extensions with no parser here: net counts
+// alone accept misordered input such as "}{", so the stack matters.
+func delimitersBalanced(src string) bool {
+	var stack []rune
+	inLine, inBlock, inStr, inRune, inRaw, esc := false, false, false, false, false, false
 	runes := []rune(src)
 	for i := 0; i < len(runes); i++ {
 		c := runes[i]
-		next := rune(0)
-		if i+1 < len(runes) {
-			next = runes[i+1]
-		}
-
-		switch {
-		case inLine:
+		if inLine {
 			if c == '\n' {
 				inLine = false
 			}
-		case inBlock:
-			if c == '*' && next == '/' {
+			continue
+		}
+		if inBlock {
+			if c == '*' && i+1 < len(runes) && runes[i+1] == '/' {
 				inBlock = false
 				i++
 			}
-		case inStr, inRune:
+			continue
+		}
+		if inStr {
 			if esc {
 				esc = false
-			} else if c == '\\' {
-				esc = true
-			} else if (inStr && c == '"') || (inRune && c == '\'') {
-				inStr, inRune = false, false
+				continue
 			}
-		case inRaw:
+			if c == '\\' {
+				esc = true
+				continue
+			}
+			if c == '"' {
+				inStr = false
+			}
+			continue
+		}
+		if inRune {
+			if esc {
+				esc = false
+				continue
+			}
+			if c == '\\' {
+				esc = true
+				continue
+			}
+			if c == '\'' {
+				inRune = false
+			}
+			continue
+		}
+		if inRaw {
 			if c == '`' {
 				inRaw = false
 			}
-		default:
-			switch {
-			case c == '/' && next == '/':
+			continue
+		}
+		if c == '/' && i+1 < len(runes) {
+			if runes[i+1] == '/' {
 				inLine = true
 				i++
-			case c == '/' && next == '*':
+				continue
+			}
+			if runes[i+1] == '*' {
 				inBlock = true
 				i++
-			case c == '"':
-				inStr = true
-			case c == '\'':
-				inRune = true
-			case c == '`':
-				inRaw = true
-			case c == '{', c == '[', c == '(':
-				net[c]++
-			case c == '}':
-				net['{']--
-			case c == ']':
-				net['[']--
-			case c == ')':
-				net['(']--
+				continue
+			}
+		}
+		if c == '"' {
+			inStr = true
+			continue
+		}
+		if c == '\'' {
+			inRune = true
+			continue
+		}
+		if c == '`' {
+			inRaw = true
+			continue
+		}
+		switch c {
+		case '{', '[', '(':
+			stack = append(stack, c)
+		case '}', ']', ')':
+			if len(stack) == 0 {
+				return false
+			}
+			top := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if (c == '}' && top != '{') || (c == ']' && top != '[') || (c == ')' && top != '(') {
+				return false
 			}
 		}
 	}
-	return net
+	if inBlock || inStr || inRune {
+		return false
+	}
+	return len(stack) == 0
 }
 
 // lineShiftNotice reports how a mutation moved every line below it, so the

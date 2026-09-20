@@ -132,31 +132,8 @@ func TestEditLines_SkipsBalanceCheckForNonBraceFiles(t *testing.T) {
 	}
 }
 
-func TestNetDelimiters(t *testing.T) {
-	cases := []struct {
-		name string
-		src  string
-		want map[rune]int
-	}{
-		{"balanced", "func f() {}", map[rune]int{'{': 0, '[': 0, '(': 0}},
-		{"open brace", "func f() {", map[rune]int{'{': 1, '[': 0, '(': 0}},
-		{"close brace", "}", map[rune]int{'{': -1, '[': 0, '(': 0}},
-		{"brace in line comment", "// }", map[rune]int{'{': 0, '[': 0, '(': 0}},
-		{"brace in block comment", "/* { { */", map[rune]int{'{': 0, '[': 0, '(': 0}},
-		{"brace in string", `s := "{"`, map[rune]int{'{': 0, '[': 0, '(': 0}},
-		{"brace in raw string", "s := `{`", map[rune]int{'{': 0, '[': 0, '(': 0}},
-		{"escaped quote then brace", `s := "\"" + "{"`, map[rune]int{'{': 0, '[': 0, '(': 0}},
-		{"slice literal", "x := []int{1}", map[rune]int{'{': 0, '[': 0, '(': 0}},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := netDelimiters(tc.src)
-			for k, want := range tc.want {
-				if got[k] != want {
-					t.Errorf("net[%q] = %d, want %d (src: %s)", k, got[k], want, tc.src)
-				}
-			}
-		})
-	}
-}
+// TestNetDelimiters went with netDelimiters itself: R1-19 replaced its only
+// production caller with delimitersBalanced, which nests rather than counts,
+// and delimitersBalanced has its own cases in lines_delimiters_test.go. A test
+// whose subject no longer exists is deleted with it, not kept to hold dead
+// code alive.
