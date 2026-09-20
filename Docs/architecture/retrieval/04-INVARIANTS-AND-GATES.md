@@ -1,3 +1,0 @@
-# Moved
-
-Superseded 2026-07-13. See [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).

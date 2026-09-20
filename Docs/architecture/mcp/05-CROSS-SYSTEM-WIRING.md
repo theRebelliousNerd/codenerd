@@ -1,5 +1,0 @@
-# Superseded
-
-This file is superseded by [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) and [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md).
-
-See [README.md](README.md).

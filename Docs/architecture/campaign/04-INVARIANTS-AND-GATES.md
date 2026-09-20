@@ -1,8 +1,0 @@
-# Redirect
-
-This filename is a **legacy stub**. Use:
-
-- [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md)
-- [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md)
-
-Rebuilt 2026-07-13.

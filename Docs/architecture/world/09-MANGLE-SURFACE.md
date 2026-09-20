@@ -1,4 +1,0 @@
-# SUPERSEDED
-
-Superseded by [13-MANGLE-SURFACE.md](13-MANGLE-SURFACE.md) (2026-07-13 rebuild).  
-(Safety content is in [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).)

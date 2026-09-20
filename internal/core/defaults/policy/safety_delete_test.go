@@ -36,7 +36,7 @@ func TestSafety_DeleteFile_RecoverableOnly(t *testing.T) {
 		}
 	}
 
-	const target = "Docs/architecture/context/01-DOMAIN-MODEL.md"
+	const target = "some/path.md"
 
 	tests := []struct {
 		name         string

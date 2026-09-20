@@ -1,6 +1,0 @@
-# Moved
-
-Superseded by:
-
-- [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md)
-- [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md)

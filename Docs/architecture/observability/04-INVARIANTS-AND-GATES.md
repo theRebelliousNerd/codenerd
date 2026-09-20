@@ -1,8 +1,0 @@
-# Superseded
-
-**Use instead:**
-
-- [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md)  
-- [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md)  
-
-Last redirect note: 2026-07-13.
