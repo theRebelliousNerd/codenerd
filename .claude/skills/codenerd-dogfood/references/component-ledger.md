@@ -5155,3 +5155,80 @@ repair prompts carry the diff of the turn's writes.
 (R1-13) walked past it by updating the test in its own tool loop before the gate ever ran. The
 brief is not at fault: the fix it asks for changes a naming contract, and a consumer's test pins
 the old one -- which is exactly the work an elite harness has to be able to finish.
+
+## R1-16, N09's brief a fourth time: its own test found a real bug and the round told it the tests pass -- failed (2026-09-19, 20:19-20:40)
+
+Binary from `ca7b31bf` (N26's turn diff in). Brief unchanged from R1-12/R1-15.
+
+| minutes | tool calls | outcome | repair episode | files |
+|---|---|---|---|---|
+| 20.0 | 44 requests (19 read_file, 7 grep, 4 get_elements/get_element, 5 recall_context) | rc=0, `/unverified`: "code this turn changed is executed by no test" after 3 coverage attempts | 3 attempts, 8 llm calls, 385.2k in, 12.0k out | `elements.go`, `elements_test.go`, `extent_realfile_test.go`, `elements_branches_test.go` -- reverted |
+
+**The fix was close and the round broke it.** The model reached receiver-qualified listing and
+`get_element` resolving `B.Close`, then its coverage test found a genuine bug in the helper it had
+just written: `goReceiverBaseType("func (a *pkg.A[T, U]) Close() error")` returned `"U]"`, not
+`"A"`. Good test, real defect.
+
+**N27 -- the round then lied to it.** Every remaining coverage prompt opened with *"The tests pass,
+but no test executes these lines of code you changed:"* above the FAIL trace, asked for more tests,
+and forbade the production fix the failure needed (*"Do not change the production code ... they are
+the change"*). The model did the only thing left and weakened its own assertion --
+`"func (a *A Close()"` edited to `"func (a *A Close"` -- to get out. Hand-fixed in `2e48c308`:
+`repairSpec.prompt` chooses from what the recheck reported, and no round can state its own subject
+over a red run. Two of the seven rounds already carried an ad-hoc `testsBroke` boolean doing this
+by hand; both deleted.
+
+**Also measured here.** 5,972 kernel queries, 3,781 returning nothing; `delegate_task` 1,771 queries
+for 52.3 s and never a row; `code_element` 1,175 queries and never a row while `code_defines`
+answered 950 of 1,216 from the same kernel. That last pair is where doc 08 started.
+
+## R1-17, the search projection after the importer gate caught it: landed (2026-09-19, 20:42-21:05)
+
+Binary from `ca7b31bf`. Brief written out of the N25 importer gate's own failure -- the R1-13/R1-14
+change left `internal/observation` red, which the new gate caught and the old one would not have.
+
+| minutes | tool calls | outcome | files |
+|---|---|---|---|
+| 23.0 | 2 codedom + reads | rc=0, `/done`, verdict true | `codesearch.go`, `codesearch_test.go` |
+
+Third of the three runs whose combined output shipped as `e216f275`. The pinning gate fired on
+`Project` and the round produced a direct regression test. Advisory mutation recorded two
+survivors on the changed lines (`element.Type == "method"`, `idx != -1`), not charged.
+
+## R1-18, the delimiter guard: the right fix, refused by a gate that could not tell it from cheating (2026-09-19, 21:35-22:12)
+
+Binary from `c9d7841c` (N27 in). Brief symptom-only from doc 08's D2: four refusals across three
+runs and two files, each on a valid restructuring, with the real error text quoted.
+
+| minutes | outcome | files |
+|---|---|---|
+| 37.2 | rc=1, **failed**: `turn removed test(s) without replacing them` | `lines.go` (-127), `lines_balance_test.go`, `apply_edits_test.go` -- reverted |
+
+**The direction was right.** It deleted `checkDelimiterBalance` and `netDelimiters` outright and
+leaned on `tools.RejectGoSyntaxRegression` -- a real whole-file Go parser check already called on
+the very next line of the same function. No shim left behind. For `.go` that is strictly better
+than the span-balance heuristic, which is wrong by construction: a refactor that moves a block
+boundary changes the span's net balance while leaving the file parseable.
+
+**Two reasons it did not land.**
+
+1. **The removed-tests gate cannot tell a dead test from a hidden one.** Deleting the guard meant
+   deleting `TestNetDelimiters` and `TestApplyEdits_PreflightDelimiterBalanceChangesNeitherFile`,
+   whose only subject was the deleted function. The gate answered *"a failing test is fixed by
+   fixing the code, not by deleting the test"* and failed the turn. Until this was fixed no turn
+   could delete dead code through codeNERD at all, because the dead code's tests could not go with
+   it. Hand-fixed: a removed test is released only when the same turn deleted a function that test
+   names, matched on the whole identifier.
+2. **It silently dropped nine languages.** `RejectGoSyntaxRegression` is Go-only ("Non-Go paths are
+   untouched"), and the deleted guard covered `.java/.c/.cpp/.rs/.js/.ts/.kt/.swift/.scala`. The
+   brief did not ask for that and the run's review did not raise it. The correct fix keeps a
+   whole-**file** balance check for those -- the file invariant is right, the span invariant is
+   what was wrong.
+
+**Found live during this run.** The importer gate hit the hardcoded four-minute verification budget
+on six packages and the turn still printed `build ok | tests ok`: `gateTests` propagated only
+`VerifyFailed`, so an indeterminate check fell through to the turn's own packages' pass. Both
+halves hand-fixed in `8f88be65`.
+
+**Rung-level.** Streak 0. R1-18 is the first run whose failure was entirely the harness's: the
+change it wrote was better than what it replaced.
