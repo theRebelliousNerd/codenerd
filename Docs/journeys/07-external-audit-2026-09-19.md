@@ -200,6 +200,17 @@ becoming stale, or detached from the mutations it is supposed to describe.
   `e78e7241` on Steve's call ("fix the codedom dude! add capability"): the run parses the file its
   focus names into the layer, replaced per file by content digest. Full write-up in
   [08-codedom-journeys-2026-09-19.md](08-codedom-journeys-2026-09-19.md).
+- **N10 CLOSED (2026-09-20) by R1-19's whole-file delimiter check, and the mechanism is now
+  known.** The audit reported that an `edit_lines` change inside a Go raw string holding a Mangle
+  program was refused for delimiter balance though the file is as valid after it. The cause was
+  that the old guard lexed only the SPAN -- `netDelimiters(strings.Join(oldLines, "\n"))` -- so a
+  span sitting inside a raw string was read as ordinary code and the quoted program's braces were
+  counted as structural. Nothing in that call could know the span was quoted; the file was never
+  consulted. Verified both directions on the same probe: a raw string containing `policy {` /
+  `allow` / `}`, with line 4 replaced by `policy {` + `  nested {` --
+  the pre-R1-19 guard refuses it ("braces: replaced text had net +1, new content has net +2") and
+  the current one accepts it, leaving valid Go. R1-19 was run against a brief whose premise was
+  wrong (D2, retracted), and closed a real defect the brief never mentioned.
 - **N37 the pinning gate reported a change unpinned without checking whether anything pinned it.**
   It ran only the tests the TURN wrote, so a turn that correctly wrote none -- because a repo-wide
   invariant test already covered its change -- was told "nothing would notice if a change were
