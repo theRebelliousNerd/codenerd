@@ -57,6 +57,21 @@
     the evaluation. Inputs must be literal constants in the rule text. To follow a bound value
     into a store, have Go assert the small relevant slice as facts for the turn.
 
+    ### Registering a Go handler does nothing without an external() Decl
+    `mkPred("p", ...)` in BuildExternalPredicates only offers a handler. The kernel builds the
+    callback map and then keeps the entries whose `decl.IsExternal()` is true, dropping the rest
+    with no error and no log. Against a plain `Decl p(X).` the handler never runs, the rules that
+    read p still derive nothing, and the build and the tests are green -- while p's name now
+    appears in Go, which is enough to make the starved-predicate gate call it produced.
+
+    So there are exactly three ways to fill a predicate, and a Go handler is the one with a
+    precondition: a rule head, a Go `Assert`, or a handler behind `descr [external(), mode(...)]`.
+
+    Adding that descriptor is NOT the general fix, because the two truths compose: once the
+    handler is live, any rule that passes it a bound variable panics. A predicate whose rules
+    read it as `p(Target)` with Target bound by an earlier atom -- the ordinary shape -- cannot
+    be served by an external at all on this engine. Have Go assert the facts instead.
+
     ### Things that fail quietly
     - A name constant ending a clause swallows the period after `=` or `!=` (`X != /done.`): put a
       line break before the period, or reorder the comparison.

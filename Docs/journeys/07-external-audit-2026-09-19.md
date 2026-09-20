@@ -200,6 +200,59 @@ becoming stale, or detached from the mutations it is supposed to describe.
   `e78e7241` on Steve's call ("fix the codedom dude! add capability"): the run parses the file its
   focus names into the layer, replaced per file by content digest. Full write-up in
   [08-codedom-journeys-2026-09-19.md](08-codedom-journeys-2026-09-19.md).
+- **N39 a gate certified inert code, and the four corpus gates had three more holes.**
+  Fixed `64e7ab7a`, `a6a4afc3`, `77790de3`, `52b7c5f1`, all hand-built because these gates score
+  the dogfood ladder. (1) All four counted `internal/testing/` as production Go -- a harness
+  imported by other packages' tests cannot be named `_test.go` -- which put 7 predicates on the
+  undeclared list that only `context_harness` asserts, and in the other direction let
+  `simulator.go`'s keyword list `{"test_failure", "assertion", "test_result"}` silence a genuinely
+  starved `pytest_failure /assertion`. (2) The undeclared scan's `Predicate:\s*"..."` had no
+  leading boundary, so it matched the tail of `FactPredicate:`, a `types.ShardLearning` row label
+  that `core/dream_router.go` says "has no Decl anywhere and must not get one" -- 933 `Predicate:`
+  literals against 3 `FactPredicate:` ones. (3) The guidance promised that declaring without a
+  consumer "moves it to the starved-predicate list", which cannot happen: starved requires a rule
+  body to READ the predicate, so a declared-and-unread one leaves the undeclared list and arrives
+  nowhere. That promise is what made R2-2's Decl-only change look complete.
+  (4) The worst: **`TestStarvedPredicateBudget` treated any Go string literal as a producer**, so
+  `mkPred("target_is_large", ...)` satisfied it. The kernel keeps a registration only when
+  `decl.IsExternal()` (`kernel_eval.go`), so against a plain Decl the handler never runs -- and
+  the gate still announced "4 predicate(s) on the starved list now have a producer". Had R2-3
+  regenerated the baseline as its brief asked, four predicates would have left the list having
+  gained nothing. Now a predicate needs a live production route: a rule head, a real assert, or
+  an external() Decl. `goProduces` has all four branches pinned, plus a guard that fails if the
+  corpus stops declaring anything external, which would silently turn the rule into "every
+  registration is inert".
+
+- **N40 the JIT compiled one prompt for a 67-minute turn, and the knowledge it withheld was the
+  knowledge the turn needed.** Measured on R2-3
+  (`20260920_054430..._051356_...`), exactly one compile for the whole run:
+
+      Kernel query: target_need(/go, Need) -> 0 results (0ms)
+      CompilationContext{mode=/active, shard=/coder, lang=/go, intent=/fix,
+                         budget=94000, world_states=[]}
+
+  ~70 tool calls, 22 file reads and 2 writes ran against that single prompt. No steps were planned,
+  so `stepSystemPrompt`'s per-step re-compile (`e434033b`) never ran, and the needs decided before
+  the turn knew anything were never re-derived as it learned exactly which files it was touching.
+  `policy/jit_needs.mg` holds one rule, `target_need(/mangle, /authoring_mangle)`, and
+  `targetNeeds` asks with the language alone -- so a turn whose work is the Go side of the Mangle
+  FFI is, by construction, a `/go` turn with no Mangle knowledge in the window.
+
+  What it cost is exact. `atoms/mangle/engine_truths_pinned.yaml` already carried "an `external()`
+  premise whose input argument is a variable bound by an earlier atom PANICS", which is precisely
+  the wall R2-3's design was heading for, and it is gated `world_states: ["authoring_mangle"]`.
+  The harness had the fact and decided it was not needed.
+
+  Half fixed. The atom was missing the other half of the contract -- that a `mkPred` registration
+  reaches the engine only behind an `external()` Decl, and that the two truths compose, so a
+  predicate whose rules read it with a bound variable cannot be served by an external at all --
+  and that is now written down, verified against `kernel_eval.go` and against the live gate.
+  **Delivery is deliberately not fixed here.** `target_need` is keyed on language, and the honest
+  trigger is not a language: the candidates are a path-keyed need (which needs a positive atom to
+  bind the path, so it means an explicit boundary-file relation in policy) or re-deriving needs
+  when the working focus lands, which is the real JIT promise and a larger design decision than a
+  measurement licenses. Recorded as H11 was: the number is established, the fix is not guessed.
+
 - **N10 CLOSED (2026-09-20) by R1-19's whole-file delimiter check, and the mechanism is now
   known.** The audit reported that an `edit_lines` change inside a Go raw string holding a Mangle
   program was refused for delimiter balance though the file is as valid after it. The cause was
