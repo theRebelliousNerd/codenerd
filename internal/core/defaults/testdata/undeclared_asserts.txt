@@ -36,7 +36,6 @@ checkpoint_created
 commit_pending
 compression_requested
 context_compressing
-correction_pattern
 corrective_decomposing
 corrective_documenting
 corrective_phase
@@ -50,7 +49,6 @@ error_log_read
 escalated
 escalated_to_user
 exec_result
-failure_pattern
 generating_patch
 git_result
 hypothesis
@@ -78,7 +76,6 @@ self_correction
 self_correction_hypothesis
 self_correction_triggered
 subclass_of
-success_pattern
 systemic_investigating
 task_result
 task_resumed

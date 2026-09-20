@@ -47,7 +47,24 @@ var (
 	undeclaredDeclRe = regexp.MustCompile(`^\s*Decl\s+([a-z_][a-zA-Z0-9_]*)\s*\(`)
 	// Fact literals are written as `Predicate: "name"` throughout the tree,
 	// both for core.Fact and types.Fact.
-	undeclaredAssertRe = regexp.MustCompile(`Predicate:\s*"([a-z_][a-zA-Z0-9_]*)"`)
+	//
+	// The leading boundary is load-bearing. Without it the pattern also matches
+	// the tail of `FactPredicate:`, a field on types.ShardLearning that is a
+	// LearningStore row label and explicitly NOT a Mangle predicate -- see the
+	// ruling in core/dream_router.go, which says of approach_learned that it
+	// "has no Decl anywhere and must not get one", and names this very trap:
+	// "the field it feeds is called FactPredicate, which is what invites the
+	// mistake". Those rows are loaded by campaign/intelligence_gathering_methods
+	// into report prose; nothing asserts them into a kernel.
+	//
+	// Three entries reached this list that way (success_pattern, failure_pattern,
+	// correction_pattern, all from shards/system/base.go), so the list asked a
+	// reader to declare three predicates the codebase had already decided must
+	// never be declared. Production Go holds 933 Predicate: literals and 3
+	// FactPredicate: ones, so the boundary costs nothing and the count is exact.
+	//
+	// RE2 has no lookbehind; a non-word character or line start does the same job.
+	undeclaredAssertRe = regexp.MustCompile(`(?m)(?:^|[^A-Za-z0-9_])Predicate:\s*"([a-z_][a-zA-Z0-9_]*)"`)
 )
 
 // isProductionGo reports whether a path is Go the shipped binary runs, which
