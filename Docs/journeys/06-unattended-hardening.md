@@ -193,6 +193,33 @@ Four faults sit in that table:
   and `dependency_link(".", ...)`; a brief names a symptom, not a file, so the focus falls back to
   the workspace root (`internal/context/working_context.go:159`). D5 in doc 08.
 
+### H11 a kernel query costs between 58 ms and 2.9 s, and the write gate is near the top
+
+Measured on `20260920_031708..._audit.log`, bare predicate queries only (no argument pattern), so
+the cost is the derivation, not the scan:
+
+| bare predicate | queries | total | avg |
+|---|---|---|---|
+| `safe_action` | 1 | 2.9 s | 2899 ms |
+| `relevant_tool` | 4 | 10.0 s | 2503 ms |
+| `diagnostic` | 1 | 2.0 s | 1972 ms |
+| `project_forbidden_path` | 18 | 17.8 s | **989 ms** |
+| `tool_description` | 4 | 3.3 s | 836 ms |
+| `tool_registered` | 5 | 2.7 s | 542 ms |
+| `activate_shard` | 188 | 11.0 s | 58 ms |
+
+A 50x spread. `project_forbidden_path` matters most because of where it sits:
+`projectdoc.ForbiddenByKernel` asks the kernel before **every write-mutation tool**, deliberately
+-- "the kernel is the authority on purpose... a parallel in-memory copy is one refactor away from
+disagreeing with what the kernel holds" -- so a turn that writes 18 times pays 17.8 s for a gate
+over a handful of facts from nerd.md.
+
+**Deliberately not briefed.** The obvious reading, "cache it in Go", is the thing that function's
+own comment forbids and for a good reason. The other reading, "the kernel is slow", is not a
+defect until something shows what the time is spent on. Writing either into a brief would repeat
+the D2 mistake (doc 08): a pattern is a reason to look, not a conclusion. What is established is
+the measurement above; the next step is a profile of one `safe_action` query, not a fix.
+
 ### H10 a log line can be a whole file
 
 `RetractFact` prints the fact's first argument, and a `pending_edit`'s first argument is the path

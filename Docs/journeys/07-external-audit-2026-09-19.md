@@ -229,17 +229,21 @@ becoming stale, or detached from the mutations it is supposed to describe.
   grounding: Google Search enabled", the call forwards into the Muse Spark client, falls off the
   `ok` check, and nothing is enabled -- while that model's own native search is never reached. A
   wrapper that forwards every optional interface makes `client.(Capability)` meaningless. Open.
-- **N32 tool parity compares two different things, and names the lint blocker while doing it.**
-  `registry=3 kernel=9 unknown_in_kernel=[go_build go_fmt go_lint go_mod_tidy go_test go_vet]` is
-  logged at ERROR on every boot. The six are `ToolDefinition`s the init scanner derives from
-  detected project tech (`internal/init/tools.go:63`) and asserts as facts; they were never meant to
-  be entries in the modular registry, so the checker is comparing the kernel's knowledge of what
-  the project can run against the set of executable model-facing tools and calling the difference
-  broken. The alarm is wrong; what it reveals is not. `go_lint` is in the kernel complete with its
-  command (`golangci-lint run`), its category and a ReviewerShard affinity -- the kernel knows the
-  tool exists and how to run it, and nothing turns that into something the model can call. That is
-  the G4/G5 lint blocker stated precisely: not missing knowledge, a missing execution path. Open,
-  in two parts: the checker compares like with like, and a typed `run_lint` tool exists.
+- **N32 the parity check is right, the alarm is mis-scoped, and underneath it a registered tool
+  cannot be executed.** Corrected twice; this is what the code says. `VerifyKernelToolParity`
+  builds its "registry" set from `synth.ListRuntimeTools()` -- Ouroboros-generated binaries only,
+  3 of them -- and compares it against every `tool_registered` fact, 9. The six `go_*` come from
+  `core.ToolRegistry.collectToolFacts`, so they are reported `unknown_in_kernel` on every boot by
+  a comparison that was never going to match. That much is mis-scoped.
+  **But the concern the check states is real**, in its own words: "a `tool_registered` fact with no
+  binary behind it makes the kernel plan around a capability that will fail at call time."
+  `ToolRegistry.ExecuteRegisteredTool` runs `exec.CommandContext(ctx, tool.Command, args...)`,
+  passing `tool.Command` as the **executable name** -- and the init scanner writes command *lines*
+  (`internal/init/tools.go`): `go_lint` is `"golangci-lint run"`, `go_fmt` is `"go fmt ./..."`. So
+  a registered project tool that is reached would look for a binary whose name contains a space.
+  Three parts, and they want separating before any of them is briefed: the parity check compares
+  like with like; a command line is split from its executable; and the model gets a typed lint tool
+  (G4/G5). Open.
 - **N33 `shard_status/3` is asserted with no Decl.** "the fact is stored but no rule can read it,
   and Query will not return it." Open.
 - **N34 token counting drifts 14.7% for `muse-spark-1.3-contributor`.** Predicted 1,235,137 against
