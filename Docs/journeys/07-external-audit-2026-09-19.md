@@ -155,6 +155,12 @@ becoming stale, or detached from the mutations it is supposed to describe.
   run in the same gate, one hop, found through code and tests, with the same baseline attribution
   so a package that was already red is not charged. They run where the verdict is decided -- the
   gate and the closure -- not inside every repair round's recheck.
+- **N26 a repair round was never shown what the turn changed.** The prompt carried the failure,
+  and since N24 the failing tests, but not the turn's own edits, so the model re-diagnosed from
+  scratch every attempt: R1-12 and R1-15 each spent three attempts asking why an element was "not
+  extracted" while the rename that did it was one line of their own diff. Fixed by hand `ca7b31bf`:
+  the build and test repair prompts carry the diff of the turn's writes, preimage on the left, a
+  created file marked as created.
 - **N19 the working request drops history before the first kept round.** `prepareWorkingRequest`
   (`working_context.go`) sends the loop's anchor and history from the earliest kept assistant
   tool-call round onward; a user message with no tool round before it is not sent. Every production

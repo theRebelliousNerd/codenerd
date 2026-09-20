@@ -5126,3 +5126,32 @@ load-dependent and not this change's -- it fails on an idle box too when memory 
 The work is saved (`scratchpad/r1_13_14_change/`) and the tree is back at HEAD: with the gate's
 scope fixed, the brief is run again from scratch, and the model gets to reconcile the consumer's
 contract inside the turn instead of leaving it to the reviewer.
+
+## R1-15, N09's brief with the importer gate in place: the test source was there and the diff was not -- failed (2026-09-19, 19:53-20:06)
+
+Binary from `66358949` (N24's failing-test source and N25's importer gate in). Brief unchanged.
+Tree back at HEAD, so this is the brief from scratch rather than a continuation.
+
+| minutes | tool calls | outcome | repair episode | files |
+|---|---|---|---|---|
+| 13.3 | 53 (20 read_file, 18 recall_context, 6 edit_lines, 5 grep, 2 run_tests) | rc=1, **failed**: `edits broke the tests and the repair loop did not converge after 3 attempts` | 12 model calls, 547.0k in, 16.0k out | `elements.go`, reverted |
+
+**N24 held and was not enough.** The failing test's source reached the model in every repair
+prompt (33 occurrences of "The failing tests, as they are on disk"), and the round no longer told
+it to read what it cannot open. It still failed on the same assertion as R1-12
+(`ForbidsPath was not extracted from nerdmd.go`), and its own words show why: *"The test still
+fails because `ForbidsPath` is not being found -- retrieving the prior extraction attempt to
+diagnose the remaining gap."* It was hunting a broken extractor. The element was extracted -- under
+the new name its own change gave it, `Document.ForbidsPath`, which the test's `!=` comparison
+skips, and whose failure message says "not extracted".
+
+**N26.** The round is never shown what the turn changed. The prompt carries the failure and the
+test; the one thing that explains both -- the turn's own diff, where the rename sits one line
+above -- is never in it, and the model re-diagnoses from scratch each attempt. R1-12 spent three
+attempts on it, R1-15 spent three more with the test in hand. Fixed by hand: the build and test
+repair prompts carry the diff of the turn's writes.
+
+**Rung-level.** Streak 0. Three runs of this brief have now failed at the same assertion and one
+(R1-13) walked past it by updating the test in its own tool loop before the gate ever ran. The
+brief is not at fault: the fix it asks for changes a naming contract, and a consumer's test pins
+the old one -- which is exactly the work an elite harness has to be able to finish.

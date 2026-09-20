@@ -11,7 +11,7 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
-- last updated: 2026-09-19 20:15
+- last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
   cached, 4.8-4.9 min. The earlier attempts ran `go test ./...` with the test cache, so a "green"
@@ -76,7 +76,11 @@ the protocol for a run, and the status of each rung with the run that moved it.
   `go test ./...` afterwards failed in `internal/observation`, whose codesearch test pins how a hit
   inside a method is named -- **the test gate ran the packages the turn wrote and nothing else**
   (N25, fixed by hand `c4c097fc`: the packages that import them run too). The work is saved and the
-  brief is run again with the gate's scope fixed. Streak 0.
+  brief is run again with the gate's scope fixed. R1-15 ran it from scratch with that gate in place
+  and **failed at the same assertion as R1-12**: the failing test's source was in every repair
+  prompt (N24 held) and the model still hunted a broken extractor, because the one thing that
+  explains the failure -- the rename in its own diff -- was never in front of it (**N26**, fixed by
+  hand `ca7b31bf`: the build and test rounds carry the diff of the turn's writes). Streak 0.
 - landed since R1-2: the forcing gate (`fd3c1d99`: changed code no test executes, and `go vet`
   findings in the turn's own files, are verdict evidence with a repair round first -- R1-2 had
   passed as done over both); two more load flakes (`10223378`: the watcher debounce test, and the
