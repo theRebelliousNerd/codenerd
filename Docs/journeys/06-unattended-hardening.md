@@ -156,6 +156,53 @@ want, a campaign artifact whose campaign is finished -- so the answer is a deriv
 not a blanket delete: what a record is for, and whether anything can still read it, decides how
 long it is kept. Hand-built when it is worked: it deletes files.
 
+### H9 the kernel is asked for what nobody asserts (measured 2026-09-19 20:19-20:40)
+
+Steve read an audit log and asked why so many queries say zero. They do. In one `nerd fix` run
+(R1-16, `20260920_001954..._audit.log`): **5,972 kernel queries, 3,781 of them returning nothing**,
+out of 192.6 s spent querying.
+
+Full per-predicate aggregation (every `kernel_query` event parsed, not grepped -- the first pass
+at this table was grepped and got two rows wrong, corrected below):
+
+| predicate | queries | non-zero | sec |
+|---|---|---|---|
+| `dependency_link` | 1418 | 1142 | 84.9 |
+| `delegate_task` | 1771 | **0** | 52.3 |
+| `project_forbidden_path` | 14 | 14 | 12.7 |
+| `code_defines` | 1216 | 950 | 11.8 |
+| `activate_shard` | 168 | **0** | 9.8 |
+| `code_element` | 1175 | **0** | 0.0 |
+| `relevant_tool` | 4 | 4 | 7.0 |
+
+Four faults sit in that table:
+
+- **`delegate_task` is polled by a loop that cannot satisfy it.** 1,771 queries, never a row,
+  52.3 s -- a quarter of the run's kernel time. A `nerd fix` turn has no delegation facts. It is
+  asked as a bare predicate name, not a pattern, so it is a whole-relation scan each time.
+  `activate_shard` is the same shape at 168/9.8 s.
+- **`code_element` is empty by construction, and asked 1,175 times.** Free in time, not in
+  value: the ref/parent/signature/visibility layer never reaches the window. **Correction to the
+  first version of this section:** `code_defines` and `dependency_link` are *not* zero -- they
+  return 950 and 1,142 rows respectively, and `code_calls` is never queried at all. The world
+  model is alive; only the CodeDOM scope layer is dark. Why, and what to do about it, is D3 in
+  [08-codedom-journeys-2026-09-19.md](08-codedom-journeys-2026-09-19.md).
+- **`project_forbidden_path` costs 0.9 s per query.** 14 queries, 12.7 s, all of them answering.
+  Whatever backs it is doing a scan per call on the write path.
+- **The focus entity is sometimes the literal `"."`.** Early rounds query `code_defines(".", ...)`
+  and `dependency_link(".", ...)`; a brief names a symptom, not a file, so the focus falls back to
+  the workspace root (`internal/context/working_context.go:159`). D5 in doc 08.
+
+### H10 a log line can be a whole file
+
+`RetractFact` prints the fact's first argument, and a `pending_edit`'s first argument is the path
+plus the entire file body -- so retracting one turns 160 lines of Go into a single log record
+(`..._kernel.log`, lines 18427-18588 of R1-16's run; 508 of that file's 19,613 lines are payload
+continuation rather than log lines). The audit log's own header calls the format
+"Mangle-queryable structured events"; a record with an unescaped file inside it is neither
+queryable nor readable, and this is part of why `.nerd/logs` is 159 MB (H5). Facts carrying a
+payload should log the path and a digest, never the body.
+
 ### H7 memory safety
 
 A data race in Go is undefined behaviour, not a wrong value: a torn slice or interface header
