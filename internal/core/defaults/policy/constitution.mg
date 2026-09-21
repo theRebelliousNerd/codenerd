@@ -493,6 +493,12 @@ safe_action(/edit_lines).
 safe_action(/insert_lines).
 safe_action(/delete_lines).
 safe_action(/get_elements).
+# Structural queries read a parsed index of the workspace and nothing else (hand-built, 2026-09-21).
+safe_action(/find_symbol).
+safe_action(/package_outline).
+safe_action(/callers_of).
+safe_action(/callees_of).
+safe_action(/unreferenced_symbols).
 safe_action(/get_element).
 
 # Autopoiesis tool execution

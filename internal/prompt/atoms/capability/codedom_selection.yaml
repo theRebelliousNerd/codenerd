@@ -75,8 +75,8 @@
     ### 2. UNDERSTAND — Query the code graph (for code)
 
     Before editing code, understand impact:
-    - Who CALLS this function? (`caller_of`)
-    - What does it CALL? (`code_calls`)
+    - Who CALLS this function? `callers_of symbol="Login"`
+    - What does it CALL? `callees_of symbol="Login"`
     - Does it touch API contracts? (`wire_name`, `api_dependency`)
 
     ### 3. PLAN — Check safety

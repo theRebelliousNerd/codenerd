@@ -229,6 +229,12 @@ persona_tool_allowed(P, /grep) :- persona(P).
 
 # Code DOM tools - available to all personas for semantic code navigation
 persona_tool_allowed(P, /get_elements) :- persona(P).
+# Structural queries over the world model's structure index: read-only, every persona.
+persona_tool_allowed(P, /find_symbol) :- persona(P).
+persona_tool_allowed(P, /package_outline) :- persona(P).
+persona_tool_allowed(P, /callers_of) :- persona(P).
+persona_tool_allowed(P, /callees_of) :- persona(P).
+persona_tool_allowed(P, /unreferenced_symbols) :- persona(P).
 persona_tool_allowed(P, /get_element) :- persona(P).
 
 # Coder-specific tools
@@ -313,6 +319,11 @@ modular_tool_allowed(/run_tests, Intent) :- verb_category(Intent, /test).
 
 # Code DOM tools - available for code intents
 modular_tool_allowed(/get_elements, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/find_symbol, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/package_outline, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/callers_of, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/callees_of, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/unreferenced_symbols, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/get_element, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/edit_lines, Intent) :- verb_category(Intent, /code).
 modular_tool_allowed(/insert_lines, Intent) :- verb_category(Intent, /code).

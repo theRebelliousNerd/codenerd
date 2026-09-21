@@ -297,6 +297,11 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 
 	// Code DOM tools for semantic code operations
 	codeDomTools := []string{
+		"find_symbol",
+		"package_outline",
+		"callers_of",
+		"callees_of",
+		"unreferenced_symbols",
 		"get_elements",
 		"get_element",
 		"edit_lines",
@@ -373,6 +378,16 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"research_cache_get",
 		"research_cache_set",
 		"write_file", // Can write documentation
+		// Research about this repository is structural before it is textual:
+		// the grounding tasks of campaign 440585a6 ran on this persona and
+		// had grep as their only cross-file tool.
+		"find_symbol",
+		"package_outline",
+		"callers_of",
+		"callees_of",
+		"unreferenced_symbols",
+		"get_elements",
+		"get_element",
 	)
 
 	verificationTools := copyTools(testerTools, "grounded_web_search")

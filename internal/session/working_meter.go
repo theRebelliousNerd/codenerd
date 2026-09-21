@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	working "codenerd/internal/context"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -35,6 +36,11 @@ type workingMeter struct {
 	writesTotal       int
 	roundsSinceWrite  int
 	roundsSinceVerify int
+
+	// Structural queries that ran, and how many of them had no answer. The
+	// policy reads both to decide when the raw search tools are offered.
+	structuralAttempts int
+	structuralMisses   int
 }
 
 type workingObservation struct {
@@ -62,6 +68,12 @@ func (c *workingMeter) observe(calls []types.ToolCall, results []types.ToolResul
 		result, paired := byID[call.ID]
 		event := toolEventSignature(call, result, paired)
 		parts = append(parts, event)
+		if paired && tools.IsStructuralQuery(call.Name) {
+			c.structuralAttempts++
+			if result.IsError || tools.StructuralMissed(result.Content) {
+				c.structuralMisses++
+			}
+		}
 		if !paired || result.IsError {
 			continue
 		}
@@ -193,6 +205,9 @@ func (c *workingMeter) workingProgress(writeIntent bool, failedRounds int) worki
 		Writes:       c.writesTotal,
 		SinceWrite:   c.roundsSinceWrite,
 		SinceVerify:  c.roundsSinceVerify,
+
+		StructuralAttempts: c.structuralAttempts,
+		StructuralMisses:   c.structuralMisses,
 	}
 }
 

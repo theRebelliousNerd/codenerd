@@ -151,6 +151,9 @@ type WorkingProgress struct {
 	SinceWrite   int    // rounds since the last durable write (Rounds when none)
 	SinceVerify  int    // rounds since the last focused verification (Rounds when none)
 	Regime       string // the regime the round just ran under ("" open, "commit")
+
+	StructuralAttempts int // structural queries that ran (find_symbol, callers_of, ...)
+	StructuralMisses   int // of those, the ones that errored or returned no rows
 }
 
 // WorkingDecision is policy's answer. A Stop means the task is unresolved. A
@@ -163,6 +166,8 @@ type WorkingDecision struct {
 	Finalize string // working_finalize reason, without the leading slash
 	Nudge    string // working_nudge kind, without the leading slash
 	Regime   string // working_regime for the next round, without the leading slash
+	// SearchOpen is working_search_open: the raw search tools are offered.
+	SearchOpen bool
 }
 
 // Continue asks policy whether observed execution should continue. A stop is
@@ -190,10 +195,11 @@ func (w *WorkingSet) Continue(ctx context.Context, p WorkingProgress) (WorkingDe
 		{Predicate: "working_control", Args: []any{flag, int64(p.FailedRounds)}},
 		{Predicate: "working_progress", Args: []any{intent, int64(p.Rounds), int64(p.Writes), int64(p.SinceWrite), int64(p.SinceVerify)}},
 		{Predicate: "working_regime_now", Args: []any{regime}},
+		{Predicate: "working_structural", Args: []any{int64(p.StructuralAttempts), int64(p.StructuralMisses)}},
 	}
 	// Control facts are not file-keyed and their derivations must not outlive
 	// them; ReplaceFactsForFile did neither (see Engine.ReplaceControlFacts).
-	if err := w.engine.ReplaceControlFacts(facts, "working_control", "working_progress", "working_regime_now"); err != nil {
+	if err := w.engine.ReplaceControlFacts(facts, "working_control", "working_progress", "working_regime_now", "working_structural"); err != nil {
 		return WorkingDecision{}, err
 	}
 	first := func(query, variable string) (string, error) {
@@ -223,6 +229,11 @@ func (w *WorkingSet) Continue(ctx context.Context, p WorkingProgress) (WorkingDe
 	if decision.Regime, err = first("working_regime(Regime)", "Regime"); err != nil {
 		return WorkingDecision{}, err
 	}
+	open, err := w.engine.Query(ctx, "working_search_open()")
+	if err != nil {
+		return WorkingDecision{}, err
+	}
+	decision.SearchOpen = len(open.Bindings) > 0
 	rows, err := w.engine.Query(ctx, "working_continue()")
 	if err != nil {
 		return WorkingDecision{}, err

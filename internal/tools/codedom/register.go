@@ -11,6 +11,13 @@ func RegisterAll(registry *tools.Registry) error {
 		GetElementsTool(),
 		GetElementTool(),
 
+		// Structural queries over the workspace-wide index
+		FindSymbolTool(),
+		PackageOutlineTool(),
+		CallersOfTool(),
+		CalleesOfTool(),
+		UnreferencedSymbolsTool(),
+
 		// Line operations
 		EditLinesTool(),
 		InsertLinesTool(),

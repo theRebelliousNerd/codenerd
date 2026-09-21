@@ -5,6 +5,11 @@
 //
 // Tools:
 //   - get_elements: Query code elements in a file
+//   - find_symbol: Locate a declaration by name anywhere in the workspace
+//   - package_outline: Every declaration in a directory or file, with line spans
+//   - callers_of: Every call site of a function or method
+//   - callees_of: Every call made inside a function or method
+//   - unreferenced_symbols: Declarations nothing else in the workspace names
 //   - get_element: Get a specific element by reference
 //   - edit_lines: Replace specific lines in a file
 //   - insert_lines: Insert lines at a position

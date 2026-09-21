@@ -95,6 +95,26 @@ working_regime(/commit) :-
     working_regime_now(/commit),
     working_progress(/write, _, _, _, SinceVerify), SinceVerify > 0.
 
+# Structural-first search. The structure index answers "where is X", "what is
+# in this package", "who calls X" and "what does nothing use" in one call;
+# grep answers them in a call per guess plus a read per hit. Measured
+# 2026-09-21 on campaign 440585a6: 166 raw filesystem calls against 14
+# structural ones, 5.5M input tokens for 45 KB of cited documents. So the raw
+# search tools (grep, glob, list_files, search_code) stay withheld until the
+# structural ones have been given a real trial, or have shown twice that they
+# have no answer (a workspace the index cannot parse, a question about prose).
+# read_file is never withheld: it is how a file with no element model is read.
+Decl working_structural(Attempts, Misses) bound [/number, /number].
+Decl working_structural_trials(N) bound [/number].
+Decl working_structural_miss_limit(N) bound [/number].
+Decl working_search_open() descr [doc("The raw search tools are offered. Underivable at the start of a loop, so search opens only on evidence.")].
+working_structural_trials(4).
+working_structural_miss_limit(2).
+working_search_open() :-
+    working_structural(Attempts, _), working_structural_trials(N), Attempts >= N.
+working_search_open() :-
+    working_structural(_, Misses), working_structural_miss_limit(N), Misses >= N.
+
 working_stop(/repeated_cycle) :- working_control(/yes, _).
 working_stop(/tool_failures) :- working_control(_, Failed), Failed >= 3.
 # A change task that has only read for the whole stall span never started.

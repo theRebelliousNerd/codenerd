@@ -307,6 +307,12 @@ func (e *Executor) runToolLoopPass(
 		if decision.Nudge != "" {
 			toolResults = appendWorkingNudge(toolResults, workingNudgeText(decision.Nudge, progress))
 		}
+		if decision.SearchOpen && !workingLoop.searchOpen {
+			workingLoop.searchOpen = true
+			logging.Session("Working policy opened raw search after %d structural quer(ies), %d without an answer",
+				progress.StructuralAttempts, progress.StructuralMisses)
+			toolResults = appendWorkingNudge(toolResults, searchOpenedText)
+		}
 		if decision.Regime != workingLoop.regime {
 			workingLoop.regime = decision.Regime
 			if decision.Regime == commitRegime {
@@ -2235,6 +2241,12 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// as a failure: it is steering, and the stall span still governs.
 	if loop := activeWorkingLoop(ctx); loop != nil && loop.regime == commitRegime && closedForReading(call.Name) {
 		return workingRegimeText(commitRegime), nil
+	}
+	// The same for a raw search tool the policy has not opened yet, when this
+	// agent holds the structural query that stands in for it.
+	if loop := activeWorkingLoop(ctx); loop != nil && !loop.searchOpen && tools.IsRawSearch(call.Name) &&
+		e.isToolAllowed("find_symbol", cfg) {
+		return structuralFirstText, nil
 	}
 
 	// Safety check via Constitutional Gate

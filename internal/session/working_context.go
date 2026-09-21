@@ -40,6 +40,9 @@ type workingLoop struct {
 	prior        []types.Message
 	observations map[string]string
 	regime       string // the policy's working_regime for the next round
+	// searchOpen is the policy's working_search_open. False at the start of a
+	// loop: the raw search tools are withheld until the policy derives it.
+	searchOpen bool
 }
 
 // commitRegime is the working_regime under which exploration is closed.
@@ -69,6 +72,42 @@ func (e *Executor) enterCommitRegime(ctx context.Context) func() {
 	loop.regime = commitRegime
 	return func() { loop.regime = previous }
 }
+
+// structuralFirstDefinitions is the catalog offered while the policy has not
+// derived working_search_open: the raw search tools are withheld, provided the
+// catalog holds the structural query that stands in for them. A persona that
+// was never given find_symbol keeps its search tools; withholding grep with
+// nothing in its place is a brick, not a policy.
+func structuralFirstDefinitions(definitions []types.ToolDefinition) []types.ToolDefinition {
+	if !offersStructuralSearch(definitions) {
+		return definitions
+	}
+	kept := make([]types.ToolDefinition, 0, len(definitions))
+	for _, def := range definitions {
+		if !tools.IsRawSearch(def.Name) {
+			kept = append(kept, def)
+		}
+	}
+	return kept
+}
+
+func offersStructuralSearch(definitions []types.ToolDefinition) bool {
+	for _, def := range definitions {
+		if def.Name == "find_symbol" {
+			return true
+		}
+	}
+	return false
+}
+
+// structuralFirstText answers a call to a withheld search tool.
+const structuralFirstText = "Raw search (grep, glob, list_files, search_code) is not offered yet on this task. " +
+	"The workspace is already parsed: find_symbol locates a declaration by name, package_outline lists what a directory or file declares with line spans, " +
+	"callers_of and callees_of follow the call graph, unreferenced_symbols lists what nothing uses, and get_element returns a declaration's source. " +
+	"read_file still reads any file, including ones that are not Go. Raw search opens once these have been tried and cannot answer."
+
+// searchOpenedText tells the model the policy has opened the raw search tools.
+const searchOpenedText = "Raw search (grep, glob, list_files, search_code) is now offered as well. Prefer the structural queries where they answer; search text where they cannot."
 
 // commitRegimeDefinitions is the catalog offered under the commit regime.
 func commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDefinition {
@@ -476,8 +515,13 @@ func largestToolResult(messages []types.Message) (mi, ri, size int) {
 }
 
 func (e *Executor) completeWithWorkingContext(ctx context.Context, provider types.ToolResultsProvider, system string, history []types.Message, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	if loop := activeWorkingLoop(ctx); loop != nil && loop.regime == commitRegime {
-		definitions = commitRegimeDefinitions(definitions)
+	if loop := activeWorkingLoop(ctx); loop != nil {
+		if loop.regime == commitRegime {
+			definitions = commitRegimeDefinitions(definitions)
+		}
+		if !loop.searchOpen {
+			definitions = structuralFirstDefinitions(definitions)
+		}
 	}
 	system, history, err := e.prepareWorkingRequest(ctx, system, history, definitions)
 	if err != nil {

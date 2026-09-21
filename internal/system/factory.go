@@ -2107,6 +2107,10 @@ func initFinalExecutors(bctx *bootContext) error {
 	if fileContextProvider != nil {
 		bctx.sessionExecutor.SetFileContextProvider(fileContextProvider)
 	}
+	// The structural query tools (find_symbol, package_outline, callers_of,
+	// callees_of, unreferenced_symbols) answer from the workspace-wide structure
+	// index. It needs no kernel, so it is wired for every boot with a workspace.
+	wireStructureProvider(bctx.workspace)
 	// The working set above queries code_element for every entity it selects.
 	// Nothing populated that predicate in a headless run -- only the CodeDOM
 	// scope does, and only VirtualStore.handleOpenFile opens one, which the
