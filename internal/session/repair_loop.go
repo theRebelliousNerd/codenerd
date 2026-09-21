@@ -349,9 +349,19 @@ func (e *Executor) repairLoop(
 	logging.Get(logging.CategorySession).Warn(
 		"Repair episode (%s) gave up after %d attempts; cost=%s",
 		spec.kind, budget.MaxAttempts, rec.Cost.String())
+	// Only the turn's own build and test repair ends here with nothing behind
+	// it. The forcing rounds (vet, coverage, pinning, removed tests) start from
+	// a green suite, hold their own snapshot, and put it back themselves.
+	restoredNote := ""
+	if spec.kind == "build" || spec.kind == "tests" {
+		restoredNote = e.leaveBuildableTree(ctx, result)
+	}
+	if restoredNote != "" {
+		restoredNote = " " + restoredNote
+	}
 	return nil, allErrs, rec, fmt.Errorf(
-		"%w: %s and the repair loop did not converge after %d attempts (cost=%s). Follow-ups: %s. Last failure:\n%s",
-		ErrVerificationFailed, spec.brokenPhrase, budget.MaxAttempts, rec.Cost.String(),
+		"%w: %s and the repair loop did not converge after %d attempts (cost=%s).%s Follow-ups: %s. Last failure:\n%s",
+		ErrVerificationFailed, spec.brokenPhrase, budget.MaxAttempts, rec.Cost.String(), restoredNote,
 		strings.Join(rec.Followups, "; "), failure.Output)
 }
 

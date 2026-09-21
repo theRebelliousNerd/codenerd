@@ -403,6 +403,26 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 // orchestrator kept for it. Nil means none are available.
 type TaskResults func(taskID string) (string, bool)
 
+// canonicalTaskID spells a task ID the way the decomposer does: a Mangle name
+// constant with its leading slash. A model asked to return an existing ID
+// returns it without the slash about as often as with it.
+func canonicalTaskID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" || strings.HasPrefix(id, "/") {
+		return id
+	}
+	return "/" + id
+}
+
+// sameTaskID compares two task IDs by what they name, not how they are
+// spelled. Campaign 440585a6: the refinement returned "task_440585a6_1_1" for
+// "/task_440585a6_1_1", the exact-string match missed, the update fell through
+// to "add", and a finished three-task phase ran again as six.
+func sameTaskID(a, b string) bool {
+	a, b = canonicalTaskID(a), canonicalTaskID(b)
+	return a != "" && a == b
+}
+
 // RefineNextPhase performs rolling-wave planning: after completing a phase, we
 // refresh the next phase based on the latest artifacts and failures.
 //
@@ -583,7 +603,7 @@ Return JSON only:
 		switch action {
 		case "remove":
 			for i := range workingNextPhase.Tasks {
-				if workingNextPhase.Tasks[i].ID == t.TaskID {
+				if sameTaskID(workingNextPhase.Tasks[i].ID, t.TaskID) {
 					workingNextPhase.Tasks = append(workingNextPhase.Tasks[:i], workingNextPhase.Tasks[i+1:]...)
 					break
 				}
@@ -599,7 +619,7 @@ Return JSON only:
 				}
 				seenTaskKeys[key] = true
 			}
-			newID := t.TaskID
+			newID := canonicalTaskID(t.TaskID)
 			if newID == "" {
 				newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
 			} else {
@@ -607,7 +627,7 @@ Return JSON only:
 				for idIdx := 1; ; idIdx++ {
 					exists := false
 					for _, existing := range workingNextPhase.Tasks {
-						if existing.ID == newID {
+						if sameTaskID(existing.ID, newID) {
 							exists = true
 							break
 						}
@@ -650,7 +670,7 @@ Return JSON only:
 		default: // update
 			updated := false
 			for i := range workingNextPhase.Tasks {
-				if workingNextPhase.Tasks[i].ID == t.TaskID {
+				if sameTaskID(workingNextPhase.Tasks[i].ID, t.TaskID) {
 					if t.Description != "" {
 						workingNextPhase.Tasks[i].Description = t.Description
 					}
@@ -679,7 +699,7 @@ Return JSON only:
 					}
 					seenTaskKeys[key] = true
 				}
-				newID := t.TaskID
+				newID := canonicalTaskID(t.TaskID)
 				if newID == "" {
 					newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
 				} else {
@@ -687,7 +707,7 @@ Return JSON only:
 					for idIdx := 1; ; idIdx++ {
 						exists := false
 						for _, existing := range workingNextPhase.Tasks {
-							if existing.ID == newID {
+							if sameTaskID(existing.ID, newID) {
 								exists = true
 								break
 							}
