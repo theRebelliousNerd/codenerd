@@ -1,3 +1,12 @@
+---
+doc-class: shipped
+subsystem: context
+implementation-status: shipped
+last-verified: 2026-09-21
+verified-against: ea90cc63
+supersedes: []
+---
+
 # context: wiring and what is NOT built
 
 > Re-verified 2026-09-21 (caller index + body reads; full line table in

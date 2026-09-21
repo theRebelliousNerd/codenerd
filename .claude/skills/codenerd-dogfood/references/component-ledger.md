@@ -5369,3 +5369,97 @@ as the D2 retraction, four hours apart: a truncated search read as an exhaustive
 **Rung-level.** Not a landing as it stands -- the verdict is `/unverified`. It is the first run
 whose only obstacle was a gate reporting something it had not measured, and with that gate fixed
 the same change would have passed. Re-run pending on a rebuilt binary.
+
+## 2026-09-21 -- the R6 pilot as a campaign, and what it measured about the harness
+
+**Run.** `nerd campaign start <nebulous brief> --type feature --docs Docs/journeys/09-architecture-doc-standard.md`,
+campaign 440585a6, one package (`internal/context`). Brief: "the architecture docs are not good enough ...
+I want them to be the dream". Plan: 6 phases, 24 tasks. Killed by hand at 9 tasks / 66 minutes; three
+documents on disk (02-CURRENT-STATE, IMPLEMENTED_SPEC, WIRING-AND-NOT-BUILT, 45 KB).
+
+**What held.** C1 (durable per-task artifacts), C3 (a retry carries its failure reason) and C5 (the
+create-style fallback refused) all held at campaign scale: task 1_2 was stopped by
+`working_stop(/repeated_cycle)` after 38 calls, the retry asserted the lesson and landed in one read
+and one write. The plan the decomposer produced from a nebulous brief was the right plan.
+
+**What it cost, measured from the process logs (pid 67804, first 60 minutes):**
+
+| | |
+|---|---|
+| LLM tool-loop calls | 115, mean 47.7k input tokens, 5.49M input total for ~11k tokens of output documents |
+| tool calls | read_file 100, grep 38, list_files 16, get_elements 14, glob 12, recall_context 0 |
+| kernel.evaluate | 4,161 evaluations, 4,033 s summed |
+| kernel.Query | 17,447, 5,608 s summed |
+| CortexTransaction.Commit | 1,411, 2,447 s summed, worst 9.2 s for one retract + one assert |
+| LLM wall (summed) | 2,065 s |
+
+**Findings.**
+
+- **P5, the kernel re-ran the whole program on every write.** Any assert marked the shard dirty; the
+  next query rebuilt the store from 59k facts and ran 2,187 rules (938 strata). The hot writes reach
+  6-8% of the rules and three of them reach none. *Fixed by hand, `7954a5d9`*: evaluate() re-derives
+  the cone of the written predicates; 900-step differential test against the full fixpoint.
+- **No model-facing tool read the world model.** `code_defines`/`code_calls` are kernel-only and
+  scope-local; `get_elements` is a regex pass over one file. grep was the only cross-file tool.
+  *Fixed by hand, `5b439060`*: `world.StructureIndex` (this repository: 2,596 files, 29,475
+  declarations, 204,557 call sites, 218 ms cold, 56 ms per-query refresh), five tools, and
+  `working_search_open` derived in `working_set.mg` so raw search opens only after the structural
+  queries were tried.
+- **P4, refinement doubled a phase.** `Replanner.RefineNextPhase` matched task IDs by exact string;
+  the model returned them without the leading slash, so each "update" became a new task and the
+  finished phase ran again. *Briefed to codeNERD symptom-only* (`.nerd/dogfood/r1/p4_...`).
+- **P1, recall is not semantic and breaks on a long goal.** `VirtualStore.RecallSimilar` calls the
+  keyword path (`LOWER(content) LIKE ?` OR-ed once per word); a several-paragraph goal exceeds
+  SQLite's expression depth of 1000, every hydrate. *Brief written, not yet run.*
+- **P2** `self_correction/2` is asserted with no Decl; no rule can read a retry's lesson.
+- **P3** repeat detection fired after 38 calls / 18 minutes.
+- **P6** `TestBootCortexEndToEnd` flakes under disk load: `ShardManager` holds its lock across a shard
+  factory that writes 1,573 predicate vectors to SQLite, past the 8 s close timeout.
+- `Docs/Spec` (693 files, gitignored, Feb-May 2026, `spec-doc-sprint`) is a third generation of the
+  same dream/truth/gap corpus and nothing points the architecture corpus at it.
+
+**Instrument error (the fifth).** `r6_symbolcheck.py` lets a bare `:NN` citation inherit the last
+file named, so a symbol cited after an intervening full-path citation is checked against the wrong
+file. It reported 84.3% on documents whose line numbers hand-verify as correct. No number from it is
+quoted until it has a second resolver.
+
+**The same brief on the rebuilt binary (campaign aab9612b, `b2e38be9`, 95 minutes).** 30 tasks planned,
+30 completed, 0 failed; 13 documents, ~190 KB (`ea90cc63`).
+
+| | 440585a6 (before) | aab9612b (after) |
+|---|---|---|
+| tasks done at ~66 min | 9 of 24 | 17 of 30 |
+| Phase 1 (grounding) | 28 min, 4 tasks, one `repeated_cycle` stop | 8.5 min, 5 tasks, none |
+| structural queries / read_file / grep | 14 / 100 / 38 | 132 / 282 / 0 |
+| bare `file.go:NN` citations in 02-CURRENT-STATE | 151 (41 full) | 0 (243 full) |
+| phase task count after refinement | 3 -> 6 | unchanged in every phase |
+| evaluations on the full path | all of them | 49 of ~3,250 at the 25-minute mark |
+
+The model reached for `callers_of` 73 times and `package_outline` 30 times unprompted beyond the atom
+`capability/structure_queries`; raw search was opened by policy on some tasks and used twice in the
+whole run (one glob, one list_files).
+
+**What the rerun still got wrong** (all deterministic, all in the commit message of `ea90cc63`):
+three written files without front-matter, two superseded files not deleted, an ADR with no witness,
+`verified-against` pinned to an older commit copied from a journal page, and:
+
+- **P8, a verification task with nothing behind it.** Phase 6's "verify every markdown opens with
+  doc-class ..." reported done over five files that do not. A campaign `/verify` task is judged by
+  the model that ran it. The obligation-with-witness shape applies: the check is
+  `scripts/r6_structcheck.py`, and a verify task should not be able to close while it prints problems.
+- **P9, the closing checkpoint can never pass headless.** `/manual_review` with no human escalates to
+  a reviewer shard, which three times returned no well-formed `checkpoint_verdict/4`; the campaign
+  exited `blocked: /phase_unverified` with every task green. Failing closed is right; never producing
+  the verdict is the defect.
+- **P10, a docs-only task ran the whole Go suite.** One task called `run_tests` with no scope: six
+  minutes of wall clock in which nothing else in the phase could start, ending in exit 1 on a known
+  flake.
+
+**P4 as a dogfood run (R1-scale, not landed).** `nerd fix`, symptom-only brief, 17 minutes, 18 model
+calls, 20 tool calls, 6 structural queries, 0 grep; raw search opened by policy after the sixth and
+was never used. It found the cause from the symptoms (its diff canonicalises the leading slash) and
+then over-built (restatement matching by write-set overlap), broke
+`TestReplanDedupeDropsSuffixedRestatement`, and its third repair attempt left `replan.go` calling a
+function it had deleted; the run exited with the repository not compiling (**P7**, fixed by hand in
+`b2e38be9`: `leaveBuildableTree`). What it missed: the smallest change that explains the evidence.
+Attempt kept at `.nerd/dogfood/r1/p4_codenerd_attempt.diff`.

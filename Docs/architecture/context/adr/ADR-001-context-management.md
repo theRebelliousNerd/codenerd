@@ -81,6 +81,7 @@ Build queue and proving tests: `GAP-CTX-01..07` per
   with discarded errors (`internal/context/compressor_turns.go:168-181`).
 
 ## Witness
+**Witness:** test:TestEveryProtocolMemoryOpIsHandled
 
 | Claim | Witness (body-verified 2026-09-21 unless noted) |
 |---|---|

@@ -3,7 +3,7 @@ doc-class: shipped-with-future
 subsystem: context
 implementation-status: partial
 last-verified: 2026-09-21
-verified-against: 456e521
+verified-against: ea90cc63
 supersedes: []
 ---
 

@@ -1,3 +1,12 @@
+---
+doc-class: governance
+subsystem: context
+implementation-status: not-applicable
+last-verified: 2026-09-21
+verified-against: ea90cc63
+supersedes: []
+---
+
 # 00 — Index — Docs/architecture/context
 
 _Governance map for this directory. Per `Docs/journeys/09-architecture-doc-standard.md:50-52`: read order, one line per file saying what it answers + when to read it, and a grounded-vs-hypothesized section._

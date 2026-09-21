@@ -1,3 +1,12 @@
+---
+doc-class: governance
+subsystem: context
+implementation-status: not-applicable
+last-verified: 2026-09-21
+verified-against: ea90cc63
+supersedes: []
+---
+
 # context
 
 > Verified 2026-09-20 against `456e521` (`main`).
