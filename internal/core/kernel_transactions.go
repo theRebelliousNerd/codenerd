@@ -184,7 +184,23 @@ func (tx *KernelTransaction) Commit() error {
 
 	// Phase 6: Single rebuild/evaluate
 	if mutated || assertCount > 0 {
-		if err := k.rebuild(); err != nil {
+		written := make(map[string]struct{}, len(assertedPredicates)+4)
+		for pred := range assertedPredicates {
+			written[pred] = struct{}{}
+		}
+		for _, pred := range tx.retractPredicates {
+			written[pred] = struct{}{}
+		}
+		for pred := range tx.retractPredicateSet {
+			written[pred] = struct{}{}
+		}
+		for _, rf := range tx.retractFacts {
+			written[rf.Predicate] = struct{}{}
+		}
+		for _, rf := range tx.retractExactFacts {
+			written[rf.Predicate] = struct{}{}
+		}
+		if err := k.rebuild(predicateNames(written)...); err != nil {
 			k.mu.Unlock()
 			logging.Get(logging.CategoryKernel).Error("Transaction.Commit: rebuild failed: %v", err)
 			return err

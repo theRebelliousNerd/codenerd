@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -124,6 +125,7 @@ func (k *RealKernel) rebuildProgram() error {
 	analyzeTimer.Stop()
 
 	k.programInfo = programInfo
+	k.cone = buildConeIndex(programInfo)
 	k.policyDirty = false
 	// New Decls may declare different bounds than the ones cachedAtoms were
 	// converted under, so force one reconversion. Also covers the boot case
@@ -183,6 +185,14 @@ func (k *RealKernel) evaluate() error {
 		}
 	} else {
 		logging.KernelDebug("evaluate: using cached programInfo")
+	}
+
+	// A write whose predicates were named re-derives only their cone.
+	if err := k.evaluateConeLocked(); err == nil {
+		k.clearDirtyLocked()
+		return nil
+	} else if !errors.Is(err, errConeIneligible) {
+		logging.Get(logging.CategoryKernel).Warn("evaluate: cone evaluation failed, running the full fixpoint: %v", err)
 	}
 
 	// Create fresh store and populate with EDB facts
@@ -255,25 +265,7 @@ func (k *RealKernel) evaluate() error {
 		logging.KernelDebug("evaluate: provenance recording enabled for this pass")
 	}
 
-	// #17: Register external predicates instead of virtualFactStore wrapping
-	// Only register callbacks for predicates that have a matching Decl with
-	// external() descriptor in the current program. This avoids validation
-	// errors when tests (or minimal configs) use a subset of schemas.
-	if k.virtualStore != nil {
-		allCallbacks := k.virtualStore.BuildExternalPredicates()
-		if len(allCallbacks) > 0 && k.programInfo != nil && k.programInfo.Decls != nil {
-			callbacks := make(map[ast.PredicateSym]engine.ExternalPredicateCallback, len(allCallbacks))
-			for pred, cb := range allCallbacks {
-				if decl, declared := k.programInfo.Decls[pred]; declared && decl.IsExternal() {
-					callbacks[pred] = cb
-				}
-			}
-			if len(callbacks) > 0 {
-				evalOpts = append(evalOpts, engine.WithExternalPredicates(callbacks))
-				logging.KernelDebug("evaluate: registered %d/%d external predicates (filtered by Decl)", len(callbacks), len(allCallbacks))
-			}
-		}
-	}
+	evalOpts = append(evalOpts, k.externalPredicateOptionsLocked()...)
 
 	evalTimer := logging.StartTimer(logging.CategoryKernel, "evaluate.fixpoint")
 	engineStats, err := engine.EvalStratifiedProgramWithStats(k.programInfo, k.strata, k.predToStratum, baseStore,
@@ -290,6 +282,7 @@ func (k *RealKernel) evaluate() error {
 	}
 
 	k.store = baseStore
+	k.clearDirtyLocked()
 
 	// Log evaluation stats
 	totalDuration := time.Duration(0)
@@ -305,6 +298,28 @@ func (k *RealKernel) evaluate() error {
 	return nil
 }
 
+// externalPredicateOptionsLocked registers the VirtualStore's external
+// predicates (#17), and only those with a matching external() Decl in the
+// current program: tests and minimal configs load a subset of the schemas, and
+// a callback without its Decl is a validation error.
+func (k *RealKernel) externalPredicateOptionsLocked() []engine.EvalOption {
+	if k.virtualStore == nil || k.programInfo == nil || k.programInfo.Decls == nil {
+		return nil
+	}
+	allCallbacks := k.virtualStore.BuildExternalPredicates()
+	callbacks := make(map[ast.PredicateSym]engine.ExternalPredicateCallback, len(allCallbacks))
+	for pred, cb := range allCallbacks {
+		if decl, declared := k.programInfo.Decls[pred]; declared && decl.IsExternal() {
+			callbacks[pred] = cb
+		}
+	}
+	if len(callbacks) == 0 {
+		return nil
+	}
+	logging.KernelDebug("evaluate: registered %d/%d external predicates (filtered by Decl)", len(callbacks), len(allCallbacks))
+	return []engine.EvalOption{engine.WithExternalPredicates(callbacks)}
+}
+
 // rebuild invalidates cached atoms and marks the kernel for lazy re-evaluation.
 // Callers should not expect the store to be up-to-date after this call;
 // the next Query/QueryAll will trigger evaluate() on demand.
@@ -315,10 +330,10 @@ func (k *RealKernel) evaluate() error {
 // visible: evaluate() reconverts from k.facts and derives over a store that
 // no longer contains the removed fact or anything derived from it.
 // Callers must hold k.mu.
-func (k *RealKernel) rebuild() error {
+func (k *RealKernel) rebuild(preds ...string) error {
 	logging.KernelDebug("rebuild: invalidating cached atoms, marking factsDirty")
 	k.cachedAtoms = nil
-	k.factsDirty.Store(true)
+	k.markDirtyLocked(preds...)
 	return nil
 }
 
@@ -444,6 +459,8 @@ func (k *RealKernel) Clone() *RealKernel {
 		virtualStore:      k.virtualStore,
 		simulateCommitErr: k.simulateCommitErr,
 		eventBus:          NewFactEventBus(), // Fresh bus: every kernel needs a non-nil one
+		cone:              k.cone,            // Share the dependency index (immutable)
+		dirtyAll:          true,              // The clone has no store; its first evaluate is a full one
 		// Deliberately fresh: diff engine state (rebuilt lazily), proof
 		// recorder (sharing it would race), lastEvaluation, undeclared
 		// warnings (re-warn on the clone is benign).

@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/logging"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
 // =============================================================================
@@ -76,9 +77,11 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 		sanitizedFacts[i] = sanitizeFactForNumericPredicates(f)
 	}
 	added := 0
+	loadedPreds := make(map[string]struct{})
 	for _, f := range sanitizedFacts {
 		if k.addFactIfNewLocked(f) {
 			added++
+			loadedPreds[f.Predicate] = struct{}{}
 		}
 	}
 	logging.KernelDebug("LoadFacts: added %d/%d facts, EDB: %d -> %d facts", added, len(sanitizedFacts), prevCount, len(k.facts))
@@ -128,7 +131,7 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 		// reusing a stale cache. factsDirty signals ensureEvaluated to run
 		// the fixpoint before the next derived-fact read.
 		k.cachedAtoms = nil // Invalidate cache before deferred evaluation
-		k.factsDirty.Store(true)
+		k.markDirtyLocked(predicateNames(loadedPreds)...)
 		timer.Stop()
 		return nil
 	}
@@ -549,7 +552,7 @@ func (k *RealKernel) Assert(fact Fact) (err error) {
 		k.mu.Unlock()
 		return nil
 	}
-	k.factsDirty.Store(true)
+	k.markDirtyLocked(fact.Predicate)
 	k.warnIfUndeclaredLocked(fact)
 	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
 	k.mu.Unlock()
@@ -592,6 +595,15 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 		oldKey := k.canonFact(existing)
 		fact = internFact(fact)
 		k.facts[i] = fact
+		// The evaluated store outlives a write now, so keep its copy of the row
+		// current as well; nothing derives from the timestamp.
+		if remover, ok := k.store.(factstore.FactStoreWithRemove); ok && k.initialized {
+			if oldAtom, err := k.factToAtomLocked(existing); err == nil {
+				if newAtom, err := k.factToAtomLocked(fact); err == nil && remover.Remove(oldAtom) {
+					k.store.Add(newAtom)
+				}
+			}
+		}
 		if k.cachedAtoms != nil && i < len(k.cachedAtoms) {
 			if atom, err := k.factToAtomLocked(fact); err == nil {
 				k.cachedAtoms[i] = atom
@@ -619,7 +631,7 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 		k.mu.Unlock()
 		return nil
 	}
-	k.factsDirty.Store(true)
+	k.markDirtyLocked(fact.Predicate)
 	k.mu.Unlock()
 
 	logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
@@ -681,7 +693,7 @@ func (k *RealKernel) AssertBatch(facts []Fact) (err error) {
 	}
 
 	// Mark dirty for lazy evaluation (single evaluate on next query)
-	k.factsDirty.Store(true)
+	k.markDirtyLocked(predicateNames(addedPredicates)...)
 
 	logging.KernelDebug("AssertBatch: successfully added %d/%d facts, total facts=%d",
 		addedCount, len(facts), len(k.facts))
@@ -742,6 +754,14 @@ func (k *RealKernel) AssertWithoutEval(fact Fact) error {
 	if !k.addFactIfNewLocked(fact) {
 		return fmt.Errorf("stage %s: insertion rejected", fact.Predicate)
 	}
+	// Staged, not dirty: but the next evaluate(), whoever triggers it, must
+	// count this predicate as written or a cone would leave it out.
+	if !k.dirtyAll {
+		if k.dirtyPreds == nil {
+			k.dirtyPreds = make(map[string]struct{}, 1)
+		}
+		k.dirtyPreds[fact.Predicate] = struct{}{}
+	}
 	return nil
 }
 
@@ -753,6 +773,8 @@ func (k *RealKernel) Evaluate() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
+	// An explicit Evaluate is a request for every rule, not a cone.
+	k.dirtyAll = true
 	err := k.evaluate()
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("Evaluate: failed: %v", err)
@@ -825,7 +847,7 @@ func (k *RealKernel) Retract(predicate string) (err error) {
 	logging.KernelDebug("Retract: removed %d facts (predicate=%s), EDB: %d -> %d facts",
 		retractedCount, predicate, prevCount, len(k.facts))
 
-	if err := k.rebuild(); err != nil {
+	if err := k.rebuild(predicate); err != nil {
 		logging.Get(logging.CategoryKernel).Error("Retract: rebuild failed after retracting %s: %v", predicate, err)
 		return err
 	}
@@ -877,7 +899,7 @@ func (k *RealKernel) RetractFact(fact Fact) (err error) {
 	logging.KernelDebug("RetractFact: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
 
-	if err := k.rebuild(); err != nil {
+	if err := k.rebuild(fact.Predicate); err != nil {
 		logging.Get(logging.CategoryKernel).Error("RetractFact: rebuild failed: %v", err)
 		return err
 	}
@@ -911,7 +933,7 @@ func (k *RealKernel) RetractExactFact(fact Fact) (err error) {
 
 	// Only rebuild if something changed
 	if retractedCount > 0 {
-		if err := k.rebuild(); err != nil {
+		if err := k.rebuild(fact.Predicate); err != nil {
 			logging.Get(logging.CategoryKernel).Error("RetractExactFact: rebuild failed: %v", err)
 			return err
 		}
@@ -949,7 +971,11 @@ func (k *RealKernel) RetractExactFactsBatch(facts []Fact) (err error) {
 		retractedCount, prevCount, len(k.facts))
 
 	if retractedCount > 0 {
-		if err := k.rebuild(); err != nil {
+		batchPreds := make(map[string]struct{}, 4)
+		for _, f := range facts {
+			batchPreds[f.Predicate] = struct{}{}
+		}
+		if err := k.rebuild(predicateNames(batchPreds)...); err != nil {
 			logging.Get(logging.CategoryKernel).Error("RetractExactFactsBatch: rebuild failed: %v", err)
 			return err
 		}
@@ -980,7 +1006,7 @@ func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 		retractedCount, prevCount, len(k.facts))
 
 	if retractedCount > 0 {
-		if err := k.rebuild(); err != nil {
+		if err := k.rebuild(predicateNames(predicates)...); err != nil {
 			logging.Get(logging.CategoryKernel).Error("RemoveFactsByPredicateSet: rebuild failed: %v", err)
 			return err
 		}

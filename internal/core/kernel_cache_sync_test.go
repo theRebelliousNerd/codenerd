@@ -40,8 +40,25 @@ func TestAddFactIfNewLocked_DoesNotGrowInvalidCache(t *testing.T) {
 	if _, err := k.Query("cache_probe"); err != nil {
 		t.Fatalf("Query after AssertBatch: %v", err)
 	}
+	// A lazy evaluate re-derives the cone of cache_probe and never needs the
+	// atom cache, so nil is legitimate here; a partial cache still is not.
+	if k.cachedAtoms != nil && len(k.cachedAtoms) != len(k.facts) {
+		t.Fatalf("cache desync after lazy evaluate: atoms=%d facts=%d", len(k.cachedAtoms), len(k.facts))
+	}
+	probes, err := k.Query("cache_probe")
+	if err != nil {
+		t.Fatalf("Query cache_probe: %v", err)
+	}
+	if len(probes) != 42 {
+		t.Fatalf("cache_probe holds %d facts after the lazy evaluate, want 42", len(probes))
+	}
+
+	// The full path is the one that rebuilds the cache, and must do it whole.
+	if err := k.Evaluate(); err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
 	if k.cachedAtoms == nil {
-		t.Fatal("evaluate should have rebuilt cachedAtoms")
+		t.Fatal("a full evaluate should have rebuilt cachedAtoms")
 	}
 	if len(k.cachedAtoms) != len(k.facts) {
 		t.Fatalf("cache desync after evaluate: atoms=%d facts=%d", len(k.cachedAtoms), len(k.facts))

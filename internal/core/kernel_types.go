@@ -90,6 +90,16 @@ type RealKernel struct {
 	// factsDirty is atomic so Query/QueryCallback/QueryAll can fast-path without
 	// holding the kernel mutex when no facts have changed since the last evaluate.
 	// Use ensureEvaluated() (kernel_eval.go) to drive lazy re-eval safely.
+	// dirtyPreds names the predicates written since the last evaluate();
+	// dirtyAll says the write set is unknown (bulk load, policy change, any
+	// path that did not name its predicates). Together they let evaluate()
+	// re-derive only the cone of a write; see kernel_eval_cone.go. Guarded by
+	// mu, and only ever set through markDirtyLocked.
+	dirtyPreds map[string]struct{}
+	dirtyAll   bool
+	// cone is the rule-dependency index of programInfo, rebuilt with it.
+	cone *coneIndex
+
 	evalSingleflight    sync.Mutex             // serializes lazy evaluate() so only one goroutine evaluates per dirty epoch
 	userLearnedPath     string                 // Path to user learned.mg for self-healing persistence
 	predicateCorpus     *PredicateCorpus       // Baked-in predicate corpus for validation
