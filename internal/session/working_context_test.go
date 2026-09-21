@@ -77,6 +77,26 @@ func oneWorkingRound(t *testing.T, window int) (*Executor, context.Context, []ty
 	return e, ctx, history, body
 }
 
+// splitSentRequest separates what a request carried into the transcript (every
+// turn's prose and tool results) and the working section, which rides as the
+// trailing text of the last user turn behind workingSectionHeader.
+func splitSentRequest(messages []types.Message) (transcript, section string) {
+	var b strings.Builder
+	for i, m := range messages {
+		text := m.Text
+		if i == len(messages)-1 {
+			if at := strings.Index(text, workingSectionHeader); at >= 0 {
+				text, section = text[:at], text[at+len(workingSectionHeader):]
+			}
+		}
+		b.WriteString(text)
+		for _, r := range m.ToolResults {
+			b.WriteString(r.Content)
+		}
+	}
+	return b.String(), section
+}
+
 func lastToolResult(t *testing.T, history []types.Message) string {
 	t.Helper()
 	for i := len(history) - 1; i >= 0; i-- {
@@ -103,10 +123,11 @@ func TestPrepareWorkingRequest_CarriesTheCurrentResultWholeUnderAProductionCatal
 		t.Fatalf("catalog is %d bytes; the regression needs one larger than the old 16384-character section budget", len(encoded))
 	}
 
-	// Three more rounds push the first read out of the transcript window, so
-	// it has to come back through the selected section, which is where the
-	// zeroed budget used to lose it.
-	for round := 2; round <= 4; round++ {
+	// Six more rounds push the first read out of the transcript window (three
+	// rounds, cut back once it has grown three over), so it has to come back
+	// through the selected section, which is where the zeroed budget used to
+	// lose it.
+	for round := 2; round <= 7; round++ {
 		call := types.ToolCall{ID: fmt.Sprintf("call-%d", round), Name: "read_file", Input: map[string]any{"path": "target.go", "start_line": round}}
 		later := fmt.Sprintf("round-%d-body", round)
 		if err := e.recordWorkingResult(ctx, call, later, nil); err != nil {
@@ -121,7 +142,7 @@ func TestPrepareWorkingRequest_CarriesTheCurrentResultWholeUnderAProductionCatal
 	if _, err := e.completeWithWorkingContext(ctx, provider, "system", history, defs); err != nil {
 		t.Fatalf("completeWithWorkingContext: %v", err)
 	}
-	if got := lastToolResult(t, provider.history); got != "round-4-body" {
+	if got := lastToolResult(t, provider.history); got != "round-7-body" {
 		t.Fatalf("the current result was not sent whole; the model saw:\n%s", got)
 	}
 	for _, m := range provider.history {
@@ -131,8 +152,13 @@ func TestPrepareWorkingRequest_CarriesTheCurrentResultWholeUnderAProductionCatal
 			}
 		}
 	}
-	if !strings.Contains(provider.system, "[observation id=") || !strings.Contains(provider.system, "needle-line-437") {
-		t.Fatalf("the first read was not selected into the working section under a %d-tool catalog; system prompt tail:\n%s", len(defs), provider.system[max(0, len(provider.system)-600):])
+	if _, section := splitSentRequest(provider.history); !strings.Contains(section, "[observation id=") || !strings.Contains(section, "needle-line-437") {
+		t.Fatalf("the first read was not selected into the working section under a %d-tool catalog; section tail:\n%s", len(defs), section[max(0, len(section)-600):])
+	}
+	// The compiled prompt reaches the provider as it was compiled: a section
+	// written into it moved the cacheable prefix on every round.
+	if provider.system != "system" {
+		t.Fatalf("the system prompt was altered on its way to the provider: %q", truncateForFailure(provider.system))
 	}
 }
 
@@ -196,7 +222,9 @@ func TestPrepareWorkingRequest_KeepsRecentRoundsInTheTranscript(t *testing.T) {
 	t.Cleanup(closeLoop)
 
 	history := []types.Message{{Role: "user", Text: "fix target.go"}}
-	for round := 1; round <= 5; round++ {
+	// Seven rounds: the window keeps three and may grow three over before it is
+	// cut back, so at seven it has just been cut to rounds 5, 6 and 7.
+	for round := 1; round <= 7; round++ {
 		call := types.ToolCall{ID: fmt.Sprintf("call-%d", round), Name: "read_file", Input: map[string]any{"path": "target.go", "start_line": round}}
 		body := fmt.Sprintf("round-%d-body", round)
 		if err := e.recordWorkingResult(ctx, call, body, nil); err != nil {
@@ -211,27 +239,21 @@ func TestPrepareWorkingRequest_KeepsRecentRoundsInTheTranscript(t *testing.T) {
 	if _, err := e.completeWithWorkingContext(ctx, provider, "system", history, nil); err != nil {
 		t.Fatalf("completeWithWorkingContext: %v", err)
 	}
-	var transcript strings.Builder
-	for _, m := range provider.history {
-		transcript.WriteString(m.Text)
-		for _, r := range m.ToolResults {
-			transcript.WriteString(r.Content)
+	transcript, section := splitSentRequest(provider.history)
+	for round := 5; round <= 7; round++ {
+		if !strings.Contains(transcript, fmt.Sprintf("round-%d-body", round)) {
+			t.Fatalf("round %d must stay in the transcript (policy keeps 3 rounds); transcript: %q", round, transcript)
 		}
-	}
-	for round := 3; round <= 5; round++ {
-		if !strings.Contains(transcript.String(), fmt.Sprintf("round-%d-body", round)) {
-			t.Fatalf("round %d must stay in the transcript (policy keeps 3 rounds); transcript: %q", round, transcript.String())
-		}
-		if strings.Contains(provider.system, fmt.Sprintf("round-%d-body", round)) {
+		if strings.Contains(section, fmt.Sprintf("round-%d-body", round)) {
 			t.Fatalf("round %d is in the transcript and must not also be in the section", round)
 		}
 	}
-	for round := 1; round <= 2; round++ {
-		if strings.Contains(transcript.String(), fmt.Sprintf("round-%d-body", round)) {
+	for round := 1; round <= 4; round++ {
+		if strings.Contains(transcript, fmt.Sprintf("round-%d-body", round)) {
 			t.Fatalf("round %d is outside the kept span and must leave the transcript", round)
 		}
-		if !strings.Contains(provider.system, fmt.Sprintf("round-%d-body", round)) {
-			t.Fatalf("round %d left the transcript and must be in the section; section tail: %q", round, provider.system[max(0, len(provider.system)-400):])
+		if !strings.Contains(section, fmt.Sprintf("round-%d-body", round)) {
+			t.Fatalf("round %d left the transcript and must be in the section; section tail: %q", round, section[max(0, len(section)-400):])
 		}
 	}
 }
@@ -257,15 +279,18 @@ func TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves(t *test
 	}
 	t.Cleanup(closeLoop)
 
-	// Five rounds: the test, then the two files it exercises, then two more
-	// reads of the last one. The policy keeps three rounds in the transcript,
-	// so the test and loop.go are carried only if the section carries them.
+	// Seven rounds: the test, then the two files it exercises, then four more
+	// reads of the last one. The policy keeps three rounds in the transcript and
+	// cuts back to them at seven, so the test and loop.go are carried only if
+	// the section carries them.
 	reads := []struct{ path, body string }{
 		{"loop_test.go", "body-of-the-test"},
 		{"loop.go", "body-of-loop"},
 		{"context.go", "body-of-context-head"},
 		{"context.go", "body-of-context-middle"},
 		{"context.go", "body-of-context-tail"},
+		{"context.go", "body-of-context-again"},
+		{"context.go", "body-of-context-once-more"},
 	}
 	history := []types.Message{{Role: "user", Text: "fix the flaky test"}}
 	for i, read := range reads {
@@ -282,14 +307,15 @@ func TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves(t *test
 	if _, err := e.completeWithWorkingContext(ctx, provider, "system", history, nil); err != nil {
 		t.Fatalf("completeWithWorkingContext: %v", err)
 	}
+	_, section := splitSentRequest(provider.history)
 	for _, body := range []string{"body-of-the-test", "body-of-loop"} {
-		if !strings.Contains(provider.system, body) {
+		if !strings.Contains(section, body) {
 			t.Fatalf("%s left the transcript and must be in the section; the focus moving to context.go does not end what the turn is working with", body)
 		}
 	}
 	for _, body := range []string{"body-of-the-test", "body-of-loop"} {
-		if strings.Count(provider.system, body) != 1 {
-			t.Fatalf("%s must appear once in the section, got %d", body, strings.Count(provider.system, body))
+		if strings.Count(section, body) != 1 {
+			t.Fatalf("%s must appear once in the section, got %d", body, strings.Count(section, body))
 		}
 	}
 }

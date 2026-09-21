@@ -462,6 +462,12 @@ it is run both ways and the ledger records which landed and at what cost.
    shape the 1st, 10th, 100th and 1000th time so a retry storm cannot bury a new failure. A run's
    summary line is not evidence of its health: on 2026-09-21 a run reported as "planning" was on
    the retry after two 2-minute LLM timeouts, and the timeouts were only in the api log.
+   After it, `python scripts/nerd_cache_report.py [YYYY-MM-DD|all]` reads the broker's receipts
+   (`.nerd/meter/receipts.jsonl`): input, cached and output tokens by purpose, the cached share
+   of input on tool-loop follow-up rounds split by whether the cacheable prefix changed, and
+   input per round for the largest sessions. Baseline 2026-09-21, 44.3M input in 974 calls:
+   49% cached; the prefix changed on 767 of 854 follow-up rounds (47% cached there, 83% where it
+   held), because the per-round working section sat in the system prompt ahead of every message.
 5. Review the diff against the landing criteria; keep or revert; run the suite; commit with
    "via nerd fix" and the brief's name.
 6. Ledger entry. If the harness blocked it: fix the blocker test-first and rerun the brief.

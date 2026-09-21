@@ -22,6 +22,16 @@ Decl working_in_transcript(ID) bound [/string].
 # never wrote; three runs stalled at the read-only ceiling.
 Decl working_transcript_rounds(N) bound [/number].
 working_transcript_rounds(3).
+# How many rounds beyond working_transcript_rounds the transcript may grow
+# before it is cut back to that count. A provider prefix cache covers a request
+# only up to its first changed byte, and a window that drops its oldest round
+# every round changes the first byte after the anchor every round, so no round
+# of the transcript was ever served from cache: measured 2026-09-21, 767 of 854
+# follow-up calls changed the prefix and 47% of their input was cached, against
+# 83% where it held. With slack S the transcript is append-only for S rounds in
+# every S+1 and the cut happens once. Zero restores the every-round slide.
+Decl working_transcript_slack(N) bound [/number].
+working_transcript_slack(3).
 # The most the observations section of one working request may carry, in
 # bytes. Within it working_selected/2 chooses what is shown; everything it
 # leaves out stays recallable by id. It was a Go constant equal to the old

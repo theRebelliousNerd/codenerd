@@ -5522,3 +5522,34 @@ a harness defect, because codeNERD pays it on every whole-module verification.
 A third load-only failure, same shape: `TestCodexCLIClient_RunHealthProbe_SkillMissingAfterSuccessfulExec`
 (11 s and `exec_failed` inside `./...`, 3.6 s and green alone). Three tests that fail only under
 whole-suite parallelism mean a whole-module `run_tests` is not a trustworthy witness yet.
+
+### The request was ordered volatile-first, so the provider cache served half of it (same pass)
+
+The broker's receipts for 2026-09-21: 974 calls, 44.3M input tokens, 865 of the calls tool-loop
+rounds carrying 43.4M of it at ~50k tokens a round; 49% cached. Split by whether the cacheable
+prefix (tool catalog + system prompt) had changed since the session's previous round: it changed on
+767 of 854 follow-up rounds, 47% cached there, 83% where it held.
+
+Cause, from `prepareWorkingRequest`: the working section -- the focused file's view, world facts
+and the observations the policy selected, regenerated every round and tracking the file touched
+last -- was appended to the *system prompt*. Wire order is tools, system, messages, and a prefix
+cache covers a request up to its first changed byte, so the section invalidated itself and every
+message behind it on every round: the anchor, the prior turns and the transcript were billed
+uncached each time. The transcript made it worse on its own: a window of the last 3 rounds that
+drops its oldest round every round moves its first message every round.
+
+Hand-built (what enters the window and where it sits is the executive's decision; the numbers are
+policy facts):
+- the section rides at the end of the request's last user turn, after that turn's tool results
+  (`Message.WithTrailingText`, both views; checked against all four history serializers). The
+  system prompt now reaches the provider exactly as compiled. It also takes file contents out of
+  system authority, where text read from the workspace never belonged;
+- `working_transcript_slack(3)`: the transcript grows by appending for 3 rounds past
+  `working_transcript_rounds` and is cut back once, so its first message moves once in four rounds
+  (`transcriptStart`, a pure function of the round count).
+
+Unmeasured until the next dogfood run. `scripts/nerd_cache_report.py` is the instrument and the
+baseline above is what it has to beat; the expectation is the uncached part of a round falling from
+section + anchor + whole transcript to section + newest round on three rounds in four. What it does
+not touch: ~50k tokens a round is still ~20k of compiled prompt and catalog plus a section the
+policy allows 128 KiB, and 231 rounds in one session is a turn-count problem, not a cache problem.

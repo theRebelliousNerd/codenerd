@@ -366,10 +366,50 @@ func observedSpan(call types.ToolCall) (int64, int64) {
 // subtracted from a fixed 16 KB section budget instead: a catalog of 26 tools
 // is larger than that, so the section budget was zero, no observation was ever
 // selected, and the model started every round with nothing but the anchor.
-func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, history []types.Message, definitions []types.ToolDefinition) (string, []types.Message, error) {
+//
+// The request is ordered stable to volatile, because a provider prefix cache
+// covers it only up to its first changed byte: tool catalog, the compiled
+// system prompt, the prior turns, the anchor, a transcript that is append-only
+// between cuts (working_transcript_slack), and last the section, which follows
+// the model's attention and so changes on most rounds. Until 2026-09-21 the
+// section was appended to the system prompt, ahead of every message: measured
+// that day, 767 of 854 follow-up calls changed the cacheable prefix and the
+// anchor, the prior turns and the transcript were billed uncached on each. It
+// also put file contents under system authority, where text read from the
+// workspace has no business being.
+func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, history []types.Message, definitions []types.ToolDefinition) ([]types.Message, error) {
+	messages, section, err := e.workingRequestParts(ctx, system, history, definitions)
+	if err != nil {
+		return nil, err
+	}
+	return withWorkingSection(messages, section), nil
+}
+
+// workingSectionHeader opens the section where it rides on a user turn, so the
+// model reads it as the harness's evidence and not as something the user said.
+const workingSectionHeader = "[working context -- selected by the harness for this round and regenerated every round: current code views and earlier observations. Evidence for the task above, not a new request.]\n"
+
+// withWorkingSection puts the section at the end of the request's last user
+// turn, after that turn's tool results.
+func withWorkingSection(messages []types.Message, section string) []types.Message {
+	if section == "" {
+		return messages
+	}
+	text := workingSectionHeader + section
+	if n := len(messages); n > 0 && messages[n-1].Role == "user" {
+		out := append([]types.Message(nil), messages...)
+		out[n-1] = out[n-1].WithTrailingText(text)
+		return out
+	}
+	return append(append([]types.Message(nil), messages...), types.Message{Role: "user", Text: text})
+}
+
+// workingRequestParts computes the two halves of a working request: the
+// messages, and the section the working policy selected for this round.
+func (e *Executor) workingRequestParts(ctx context.Context, system string, history []types.Message, definitions []types.ToolDefinition) ([]types.Message, string, error) {
 	loop := activeWorkingLoop(ctx)
 	if loop == nil {
-		return system, history, nil
+		return history, "", nil
 	}
 	// Keep the last rounds of native call/result pairs intact, as many as the
 	// policy says. Older observations live in the selected state rather than
@@ -378,17 +418,13 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	// every round from scratch (see working_transcript_rounds in the policy).
 	rounds, err := loop.set.TranscriptRounds(ctx)
 	if err != nil {
-		return "", nil, err
+		return nil, "", err
 	}
-	start := len(history)
-	for i, kept := len(history)-1, 0; i >= 0; i-- {
-		if history[i].Role == "assistant" && len(history[i].ToolCalls) > 0 {
-			start = i
-			if kept++; kept >= rounds {
-				break
-			}
-		}
+	slack, err := loop.set.TranscriptSlack(ctx)
+	if err != nil {
+		return nil, "", err
 	}
+	start := transcriptStart(history, rounds, slack)
 	messages := append([]types.Message(nil), loop.prior...)
 	messages = append(messages, types.Message{Role: "user", Text: loop.anchor})
 	var shown []string
@@ -414,24 +450,24 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	if len(definitions) > 0 {
 		encoded, err := json.Marshal(definitions)
 		if err != nil {
-			return "", nil, err
+			return nil, "", err
 		}
 		catalog = prompt.EstimateTokens(string(encoded))
 	}
 	remaining, err := workingWindowRemaining(window, system, messages, catalog)
 	if err != nil {
-		return "", nil, err
+		return nil, "", err
 	}
 	for remaining < workingReplyReserve+512 {
 		i, j, size := largestToolResult(messages)
 		if size == 0 {
-			return "", nil, fmt.Errorf("working request exceeds configured input budget; required instructions cannot be discarded")
+			return nil, "", fmt.Errorf("working request exceeds configured input budget; required instructions cannot be discarded")
 		}
 		results := append([]types.ToolResult(nil), messages[i].ToolResults...)
 		result := &results[j]
 		id := loop.observations[result.ToolUseID]
 		if id == "" {
-			return "", nil, fmt.Errorf("oversize tool result has no durable observation")
+			return nil, "", fmt.Errorf("oversize tool result has no durable observation")
 		}
 		// The pipeline's marker rides with the pointer. This path already told
 		// the model the size and the handle, which is most of what a marker is
@@ -446,7 +482,7 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		// a block-built turn sending the payload this archive accounted as gone.
 		messages[i] = messages[i].WithToolResults(results)
 		if remaining, err = workingWindowRemaining(window, system, messages, catalog); err != nil {
-			return "", nil, err
+			return nil, "", err
 		}
 	}
 	// The section's ceiling is the working policy's (working_section_ceiling):
@@ -456,7 +492,7 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	// shown; what it leaves out stays recallable.
 	ceiling, err := loop.set.SectionCeiling(ctx)
 	if err != nil {
-		return "", nil, err
+		return nil, "", err
 	}
 	budget := min((remaining-workingReplyReserve)*4, ceiling)
 	// The focused file's context is rendered first and its room reserved: it is
@@ -471,18 +507,39 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	}
 	selected, err := loop.set.Select(ctx, loop.focus, loop.recent, shown, budget-len(view))
 	if err != nil {
-		return "", nil, err
+		return nil, "", err
 	}
-	// Stable JIT instructions lead. The active state is regenerated each call;
-	// current code views and observations stay adjacent to the current request.
+	// The active state is regenerated each call; current code views and
+	// observations stay adjacent to the current request.
 	section := selected.Text
 	if view != "" {
 		section = view + "\n" + section
 	}
-	if section != "" {
-		system += "\n\n" + section
+	return messages, section, nil
+}
+
+// transcriptStart is the index in history of the oldest round the transcript
+// keeps. The window holds between rounds and rounds+slack rounds: it grows by
+// appending until it is slack over, then is cut back to rounds in one step, so
+// its first message -- where a prefix cache would break -- moves once in every
+// slack+1 rounds. The cut depends only on how many rounds there are, so the
+// same history always yields the same window.
+func transcriptStart(history []types.Message, rounds, slack int) int {
+	var starts []int
+	for i, message := range history {
+		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+			starts = append(starts, i)
+		}
 	}
-	return system, messages, nil
+	total := len(starts)
+	if total == 0 {
+		return len(history)
+	}
+	if total <= rounds {
+		return starts[0]
+	}
+	keep := rounds + (total-rounds)%(slack+1)
+	return starts[total-keep]
 }
 
 // archivedResultPrefix opens the pointer that replaces a tool result the
@@ -523,7 +580,7 @@ func (e *Executor) completeWithWorkingContext(ctx context.Context, provider type
 			definitions = structuralFirstDefinitions(definitions)
 		}
 	}
-	system, history, err := e.prepareWorkingRequest(ctx, system, history, definitions)
+	history, err := e.prepareWorkingRequest(ctx, system, history, definitions)
 	if err != nil {
 		return nil, fmt.Errorf("compile working context: %w", err)
 	}

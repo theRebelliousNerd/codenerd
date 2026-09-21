@@ -18,12 +18,23 @@ type stepPromptRecorder struct {
 	*stepScriptProvider
 	mu      sync.Mutex
 	systems map[string][]string
+	// requests is each call's whole request text: the system prompt and every
+	// turn's prose. The working section rides on the last user turn.
+	requests map[string][]string
 }
 
 func (p *stepPromptRecorder) CompleteWithToolResults(ctx context.Context, system string, history []types.Message, defs []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	p.mu.Lock()
 	file := currentStepFile(history)
 	p.systems[file] = append(p.systems[file], system)
+	if p.requests != nil {
+		var request strings.Builder
+		request.WriteString(system)
+		for _, m := range history {
+			request.WriteString(m.Text)
+		}
+		p.requests[file] = append(p.requests[file], request.String())
+	}
 	p.mu.Unlock()
 	return p.stepScriptProvider.CompleteWithToolResults(ctx, system, history, defs)
 }
@@ -146,7 +157,7 @@ func TestPlannedStep_FileContextIsSentOncePerRequest(t *testing.T) {
 		"a.txt": {{ID: "w-a", Name: writeTool, Input: map[string]any{"path": "a.txt", "content": "a"}}},
 		"b.txt": {{ID: "w-b", Name: writeTool, Input: map[string]any{"path": "b.txt", "content": "b"}}},
 	})
-	client := &stepPromptRecorder{stepScriptProvider: inner, systems: map[string][]string{}}
+	client := &stepPromptRecorder{stepScriptProvider: inner, systems: map[string][]string{}, requests: map[string][]string{}}
 	e := newPlannedStepsExecutor(t, client)
 	e.fileContext = &stubFileContext{section: "## Holographic Context (focused)\n\nbody"}
 	e.jitCompiler = &MockJITCompiler{
@@ -161,9 +172,12 @@ func TestPlannedStep_FileContextIsSentOncePerRequest(t *testing.T) {
 		&prompt.CompilationContext{ShardID: "probe"}, result); err != nil {
 		t.Fatalf("runToolLoop: %v", err)
 	}
-	for file, systems := range client.systems {
-		for _, system := range systems {
-			if n := strings.Count(system, "## Holographic Context"); n != 1 {
+	if len(client.requests) == 0 {
+		t.Fatal("no request was recorded")
+	}
+	for file, requests := range client.requests {
+		for _, request := range requests {
+			if n := strings.Count(request, "## Holographic Context"); n != 1 {
 				t.Errorf("a request for step %s carried the file context %d times, want exactly once", file, n)
 			}
 		}

@@ -265,6 +265,23 @@ func (w *WorkingSet) TranscriptRounds(context.Context) (int, error) {
 	return n, nil
 }
 
+// TranscriptSlack is how many rounds past TranscriptRounds the transcript may
+// grow before it is cut back (working_transcript_slack). Zero is a valid
+// policy: the window then slides every round.
+func (w *WorkingSet) TranscriptSlack(context.Context) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	facts := w.engine.QueryFacts("working_transcript_slack")
+	if len(facts) == 0 || len(facts[0].Args) != 1 {
+		return 0, fmt.Errorf("working policy declares no working_transcript_slack")
+	}
+	n, err := strconv.Atoi(fmt.Sprint(facts[0].Args[0]))
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("working_transcript_slack must be a count, got %v", facts[0].Args[0])
+	}
+	return n, nil
+}
+
 // SectionCeiling is the policy's bound on the observations section of one
 // working request, in bytes (working_section_ceiling). Within it the policy's
 // selection chooses what is shown; the rest stays recallable.

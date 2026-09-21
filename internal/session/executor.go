@@ -1455,10 +1455,15 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 		if provider, ok := client.(types.ToolResultsProvider); ok {
 			return e.completeWithWorkingContext(ctx, provider, systemPrompt, []types.Message{{Role: "user", Text: userInput}}, toolDefs)
 		}
-		var prepareErr error
-		systemPrompt, _, prepareErr = e.prepareWorkingRequest(ctx, systemPrompt, nil, nil)
+		// A client with no message channel sends one system prompt and one
+		// user string, once: there is no later round for a cache to serve, and
+		// the system prompt is the only place the section can ride.
+		_, section, prepareErr := e.workingRequestParts(ctx, systemPrompt, nil, nil)
 		if prepareErr != nil {
 			return nil, prepareErr
+		}
+		if section != "" {
+			systemPrompt += "\n\n" + section
 		}
 	}
 

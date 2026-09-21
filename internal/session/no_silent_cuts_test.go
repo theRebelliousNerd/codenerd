@@ -63,15 +63,13 @@ func assertNoSilentCutsInToolLoopTurn(t *testing.T) {
 	e.config.TokenBudget = 9000
 
 	system := "SYSTEM PROMPT " + strings.Repeat("instruction line\n", 40)
-	gotSystem, gotMessages, err := e.prepareWorkingRequest(ctx, system, history, nil)
+	// The system prompt is not the builder's to change: it goes to the provider
+	// as it was compiled, and the working section rides on the last user turn.
+	gotMessages, err := e.prepareWorkingRequest(ctx, system, history, nil)
 	if err != nil {
 		t.Fatalf("prepareWorkingRequest at a %d-token window: %v", e.config.TokenBudget, err)
 	}
-
-	if len(gotSystem) < len(system) && !types.IsClamped(gotSystem) {
-		t.Errorf("the system prompt was shortened from %d to %d chars with no marker",
-			len(system), len(gotSystem))
-	}
+	gotSystem := system
 
 	seen := map[string]bool{}
 	shortened := 0
@@ -212,14 +210,18 @@ func TestNoSilentCutsInAssembledMessages_LeavesAnIntactTurnAlone(t *testing.T) {
 		{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: call.ID, Content: body}}},
 	}
 
-	gotSystem, gotMessages, err := e.prepareWorkingRequest(ctx, "SYSTEM", history, nil)
+	gotMessages, err := e.prepareWorkingRequest(ctx, "SYSTEM", history, nil)
 	if err != nil {
 		t.Fatalf("prepareWorkingRequest: %v", err)
 	}
 	if got := lastToolResult(t, gotMessages); got != body {
 		t.Errorf("an intact tool result was altered: %q", got)
 	}
-	if types.IsClamped(gotSystem) {
-		t.Errorf("an uncut system prompt carries a truncation marker:\n%s", truncateForFailure(gotSystem))
+	// The working section rides on the last user turn; it is where a marker on
+	// intact content would now appear.
+	for _, m := range gotMessages {
+		if types.IsClamped(m.Text) {
+			t.Errorf("an uncut turn carries a truncation marker:\n%s", truncateForFailure(m.Text))
+		}
 	}
 }

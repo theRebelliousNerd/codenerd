@@ -193,6 +193,31 @@ func (m Message) Content() []ContentBlock {
 	return out
 }
 
+// WithTrailingText returns the message with text as its last content, after
+// any tool results, in BOTH views.
+//
+// It exists for content a caller adds to a turn it did not write -- the working
+// context rides on the request's last user turn. Appending to the flat Text
+// alone would be dropped by a block-built turn, which sends its blocks; and a
+// separate message would put two user turns in a row, which not every provider
+// accepts. A flat message keeps its flat form: its projection already orders
+// tool results before text.
+func (m Message) WithTrailingText(text string) Message {
+	if text == "" {
+		return m
+	}
+	if len(m.blocks) > 0 {
+		blocks := append(append(make([]ContentBlock, 0, len(m.blocks)+1), m.blocks...), TextBlock(text))
+		return NewMessage(m.Role, blocks...)
+	}
+	if m.Text != "" {
+		m.Text += "\n\n" + text
+		return m
+	}
+	m.Text = text
+	return m
+}
+
 // HasNativeBlocks reports whether this message carries a real ordered block
 // list rather than one lifted from the flat fields. Adapters use it to tell a
 // turn whose ordering is known from one whose ordering was never recorded.
