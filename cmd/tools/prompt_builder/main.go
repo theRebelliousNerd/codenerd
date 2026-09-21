@@ -226,11 +226,19 @@ func getAPIKey() string {
 }
 
 // createEmbeddingEngine creates a GenAI embedding engine configured for document retrieval.
+//
+// The model comes from GENAI_EMBEDDING_MODEL. It is not defaulted: the corpus
+// is only searchable with the model its vectors were built with, so the person
+// building it names that model.
 func createEmbeddingEngine(apiKey string) (embedding.EmbeddingEngine, error) {
+	model := strings.TrimSpace(os.Getenv("GENAI_EMBEDDING_MODEL"))
+	if model == "" {
+		return nil, fmt.Errorf("set GENAI_EMBEDDING_MODEL to the embedding model this corpus is built with")
+	}
 	cfg := embedding.Config{
 		Provider:    "genai",
 		GenAIAPIKey: apiKey,
-		GenAIModel:  "gemini-embedding-001",
+		GenAIModel:  model,
 		TaskType:    "RETRIEVAL_DOCUMENT", // Optimized for document indexing
 	}
 

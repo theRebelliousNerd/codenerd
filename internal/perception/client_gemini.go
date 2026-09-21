@@ -115,9 +115,10 @@ type geminiToolCall struct {
 //	the visible-output budget.
 func DefaultGeminiConfig(apiKey string) GeminiConfig {
 	return GeminiConfig{
-		APIKey:          apiKey,
-		BaseURL:         "https://generativelanguage.googleapis.com/v1beta",
-		Model:           "gemini-3.5-flash",
+		APIKey:  apiKey,
+		BaseURL: "https://generativelanguage.googleapis.com/v1beta",
+		// No default model: the workspace names one in .nerd/config.json or the
+		// client factory refuses to build the client.
 		Timeout:         10 * time.Minute, // Large context models need extended timeout
 		MaxOutputTokens: 65536,
 		EnableThinking:  true,
@@ -133,12 +134,9 @@ func NewGeminiClient(apiKey string) *GeminiClient {
 
 // NewGeminiClientWithConfig creates a new Gemini client with custom config.
 func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
+	// No fallback model: an empty model stays empty, and the request fails at
+	// the vendor instead of spending on a model nobody chose.
 	model := strings.TrimSpace(config.Model)
-	if model == "" {
-		// Match DefaultGeminiConfig() so the runtime fallback and the
-		// constructor agree on the canonical default.
-		model = "gemini-3.5-flash"
-	}
 
 	maxOutputTokens := config.MaxOutputTokens
 	maxOutputTokensConfigured := config.MaxOutputTokens > 0
@@ -173,8 +171,12 @@ func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 	}
 }
 
+// geminiThreeFamily is a family prefix used to recognise a capability of the
+// model the user configured; it is never sent anywhere as a model name.
+const geminiThreeFamily = "gemini-3"
+
 func isGemini3Model(model string) bool {
-	return strings.Contains(strings.ToLower(model), "gemini-3")
+	return strings.Contains(strings.ToLower(model), geminiThreeFamily)
 }
 
 // defaultMaxOutputTokensForModel is the completion ceiling when none was

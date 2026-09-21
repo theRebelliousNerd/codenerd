@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // MemoryConfig configures the memory shards.
 type MemoryConfig struct {
 	// Shard A: Working Memory (RAM)
@@ -23,11 +25,11 @@ type EmbeddingConfig struct {
 
 	// Ollama Configuration (local embedding server)
 	OllamaEndpoint string `yaml:"ollama_endpoint" json:"ollama_endpoint"` // Default: "http://localhost:11434"
-	OllamaModel    string `yaml:"ollama_model" json:"ollama_model"`       // Default: "embeddinggemma:300m"
+	OllamaModel    string `yaml:"ollama_model" json:"ollama_model"`       // Required for provider=ollama; no default
 
 	// GenAI Configuration (Google cloud embedding)
 	GenAIAPIKey string `yaml:"genai_api_key" json:"genai_api_key"`
-	GenAIModel  string `yaml:"genai_model" json:"genai_model"` // Default: "gemini-embedding-001"
+	GenAIModel  string `yaml:"genai_model" json:"genai_model"` // Required for provider=genai; no default
 
 	// TaskType for GenAI embeddings:
 	// SEMANTIC_SIMILARITY, CLASSIFICATION, CLUSTERING,
@@ -129,14 +131,34 @@ func DefaultContextWindowConfig() ContextWindowConfig {
 	}
 }
 
+// MissingModel says what the embedding config still needs before an engine can
+// be built, or "" when the configured provider has its model. No model is ever
+// assumed: an embedding model that differs from the one the stored vectors were
+// built with returns wrong neighbours without an error.
+func (c *EmbeddingConfig) MissingModel() string {
+	if c == nil {
+		return "no embedding configuration: set embedding.provider and its model in .nerd/config.json"
+	}
+	switch c.Provider {
+	case "ollama":
+		if strings.TrimSpace(c.OllamaModel) == "" {
+			return "no Ollama embedding model configured: name one (embedding.ollama_model), e.g. `nerd embedding set ollama <model>`"
+		}
+	case "genai":
+		if strings.TrimSpace(c.GenAIModel) == "" {
+			return "no GenAI embedding model configured: name one (embedding.genai_model), e.g. `nerd embedding set genai <api-key> <model>`"
+		}
+	}
+	return ""
+}
+
 // DefaultEmbeddingConfig returns an EmbeddingConfig with sensible defaults.
 func DefaultEmbeddingConfig() *EmbeddingConfig {
 	return &EmbeddingConfig{
 		Provider:       "ollama",
 		OllamaEndpoint: "http://localhost:11434",
-		OllamaModel:    "embeddinggemma:300m",
-		GenAIAPIKey:    "",
-		GenAIModel:     "gemini-embedding-001",
-		TaskType:       "SEMANTIC_SIMILARITY",
+		// No embedding model: the workspace names one in .nerd/config.json.
+		GenAIAPIKey: "",
+		TaskType:    "SEMANTIC_SIMILARITY",
 	}
 }

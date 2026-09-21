@@ -18,9 +18,11 @@ import (
 // OLLAMA EMBEDDING ENGINE
 // =============================================================================
 
-// Preferred default when config says bare "embeddinggemma" — Ollama does not
-// always publish an untagged :latest for this model; :300m is the common tag.
-const defaultOllamaEmbedModel = "embeddinggemma:300m"
+// embeddingGemmaPullTag is the tag pulled when the workspace configured the
+// bare name "embeddinggemma": Ollama does not always publish an untagged
+// :latest for that model. It is an alias for a model the user chose, never a
+// model chosen for them; an unconfigured model is an error (NewOllamaEngine).
+const embeddingGemmaPullTag = "embeddinggemma:300m"
 
 // OllamaEngine generates embeddings using local Ollama server.
 // Supports embeddinggemma and other embedding models.
@@ -49,12 +51,18 @@ func NewOllamaEngine(endpoint, model string) (*OllamaEngine, error) {
 		endpoint = "http://localhost:11434"
 		logging.EmbeddingDebug("Ollama endpoint defaulted to: %s", endpoint)
 	}
-	if model == "" || model == "embeddinggemma" {
-		// Bare "embeddinggemma" is a common config value but Ollama often only
-		// ships tagged variants (e.g. embeddinggemma:300m). Prefer the tagged
-		// default; EnsureModel will still remap to whatever is installed.
-		model = defaultOllamaEmbedModel
-		logging.EmbeddingDebug("Ollama model defaulted to: %s", model)
+	model = strings.TrimSpace(model)
+	if model == "" {
+		// No invented model. An embedding model that differs from the one the
+		// stored vectors were built with returns wrong neighbours silently, so
+		// a guess here is worse than a refusal.
+		return nil, fmt.Errorf("no Ollama embedding model configured: set embedding.ollama_model in .nerd/config.json")
+	}
+	if model == "embeddinggemma" {
+		// The bare name is a common config value but Ollama often only ships
+		// tagged variants; EnsureModel still remaps to whatever is installed.
+		model = embeddingGemmaPullTag
+		logging.EmbeddingDebug("Ollama model %q resolved to its tag: %s", "embeddinggemma", model)
 	}
 
 	logging.Embedding("Creating Ollama engine: endpoint=%s, model=%s, timeout=60s (auto-pull enabled)", endpoint, model)
@@ -597,8 +605,10 @@ func preferInstalledEmbeddingModel(configured string, installed []string) string
 func pullTargetFor(configured string) string {
 	base := modelBase(configured)
 	switch base {
-	case "embeddinggemma", "":
-		return defaultOllamaEmbedModel
+	case "":
+		return "" // nothing configured, nothing to pull
+	case "embeddinggemma":
+		return embeddingGemmaPullTag
 	case "nomic-embed-text":
 		return "nomic-embed-text"
 	default:

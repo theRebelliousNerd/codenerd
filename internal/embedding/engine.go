@@ -79,9 +79,9 @@ func DefaultConfig() Config {
 	return Config{
 		Provider:       "ollama", // Default to local Ollama
 		OllamaEndpoint: "http://localhost:11434",
-		OllamaModel:    defaultOllamaEmbedModel,
-		GenAIModel:     "gemini-embedding-001",
-		TaskType:       "SEMANTIC_SIMILARITY",
+		// No model: the workspace names one for its provider in
+		// .nerd/config.json, or NewEngine refuses.
+		TaskType: "SEMANTIC_SIMILARITY",
 	}
 }
 

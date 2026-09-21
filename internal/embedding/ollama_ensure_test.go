@@ -211,11 +211,11 @@ func TestEmbed_AutoPullsOn404(t *testing.T) {
 }
 
 func TestPullTargetFor(t *testing.T) {
-	if pullTargetFor("embeddinggemma") != defaultOllamaEmbedModel {
+	if pullTargetFor("embeddinggemma") != embeddingGemmaPullTag {
 		t.Fatal(pullTargetFor("embeddinggemma"))
 	}
-	if pullTargetFor("") != defaultOllamaEmbedModel {
-		t.Fatal("empty")
+	if got := pullTargetFor(""); got != "" {
+		t.Fatalf("an unconfigured model pulls nothing, got %q", got)
 	}
 	if !strings.HasPrefix(pullTargetFor("nomic-embed-text"), "nomic") {
 		t.Fatal(pullTargetFor("nomic-embed-text"))

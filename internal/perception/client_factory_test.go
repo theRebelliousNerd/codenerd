@@ -161,7 +161,7 @@ func TestNewClientFromConfig_Providers(t *testing.T) {
 }
 
 func TestNewClientFromConfig_MetaReasoningEffort_XHigh(t *testing.T) {
-	cfg := &ProviderConfig{Model: "test-model", Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "xhigh"}
+	cfg := &ProviderConfig{Model: metaContributorModel, Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "xhigh"}
 	client, err := NewClientFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("NewClientFromConfig: %v", err)
@@ -189,7 +189,7 @@ func TestNewClientFromConfig_MetaReasoningEffort_XHigh(t *testing.T) {
 }
 
 func TestNewClientFromConfig_InvalidMetaEffortRejects(t *testing.T) {
-	cfg := &ProviderConfig{Model: "test-model", Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "nope"}
+	cfg := &ProviderConfig{Model: metaContributorModel, Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "nope"}
 	if _, err := NewClientFromConfig(cfg); err == nil {
 		t.Fatal("expected error for invalid reasoning_effort")
 	}
@@ -288,7 +288,7 @@ func TestProviderConfigFromUserConfig_MetaXHigh_FullRootRoute(t *testing.T) {
 }
 
 func TestNewClassificationClientFromConfig_MetaDefaultsMinimal(t *testing.T) {
-	cfg := &ProviderConfig{Model: "test-model", Provider: ProviderMeta, APIKey: "k"}
+	cfg := &ProviderConfig{Model: metaContributorModel, Provider: ProviderMeta, APIKey: "k"}
 	class, err := NewClassificationClientFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("NewClassificationClientFromConfig: %v", err)
@@ -304,7 +304,7 @@ func TestNewClassificationClientFromConfig_MetaDefaultsMinimal(t *testing.T) {
 }
 
 func TestNewClassificationClientFromConfig_MetaHonorsExplicitLow(t *testing.T) {
-	cfg := &ProviderConfig{Model: "test-model", Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "low"}
+	cfg := &ProviderConfig{Model: metaContributorModel, Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "low"}
 	class, err := NewClassificationClientFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("NewClassificationClientFromConfig: %v", err)

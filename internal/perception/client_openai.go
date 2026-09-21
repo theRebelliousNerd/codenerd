@@ -45,8 +45,9 @@ func DefaultOpenAIConfig(apiKey string) OpenAIConfig {
 	return OpenAIConfig{
 		APIKey:  apiKey,
 		BaseURL: "https://api.openai.com/v1",
-		Model:   "gpt-5.1-codex-max", // Best Codex model for coding agents
-		Timeout: 10 * time.Minute,    // Large context models need extended timeout
+		// No default model: the workspace names one in .nerd/config.json or the
+		// client factory refuses to build the client.
+		Timeout: 10 * time.Minute, // Large context models need extended timeout
 	}
 }
 

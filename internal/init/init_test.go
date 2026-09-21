@@ -59,6 +59,15 @@ func TestInitializer_Initialize_Basic(t *testing.T) {
 	// Create a dummy file to scan
 	os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main"), 0644)
 
+	// The embedding model is the user's to name; init invents none.
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".nerd"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	seed := `{"embedding": {"provider": "ollama", "ollama_model": "embeddinggemma"}}`
+	if err := os.WriteFile(filepath.Join(tmpDir, ".nerd", "config.json"), []byte(seed), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	cfg := DefaultInitConfig(tmpDir)
 	cfg.LLMClient = &MockLLMClient{}
 	cfg.SkipResearch = true

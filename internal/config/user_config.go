@@ -357,25 +357,18 @@ func (c *UserConfig) GetEmbeddingConfig() EmbeddingConfig {
 		if cfg.OllamaEndpoint == "" {
 			cfg.OllamaEndpoint = "http://localhost:11434"
 		}
-		if cfg.OllamaModel == "" || cfg.OllamaModel == "embeddinggemma" {
-			// Bare tag 404s without :latest; canonical config.json value is :300m.
-			cfg.OllamaModel = "embeddinggemma:300m"
-		}
-		if cfg.GenAIModel == "" {
-			cfg.GenAIModel = "gemini-embedding-001"
-		}
+		// No default embedding model: an unset ollama_model / genai_model stays
+		// unset and the embedding engine refuses to start without one.
 		if cfg.TaskType == "" {
 			cfg.TaskType = "SEMANTIC_SIMILARITY"
 		}
 		return cfg
 	}
-	// No embedding block in config.json — return defaults that match the
-	// canonical config.json shape so first-run and missing-block behave the same.
+	// No embedding block in config.json: a provider and an endpoint, and no
+	// model. Embeddings do not work until the workspace names one.
 	return EmbeddingConfig{
 		Provider:       "ollama",
 		OllamaEndpoint: "http://localhost:11434",
-		OllamaModel:    "embeddinggemma:300m",
-		GenAIModel:     "gemini-embedding-001",
 		TaskType:       "SEMANTIC_SIMILARITY",
 	}
 }

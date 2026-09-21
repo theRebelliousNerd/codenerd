@@ -101,9 +101,9 @@ func TestZAIClient_CompleteWithStructured_RetryAndBackoff(t *testing.T) {
 func TestZAIClient_SetModel(t *testing.T) {
 	client := NewZAIClient("test-key")
 
-	// Default model should be set
-	if client.GetModel() == "" {
-		t.Error("Expected default model to be set")
+	// No default model: the workspace chooses one.
+	if got := client.GetModel(); got != "" {
+		t.Errorf("the client invented the model %q", got)
 	}
 
 	// SetModel should change the model

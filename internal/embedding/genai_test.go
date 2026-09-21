@@ -7,17 +7,24 @@ import (
 func TestNewGenAIEngine_Defaults(t *testing.T) {
 	// Passing a non-empty API key to allow client initialization to succeed
 	// (or at least not fail on the validation check).
-	engine, err := NewGenAIEngine("fake-api-key", "", "")
+	engine, err := NewGenAIEngine("fake-api-key", "test-embedding-model", "")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if engine.model != "gemini-embedding-001" {
-		t.Errorf("Expected default model 'gemini-embedding-001', got '%s'", engine.model)
+	if engine.model != "test-embedding-model" {
+		t.Errorf("Expected the configured model, got '%s'", engine.model)
 	}
 
 	if engine.taskType != "SEMANTIC_SIMILARITY" {
 		t.Errorf("Expected default task type 'SEMANTIC_SIMILARITY', got '%s'", engine.taskType)
+	}
+}
+
+// The task type has a default; the model does not.
+func TestNewGenAIEngine_NoModelIsRefused(t *testing.T) {
+	if engine, err := NewGenAIEngine("fake-api-key", "", ""); err == nil {
+		t.Fatalf("expected an error for an unconfigured model, got an engine running %q", engine.model)
 	}
 }
 

@@ -32,10 +32,11 @@ type OpenRouterClient struct {
 // DefaultOpenRouterConfig returns sensible defaults.
 func DefaultOpenRouterConfig(apiKey string) OpenRouterConfig {
 	return OpenRouterConfig{
-		APIKey:   apiKey,
-		BaseURL:  "https://openrouter.ai/api/v1",
-		Model:    "anthropic/claude-3.5-sonnet", // Good default for coding
-		Timeout:  10 * time.Minute,              // Large context models need extended timeout
+		APIKey:  apiKey,
+		BaseURL: "https://openrouter.ai/api/v1",
+		// No default model: the workspace names one in .nerd/config.json or the
+		// client factory refuses to build the client.
+		Timeout:  10 * time.Minute, // Large context models need extended timeout
 		SiteName: "codeNERD",
 	}
 }

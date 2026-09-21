@@ -5,16 +5,19 @@ import (
 )
 
 func TestNewOllamaEngine(t *testing.T) {
-	t.Run("default parameters", func(t *testing.T) {
-		engine, err := NewOllamaEngine("", "")
+	t.Run("no model is refused", func(t *testing.T) {
+		if engine, err := NewOllamaEngine("", ""); err == nil {
+			t.Fatalf("expected an error for an unconfigured model, got an engine running %q", engine.model)
+		}
+	})
+
+	t.Run("default endpoint", func(t *testing.T) {
+		engine, err := NewOllamaEngine("", "custom-model")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if engine.endpoint != "http://localhost:11434" {
 			t.Errorf("expected endpoint http://localhost:11434, got %s", engine.endpoint)
-		}
-		if engine.model != defaultOllamaEmbedModel {
-			t.Errorf("expected model %s, got %s", defaultOllamaEmbedModel, engine.model)
 		}
 	})
 
@@ -36,8 +39,8 @@ func TestNewOllamaEngine(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if engine.model != defaultOllamaEmbedModel {
-			t.Errorf("expected model %s, got %s", defaultOllamaEmbedModel, engine.model)
+		if engine.model != embeddingGemmaPullTag {
+			t.Errorf("expected model %s, got %s", embeddingGemmaPullTag, engine.model)
 		}
 	})
 }

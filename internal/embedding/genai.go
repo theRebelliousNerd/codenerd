@@ -3,6 +3,7 @@ package embedding
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"codenerd/internal/logging"
@@ -51,9 +52,8 @@ func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
 	}
 	logging.EmbeddingDebug("GenAI API key provided (length=%d)", len(apiKey))
 
-	if model == "" {
-		model = "gemini-embedding-001"
-		logging.EmbeddingDebug("GenAI model defaulted to: %s", model)
+	if strings.TrimSpace(model) == "" {
+		return nil, fmt.Errorf("no GenAI embedding model configured: set embedding.genai_model in .nerd/config.json")
 	}
 
 	taskType = normalizeTaskType(taskType)

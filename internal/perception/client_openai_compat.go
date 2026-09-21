@@ -85,27 +85,21 @@ type OpenAICompatConfig struct {
 	ReasoningEffort string
 }
 
-// vendorDefault describes a vendor's endpoint and preferred model.
+// vendorDefault describes a vendor's endpoint. It names no model: the
+// workspace chooses one in .nerd/config.json or the client is not built.
 type vendorDefault struct {
 	baseURL string
-	model   string
 }
 
 var openAICompatVendorDefaults = map[Provider]vendorDefault{
 	ProviderDashScope: {
 		baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-		model:   "qwen3.8-max",
 	},
 	ProviderMeta: {
 		baseURL: "https://api.meta.ai/v1",
-		// Contributor tier is the only Meta model this project uses. See
-		// normalizeMetaModel for why the plain name is not merely a different
-		// default but a wrong one.
-		model: metaContributorModel,
 	},
 	ProviderMoonshot: {
 		baseURL: "https://api.moonshot.ai/v1",
-		model:   "kimi-k3",
 	},
 }
 
@@ -177,7 +171,6 @@ func DefaultOpenAICompatConfig(vendor Provider, apiKey string) OpenAICompatConfi
 		Vendor:  vendor,
 		APIKey:  apiKey,
 		BaseURL: d.baseURL,
-		Model:   d.model,
 		// Million-token-context models routinely exceed a short client timeout.
 		Timeout:         10 * time.Minute,
 		MaxOutputTokens: defaultMaxOutputTokensFor(vendor),
@@ -214,13 +207,13 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 	if cfg.MaxOutputTokens <= 0 {
 		cfg.MaxOutputTokens = defaultMaxOutputTokensFor(cfg.Vendor)
 	}
-	if cfg.Model == "" {
-		cfg.Model = openAICompatVendorDefaults[cfg.Vendor].model
-	}
-	// Normalize once at construction so GetModel() and every log line report
-	// the model that will actually be sent, not the one that was requested.
-	if cfg.Vendor == ProviderMeta {
-		cfg.Model = normalizeMetaModel(cfg.Model)
+	cfg.Model = strings.TrimSpace(cfg.Model)
+	// Meta serves two commercial tiers under names that differ by a suffix, and
+	// only the contributor tier is permitted here (see normalizeMetaModel). A
+	// configured model on the other tier is refused outright: there is no
+	// model to substitute that the workspace chose.
+	if cfg.Vendor == ProviderMeta && cfg.Model != "" && !isMetaContributorModel(cfg.Model) {
+		return nil, fmt.Errorf("meta model %q is not the contributor tier: set a \"-contributor\" model in .nerd/config.json", cfg.Model)
 	}
 
 	// Validate explicit Meta reasoning_effort at construction.
@@ -287,6 +280,12 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 // sent rather than what was asked for.
 func (c *OpenAICompatClient) SetModel(model string) { c.model = c.normalizeModel(model) }
 
+// isMetaContributorModel reports whether a Meta model name is on the
+// contributor tier.
+func isMetaContributorModel(model string) bool {
+	return strings.HasSuffix(strings.TrimSpace(model), "-contributor")
+}
+
 // GetModel returns the current model.
 func (c *OpenAICompatClient) GetModel() string { return c.model }
 
@@ -299,18 +298,13 @@ func (c *OpenAICompatClient) ModelForContext(ctx context.Context) string {
 	return c.normalizeModel(c.model)
 }
 
-// metaContributorModel is the contributor-tier Muse Spark this project
-// defaults to. Muse Spark 1.3 (2026-09-02) is the current checkpoint;
-// contributor is the only commercial tier this project is permitted to use.
-const metaContributorModel = "muse-spark-1.3-contributor"
-
 // normalizeModel applies vendor-level model constraints to whatever the
 // config, the wizard, or a per-shard override asked for.
 func (c *OpenAICompatClient) normalizeModel(model string) string {
 	if c.vendor != ProviderMeta {
 		return model
 	}
-	return normalizeMetaModel(model)
+	return normalizeMetaModel(model, c.model)
 }
 
 // normalizeMetaModel forces every Meta request onto the contributor tier.
@@ -329,19 +323,33 @@ func (c *OpenAICompatClient) normalizeModel(model string) string {
 // choice, per-shard profile, or CtxKeyModelName override can route Meta traffic
 // off the contributor tier. It warns rather than silently substituting, because
 // a config that says one thing while the client does another is its own defect.
-func normalizeMetaModel(model string) string {
-	trimmed := strings.TrimSpace(model)
-	if trimmed == "" {
-		return metaContributorModel
-	}
-	if strings.HasSuffix(trimmed, "-contributor") {
+//
+// The model it falls back to is the one the workspace configured, never a name
+// written here (2026-09-21: no hardcoded models). A request for a model off the
+// contributor tier -- a shard profile naming another vendor's model, say --
+// runs on the configured contributor model with a warning. When the configured
+// model is not contributor-tier either there is nothing permitted to run, and
+// the empty name makes the request fail at the vendor rather than spend.
+func normalizeMetaModel(requested, configured string) string {
+	trimmed := strings.TrimSpace(requested)
+	if isMetaContributorModel(trimmed) {
 		return trimmed
 	}
-
-	logging.PerceptionWarn(
-		"[meta] model %q is not the contributor tier; using %q instead. Update .nerd/config.json so the config matches what runs.",
-		trimmed, metaContributorModel)
-	return metaContributorModel
+	fallback := strings.TrimSpace(configured)
+	if !isMetaContributorModel(fallback) {
+		if trimmed != "" {
+			logging.Get(logging.CategoryPerception).Error(
+				"[meta] model %q is not the contributor tier and no contributor model is configured; the request carries no model and will fail. Set a \"-contributor\" model in .nerd/config.json.",
+				trimmed)
+		}
+		return ""
+	}
+	if trimmed != "" {
+		logging.PerceptionWarn(
+			"[meta] model %q is not the contributor tier; using the configured %q instead. Update .nerd/config.json so the config matches what runs.",
+			trimmed, fallback)
+	}
+	return fallback
 }
 
 // reasoningEffortForContext maps a per-shard capability tier onto the vendor's

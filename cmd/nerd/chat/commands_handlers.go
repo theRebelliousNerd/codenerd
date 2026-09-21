@@ -300,7 +300,7 @@ func (m Model) handleEmbeddingCommand(input string, parts []string) (tea.Model, 
 			if len(parts) < 3 {
 				m = m.addMessage(Message{
 					Role:    "assistant",
-					Content: "Usage: /embedding set <ollama|genai> [api-key]",
+					Content: "Usage: /embedding set ollama <model>  |  /embedding set genai <api-key> <model>",
 					Time:    time.Now(),
 				})
 			} else {
@@ -313,12 +313,26 @@ func (m Model) handleEmbeddingCommand(input string, parts []string) (tea.Model, 
 					cfg.Embedding = &config.EmbeddingConfig{}
 				}
 				cfg.Embedding.Provider = provider
+				// The model is the user's to name: nothing is written to
+				// config.json that they did not type or already have there.
 				if provider == "ollama" {
 					cfg.Embedding.OllamaEndpoint = "http://localhost:11434"
-					cfg.Embedding.OllamaModel = "embeddinggemma:300m"
+					if len(parts) >= 4 {
+						cfg.Embedding.OllamaModel = parts[3]
+					}
 				} else if provider == "genai" && len(parts) >= 4 {
 					cfg.Embedding.GenAIAPIKey = parts[3]
-					cfg.Embedding.GenAIModel = "gemini-embedding-001"
+					if len(parts) >= 5 {
+						cfg.Embedding.GenAIModel = parts[4]
+					}
+				}
+				if missing := cfg.Embedding.MissingModel(); missing != "" {
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: missing,
+						Time:    time.Now(),
+					})
+					return m, nil
 				}
 				if err := cfg.Save(m.userConfigPath()); err != nil {
 					m = m.addMessage(Message{

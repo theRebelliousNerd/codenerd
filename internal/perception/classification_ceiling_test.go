@@ -35,9 +35,11 @@ func TestEveryClassificationClientCarriesTheLabelCeiling(t *testing.T) {
 			// assumable fast tier; supplying one everywhere keeps the table
 			// uniform and exercises the branch rather than its early return.
 			client, err := newRawClassificationClientFromConfig(&ProviderConfig{
-				Provider:            provider,
-				APIKey:              "test-key",
-				ClassificationModel: "test-model",
+				Provider: provider,
+				APIKey:   "test-key",
+				// A workspace names its classification model; for Meta that
+				// name has to be on the contributor tier or no client is built.
+				ClassificationModel: testCompatModel(provider),
 			})
 			if err != nil {
 				t.Fatalf("newRawClassificationClientFromConfig: %v", err)

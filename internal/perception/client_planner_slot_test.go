@@ -15,7 +15,7 @@ func TestNewPlannerClientFromUserConfig_BuildsDistinctClient(t *testing.T) {
 	cfg := &config.UserConfig{
 		DashScopeAPIKey: "ds",
 		MetaAPIKey:      "mt",
-		Worker:          &config.WorkerLLMConfig{Provider: "meta", Model: "muse-spark-1.2"},
+		Worker:          &config.WorkerLLMConfig{Provider: "meta", Model: metaContributorModel},
 		Planner:         &config.PlannerLLMConfig{Provider: "dashscope", Model: "qwen3.8-max"},
 	}
 
@@ -47,7 +47,7 @@ func TestNewPlannerClientFromUserConfig_BuildsDistinctClient(t *testing.T) {
 func TestNewPlannerClientFromUserConfig_NoPlannerReturnsNil(t *testing.T) {
 	cfg := &config.UserConfig{
 		MetaAPIKey: "mt",
-		Worker:     &config.WorkerLLMConfig{Provider: "meta", Model: "muse-spark-1.2"},
+		Worker:     &config.WorkerLLMConfig{Provider: "meta", Model: metaContributorModel},
 	}
 	client, err := NewPlannerClientFromUserConfig(cfg)
 	if err != nil {
@@ -64,8 +64,8 @@ func TestNewPlannerClientFromUserConfig_NoPlannerReturnsNil(t *testing.T) {
 func TestGetPlannerLLMConfig_IdenticalToWorkerIsUnset(t *testing.T) {
 	cfg := &config.UserConfig{
 		MetaAPIKey: "mt",
-		Worker:     &config.WorkerLLMConfig{Provider: "meta", Model: "muse-spark-1.2"},
-		Planner:    &config.PlannerLLMConfig{Provider: "meta", Model: "muse-spark-1.2"},
+		Worker:     &config.WorkerLLMConfig{Provider: "meta", Model: metaContributorModel},
+		Planner:    &config.PlannerLLMConfig{Provider: "meta", Model: metaContributorModel},
 	}
 	if got := cfg.GetPlannerLLMConfig(); got != nil {
 		t.Errorf("planner identical to worker should resolve to nil, got %+v", got)

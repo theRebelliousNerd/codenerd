@@ -31,7 +31,8 @@ func DefaultXAIConfig(apiKey string) XAIConfig {
 	return XAIConfig{
 		APIKey:  apiKey,
 		BaseURL: "https://api.x.ai/v1",
-		Model:   "grok-2-latest",
+		// No default model: the workspace names one in .nerd/config.json or the
+		// client factory refuses to build the client.
 		Timeout: 10 * time.Minute, // Large context models need extended timeout
 	}
 }

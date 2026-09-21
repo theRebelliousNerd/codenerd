@@ -74,8 +74,9 @@ func DefaultEvolverConfig() *EvolverConfig {
 		EnableStrategies:        true,
 
 		StrategyRefineThreshold: 10,
-		JudgeModel:              "gemini-3-pro",
-		AtomPinScope:            PinScopeModelFamily,
+		// JudgeModel is a label for the verdict record. Empty means "the model
+		// of the client that judged", read from the client at construction.
+		AtomPinScope: PinScopeModelFamily,
 	}
 }
 
@@ -101,9 +102,6 @@ func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
 	}
 	if normalized.StrategyRefineThreshold < 1 {
 		errs = append(errs, "strategy_refine_threshold must be >= 1")
-	}
-	if strings.TrimSpace(normalized.JudgeModel) == "" {
-		normalized.JudgeModel = "gemini-3-pro"
 	}
 
 	// An omitted scope means "unset", not "none": a config written before
@@ -214,7 +212,15 @@ func NewPromptEvolver(
 		strategyStore.GenerateDefaultStrategies()
 	}
 
-	judgeModel := config.JudgeModel
+	// The verdict records who judged. Until 2026-09-21 that was the literal
+	// "gemini-3-pro" whatever client ran, so every verdict named a model that
+	// had never seen the task. The label is the judging client's own model.
+	judgeModel := strings.TrimSpace(config.JudgeModel)
+	if judgeModel == "" {
+		if named, ok := llmClient.(interface{ GetModel() string }); ok {
+			judgeModel = strings.TrimSpace(named.GetModel())
+		}
+	}
 	judge := NewTaskJudge(llmClient, judgeModel)
 	atomGenerator := NewAtomGeneratorWithPinScope(llmClient, strategyStore, config.AtomPinScope)
 	classifier := NewProblemClassifier()

@@ -99,9 +99,10 @@ func DefaultZAIConfig(apiKey string) ZAIConfig {
 		streamingTimeout = timeout
 	}
 	return ZAIConfig{
-		APIKey:           apiKey,
-		BaseURL:          "https://api.z.ai/api/coding/paas/v4", // Coding-optimized endpoint
-		Model:            "glm-4.7",
+		APIKey:  apiKey,
+		BaseURL: "https://api.z.ai/api/coding/paas/v4", // Coding-optimized endpoint
+		// No default model: the workspace names one in .nerd/config.json or the
+		// client factory refuses to build the client.
 		Timeout:          timeout,
 		SystemPrompt:     defaultSystemPrompt,
 		MaxRetries:       maxRetries,

@@ -12,9 +12,22 @@ import (
 	"codenerd/internal/types"
 )
 
+// metaContributorModel is the model these tests configure for Meta, the way a
+// workspace does in .nerd/config.json. Production code names no model.
+const metaContributorModel = "muse-spark-1.3-contributor"
+
+// testCompatModel is what a test workspace configures for a vendor.
+func testCompatModel(vendor Provider) string {
+	if vendor == ProviderMeta {
+		return metaContributorModel
+	}
+	return "test-model"
+}
+
 func newTestCompatClient(t *testing.T, vendor Provider, baseURL string) *OpenAICompatClient {
 	t.Helper()
 	cfg := DefaultOpenAICompatConfig(vendor, "test-key")
+	cfg.Model = testCompatModel(vendor)
 	cfg.BaseURL = baseURL
 	cfg.Timeout = 5 * time.Second
 	c, err := NewOpenAICompatClient(cfg)
@@ -34,10 +47,12 @@ func TestNewOpenAICompatClient_RequiresKeyAndBaseURL(t *testing.T) {
 }
 
 func TestDefaultOpenAICompatConfig_VendorEndpoints(t *testing.T) {
+	// A vendor default is an endpoint. It names no model: that is the
+	// workspace's to choose.
 	cases := map[Provider]struct{ base, model string }{
-		ProviderDashScope: {"https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3.8-max"},
-		ProviderMeta:      {"https://api.meta.ai/v1", "muse-spark-1.3-contributor"},
-		ProviderMoonshot:  {"https://api.moonshot.ai/v1", "kimi-k3"},
+		ProviderDashScope: {"https://dashscope-intl.aliyuncs.com/compatible-mode/v1", ""},
+		ProviderMeta:      {"https://api.meta.ai/v1", ""},
+		ProviderMoonshot:  {"https://api.moonshot.ai/v1", ""},
 	}
 	for vendor, want := range cases {
 		got := DefaultOpenAICompatConfig(vendor, "k")

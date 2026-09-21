@@ -454,7 +454,14 @@ it is run both ways and the ledger records which landed and at what cost.
 3. Rebuild `nerd.exe` from `main` (the prompt atoms are embedded: a corpus fix only reaches the
    agent after a rebuild). Nothing else edits the tree while the run is in flight.
 4. Run the entry point for the rung and log it (minutes, tool calls, model calls and tokens from
-   `.nerd/logs`; for a campaign, `nerd campaign journal` and `status`).
+   `.nerd/logs`; for a campaign, `nerd campaign journal` and `status`). While it runs, follow
+   every WARN and ERROR in every log category, not the one file the run's headline lives in:
+   `python scripts/nerd_logwatch.py [poll_seconds]` (`scripts/` is gitignored; the tool is
+   recorded here). It follows each `*.log` touched in the last 15 minutes whatever process
+   wrote it, starts a pre-existing file at its end and a new one at byte 0, and prints a message
+   shape the 1st, 10th, 100th and 1000th time so a retry storm cannot bury a new failure. A run's
+   summary line is not evidence of its health: on 2026-09-21 a run reported as "planning" was on
+   the retry after two 2-minute LLM timeouts, and the timeouts were only in the api log.
 5. Review the diff against the landing criteria; keep or revert; run the suite; commit with
    "via nerd fix" and the brief's name.
 6. Ledger entry. If the harness blocked it: fix the blocker test-first and rerun the brief.

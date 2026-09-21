@@ -25,7 +25,7 @@ This command mirrors the interactive TUI /embedding commands.`,
 
 var embeddingSetCmd = &cobra.Command{
 	Use:   "set <ollama|genai> [api-key]",
-	Short: "Set embedding provider (and optional API key)",
+	Short: "Set embedding provider and model: `set ollama <model>` or `set genai <api-key> <model>`",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ws := workspace
@@ -49,21 +49,26 @@ var embeddingSetCmd = &cobra.Command{
 			if cfg.Embedding.OllamaEndpoint == "" {
 				cfg.Embedding.OllamaEndpoint = "http://localhost:11434"
 			}
-			if cfg.Embedding.OllamaModel == "" || cfg.Embedding.OllamaModel == "embeddinggemma" {
-				cfg.Embedding.OllamaModel = "embeddinggemma:300m"
+			if len(args) >= 2 {
+				cfg.Embedding.OllamaModel = args[1]
 			}
 		case "genai":
 			if len(args) >= 2 {
 				cfg.Embedding.GenAIAPIKey = args[1]
 			}
-			if cfg.Embedding.GenAIModel == "" {
-				cfg.Embedding.GenAIModel = "gemini-embedding-001"
+			if len(args) >= 3 {
+				cfg.Embedding.GenAIModel = args[2]
 			}
 			if cfg.Embedding.TaskType == "" {
 				cfg.Embedding.TaskType = "SEMANTIC_SIMILARITY"
 			}
 		default:
 			return fmt.Errorf("unsupported provider %q (use ollama or genai)", provider)
+		}
+		// The model is the user's to name: nothing is written to config.json
+		// that they did not type or already have there.
+		if missing := cfg.Embedding.MissingModel(); missing != "" {
+			return fmt.Errorf("%s", missing)
 		}
 
 		if err := cfg.Save(cfgPath); err != nil {

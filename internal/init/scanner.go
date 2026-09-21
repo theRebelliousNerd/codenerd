@@ -1046,13 +1046,12 @@ tools/.traces/
 // Uses Gemini 3 Flash Preview as the default model with thinking mode and grounding tools.
 func (i *Initializer) createDefaultConfig(path string) error {
 	cfg := &config.UserConfig{
-		// Default to Gemini 3.5 Flash — 1M context, thinking, grounding.
 		// Engine="api" matches the SetEngine() whitelist
 		// (api | claude-cli | codex-cli); "gemini" would fail validation.
-		// Model matches DefaultGeminiConfig() so fresh-init agrees with
-		// the runtime fallback in client_gemini.go.
+		// No model is written: a fresh workspace names its own, and until it
+		// does the client factory refuses with a message saying which key to
+		// set. A model chosen here is a decision nobody made.
 		Provider: "gemini",
-		Model:    "gemini-3.5-flash",
 		Engine:   "api",
 		Theme:    "light",
 
@@ -1086,9 +1085,8 @@ func (i *Initializer) createDefaultConfig(path string) error {
 		Embedding: &config.EmbeddingConfig{
 			Provider:       "ollama",
 			OllamaEndpoint: "http://localhost:11434",
-			OllamaModel:    "embeddinggemma:300m",
-			GenAIModel:     "gemini-embedding-001",
-			TaskType:       "SEMANTIC_SIMILARITY",
+			// No embedding model either; see EmbeddingConfig.MissingModel.
+			TaskType: "SEMANTIC_SIMILARITY",
 		},
 
 		// Shard profiles are populated dynamically below,

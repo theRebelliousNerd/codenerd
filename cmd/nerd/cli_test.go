@@ -17,6 +17,22 @@ import (
 	"go.uber.org/zap"
 )
 
+// seedEmbeddingConfig writes the one thing init cannot invent: the embedding
+// model. An unconfigured model is refused by the embedding engine
+// (embedding.TestNewOllamaEngine_WhenNoModel_ShouldRefuse); init keeps a
+// config.json it finds.
+func seedEmbeddingConfig(t *testing.T, ws string) {
+	t.Helper()
+	dir := filepath.Join(ws, ".nerd")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"embedding": {"provider": "ollama", "ollama_model": "embeddinggemma"}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestInitCmd(t *testing.T) {
 	// Initialize global logger
 	logger = zap.NewNop()
@@ -25,6 +41,7 @@ func TestInitCmd(t *testing.T) {
 	ws := t.TempDir()
 	workspace = ws // Set global workspace flag
 	defer func() { workspace = "" }()
+	seedEmbeddingConfig(t, ws)
 
 	// Mock args
 	cmd := &cobra.Command{}
@@ -81,6 +98,7 @@ func TestScanCmd(t *testing.T) {
 	}
 
 	// 2. Init
+	seedEmbeddingConfig(t, ws)
 	if err := runInitWithLLMConfigurer(cmd, []string{}, nil); err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}

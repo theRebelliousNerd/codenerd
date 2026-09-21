@@ -1002,26 +1002,44 @@ func TestPromptEvolver_InvalidConfig(t *testing.T) {
 		})
 	}
 
-	t.Run("empty judge model falls back to default", func(t *testing.T) {
-		tempDir, err := os.MkdirTemp("", "evolver_config_default_model_test")
-		if err != nil {
-			t.Fatalf("Failed to create temp dir: %v", err)
-		}
-		defer os.RemoveAll(tempDir)
-
+	// A verdict is labelled with the model that judged. The evolver used to
+	// stamp every verdict "gemini-3-pro" while judging on the configured client.
+	t.Run("empty judge model takes the judging client's model", func(t *testing.T) {
 		cfg := *base
 		cfg.JudgeModel = ""
-		evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, &cfg)
+		evolver, err := NewPromptEvolver(t.TempDir(), &namedMockLLMClient{model: "configured-model"}, &cfg)
 		if err != nil {
 			t.Fatalf("unexpected error for empty judge model: %v", err)
 		}
 		defer evolver.Close()
 
-		if evolver.judge == nil || evolver.judge.modelName != "gemini-3-pro" {
-			t.Fatalf("expected default judge model gemini-3-pro, got %+v", evolver.judge)
+		if evolver.judge == nil || evolver.judge.modelName != "configured-model" {
+			t.Fatalf("judge label = %+v, want the client's own model", evolver.judge)
+		}
+	})
+
+	t.Run("a client that names no model is labelled unknown, never a guess", func(t *testing.T) {
+		cfg := *base
+		cfg.JudgeModel = ""
+		evolver, err := NewPromptEvolver(t.TempDir(), &mockLLMClient{}, &cfg)
+		if err != nil {
+			t.Fatalf("unexpected error for empty judge model: %v", err)
+		}
+		defer evolver.Close()
+
+		if evolver.judge == nil || evolver.judge.modelName != "unknown" {
+			t.Fatalf("judge label = %+v, want unknown", evolver.judge)
 		}
 	})
 }
+
+// namedMockLLMClient is a mock client that reports the model it runs.
+type namedMockLLMClient struct {
+	mockLLMClient
+	model string
+}
+
+func (c *namedMockLLMClient) GetModel() string { return c.model }
 
 func TestPromptEvolver_ConcurrentAccess(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "evolver_concurrent_test")

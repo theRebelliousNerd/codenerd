@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -358,7 +359,9 @@ func TestGetEmbeddingConfig_WhenNil_ShouldReturnDefaults(t *testing.T) {
 	}
 }
 
-func TestGetEmbeddingConfig_WhenPartial_ShouldFillDefaults(t *testing.T) {
+// The endpoint has a default; a model never does. A provider with no model is
+// reported by MissingModel so the caller can refuse with the key to set.
+func TestGetEmbeddingConfig_WhenPartial_ShouldInventNoModel(t *testing.T) {
 	cfg := &UserConfig{
 		Embedding: &EmbeddingConfig{Provider: "genai"},
 	}
@@ -366,8 +369,11 @@ func TestGetEmbeddingConfig_WhenPartial_ShouldFillDefaults(t *testing.T) {
 	if embCfg.Provider != "genai" {
 		t.Errorf("Provider = %q, want 'genai'", embCfg.Provider)
 	}
-	if embCfg.OllamaModel != "embeddinggemma:300m" {
-		t.Errorf("OllamaModel should default, got %q", embCfg.OllamaModel)
+	if embCfg.OllamaModel != "" || embCfg.GenAIModel != "" {
+		t.Errorf("a model was invented: ollama=%q genai=%q", embCfg.OllamaModel, embCfg.GenAIModel)
+	}
+	if missing := embCfg.MissingModel(); !strings.Contains(missing, "genai_model") {
+		t.Errorf("MissingModel() = %q, want it to name embedding.genai_model", missing)
 	}
 }
 

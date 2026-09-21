@@ -37,7 +37,8 @@ func DefaultAnthropicConfig(apiKey string) AnthropicConfig {
 	return AnthropicConfig{
 		APIKey:  apiKey,
 		BaseURL: "https://api.anthropic.com/v1",
-		Model:   "claude-sonnet-4-5-20250514",
+		// No default model: the workspace names one in .nerd/config.json or the
+		// client factory refuses to build the client.
 		Timeout: 10 * time.Minute, // Large context models need extended timeout
 	}
 }

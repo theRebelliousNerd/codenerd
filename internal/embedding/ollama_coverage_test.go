@@ -16,16 +16,22 @@ import (
 // NewOllamaEngine Tests
 // =============================================================================
 
-func TestNewOllamaEngine_WhenDefaultParams_ShouldUseDefaults(t *testing.T) {
+// The endpoint has a default (Ollama's own port); the model does not. An
+// unconfigured model is refused: there is no model codeNERD picks for the user.
+func TestNewOllamaEngine_WhenNoModel_ShouldRefuse(t *testing.T) {
 	engine, err := NewOllamaEngine("", "")
+	if err == nil {
+		t.Fatalf("NewOllamaEngine with no model built an engine running %q", engine.model)
+	}
+	if !strings.Contains(err.Error(), "embedding.ollama_model") {
+		t.Errorf("error does not name the config key to set: %v", err)
+	}
+}
+
+func TestNewOllamaEngine_WhenDefaultEndpoint_ShouldUseOllamaPort(t *testing.T) {
+	engine, err := NewOllamaEngine("", "test-model")
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
-	}
-	if engine == nil {
-		t.Fatal("NewOllamaEngine returned nil")
-	}
-	if engine.model != defaultOllamaEmbedModel {
-		t.Errorf("default model = %q, want %q", engine.model, defaultOllamaEmbedModel)
 	}
 	if engine.endpoint != "http://localhost:11434" {
 		t.Errorf("endpoint = %q, want %q", engine.endpoint, "http://localhost:11434")
@@ -46,7 +52,7 @@ func TestNewOllamaEngine_WhenCustomParams_ShouldRetainValues(t *testing.T) {
 }
 
 func TestOllamaEngine_Dimensions_ShouldReturn768(t *testing.T) {
-	engine, err := NewOllamaEngine("", "")
+	engine, err := NewOllamaEngine("", "test-model")
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -62,7 +68,7 @@ func TestOllamaEngine_Name_ShouldIncludeModel(t *testing.T) {
 		expected string
 	}{
 		// bare embeddinggemma is normalized to the tagged default
-		{"default model", "embeddinggemma", "ollama:" + defaultOllamaEmbedModel},
+		{"bare embeddinggemma", "embeddinggemma", "ollama:" + embeddingGemmaPullTag},
 		{"custom model", "nomic-embed-text", "ollama:nomic-embed-text"},
 	}
 
