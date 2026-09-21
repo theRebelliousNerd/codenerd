@@ -58,6 +58,7 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	if len(argv) == 0 {
 		return "", fmt.Errorf("empty verification runner")
 	}
+	scope := "" // set when the package list was derived, so the result says what it covers
 	count := 1
 	if value, exists := args["count"]; exists && value != nil {
 		n, ok := coerceInt(value)
@@ -96,6 +97,12 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 		}
 		if len(packages) == 0 {
 			packages = []string{"./..."}
+			if written, scoped := writtenTestScope(ctx, dir, tests); scoped {
+				if len(written) == 0 {
+					return nothingWrittenToTest(dir), nil
+				}
+				packages, scope = written, "the Go packages written this turn; pass packages [\"./...\"] for the whole module"
+			}
 		}
 		for _, pkg := range packages {
 			if pkg != "." && !strings.HasPrefix(pkg, "./") {
@@ -211,11 +218,61 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	data, _ := json.Marshal(struct {
 		Argv      []string `json:"argv"`
 		Directory string   `json:"directory"`
+		Scope     string   `json:"scope,omitempty"`
 		ExitCode  int      `json:"exit_code"`
 		Output    string   `json:"output"`
-	}{argv, dir, code, string(out)})
+	}{argv, dir, scope, code, string(out)})
 	if runCtx.Err() != nil {
 		runErr = runCtx.Err()
 	}
 	return string(data), runErr
+}
+
+// writtenTestScope returns the packages a test call with no packages should
+// run. scoped is false when there is nothing to scope by -- a build, no session
+// write set, or a working_dir below the workspace root, where "./..." is
+// already the caller's own narrowing and the write set's workspace-relative
+// packages would not resolve.
+func writtenTestScope(ctx context.Context, dir string, tests bool) (packages []string, scoped bool) {
+	if !tests {
+		return nil, false
+	}
+	scope, ok := tools.TestScopeFrom(ctx)
+	if !ok {
+		return nil, false
+	}
+	root, err := tools.WorkspaceRoot(ctx)
+	if err != nil || !sameDir(root, dir) {
+		return nil, false
+	}
+	for _, pkg := range scope() {
+		// A package written and then deleted this turn has nothing to test.
+		if info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(pkg))); err == nil && info.IsDir() {
+			packages = append(packages, pkg)
+		}
+	}
+	return packages, true
+}
+
+func sameDir(a, b string) bool {
+	if ca, err := tools.CanonicalWorkspaceRoot(a); err == nil {
+		a = ca
+	}
+	if cb, err := tools.CanonicalWorkspaceRoot(b); err == nil {
+		b = cb
+	}
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+// nothingWrittenToTest is the result of a test call with no packages in a turn
+// that has written no Go package. Nothing ran, and the result says so in a
+// field a reader cannot take for a pass: there is no exit_code.
+func nothingWrittenToTest(dir string) string {
+	data, _ := json.Marshal(struct {
+		Ran       bool   `json:"ran"`
+		Directory string `json:"directory"`
+		Reason    string `json:"reason"`
+	}{false, dir, "no tests ran: this turn has written no Go package, and with no packages given the tests of the written packages are what runs. " +
+		"To test a package pass packages, e.g. [\"./internal/session\"]; for the whole module pass [\"./...\"] with a timeout_seconds the suite fits in."})
+	return string(data)
 }

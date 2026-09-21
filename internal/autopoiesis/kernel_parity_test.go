@@ -117,6 +117,50 @@ func TestVerifyKernelToolParity_WhenKernelKnowsUnbuiltTool_ShouldReportIt(t *tes
 	}
 }
 
+// The static registry (core.ToolRegistry) writes tool_registered for go_build,
+// go_test and the rest, and alone writes registered_tool/3. Every boot logged
+// "Tool parity BROKEN ... unknown_in_kernel=[go_build go_fmt go_lint
+// go_mod_tidy go_test go_vet]" -- an ERROR about nothing, which trains the
+// reader to skip the line that will one day be true.
+func TestVerifyKernelToolParity_WhenStaticRegistryToolsShareThePredicate_ShouldNotCountThem(t *testing.T) {
+	orch, _, _ := createTestOrchestrator(t)
+	mock := replaceOuroborosWithMock(orch)
+	mock.ListRuntimeToolsFunc = func() []*RuntimeTool {
+		return []*RuntimeTool{runtimeToolFixture("alpha")}
+	}
+	kernel := &MockKernelInterface{}
+	kernel.QueryPredicateFunc = func(predicate string) ([]types.Fact, error) {
+		switch predicate {
+		case "tool_registered":
+			return []types.Fact{
+				{Predicate: "tool_registered", Args: []any{"alpha", int64(1)}},
+				{Predicate: "tool_registered", Args: []any{"go_build", int64(1)}},
+				{Predicate: "tool_registered", Args: []any{"/go_test", int64(1)}},
+				{Predicate: "tool_registered", Args: []any{"ghost", int64(1)}},
+			}, nil
+		case "registered_tool":
+			return []types.Fact{
+				{Predicate: "registered_tool", Args: []any{"go_build", "go build", "/coder"}},
+				{Predicate: "registered_tool", Args: []any{"go_test", "go test", "/tester"}},
+			}, nil
+		}
+		return nil, nil
+	}
+	orch.SetKernel(kernel)
+
+	report, err := orch.VerifyKernelToolParity()
+	if err != nil {
+		t.Fatalf("parity check failed to run: %v", err)
+	}
+	// ghost has no writer behind it at all, so it is still reported.
+	if len(report.UnknownInKernel) != 1 || report.UnknownInKernel[0] != "ghost" {
+		t.Errorf("UnknownInKernel = %v, want [ghost]: static-registry tools are executable", report.UnknownInKernel)
+	}
+	if report.KernelCount != 2 {
+		t.Errorf("KernelCount = %d, want 2 (alpha, ghost)", report.KernelCount)
+	}
+}
+
 func TestVerifyKernelToolParity_WhenNoKernelAttached_ShouldReturnError(t *testing.T) {
 	mockLLM := &MockLLMClient{}
 	orch := NewOrchestrator(mockLLM, Config{

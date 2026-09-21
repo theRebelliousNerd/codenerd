@@ -962,6 +962,9 @@ func (e *Executor) executeAndRecordToolCall(
 		}
 	}
 	toolCtx, testRuns := tools.WithTestRunLog(ctx)
+	// A test call that names no packages tests what this turn wrote, the same
+	// packages verifyTests runs after the turn, and not the whole module.
+	toolCtx = tools.WithTestScope(toolCtx, func() []string { return packagesForPaths(result.WrittenPaths) })
 	out, err := "", guardErr
 	if guardErr == nil {
 		out, err = e.executeToolCall(toolCtx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)

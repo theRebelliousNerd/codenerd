@@ -558,7 +558,7 @@ func RunTestsTool() *tools.Tool {
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{
-				"packages": {Type: "array", Description: "Workspace-relative Go packages; defaults to ./...", Items: &tools.PropertyItems{Type: "string"}},
+				"packages": {Type: "array", Description: "Workspace-relative Go packages, e.g. ./internal/session. Omitted: the packages this turn has written (none written = nothing runs). The whole module is [\"./...\"], which on a large repository needs its own timeout_seconds", Items: &tools.PropertyItems{Type: "string"}},
 				"race":     {Type: "boolean", Description: "Enable the Go race detector"},
 				"count":    {Type: "integer", Description: "Run each test this many times without the test cache (default 1; more than 1 exposes a flaky test)"},
 				"working_dir": {

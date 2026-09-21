@@ -5473,3 +5473,52 @@ determined". I diagnosed P9 from the campaign log's summary line; the articulati
 fact. Fixed by hand (safety filter): for `checkpoint_verdict` alone the metacharacter check reads the
 atom outside its string literals. P8 stands for the four model-judged `/verify` tasks, which did
 report done over those files; the phase checkpoint above them was right.
+
+## 2026-09-21 (afternoon) -- a hand-built pass: Steve stopped the dogfooding to fix the harness first
+
+Steve, after 40M input / 1.4M output tokens in ten hours: "kill the run and go on a bug hunt and
+optimization hunt and do some more work yourself ... then go back to trying to dogfood". No codeNERD
+run in this entry; every change below is a hand edit, and the reason codeNERD did not make it is
+given for each.
+
+- **No hardcoded model anywhere (`b8f1faad`).** The prompt evolver logged `JudgeModel:gemini-3-pro`
+  on a Meta-only configuration: the label was a literal, the judging ran on the configured client,
+  and every stored verdict named a model that never ran. The sweep removed every default model from
+  the perception clients, the embedding engines, the config defaults and `init`; a missing model is
+  refused with the key to set. `internal/build.TestRepository_NoHardcodedModelNames` reads string
+  literals from the AST of every production file, with tables allowed by file and four
+  model-shaped literals allowed one by one, each with its reason. Hand-built: configuration
+  refusal logic and a repository gate, across 35 files in one change (R5 scale; codeNERD's
+  unassisted ceiling is R3).
+- **The boot ERROR that was never true.** `Tool parity BROKEN after kernel sync: registry=3
+  kernel=9 unknown_in_kernel=[go_build go_fmt go_lint go_mod_tidy go_test go_vet]` on every boot.
+  `tool_registered` has two writers: Ouroboros, and `core.ToolRegistry` for the static go_* tools,
+  which alone also writes `registered_tool/3` with the command behind the name. The parity check
+  assumed one writer. It now leaves out names the static registry vouches for; a name with no
+  writer behind it is still reported. An ERROR about nothing teaches the reader to skip the line.
+- **P10 has a cause, and it was worse than recorded.** `run_tests` with no `packages` ran
+  `go test ./...` under a 600 s default limit. This repository's suite takes longer than that (the
+  session package alone is 393 s), so an unscoped call could not succeed here: ten minutes, then a
+  timeout, on every such call. With no packages the tool now tests the packages the turn has
+  written (`tools.WithTestScope`, supplied by `executeAndRecordToolCall` from
+  `ExecutionResult.WrittenPaths` through the same `packagesForPaths` the post-turn verifier uses);
+  a turn that wrote no Go package gets `{"ran": false, ...}` with no `exit_code` to mistake for a
+  pass; the whole module is still `["./..."]`. Hand-built: it changes what a verification tool
+  runs, which is completion-gate territory.
+- **Log watching.** I told Steve a run was in "a healthy planning call" while it was on the retry
+  after two 2-minute LLM timeouts; the timeouts were in the api log and I was reading the session
+  log. `scripts/nerd_logwatch.py` follows every `*.log` in `.nerd/logs` for WARN/ERROR and collapses
+  repeats (1st, 10th, 100th); the shell version it replaces blocked inside a four-stage Git Bash
+  pipeline on its first event and never printed a line. Recorded in the ladder's run protocol.
+
+Left for codeNERD, as ladder material: `internal/core/defaults/testdata/undeclared_asserts.txt` is a
+ratcheted backlog of predicates asserted with no `Decl` (P2's `self_correction` is line 75 of it).
+One predicate is R1; a family of them is R3-R4; the gate is the witness.
+
+Found and not fixed: `TestThunderdome_LargeInput` times out at 12 s under full-suite load and passes
+in 0.8 s alone; `internal/session` takes 393 s alone and exceeded the 10-minute default package
+timeout inside `./...`, so a full-suite run needs `-timeout` raised -- the suite's own cost is now
+a harness defect, because codeNERD pays it on every whole-module verification.
+A third load-only failure, same shape: `TestCodexCLIClient_RunHealthProbe_SkillMissingAfterSuccessfulExec`
+(11 s and `exec_failed` inside `./...`, 3.6 s and green alone). Three tests that fail only under
+whole-suite parallelism mean a whole-module `run_tests` is not a trustworthy witness yet.

@@ -65,7 +65,6 @@ func (o *Orchestrator) syncExistingToolsToKernel() {
 		logging.Get(logging.CategoryAutopoiesis).Error("Failed to batch assert tool facts: %v", err)
 	}
 	logging.AutopoiesisDebug("Kernel sync complete: %d tools registered", len(tools))
-	logging.AutopoiesisDebug("Kernel sync complete: %d tools registered", len(tools))
 
 	// Post-boot parity gate. A tool the registry can execute but the kernel
 	// cannot see is invisible to every logic-driven routing decision, and a
@@ -134,18 +133,32 @@ func (o *Orchestrator) VerifyKernelToolParity() (ToolParityReport, error) {
 	if err != nil {
 		return report, fmt.Errorf("failed to query tool_registered: %w", err)
 	}
+	// tool_registered has two writers. The static registry (core.ToolRegistry:
+	// go_build, go_test, ...) asserts it too, and alone asserts
+	// registered_tool/3, which carries the command behind the name. Those tools
+	// are executable and are not this registry's to account for; counting them
+	// reported "parity BROKEN" with six unknown tools on every boot.
+	static, err := kernel.Query("registered_tool")
+	if err != nil {
+		return report, fmt.Errorf("failed to query registered_tool: %w", err)
+	}
+	staticNames := make(map[string]struct{}, len(static))
+	for _, fact := range static {
+		if name, ok := toolFactName(fact); ok {
+			staticNames[name] = struct{}{}
+		}
+	}
 
 	inKernel := make(map[string]struct{})
 	for _, fact := range facts {
-		if len(fact.Args) == 0 {
+		name, ok := toolFactName(fact)
+		if !ok {
 			continue
 		}
-		name, ok := fact.Args[0].(string)
-		if !ok || name == "" {
+		if _, isStatic := staticNames[name]; isStatic {
 			continue
 		}
-		// Mangle round-trips identifier-like strings as name constants.
-		inKernel[strings.TrimPrefix(name, "/")] = struct{}{}
+		inKernel[name] = struct{}{}
 	}
 	report.KernelCount = len(inKernel)
 
@@ -163,6 +176,17 @@ func (o *Orchestrator) VerifyKernelToolParity() (ToolParityReport, error) {
 	sort.Strings(report.UnknownInKernel)
 
 	return report, nil
+}
+
+// toolFactName reads the tool name, the first argument of every tool fact.
+// Mangle round-trips identifier-like strings as name constants.
+func toolFactName(fact types.Fact) (string, bool) {
+	if len(fact.Args) == 0 {
+		return "", false
+	}
+	name, ok := fact.Args[0].(string)
+	name = strings.TrimPrefix(name, "/")
+	return name, ok && name != ""
 }
 
 // GetKernel returns the attached kernel (may be nil).
