@@ -57,6 +57,7 @@ counters and rendering in the caller:
   timeout/context decision (D2) should take the next free ADR number.
 
 ## Witness
+**Witness:** symbol:FileDiff
 
 Status is derived from these witnesses per exemplar ADR-014
 (`Docs/journeys/09-architecture-doc-standard.md:82-88`): each must resolve

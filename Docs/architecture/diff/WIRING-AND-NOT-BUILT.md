@@ -1,3 +1,12 @@
+---
+doc-class: shipped
+subsystem: diff
+implementation-status: shipped
+last-verified: 2026-09-21
+verified-against: 231cfa7
+supersedes: []
+---
+
 # diff: wiring and what is NOT built
 
 Verified 2026-09-20 against commit `231cfa7` (`main`). Read from

@@ -43,6 +43,8 @@ with a line-level reduction (`DiffLinesToChars` / `DiffMain` /
   ADR-005/ADR-006 cache key and trust-by-default).
 
 ## Witness
+**Witness:** symbol:ComputeDiff
+**Witness:** file:internal/diff/diff.go
 
 Status is derived from these witnesses per exemplar ADR-014
 (`Docs/journeys/09-architecture-doc-standard.md:82-88`): each must resolve
