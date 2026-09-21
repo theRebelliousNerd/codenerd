@@ -468,6 +468,11 @@ it is run both ways and the ledger records which landed and at what cost.
    input per round for the largest sessions. Baseline 2026-09-21, 44.3M input in 974 calls:
    49% cached; the prefix changed on 767 of 854 follow-up rounds (47% cached there, 83% where it
    held), because the per-round working section sat in the system prompt ahead of every message.
+   A campaign whose goal has a deterministic check carries it: `--accept "<argv>"` (exit 0 is the
+   only pass; a failure appends a remediation phase briefed with the command's output; three
+   failed rounds block the campaign `/acceptance_failed`). For R6 it is
+   `--accept "python scripts/r6_structcheck.py <pkg>"`. A campaign with no witness can still
+   report success over failing checks (P8, 2026-09-21), so its "completed" is not a landing.
 5. Review the diff against the landing criteria; keep or revert; run the suite; commit with
    "via nerd fix" and the brief's name.
 6. Ledger entry. If the harness blocked it: fix the blocker test-first and rerun the brief.

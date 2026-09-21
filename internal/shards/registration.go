@@ -201,6 +201,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			// campaign package (orchestrator, decomposer, checkpoint, pager).
 			OwnedPredicates: []string{
 				"campaign",
+				// The acceptance witness (Acceptance.ToFacts): its rules join
+				// current_campaign and has_incomplete_phase, which derive here.
+				"campaign_acceptance",
+				"campaign_acceptance_result",
 				"campaign_config",
 				"campaign_dependency",
 				"campaign_goal",

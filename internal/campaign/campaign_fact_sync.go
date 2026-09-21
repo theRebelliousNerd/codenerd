@@ -77,6 +77,12 @@ func retractCampaignFacts(kernel core.Kernel, campaign *Campaign) error {
 	if err := retract(core.Fact{Predicate: "source_document", Args: []any{campaign.ID}}); err != nil {
 		return err
 	}
+	if err := retract(core.Fact{Predicate: "campaign_acceptance", Args: []any{campaign.ID}}); err != nil {
+		return err
+	}
+	if err := retract(core.Fact{Predicate: "campaign_acceptance_result", Args: []any{campaign.ID}}); err != nil {
+		return err
+	}
 
 	for _, profile := range campaign.ContextProfiles {
 		if err := retract(core.Fact{Predicate: "context_profile", Args: []any{profile.ID}}); err != nil {
@@ -160,6 +166,8 @@ func queueCampaignFactRetractions(tx *types.KernelTx, campaign *Campaign) {
 	tx.RetractFact(core.Fact{Predicate: "campaign_goal", Args: []any{campaign.ID}})
 	tx.RetractFact(core.Fact{Predicate: "campaign_progress", Args: []any{campaign.ID}})
 	tx.RetractFact(core.Fact{Predicate: "source_document", Args: []any{campaign.ID}})
+	tx.RetractFact(core.Fact{Predicate: "campaign_acceptance", Args: []any{campaign.ID}})
+	tx.RetractFact(core.Fact{Predicate: "campaign_acceptance_result", Args: []any{campaign.ID}})
 
 	for _, profile := range campaign.ContextProfiles {
 		tx.RetractFact(core.Fact{Predicate: "context_profile", Args: []any{profile.ID}})

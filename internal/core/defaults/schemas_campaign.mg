@@ -347,6 +347,34 @@ Decl campaign_blocked(CampaignID, Reason) bound [/string, /name].
 # /unverified (its checkpoint never passed within its attempts)
 Decl has_unverified_phase(CampaignID) bound [/string].
 
+# -----------------------------------------------------------------------------
+# Acceptance: the campaign's deterministic witness
+# -----------------------------------------------------------------------------
+# A campaign whose every task is model-judged can report success over failing
+# checks: observed 2026-09-21, "Campaign completed successfully" with 17
+# structural problems in the corpus it had just written, every /verify task
+# green. An acceptance command is a check no model judges: exit 0 or not.
+
+# campaign_acceptance(CampaignID, Command) - the user declared an acceptance
+# command for the campaign (nerd campaign start --accept). Command is its argv
+# joined for display; the orchestrator runs the argv, never a shell string.
+Decl campaign_acceptance(CampaignID, Command) bound [/string, /string].
+
+# campaign_acceptance_result(CampaignID, Round, Verdict) - the command ran once
+# all phases were done. Round counts from 1; Verdict is /pass or /fail.
+Decl campaign_acceptance_result(CampaignID, Round, Verdict) bound [/string, /number, /name].
+
+# campaign_acceptance_limit(Rounds) - failed rounds after which the campaign is
+# blocked rather than remediated again.
+Decl campaign_acceptance_limit(Rounds) bound [/number].
+
+Decl campaign_accepted(CampaignID) bound [/string].
+Decl campaign_acceptance_unmet(CampaignID) bound [/string].
+Decl campaign_acceptance_exhausted(CampaignID) bound [/string].
+# campaign_acceptance_due(CampaignID) - derived: every phase is done, acceptance
+# is declared and unmet, and the limit is not reached: run the command now.
+Decl campaign_acceptance_due(CampaignID) bound [/string].
+
 
 # Bound-negation helper. A negated literal containing an anonymous wildcard
 # excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);

@@ -451,6 +451,13 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
+	// The acceptance command is the user's, so it is attached here and not
+	// planned: a witness the planner chose would be one more model judgement.
+	if accept, _ := cmd.Flags().GetString("accept"); strings.TrimSpace(accept) != "" {
+		result.Campaign.Acceptance = &campaign.Acceptance{Command: strings.Fields(accept)}
+		fmt.Printf("Acceptance: %s (exit 0 to complete)\n\n", strings.Join(result.Campaign.Acceptance.Command, " "))
+	}
+
 	startCampaignEventPrinter(eventChan)
 
 	return executeCampaignPlan(ctx, cmd, orchCfg, campaignPromptProvider, result.Campaign)

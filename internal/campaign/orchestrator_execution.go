@@ -169,6 +169,30 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		if currentPhase == nil {
 			// Check if campaign is complete
 			if o.isCampaignComplete() {
+				// Every phase is done. If the user declared an acceptance
+				// command, the phases being done is not the campaign being
+				// done: the witness has to pass first.
+				switch outcome, err := o.settleAcceptance(ctx); {
+				case outcome == acceptanceRemediating:
+					continue
+				case outcome == acceptanceBlocked:
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					reason := o.getCampaignBlockReason()
+					if reason == "" {
+						reason = "acceptance_error"
+					}
+					logging.Get(logging.CategoryCampaign).Error("Campaign blocked on acceptance: %s (%v)", reason, err)
+					o.mu.Lock()
+					o.failCampaign(reason)
+					if err != nil {
+						o.lastError = fmt.Errorf("campaign blocked: %s: %w", reason, err)
+					}
+					lastErr := o.lastError
+					o.mu.Unlock()
+					return lastErr
+				}
 				logging.Campaign("=== Campaign completed successfully: %s ===", o.campaign.ID)
 				logging.Campaign("Final stats: phases=%d/%d, tasks=%d/%d",
 					o.campaign.CompletedPhases, o.campaign.TotalPhases,

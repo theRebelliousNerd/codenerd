@@ -5553,3 +5553,49 @@ baseline above is what it has to beat; the expectation is the uncached part of a
 section + anchor + whole transcript to section + newest round on three rounds in four. What it does
 not touch: ~50k tokens a round is still ~20k of compiled prompt and catalog plus a section the
 policy allows 128 KiB, and 231 rounds in one session is a turn-count problem, not a cache problem.
+
+### P8 closed: a campaign can carry a witness no model judges (same pass)
+
+`nerd campaign start ... --accept "<argv>"`. Hand-built: it is the campaign's completion gate.
+
+- Facts: `campaign_acceptance(C, Command)` and `campaign_acceptance_result(C, Round, /pass|/fail)`,
+  projected by `Campaign.ToFacts` from `Campaign.Acceptance`, which persists with its rounds so a
+  resume neither forgets the command nor restarts the count.
+- Policy (`campaign_core.mg`): `campaign_complete` now needs `!campaign_acceptance_unmet`;
+  `campaign_acceptance_due` when every phase is done and the witness is unmet and not exhausted;
+  `campaign_acceptance_exhausted` at `campaign_acceptance_limit(3)` failed rounds;
+  `campaign_blocked(C, /acceptance_failed)`. `campaign_complete` had a second, identical definition
+  in `campaign_phases.mg`; it is deleted, because a copy without the premise is a way round it.
+- Go (`orchestrator_acceptance.go`), at the seam where the loop used to say "completed
+  successfully": ask the kernel whether the witness is due, run the argv through the tactile
+  executor (no shell string; the user's `execution.default_timeout`, no limit of mine), save the
+  whole output under `.nerd/campaigns/<id>/acceptance/round_N.txt`, record the round, and act on
+  what is derived: complete, block by name, or append one remediation phase whose one task is the
+  witness's output and nothing about the cause, scoped to the union of the campaign's write sets.
+  A command that cannot be run is a failed round that says so.
+- Six tests on a real kernel evaluating the real policy; the starved-predicate gate refused the
+  two new predicates until their Go producer existed, which is the gate working.
+
+`scripts/r6_structcheck.py` always exited 0 and printed only its first 40 problems. As a witness it
+exits 1 on any problem and prints all of them: the output is a remediation task's whole brief.
+`scripts/r6_loop.sh` passes it as `--accept`.
+
+P11 (a task retried a failure outside its write scope): its trigger was the same unscoped
+whole-suite `run_tests` as P10, which now answers `{"ran": false}` for a task that wrote no Go
+package. Mitigated by P10, not separately fixed; the general form -- attributing a red suite to the
+write scope -- is what the post-turn verifier's baseline already does.
+
+Still open from this pass: the campaign policy duplicates its helpers across `campaign_core.mg`,
+`campaign_phases.mg` and `campaign_tasks.mg` (`/all_tasks_blocked` with two different bodies) --
+ladder material, R3; the `/tests_pass` checkpoint hardcodes a 10-minute limit this repository's
+suite outlasts; P2's backlog (`undeclared_asserts.txt`), P3 and P6.
+
+**The full suite caught what the gate's own tests could not.** `TestShardJoin_EveryRuleCanFireOnThe
+ShardedKernel`: the production kernel evaluates rules per shard, the two new fact predicates fell
+into the `cortex` catch-all, and `current_campaign` derives on the `campaign` shard -- so
+`campaign_acceptance_due`, the `/acceptance_failed` block and the completion premise could not fire
+in production, while six tests on an unsharded kernel were green. Homed in the campaign family
+(`internal/shards/registration.go`). A gate that is inert in production and green in its tests is
+the defect this whole pass has been about; the repository's own audit is what found it.
+Two more load-only flakes in that run, both green alone: `TestCodexCLIClient_RunHealthProbe_Success`
+and `TestDirectExecutor_TimeoutLeavesNoSurvivor` (kill took 3.4 s under load). Five now.

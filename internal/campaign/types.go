@@ -194,6 +194,12 @@ type Campaign struct {
 	// completed while doing something nobody asked for.
 	PlanDegraded bool `json:"plan_degraded,omitempty"`
 
+	// Acceptance is the campaign's deterministic witness, when the user
+	// declared one (nerd campaign start --accept). Nil means completion is
+	// judged by the phases alone. Persisted with its rounds, so a resumed
+	// campaign neither forgets the command nor restarts its count.
+	Acceptance *Acceptance `json:"acceptance,omitempty"`
+
 	// RootBaseline captures the workspace root filenames as they existed before
 	// the campaign first ran. Only files absent from this baseline are ever
 	// candidates for the completion sweep, so a campaign can never move
@@ -526,6 +532,9 @@ func (c *Campaign) ToFacts() []core.Fact {
 		Predicate: "campaign_progress",
 		Args:      []any{c.ID, c.CompletedPhases, c.TotalPhases, c.CompletedTasks, c.TotalTasks},
 	})
+
+	// Acceptance: the declared witness and every round it has run.
+	facts = append(facts, c.Acceptance.ToFacts(c.ID)...)
 
 	// Context profiles
 	for i := range c.ContextProfiles {

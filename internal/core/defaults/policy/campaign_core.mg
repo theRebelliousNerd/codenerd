@@ -9,13 +9,46 @@ current_campaign(CampaignID) :-
 active_strategy(/campaign_execution) :-
     current_campaign(_).
 
-# Campaign complete when all phases complete
+# Campaign complete when all phases complete and, where the user declared an
+# acceptance command, that command has passed. This is the only definition of
+# campaign_complete: a second copy without the acceptance premise would be a
+# way round it.
 campaign_complete(CampaignID) :-
     current_campaign(CampaignID),
-    !has_incomplete_phase(CampaignID).
+    !has_incomplete_phase(CampaignID),
+    !campaign_acceptance_unmet(CampaignID).
 
 next_action(/campaign_complete) :-
     campaign_complete(_).
+
+# --- Acceptance: the campaign's deterministic witness ---
+
+# Failed acceptance rounds a campaign may remediate before it is blocked.
+campaign_acceptance_limit(3).
+
+campaign_accepted(CampaignID) :-
+    campaign_acceptance_result(CampaignID, _, /pass).
+
+campaign_acceptance_unmet(CampaignID) :-
+    campaign_acceptance(CampaignID, _),
+    !campaign_accepted(CampaignID).
+
+campaign_acceptance_exhausted(CampaignID) :-
+    campaign_acceptance_unmet(CampaignID),
+    campaign_acceptance_result(CampaignID, Round, /fail),
+    campaign_acceptance_limit(Limit),
+    Round >= Limit.
+
+# Every phase is done and the witness has not passed: run it.
+campaign_acceptance_due(CampaignID) :-
+    current_campaign(CampaignID),
+    !has_incomplete_phase(CampaignID),
+    campaign_acceptance_unmet(CampaignID),
+    !campaign_acceptance_exhausted(CampaignID).
+
+campaign_blocked(CampaignID, /acceptance_failed) :-
+    current_campaign(CampaignID),
+    campaign_acceptance_exhausted(CampaignID).
 
 # Campaign Blocking Conditions
 

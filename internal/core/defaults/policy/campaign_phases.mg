@@ -156,13 +156,8 @@ has_incomplete_phase(CampaignID) :-
     /completed != Status,
     /skipped != Status.
 
-# Campaign complete when all phases complete
-campaign_complete(CampaignID) :-
-    current_campaign(CampaignID),
-    !has_incomplete_phase(CampaignID).
-
-next_action(/campaign_complete) :-
-    campaign_complete(_).
+# campaign_complete is defined once, in campaign_core.mg, with its acceptance
+# premise.
 
 # Campaign blocked if no eligible phases and none in progress
 campaign_blocked(CampaignID, /no_eligible_phases) :-

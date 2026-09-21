@@ -225,6 +225,7 @@ func init() {
 	var campaignType string
 	campaignStartCmd.Flags().StringArrayVar(&campaignDocs, "docs", nil, "Paths to spec/requirement documents")
 	campaignStartCmd.Flags().StringVar(&campaignType, "type", "feature", "Campaign type (greenfield, feature, audit, migration, remediation)")
+	campaignStartCmd.Flags().String("accept", "", "Acceptance command, run in the workspace once every phase is done: exit 0 is the only pass, a failure appends a remediation phase with the command's output as its task, and the campaign cannot complete until it passes. Split on whitespace into an argv (no shell, no quoting); the binary must be in execution.allowed_binaries")
 	campaignResumeCmd.Flags().BoolVar(&campaignRetryFailed, "retry-failed", false, "Also resume a failed campaign that has no recorded block reason")
 	campaignResumeCmd.Flags().StringVar(&campaignResumeID, "campaign", "", "Resume the campaign whose ID contains this text (default: newest paused, then active, then blocked)")
 	campaignCmd.AddCommand(
