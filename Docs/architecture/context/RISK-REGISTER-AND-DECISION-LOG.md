@@ -318,10 +318,9 @@ supersedes: []
 
 - Re-verify against the working tree whenever any cited Go symbol moves; the
   authoritative shipped record is `IMPLEMENTED_SPEC.md:15-19`.
-- Known stale neighbours at time of writing (do not cite as shipped without
-  re-reading): `09-MANGLE-SURFACE.md:4` ("no `.mg`") contradicted by
-  `working_set.mg` (`WIRING-AND-NOT-BUILT.md:68-73`); `09-MANGLE-SURFACE.md:15`
-  links the deleted `05-INTERNAL-ARCHITECTURE.md`; `README.md:14-18` and
-  `INTERNALS.md:30` cite `Select` at `working_set.go:297`, authoritative range
-  is `internal/context/working_set.go:308-512` per `IMPLEMENTED_SPEC.md:45-48`;
+- Claims the pre-rewrite documents made that the code does not bear out, kept
+  here so they are not reintroduced: that the package holds no `.mg` file
+  (`internal/context/working_set.mg` exists, `WIRING-AND-NOT-BUILT.md:68-73`),
+  and that `Select` sits at line 297 (it is
+  `internal/context/working_set.go:308-512` per `IMPLEMENTED_SPEC.md:45-48`).
   `corpus.toml:1-8` `verified_on 2026-07-13` is stale vs 2026-09-21 docs.

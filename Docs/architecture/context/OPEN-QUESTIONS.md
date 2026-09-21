@@ -63,7 +63,7 @@ supersedes: []
 ### OQ-CTX-02 — Where does `working_set.mg` load, and in what scope?
 
 - Seam: `internal/context/working_set.mg` EXISTS (182 lines), contradicting the
-  old "no `.mg`" claim in `09-MANGLE-SURFACE.md:4`
+  pre-rewrite claim that the package held no `.mg` file
   (`WIRING:68-73`, `03:73-79`). Whether the engine loads it in compilation
   scope is unverified. `working_selected` / `should_include_context` rules are
   decided where it loads (`WIRING:98-100`).
@@ -138,23 +138,13 @@ supersedes: []
 - Closes when: each line above is body-read and cited.
 - Gates: `GAP-CTX-05` / `GAP-CTX-06` exits (`T-EVC-01/02/03`).
 
-### OQ-CTX-08 — Tandem stale pointers: who fixes `09`, `README`, `INTERNALS`, `corpus.toml`?
-
-- Seams: `09-MANGLE-SURFACE.md:15` links deleted
-  `05-INTERNAL-ARCHITECTURE.md` (violates standard Rule 3,
-  `Docs/journeys/09-architecture-doc-standard.md:154-160`); `09:4` "no `.mg`"
-  vs `working_set.mg`; `README.md:14-18` + `INTERNALS.md:30` cite `Select` at
-  `working_set.go:297`, authoritative range is `:308-512` per
-  `IMPLEMENTED_SPEC.md:45-48`; `INTERNALS.md` working-set inner ranges
-  (`:294-306/:312-348/:349-396/:419-434/:460-468/:469-497`) pre-date the
-  `:308-512` re-verification; `serializer.go:118-125,180` 120-char cap vs
-  `02:320-323` 47-char `maxFactArgChars`; `corpus.toml verified_on
-  2026-07-13` stale vs 2026-09-21 docs.
-- Closes when: prerequisite chore row in the build queue lands (fix lines +
-  rewrite `09` + refresh `verified_on`).
-- Gates: nothing directly; blocks trusting any citation drawn from those
-  files (standard Rule 4: shipped layer written from code, never from stale
-  docs).
+- **OQ-CTX-08 (citations to deleted pre-rewrite drafts).** Two files predating
+  the rewrite were deleted 2026-09-21 per standard Rule 3 (nothing may point at
+  a removed file). Their directory pointers were removed at the same time, and
+  every true claim they held that the code bears out is cited where it is now
+  verified (see the `09`/`INTERNALS` rows above and `IMPLEMENTED_SPEC.md`
+  Correction 1, §9, and §10). There is no remaining citation debt: no document
+  in this directory points at a file that no longer exists.
 
 ## 2. Tripwire invariants (preserve these; each has a witness that fails if broken)
 
@@ -227,7 +217,7 @@ supersedes: []
   input, not shipped fact.
 - Import edges (`session/working_context.go`, `working_meter.go`,
   `cmd/nerd/chat/*`, `cmd_context_stats.go`) — hypothesis, needs grep.
-- `09-MANGLE-SURFACE.md`, `INTERNALS.md`, `README.md` inner lines and
-  `corpus.toml verified_on` — stale (see OQ-CTX-08); shipped claims must be
-  written from code per standard Rule 4
-  (`Docs/journeys/09-architecture-doc-standard.md:162-170`).
+- `README.md` inner lines and `corpus.toml verified_on` — still stale (see
+  OQ-CTX-08); the two pre-rewrite drafts that carried the other stale lines
+  were deleted per standard Rule 3. Shipped claims must be written from code
+  per standard Rule 4 (`Docs/journeys/09-architecture-doc-standard.md:162-170`).

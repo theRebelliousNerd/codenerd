@@ -13,8 +13,8 @@ supersedes: []
 > today. Every code claim cites a repo-relative path plus a symbol plus a
 > line, verified against the working tree (element index this turn; body reads
 > per §11). **On any disagreement between this file and any other document in
-> `Docs/architecture/context/` (`README.md`, `INTERNALS.md`,
-> `WIRING-AND-NOT-BUILT.md`, `09-MANGLE-SURFACE.md`, `01-VISION.md`,
+> `Docs/architecture/context/` (`README.md`,
+> `WIRING-AND-NOT-BUILT.md`, `01-VISION.md`,
 > `04-PRINCIPLES-AND-CONSTRAINTS.md`, `05-RELEVANCE-AND-RETRIEVAL.md`,
 > `06-RETENTION-EVICTION-ORDERING.md`), this file wins.**
 > Planned behaviour lives only in `01-VISION.md`,
@@ -44,8 +44,8 @@ supersedes: []
   function ranges are element-verified this turn.
 - **Correction 1:** `WorkingSet.Select` is
   `internal/context/working_set.go:308-512`
-  (`WorkingSet.Select`, element-verified). Claims in `README.md` and
-  `INTERNALS.md` attributing it to `:297` are stale and lose to this file.
+  (`WorkingSet.Select`, element-verified). Earlier attributions of it to `:297`
+  (including in `README.md`) are stale and lose to this file.
 - **Correction 2:** `ContextBlockBuilder` spans
   `internal/context/serializer.go:612-658` as struct plus constructor plus
   `Build` (`ContextBlockBuilder`, `internal/context/serializer.go:612-615`;
@@ -470,9 +470,9 @@ accounting, serialization, storage, and learning support. File by file
 ## 9. Kernel interaction at the Go call sites
 
 Shipped interaction only; predicate definitions live in core defaults and are
-not redefined here. `09-MANGLE-SURFACE.md` pointer claims about
-`schemas_context.mg` Decl lists and `context_compilation.mg` C1/C4/C3 rules
-were not re-opened this turn and lose to this section where they differ.
+not redefined here. Stale pointer claims about `schemas_context.mg` Decl lists
+and `context_compilation.mg` C1/C4/C3 rules from pre-rewrite drafts were not
+re-opened this turn and lose to this section where they differ.
 
 - `BuildContext` (`internal/context/compressor.go:645-742`) queries
   `should_include_context` and prefers `buildKernelDerivedContext`
@@ -502,11 +502,10 @@ were not re-opened this turn and lose to this section where they differ.
   `01-VISION.md`, `05-RELEVANCE-AND-RETRIEVAL.md`, and
   `06-RETENTION-EVICTION-ORDERING.md` (all `planned`). A `planned` claim that
   contradicts this file is a plan, not a description.
-- There is no `02-CURRENT-STATE.md`, `03-GAP-ANALYSIS.md`,
-  `IMPLEMENTED_SPEC.md` predecessor, or `05-INTERNAL-ARCHITECTURE.md` in this
-  directory at this verification revision; links in `09-MANGLE-SURFACE.md`
-  and `corpus.toml` naming those targets name files that do not exist and
-  lose to this file until the targets are created.
+- There is no `05-INTERNAL-ARCHITECTURE.md` in this directory and there was no
+  predecessor of this file; a link naming either names a file that does not
+  exist. `02-CURRENT-STATE.md` and `03-GAP-ANALYSIS.md` do exist, and lose to
+  this file on any disagreement about shipped behaviour.
 
 ## 11. Provenance (what was checked, what was carried)
 

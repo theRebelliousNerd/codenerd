@@ -43,7 +43,7 @@ persistence (`GetState` / `LoadState`,
 usefulness history (`ContextFeedbackStore`,
 `internal/context/feedback_store.go:25`).
 
-How it works is in [INTERNALS.md](INTERNALS.md); what runs, what is idle,
+What runs today is in [02-CURRENT-STATE.md](02-CURRENT-STATE.md) and
+[IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md); what runs, what is idle,
 and what the design assumes without enforcing is in
 [WIRING-AND-NOT-BUILT.md](WIRING-AND-NOT-BUILT.md). `corpus.toml` in this
-directory is predicate-priority data, not documentation.
