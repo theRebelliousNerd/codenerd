@@ -1,9 +1,20 @@
+---
+doc-class: governance
+subsystem: internal/diff
+implementation-status: not-applicable
+last-verified: 2026-09-21
+verified-against: 231cfa7
+supersedes: []
+---
+
 # internal/diff
 
-Line diffs for the agent loop and the TUI, computed with `sergi/go-diff`
-(`diffmatchpatch`) and cached in a bounded in-process LRU.
+This directory is the architecture record for `internal/diff` — the deterministic
+line and word diff engine (`sergi/go-diff`) that serves the agent repair loop and
+the TUI. Start with [00-INDEX.md](./00-INDEX.md) for read order and the
+grounded-vs-hypothesized map.
 
-Verified 2026-09-20 against commit `231cfa7` (`main`). The package is two
+Verified 2026-09-21 against commit `231cfa7` (`main`). The package is two
 production files — `internal/diff/diff.go` (557 lines) and
 `internal/diff/cache.go` (265 lines) — plus five test files
 (`benchmark_test.go`, `cache_test.go`, `diff_comprehensive_test.go`,
@@ -49,6 +60,7 @@ uncached per-line-pair span comparison returning `WordSpan` values.
 
 ## Further reading
 
+- [00-INDEX.md](./00-INDEX.md) — read order, one line per file, and grounded-vs-hypothesized map. Start here.
 - `INTERNALS.md` — pipeline stages, cache design, and the invariants the tests pin.
 - `WIRING-AND-NOT-BUILT.md` — what is reachable, what exists but nothing calls,
   and what the design assumes that the code does not do.
