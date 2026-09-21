@@ -47,12 +47,32 @@ names a pair of Go-validation functions that exist nowhere in the repo, at two l
 past the end of a 438-line file. So the check is: open the file, find the symbol, confirm the
 line. A path-resolver sees none of this, and all of it survived a `/done` verdict.
 
-**Do not quote a fabricated identifier in this file.** An earlier revision named those two
+**Do not quote a fabricated identifier in this file.** An earlier revision named two
 non-existent functions verbatim as the example. Every run is briefed to read this standard
 first, and it is injected whole -- measured at 125,459 characters of system prompt -- so within
 three minutes the invented names were in the context of every subsequent run, indistinguishable
 by string match from a symbol the repo actually has. Describe the defect; do not spell the
 artifact. A document the harness injects is not a place to write things that are not true.
+
+### 1a. Every file you name carries a symbol and a line, or you do not name it
+
+Symbol-level grading of the first fourteen rewrites: 580 citations checked, **468 correct**
+(80.7%), and the errors are not spread evenly. They concentrate in one shape.
+
+`core/README.md` opens with a file-map table whose rows group files by theme. The rows that
+name a symbol and a line are precise -- two of three spot-checked resolve to the exact line,
+including the end of the range. The rows that list filenames with only a phrase beside them
+("scoping, environment, register and policy plumbing around eval") name **13 files that do not
+exist** out of 24 cited in the package, five of them consecutive in a single row.
+
+That is the whole failure mode. Asked for a symbol and a line, a run goes and looks. Asked to
+characterise an area, it produces a plausible file list, and plausible is exactly what a Go
+package's filenames are -- `kernel_context.go`, `kernel_registers.go` and `kernel_policies.go`
+are all names this repo could have and does not. A grouping row is prose wearing a table's
+clothes.
+
+So: no file is named anywhere in these documents without at least one symbol and line drawn
+from inside it. A file you cannot cite a symbol from is a file you did not open.
 
 Checkable: `scripts/doc_citation_check.py` resolves every `internal/…` and `cmd/…` path and
 every `:line` against the working tree. Target: 100% resolve, 0 line numbers past EOF. The
