@@ -53,7 +53,7 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 		t.Fatal("validator and embedded runtime atom order differ")
 	}
 
-	const wantCount = 914
+	const wantCount = 915
 	// Includes tool-agnostic editing discipline alongside change evidence, and
 	// the working-context methodology atom (methodology/working_context).
 	// 920 at 8ebd7616, minus the 6 envelope-restating atoms deleted by
@@ -63,8 +63,10 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 	// derives /authoring_mangle (policy/jit_needs.mg); minus
 	// language/mangle/docs/builtins_complete/aggregators (2026-09-18), a second
 	// reducer reference teaching fn:CountDistinct and fn:CollectToMap, which the
-	// pinned engine does not have.
-	const wantDigest = "da8aecd2e1780ccbc99bf058a08dd878760e6d6e652ac3a3b633b8ed267a0f0a"
+	// pinned engine does not have; plus capability/structure_queries
+	// (2026-09-21), which teaches the five structural query tools over the
+	// world model's structure index and says raw search opens only after them.
+	const wantDigest = "2ef64702caa8b82df3da1e589255366d49b7254fe34534750a9031fb8461e71c"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}
