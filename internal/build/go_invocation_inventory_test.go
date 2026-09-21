@@ -47,8 +47,8 @@ var goSpawnExemptions = map[string]string{
 
 	// Runs the user's own tests in the user's own project root as a tool call.
 	// Pending adoption: it should take the session's UserConfig and route
-	// through GetBuildEnvForTest. Tracked in Docs/architecture/build/TODO.md.
-	"internal/tools/codedom/run_impacted_tests.go": "pending adoption: should route through GetBuildEnvForTest with the session UserConfig (Docs/architecture/build/TODO.md P1)",
+	// through GetBuildEnvForTest. Tracked in Docs/architecture/build/WIRING-AND-NOT-BUILT.md.
+	"internal/tools/codedom/run_impacted_tests.go": "pending adoption: should route through GetBuildEnvForTest with the session UserConfig (Docs/architecture/build/WIRING-AND-NOT-BUILT.md)",
 }
 
 type goSpawnSite struct {
@@ -159,7 +159,7 @@ func TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented(t *testing.T) 
 	for pkg, files := range seen {
 		t.Logf("importer %-24s %s", pkg, strings.Join(files, " "))
 		if !documented[pkg] {
-			t.Errorf("new internal/build consumer %q (%s): update the package comment in env.go and Docs/architecture/build/08-WIRING-AND-INTEGRATION.md, then add it here",
+			t.Errorf("new internal/build consumer %q (%s): update the package comment in env.go and Docs/architecture/build/WIRING-AND-NOT-BUILT.md, then add it here",
 				pkg, strings.Join(files, " "))
 		}
 	}

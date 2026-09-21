@@ -3,5 +3,4 @@ id = "init"
 kind = "realized"
 source_roots = ["internal/init"]
 entrypoint = "README.md"
-implemented_spec = "IMPLEMENTED_SPEC.md"
-verified_on = "2026-08-15"
+verified_on = "2026-09-21"

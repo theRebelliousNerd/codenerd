@@ -1,62 +1,65 @@
-# features — Architecture Corpus (`internal/features`)
+# internal/features
 
-> Last verified against codebase: **2026-07-13**  
-> Status: Living Reference Document — code-grounded full corpus  
-> Language: Go (module `codenerd`)  
-> Primary package: `internal/features/`  
-> Scale: **1** non-test Go file (351 lines); **3** test files; **0** Mangle sources
+Leaf registry for every codeNERD feature toggle. Precedence is
+env → legacy-env → config → default, resolved per call — there is no
+snapshot, so a late `SetActive` applies to subsequent reads.
 
-## Scope
+Verified 2026-09-21 against commit `34634770970153e78c1e250fdab7abd888dcce6f` (`main`). The package is
+`internal/features/features.go` (616 lines) plus `internal/features/schema.go`
+and six `*_test.go` files.
 
-This corpus documents the **leaf-level feature-toggle registry** that lets modernization flags (DifferentialEngine, FlightRecorder, Provenance, system shards, dark mode, scan tunables, …) be read from low-level packages **without** importing `internal/config`.
+## Resolution in one paragraph
 
-It is **not**:
+Each boolean accessor calls `resolveBool`
+(`internal/features/features.go:419-434`): the canonical `CODENERD_*` env var
+wins, then the legacy `NERD_*` name if one exists, then the active
+`FeaturesConfig` installed by `SetActive`, then the compile-time default.
+`envBool` (`internal/features/features.go:444-458`) accepts only `1`/`true`
+and `0`/`false` (case-insensitive); anything else — including a typo — is
+silently not an override. Integer tunables follow the same rule via `envInt`
+(`internal/features/features.go:581-595`): non-numeric or non-positive values
+are ignored. `Active()` (`internal/features/features.go:405-408`) returns the
+installed config or nil; callers must not mutate it.
 
-- the full user-config surface (`Docs/architecture/config/`)
-- the kernel evaluation engine itself (`Docs/architecture/core/`)
-- product Spec templates under `Docs/Spec/`
+## Flags
 
-## Why this package exists
+| Accessor | Canonical env (legacy) | Default | Lines |
+|---|---|---|---|
+| `IsFlightRecorderEnabled` | `CODENERD_FLIGHT_RECORDER` (`NERD_FLIGHTREC`) | false | `internal/features/features.go:471-474` |
+| `IsProvenanceEnabled` | `CODENERD_PROVENANCE` (none) | false | `internal/features/features.go:479-482` |
+| `IsSystemShardsEnabled` | `CODENERD_SYSTEM_SHARDS` (none) | true | `internal/features/features.go:498-501` |
+| `IsPerShardFactsEnabled` | `CODENERD_PER_SHARD_FACTS` (none) | false | `internal/features/features.go:509-512` |
+| `IsDarkModeEnabled` | `CODENERD_DARK_MODE` (none) | false | `internal/features/features.go:516-519` |
+| `IsOnboardingSkipped` | `CODENERD_SKIP_ONBOARDING` (`NERD_SKIP_ONBOARDING`) | false | `internal/features/features.go:522-525` |
+| `IsTaxonomyFastEnabled` | `CODENERD_TAXONOMY_FAST` (none) | false | `internal/features/features.go:535-538` |
+| `IsPromptEvolutionEnabled` | `CODENERD_PROMPT_EVOLUTION` (none) | false | `internal/features/features.go:549-552` |
+| `FastScanWorkers` / `FastASTMaxBytes` | canonical + legacy pair in the `intFlags` table | 0 (= call-site default) | `internal/features/features.go:557-576` |
 
-`internal/config` pulls in store/logging/world-adjacent deps. Core, world, CLI boot, and UX need flag reads on hot or early paths. Putting toggles in a **zero-internal-import leaf** breaks the cycle:
+Call-site defaults for the tunables live with the caller: workers default to
+`max(min(NumCPU,20),4)` and the AST cutoff to 2 MiB
+(`internal/world/scanner_config.go:29-38`).
 
-```
-internal/config (LoadUserConfig)  ──SetActive──►  internal/features
-internal/core | world | ux | cmd/nerd  ──IsXXX()──►  internal/features
-```
+## Install and inspect
 
-## Document map
+- `internal/config/user_config.go:561` installs the file config with
+  `features.SetActive(cfg.Features)` (nil resets to defaults); the next two
+  lines log `features.Summary()` and warn on `features.Deprecations()`
+  (`internal/config/user_config.go:565-572`).
+- `cmd/nerd/main.go:363-370` eagerly loads that config before any
+  feature-gated boot check reads the registry.
+- `nerd features` (`cmd/nerd/cmd_features.go:18-32`) prints every flag with
+  the value in force and the source that decided it, from `features.Resolved()`
+  (`cmd/nerd/cmd_features.go:44-45`); `--json` adds the tunables and
+  deprecations (`cmd/nerd/cmd_features.go:47-56`), `--schema` prints the
+  config-block schema from `features.ConfigSchemaJSON()`
+  (`cmd/nerd/cmd_features.go:37`).
+- The chat `/features` report reads the same three surfaces —
+  `features.Resolved()`, `features.Deprecations()`, `features.Summary()` —
+  plus the two tunables (`cmd/nerd/chat/commands_handlers_features.go`).
 
-| Doc | Role |
-|-----|------|
-| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | **Flagship** living architecture + inventory + deep dives |
-| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment scores with evidence |
-| [01-VISION.md](01-VISION.md) | Target architecture for feature toggles |
-| [02-CURRENT-STATE.md](02-CURRENT-STATE.md) | Precise on-disk inventory |
-| [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) | Spec vs reality, priorities, non-gaps |
-| [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md) | Binding design principles |
-| [05-INTERNAL-ARCHITECTURE.md](05-INTERNAL-ARCHITECTURE.md) | Components, resolve flow, state |
-| [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) | Exported types and accessors |
-| [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md) | Upstream/downstream with evidence |
-| [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) | Boot, CLI, kernel, consumer call sites |
-| [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) | Concurrency, leaf purity, safety |
-| [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) | Tests, gaps, commands |
-| [11-OBSERVABILITY.md](11-OBSERVABILITY.md) | Boot Summary, logging ownership |
-| [12-FAILURE-MODES.md](12-FAILURE-MODES.md) | Concrete failure modes + mitigations |
-| [TODO.md](TODO.md) | Prioritized backlog |
-| [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) | Real open design questions |
-| [_progress.md](_progress.md) | Rebuild progress log |
+## Further reading
 
-## Verify
-
-```powershell
-go test ./internal/features/...
-go test ./internal/core/ -run Features
-# Full binary (when CGO headers present):
-$env:CGO_CFLAGS = "-IC:/CodeProjects/codeNERD/sqlite_headers"
-go build -o nerd.exe ./cmd/nerd
-```
-
-## Quality bar
-
-Modeled on `Docs/architecture/cli/`: real path citations, control-flow diagrams, honest gaps, package-specific narrative — **not** thin auto-inventory stubs.
+- `INTERNALS.md` — how a flag gets its value (registry, precedence, inspectors).
+- `WIRING-AND-NOT-BUILT.md` — what is wired and reachable, what exists but has
+  no verified caller, what the design assumes that the code does not do, and
+  what the old corpus got wrong.

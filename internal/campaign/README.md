@@ -4,7 +4,7 @@ Long-horizon, multi-phase goal execution: the executive that runs work too large
 for a single OODA turn.
 
 **Last verified against the code:** 2026-08-15
-**Scale:** 49 non-test sources (~22.2k lines), 59 test files
+**Scale:** 32 non-test sources, 17 test files
 **Corpus:** the authoritative architecture lives in `Docs/architecture/campaign/`;
 this file is the operator/maintainer map of the package itself.
 
@@ -79,9 +79,9 @@ internal/campaign/
   document_ingestor.go             # source document ingestion
 ```
 
-Largest units, for orientation: `replan.go` (1201), `risk_scoring.go` (1169),
-`assault_tasks.go` (1160), `decomposer.go` (1079), `prompts.go` (1072),
-`orchestrator_task_handlers.go` (1060), `edge_case_detector.go` (1057).
+Sizes: `replan.go` (1342), `risk_scoring.go` (1181), `assault_tasks.go` (1222),
+`decomposer.go` (1124), `prompts.go` (1073), `orchestrator_task_handlers.go` (1545),
+`edge_case_detector.go` (1058).
 
 ## Required wiring
 
@@ -182,5 +182,5 @@ rules from matching — so the golden is the guard.
 
 ---
 
-See `Docs/architecture/campaign/IMPLEMENTED_SPEC.md` for the full architecture,
-failure modes and wiring journal.
+See `Docs/architecture/campaign/README.md` for the current architecture corpus,
+which replaced the removed `IMPLEMENTED_SPEC.md`.

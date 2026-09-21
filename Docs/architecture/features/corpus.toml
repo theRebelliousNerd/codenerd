@@ -3,5 +3,5 @@ id = "features"
 kind = "realized"
 source_roots = ["internal/features"]
 entrypoint = "README.md"
-implemented_spec = "IMPLEMENTED_SPEC.md"
-verified_on = "2026-07-13"
+implemented_spec = "README.md"
+verified_on = "2026-09-21"

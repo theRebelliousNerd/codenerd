@@ -16,7 +16,7 @@ type ToolGenerationConfig struct {
 	// such a tool may spawn — the import allowlist is the entire gate.
 	//
 	// This field is the per-workspace opt-in that
-	// Docs/architecture/autopoiesis/09-SAFETY-AND-INVARIANTS.md §10 and the
+	// Docs/architecture/autopoiesis/WIRING-AND-NOT-BUILT.md and the
 	// package README have documented for some time. Until now it did not
 	// exist: autopoiesis.Config.AllowToolExec was read at
 	// autopoiesis_orchestrator.go but nothing ever set it, and there was no

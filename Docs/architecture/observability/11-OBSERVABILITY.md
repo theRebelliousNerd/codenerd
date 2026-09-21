@@ -112,4 +112,4 @@ go tool trace .nerd\traces\flight_YYYYMMDDTHHMMSSZ.trace
 
 ## 10. Relationship to CLI telemetry doc
 
-CLI corpus `Docs/architecture/cli/12-TELEMETRY-OBSERVABILITY.md` points here for runtime metrics and flight recorder. When extending CLI hot-path counters, prefer logging categories or glass box; only add to this package for **process-wide Go runtime** instruments.
+CLI corpus `Docs/architecture/cli/INTERNALS.md` (telemetry section) points here for runtime metrics and flight recorder. When extending CLI hot-path counters, prefer logging categories or glass box; only add to this package for **process-wide Go runtime** instruments.

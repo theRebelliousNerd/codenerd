@@ -89,5 +89,5 @@ Use these when classifying “why is chat slow?” — classification LLM vs pro
 
 ## Related
 
-CLI transparency / glass box docs: `Docs/architecture/cli/12-TELEMETRY-OBSERVABILITY.md`.  
+CLI transparency / glass box docs: `Docs/architecture/cli/INTERNALS.md`.  
 Logging package: `Docs/architecture/logging/`.

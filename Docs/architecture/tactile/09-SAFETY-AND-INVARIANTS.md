@@ -136,4 +136,4 @@ Consequence: a `go` command run through tactile does **not** automatically get
 the monorepo `CGO_CFLAGS`. Callers that need it must pass it explicitly through
 the tactile request, the same as any other environment entry.
 
-See `Docs/architecture/build/08-WIRING-AND-INTEGRATION.md` §7.
+See `Docs/architecture/build/WIRING-AND-NOT-BUILT.md`.

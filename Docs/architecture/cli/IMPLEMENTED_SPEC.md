@@ -186,7 +186,7 @@ Notable long-horizon:
   every `AssaultConfig` field, plus `nerd campaign report` (aggregate summary) and
   `nerd campaign journal verify|replay` (durability). Parity is enforced by a test,
   not by convention — see
-  [Docs/architecture/campaign/IMPLEMENTED_SPEC.md](../campaign/IMPLEMENTED_SPEC.md#8-adversarial-assault).
+  [Docs/architecture/campaign/README.md](../campaign/README.md#adversarial-assault).
 - Artifacts under `.nerd/campaigns/<campaign>/assault/`, aggregated into
   `assault/summary.md` and `assault/summary.json` by `nerd campaign report`.
 

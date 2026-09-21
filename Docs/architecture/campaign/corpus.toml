@@ -3,5 +3,5 @@ id = "campaign"
 kind = "realized"
 source_roots = ["internal/campaign"]
 entrypoint = "README.md"
-implemented_spec = "IMPLEMENTED_SPEC.md"
-verified_on = "2026-07-13"
+implemented_spec = "WIRING-AND-NOT-BUILT.md"
+verified_on = "2026-09-20"

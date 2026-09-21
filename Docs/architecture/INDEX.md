@@ -19,21 +19,21 @@ Decisions: [DARK-FACTORY-JOURNAL.md](DARK-FACTORY-JOURNAL.md)
 
 | Corpus | Source | Status | Inventory | SPEC size | Spec |
 |--------|--------|--------|-----------|-----------|------|
-| [articulation](articulation/) | `internal/articulation/` | Realized — deep corpus | 8 go / 7 tests | 19965B | [SPEC](articulation/IMPLEMENTED_SPEC.md) |
-| [autopoiesis](autopoiesis/) | `internal/autopoiesis/` | Realized — deep corpus | 37 go / 30 tests | 22937B | [SPEC](autopoiesis/IMPLEMENTED_SPEC.md) |
-| [browser](browser/) | `internal/browser/` | Realized — BPAR-1 partial, parity uplift active | 7 go / 10 tests | 18042B | [SPEC](browser/IMPLEMENTED_SPEC.md) |
-| [build](build/) | `internal/build/` | Realized — deep corpus | 1 go / 2 tests | 17427B | [SPEC](build/IMPLEMENTED_SPEC.md) |
-| [campaign](campaign/) | `internal/campaign/` | Realized — deep corpus | 44 go / 29 tests | 26180B | [SPEC](campaign/IMPLEMENTED_SPEC.md) |
-| [config](config/) | `internal/config/` | Realized — deep corpus | 17 go / 5 tests | 21429B | [SPEC](config/IMPLEMENTED_SPEC.md) |
-| [context](context/) | `internal/context/` | Realized — deep corpus | 9 go / 11 tests | 22571B | [SPEC](context/IMPLEMENTED_SPEC.md) |
-| [core](core/) | `internal/core/` | Realized — deep corpus | 78 go / 107 tests | 34904B | [SPEC](core/IMPLEMENTED_SPEC.md) |
-| [diff](diff/) | `internal/diff/` | Realized — deep corpus | 1 go / 2 tests | 15987B | [SPEC](diff/IMPLEMENTED_SPEC.md) |
-| [embedding](embedding/) | `internal/embedding/` | Realized — deep corpus | 6 go / 7 tests | 21843B | [SPEC](embedding/IMPLEMENTED_SPEC.md) |
-| [features](features/) | `internal/features/` | Realized — deep corpus | 1 go / 3 tests | 15026B | [SPEC](features/IMPLEMENTED_SPEC.md) |
-| [init](init/) | `internal/init/` | Realized — deep corpus | 16 go / 7 tests | 15141B | [SPEC](init/IMPLEMENTED_SPEC.md) |
-| [jit](jit/) | `internal/jit/` | Realized — deep corpus | 1 go / 1 tests | 13287B | [SPEC](jit/IMPLEMENTED_SPEC.md) |
-| [logging](logging/) | `internal/logging/` | Realized — deep corpus | 4 go / 5 tests | 18216B | [SPEC](logging/IMPLEMENTED_SPEC.md) |
-| [mangle](mangle/) | `internal/mangle/` | Realized — deep corpus | 21 go / 39 tests | 27087B | [SPEC](mangle/IMPLEMENTED_SPEC.md) |
+| [articulation](articulation/) | `internal/articulation/` | Realized — concise 3-file corpus | 8 go / 7 tests | 11353B | [SPEC](articulation/README.md) |
+| [autopoiesis](autopoiesis/) | `internal/autopoiesis/` | Realized — concise 3-file corpus | 37 go / 30 tests | 22937B | [SPEC](autopoiesis/README.md) |
+| [browser](browser/) | `internal/browser/` | Realized — BPAR-1 partial, parity uplift active | 7 go / 10 tests | 18042B | [SPEC](browser/README.md) |
+| [build](build/) | `internal/build/` | Realized — concise 3-file corpus | 2 go / 6 tests | 6928B | [SPEC](build/README.md) |
+| [campaign](campaign/) | `internal/campaign/` | Realized — concise 3-file corpus | 32 go / 17 tests | — | [SPEC](campaign/README.md) |
+| [config](config/) | `internal/config/` | Realized | 3 docs | 13458B | [README](config/README.md) |
+| [context](context/) | `internal/context/` | Realized — concise 3-file corpus | 10 go / 26 tests | 8451B | [SPEC](context/README.md) |
+| [core](core/) | `internal/core/` | Realized — concise 3-file corpus | 78 go / 107 tests | — | [SPEC](core/README.md) |
+| [diff](diff/) | `internal/diff/` | Realized — deep corpus | 1 go / 2 tests | 15987B | [SPEC](diff/README.md) |
+| [embedding](embedding/) | `internal/embedding/` | Realized — concise 3-file corpus | 6 go / 9 tests | — | [SPEC](embedding/README.md) |
+| [features](features/) | `internal/features/` | Realized — concise 3-file corpus | 2 go / 6 tests | — | [SPEC](features/README.md) |
+| [init](init/) | `internal/init/` | Realized — concise 3-file corpus | 17 go / 20 tests | — | [SPEC](init/README.md) |
+| [jit](jit/) | `internal/jit/` | Realized — concise 3-file corpus | 1 go / 1 tests | — | [SPEC](jit/README.md) |
+| [logging](logging/) | `internal/logging/` | Realized — concise 3-file corpus (README + INTERNALS + WIRING-AND-NOT-BUILT) | 9 go / 12 tests | 11537B | [SPEC](logging/README.md) |
+| [mangle](mangle/) | `internal/mangle/` | Realized — concise 3-file corpus | 21 go / 39 tests | — | [SPEC](mangle/README.md) |
 | [mcp](mcp/) | `internal/mcp/` | Realized — deep corpus | 10 go / 16 tests | 15870B | [SPEC](mcp/IMPLEMENTED_SPEC.md) |
 | [northstar](northstar/) | `internal/northstar/` | Realized — deep corpus | 4 go / 6 tests | 12302B | [SPEC](northstar/IMPLEMENTED_SPEC.md) |
 | [observability](observability/) | `internal/observability/` | Realized — deep corpus | 2 go / 3 tests | 14906B | [SPEC](observability/IMPLEMENTED_SPEC.md) |

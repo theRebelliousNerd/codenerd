@@ -55,7 +55,7 @@ func TestDefaultUserConfig_ShouldNotPersistAForeignBuildTarget(t *testing.T) {
 // TestToolGenerationConfig_AllowToolExec_ShouldRoundTripThroughJSON proves the
 // documented per-workspace opt-in is actually reachable.
 //
-// Docs/architecture/autopoiesis/09-SAFETY-AND-INVARIANTS.md §10 and the package
+// Docs/architecture/autopoiesis/WIRING-AND-NOT-BUILT.md and the package
 // README both told operators to grant exec via Config.AllowToolExec.
 // autopoiesis read that field, but nothing ever set it and no config key
 // existed to set it from — so exec was off no matter what anyone wrote, and the

@@ -155,7 +155,7 @@ Slow (above threshold) always logged (subject to level); non-slow sampled.
 | **glass box / transparency** | Live TUI operator view |
 | **observability metrics** | Counters/gauges/startup GC |
 
-See also `Docs/architecture/cli/12-TELEMETRY-OBSERVABILITY.md`.
+See also `Docs/architecture/cli/INTERNALS.md` (telemetry section).
 
 ## 8. Debug playbooks
 

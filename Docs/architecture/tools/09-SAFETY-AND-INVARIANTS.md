@@ -141,4 +141,4 @@ fails there with a compile error reported as a test failure. It should call
 `build.GetBuildEnvForTest(userCfg, projectRoot)` and build its argv with
 `build.AppendGoFlags`.
 
-See `Docs/architecture/build/08-WIRING-AND-INTEGRATION.md` §7.
+See `Docs/architecture/build/WIRING-AND-NOT-BUILT.md`.

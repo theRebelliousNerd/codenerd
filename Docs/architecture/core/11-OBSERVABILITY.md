@@ -1,112 +1,47 @@
-# core — Observability
+# core observability
 
-> Last verified: **2026-07-13**
+Verified 2026-09-21 against commit `3463477` (`main`). This file answers one
+question: what observability does `internal/core` expose, and where does each
+signal go? Mechanisms of the kernel itself live in `INTERNALS.md`.
 
-## 1. Logging categories
+## Failure forensics
 
-Core uses `internal/logging` categories (helpers often wrap these):
+- A failed program rebuild is dumped to `debug_program_ERROR.mg` by
+  `writeFailedProgramDump` (`internal/core/kernel_eval.go:543-553`). The dump
+  concatenates schemas, policy, and learned rules as staged, so it can include
+  user overrides — treat it as a support artifact, not a public paste.
+- Load-time validation reports through `GetStartupValidationResult`
+  (`internal/core/kernel_validation.go:730-740`): rejected vs. healed
+  (`healLearnedRules`, `internal/core/kernel_validation.go:557-688`) vs.
+  loop-risk (`checkInfiniteLoopRisk`,
+  `internal/core/kernel_validation.go:365-478`).
 
-| Category / helper | Typical events |
-|-------------------|----------------|
-| `CategoryKernel` / `logging.Kernel` | Boot, load modules, eval, parse errors |
-| `logging.KernelDebug` | Fact samples, rebuild sizes, Decl diagnostics |
-| `CategoryVirtualStore` / `logging.VirtualStore` | RouteAction, denies, handler outcomes |
-| `CategoryDream` / `logging.Dream` | SimulateAction start/block/cache |
-| `logging.Shards` | ShardManager lifecycle |
-| `logging.Audit().ActionRoute/Complete` | Structured action audit trail |
+## Derivation inspection
 
-Timers: `logging.StartTimer(category, name)` around NewRealKernel, rebuildProgram, RouteAction, SimulateAction, handlers.
+- `Explain` (`internal/core/kernel_provenance.go:72-112`) returns the
+  derivation tree for a fact, but only when provenance was enabled up front
+  (`EnableProvenance`, `internal/core/kernel_provenance.go:29-36`) and scoped
+  (`SetProvenanceContext`, `internal/core/kernel_provenance.go:23-27`).
+  There is no retroactive explanation: questions asked after the fact, without
+  recording turned on, have no data.
 
-## 2. Audit trail
+## Live state reads
 
-Successful routing path:
+- `Query` / `QueryWithBindings` / `QueryCallback`
+  (`internal/core/kernel_query.go:24-362`) inspect what holds right now;
+  `QueryAll` (`internal/core/kernel_facts.go:791-851`) and `GetDerivedFacts`
+  (`internal/core/kernel_facts.go:1083-1134`) cover bulk and derived reads.
+- `IsBootGuardActive` (`internal/core/virtual_store.go:395-408`) answers
+  whether routing is still globally denied by the boot guard — the first thing
+  to check when every action is denied and policy looks correct.
+- `UpdateSystemFacts` (`internal/core/kernel_sysfacts.go:24-107`) refreshes
+  environment-derived facts, so re-reading after it shows the outside world
+  as the kernel currently sees it.
 
-1. `ActionRoute(type, target)`  
-2. Execute  
-3. `ActionComplete(type, target, durationMs, success, err)`  
+## What is NOT here
 
-Use audit logs when user-visible TUI only shows summaries.
-
-## 3. Glass Box & tool buses
-
-| Bus | Emitter | Event kind |
-|-----|---------|------------|
-| `GlassBoxEventBus` | VS routing, ShardManager spawn | CategoryRouting / CategoryShard |
-| `ToolEventBus` | VS after action | ToolEvent name/duration/success |
-
-Both are nil-safe and drop-on-full (non-blocking). Wired from chat boot for TUI activity line / scrollback badges.
-
-## 4. Fact-level observability
-
-| Mechanism | Use |
-|-----------|-----|
-| `execution_result/6` facts | Logical postcondition; executive action ID and timestamp |
-| `security_violation/3` | Action, bounded reason, and Unix timestamp for later policy/UI |
-| `execution_error/2` | Request/action correlation and error text |
-| `dream_blocked_action` | Speculative blocks |
-| `FactEventBus` | Push model for system shards vs polling |
-| `Query` / CLI `why` | Interactive inspection |
-| Provenance `Explain` | Derivation trees when enabled |
-
-## 5. Debug dumps
-
-| Artifact | Trigger |
-|----------|---------|
-| `debug_program_ERROR.mg` | `rebuildProgram` analysis failure |
-
-Contains concatenated schemas+policy+learned. **Sensitive:** may include user overrides if loaded — treat as support artifact, not always shareable publicly.
-
-Duplicate `Decl permitted(` lines are logged at debug with surrounding context during rebuild (schema inconsistency hunting).
-
-## 6. Metrics (in-process)
-
-| Struct | File | Fields (conceptually) |
-|--------|------|------------------------|
-| `APISchedulerMetrics` | `api_scheduler.go` | Slot usage / scheduling stats |
-| `ShardMetrics` | `kernel_shard.go` | Per-domain counters |
-| `ShardRouterMetrics` | `shard_fact_router.go` | Forward counts |
-| Cortex `routeHitCount` / `routeMissCount` | `cortex_kernel.go` | Routing efficacy |
-| tactile `ExecutionMetricsSnapshot` | via VS | Executor stats |
-
-No first-class OTEL exporter in core; consumers may scrape these structs.
-
-## 7. Performance observability
-
-- Kernel timers on rebuild vs evaluate  
-- Dreamer timers + cache hit logs  
-- Diff-eval path selection (feature/env) — log when debugging latency  
-- Derived fact / EDB counts via `FactCount` and logs on LoadFacts  
-
-## 8. Operator playbooks
-
-### “Action blocked” with little UI detail
-
-1. VirtualStore warn logs: `policy DENY` includes payload **keys** only.  
-2. Query kernel for schema-correct `security_violation/3` / `permission_denied`.
-3. Check boot guard active.  
-4. Check Dreamer logs for `ACTION BLOCKED`.
-
-### Kernel boot failure
-
-1. Read process error.  
-2. Open `debug_program_ERROR.mg` if present.  
-3. Search for Decl conflicts / syntax near last modules loaded.  
-4. Bisect user `.nerd/mangle/*` overrides.
-
-### Slow campaigns
-
-1. Measure rebuildProgram frequency (policyDirty thrash).  
-2. Check fact counts vs maxFacts.  
-3. Diff-eval flag status and retract rate.  
-4. APIScheduler metrics for LLM queue wait.
-
-## 9. What not to log
-
-- Full secret payloads (VS deliberately logs keys not values on deny)  
-- Entire file contents on every read (prefer lengths / paths)  
-- Full program source on every successful rebuild (debug only)
-
-## 10. Related corpus
-
-CLI glass box UX: `Docs/architecture/cli/12-TELEMETRY-OBSERVABILITY.md`.  
-Logging package: `Docs/architecture/logging/` if present.
+- No external metrics exporter exists in the `kernel_*.go` surface; subsystem
+  counters stay in-process (see `WIRING-AND-NOT-BUILT.md`).
+- Deny paths do not say which stage denied: boot guard, Dreamer block,
+  constitution, allowlist, and validator denials are not distinguished in the
+  signal the caller gets back.

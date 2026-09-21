@@ -3,5 +3,5 @@ id = "browser"
 kind = "realized"
 source_roots = ["internal/browser"]
 entrypoint = "README.md"
-implemented_spec = "IMPLEMENTED_SPEC.md"
-verified_on = "2026-08-09"
+implemented_spec = "README.md"
+verified_on = "2026-09-20"

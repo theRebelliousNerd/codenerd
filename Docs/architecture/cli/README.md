@@ -1,126 +1,102 @@
-# cli — the human control surface
+# cmd/nerd — the `nerd` CLI binary
 
-> `VERIFIED CURRENT` against `cmd/nerd` on 2026-07-13. The CLI owns presentation,
-> command validation, workspace selection, cancellation, and boot orchestration;
-> it does not own constitutional policy.
+Verified 2026-09-20 against `main` (working tree up to date with
+`origin/main` at time of writing). `rootCmd` reports Cortex 1.5.0
+(`cmd/nerd/main.go:100`). No HEAD hash was captured in this pass —
+re-pin with `git rev-parse --short HEAD`.
 
-## In one minute
+## What the package is
 
-The `nerd` binary is how a person enters codeNERD. It offers single-shot Cobra
-commands, an interactive Bubble Tea chat, campaigns, logic inspection, auth,
-browser and CodeDOM utilities, and operator-facing status surfaces. Its outcome
-is not merely text: it boots the same logic-first runtime, sends intent through
-the kernel and VirtualStore, and renders the resulting evidence.
+`cmd/nerd` is `package main` spread over the root `*.go` files
+(e.g. `cmd/nerd/apikey.go:1`, `cmd/nerd/main.go:54`). It contains no
+business logic: it declares the cobra command tree, the global flags,
+and the process boot sequence, then delegates. `cmd/nerd/chat/` is a
+separate `package chat` (e.g. `cmd/nerd/chat/commands.go:26`) holding
+the interactive TUI; `main.go:6-53` carries a header index mapping
+files to commands. `package main` imports `chat` but not `ui`
+(`cmd/nerd/main.go:56-71`).
 
-`cmd/nerd/main.go#rootCmd` is the command-tree entry. Bare `nerd` calls
-`cmd/nerd/chat/model_lifecycle.go#RunInteractiveChat`; `nerd run` reaches
-`cmd/nerd/cmd_instruction.go#runInstruction`.
+Running `nerd` with no arguments starts the interactive chat:
+`RunE` changes into `--workspace` and calls `chat.RunInteractiveChat`
+(`cmd/nerd/main.go:148-175`). Every other invocation runs one
+subcommand's `RunE` from its own `cmd_*.go` file.
 
-## Its place in codeNERD
+## Command tree
 
-```text
-human input / flags
-  -> CLI validates workspace, timeout, and command shape
-  -> interactive or one-shot boot constructs Cortex
-  -> perception turns language into typed intent
-  -> Mangle derives the permitted next action
-  -> VirtualStore/tactile perform bounded effects
-  -> articulation + transparency become terminal output
-```
+Parents below are exactly the `AddCommand` blocks in `init()`
+(`cmd/nerd/main.go:216-331`). Leaf `Use` strings were read from the
+defining files.
 
-The CLI is an adapter around the architecture, not an alternate executive.
-Creative interpretation stays in the LLM-facing perception/session layers;
-planning and permission stay in Mangle and the kernel. A CLI flag may select a
-workspace or request a system-shard configuration, but it must never invent a
-parallel permission bypass.
+- Core (`main.go:248-265`): `run` (`run [instruction]`,
+  `cmd_instruction.go:33`), `chat` (`chat [turn...]`,
+  `cmd_chat.go:23`), `define-agent` / `spawn` (`cmd_spawn.go:28,40`),
+  `browser` (`cmd_browser.go:46`, subcommands `launch`…`honeypot`
+  at `cmd_browser.go:58-113`), `query` / `status` / `why`
+  (`cmd_query.go:23,37,44`), `init` / `scan`
+  (`cmd_init_scan.go:36,110`), `campaign` (`cmd_campaign.go:73`;
+  `start`/`status`/`pause`/`resume`/`list` at
+  `cmd_campaign.go:93-132`), `check-mangle`
+  (`cmd_mangle_check.go:25`), `mangle-lsp` (`cmd_mangle_lsp.go:75`),
+  `auth` (plus `claude`/`codex`/`grok`/`status` at
+  `cmd_auth.go:21-77`), `logs` (`cmd_logs.go:65`), `swebench`
+  (plus `setup` at `cmd_swebench.go:22,33`).
+- Direct-action verbs (`main.go:267-280`): `review`, `fix`, `test`,
+  `push`, `commit`, `explain`, `create`, `refactor`, `perception`,
+  `security`, `analyze` (`cmd_direct_actions.go:32-222`).
+- Advanced (`main.go:282-293`): `dream`, `shadow`, `whatif`,
+  `logic`, `agents`, `tool`, `jit` (`cmd_advanced.go:35-136`),
+  plus `dom` and `embedding`, registered at `main.go:290-292` and
+  defined in `dom_cmd.go` / `embedding_cmd.go`.
+- `northstar` (`main.go:296-298`): subcommands `show`…`load` at
+  `cmd_northstar.go:99-626` under the parent at
+  `cmd_northstar.go:33`.
+- Visibility (`main.go:300-314`): `mcp` (plus `list`/`tools`/`status`
+  at `cmd_systems.go:26-123` and the autopoiesis/memory group at
+  `cmd_systems.go:238-465`), `memory`, `usage` (`cmd_usage.go:37`),
+  `regression` (plus `run`/`init`/`list` at
+  `cmd_regression.go:24-116`), `features` (`cmd_features.go:19`),
+  `snapshot` (plus `export`/`import`/`list` at
+  `cmd_snapshot.go:29-70`), `context-stats`
+  (`cmd_context_stats.go:27`), `meter` (plus `epochs`/`atoms` at
+  `cmd_meter.go:95-444`), `audit` (plus `facts`/`playbook` at
+  `cmd_audit.go:28-96`), `world` (plus `runbook`/`predicates` at
+  `cmd_world.go:18-35`), `retrieve` (`cmd_retrieve.go:46`).
+- `sessions` (`main.go:316-319`): plus `list`/`load` at
+  `cmd_sessions.go:22-41`.
+- `knowledge` (`main.go:321-324`): plus `list`/`search` at
+  `cmd_knowledge.go:22-41`.
+- Transparency (`main.go:326-331`): `glassbox`, `transparency`,
+  `reflection` (`cmd_transparency.go:26-314`).
 
-The owned surface is `cmd/nerd`, including `chat/` and `ui/`. Internal config,
-kernel, shard, campaign, prompt, store, tactile, and transparency packages remain
-separate authorities; [08-DEPENDENCY-MAP.md](08-DEPENDENCY-MAP.md) records those
-edges.
+The following exist in the file listing but are attached nowhere in
+`main.go:178-332`, so their attachment — if any — lives in their own
+files, which this pass did not read: `journal`/`verify`/`replay`/
+`report` (`cmd_campaign_journal.go:34-65`), `assault`
+(`cmd_campaign_assault.go:64`), `recurse`
+(`cmd_campaign_recurse.go:41`), `select`/`metrics`
+(`cmd_mcp_select.go:35-47`), `test-context`
+(`cmd_test_context.go:42`).
 
-## A representative journey
+## Flags
 
-For `nerd --workspace C:\work run "review auth"`:
+Global (`main.go:180-198`): `--verbose`, `--yolo`, `--api-key`,
+`--workspace`, `--timeout` (default `0` = none, `main.go:187-188`),
+`--disable-system-shard`. Per-command: `define-agent` requires
+`--name`/`--topic` (`main.go:191-195`); `fix` takes `--acceptance`
+(`main.go:203`); six direct-action commands share `--interactive`
+(`main.go:202-206`); `registerDebugFlags` covers the same six
+(`main.go:210`); `init` takes `--force`/`--cleanup-backups`
+(`main.go:213-214`); `campaign start` takes `--docs`/`--type` and
+`campaign resume` takes `--retry-failed`/`--campaign`
+(`main.go:224-229`, vars at `main.go:90-95`).
 
-1. `cmd/nerd/main.go#rootCmd` resolves CLI flags, initializes bounded logging,
-   and loads workspace configuration without printing credentials.
-2. `cmd/nerd/cmd_instruction.go#runInstruction` creates the operation deadline
-   and calls the shared Cortex boot surface with the selected workspace and
-   disabled-shard set.
-3. The runtime perceives the instruction, asserts intent, derives an exact
-   action, checks permission, executes through VirtualStore, and returns a
-   result. The CLI prints the result; it does not reinterpret permission.
-4. Cancellation propagates through the command context. Boot/action failures
-   return errors rather than a hollow success.
+## What this corpus does not cover
 
-The interactive route replaces step 2 with
-`cmd/nerd/chat/session_shared_boot.go#performSystemBootShared`, then
-`cmd/nerd/chat/process.go#Model.processInput` performs each OODA turn. That async
-closure recovers a panic into a user-visible `errorMsg`, proven by
-`cmd/nerd/chat/chat_loop_contract_e2e_test.go#TestE2E_ChatLoop_PerceptionPanic_RecoveredAsErrorAndIdle`.
-
-## What exists today
-
-- `VERIFIED CURRENT`: Cobra registers one-shot, direct-action, campaign, auth,
-  Mangle, browser, advanced, and diagnostic commands in
-  `cmd/nerd/main.go#rootCmd`. [05-COMMAND-ARCHITECTURE.md](05-COMMAND-ARCHITECTURE.md)
-  is the full command map.
-- `VERIFIED CURRENT`: interactive input has readiness guards, bounded turn
-  context, shutdown cancellation, and panic recovery in
-  `cmd/nerd/chat/process.go#Model.processInput`.
-- `VERIFIED CURRENT`: chat boot prefers the shared production path in
-  `cmd/nerd/chat/session_shared_boot.go#performSystemBoot`; the large legacy boot
-  remains as a compatibility seam and is not safe to delete from prose alone.
-- `PARTIAL`: Cobra and slash commands overlap substantially but have no generated
-  parity authority. Some differences are intentional; others can drift.
-- `PARTIAL`: boot is broad and well exercised at package level, but failure
-  injection and resource-unwind receipts remain weaker than the success path.
-- `PARTIAL`: JIT status is visible, while a turn-correlated explanation of atom
-  selection, permission, tool execution, and final rendering is still spread
-  across several surfaces.
-
-Current implementation truth is in [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md)
-and [02-CURRENT-STATE-CLI.md](02-CURRENT-STATE-CLI.md). Safety and tests are in
-[09-CONSTITUTIONAL-SAFETY.md](09-CONSTITUTIONAL-SAFETY.md) and
-[10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
-
-## North star
-
-Every command and interactive turn should be a thin, consistent window into one
-logic-first runtime: explicit workspace, deterministic boot identity, exact
-permission, cancellable effects, honest partial failure, and a concise receipt
-of what happened. A feature should not exist as a differently behaving Cobra,
-slash, MCP, and campaign implementation when one typed application service can
-serve all four.
-
-Non-goals: the CLI does not become the policy engine, store secrets in command
-history, swallow boot failures for a prettier screen, or expose a “skip safety”
-mode. Visual polish cannot outrank action identity, cancellation, or recovery.
-
-## Improvement frontier
-
-The immediate repair is a generated command-surface manifest that classifies
-Cobra/slash parity and pins intentional asymmetry. The next leverage step is a
-transactional boot receipt: resolved workspace/config identity, acquired
-resources, enabled system shards, rollback outcome, and a stable error class.
-
-The bounded north-star option is one turn receipt joining input, selected JIT
-context, derived permission, effect IDs, cancellation, and rendered result with
-redaction and retention limits. It explains the runtime without storing raw
-prompts, keys, or unbounded tool output. Authoritative cards are in
-[TODO.md](TODO.md).
-
-## Choose a reading route
-
-- **90 seconds:** this README, then [03-GAP-ANALYSIS-CLI.md](03-GAP-ANALYSIS-CLI.md).
-- **10 minutes:** add [05-COMMAND-ARCHITECTURE.md](05-COMMAND-ARCHITECTURE.md),
-  [06-TUI-CHAT-SURFACE.md](06-TUI-CHAT-SURFACE.md), and
-  [11-CROSS-SYSTEM-WIRING-JOURNAL.md](11-CROSS-SYSTEM-WIRING-JOURNAL.md).
-- **Deep implementation:** read [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md),
-  [09-CONSTITUTIONAL-SAFETY.md](09-CONSTITUTIONAL-SAFETY.md),
-  [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md), then begin at
-  `cmd/nerd/main.go#rootCmd` and `cmd/nerd/chat/model_lifecycle.go#RunInteractiveChat`.
-
-Open design choices remain in [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md); signed
-evidence and freshness live in [_progress.md](_progress.md).
+- Registration and boot mechanics → `INTERNALS.md` (one question:
+  how does a command get from a file to a running process?).
+- What is reachable, what exists but is unwired here, and what the
+  code assumes but does not do → `WIRING-AND-NOT-BUILT.md`.
+- Per-command behaviour: each `RunE` lives in its own `cmd_*.go`
+  and is not described here. Test files (`*_test.go`, e.g.
+  `cmd_flags_test.go`, `parent_group_test.go`) sit beside the code
+  in `package main`.
