@@ -265,7 +265,14 @@ func (v *VirtualStore) QueryActivations(limit int, minScore float64) ([]Fact, er
 
 // RecallSimilar performs semantic search on the vectors table.
 // Implements: recall_similar(Query, TopK, Results) Bound
-func (v *VirtualStore) RecallSimilar(query string, topK int) ([]Fact, error) {
+//
+// Until 2026-09-21 this called the keyword path (one LIKE per word of the
+// query, OR-ed), so it was semantic in name only, and a several-paragraph
+// campaign goal exceeded SQLite's expression depth on every hydrate
+// ("Expression tree is too large (maximum depth 1000)"). VectorRecallSemantic
+// embeds the query, which has no such limit, and falls back to the bounded
+// keyword search itself when the store has no embedding engine.
+func (v *VirtualStore) RecallSimilar(ctx context.Context, query string, topK int) ([]Fact, error) {
 	v.mu.RLock()
 	db := v.localDB
 	v.mu.RUnlock()
@@ -274,7 +281,7 @@ func (v *VirtualStore) RecallSimilar(query string, topK int) ([]Fact, error) {
 		return nil, fmt.Errorf("no knowledge database configured")
 	}
 
-	entries, err := db.VectorRecall(query, topK)
+	entries, err := db.VectorRecallSemantic(ctx, query, topK)
 	if err != nil {
 		return nil, fmt.Errorf("failed semantic recall: %w", err)
 	}
@@ -701,7 +708,7 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 	}
 
 	if strings.TrimSpace(query) != "" {
-		if matches, err := v.RecallSimilar(query, defaultRecallTopK); err == nil && len(matches) > 0 {
+		if matches, err := v.RecallSimilar(ctx, query, defaultRecallTopK); err == nil && len(matches) > 0 {
 			allFacts = append(allFacts, matches...)
 			count += len(matches)
 		} else if err != nil {
@@ -844,7 +851,7 @@ func (v *VirtualStore) getRecallSimilarAtoms(query ast.Atom) ([]ast.Atom, error)
 		topK = requested
 	}
 
-	facts, err := v.RecallSimilar(queryText, topK)
+	facts, err := v.RecallSimilar(context.Background(), queryText, topK)
 	if err != nil {
 		return nil, err
 	}

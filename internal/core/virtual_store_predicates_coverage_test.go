@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -88,7 +89,7 @@ func TestVirtualStorePredicates_DbNil(t *testing.T) {
 		t.Error("expected error when DB is nil")
 	}
 
-	if _, err := vs.RecallSimilar("test", 5); err == nil {
+	if _, err := vs.RecallSimilar(context.Background(), "test", 5); err == nil {
 		t.Error("expected error when DB is nil")
 	}
 
@@ -199,12 +200,24 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	if err := db.StoreVector("golang programming language", map[string]any{"doc_id": "doc_1"}); err != nil {
 		t.Fatalf("failed to store vector: %v", err)
 	}
-	similars, err := vs.RecallSimilar("golang", 5)
+	similars, err := vs.RecallSimilar(context.Background(), "golang", 5)
 	if err != nil {
 		t.Fatalf("failed to recall similar: %v", err)
 	}
 	if len(similars) != 1 || similars[0].Predicate != "similar_content" {
 		t.Errorf("expected 1 similar_content, got %v", similars)
+	}
+
+	// A campaign goal is several paragraphs. Observed 2026-09-21: every hydrate
+	// of such a run failed with "Expression tree is too large (maximum depth
+	// 1000)", because each word of the query became one OR-ed LIKE.
+	var goal strings.Builder
+	for i := 0; i < 3000; i++ {
+		fmt.Fprintf(&goal, "word%d ", i)
+	}
+	goal.WriteString("golang")
+	if _, err := vs.RecallSimilar(context.Background(), goal.String(), 5); err != nil {
+		t.Fatalf("recall of a 3,001-word query failed: %v", err)
 	}
 
 	// 5. Session History
