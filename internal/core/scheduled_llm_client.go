@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/logging"
@@ -21,6 +22,52 @@ type ScheduledLLMCall struct {
 	Scheduler *APIScheduler
 	ShardID   string
 	Client    LLMClient
+
+	// Router builds the client for a call whose context names a provider
+	// (types.WithProvider, set from a shard profile's provider). Nil means
+	// this client routes nowhere, and such a call is refused.
+	Router  ProviderRouter
+	routeMu sync.Mutex
+	routed  map[string]LLMClient
+}
+
+// ProviderRouter builds the client that serves model on provider. It is called
+// once per provider and model; the result is kept.
+type ProviderRouter func(provider, model string) (LLMClient, error)
+
+// clientFor is the client a call under ctx runs on: the wrapped one, unless ctx
+// names a provider, in which case it is that provider's. A route that cannot be
+// built fails the call. It never falls back to the wrapped client: a shard
+// configured for one vendor and silently run on another is the defect this
+// exists to end (2026-09-21: every shard profile named an OpenRouter model under
+// provider "meta", and the Meta client rewrote the model on every call).
+func (c *ScheduledLLMCall) clientFor(ctx context.Context) (LLMClient, error) {
+	provider, ok := types.ProviderFromContext(ctx)
+	if !ok {
+		return c.Client, nil
+	}
+	model, _ := types.ModelNameFromContext(ctx)
+	if c.Router == nil {
+		return nil, fmt.Errorf("the call is routed to provider %q (model %q) and this client has no provider router", provider, model)
+	}
+	key := provider + "|" + model
+	c.routeMu.Lock()
+	defer c.routeMu.Unlock()
+	if client, ok := c.routed[key]; ok {
+		return client, nil
+	}
+	client, err := c.Router(provider, model)
+	if err != nil {
+		return nil, fmt.Errorf("route to provider %q (model %q): %w", provider, model, err)
+	}
+	if client == nil {
+		return nil, fmt.Errorf("route to provider %q (model %q): no client was built", provider, model)
+	}
+	if c.routed == nil {
+		c.routed = make(map[string]LLMClient)
+	}
+	c.routed[key] = client
+	return client, nil
 }
 
 // Compile-time assertion that ScheduledLLMCall implements LLMClient
@@ -43,6 +90,10 @@ func (c *ScheduledLLMCall) Complete(ctx context.Context, prompt string) (string,
 	}
 	if c.Client == nil {
 		return "", fmt.Errorf("underlying LLM client is nil")
+	}
+	target, routeErr := c.clientFor(ctx)
+	if routeErr != nil {
+		return "", routeErr
 	}
 
 	// Acquire slot (blocks until available)
@@ -67,7 +118,7 @@ func (c *ScheduledLLMCall) Complete(ctx context.Context, prompt string) (string,
 				err = fmt.Errorf("panic during LLM call: %v", r)
 			}
 		}()
-		result, err = c.Client.Complete(ctx, prompt)
+		result, err = target.Complete(ctx, prompt)
 	}()
 	duration := time.Since(start)
 
@@ -94,6 +145,10 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 	if c.Client == nil {
 		return "", fmt.Errorf("underlying LLM client is nil")
 	}
+	target, routeErr := c.clientFor(ctx)
+	if routeErr != nil {
+		return "", routeErr
+	}
 
 	// Acquire slot (blocks until available)
 	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
@@ -117,7 +172,7 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 				err = fmt.Errorf("panic during LLM call: %v", r)
 			}
 		}()
-		result, err = c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		result, err = target.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	}()
 	duration := time.Since(start)
 
@@ -156,6 +211,10 @@ func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt,
 	if c.Client == nil {
 		return "", fmt.Errorf("underlying LLM client is nil")
 	}
+	target, routeErr := c.clientFor(ctx)
+	if routeErr != nil {
+		return "", routeErr
+	}
 
 	// Acquire slot (blocks until available)
 	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
@@ -180,7 +239,7 @@ func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt,
 				err = fmt.Errorf("panic during LLM call: %v", r)
 			}
 		}()
-		sc, ok := AsSchemaCapable(c.Client)
+		sc, ok := AsSchemaCapable(target)
 		if !ok {
 			err = ErrSchemaNotSupported
 			return
@@ -212,6 +271,10 @@ func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, 
 	if c.Client == nil {
 		return nil, fmt.Errorf("underlying LLM client is nil")
 	}
+	target, routeErr := c.clientFor(ctx)
+	if routeErr != nil {
+		return nil, routeErr
+	}
 
 	// Acquire slot (blocks until available)
 	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
@@ -241,7 +304,7 @@ func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, 
 				err = fmt.Errorf("panic during LLM call: %v", r)
 			}
 		}()
-		resp, err = c.Client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+		resp, err = target.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
 	}()
 	duration := time.Since(start)
 
@@ -273,9 +336,13 @@ func (c *ScheduledLLMCall) CompleteWithToolResults(ctx context.Context, systemPr
 	if c.Client == nil {
 		return nil, fmt.Errorf("underlying LLM client is nil")
 	}
-	trp, ok := c.Client.(types.ToolResultsProvider)
+	target, routeErr := c.clientFor(ctx)
+	if routeErr != nil {
+		return nil, routeErr
+	}
+	trp, ok := target.(types.ToolResultsProvider)
 	if !ok {
-		return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", c.Client)
+		return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", target)
 	}
 
 	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
@@ -773,6 +840,10 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 	if c.Client == nil {
 		return "", fmt.Errorf("underlying LLM client is nil")
 	}
+	target, routeErr := c.clientFor(ctx)
+	if routeErr != nil {
+		return "", routeErr
+	}
 
 	// Enforce absolute max retry cap and time budget to prevent infinite starvation
 	if maxRetries > 5 {
@@ -797,7 +868,7 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 				}
 				c.Scheduler.ReleaseAPISlot(c.ShardID)
 			}()
-			return c.Client.CompleteWithSystem(budgetCtx, systemPrompt, userPrompt)
+			return target.CompleteWithSystem(budgetCtx, systemPrompt, userPrompt)
 		}()
 
 		if err == nil {

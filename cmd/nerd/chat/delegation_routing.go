@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -335,11 +336,7 @@ func (m *Model) withShardModelContext(ctx context.Context, shardType string) con
 	// every client's request builder reads it (types.TemperatureFor). Unset
 	// fields attach nothing, so a profile that never chose a temperature
 	// leaves the client's own default in force.
-	ctx = types.WithSampling(ctx, types.Sampling{Temperature: profile.Temperature, TopP: profile.TopP})
-	if strings.TrimSpace(profile.Model) == "" {
-		return ctx
-	}
-	return types.WithModelName(ctx, strings.TrimSpace(profile.Model))
+	return config.ShardProfileContext(ctx, profile)
 }
 
 // shardMaxRetries is the verification attempt cap for a shard type, from its

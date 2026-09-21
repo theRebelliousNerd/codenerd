@@ -291,6 +291,7 @@ func init() {
 		jitCmd,
 		domCmd,
 		embeddingCmd,
+		configCmd,
 	)
 
 	// Strategic planning commands
@@ -366,8 +367,14 @@ func main() {
 	// system shards in the chat session, etc.) reads it. Errors are
 	// tolerated — accessors fall back to compile-time defaults when no
 	// active config is present.
-	if _, err := config.GlobalConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load user config (using defaults): %v\n", err)
+	//
+	// A config that does not load stops the process. This used to print one
+	// "Warning: ... (using defaults)" line and run on defaults the user had
+	// never seen, which is how a file could be wrong for days with nothing
+	// said. `nerd config ...` alone still runs: it is how the file gets read.
+	if _, err := config.GlobalConfig(); err != nil && !invokesConfigCommand(os.Args[1:]) {
+		fmt.Fprintf(os.Stderr, "codeNERD will not start: %v\n", err)
+		os.Exit(2)
 	}
 
 	// F7+G2: one-shot runtime metrics snapshot + Green Tea GC verification.

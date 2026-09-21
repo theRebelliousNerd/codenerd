@@ -5599,3 +5599,67 @@ in production, while six tests on an unsharded kernel were green. Homed in the c
 the defect this whole pass has been about; the repository's own audit is what found it.
 Two more load-only flakes in that run, both green alone: `TestCodexCLIClient_RunHealthProbe_Success`
 and `TestDirectExecutor_TimeoutLeavesNoSurvivor` (kill took 3.4 s under load). Five now.
+
+## 2026-09-21 (evening) -- the config said one thing and ran another, and nothing told anyone
+
+Found while reading the live config for the features run: all four shard profiles and
+`default_shard` named `stealth/union-alpha`, an OpenRouter router id, under `provider: "meta"`.
+Steve: "why is union alpha on the meta provider? thats openrouter? meta is spark.. wtf?" Three
+separate defects had been hiding each other:
+
+1. **A profile could not say what it meant.** `ShardProfile` had `model` and no `provider`; the
+   model was a leftover from an earlier `provider`. No request ever went to OpenRouter: the Meta
+   endpoint is hardwired (`https://api.meta.ai/v1`), `base_url` is empty, and all 1,839 receipts of
+   the last two days are `meta / muse-spark-1.3-contributor`.
+2. **The profile was inert on every path but one.** `GetShardProfile(...).Model` was read by the
+   TUI's delegation (`cmd/nerd/chat/delegation_routing.go`) and nowhere else. `nerd fix`, campaigns
+   and spawned subagents ran the serving client's model whatever `shard_profiles` said.
+3. **Where it was read, a wrong value was silently rewritten** by the Meta client's tier guard, and
+   `main()` answered a config that failed to load with one line -- "Warning: failed to load user
+   config (using defaults)" -- and carried on with defaults nobody had seen.
+
+Hand-built (configuration, refusal and client routing; none of it is codeNERD's to widen):
+
+- `internal/config/check.go`: `UserConfig.Check` reports by JSON path. **error** = a contradiction
+  (a model its provider cannot serve, judged by family and by the router-id shape; unknown
+  provider/engine/theme/embedding provider; sampling out of range) and `LoadUserConfig` refuses the
+  file with a `ConfigError` naming every one at once; **warning** = something a run will need and
+  the file omits; **implicit** = every configurable leaf the file does not mention, found by
+  walking `UserConfig`'s types against the raw JSON, so a field added tomorrow is listed tomorrow.
+  A router (`openrouter`), a local runtime (`ollama`) and anything behind an explicit `base_url` or
+  slot `endpoint` may serve any model.
+- `main()` stops on a config that does not load (exit 2, the whole error). `nerd config ...` alone
+  still runs. `nerd config check [--no-implicit]` and `nerd config full [--out file]`: the second
+  prints the file laid over the defaults with every field written down -- false, 0 and "" too --
+  in schema order; it is a loadable config, it never writes `config.json`, and it refuses `--out`
+  pointed at it. Steve: "i want literally every single thing that can be configured displayed in
+  that json file and we need to configure it all by hand".
+- Routing: `shard_profiles.<x>.provider`. `config.ShardProfileContext` is the one place a profile
+  becomes behaviour (sampling, `types.WithModelName`, new `types.WithProvider`); the chat path and
+  -- new -- the session executor (`SetShardProfileContext`, applied once the turn's persona is
+  known) and the spawner's fresh executors all call it. `core.ScheduledLLMCall.clientFor` sends a
+  call whose context names a provider to that provider's client, built once per provider+model by
+  the same `newSecondarySlotClient` the worker and planner use, traced like them. A route that
+  cannot be built fails the call; it never falls back to the wrapped client.
+- The live config: five profile models set to `muse-spark-1.3-contributor` and
+  `context_window.max_tokens` 200000 -> 1048576, by anchored Edit, on Steve's instruction ("just
+  make everything muse spark 1.3 contributor ... 1m token context window, xhigh effort");
+  `reasoning_effort` was already `xhigh` and `max_output_tokens` 131072 on main and planner.
+  `nerd config check`: 0 errors, 0 warnings, 37 implicit. `.nerd/agents.json` carries no model or
+  provider: expert agents run on `default_shard`.
+  **Unverified:** that Muse Spark's real window is 1M. Working requests are ~50k, so a smaller
+  real window would only surface on a very long turn, as a provider 400.
+
+The features R6 run this interrupted gave the first reading of the cache-order change: 13 rounds,
+68% of input cached (baseline 49%), 72% on prefix-changed rounds (baseline 47%). Small sample.
+
+Found in that run and **not yet fixed**: (a) my tool-parity fix regressed -- tools present in both
+registries are filtered from the kernel side and reported `missing_in_kernel`; (b)
+`internal/campaign/decomposer_documents.go` and a fallback in `internal/system/factory.go` build
+embedding engines from `embedding.DefaultConfig()` and never read the user's config, which the
+no-default sweep turned from silently-wrong into loudly-absent; (c) session hydration embeds a
+whole task brief as its recall query, Ollama answers 500 "input length exceeds the context
+length", the client retries a request that cannot succeed three times, and every campaign task
+starts without recalled context -- live since I made `RecallSimilar` semantic in `76682cc0`; (d) one
+file deleted mid-walk fails the whole workspace scan; (e) `manager_spawn.go` hardcodes a 15-minute
+shard timeout and the executor cuts a retrieval query at 4096 runes without saying so.

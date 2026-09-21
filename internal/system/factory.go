@@ -758,8 +758,9 @@ type bootContext struct {
 	jitCfg                       config.JITConfig
 	llmClient                    perception.LLMClient
 	shardLLMClient               perception.LLMClient
-	plannerLLMClient             perception.LLMClient // high-reasoning tier for planning/analysis intents
-	imageLLMClient               perception.LLMClient // Gemini Nano Banana 2 for image_generator only
+	plannerLLMClient             perception.LLMClient        // high-reasoning tier for planning/analysis intents
+	shardProfileContext          session.ShardProfileContext // persona profile -> call context, for executor and spawner
+	imageLLMClient               perception.LLMClient        // Gemini Nano Banana 2 for image_generator only
 	providerCfgForClassification *perception.ProviderConfig
 	perceptionInitialized        bool
 	meterSink                    broker.ReceiptSink
@@ -954,7 +955,13 @@ func initPerceptionLayer(bctx *bootContext) error {
 	}
 	bctx.localDB = localDB
 
-	bctx.llmClient = core.NewScheduledLLMCall("main", rawLLMClient)
+	// One router for every slot: a call whose context names a provider (a shard
+	// profile's provider, config.ShardProfileContext) runs on that provider's
+	// client, traced like the slots are.
+	router := profileRouter(bctx.appCfg, localDB)
+	mainScheduled := core.NewScheduledLLMCall("main", rawLLMClient)
+	mainScheduled.Router = router
+	bctx.llmClient = mainScheduled
 
 	// Optional worker LLM for shards (e.g. local Ollama for cheap testing).
 	// When unset, shards share the main client (SuperGrok xai-oauth, API keys, etc.).
@@ -972,7 +979,9 @@ func initPerceptionLayer(bctx *bootContext) error {
 			logging.Get(logging.CategoryPerception).Info("Worker LLM enabled for shards/spawn/create")
 		}
 	}
-	bctx.shardLLMClient = core.NewScheduledLLMCall("shards", shardRaw)
+	shardScheduled := core.NewScheduledLLMCall("shards", shardRaw)
+	shardScheduled.Router = router
+	bctx.shardLLMClient = shardScheduled
 
 	// Optional planner LLM for reasoning-intensive turns. Without this slot a
 	// cheap worker would also serve /review, /audit and campaign planning —
@@ -987,7 +996,9 @@ func initPerceptionLayer(bctx *bootContext) error {
 			if localDB != nil {
 				plannerRaw = perception.NewTracingLLMClient(planner, createTraceStoreAdapter(localDB))
 			}
-			bctx.plannerLLMClient = core.NewScheduledLLMCall("planner", plannerRaw)
+			plannerScheduled := core.NewScheduledLLMCall("planner", plannerRaw)
+			plannerScheduled.Router = router
+			bctx.plannerLLMClient = plannerScheduled
 			logging.Get(logging.CategoryPerception).Info("Planner LLM enabled for reasoning-intensive intents")
 		}
 	}
@@ -2048,6 +2059,15 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionExecutor.SetLearningPolicy(func(shardType string) bool {
 			return appCfg.GetShardProfile(shardType).EnableLearning
 		})
+		// The persona's model, provider and sampling, on every path that runs a
+		// persona -- not only the TUI's delegation.
+		profileContext := func(ctx context.Context, shardType string) context.Context {
+			return config.ShardProfileContext(ctx, appCfg.GetShardProfile(shardType))
+		}
+		bctx.sessionExecutor.SetShardProfileContext(profileContext)
+		// The spawner does not exist yet; it receives the same hook where it is
+		// built, below.
+		bctx.shardProfileContext = profileContext
 	}
 	logging.Boot("Tool loop: continuation derived by the working policy, no call or round ceiling; build verification after edits: %v (workspace %s)",
 		execCfg.VerifyBuildAfterEdits, execCfg.WorkspaceRoot)
@@ -2141,6 +2161,11 @@ func initFinalExecutors(bctx *bootContext) error {
 	// Same meter for spawned subagents: their executors are fresh builds, not
 	// clones, so without this their turn_cost deltas read zero. Nil-safe.
 	bctx.sessionSpawner.SetUsageTracker(bctx.tracker)
+	// Spawned subagents are fresh executors: without this they would run every
+	// persona on the serving client's model whatever shard_profiles says.
+	if bctx.shardProfileContext != nil {
+		bctx.sessionSpawner.SetShardProfileContext(bctx.shardProfileContext)
+	}
 	// Mirror the executor wiring so subagent executors see the same
 	// generated tools. Nil-safe on both ends.
 	if bctx.virtualStore != nil {
@@ -2440,4 +2465,23 @@ func IngestHybridPrompts(ctx context.Context, workspace string, kernel SystemKer
 	}
 
 	return stored, nil
+}
+
+// profileRouter builds the clients shard profiles route to. A nil config
+// routes nowhere, and a routed call then fails by name.
+func profileRouter(appCfg *config.UserConfig, localDB *store.LocalStore) core.ProviderRouter {
+	if appCfg == nil {
+		return nil
+	}
+	return func(provider, model string) (core.LLMClient, error) {
+		client, err := perception.NewRoutedClientFromUserConfig(appCfg, provider, model)
+		if err != nil {
+			return nil, err
+		}
+		logging.Get(logging.CategoryPerception).Info("Routed LLM client built: provider=%s model=%s", provider, model)
+		if localDB != nil {
+			return perception.NewTracingLLMClient(client, createTraceStoreAdapter(localDB)), nil
+		}
+		return client, nil
+	}
 }

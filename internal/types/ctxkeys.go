@@ -31,11 +31,13 @@ import "context"
 type spawnPriorityKeyType struct{}
 type modelCapabilityKeyType struct{}
 type modelNameKeyType struct{}
+type providerKeyType struct{}
 
 var (
 	spawnPriorityKey   = spawnPriorityKeyType{}
 	modelCapabilityKey = modelCapabilityKeyType{}
 	modelNameKey       = modelNameKeyType{}
+	providerKey        = providerKeyType{}
 )
 
 // WithSpawnPriority attaches a scheduling priority to ctx for the spawn/API
@@ -79,6 +81,25 @@ func ModelCapabilityFromContext(ctx context.Context) (ModelCapability, bool) {
 // capability hint at the client, so set it only when a profile names a model.
 func WithModelName(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, modelNameKey, name)
+}
+
+// WithProvider routes the calls made under ctx to provider's client instead of
+// the client they were made on. It travels with WithModelName: the model is the
+// one that provider runs. Set from a shard profile that names a provider, which
+// is how two shards run on two vendors.
+func WithProvider(ctx context.Context, provider string) context.Context {
+	return context.WithValue(ctx, providerKey, provider)
+}
+
+// ProviderFromContext returns the provider route attached to ctx, if any.
+func ProviderFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	if v, ok := ctx.Value(providerKey).(string); ok && v != "" {
+		return v, true
+	}
+	return "", false
 }
 
 // ModelNameFromContext returns the model override attached to ctx, if any.

@@ -39,7 +39,7 @@ func walkCommandPaths(t *testing.T) map[string]*cobra.Command {
 func TestCLI_TopLevelCommands_MatchExpectedSet(t *testing.T) {
 	want := []string{
 		"agents", "analyze", "audit", "auth", "autopoiesis", "browser",
-		"campaign", "chat", "check-mangle", "commit", "context-stats",
+		"campaign", "chat", "check-mangle", "commit", "config", "context-stats",
 		"create", "define-agent", "dom", "dream", "embedding", "explain",
 		"features", "fix", "glassbox", "init", "jit", "knowledge", "logic",
 		"logs", "mangle-lsp", "mcp", "memory", "meter", "northstar",
@@ -80,6 +80,7 @@ func TestCLI_SubcommandGroups_MatchExpectedSets(t *testing.T) {
 		"nerd browser":          {"click", "fork", "honeypot", "launch", "list", "screenshot", "session", "snapshot", "type"},
 		"nerd campaign":         {"assault", "journal", "list", "pause", "recurse", "report", "resume", "start", "status"},
 		"nerd campaign journal": {"replay", "verify"},
+		"nerd config":           {"check", "full"},
 		"nerd dom":              {"apply", "demo", "edit", "get", "inspect", "replace"},
 		"nerd embedding":        {"reembed", "set", "stats"},
 		"nerd knowledge":        {"list", "search"},
@@ -110,10 +111,10 @@ func TestCLI_SubcommandGroups_MatchExpectedSets(t *testing.T) {
 
 func TestCLI_TotalCommandCount(t *testing.T) {
 	paths := walkCommandPaths(t)
-	// Root + 55 top-level + 70 subcommands. Any add/remove must update this
+	// Root + 56 top-level + 72 subcommands. Any add/remove must update this
 	// pin deliberately, with the group sets above saying where it landed.
-	if len(paths) != 126 {
-		t.Errorf("reachable command paths = %d, want 126", len(paths))
+	if len(paths) != 129 {
+		t.Errorf("reachable command paths = %d, want 129", len(paths))
 	}
 }
 

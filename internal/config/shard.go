@@ -1,5 +1,12 @@
 package config
 
+import (
+	"context"
+	"strings"
+
+	"codenerd/internal/types"
+)
+
 // ShardProfile defines per-shard configuration.
 // Each shard type (coder, tester, reviewer, researcher) can have custom settings.
 type ShardProfile struct {
@@ -11,6 +18,15 @@ type ShardProfile struct {
 	// (types.WithModelName). Empty means the client's configured model; it
 	// used to default to "glm-4.7" regardless of provider.
 	Model string `yaml:"model" json:"model"`
+
+	// Provider, when set, routes this shard's calls to that provider's client
+	// instead of the worker (or main) one, with Model as the model it runs.
+	// It is how two shards run on two vendors. It needs Model: a provider with
+	// no model has nothing to run, and the checker says so. Empty means the
+	// serving slot's provider, and Model must then be one that provider serves
+	// -- a profile naming another vendor's model with no provider is refused
+	// at load (Check), where it used to be silently rewritten by the client.
+	Provider string `yaml:"provider" json:"provider,omitempty"`
 
 	// Sampling. Zero means "not configured": the client keeps its own
 	// default for that parameter. A configured value rides on the request
@@ -87,4 +103,23 @@ func DefaultShardProfiles() map[string]ShardProfile {
 			EnableLearning: true,
 		},
 	}
+}
+
+// ShardProfileContext attaches a profile to the context its shard's model
+// calls are made under: sampling always; the model when one is named; and the
+// provider when the profile routes itself. It is the one place a profile
+// becomes behaviour -- the chat delegation path and the session executor both
+// call it, where the executor used to apply nothing.
+//
+// Unset fields attach nothing, so a profile that never chose a temperature
+// leaves the client's own default in force.
+func ShardProfileContext(ctx context.Context, profile ShardProfile) context.Context {
+	ctx = types.WithSampling(ctx, types.Sampling{Temperature: profile.Temperature, TopP: profile.TopP})
+	if model := strings.TrimSpace(profile.Model); model != "" {
+		ctx = types.WithModelName(ctx, model)
+	}
+	if provider := strings.ToLower(strings.TrimSpace(profile.Provider)); provider != "" {
+		ctx = types.WithProvider(ctx, provider)
+	}
+	return ctx
 }

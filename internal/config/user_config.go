@@ -547,6 +547,19 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		return nil, fmt.Errorf("config %s: core_limits invalid: %w", path, err)
 	}
 
+	// What strict decoding cannot see: settings that contradict each other. A
+	// file with one is refused, with every contradiction named at once. What
+	// is merely missing is said at boot and refused by whatever needs it;
+	// the fields left to defaults are `nerd config check`'s to list (there
+	// are hundreds, and a boot log that lists them all is one nobody reads).
+	problems := cfg.Check(nil)
+	if errs := Errors(problems); len(errs) > 0 {
+		return nil, &ConfigError{Path: path, Problems: errs}
+	}
+	for _, p := range problems {
+		logging.Get(logging.CategoryBoot).Warn("config %s: %s", path, p.String())
+	}
+
 	// Make feature toggles visible to leaf packages (internal/core,
 	// internal/observability, internal/world, ...) that cannot import
 	// internal/config. Nil is fine: SetActive(nil) resets the registry

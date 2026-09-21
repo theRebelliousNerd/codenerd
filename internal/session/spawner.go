@@ -38,6 +38,10 @@ type Spawner struct {
 	// a reasoning-intensive verb resolves the same tier the session would.
 	// Nil keeps subagents entirely on llmClient.
 	plannerClient types.LLMClient
+	// shardProfileContext is handed to every spawned subagent's executor, which
+	// is a fresh build and would otherwise run every persona on the serving
+	// client's model whatever shard_profiles says.
+	shardProfileContext ShardProfileContext
 
 	// projectDoc is the workspace's parsed nerd.md. Nil when absent or invalid,
 	// which preserves the pre-fix behaviour: subagents run without project
@@ -151,6 +155,20 @@ func (s *Spawner) SetPlannerClient(c types.LLMClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.plannerClient = c
+}
+
+// SetShardProfileContext installs the per-persona profile passed to subagents
+// spawned from here on.
+func (s *Spawner) SetShardProfileContext(apply ShardProfileContext) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.shardProfileContext = apply
+}
+
+func (s *Spawner) currentShardProfileContext() ShardProfileContext {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.shardProfileContext
 }
 
 // plannerClientLocked reads the planner slot under the read lock.
@@ -408,6 +426,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	// Forward the usage meter so subagent turns read spend instead of zeros.
 	if tr := s.currentUsageTracker(); tr != nil {
 		agent.executor.SetUsageTracker(tr)
+	}
+	if apply := s.currentShardProfileContext(); apply != nil {
+		agent.executor.SetShardProfileContext(apply)
 	}
 	if reg := s.currentOuroborosRegistry(); reg != nil {
 		agent.executor.SetOuroborosRegistry(reg)

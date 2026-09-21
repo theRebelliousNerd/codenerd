@@ -621,6 +621,20 @@ func NewWorkerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error
 	return newSecondarySlotClient(userCfg, "worker", userCfg.GetWorkerLLMConfig())
 }
 
+// NewRoutedClientFromUserConfig builds the client a shard profile routes to:
+// provider's, running model, with that provider's key from the same file. It is
+// built exactly as the worker and planner slots are, so whatever they support a
+// profile can name.
+func NewRoutedClientFromUserConfig(userCfg *config.UserConfig, provider, model string) (LLMClient, error) {
+	if userCfg == nil {
+		return nil, fmt.Errorf("no user config to route provider %q from", provider)
+	}
+	if strings.TrimSpace(model) == "" {
+		return nil, fmt.Errorf("a shard profile routes to provider %q and names no model for it to run", provider)
+	}
+	return newSecondarySlotClient(userCfg, "shard_profile", &config.SecondaryLLMConfig{Provider: provider, Model: model})
+}
+
 // NewPlannerClientFromUserConfig builds the high-reasoning planner client used
 // for planning and analysis intents. Returns (nil, nil) when no planner block
 // is configured so callers fall back to the worker, then the main client.

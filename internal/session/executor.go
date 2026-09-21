@@ -243,6 +243,9 @@ type Executor struct {
 	// handed to turnRecorder at all (the shard profile's enable_learning).
 	// Nil records every turn.
 	learningPolicy func(shardType string) bool
+	// shardProfileContext, when set, attaches the persona's configured profile
+	// (model, provider, sampling) to the turn's context.
+	shardProfileContext ShardProfileContext
 
 	// contextFeedbackRecorder receives the model's rating of the context it
 	// was given; pendingContextFeedback holds that rating between the
@@ -571,6 +574,7 @@ func (e *Executor) CloneForTask() *Executor {
 	// paths a human happens to be watching.
 	clone.turnRecorder = e.turnRecorder
 	clone.learningPolicy = e.learningPolicy
+	clone.shardProfileContext = e.shardProfileContext
 	// Same reasoning for the context rating: a delegated task compiles its own
 	// prompt, so its verdict on that prompt is exactly as informative as a
 	// chat turn's.
@@ -1009,6 +1013,9 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 
 	// 2. ORIENT: Build compilation context from intent + world state
 	compilationCtx := e.buildCompilationContext(ctx, intent)
+	// The persona is known from here: its shard profile rides on the context
+	// every model call of the turn is made under.
+	ctx = e.withShardProfile(ctx, compilationCtx.ShardType)
 	// Delegation frequently supplies only a verb in its structured intent.
 	// The actual task must reach retrieval; searching for the expert's name
 	// instead made every task share a cache key and discard task-specific memory.
