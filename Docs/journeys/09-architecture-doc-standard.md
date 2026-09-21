@@ -29,6 +29,20 @@ substantial and why citing it has repeatedly turned out to be citing nothing.
 Not "the compiler selects atoms by score" but "the compiler selects atoms by score
 (`internal/prompt/selector.go`)". A sentence about behaviour with no citation is an opinion.
 
+**The citation is repo-relative, and the symbol has to be there too.** Measured across the
+first eight rewrites (2026-09-20): 1,223 citations, of which **856 were bare filenames**
+(`registry.go:127`) rather than repo-relative paths. A bare filename is not a citation — this
+tree has four `registry.go` and three `compiler.go`, so the reader cannot tell which file is
+meant, and neither can the checker. Write `internal/tools/registry.go:127`.
+
+Resolving the file is the floor, not the bar. `autopoiesis/WIRING-AND-NOT-BUILT.md` cites
+"dual validators (`ValidateGoCode` vs `validateGoCodeOffline`, `compiler.go:531` vs `:594`)";
+neither symbol exists anywhere in the repo and `internal/autopoiesis/` has no `compiler.go`.
+In the same file `RuntimeRegistry.Register` is real but lives in `runtime_registry.go`, cited
+as `registry.go:127`. A plausible filename is the exact shape a fabricated citation takes, so
+the check is: open the file, find the symbol. Both failures are invisible to a path-resolver
+and both survived a `/done` verdict.
+
 Checkable: `scripts/doc_citation_check.py` resolves every `internal/…` and `cmd/…` path and
 every `:line` against the working tree. Target: 100% resolve, 0 line numbers past EOF. The
 corpus is at 96.1% and 0 today, so this rule is nearly met already and must not regress.
@@ -114,6 +128,21 @@ Rules 1 and 9 and the slot half of rule 3 are machine-checked. Rules 2 and 3 are
 That division is deliberate: the deterministic half means a run cannot pass by writing
 confident prose, and the judgement half means it cannot pass by writing citations around
 nothing.
+
+### Writing the new files is half the task; removing the old ones is the other half
+
+Measured over the first eight rewrites: six finished, two did not. `broker` wrote four correct
+files and left all twenty originals on disk; `cli` wrote its three and kept two old ones. In
+both cases every hard citation error in the package sits in a file the run did **not** write --
+`01-VISION.md`, `02-CURRENT-STATE.md`, `TODO.md`, `IMPLEMENTED_SPEC.md`,
+`05-COMMAND-ARCHITECTURE.md`. The new documents were sound; the residue was not, and a reader
+landing in the directory cannot tell the two apart.
+
+So a package is not done while a file the rewrite superseded is still in its directory. The run
+ends by listing the directory and naming every file in it as either one it wrote or one it
+deleted -- `list_files` and `delete_file` both exist, under those names. A report that says the
+old files remain and hands the deletion to someone else has not finished; it has produced two
+corpora where there was one.
 
 ## Why this is not yet briefed as a rung
 
