@@ -416,7 +416,7 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 		// lives at the exec site — never interpolate atom text into a shell —
 		// but a hostile atom should not sail through parsing unremarked on
 		// its way there.)
-		if strings.ContainsAny(trimmed, "`$;|&<>") {
+		if strings.ContainsAny(shellCheckedText(trimmed), "`$;|&<>") {
 			result.Warnings = append(result.Warnings, "Mangle update with shell metacharacters skipped")
 			logging.ArticulationWarn("mangle_update skipped (shell metacharacters): %s", truncateUTF8Bytes(trimmed, 120))
 			continue
@@ -1136,4 +1136,55 @@ func processLLMResponse(name, rawResponse string, logFallbackAsError bool) *Proc
 func MustExtractSurface(rawResponse string) string {
 	processed := ProcessLLMResponse(rawResponse)
 	return processed.Surface
+}
+
+// proseVerdictPredicates are the facts whose quoted arguments are prose by
+// contract and are only ever read back and printed, never handed to an exec
+// site. For these, and only these, the shell-metacharacter check looks at the
+// atom outside its string literals.
+//
+// Observed 2026-09-21, campaign aab9612b: the reviewer of the closing
+// checkpoint returned a well-formed checkpoint_verdict three times, /fail each
+// time, with the reason "5 files lack front-matter; verified-against not a
+// commit; ...". The semicolons in the reason got the fact dropped here, and
+// the campaign reported "review verdict could not be determined" and exited
+// blocked, when the truth was that the review had failed for exactly the
+// reasons it gave. A readable reason contains punctuation.
+//
+// The list is deliberately one entry long. For every other predicate a string
+// argument may be an action's input, which is what the check exists for.
+var proseVerdictPredicates = []string{"checkpoint_verdict("}
+
+// shellCheckedText returns the part of a mangle update the shell-metacharacter
+// check applies to: all of it, except the string literals of a prose verdict.
+func shellCheckedText(update string) string {
+	prose := false
+	for _, prefix := range proseVerdictPredicates {
+		if strings.HasPrefix(update, prefix) {
+			prose = true
+			break
+		}
+	}
+	if !prose {
+		return update
+	}
+	var sb strings.Builder
+	inString, escaped := false, false
+	for _, r := range update {
+		switch {
+		case escaped:
+			escaped = false
+		case inString && r == '\\':
+			escaped = true
+		case r == '"':
+			inString = !inString
+		case !inString:
+			sb.WriteRune(r)
+		}
+	}
+	if inString {
+		// An unterminated literal is not a string we can reason about.
+		return update
+	}
+	return sb.String()
 }

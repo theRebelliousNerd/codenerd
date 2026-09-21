@@ -5463,3 +5463,13 @@ then over-built (restatement matching by write-set overlap), broke
 function it had deleted; the run exited with the repository not compiling (**P7**, fixed by hand in
 `b2e38be9`: `leaveBuildableTree`). What it missed: the smallest change that explains the evidence.
 Attempt kept at `.nerd/dogfood/r1/p4_codenerd_attempt.diff`.
+
+**Correction to P9, same day.** The closing reviewer did not fail to produce a verdict. It produced a
+well-formed `checkpoint_verdict/4` three times, `/fail` each time, reason "5 files lack front-matter;
+verified-against not a commit; ..." -- the defects the structural grader found, caught by the
+harness's own gate. `internal/articulation/emitter.go` dropped each one as "shell metacharacters"
+for the semicolons inside the quoted reason, and the campaign reported "verdict could not be
+determined". I diagnosed P9 from the campaign log's summary line; the articulation log had the
+fact. Fixed by hand (safety filter): for `checkpoint_verdict` alone the metacharacter check reads the
+atom outside its string literals. P8 stands for the four model-judged `/verify` tasks, which did
+report done over those files; the phase checkpoint above them was right.
