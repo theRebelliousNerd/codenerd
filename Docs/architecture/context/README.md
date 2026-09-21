@@ -2,6 +2,8 @@
 
 > Verified 2026-09-20 against `456e521` (`main`).
 
+This directory is the governed architecture corpus for `internal/context` — relevance, retention, eviction, retrieval, and ordering of the agent working context. It holds the north-star vision, shipped truth, gap matrix, and capability specs for that scope. Start with [00-INDEX.md](00-INDEX.md) for read order and the grounded-vs-hypothesized map.
+
 Package `codenerd/internal/context`: two bounded-context loops that keep an
 unbounded agent session inside a finite LLM window.
 
