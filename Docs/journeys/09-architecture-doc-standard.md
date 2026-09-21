@@ -35,13 +35,24 @@ first eight rewrites (2026-09-20): 1,223 citations, of which **856 were bare fil
 tree has four `registry.go` and three `compiler.go`, so the reader cannot tell which file is
 meant, and neither can the checker. Write `internal/tools/registry.go:127`.
 
-Resolving the file is the floor, not the bar. `autopoiesis/WIRING-AND-NOT-BUILT.md` cites
-"dual validators (`ValidateGoCode` vs `validateGoCodeOffline`, `compiler.go:531` vs `:594`)";
-neither symbol exists anywhere in the repo and `internal/autopoiesis/` has no `compiler.go`.
-In the same file `RuntimeRegistry.Register` is real but lives in `runtime_registry.go`, cited
-as `registry.go:127`. A plausible filename is the exact shape a fabricated citation takes, so
-the check is: open the file, find the symbol. Both failures are invisible to a path-resolver
-and both survived a `/done` verdict.
+Worse than unqualified is **abbreviated**. `autopoiesis/WIRING-AND-NOT-BUILT.md` cites
+`registry.go` and `compiler.go` throughout; the package contains neither. It means
+`internal/autopoiesis/runtime_registry.go` (248 lines) and `internal/autopoiesis/tool_compiler.go`
+(438 lines), with the distinguishing half of each name dropped. A shortened filename reads
+exactly like a real one and is the single hardest citation defect to see.
+
+Resolving the file is the floor, not the bar. In that same document `RuntimeRegistry.Register`
+and `Restore` are real symbols cited at lines 127 and 207; they are at 39 and 77. One clause
+names a pair of Go-validation functions that exist nowhere in the repo, at two line numbers
+past the end of a 438-line file. So the check is: open the file, find the symbol, confirm the
+line. A path-resolver sees none of this, and all of it survived a `/done` verdict.
+
+**Do not quote a fabricated identifier in this file.** An earlier revision named those two
+non-existent functions verbatim as the example. Every run is briefed to read this standard
+first, and it is injected whole -- measured at 125,459 characters of system prompt -- so within
+three minutes the invented names were in the context of every subsequent run, indistinguishable
+by string match from a symbol the repo actually has. Describe the defect; do not spell the
+artifact. A document the harness injects is not a place to write things that are not true.
 
 Checkable: `scripts/doc_citation_check.py` resolves every `internal/…` and `cmd/…` path and
 every `:line` against the working tree. Target: 100% resolve, 0 line numbers past EOF. The
