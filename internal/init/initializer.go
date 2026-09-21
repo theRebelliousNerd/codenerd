@@ -414,14 +414,7 @@ func (i *Initializer) ensureEmbeddingEngine() error {
 		uc = config.DefaultUserConfig()
 	}
 	ucEmb := uc.GetEmbeddingConfig()
-	embCfg := embedding.Config{
-		Provider:       ucEmb.Provider,
-		OllamaEndpoint: ucEmb.OllamaEndpoint,
-		OllamaModel:    ucEmb.OllamaModel,
-		GenAIAPIKey:    ucEmb.GenAIAPIKey,
-		GenAIModel:     ucEmb.GenAIModel,
-		TaskType:       ucEmb.TaskType,
-	}
+	embCfg := ucEmb.EngineConfig()
 	logging.Boot("Init embedding engine from config.json: provider=%s model=%s", embCfg.Provider, initEmbeddingModel(embCfg))
 	engine, err := embedding.NewEngine(embCfg)
 	if err != nil {

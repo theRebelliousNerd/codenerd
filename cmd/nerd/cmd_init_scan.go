@@ -325,14 +325,7 @@ func buildMarathonEmbedder(workspace string) (embedding.EmbeddingEngine, error) 
 	// Mirrors internal/init's own construction so the overlay is embedded with
 	// exactly the engine and task type the shipped corpus was.
 	emb := appCfg.GetEmbeddingConfig()
-	engine, err := embedding.NewEngine(embedding.Config{
-		Provider:       emb.Provider,
-		OllamaEndpoint: emb.OllamaEndpoint,
-		OllamaModel:    emb.OllamaModel,
-		GenAIAPIKey:    emb.GenAIAPIKey,
-		GenAIModel:     emb.GenAIModel,
-		TaskType:       emb.TaskType,
-	})
+	engine, err := embedding.NewEngine(emb.EngineConfig())
 	if err != nil {
 		return nil, fmt.Errorf("--marathon: the overlay must be embedded to be retrievable, "+
 			"and the embedding engine is unavailable: %w", err)

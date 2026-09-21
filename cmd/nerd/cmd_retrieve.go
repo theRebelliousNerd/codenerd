@@ -223,14 +223,7 @@ func resolveRetrieveEmbeddingEngine(ctx context.Context, workspace string) embed
 		cfg = config.DefaultUserConfig()
 	}
 	ucEmb := cfg.GetEmbeddingConfig()
-	engine, err := embedding.NewEngine(embedding.Config{
-		Provider:       ucEmb.Provider,
-		OllamaEndpoint: ucEmb.OllamaEndpoint,
-		OllamaModel:    ucEmb.OllamaModel,
-		GenAIAPIKey:    ucEmb.GenAIAPIKey,
-		GenAIModel:     ucEmb.GenAIModel,
-		TaskType:       ucEmb.TaskType,
-	})
+	engine, err := embedding.NewEngine(ucEmb.EngineConfig())
 	if err != nil || engine == nil {
 		return nil
 	}

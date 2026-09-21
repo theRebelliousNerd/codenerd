@@ -50,7 +50,7 @@ func TestEnsureModel_RemapsBareNameToInstalledTag(t *testing.T) {
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "embeddinggemma")
+	engine, err := NewOllamaEngine(server.URL, "embeddinggemma", 768)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestEnsureModel_AutoPullsWhenMissing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "embeddinggemma:300m")
+	engine, err := NewOllamaEngine(server.URL, "embeddinggemma:300m", 768)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestEnsureModel_BootstrapDeadlineDoesNotPoisonLaterPull(t *testing.T) {
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestEmbed_AutoPullsOn404(t *testing.T) {
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "embeddinggemma:300m")
+	engine, err := NewOllamaEngine(server.URL, "embeddinggemma:300m", 3)
 	if err != nil {
 		t.Fatal(err)
 	}

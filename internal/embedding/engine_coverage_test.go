@@ -65,6 +65,7 @@ func TestNewEngine_WhenOllamaProvider_ShouldCreateEngine(t *testing.T) {
 		Provider:       "ollama",
 		OllamaEndpoint: "http://localhost:11434",
 		OllamaModel:    "test-model",
+		Dimensions:     768,
 	}
 	engine, err := NewEngine(cfg)
 	if err != nil {

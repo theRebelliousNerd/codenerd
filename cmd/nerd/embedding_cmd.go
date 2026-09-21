@@ -103,14 +103,7 @@ var embeddingStatsCmd = &cobra.Command{
 			cfg = config.DefaultUserConfig()
 		}
 		ucEmb := cfg.GetEmbeddingConfig()
-		embCfg := embedding.Config{
-			Provider:       ucEmb.Provider,
-			OllamaEndpoint: ucEmb.OllamaEndpoint,
-			OllamaModel:    ucEmb.OllamaModel,
-			GenAIAPIKey:    ucEmb.GenAIAPIKey,
-			GenAIModel:     ucEmb.GenAIModel,
-			TaskType:       ucEmb.TaskType,
-		}
+		embCfg := ucEmb.EngineConfig()
 		if engine, engErr := embedding.NewEngine(embCfg); engErr == nil {
 			ls.SetEmbeddingEngine(engine)
 		}
@@ -147,14 +140,7 @@ var embeddingReembedCmd = &cobra.Command{
 			cfg = config.DefaultUserConfig()
 		}
 		ucEmb := cfg.GetEmbeddingConfig()
-		embCfg := embedding.Config{
-			Provider:       ucEmb.Provider,
-			OllamaEndpoint: ucEmb.OllamaEndpoint,
-			OllamaModel:    ucEmb.OllamaModel,
-			GenAIAPIKey:    ucEmb.GenAIAPIKey,
-			GenAIModel:     ucEmb.GenAIModel,
-			TaskType:       ucEmb.TaskType,
-		}
+		embCfg := ucEmb.EngineConfig()
 
 		engine, err := embedding.NewEngine(embCfg)
 		if err != nil {

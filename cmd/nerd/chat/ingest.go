@@ -61,14 +61,7 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 		if m.Config != nil {
 			embCfg := m.Config.GetEmbeddingConfig()
 			if embCfg.Provider != "" {
-				engine, err := embedding.NewEngine(embedding.Config{
-					Provider:       embCfg.Provider,
-					OllamaEndpoint: embCfg.OllamaEndpoint,
-					OllamaModel:    embCfg.OllamaModel,
-					GenAIAPIKey:    embCfg.GenAIAPIKey,
-					GenAIModel:     embCfg.GenAIModel,
-					TaskType:       embCfg.TaskType,
-				})
+				engine, err := embedding.NewEngine(embCfg.EngineConfig())
 				if err != nil {
 					logging.Boot("Warning: embedding engine init failed (ingest will proceed without embeddings): %v", err)
 				} else {

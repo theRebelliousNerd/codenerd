@@ -142,6 +142,9 @@ func TestVerifyKernelToolParity_WhenStaticRegistryToolsShareThePredicate_ShouldN
 			return []types.Fact{
 				{Predicate: "registered_tool", Args: []any{"go_build", "go build", "/coder"}},
 				{Predicate: "registered_tool", Args: []any{"go_test", "go test", "/tester"}},
+				// A generated tool the static registry lists too: still this
+				// registry's, and in parity.
+				{Predicate: "registered_tool", Args: []any{"alpha", "alpha.exe", "/coder"}},
 			}, nil
 		}
 		return nil, nil
@@ -155,6 +158,9 @@ func TestVerifyKernelToolParity_WhenStaticRegistryToolsShareThePredicate_ShouldN
 	// ghost has no writer behind it at all, so it is still reported.
 	if len(report.UnknownInKernel) != 1 || report.UnknownInKernel[0] != "ghost" {
 		t.Errorf("UnknownInKernel = %v, want [ghost]: static-registry tools are executable", report.UnknownInKernel)
+	}
+	if len(report.MissingInKernel) != 0 {
+		t.Errorf("MissingInKernel = %v: a tool in both registries was filtered out of the kernel side", report.MissingInKernel)
 	}
 	if report.KernelCount != 2 {
 		t.Errorf("KernelCount = %d, want 2 (alpha, ghost)", report.KernelCount)

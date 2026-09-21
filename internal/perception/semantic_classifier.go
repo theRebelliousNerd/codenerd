@@ -198,14 +198,8 @@ func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig)
 	embedCfg := cfg.GetEmbeddingConfig()
 
 	// Create embedding engine
-	engineCfg := embedding.Config{
-		Provider:       embedCfg.Provider,
-		OllamaEndpoint: embedCfg.OllamaEndpoint,
-		OllamaModel:    embedCfg.OllamaModel,
-		GenAIAPIKey:    embedCfg.GenAIAPIKey,
-		GenAIModel:     embedCfg.GenAIModel,
-		TaskType:       "RETRIEVAL_QUERY", // Use RETRIEVAL_QUERY for classification
-	}
+	engineCfg := embedCfg.EngineConfig()
+	engineCfg.TaskType = "RETRIEVAL_QUERY" // classification queries, not similarity
 
 	embedEngine, err := embedding.NewEngine(engineCfg)
 	if err != nil {

@@ -5663,3 +5663,24 @@ length", the client retries a request that cannot succeed three times, and every
 starts without recalled context -- live since I made `RecallSimilar` semantic in `76682cc0`; (d) one
 file deleted mid-walk fails the whole workspace scan; (e) `manager_spawn.go` hardcodes a 15-minute
 shard timeout and the executor cuts a retrieval query at 4096 runes without saying so.
+
+### Embedding model switched; three of the five open findings closed (same evening)
+
+- **(a) parity regression fixed**: a name in both registries is the generated-tool registry's to
+  account for; only static-only names are left out. Confirmed on a live boot: 0 errors.
+- **(b) one conversion**: `EmbeddingConfig.EngineConfig()` replaces twelve hand-copies of the user's
+  embedding settings. The campaign document ingestor and a factory fallback built engines from
+  `embedding.DefaultConfig()` and never read the user's file.
+- **(c) recall**: `embeddinggemma:300m` has a 2,048-token context; a task brief sent as a recall
+  query got a 500 that was retried three times. Now `qwen3-embedding:4b` (Ollama's own model info:
+  context 40,960, embedding length 2,560; 100% GPU on the RX 9070 XT). `embedding.dimensions` is a
+  required config field replacing a literal `return 768`, checked against the first vector that
+  comes back; a context-length error is refused once and never retried. All 348 stores re-embedded:
+  1,631 of 1,631 vectors at 2,560 dims. The same 36,000-character input: old model HTTP 500, new
+  model 2,560 dims in 1.8 s.
+- Still open: (d) one vanished file fails the workspace scan; (e) the 15-minute shard timeout and
+  the 4,096-rune retrieval cut. New: `.nerd/context/` holds 320 per-scope working-set databases
+  that nothing prunes.
+- Load-only flakes are now seven: add `TestOuroborosLoop_ExecuteTool_Concurrent` (31 s in `./...`,
+  0.6 s alone) and `TestClaudeCLI_SchemaMode` (34 s, 3.7 s alone). Which one fails changes run to
+  run; every full-suite run this session had exactly one or two of them.

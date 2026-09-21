@@ -1481,19 +1481,9 @@ func initExecutionLayer(bctx *bootContext) error {
 
 func initIntelligenceLayer(bctx *bootContext) error {
 	embedCfg := bctx.appCfg.GetEmbeddingConfig()
-	engineCfg := embedding.Config{
-		Provider:       embedCfg.Provider,
-		OllamaEndpoint: embedCfg.OllamaEndpoint,
-		OllamaModel:    embedCfg.OllamaModel,
-		GenAIAPIKey:    embedCfg.GenAIAPIKey,
-		GenAIModel:     embedCfg.GenAIModel,
-		TaskType:       embedCfg.TaskType,
-	}
+	engineCfg := embedCfg.EngineConfig()
 	if engineCfg.Provider == "genai" && engineCfg.GenAIAPIKey == "" && bctx.apiKey != "" {
 		engineCfg.GenAIAPIKey = bctx.apiKey
-	}
-	if engineCfg.Provider == "" {
-		engineCfg = embedding.DefaultConfig()
 	}
 	if engine, err := embedding.NewEngine(engineCfg); err == nil {
 		if checker, ok := engine.(embedding.HealthChecker); ok {

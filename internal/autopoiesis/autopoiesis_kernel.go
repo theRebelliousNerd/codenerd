@@ -155,8 +155,15 @@ func (o *Orchestrator) VerifyKernelToolParity() (ToolParityReport, error) {
 		if !ok {
 			continue
 		}
+		// Static-only names are the other registry's. A name in BOTH is a
+		// generated tool the static registry also lists, and is this one's to
+		// account for: filtering on registered_tool alone reported every such
+		// tool missing_in_kernel (2026-09-21, the first run after this check
+		// learned about the second writer).
 		if _, isStatic := staticNames[name]; isStatic {
-			continue
+			if _, mine := registry[name]; !mine {
+				continue
+			}
 		}
 		inKernel[name] = struct{}{}
 	}

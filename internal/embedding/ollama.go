@@ -35,7 +35,10 @@ const embeddingGemmaPullTag = "embeddinggemma:300m"
 type OllamaEngine struct {
 	endpoint string
 	model    string
-	client   *http.Client
+	// dimensions is the vector length the user configured for this model. It
+	// used to be a literal 768 whatever the model was.
+	dimensions int
+	client     *http.Client
 
 	ensureMu      sync.Mutex
 	modelReady    bool
@@ -43,7 +46,7 @@ type OllamaEngine struct {
 }
 
 // NewOllamaEngine creates a new Ollama embedding engine.
-func NewOllamaEngine(endpoint, model string) (*OllamaEngine, error) {
+func NewOllamaEngine(endpoint, model string, dimensions int) (*OllamaEngine, error) {
 	timer := logging.StartTimer(logging.CategoryEmbedding, "NewOllamaEngine")
 	defer timer.Stop()
 
@@ -58,6 +61,10 @@ func NewOllamaEngine(endpoint, model string) (*OllamaEngine, error) {
 		// a guess here is worse than a refusal.
 		return nil, fmt.Errorf("no Ollama embedding model configured: set embedding.ollama_model in .nerd/config.json")
 	}
+	if dimensions <= 0 {
+		// It sizes the vector index, so a guess is a corrupt index.
+		return nil, fmt.Errorf("no embedding dimensions configured for Ollama model %q: set embedding.dimensions in .nerd/config.json to the length of the vectors it returns", model)
+	}
 	if model == "embeddinggemma" {
 		// The bare name is a common config value but Ollama often only ships
 		// tagged variants; EnsureModel still remaps to whatever is installed.
@@ -68,8 +75,9 @@ func NewOllamaEngine(endpoint, model string) (*OllamaEngine, error) {
 	logging.Embedding("Creating Ollama engine: endpoint=%s, model=%s, timeout=60s (auto-pull enabled)", endpoint, model)
 
 	engine := &OllamaEngine{
-		endpoint: strings.TrimRight(endpoint, "/"),
-		model:    model,
+		endpoint:   strings.TrimRight(endpoint, "/"),
+		model:      model,
+		dimensions: dimensions,
 		client: &http.Client{
 			// 60 seconds allows for:
 			// - Ollama cold starts (model loading)
@@ -182,6 +190,15 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 				continue
 			}
 
+			// Ollama answers an input longer than the model's context with a
+			// 500. It is the input, not the server: the same text fails the same
+			// way every time, so it is not retried, and the error says what the
+			// caller has to change. Observed 2026-09-21: a campaign task brief
+			// sent as a recall query, retried three times on every task.
+			if strings.Contains(bodyStr, "exceeds the context length") {
+				logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: %d characters exceed model %s's context; not retried", len(text), model)
+				return nil, fmt.Errorf("embedding input of %d characters exceeds the context length of model %q: embed a shorter text or configure a model with a longer context", len(text), model)
+			}
 			retryable := resp.StatusCode >= 500 && resp.StatusCode <= 599
 			if !retryable && strings.Contains(bodyStr, "connection was forcibly closed") {
 				retryable = true
@@ -228,6 +245,11 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 			return nil, fmt.Errorf("ollama returned invalid embedding: %w", validationErr)
 		}
 
+		if got := len(result.Embedding); got != e.dimensions {
+			// Not retried: the model will return the same length every time. A
+			// vector of the wrong length written into the index is unsearchable.
+			return nil, fmt.Errorf("Ollama model %q returned a %d-dimensional vector and embedding.dimensions is %d: set embedding.dimensions to %d in .nerd/config.json, then `nerd embedding reembed`", model, got, e.dimensions, got)
+		}
 		logging.Embedding("Ollama.Embed: completed successfully, dimensions=%d, api_latency=%v, model=%s", len(result.Embedding), apiLatency, model)
 
 		return result.Embedding, nil
@@ -274,10 +296,9 @@ func (e *OllamaEngine) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 	return embeddings, nil
 }
 
-// Dimensions returns the dimensionality of embeddings.
-// embeddinggemma / nomic-embed-text produce 768-dimensional vectors.
+// Dimensions returns the configured vector length (embedding.dimensions).
 func (e *OllamaEngine) Dimensions() int {
-	return 768
+	return e.dimensions
 }
 
 // Name returns the engine name.

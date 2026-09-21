@@ -63,7 +63,7 @@ func TestInitializer_Initialize_Basic(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(tmpDir, ".nerd"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	seed := `{"embedding": {"provider": "ollama", "ollama_model": "embeddinggemma"}}`
+	seed := `{"embedding": {"provider": "ollama", "ollama_model": "embeddinggemma", "dimensions": 768}}`
 	if err := os.WriteFile(filepath.Join(tmpDir, ".nerd", "config.json"), []byte(seed), 0644); err != nil {
 		t.Fatal(err)
 	}

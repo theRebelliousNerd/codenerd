@@ -1,8 +1,8 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
-	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 	"context"
@@ -269,7 +269,14 @@ func (d *Decomposer) ingestIntoKnowledgeStore(ctx context.Context, campaignID, d
 	}
 
 	logging.CampaignDebug("Initializing document ingestor: dbPath=%s", dbPath)
-	ingestor, err := NewDocumentIngestor(dbPath, embedding.DefaultConfig())
+	// The user's embedding settings, from the workspace's own config. This was
+	// embedding.DefaultConfig(): campaign documents were embedded with a model
+	// the user never chose, and once no default model existed, with none.
+	userCfg, err := config.LoadUserConfig(filepath.Join(d.workspace, ".nerd", "config.json"))
+	if err != nil {
+		return fmt.Errorf("campaign document ingestion: %w", err)
+	}
+	ingestor, err := NewDocumentIngestor(dbPath, userCfg.GetEmbeddingConfig().EngineConfig())
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Failed to create document ingestor: %v", err)
 		return err

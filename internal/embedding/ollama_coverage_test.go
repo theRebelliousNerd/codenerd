@@ -19,7 +19,7 @@ import (
 // The endpoint has a default (Ollama's own port); the model does not. An
 // unconfigured model is refused: there is no model codeNERD picks for the user.
 func TestNewOllamaEngine_WhenNoModel_ShouldRefuse(t *testing.T) {
-	engine, err := NewOllamaEngine("", "")
+	engine, err := NewOllamaEngine("", "", 768)
 	if err == nil {
 		t.Fatalf("NewOllamaEngine with no model built an engine running %q", engine.model)
 	}
@@ -29,7 +29,7 @@ func TestNewOllamaEngine_WhenNoModel_ShouldRefuse(t *testing.T) {
 }
 
 func TestNewOllamaEngine_WhenDefaultEndpoint_ShouldUseOllamaPort(t *testing.T) {
-	engine, err := NewOllamaEngine("", "test-model")
+	engine, err := NewOllamaEngine("", "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestNewOllamaEngine_WhenDefaultEndpoint_ShouldUseOllamaPort(t *testing.T) {
 }
 
 func TestNewOllamaEngine_WhenCustomParams_ShouldRetainValues(t *testing.T) {
-	engine, err := NewOllamaEngine("http://custom:9999", "custom-model")
+	engine, err := NewOllamaEngine("http://custom:9999", "custom-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestNewOllamaEngine_WhenCustomParams_ShouldRetainValues(t *testing.T) {
 }
 
 func TestOllamaEngine_Dimensions_ShouldReturn768(t *testing.T) {
-	engine, err := NewOllamaEngine("", "test-model")
+	engine, err := NewOllamaEngine("", "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestOllamaEngine_Name_ShouldIncludeModel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			engine, err := NewOllamaEngine("", tt.model)
+			engine, err := NewOllamaEngine("", tt.model, 768)
 			if err != nil {
 				t.Fatalf("NewOllamaEngine returned error: %v", err)
 			}
@@ -130,7 +130,7 @@ func TestOllamaEngine_Embed_WhenServerReturnsEmbedding_ShouldSucceed(t *testing.
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 5)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestOllamaEngine_Embed_WhenServerReturns500_ShouldRetryAndFail(t *testing.T
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestOllamaEngine_Embed_WhenServerReturns400_ShouldNotRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestOllamaEngine_Embed_WhenContextCancelled_ShouldReturnError(t *testing.T)
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestOllamaEngine_Embed_WhenInvalidJSON_ShouldRetryAndFail(t *testing.T) {
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestOllamaEngine_Embed_WhenEmptyText_ShouldStillCallServer(t *testing.T) {
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 2)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestOllamaEngine_Embed_WhenServerReturnsEmptyEmbedding_ShouldRetryAndFail(t
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestWaitForRetryHonorsCancellation(t *testing.T) {
 }
 
 func TestOllamaEngineModelAccessIsConcurrentSafe(t *testing.T) {
-	engine, err := NewOllamaEngine("http://localhost:11434", "model-a")
+	engine, err := NewOllamaEngine("http://localhost:11434", "model-a", 768)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestOllamaEngineModelAccessIsConcurrentSafe(t *testing.T) {
 // =============================================================================
 
 func TestOllamaEngine_EmbedBatch_WhenEmpty_ShouldReturnNil(t *testing.T) {
-	engine, err := NewOllamaEngine("http://localhost:11434", "test-model")
+	engine, err := NewOllamaEngine("http://localhost:11434", "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestOllamaEngine_EmbedBatch_WhenMultipleTexts_ShouldCallEmbedForEach(t *tes
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 2)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestOllamaEngine_EmbedBatch_WhenOneTextFails_ShouldReturnError(t *testing.T
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestOllamaEngine_HealthCheck_WhenHealthy_ShouldReturnNil(t *testing.T) {
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestOllamaEngine_HealthCheck_WhenUnhealthy_ShouldReturnError(t *testing.T) 
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestOllamaEngine_HealthCheck_WhenUnhealthy_ShouldReturnError(t *testing.T) 
 }
 
 func TestOllamaEngine_HealthCheck_WhenUnreachable_ShouldReturnError(t *testing.T) {
-	engine, err := NewOllamaEngine("http://127.0.0.1:1", "test-model")
+	engine, err := NewOllamaEngine("http://127.0.0.1:1", "test-model", 768)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestOllamaEngine_Embed_WhenForciblyClosedMessage_ShouldRetry(t *testing.T) 
 	}))
 	defer server.Close()
 
-	engine, err := NewOllamaEngine(server.URL, "test-model")
+	engine, err := NewOllamaEngine(server.URL, "test-model", 3)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
@@ -548,5 +548,30 @@ func TestOllamaEngine_Embed_WhenForciblyClosedMessage_ShouldRetry(t *testing.T) 
 	}
 	if callCount != 3 {
 		t.Errorf("Expected 3 calls, got %d", callCount)
+	}
+}
+
+// An input longer than the model's context fails the same way every time. It
+// is refused once, by name, and never retried.
+func TestOllamaEngine_Embed_WhenInputExceedsContext_ShouldNotRetry(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, `{"error":"the input length exceeds the context length"}`, http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	_, err = engine.Embed(context.Background(), strings.Repeat("word ", 5000))
+	if err == nil || !strings.Contains(err.Error(), "exceeds the context length") || !strings.Contains(err.Error(), "test-model") {
+		t.Fatalf("err = %v, want a context-length error naming the model", err)
+	}
+	if calls != 1 {
+		t.Errorf("the server was called %d times; an input that cannot fit is not retried", calls)
 	}
 }

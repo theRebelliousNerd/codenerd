@@ -6,13 +6,13 @@ import (
 
 func TestNewOllamaEngine(t *testing.T) {
 	t.Run("no model is refused", func(t *testing.T) {
-		if engine, err := NewOllamaEngine("", ""); err == nil {
+		if engine, err := NewOllamaEngine("", "", 768); err == nil {
 			t.Fatalf("expected an error for an unconfigured model, got an engine running %q", engine.model)
 		}
 	})
 
 	t.Run("default endpoint", func(t *testing.T) {
-		engine, err := NewOllamaEngine("", "custom-model")
+		engine, err := NewOllamaEngine("", "custom-model", 768)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -22,7 +22,7 @@ func TestNewOllamaEngine(t *testing.T) {
 	})
 
 	t.Run("custom parameters", func(t *testing.T) {
-		engine, err := NewOllamaEngine("http://custom:11434/", "custom-model")
+		engine, err := NewOllamaEngine("http://custom:11434/", "custom-model", 768)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -35,7 +35,7 @@ func TestNewOllamaEngine(t *testing.T) {
 	})
 
 	t.Run("embeddinggemma defaults to tagged version", func(t *testing.T) {
-		engine, err := NewOllamaEngine("", "embeddinggemma")
+		engine, err := NewOllamaEngine("", "embeddinggemma", 768)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -46,7 +46,7 @@ func TestNewOllamaEngine(t *testing.T) {
 }
 
 func TestOllamaEngine_Properties(t *testing.T) {
-	engine, err := NewOllamaEngine("http://test:11434", "test-model")
+	engine, err := NewOllamaEngine("http://test:11434", "test-model", 768)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

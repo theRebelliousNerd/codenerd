@@ -45,14 +45,7 @@ func (m Model) runReembedAllDBs() tea.Cmd {
 		if cfg != nil {
 			ucEmb = cfg.GetEmbeddingConfig()
 		}
-		embCfg := embedding.Config{
-			Provider:       ucEmb.Provider,
-			OllamaEndpoint: ucEmb.OllamaEndpoint,
-			OllamaModel:    ucEmb.OllamaModel,
-			GenAIAPIKey:    ucEmb.GenAIAPIKey,
-			GenAIModel:     ucEmb.GenAIModel,
-			TaskType:       ucEmb.TaskType,
-		}
+		embCfg := ucEmb.EngineConfig()
 
 		engine, err := embedding.NewEngine(embCfg)
 		if err != nil {

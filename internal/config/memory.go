@@ -1,6 +1,10 @@
 package config
 
-import "strings"
+import (
+	"strings"
+
+	"codenerd/internal/embedding"
+)
 
 // MemoryConfig configures the memory shards.
 type MemoryConfig struct {
@@ -26,6 +30,12 @@ type EmbeddingConfig struct {
 	// Ollama Configuration (local embedding server)
 	OllamaEndpoint string `yaml:"ollama_endpoint" json:"ollama_endpoint"` // Default: "http://localhost:11434"
 	OllamaModel    string `yaml:"ollama_model" json:"ollama_model"`       // Required for provider=ollama; no default
+	// Dimensions is the length of the vectors the configured model returns
+	// (embeddinggemma and nomic-embed-text: 768). It sizes the sqlite-vec index,
+	// so it is the user's to state, like the model: there is no default, and the
+	// first vector that comes back a different length is an error that names
+	// both numbers. Changing it means `nerd embedding reembed`.
+	Dimensions int `yaml:"dimensions" json:"dimensions"`
 
 	// GenAI Configuration (Google cloud embedding)
 	GenAIAPIKey string `yaml:"genai_api_key" json:"genai_api_key"`
@@ -160,5 +170,22 @@ func DefaultEmbeddingConfig() *EmbeddingConfig {
 		// No embedding model: the workspace names one in .nerd/config.json.
 		GenAIAPIKey: "",
 		TaskType:    "SEMANTIC_SIMILARITY",
+	}
+}
+
+// EngineConfig is the embedding engine configuration for these settings. It is
+// the only conversion: twelve call sites used to copy the fields by hand, and
+// the two that skipped the copy (the campaign document ingestor, a factory
+// fallback) built engines from embedding.DefaultConfig and never read the
+// user's file -- invisible while a default model existed.
+func (c EmbeddingConfig) EngineConfig() embedding.Config {
+	return embedding.Config{
+		Provider:       c.Provider,
+		OllamaEndpoint: c.OllamaEndpoint,
+		OllamaModel:    c.OllamaModel,
+		Dimensions:     c.Dimensions,
+		GenAIAPIKey:    c.GenAIAPIKey,
+		GenAIModel:     c.GenAIModel,
+		TaskType:       c.TaskType,
 	}
 }

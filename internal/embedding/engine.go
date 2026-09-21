@@ -64,11 +64,14 @@ type Config struct {
 
 	// Ollama Configuration
 	OllamaEndpoint string `json:"ollama_endpoint"` // Default: "http://localhost:11434"
-	OllamaModel    string `json:"ollama_model"`    // Default: "embeddinggemma:300m"
+	OllamaModel    string `json:"ollama_model"`    // Required for provider=ollama; no default
+	// Dimensions is the vector length the Ollama model returns. Required for
+	// provider=ollama; no default.
+	Dimensions int `json:"dimensions"`
 
 	// GenAI Configuration
 	GenAIAPIKey string `json:"genai_api_key"`
-	GenAIModel  string `json:"genai_model"` // Default: "gemini-embedding-001"
+	GenAIModel  string `json:"genai_model"` // Required for provider=genai; no default
 
 	// TaskType for GenAI: "SEMANTIC_SIMILARITY", "RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT"
 	TaskType string `json:"task_type"`
@@ -105,7 +108,7 @@ func NewEngine(cfg Config) (EmbeddingEngine, error) {
 	case "ollama":
 		logging.Embedding("Initializing Ollama embedding engine: endpoint=%s, model=%s", cfg.OllamaEndpoint, cfg.OllamaModel)
 		var oe *OllamaEngine
-		oe, err = NewOllamaEngine(cfg.OllamaEndpoint, cfg.OllamaModel)
+		oe, err = NewOllamaEngine(cfg.OllamaEndpoint, cfg.OllamaModel, cfg.Dimensions)
 		if err == nil {
 			// Best-effort ensure at construction so first embed isn't the first
 			// time we discover a missing model. Short timeout so a down Ollama
