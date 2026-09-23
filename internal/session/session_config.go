@@ -5,7 +5,6 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
-	"codenerd/internal/types"
 )
 
 // defaultSessionPolicy is the `session` section's defaults, resolved: what an
@@ -67,34 +66,13 @@ func (c ExecutorConfig) sessionRepairMaxAttempts() int {
 }
 
 // ensureSessionParams puts the executor's thresholds into the kernel as
-// config_param rows before a rule that reads them is asked. The kernel is
-// shared and outlives a config, and a rule over an absent threshold derives
-// nothing, so a row that is missing or holds another value is replaced; one
-// that already holds this value is left alone, since config_param is
-// replicated into every shard and re-asserting it re-evaluates all of them.
+// config_param rows before a rule that reads them is asked
+// (config.EnsureParams).
 func (e *Executor) ensureSessionParams() {
 	if e.kernel == nil {
 		return
 	}
-	held := map[string]int64{}
-	if rows, err := e.kernel.Query(config.ConfigParamPredicate); err == nil {
-		for _, f := range rows {
-			if len(f.Args) != 2 {
-				continue
-			}
-			if v, ok := f.Args[1].(int64); ok {
-				held[types.ExtractString(f.Args[0])] = v
-			}
-		}
-	}
-	for _, f := range config.ParamFacts(e.configSnapshot().sessionParams()) {
-		key := types.ExtractString(f.Args[0])
-		if v, ok := held[key]; ok && v == f.Args[1].(int64) {
-			continue
-		}
-		_ = e.kernel.RetractFact(types.Fact{Predicate: f.Predicate, Args: []any{f.Args[0]}})
-		if err := e.kernel.Assert(f); err != nil {
-			logging.Get(logging.CategorySession).Error("session policy param %s was not asserted: %v", key, err)
-		}
+	if err := config.EnsureParams(e.kernel, e.configSnapshot().sessionParams()); err != nil {
+		logging.Get(logging.CategorySession).Error("session policy params were not asserted: %v", err)
 	}
 }

@@ -23,17 +23,17 @@ Decl delegate_task(ShardType, TaskDescription, Status) bound [/name, /string, /n
 # the 0.0-1.0 float, matching the action_verified convention).
 Decl delegation_candidate(IntentID, ShardType, Confidence) bound [/name, /name, /number].
 
-# should_delegate(ShardType) - derived: the current intent should be delegated to
-# ShardType. Replaces the hardcoded `shardType != "" && intent.Confidence >= 0.5`
-# boolean at cmd/nerd/chat/process.go. Queried by Go, which falls back to the
-# legacy Go boolean if the kernel is unavailable or returns nothing.
+# should_delegate(ShardType) - derived: the current intent passes the
+# delegation gate for ShardType (confidence at or above
+# routing.delegation_min_confidence). Read through route_decision; Go has no
+# copy of the gate.
 Decl should_delegate(ShardType) bound [/name].
 
 # -----------------------------------------------------------------------------
 # 6.0.1 Routing Arbitration (single decision point per turn)
 # Rules live in policy/routing_arbitration.mg. Go asserts the per-turn EDB
 # (user_intent, intent_signal, delegation_candidate, multi_step_signal), queries
-# route_decision once, and executes exactly one lane. This replaces the old
+# route_decision once, and executes the one lane that derived, or none. This replaces the old
 # scattered Go gates (follow-up substring detector, stability bypass, ad-hoc
 # confidence booleans) that made identical inputs route differently depending
 # on hidden session state.
@@ -47,6 +47,11 @@ Decl route_decision(Route, ShardType) bound [/name, /name].
 # wants_direct_answer() - derived: the user is asking for an answer (question or
 # conversation), so the turn must terminate in prose, not shard work.
 Decl wants_direct_answer() bound [].
+
+# multi_step_lane() - derived: the turn decomposes (a multi-step mutation that
+# is not answered directly). Negated by the delegate and clarify lanes, so
+# route_decision holds for one lane at most.
+Decl multi_step_lane() bound [].
 
 # conversational_verb(Verb) - vocabulary: verbs whose outcome is always prose.
 Decl conversational_verb(Verb) bound [/name].

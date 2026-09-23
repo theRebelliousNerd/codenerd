@@ -1,15 +1,20 @@
 # Routing Arbitration — the single DECIDE point for an interactive turn.
 #
-# Perception (fast model) emits typed facts; this file derives exactly which
-# lane the turn takes. Go executes whatever derived and adds NO additional
-# routing opinions of its own (it only falls back to the legacy booleans when
-# the kernel is unavailable).
+# Perception (fast model) emits typed facts; this file derives which lane the
+# turn takes. Go executes the lane that derived and has no routing opinion of
+# its own. At most one lane derives, and none is a decision too: the turn is
+# answered by articulation, with nothing delegated or decomposed. A kernel
+# that cannot be asked routes the same way (cmd/nerd/chat/delegation_routing.go).
+# Until 2026-09-23 an empty derivation fell back to Go copies of the delegation
+# and multi-step gates, which answered in place of the kernel's "no" (sweep
+# finding F12).
 #
 # EDB inputs (asserted by Go per turn, retract-before-assert):
 #   user_intent(/current_intent, Category, Verb, Target, Constraint)
 #   intent_signal(/is_question)            — perception's is_question signal
 #   delegation_candidate(/current_intent, Shard, Conf)
 #   multi_step_signal(Signal)
+#   config_param(/routing_delegation_min_confidence, Min)  (routing section)
 #
 # Derived outputs (queried by Go):
 #   route_decision(/respond_directly, /none)  — answer with prose, no shards
@@ -17,11 +22,12 @@
 #   route_decision(/multi_step, /none)        — decompose into steps
 #   route_decision(/delegate, Shard)          — hand to a shard
 #
-# Lane precedence when multiple derive (Go applies in this order):
+# Lane precedence, derived here so that one lane at most holds:
 #   respond_directly > multi_step > delegate > clarify
-# respond_directly is mutually exclusive with the rest by construction
-# (!wants_direct_answer() on every other rule); multi_step/delegate can
-# co-derive and Go prefers decomposition, matching the legacy waterfall order.
+# respond_directly excludes the rest (!wants_direct_answer() on every other
+# lane); multi_step excludes delegate and clarify (!multi_step_lane()); a
+# single candidate cannot be both at and below the confidence threshold, so
+# delegate and clarify exclude each other by construction.
 
 # =============================================================================
 # Vocabulary
@@ -92,15 +98,20 @@ route_decision(/respond_directly, /none) :-
 
 # Decompose multi-step MUTATIONS only. Questions are never decomposed — a
 # multi-part question is still answered in one prose pass.
-route_decision(/multi_step, /none) :-
+multi_step_lane() :-
     is_multi_step(),
     user_intent(/current_intent, /mutation, _, _, _),
     !wants_direct_answer().
 
-# Delegate when the confidence gate passes (should_delegate, delegation.mg).
+route_decision(/multi_step, /none) :-
+    multi_step_lane().
+
+# Delegate when the confidence gate passes (should_delegate, delegation.mg),
+# unless the turn decomposes: the decomposition runs the steps.
 route_decision(/delegate, Shard) :-
     should_delegate(Shard),
-    !wants_direct_answer().
+    !wants_direct_answer(),
+    !multi_step_lane().
 
 # Clarify actionable-but-uncertain mutations: a shard exists for the verb but
 # perception confidence is below the delegation gate.
@@ -108,5 +119,7 @@ route_decision(/clarify, /none) :-
     user_intent(/current_intent, /mutation, _, _, _),
     delegation_candidate(/current_intent, Shard, Conf),
     /none != Shard,
-    Conf < 50,
-    !wants_direct_answer().
+    config_param(/routing_delegation_min_confidence, Min),
+    Conf < Min,
+    !wants_direct_answer(),
+    !multi_step_lane().

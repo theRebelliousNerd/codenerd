@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 
@@ -584,7 +585,7 @@ func TestE2E_TaskRouting_MultiStep_DetectionFires(t *testing.T) {
 	})
 
 	// "Add auth middleware, update tests, and document the new API"
-	// detectMultiStepTask triggers on "and", which is a multiStepKeyword.
+	// The kernel's /multi_step lane decides whether this decomposes.
 	outcome := routeInput(t, m, "Add auth middleware, update tests, and document the new API")
 
 	// Multi-step detection runs at line 371, before shard delegation at line 384.
@@ -874,4 +875,34 @@ func TestE2E_TaskRouting_ArbitrationMatrix(t *testing.T) {
 				outcome.MsgType, outcome.IsLoading, outcome.HasError, outcome.HasClarify, outcome.HasCampaign)
 		})
 	}
+}
+
+// =============================================================================
+// The kernel's "no" is the answer (sweep finding F12)
+// =============================================================================
+
+// A turn the kernel does not route to a shard is not delegated. Until
+// 2026-09-23 an empty route_decision fell back to shouldDelegate, whose Go
+// copy of the gate (confidence >= 0.5) replaced the kernel's "no": this 0.6
+// review under a threshold of 70 went to the reviewer.
+func TestE2E_TaskRouting_BelowTheConfiguredThreshold_NoDelegation(t *testing.T) {
+	m, _ := setupRoutingModel(t, perception.Intent{
+		Category:   "/query",
+		Verb:       "/review",
+		Target:     "internal/core/kernel.go",
+		Confidence: 0.6,
+		Response:   "I'll review internal/core/kernel.go.",
+	})
+	m.Config = &config.UserConfig{Routing: &config.RoutingConfig{DelegationMinConfidence: 70}}
+
+	outcome := routeInput(t, m, "review internal/core/kernel.go")
+
+	if msg, ok := outcome.RawMsg.(assistantMsg); ok && msg.ShardResult != nil {
+		t.Errorf("delegated to %s below the configured threshold", msg.ShardResult.ShardType)
+	}
+	if _, ok := outcome.RawMsg.(errorMsg); ok {
+		t.Errorf("a shard spawn was attempted below the configured threshold: %v", outcome.RawMsg)
+	}
+	assertNoCampaignStarted(t, outcome)
+	assertNoMultistep(t, outcome)
 }

@@ -205,14 +205,14 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Log rich perception result with routing-actionable data.
 		// Use resolveShardTypeForIntent so LLM-suggested primary_shard (e.g.
 		// researcher for "teach me the codebase") is not dropped.
+		// Whether the turn delegates is the kernel's route decision (1.3.5),
+		// logged there; this line records only what perception produced.
 		shardType := resolveShardTypeForIntent(intent)
-		willDelegate := shardType != "" && intent.Confidence >= 0.5
 		willConverse := shardType == "" && intent.Response != "" && isConversationalIntent(intent)
-		willArticulate := !willDelegate && !willConverse
-		logging.Routing("[processInput] PERCEPTION complete: %dms | verb=%s category=%s target=%q confidence=%.2f | routing: shardType=%s willDelegate=%v willConverse=%v willArticulate=%v system_shard=%v | response_len=%d ambiguity=%v",
+		logging.Routing("[processInput] PERCEPTION complete: %dms | verb=%s category=%s target=%q confidence=%.2f | candidate shard=%s system_shard=%v | response_len=%d ambiguity=%v",
 			time.Since(perceptionStart).Milliseconds(), intent.Verb, intent.Category,
 			truncateSummary(intent.Target, 60), intent.Confidence,
-			shardType, willDelegate, willConverse, willArticulate, intentHandledBySystem,
+			shardType, intentHandledBySystem,
 			len(intent.Response), intent.Ambiguity)
 
 		// Glass Box: Emit perception event (immediate → chat stream)
@@ -348,8 +348,8 @@ func (m Model) processInput(input string) tea.Cmd {
 		// (policy/routing_arbitration.mg): respond_directly, clarify,
 		// multi_step, or delegate. Questions and conversation terminate in
 		// prose — no clarifier shards, no decomposition, no delegation, no
-		// autopoiesis analysis. RouteLegacy (kernel unavailable/no opinion)
-		// preserves the legacy Go gates below.
+		// autopoiesis analysis. RouteNone (no lane derived, or no kernel to
+		// ask) delegates and decomposes nothing: articulation answers.
 		route := m.decideRoute(input, intent, shardType)
 		answerDirectly := route.Kind == RouteRespondDirectly
 		routeWantsClarify := route.Kind == RouteClarify
@@ -434,18 +434,9 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
-		// 1.5 MULTI-STEP TASK DETECTION: Check if task requires multiple steps
-		// This implements autonomous multi-step execution without campaigns.
-		// The kernel's route decision is authoritative; the legacy detector
-		// only runs when the kernel had no opinion.
-		isMultiStep := false
-		switch route.Kind {
-		case RouteMultiStep:
-			isMultiStep = true
-		case RouteLegacy:
-			isMultiStep = m.detectMultiStepTask(input, intent)
-		}
-		if isMultiStep {
+		// 1.5 MULTI-STEP: autonomous multi-step execution without campaigns,
+		// when the kernel derived the /multi_step lane.
+		if route.Kind == RouteMultiStep {
 			m.ReportStatus("Multi-step: decomposing task...")
 			steps := decomposeTask(input, intent, m.workspace)
 			if len(steps) > 1 {
@@ -454,10 +445,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
-		// 1.6 DELEGATION CHECK: Route to appropriate shard if verb indicates delegation
-		// This implements automatic shard spawning from natural language
-		// Uses verification loop to ensure quality (no mock code, no placeholders)
+		// 1.6 DELEGATION: the kernel's /delegate lane names the shard, and
+		// only that lane delegates. Uses the verification loop to ensure
+		// quality (no mock code, no placeholders).
 		shardType = resolveShardTypeForIntent(intent)
+		delegateNow := route.Kind == RouteDelegate
+		if delegateNow {
+			shardType = route.Shard
+		}
 
 		// Glass Box: Emit routing decision
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -478,10 +473,6 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
-		delegateNow := route.Kind == RouteDelegate && !routeWantsClarify
-		if route.Kind == RouteLegacy {
-			delegateNow = m.shouldDelegate(shardType, intent.Confidence)
-		}
 		if delegateNow {
 			needsWsScan := m.needsWorkspaceScanForDelegation(intent)
 			logging.Routing("[processInput] ACT: delegating | shard=%s verb=%s target=%q confidence=%.2f | needsWorkspaceScan=%v alreadyScanned=%v | elapsed=%dms",

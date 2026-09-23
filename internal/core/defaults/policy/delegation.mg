@@ -323,19 +323,23 @@ intent_requires_reasoning_model(Verb) :-
 # sound left to migrate, so no rule is written (per the repo guardrail against
 # unbounded recursion / counter facts, and to avoid a consumer-less dead rule).
 
-# Step 4: DELEGATION DECISION (confidence gate moved from Go to policy).
-# Go computes the verb->shard lookup and the perception confidence and asserts
-# delegation_candidate(/current_intent, ShardType, Conf). This rule applies the
-# gate: delegate only to a real shard (not /none) when confidence is at least 50
-# (== the legacy intent.Confidence >= 0.5 boundary). The verb->shard LOOKUP
-# itself stays in Go (GetShardTypeForVerb) because its source data (verb_def) is
-# siloed in the perception taxonomy engine, not this kernel; only the DECISION
-# migrates. Go queries should_delegate and falls back to the legacy boolean if
-# the kernel is unavailable or returns nothing.
+# Step 4: DELEGATION DECISION. Go computes the verb->shard lookup and the
+# perception confidence and asserts delegation_candidate(/current_intent,
+# ShardType, Conf). This rule applies the gate: delegate only to a real shard
+# (not /none) when the confidence is at least routing.delegation_min_confidence
+# (a percent, from .nerd/config.json). The verb->shard LOOKUP stays in Go
+# (GetShardTypeForVerb) because its source data (verb_def) is siloed in the
+# perception taxonomy engine, not this kernel. The DECISION is only here: chat
+# kept a Go copy (confidence >= 0.5) that answered in place of this rule's
+# "no" until 2026-09-23 (sweep finding F12). The lane is read through
+# route_decision (routing_arbitration.mg).
+config_param_required(/routing, /routing_delegation_min_confidence).
+
 should_delegate(ShardType) :-
     delegation_candidate(/current_intent, ShardType, Conf),
     /none != ShardType,
-    Conf >= 50.
+    config_param(/routing_delegation_min_confidence, Min),
+    Conf >= Min.
 
 # Step 5: MULTI-STEP CLASSIFICATION (decision moves to policy; extraction stays
 # in Go). Go's detectMultiStepTask computes the individual signals from the
@@ -343,8 +347,8 @@ should_delegate(ShardType) :-
 # >= 3, compound-pattern regex — and asserts one multi_step_signal fact per
 # detected signal. The regex/keyword/verb-count MATCHING itself stays in Go
 # (Mangle is not used for fuzzy/NL pattern banks per the repo guardrails); only
-# the combination DECISION lives here. Go queries is_multi_step and falls back
-# to the legacy boolean if the kernel is unavailable or returns nothing.
+# the combination DECISION lives here, and route_decision reads it
+# (routing_arbitration.mg). Go has no copy of the combination.
 #
 # Tuned (routing reliability): the original rule ORed ALL signals, so a single
 # weak keyword hit ("also", "then ", a numbered list in pasted text) decomposed

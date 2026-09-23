@@ -22,7 +22,6 @@ import (
 	"sync"
 
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
 )
 
 // kernelPatternCache caches patterns loaded from kernel
@@ -734,25 +733,6 @@ func MatchMultiStepPattern(input string) (*MultiStepPattern, []string) {
 	}
 
 	return bestMatch, bestCaptures
-}
-
-// DetectMultiStepFromCorpus uses the encyclopedic corpus for detection
-func DetectMultiStepFromCorpus(input string, intent perception.Intent) (bool, *MultiStepPattern, []string) {
-	// First try corpus matching
-	pattern, captures := MatchMultiStepPattern(input)
-	if pattern != nil {
-		return true, pattern, captures
-	}
-
-	// Fallback to legacy signal detection. This corpus helper has no kernel
-	// handle, so it uses the pure Go signal extractor directly (any signal =>
-	// multi-step). The kernel-gated decision lives at the primary call site
-	// (Model.detectMultiStepTask in process.go).
-	if len(multiStepSignals(input, intent)) > 0 {
-		return true, nil, nil // Multi-step detected but no specific pattern matched
-	}
-
-	return false, nil, nil
 }
 
 // GetVerbPairsForPattern returns common verb combinations for a pattern

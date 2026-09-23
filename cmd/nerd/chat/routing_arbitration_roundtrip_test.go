@@ -3,9 +3,23 @@ package chat
 import (
 	"testing"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 )
+
+// newRoundtripModel is a test model on a real kernel loaded with the embedded
+// policy corpus.
+func newRoundtripModel(t *testing.T) Model {
+	t.Helper()
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel failed: %v", err)
+	}
+	m := NewTestModel()
+	m.kernel = k
+	return m
+}
 
 // intentToKernelFact mirrors the exact user_intent fact shape process.go
 // asserts during kernel seeding (string args; the kernel coerces "/..." to
@@ -32,8 +46,11 @@ func intentToKernelFact(intent perception.Intent) core.Fact {
 //     shard candidate exists (the "what is the JIT system?" 20-minute bug);
 //  2. workhorse verbs delegate even when phrased as questions;
 //  3. mutations split into delegate / clarify / multi_step lanes;
-//  4. the nil-kernel fail-safe returns RouteLegacy;
-//  5. per-turn retracts prevent cross-turn signal contamination.
+//  4. a kernel that cannot be asked decides nothing (RouteNone), and so does
+//     an empty derivation: no Go gate answers in the kernel's place;
+//  5. per-turn retracts prevent cross-turn signal contamination;
+//  6. the delegation threshold is the routing section's, and one lane at
+//     most derives.
 
 // assertRouteIntent mirrors production: user_intent must be in the kernel
 // before decideRoute runs (process.go seeds it before arbitration).
@@ -168,12 +185,90 @@ func TestDecideRoute_MutationLanes(t *testing.T) {
 	})
 }
 
-func TestDecideRoute_NilKernelFallsBackToLegacy(t *testing.T) {
+// A kernel that cannot be asked delegates nothing. Until 2026-09-23 this
+// returned RouteLegacy, and the caller delegated this confident mutation on a
+// Go copy of the gate.
+func TestDecideRoute_NilKernelDecidesNothing(t *testing.T) {
 	m := NewTestModel() // kernel nil
-	intent := perception.Intent{Category: "/query", Verb: "/explain", IsQuestion: true}
-	route := m.decideRoute("what is this?", intent, "")
-	if route.Kind != RouteLegacy {
-		t.Errorf("route = %s, want legacy with nil kernel", route.Kind)
+	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.93}
+	route := m.decideRoute("fix the typo in README.md", intent, "coder")
+	if route.Kind != RouteNone {
+		t.Errorf("route = %s, want none with no kernel to ask", route.Kind)
+	}
+}
+
+// The delegation threshold is routing.delegation_min_confidence, and the
+// kernel's "no" is the answer (sweep finding F12: chat replaced it with
+// confidence >= 0.5, so a 0.6 turn delegated under a threshold of 70).
+func TestDecideRoute_DelegationThresholdIsTheConfigs(t *testing.T) {
+	m := newRoundtripModel(t)
+	m.Config = &config.UserConfig{Routing: &config.RoutingConfig{DelegationMinConfidence: 70}}
+
+	review := perception.Intent{Category: "/query", Verb: "/review", Target: "internal/core/kernel.go", Confidence: 0.6}
+	assertRouteIntent(t, m, review)
+	if route := m.decideRoute("review internal/core/kernel.go", review, "reviewer"); route.Kind != RouteNone {
+		t.Errorf("a 0.6 review under a threshold of 70: route = %s/%q, want none", route.Kind, route.Shard)
+	}
+
+	if err := m.kernel.Retract("user_intent"); err != nil {
+		t.Fatal(err)
+	}
+	fix := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.6}
+	assertRouteIntent(t, m, fix)
+	if route := m.decideRoute("fix the typo in README.md", fix, "coder"); route.Kind != RouteClarify {
+		t.Errorf("a 0.6 mutation under a threshold of 70: route = %s, want clarify", route.Kind)
+	}
+
+	fix.Confidence = 0.75
+	if route := m.decideRoute("fix the typo in README.md", fix, "coder"); route.Kind != RouteDelegate || route.Shard != "coder" {
+		t.Errorf("a 0.75 mutation under a threshold of 70: route = %s/%q, want delegate/coder", route.Kind, route.Shard)
+	}
+
+	// The kernel outlives a config: a changed threshold replaces the row.
+	m.Config.Routing.DelegationMinConfidence = 50
+	fix.Confidence = 0.6
+	if route := m.decideRoute("fix the typo in README.md", fix, "coder"); route.Kind != RouteDelegate {
+		t.Errorf("a 0.6 mutation after the threshold became 50: route = %s, want delegate", route.Kind)
+	}
+}
+
+// One lane at most derives, and decomposition is the one when a confident
+// mutation also decomposes. Before the precedence moved into the policy both
+// rows derived and a Go switch picked.
+func TestDecideRoute_OneLaneAtMost(t *testing.T) {
+	m := newRoundtripModel(t)
+	intent := perception.Intent{Category: "/mutation", Verb: "/create", Target: "auth middleware", Confidence: 0.95}
+	assertRouteIntent(t, m, intent)
+	if route := m.decideRoute("create the auth middleware and write tests for it", intent, "coder"); route.Kind != RouteMultiStep {
+		t.Fatalf("route = %s, want multi_step", route.Kind)
+	}
+	rows, err := m.kernel.Query("route_decision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("route_decision holds %d rows, want 1: %v", len(rows), rows)
+	}
+}
+
+// Turn 1 decomposes (multi_step_signal rows asserted); turn 2 is a one-step
+// fix. If turn 1's signals lingered, turn 2 would decompose too. Only
+// decideRoute's in-method retract protects turn 2.
+func TestDecideRoute_MultiStepSignalsDoNotCarryOver(t *testing.T) {
+	m := newRoundtripModel(t)
+	create := perception.Intent{Category: "/mutation", Verb: "/create", Target: "auth middleware", Confidence: 0.95}
+	assertRouteIntent(t, m, create)
+	if route := m.decideRoute("create the auth middleware and write tests for it", create, "coder"); route.Kind != RouteMultiStep {
+		t.Fatalf("turn 1: route = %s, want multi_step", route.Kind)
+	}
+
+	if err := m.kernel.Retract("user_intent"); err != nil {
+		t.Fatal(err)
+	}
+	fix := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.93}
+	assertRouteIntent(t, m, fix)
+	if route := m.decideRoute("rename the variable", fix, "coder"); route.Kind != RouteDelegate {
+		t.Errorf("turn 2 CONTAMINATED: route = %s, want delegate (stale multi_step_signal)", route.Kind)
 	}
 }
 
@@ -266,26 +361,6 @@ func TestMultiStepSignals_WeakKeywordsRemoved(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("explicit sequencing %q did not produce /keyword_match", input)
-		}
-	}
-}
-
-func TestLegacyMultiStepDecision_MirrorsPolicy(t *testing.T) {
-	cases := []struct {
-		name    string
-		signals []string
-		want    bool
-	}{
-		{"empty", nil, false},
-		{"campaign_alone", []string{"/campaign_verb"}, true},
-		{"compound_alone", []string{"/compound_pattern"}, true},
-		{"keyword_alone", []string{"/keyword_match"}, false},
-		{"verb_count_alone", []string{"/verb_count_high"}, false},
-		{"keyword_plus_verb_count", []string{"/keyword_match", "/verb_count_high"}, true},
-	}
-	for _, tc := range cases {
-		if got := legacyMultiStepDecision(tc.signals); got != tc.want {
-			t.Errorf("%s: legacyMultiStepDecision(%v) = %v, want %v", tc.name, tc.signals, got, tc.want)
 		}
 	}
 }

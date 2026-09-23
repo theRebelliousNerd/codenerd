@@ -3,6 +3,7 @@ package core
 import (
 	"testing"
 
+	"codenerd/internal/config"
 	"codenerd/internal/types"
 )
 
@@ -36,8 +37,20 @@ func queryDerived(t *testing.T, k *RealKernel, query string) bool {
 	return len(facts) > 0
 }
 
+// routingKernel is setupMockKernel holding the routing section's threshold,
+// asserted as chat's decideRoute asserts it before it asks.
+func routingKernel(t *testing.T, minConfidence int) *RealKernel {
+	t.Helper()
+	k := setupMockKernel(t)
+	if err := config.EnsureParams(k, config.RoutingConfig{DelegationMinConfidence: minConfidence}.Params()); err != nil {
+		t.Fatalf("assert the routing params: %v", err)
+	}
+	return k
+}
+
 // -----------------------------------------------------------------------------
-// Step 4: should_delegate/1 — confidence gate (Conf >= 50, ShardType != /none)
+// Step 4: should_delegate/1 — confidence gate (Conf >= the routing section's
+// delegation_min_confidence, ShardType != /none)
 // -----------------------------------------------------------------------------
 
 func TestStep4_ShouldDelegate_ConfidenceGate(t *testing.T) {
@@ -59,7 +72,7 @@ func TestStep4_ShouldDelegate_ConfidenceGate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			k := setupMockKernel(t)
+			k := routingKernel(t, 50)
 			if err := k.Assert(Fact{
 				Predicate: "delegation_candidate",
 				Args:      []any{"/current_intent", tc.shard, tc.conf},
@@ -76,10 +89,34 @@ func TestStep4_ShouldDelegate_ConfidenceGate(t *testing.T) {
 	}
 }
 
+// The threshold is the config's, and without it nothing is delegated: the
+// kernel names the missing key instead.
+func TestStep4_ShouldDelegate_ThresholdIsTheConfigs(t *testing.T) {
+	k := routingKernel(t, 70)
+	mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(60))
+	if queryDerived(t, k, "should_delegate") {
+		t.Error("should_delegate derived for 60 under a threshold of 70")
+	}
+	k = routingKernel(t, 70)
+	mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(70))
+	if !queryDerived(t, k, "should_delegate(/coder)") {
+		t.Error("should_delegate not derived at the threshold of 70")
+	}
+
+	k = setupMockKernel(t)
+	mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(95))
+	if queryDerived(t, k, "should_delegate") {
+		t.Error("should_delegate derived with no threshold in the kernel")
+	}
+	if !queryDerived(t, k, "config_param_missing(/routing, /routing_delegation_min_confidence)") {
+		t.Error("the missing routing threshold is not named")
+	}
+}
+
 // TestStep4_ShouldDelegate_BindsShardType confirms the derived fact carries the
 // candidate's shard (not /none, not a wildcard) so the consumer can read it.
 func TestStep4_ShouldDelegate_BindsShardType(t *testing.T) {
-	k := setupMockKernel(t)
+	k := routingKernel(t, 50)
 	if err := k.Assert(Fact{
 		Predicate: "delegation_candidate",
 		Args:      []any{"/current_intent", types.MangleAtom("/researcher"), int64(75)},
@@ -320,7 +357,7 @@ func assertIntent(t *testing.T, k *RealKernel, category, verb, target string) {
 func TestRouting_QuestionAnswersDirectly(t *testing.T) {
 	for _, verb := range []string{"/explain", "/analyze", "/research", "/explore"} {
 		t.Run(verb, func(t *testing.T) {
-			k := setupMockKernel(t)
+			k := routingKernel(t, 50)
 			assertIntent(t, k, "/query", verb, "jit system")
 			mustAssert(t, k, "intent_signal", types.MangleAtom("/is_question"))
 			// High-confidence shard candidate exists (the old behavior would delegate).
@@ -347,7 +384,7 @@ func TestRouting_QuestionAnswersDirectly(t *testing.T) {
 func TestRouting_ConversationalVerbsAlwaysDirect(t *testing.T) {
 	for _, verb := range []string{"/greet", "/converse", "/help", "/knowledge", "/explain"} {
 		t.Run(verb, func(t *testing.T) {
-			k := setupMockKernel(t)
+			k := routingKernel(t, 50)
 			assertIntent(t, k, "/query", verb, "none")
 			if !queryDerived(t, k, "route_decision(/respond_directly, /none)") {
 				t.Errorf("route_decision(/respond_directly) not derived for conversational verb %s", verb)
@@ -359,7 +396,7 @@ func TestRouting_ConversationalVerbsAlwaysDirect(t *testing.T) {
 // TestRouting_WorkhorseQuestionStillDelegates: "can you review my code?" is an
 // action request despite the question phrasing — workhorse verbs delegate.
 func TestRouting_WorkhorseQuestionStillDelegates(t *testing.T) {
-	k := setupMockKernel(t)
+	k := routingKernel(t, 50)
 	assertIntent(t, k, "/query", "/review", "internal/core/kernel.go")
 	mustAssert(t, k, "intent_signal", types.MangleAtom("/is_question"))
 	mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/reviewer"), int64(88))
@@ -376,7 +413,7 @@ func TestRouting_WorkhorseQuestionStillDelegates(t *testing.T) {
 // for uncertain ones, decomposition for multi-step ones.
 func TestRouting_MutationLanes(t *testing.T) {
 	t.Run("confident_mutation_delegates", func(t *testing.T) {
-		k := setupMockKernel(t)
+		k := routingKernel(t, 50)
 		assertIntent(t, k, "/mutation", "/fix", "README.md")
 		mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(93))
 		if !queryDerived(t, k, "route_decision(/delegate, /coder)") {
@@ -388,7 +425,7 @@ func TestRouting_MutationLanes(t *testing.T) {
 	})
 
 	t.Run("uncertain_mutation_clarifies", func(t *testing.T) {
-		k := setupMockKernel(t)
+		k := routingKernel(t, 50)
 		assertIntent(t, k, "/mutation", "/fix", "none")
 		mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(40))
 		if !queryDerived(t, k, "route_decision(/clarify, /none)") {
@@ -400,7 +437,7 @@ func TestRouting_MutationLanes(t *testing.T) {
 	})
 
 	t.Run("multi_step_mutation_decomposes", func(t *testing.T) {
-		k := setupMockKernel(t)
+		k := routingKernel(t, 50)
 		assertIntent(t, k, "/mutation", "/create", "auth middleware")
 		mustAssert(t, k, "multi_step_signal", types.MangleAtom("/compound_pattern"))
 		mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(95))
@@ -410,7 +447,7 @@ func TestRouting_MutationLanes(t *testing.T) {
 	})
 
 	t.Run("multi_step_question_does_not_decompose", func(t *testing.T) {
-		k := setupMockKernel(t)
+		k := routingKernel(t, 50)
 		assertIntent(t, k, "/query", "/explain", "the kernel and the JIT")
 		mustAssert(t, k, "intent_signal", types.MangleAtom("/is_question"))
 		mustAssert(t, k, "multi_step_signal", types.MangleAtom("/compound_pattern"))
@@ -421,6 +458,37 @@ func TestRouting_MutationLanes(t *testing.T) {
 			t.Error("respond_directly not derived for multi-part question")
 		}
 	})
+}
+
+// TestRouting_OneLaneAtMost: precedence is derived, so a turn that qualifies
+// for several lanes holds one route_decision row -- respond_directly >
+// multi_step > delegate > clarify.
+func TestRouting_OneLaneAtMost(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		conf int64
+		want string
+	}{
+		{"confident_compound_mutation", 95, "route_decision(/multi_step, /none)"},
+		{"uncertain_compound_mutation", 40, "route_decision(/multi_step, /none)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k := routingKernel(t, 50)
+			assertIntent(t, k, "/mutation", "/create", "auth middleware")
+			mustAssert(t, k, "multi_step_signal", types.MangleAtom("/compound_pattern"))
+			mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), tc.conf)
+			rows, err := k.Query("route_decision")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 1 {
+				t.Fatalf("route_decision holds %d rows, want 1: %v", len(rows), rows)
+			}
+			if !queryDerived(t, k, tc.want) {
+				t.Errorf("%s not derived: %v", tc.want, rows)
+			}
+		})
+	}
 }
 
 // mustAssert asserts a fact and fails the test on error. Keeps the table cases

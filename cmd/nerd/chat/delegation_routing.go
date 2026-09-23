@@ -21,10 +21,12 @@ import (
 type RouteKind int
 
 const (
-	// RouteLegacy means the kernel was unavailable or produced no decision;
-	// callers fall back to the legacy Go booleans (shouldDelegate,
-	// detectMultiStepTask) so a kernel hiccup never bricks routing.
-	RouteLegacy RouteKind = iota
+	// RouteNone means no lane derived, or the kernel could not be asked: the
+	// turn is answered by articulation, and nothing is delegated or
+	// decomposed. Until 2026-09-23 this was RouteLegacy, and the caller asked
+	// Go copies of the delegation and multi-step gates instead, which answered
+	// in place of the kernel's "no" (sweep finding F12).
+	RouteNone RouteKind = iota
 	// RouteRespondDirectly terminates the turn in prose: no clarifier shards,
 	// no decomposition, no delegation, no autopoiesis analysis.
 	RouteRespondDirectly
@@ -48,7 +50,7 @@ func (k RouteKind) String() string {
 	case RouteDelegate:
 		return "delegate"
 	default:
-		return "legacy"
+		return "none"
 	}
 }
 
@@ -59,21 +61,23 @@ type RouteDecision struct {
 }
 
 // decideRoute asserts this turn's routing EDB (delegation candidate,
-// multi-step signals, perception signals) and asks the kernel for the single
-// route_decision. All lane logic lives in policy/routing_arbitration.mg; this
-// helper only ferries facts in and the decision out.
+// multi-step signals, perception signals, the routing section's thresholds)
+// and asks the kernel for the turn's route_decision. All lane logic,
+// precedence included, lives in policy/routing_arbitration.mg, which derives
+// one lane at most; this helper only ferries facts in and the decision out.
 //
-// Precedence when several lanes derive: respond_directly > multi_step >
-// delegate > clarify (respond_directly is mutually exclusive by construction;
-// multi_step/delegate can co-derive and decomposition wins, matching the
-// legacy waterfall order).
-//
-// Fail-safe: a nil kernel, assert/query error, or empty derivation returns
-// RouteLegacy and the caller uses the legacy Go gates.
+// No lane is a decision: RouteNone. A kernel that cannot be asked (nil, or an
+// assert or query error) routes the same way, loudly: nothing is delegated or
+// decomposed on a decision nobody derived.
 func (m *Model) decideRoute(input string, intent perception.Intent, shardType string) RouteDecision {
-	legacy := RouteDecision{Kind: RouteLegacy}
+	none := RouteDecision{Kind: RouteNone}
 	if m.kernel == nil {
-		return legacy
+		logging.RoutingError("[decideRoute] no kernel to ask: nothing is delegated or decomposed this turn")
+		return none
+	}
+	if err := config.EnsureParams(m.kernel, m.Config.GetRoutingConfig().Params()); err != nil {
+		logging.RoutingError("[decideRoute] the routing thresholds were not asserted: %v", err)
+		return none
 	}
 
 	shardAtomStr := "/none"
@@ -99,16 +103,16 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 		Predicate: "delegation_candidate",
 		Args:      []any{"/current_intent", types.MangleAtom(shardAtomStr), confInt},
 	}); err != nil {
-		logging.Routing("[decideRoute] assert delegation_candidate failed, using legacy gates: %v", err)
-		return legacy
+		logging.RoutingError("[decideRoute] assert delegation_candidate failed: %v", err)
+		return none
 	}
 	for _, sig := range multiStepSignals(input, intent) {
 		if err := m.kernel.Assert(core.Fact{
 			Predicate: "multi_step_signal",
 			Args:      []any{types.MangleAtom(sig)},
 		}); err != nil {
-			logging.Routing("[decideRoute] assert multi_step_signal failed, using legacy gates: %v", err)
-			return legacy
+			logging.RoutingError("[decideRoute] assert multi_step_signal failed: %v", err)
+			return none
 		}
 	}
 	if intent.IsQuestion {
@@ -116,62 +120,58 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 			Predicate: "intent_signal",
 			Args:      []any{types.MangleAtom("/is_question")},
 		}); err != nil {
-			logging.Routing("[decideRoute] assert intent_signal failed, using legacy gates: %v", err)
-			return legacy
+			logging.RoutingError("[decideRoute] assert intent_signal failed: %v", err)
+			return none
 		}
 	}
 
 	facts, err := m.kernel.Query("route_decision")
 	if err != nil {
-		logging.Routing("[decideRoute] query route_decision failed, using legacy gates: %v", err)
-		return legacy
+		logging.RoutingError("[decideRoute] query route_decision failed: %v", err)
+		return none
 	}
 	if len(facts) == 0 {
-		// No lane derived (e.g. /query non-question with no shard mapping).
-		// That is a legitimate "no opinion": fall through to the legacy gates,
-		// which for this shape end at articulation anyway.
-		logging.Routing("[decideRoute] no route_decision derived (verb=%s question=%v shard=%s conf=%d) — legacy gates",
+		// No lane derived (e.g. a /query that is not a question, or a shard
+		// candidate below the threshold that is not a mutation): the turn is
+		// answered by articulation.
+		logging.Routing("[decideRoute] no route_decision derived (verb=%s question=%v shard=%s conf=%d): articulation answers",
 			intent.Verb, intent.IsQuestion, shardAtomStr, confInt)
-		return legacy
+		return none
+	}
+	if len(facts) > 1 {
+		// The policy derives one lane at most; two is a contradiction in it,
+		// and acting on either would be Go picking.
+		logging.RoutingError("[decideRoute] the policy derived %d lanes, not one: %v", len(facts), facts)
+		return none
 	}
 
-	derived := make(map[string]string, len(facts)) // route -> shard
-	for _, f := range facts {
-		if len(f.Args) != 2 {
-			continue
-		}
-		route := types.ExtractString(f.Args[0])
-		shard := strings.TrimPrefix(types.ExtractString(f.Args[1]), "/")
-		if shard == "none" {
-			shard = ""
-		}
-		if _, seen := derived[route]; !seen {
-			derived[route] = shard
-		}
+	f := facts[0]
+	if len(f.Args) != 2 {
+		logging.RoutingError("[decideRoute] malformed route_decision %v", f.Args)
+		return none
 	}
-
+	shard := strings.TrimPrefix(types.ExtractString(f.Args[1]), "/")
+	if shard == "none" {
+		shard = ""
+	}
 	var decision RouteDecision
-	switch {
-	case hasRoute(derived, "/respond_directly"):
+	switch route := types.ExtractString(f.Args[0]); route {
+	case "/respond_directly":
 		decision = RouteDecision{Kind: RouteRespondDirectly}
-	case hasRoute(derived, "/multi_step"):
+	case "/multi_step":
 		decision = RouteDecision{Kind: RouteMultiStep}
-	case hasRoute(derived, "/delegate"):
-		decision = RouteDecision{Kind: RouteDelegate, Shard: derived["/delegate"]}
-	case hasRoute(derived, "/clarify"):
+	case "/delegate":
+		decision = RouteDecision{Kind: RouteDelegate, Shard: shard}
+	case "/clarify":
 		decision = RouteDecision{Kind: RouteClarify}
 	default:
-		return legacy
+		logging.RoutingError("[decideRoute] the policy derived an unknown lane %s", route)
+		return none
 	}
 
-	logging.Routing("[decideRoute] kernel decision: %s shard=%q (verb=%s question=%v candidates=%v)",
-		decision.Kind, decision.Shard, intent.Verb, intent.IsQuestion, derived)
+	logging.Routing("[decideRoute] kernel decision: %s shard=%q (verb=%s question=%v)",
+		decision.Kind, decision.Shard, intent.Verb, intent.IsQuestion)
 	return decision
-}
-
-func hasRoute(derived map[string]string, route string) bool {
-	_, ok := derived[route]
-	return ok
 }
 
 // shouldVerifyDelegation scopes the quality-verification retry loop to
@@ -183,17 +183,6 @@ func shouldVerifyDelegation(intent perception.Intent) bool {
 	return intent.Category == "/mutation"
 }
 
-// shouldDelegate decides whether the current intent should be delegated to a
-// shard. The verb->shard LOOKUP (shardType) is computed in Go by the caller
-// (GetShardTypeForVerb reads the perception taxonomy corpus, which is siloed
-// from the executive kernel). The DELEGATION DECISION — the confidence gate —
-// is migrated to Mangle (Step 4): Go asserts delegation_candidate with the
-// shard and confidence, then queries should_delegate.
-//
-// Fail-safe: if the kernel is nil, the assert/query errors, or the kernel
-// returns no should_delegate fact, fall back to the legacy Go boolean
-// (shardType != "" && confidence >= 0.5). This guarantees a kernel hiccup can
-// never silently disable all delegation — it degrades to the prior behavior.
 // resolveShardTypeForIntent picks a concrete shard for delegation.
 // Priority:
 //  1. Verb corpus mapping (GetShardTypeForVerb)
@@ -225,56 +214,6 @@ func resolveShardTypeForIntent(intent perception.Intent) string {
 		}
 	}
 	return ""
-}
-
-func (m *Model) shouldDelegate(shardType string, confidence float64) bool {
-	legacy := shardType != "" && confidence >= 0.5
-
-	if m.kernel == nil {
-		return legacy
-	}
-
-	// ShardType atom; /none signals "no shard mapped" so the Mangle rule can
-	// reject it without depending on string emptiness.
-	shardAtomStr := "/none"
-	if shardType != "" {
-		if strings.HasPrefix(shardType, "/") {
-			shardAtomStr = shardType
-		} else {
-			shardAtomStr = "/" + shardType
-		}
-	}
-
-	// Scale the 0.0-1.0 confidence float to a 0-100 integer (matches the
-	// action_verified convention; the Mangle gate compares Conf >= 50).
-	confInt := int64(confidence * 100)
-
-	candidate := core.Fact{
-		Predicate: "delegation_candidate",
-		Args:      []any{"/current_intent", types.MangleAtom(shardAtomStr), confInt},
-	}
-	// Retract any stale candidate from a prior turn before asserting this one,
-	// so a leftover high-confidence fact cannot leak into this decision.
-	_ = m.kernel.RetractFact(core.Fact{Predicate: "delegation_candidate", Args: []any{"/current_intent"}})
-	if err := m.kernel.Assert(candidate); err != nil {
-		logging.Routing("[shouldDelegate] assert delegation_candidate failed, using legacy gate: %v", err)
-		return legacy
-	}
-
-	facts, err := m.kernel.Query("should_delegate")
-	if err != nil {
-		logging.Routing("[shouldDelegate] query should_delegate failed, using legacy gate: %v", err)
-		return legacy
-	}
-	if len(facts) == 0 {
-		// No derivation: either no shard mapped or below threshold. The Mangle
-		// rule and the legacy boolean agree on this, so returning the kernel's
-		// "no" is correct; but if the kernel somehow lost the candidate fact we
-		// just asserted, fall back rather than wrongly suppressing delegation.
-		return legacy
-	}
-	// should_delegate(ShardType) derived -> delegate.
-	return true
 }
 
 // shardTypeToTaskRequest maps a shard/persona name OR an intent verb into a

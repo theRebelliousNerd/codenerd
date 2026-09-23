@@ -7,10 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
 	"codenerd/internal/perception"
-	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -140,63 +137,6 @@ func multiStepSignals(input string, intent perception.Intent) []string {
 	}
 
 	return signals
-}
-
-// detectMultiStepTask decides whether input requires multiple steps. Step 5:
-// the EXTRACTION stays in Go (multiStepSignals); the DECISION moves to policy.
-// Go asserts one multi_step_signal fact per detected signal, then queries
-// is_multi_step.
-//
-// Fail-safe: if the kernel is nil, the assert/query errors, or the kernel
-// returns nothing, fall back to a legacy Go boolean that mirrors the policy
-// combination (strong signal alone, or weak keyword corroborated by verb
-// count). A kernel hiccup can never silently disable multi-step detection.
-func (m *Model) detectMultiStepTask(input string, intent perception.Intent) bool {
-	signals := multiStepSignals(input, intent)
-	legacy := legacyMultiStepDecision(signals)
-
-	if m.kernel == nil {
-		return legacy
-	}
-
-	// Clear the prior turn's signals so stale matches cannot leak.
-	_ = m.kernel.Retract("multi_step_signal")
-	for _, sig := range signals {
-		if err := m.kernel.Assert(core.Fact{
-			Predicate: "multi_step_signal",
-			Args:      []any{types.MangleAtom(sig)},
-		}); err != nil {
-			logging.Routing("[detectMultiStepTask] assert multi_step_signal failed, using legacy gate: %v", err)
-			return legacy
-		}
-	}
-
-	facts, err := m.kernel.Query("is_multi_step")
-	if err != nil {
-		logging.Routing("[detectMultiStepTask] query is_multi_step failed, using legacy gate: %v", err)
-		return legacy
-	}
-	if len(facts) == 0 {
-		// No derivation: the combination rule said no (e.g. a weak keyword
-		// signal without corroboration). The legacy boolean mirrors the same
-		// combination, so falling back keeps behavior identical while still
-		// covering the lost-fact edge case.
-		return legacy
-	}
-	return true
-}
-
-// legacyMultiStepDecision mirrors policy/delegation.mg's is_multi_step
-// combination for the kernel-unavailable fallback: strong signals decide
-// alone, the weak keyword signal needs the verb-count corroboration.
-func legacyMultiStepDecision(signals []string) bool {
-	has := func(want string) bool {
-		return slices.Contains(signals, want)
-	}
-	if has("/campaign_verb") || has("/compound_pattern") {
-		return true
-	}
-	return has("/keyword_match") && has("/verb_count_high")
 }
 
 // decomposeTask breaks a complex task into discrete steps using the encyclopedic corpus.

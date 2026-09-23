@@ -197,6 +197,10 @@ type UserConfig struct {
 	// (session.go).
 	Session *SessionConfig `json:"session,omitempty"`
 
+	// Routing is the thresholds the kernel's routing arbitration decides an
+	// interactive turn's lane with (routing.go).
+	Routing *RoutingConfig `json:"routing,omitempty"`
+
 	// =========================================================================
 	// INTEGRATIONS
 	// =========================================================================
@@ -1503,6 +1507,7 @@ func DefaultUserConfig() *UserConfig {
 	browserCfg := DefaultBrowserAutomationConfig()
 	campaign := DefaultCampaignConfig()
 	sessionCfg := DefaultSessionConfig()
+	routingCfg := DefaultRoutingConfig()
 
 	return &UserConfig{
 		Engine:                       "api",
@@ -1525,6 +1530,7 @@ func DefaultUserConfig() *UserConfig {
 		Execution:                    DefaultExecutionConfig(),
 		Campaign:                     &campaign,
 		Session:                      &sessionCfg,
+		Routing:                      &routingCfg,
 		Logging:                      DefaultLoggingConfig(),
 		JIT:                          &jit,
 		LearningCandidateThreshold:   3,
