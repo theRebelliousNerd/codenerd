@@ -679,27 +679,21 @@ Output ONLY the file content, no explanation or markdown fences:`, taskBlock, ta
 	content = extractCodeBlock(content, lang)
 	logging.CampaignDebug("Extracted code block for %s (lang=%s, %d bytes)", targetPath, lang, len(content))
 
-	// F-DOC-2: guard against pathological model repetition loops (observed live:
-	// Grok emitting "1. End. 2. Finish." x1500 as a 19KB artifact). Without this
-	// the degenerate output passes the non-empty check and is counted as task
-	// success. Retry once with an explicit anti-repetition instruction; if the
-	// model still degenerates, persist an honest placeholder rather than garbage.
-	if isDegenerateGeneration(content) {
-		logging.Get(logging.CategoryCampaign).Warn("Fallback generation for %s is degenerate (%d bytes); retrying with anti-repetition guard", task.ID, len(content))
-		retryPrompt := prompt + "\n\nIMPORTANT: Produce a concise, non-repetitive document. Do NOT repeat words, phrases, or numbered lines. Stop as soon as the content is complete."
-		if retried, rerr := o.llmClient.Complete(ctx, retryPrompt); rerr == nil {
-			if rc := extractCodeBlock(retried, lang); rc != "" && !isDegenerateGeneration(rc) {
-				content = rc
-				logging.Campaign("Anti-repetition retry recovered a coherent document for %s (%d bytes)", task.ID, len(content))
-			} else {
-				content = degradedGenerationPlaceholder(task, targetPath)
-				logging.Get(logging.CategoryCampaign).Warn("Retry still degenerate for %s; writing honest degraded placeholder", task.ID)
-			}
-		} else {
-			content = degradedGenerationPlaceholder(task, targetPath)
-			logging.Get(logging.CategoryCampaign).Warn("Anti-repetition retry failed for %s (%v); writing honest degraded placeholder", task.ID, rerr)
-		}
-		o.emitEvent(EventGenerationDegraded, "", task.ID, "fallback document generation was degenerate", nil)
+	// F-DOC-2 (observed live: "1. End. 2. Finish." x1500 written as a 19KB
+	// document and counted done): Go measures the document's words and the
+	// kernel decides whether it is a repetition loop
+	// (generated_output_degenerate). A loop fails the attempt, and the
+	// campaign's retry carries why. Until 2026-09-23 Go decided with four
+	// constants of its own, re-generated with a prompt of its own, and on a
+	// second loop wrote a placeholder the task counted as done (sweep finding
+	// F12).
+	degenerate, err := o.generationDegenerate(task.ID, content)
+	if err != nil {
+		return nil, fail(fmt.Errorf("judge the generated %s: %w", targetPath, err))
+	}
+	if degenerate {
+		o.emitEvent(EventGenerationDegraded, task.PhaseID, task.ID, "the generated document is a repetition loop", nil)
+		return nil, fail(fmt.Errorf("%w: the generated %s is a repetition loop", ErrNoDeliverable, targetPath))
 	}
 
 	fullPath := filepath.Join(o.workspace, targetPath)
@@ -1348,71 +1342,41 @@ func extractCodeBlock(text, lang string) string {
 	return strings.TrimSpace(text)
 }
 
-// isDegenerateGeneration reports whether text looks like a pathological model
-// repetition loop rather than a real deliverable — e.g. Grok emitting
-// "1. End. 2. Finish. 3. Complete. 4. Done." hundreds of times (observed live in
-// campaign_e6f9b0eb, a 19KB artifact of near-zero information). Such output
-// otherwise passes the non-empty write check in the fallback path and is silently
-// counted as task success, defeating the hollow-success guard. The heuristic is
-// deliberately conservative (only fires on extreme, unambiguous degeneracy) so it
-// never rejects a legitimately terse or identifier-dense document.
-func isDegenerateGeneration(text string) bool {
-	const minTokens = 200 // short outputs are never flagged
-	fields := strings.Fields(text)
-	if len(fields) < minTokens {
-		return false
+// generationDegenerate measures a generated document's words, asserts them as
+// generated_output_vocab and asks the kernel whether the document is a
+// repetition loop. The measurement is the whole of Go's part.
+func (o *Orchestrator) generationDegenerate(taskID, text string) (bool, error) {
+	if o.kernel == nil {
+		return false, fmt.Errorf("no kernel to judge the document generated for %s", taskID)
 	}
-	// Normalize each token to its letters-only lowercase form so the numeric
-	// counters ("1." "2." ...) collapse to empty and the cycling words
-	// ("end" "finish" ...) collapse together.
-	vocab := make(map[string]int, len(fields))
-	words := 0
-	for _, f := range fields {
-		norm := strings.ToLower(strings.TrimFunc(f, func(r rune) bool {
-			return !unicode.IsLetter(r)
-		}))
-		if norm == "" {
-			continue // pure counter/punctuation token
-		}
-		vocab[norm]++
-		words++
+	tokens, words, distinct := vocabulary(text)
+	_ = o.kernel.RetractFact(core.Fact{Predicate: "generated_output_vocab", Args: []any{taskID}})
+	if err := o.kernel.Assert(core.Fact{
+		Predicate: "generated_output_vocab",
+		Args:      []any{taskID, int64(tokens), int64(words), int64(distinct)},
+	}); err != nil {
+		return false, fmt.Errorf("assert the measurement of %s: %w", taskID, err)
 	}
-	if words == 0 {
-		return true // nothing but counters/punctuation
-	}
-	// Vocabulary ratio: distinct words / total words. Real prose sits well above
-	// 0.1; a handful of words cycling thousands of times sits near zero.
-	ratio := float64(len(vocab)) / float64(words)
-	if ratio < 0.03 {
-		return true
-	}
-	// Absolute floor: a very long output built from a tiny vocabulary is
-	// degenerate even if the ratio math is skewed by a long non-repeating prefix.
-	if words > 400 && len(vocab) < 25 {
-		return true
-	}
-	return false
+	return o.holdsFor("generated_output_degenerate", taskID)
 }
 
-// degradedGenerationPlaceholder returns a short, honest Markdown note recording
-// that the model failed to produce a coherent deliverable for this task. Writing
-// this instead of the raw degenerate output keeps the phase progressing (a hard
-// task failure would deadlock phase completion — the trap F-TASK-1/F-DOC-1 fixed)
-// while refusing to launder model garbage into a silent "success": a downstream
-// checkpoint or human reader sees the truth.
-func degradedGenerationPlaceholder(task *Task, targetPath string) string {
-	return fmt.Sprintf(`# Generation Degraded
-
-The document generation for task %s did not produce a coherent result: the
-model returned degenerate, repetitive output that was rejected by the campaign
-fallback's quality guard. This placeholder is written so the deliverable path
-(%s) exists and the phase can proceed, but the task did NOT genuinely succeed.
-
-## Original task
-%s
-
-_Regenerate this artifact with a healthier model/config before relying on it._
-`, task.ID, targetPath, strings.TrimSpace(task.Description))
+// vocabulary measures text: its whitespace-separated tokens, the words among
+// them (each token's letters, lower-cased; a counter or punctuation has none),
+// and how many of those words are distinct.
+func vocabulary(text string) (tokens, words, distinct int) {
+	fields := strings.Fields(text)
+	seen := make(map[string]struct{}, len(fields))
+	for _, f := range fields {
+		word := strings.ToLower(strings.TrimFunc(f, func(r rune) bool {
+			return !unicode.IsLetter(r)
+		}))
+		if word == "" {
+			continue
+		}
+		words++
+		seen[word] = struct{}{}
+	}
+	return len(fields), words, len(seen)
 }
 
 // getLangFromPath returns the language identifier for a file path.

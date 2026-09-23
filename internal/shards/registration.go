@@ -268,6 +268,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"task_verification",
 				"task_write_target",
 				"task_write_ext",
+				"generated_output_vocab",
 				// Runtime facts campaign rules join against the family above:
 				// shard profiles (delegate_task, specialist preference),
 				// context pressure, milestones, remediation, document

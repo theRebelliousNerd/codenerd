@@ -289,3 +289,45 @@ phase_ckpt_move(PhaseID, /recheck) :-
     phase_ckpt_failures(PhaseID, Count),
     !phase_ckpt_exhausted(PhaseID),
     config_param(/campaign_replan_on_checkpoint_failure, 0).
+
+# =============================================================================
+# A generated document that is a repetition loop (sweep finding F12)
+# =============================================================================
+# Observed live: "1. End. 2. Finish. 3. Complete." about 1500 times, written as
+# a 19KB document and counted done. Go measures the document
+# (generated_output_vocab); whether it is a loop is decided here, with the
+# campaign section's thresholds, and a loop fails the attempt. Until 2026-09-23
+# Go decided with four constants of its own, re-generated with a prompt of its
+# own, and wrote a placeholder the task then counted as done.
+config_param_required(/campaign, /campaign_degenerate_min_tokens).
+config_param_required(/campaign, /campaign_degenerate_distinct_permille).
+config_param_required(/campaign, /campaign_degenerate_long_words).
+config_param_required(/campaign, /campaign_degenerate_long_min_distinct).
+
+generated_output_long_enough(TaskID) :-
+    generated_output_vocab(TaskID, Tokens, _, _),
+    config_param(/campaign_degenerate_min_tokens, Min),
+    Tokens >= Min.
+
+# Nothing but counters and punctuation.
+generated_output_degenerate(TaskID) :-
+    generated_output_long_enough(TaskID),
+    generated_output_vocab(TaskID, _, 0, _).
+
+# A handful of words cycling: few distinct words per thousand.
+generated_output_degenerate(TaskID) :-
+    generated_output_long_enough(TaskID),
+    generated_output_vocab(TaskID, _, Words, Distinct),
+    Words > 0,
+    Permille = fn:div(fn:mult(Distinct, 1000), Words),
+    config_param(/campaign_degenerate_distinct_permille, Floor),
+    Permille < Floor.
+
+# A long document from a tiny vocabulary, whatever its prefix.
+generated_output_degenerate(TaskID) :-
+    generated_output_long_enough(TaskID),
+    generated_output_vocab(TaskID, _, Words, Distinct),
+    config_param(/campaign_degenerate_long_words, Long),
+    Words > Long,
+    config_param(/campaign_degenerate_long_min_distinct, MinDistinct),
+    Distinct < MinDistinct.

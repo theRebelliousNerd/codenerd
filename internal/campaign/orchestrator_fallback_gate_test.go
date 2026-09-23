@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/session"
 )
@@ -134,9 +135,8 @@ func TestFileTask_FallbackDocumentOverThePayloadCapIsRefused(t *testing.T) {
 	o, root, generated := fallbackGateFixture(t, errors.New("coder explored without writing"))
 	o.llmClient = &MockLLMClient{CompleteFunc: func(context.Context, string) (string, error) {
 		*generated++
-		// Distinct words per line: a report the degenerate-output guard
-		// (isDegenerateGeneration) takes for prose, so it reaches the cap
-		// instead of being replaced by the short placeholder.
+		// Distinct words per line: a report the repetition-loop rule
+		// (generated_output_degenerate) takes for prose, so it reaches the cap.
 		var b strings.Builder
 		for i := 0; b.Len() <= session.MaxActionPayloadBytes; i++ {
 			fmt.Fprintf(&b, "Finding item%dx concerns module%dx and path%dx.\n", i, i*7, i*13)
@@ -151,5 +151,36 @@ func TestFileTask_FallbackDocumentOverThePayloadCapIsRefused(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(root, "docs", "big.md")); statErr == nil {
 		t.Fatal("an over-cap document was written")
+	}
+}
+
+// A generated document that is a repetition loop fails the attempt: one
+// generation, nothing written, the reason named (sweep finding F12). It used
+// to be re-generated with a Go-written prompt and, still looping, replaced by
+// a placeholder the task counted as done.
+func TestFileTask_FallbackRepetitionLoopFailsTheAttempt(t *testing.T) {
+	o, root, generated := fallbackGateFixture(t, errors.New("coder explored without writing"))
+	policy, err := config.DefaultCampaignConfig().Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.EnsureParams(o.kernel, policy.Params()); err != nil {
+		t.Fatal(err)
+	}
+	o.llmClient = &MockLLMClient{CompleteFunc: func(context.Context, string) (string, error) {
+		*generated++
+		return repetitionLoop(), nil
+	}}
+	task := &Task{ID: "/task_gate_loop", Type: TaskTypeFileCreate, Description: "Write the report", WriteSet: []string{"docs/loop.md"}}
+
+	_, err = o.executeFileTask(context.Background(), task)
+	if !errors.Is(err, ErrNoDeliverable) || !strings.Contains(err.Error(), "repetition loop") {
+		t.Fatalf("a repetition loop must fail the attempt naming it, got %v", err)
+	}
+	if *generated != 1 {
+		t.Fatalf("the model was asked %d times; the campaign's retry runs the next attempt", *generated)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "docs", "loop.md")); statErr == nil {
+		t.Fatal("a document was written for a repetition loop")
 	}
 }

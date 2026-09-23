@@ -115,6 +115,25 @@ type CampaignConfig struct {
 	ReplanContextTextBytes int `json:"replan_context_text_bytes,omitempty"`
 	// ReplanContextBytes bounds the replanner's whole context section.
 	ReplanContextBytes int `json:"replan_context_bytes,omitempty"`
+
+	// --- a generated document that is a repetition loop ---
+	//
+	// Observed live: "1. End. 2. Finish. 3. Complete." about 1500 times, a
+	// 19KB document counted done. Go measures a generated document's words;
+	// the policy decides with these (generated_output_degenerate).
+
+	// DegenerateMinTokens is how many whitespace-separated tokens a document
+	// has before it can be judged a loop at all; a shorter one never is.
+	DegenerateMinTokens int `json:"degenerate_min_tokens,omitempty"`
+	// DegenerateDistinctPermille: a document with fewer distinct words than
+	// this per thousand words is a loop.
+	DegenerateDistinctPermille int `json:"degenerate_distinct_permille,omitempty"`
+	// DegenerateLongWords and DegenerateLongMinDistinct: a document of more
+	// words than DegenerateLongWords with fewer distinct words than
+	// DegenerateLongMinDistinct is a loop, even when a prefix that does not
+	// repeat lifts its ratio.
+	DegenerateLongWords       int `json:"degenerate_long_words,omitempty"`
+	DegenerateLongMinDistinct int `json:"degenerate_long_min_distinct,omitempty"`
 }
 
 // DefaultCampaignConfig is the campaign section with every field written down.
@@ -122,32 +141,36 @@ func DefaultCampaignConfig() CampaignConfig {
 	yes, no := true, false
 	confidence := 50
 	return CampaignConfig{
-		MaxTaskAttempts:           4,
-		ReproAfterFailures:        2,
-		ReplanAtAttemptCap:        &yes,
-		RetryBackoffBase:          "5s",
-		RetryBackoffMax:           "5m",
-		RetryWithReasonBackoffMax: "30s",
-		MaxCheckpointAttempts:     3,
-		ReplanOnCheckpointFailure: &yes,
-		CheckpointOnTaskFailure:   &no,
-		CheckpointMinConfidence:   &confidence,
-		AcceptanceRounds:          3,
-		VerifyBuildTimeout:        "5m",
-		CheckpointCommandTimeout:  "10m",
-		TestRunTimeout:            "15m",
-		MaxParallelTasks:          3,
-		HeartbeatEvery:            "15s",
-		AutosaveEvery:             "1m",
-		TaskResultCacheLimit:      100,
-		WriteSetLockTimeout:       "15s",
-		WriteSetLockRetry:         "500ms",
-		WriteSetLockPoll:          "10ms",
-		UpstreamInlineMaxBytes:    48 * 1024,
-		ReplanContextTasks:        25,
-		ReplanContextAttempts:     3,
-		ReplanContextTextBytes:    400,
-		ReplanContextBytes:        16000,
+		MaxTaskAttempts:            4,
+		ReproAfterFailures:         2,
+		ReplanAtAttemptCap:         &yes,
+		RetryBackoffBase:           "5s",
+		RetryBackoffMax:            "5m",
+		RetryWithReasonBackoffMax:  "30s",
+		MaxCheckpointAttempts:      3,
+		ReplanOnCheckpointFailure:  &yes,
+		CheckpointOnTaskFailure:    &no,
+		CheckpointMinConfidence:    &confidence,
+		AcceptanceRounds:           3,
+		VerifyBuildTimeout:         "5m",
+		CheckpointCommandTimeout:   "10m",
+		TestRunTimeout:             "15m",
+		MaxParallelTasks:           3,
+		HeartbeatEvery:             "15s",
+		AutosaveEvery:              "1m",
+		TaskResultCacheLimit:       100,
+		WriteSetLockTimeout:        "15s",
+		WriteSetLockRetry:          "500ms",
+		WriteSetLockPoll:           "10ms",
+		UpstreamInlineMaxBytes:     48 * 1024,
+		ReplanContextTasks:         25,
+		ReplanContextAttempts:      3,
+		ReplanContextTextBytes:     400,
+		ReplanContextBytes:         16000,
+		DegenerateMinTokens:        200,
+		DegenerateDistinctPermille: 30,
+		DegenerateLongWords:        400,
+		DegenerateLongMinDistinct:  25,
 	}
 }
 
@@ -207,6 +230,10 @@ func (c CampaignConfig) WithDefaults() CampaignConfig {
 	intOr(&c.ReplanContextAttempts, d.ReplanContextAttempts)
 	intOr(&c.ReplanContextTextBytes, d.ReplanContextTextBytes)
 	intOr(&c.ReplanContextBytes, d.ReplanContextBytes)
+	intOr(&c.DegenerateMinTokens, d.DegenerateMinTokens)
+	intOr(&c.DegenerateDistinctPermille, d.DegenerateDistinctPermille)
+	intOr(&c.DegenerateLongWords, d.DegenerateLongWords)
+	intOr(&c.DegenerateLongMinDistinct, d.DegenerateLongMinDistinct)
 	return c
 }
 
@@ -214,32 +241,36 @@ func (c CampaignConfig) WithDefaults() CampaignConfig {
 // filled, durations parsed, switches read. Resolve is the only way to make one,
 // so a policy in hand has passed Check.
 type CampaignPolicy struct {
-	MaxTaskAttempts           int
-	ReproAfterFailures        int
-	ReplanAtAttemptCap        bool
-	RetryBackoffBase          time.Duration
-	RetryBackoffMax           time.Duration
-	RetryWithReasonBackoffMax time.Duration
-	MaxCheckpointAttempts     int
-	ReplanOnCheckpointFailure bool
-	CheckpointOnTaskFailure   bool
-	CheckpointMinConfidence   int
-	AcceptanceRounds          int
-	VerifyBuildTimeout        time.Duration
-	CheckpointCommandTimeout  time.Duration
-	TestRunTimeout            time.Duration
-	MaxParallelTasks          int
-	HeartbeatEvery            time.Duration
-	AutosaveEvery             time.Duration
-	TaskResultCacheLimit      int
-	WriteSetLockTimeout       time.Duration
-	WriteSetLockRetry         time.Duration
-	WriteSetLockPoll          time.Duration
-	UpstreamInlineMaxBytes    int
-	ReplanContextTasks        int
-	ReplanContextAttempts     int
-	ReplanContextTextBytes    int
-	ReplanContextBytes        int
+	MaxTaskAttempts            int
+	ReproAfterFailures         int
+	ReplanAtAttemptCap         bool
+	RetryBackoffBase           time.Duration
+	RetryBackoffMax            time.Duration
+	RetryWithReasonBackoffMax  time.Duration
+	MaxCheckpointAttempts      int
+	ReplanOnCheckpointFailure  bool
+	CheckpointOnTaskFailure    bool
+	CheckpointMinConfidence    int
+	AcceptanceRounds           int
+	VerifyBuildTimeout         time.Duration
+	CheckpointCommandTimeout   time.Duration
+	TestRunTimeout             time.Duration
+	MaxParallelTasks           int
+	HeartbeatEvery             time.Duration
+	AutosaveEvery              time.Duration
+	TaskResultCacheLimit       int
+	WriteSetLockTimeout        time.Duration
+	WriteSetLockRetry          time.Duration
+	WriteSetLockPoll           time.Duration
+	UpstreamInlineMaxBytes     int
+	ReplanContextTasks         int
+	ReplanContextAttempts      int
+	ReplanContextTextBytes     int
+	ReplanContextBytes         int
+	DegenerateMinTokens        int
+	DegenerateDistinctPermille int
+	DegenerateLongWords        int
+	DegenerateLongMinDistinct  int
 
 	// Section is the resolved config the policy came from, for Params.
 	Section CampaignConfig
@@ -262,33 +293,37 @@ func (c CampaignConfig) Resolve() (CampaignPolicy, error) {
 		return v
 	}
 	return CampaignPolicy{
-		MaxTaskAttempts:           c.MaxTaskAttempts,
-		ReproAfterFailures:        c.ReproAfterFailures,
-		ReplanAtAttemptCap:        *c.ReplanAtAttemptCap,
-		RetryBackoffBase:          d(c.RetryBackoffBase),
-		RetryBackoffMax:           d(c.RetryBackoffMax),
-		RetryWithReasonBackoffMax: d(c.RetryWithReasonBackoffMax),
-		MaxCheckpointAttempts:     c.MaxCheckpointAttempts,
-		ReplanOnCheckpointFailure: *c.ReplanOnCheckpointFailure,
-		CheckpointOnTaskFailure:   *c.CheckpointOnTaskFailure,
-		CheckpointMinConfidence:   *c.CheckpointMinConfidence,
-		AcceptanceRounds:          c.AcceptanceRounds,
-		VerifyBuildTimeout:        d(c.VerifyBuildTimeout),
-		CheckpointCommandTimeout:  d(c.CheckpointCommandTimeout),
-		TestRunTimeout:            d(c.TestRunTimeout),
-		MaxParallelTasks:          c.MaxParallelTasks,
-		HeartbeatEvery:            d(c.HeartbeatEvery),
-		AutosaveEvery:             d(c.AutosaveEvery),
-		TaskResultCacheLimit:      c.TaskResultCacheLimit,
-		WriteSetLockTimeout:       d(c.WriteSetLockTimeout),
-		WriteSetLockRetry:         d(c.WriteSetLockRetry),
-		WriteSetLockPoll:          d(c.WriteSetLockPoll),
-		UpstreamInlineMaxBytes:    c.UpstreamInlineMaxBytes,
-		ReplanContextTasks:        c.ReplanContextTasks,
-		ReplanContextAttempts:     c.ReplanContextAttempts,
-		ReplanContextTextBytes:    c.ReplanContextTextBytes,
-		ReplanContextBytes:        c.ReplanContextBytes,
-		Section:                   c,
+		MaxTaskAttempts:            c.MaxTaskAttempts,
+		ReproAfterFailures:         c.ReproAfterFailures,
+		ReplanAtAttemptCap:         *c.ReplanAtAttemptCap,
+		RetryBackoffBase:           d(c.RetryBackoffBase),
+		RetryBackoffMax:            d(c.RetryBackoffMax),
+		RetryWithReasonBackoffMax:  d(c.RetryWithReasonBackoffMax),
+		MaxCheckpointAttempts:      c.MaxCheckpointAttempts,
+		ReplanOnCheckpointFailure:  *c.ReplanOnCheckpointFailure,
+		CheckpointOnTaskFailure:    *c.CheckpointOnTaskFailure,
+		CheckpointMinConfidence:    *c.CheckpointMinConfidence,
+		AcceptanceRounds:           c.AcceptanceRounds,
+		VerifyBuildTimeout:         d(c.VerifyBuildTimeout),
+		CheckpointCommandTimeout:   d(c.CheckpointCommandTimeout),
+		TestRunTimeout:             d(c.TestRunTimeout),
+		MaxParallelTasks:           c.MaxParallelTasks,
+		HeartbeatEvery:             d(c.HeartbeatEvery),
+		AutosaveEvery:              d(c.AutosaveEvery),
+		TaskResultCacheLimit:       c.TaskResultCacheLimit,
+		WriteSetLockTimeout:        d(c.WriteSetLockTimeout),
+		WriteSetLockRetry:          d(c.WriteSetLockRetry),
+		WriteSetLockPoll:           d(c.WriteSetLockPoll),
+		UpstreamInlineMaxBytes:     c.UpstreamInlineMaxBytes,
+		ReplanContextTasks:         c.ReplanContextTasks,
+		ReplanContextAttempts:      c.ReplanContextAttempts,
+		ReplanContextTextBytes:     c.ReplanContextTextBytes,
+		ReplanContextBytes:         c.ReplanContextBytes,
+		DegenerateMinTokens:        c.DegenerateMinTokens,
+		DegenerateDistinctPermille: c.DegenerateDistinctPermille,
+		DegenerateLongWords:        c.DegenerateLongWords,
+		DegenerateLongMinDistinct:  c.DegenerateLongMinDistinct,
+		Section:                    c,
 	}, nil
 }
 
@@ -317,10 +352,17 @@ func (c CampaignConfig) Check(prefix string) []Problem {
 		{"replan_context_attempts", c.ReplanContextAttempts},
 		{"replan_context_text_bytes", c.ReplanContextTextBytes},
 		{"replan_context_bytes", c.ReplanContextBytes},
+		{"degenerate_min_tokens", c.DegenerateMinTokens},
+		{"degenerate_distinct_permille", c.DegenerateDistinctPermille},
+		{"degenerate_long_words", c.DegenerateLongWords},
+		{"degenerate_long_min_distinct", c.DegenerateLongMinDistinct},
 	} {
 		if f.v < 1 {
 			add(f.name, fmt.Sprintf("%d is below 1", f.v), "a count of at least 1, or remove the key for the default")
 		}
+	}
+	if v := c.DegenerateDistinctPermille; v > 1000 {
+		add("degenerate_distinct_permille", fmt.Sprintf("%d is above 1000: every document would be a loop", v), "distinct words per thousand, 1-1000")
 	}
 	if v := *c.CheckpointMinConfidence; v < 0 || v > 100 {
 		add("checkpoint_min_confidence", fmt.Sprintf("%d is outside 0-100", v), "an integer percent")
@@ -382,5 +424,9 @@ func (p CampaignPolicy) Params() []Param {
 		{Key: "/campaign_checkpoint_min_confidence", Value: int64(p.CheckpointMinConfidence)},
 		{Key: "/campaign_acceptance_rounds", Value: int64(p.AcceptanceRounds)},
 		{Key: "/campaign_upstream_inline_max_bytes", Value: int64(p.UpstreamInlineMaxBytes)},
+		{Key: "/campaign_degenerate_min_tokens", Value: int64(p.DegenerateMinTokens)},
+		{Key: "/campaign_degenerate_distinct_permille", Value: int64(p.DegenerateDistinctPermille)},
+		{Key: "/campaign_degenerate_long_words", Value: int64(p.DegenerateLongWords)},
+		{Key: "/campaign_degenerate_long_min_distinct", Value: int64(p.DegenerateLongMinDistinct)},
 	}
 }

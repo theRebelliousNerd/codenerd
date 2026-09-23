@@ -115,6 +115,16 @@ Decl task_write_target(TaskID, Path) bound [/string, /string].
 # write_class (policy/coder_safety.mg).
 Decl task_write_ext(TaskID, Ext) bound [/string, /string].
 
+# generated_output_vocab(TaskID, Tokens, Words, Distinct) - Go's measurement
+# of a document a task generated: whitespace-separated tokens, the words among
+# them once counters and punctuation are stripped, and how many of those are
+# distinct. One row per task, replaced per generation.
+Decl generated_output_vocab(TaskID, Tokens, Words, Distinct) bound [/string, /number, /number, /number].
+# generated_output_degenerate(TaskID) - derived: the document is a repetition
+# loop (policy/campaign_decisions.mg).
+Decl generated_output_long_enough(TaskID) bound [/string].
+Decl generated_output_degenerate(TaskID) bound [/string].
+
 # task_write_path(TaskID, Path) - derived canonical path for conflict/activation rules
 Decl task_write_path(TaskID, Path) bound [/string, /string].
 
