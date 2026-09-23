@@ -273,6 +273,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Delegation.Check("delegation")...)
 	}
 
+	// --- working ---
+	if c.Working != nil {
+		out = append(out, c.Working.Check("working")...)
+	}
+
 	// --- everything the file leaves to a default ---
 	if raw != nil {
 		for _, path := range ImplicitFields(raw) {

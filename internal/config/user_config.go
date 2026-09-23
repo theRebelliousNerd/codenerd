@@ -205,6 +205,10 @@ type UserConfig struct {
 	// attempts with (delegation.go).
 	Delegation *DelegationConfig `json:"delegation,omitempty"`
 
+	// Working is the spans the working policy decides a tool loop's regime,
+	// steering, stop and finalize with (working.go).
+	Working *WorkingConfig `json:"working,omitempty"`
+
 	// =========================================================================
 	// INTEGRATIONS
 	// =========================================================================
@@ -1513,6 +1517,7 @@ func DefaultUserConfig() *UserConfig {
 	sessionCfg := DefaultSessionConfig()
 	routingCfg := DefaultRoutingConfig()
 	delegationCfg := DefaultDelegationConfig()
+	workingCfg := DefaultWorkingConfig()
 
 	return &UserConfig{
 		Engine:                       "api",
@@ -1537,6 +1542,7 @@ func DefaultUserConfig() *UserConfig {
 		Session:                      &sessionCfg,
 		Routing:                      &routingCfg,
 		Delegation:                   &delegationCfg,
+		Working:                      &workingCfg,
 		Logging:                      DefaultLoggingConfig(),
 		JIT:                          &jit,
 		LearningCandidateThreshold:   3,

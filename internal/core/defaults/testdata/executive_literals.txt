@@ -7,7 +7,7 @@
 
 literal cmd/nerd/chat 191
 literal internal/campaign 146
-literal internal/session 59
+literal internal/session 58
 literal internal/verification 1
 textmatch cmd/nerd/chat 2
 textmatch internal/campaign 18

@@ -21,7 +21,8 @@ Decl working_in_transcript(ID) bound [/string].
 # the insertion point" afresh on every round of a three-fact insertion and
 # never wrote; three runs stalled at the read-only ceiling.
 Decl working_transcript_rounds(N) bound [/number].
-working_transcript_rounds(3).
+working_transcript_rounds(N) :- config_param(/working_transcript_rounds, N).
+config_param_required(/working, /working_transcript_rounds).
 # How many rounds beyond working_transcript_rounds the transcript may grow
 # before it is cut back to that count. A provider prefix cache covers a request
 # only up to its first changed byte, and a window that drops its oldest round
@@ -31,7 +32,8 @@ working_transcript_rounds(3).
 # 83% where it held. With slack S the transcript is append-only for S rounds in
 # every S+1 and the cut happens once. Zero restores the every-round slide.
 Decl working_transcript_slack(N) bound [/number].
-working_transcript_slack(3).
+working_transcript_slack(N) :- config_param(/working_transcript_slack, N).
+config_param_required(/working, /working_transcript_slack).
 # The most the observations section of one working request may carry, in
 # bytes. Within it working_selected/2 chooses what is shown; everything it
 # leaves out stays recallable by id. It was a Go constant equal to the old
@@ -41,7 +43,8 @@ working_transcript_slack(3).
 # window is not a bucket; half of that is room for a one-file change and the
 # files around it, and a read that falls out is one recall away.
 Decl working_section_ceiling(Bytes) bound [/number].
-working_section_ceiling(131072).
+working_section_ceiling(N) :- config_param(/working_section_ceiling, N).
+config_param_required(/working, /working_section_ceiling).
 Decl working_stale(ID) bound [/string].
 Decl working_superseded(ID) bound [/string].
 Decl working_selected(ID, Priority) bound [/string, /name].
@@ -57,9 +60,11 @@ Decl working_stall_rounds(N) bound [/number].
 # How many identical deterministic trace cycles make a loop. The loop measures
 # the cycle (it is the only side that can see the tool trace) and reports the
 # verdict as working_control/2; this is the span it measures against, and it
-# lives here because it is a threshold, not a resource. It was a config key
-# (core_limits.tool_loop_repeat_threshold) until 2026-09-18, which made a
-# policy constant something a user could tune into a count ceiling.
+# is a threshold, not a resource. It was a config key
+# (core_limits.tool_loop_repeat_threshold) until 2026-09-18, removed because a
+# user could tune it into a count ceiling; it is working.repeat_threshold now,
+# and the checker refuses a value below 2, which is where it would stop being
+# a repeat detector.
 Decl working_repeat_threshold(N) bound [/number].
 Decl working_stop(Reason) bound [/name].
 Decl working_finalize(Reason) descr [doc("Exploration is over; the harness asks for the conclusion and runs verification. Not a stop and not a completion witness.")].
@@ -77,13 +82,22 @@ Decl working_finalize_rounds(N) bound [/number].
 Decl working_stopped() bound [].
 Decl working_continue() descr [doc("Continuation requires no observed stall; it never means task completion.")].
 
-# Policy constants. Rounds, not tool calls: a model that batches ten reads in
-# one response and one that reads one file per response get the same span.
-working_nudge_rounds(8).
-working_commit_rounds(16).
-working_finalize_rounds(16).
-working_stall_rounds(24).
-working_repeat_threshold(2).
+# The spans. Rounds, not tool calls: a model that batches ten reads in one
+# response and one that reads one file per response get the same span. Each is
+# the working section of .nerd/config.json (internal/config/working.go), as a
+# config_param row the working set asserts before its first evaluation; it
+# refuses to run while one is missing (config_param_missing). They were
+# literals here until 2026-09-23 (sweep finding F8).
+working_nudge_rounds(N) :- config_param(/working_nudge_rounds, N).
+config_param_required(/working, /working_nudge_rounds).
+working_commit_rounds(N) :- config_param(/working_commit_rounds, N).
+config_param_required(/working, /working_commit_rounds).
+working_finalize_rounds(N) :- config_param(/working_finalize_rounds, N).
+config_param_required(/working, /working_finalize_rounds).
+working_stall_rounds(N) :- config_param(/working_stall_rounds, N).
+config_param_required(/working, /working_stall_rounds).
+working_repeat_threshold(N) :- config_param(/working_repeat_threshold, N).
+config_param_required(/working, /working_repeat_threshold).
 
 working_regime(/commit) :-
     working_progress(/write, Rounds, 0, _, _),
@@ -113,7 +127,8 @@ working_regime(/commit) :-
 # at a working_stop, or when the model stops calling tools -- not at a count of
 # model calls (sweep finding F10: the six-call ceiling it replaces).
 Decl working_repair_read_rounds(N) bound [/number].
-working_repair_read_rounds(1).
+working_repair_read_rounds(N) :- config_param(/working_repair_read_rounds, N).
+config_param_required(/working, /working_repair_read_rounds).
 working_regime(/commit) :-
     working_regime_now(/repair),
     working_progress(/write, Rounds, 0, _, _),
@@ -132,8 +147,10 @@ Decl working_structural(Attempts, Misses) bound [/number, /number].
 Decl working_structural_trials(N) bound [/number].
 Decl working_structural_miss_limit(N) bound [/number].
 Decl working_search_open() descr [doc("The raw search tools are offered. Underivable at the start of a loop, so search opens only on evidence.")].
-working_structural_trials(4).
-working_structural_miss_limit(2).
+working_structural_trials(N) :- config_param(/working_structural_trials, N).
+config_param_required(/working, /working_structural_trials).
+working_structural_miss_limit(N) :- config_param(/working_structural_miss_limit, N).
+config_param_required(/working, /working_structural_miss_limit).
 working_search_open() :-
     working_structural(Attempts, _), working_structural_trials(N), Attempts >= N.
 working_search_open() :-

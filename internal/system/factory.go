@@ -2052,7 +2052,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	if err != nil {
 		return fmt.Errorf("session config: %w", err)
 	}
-	execCfg := session.ExecutorConfigFrom(sessionPolicy)
+	execCfg := session.ExecutorConfigFrom(sessionPolicy, bctx.appCfg.GetWorkingConfig())
 	execCfg.WorkspaceRoot = bctx.workspace
 	bctx.sessionExecutor.SetConfig(execCfg)
 	// The shard profile's enable_learning gates what the executor records

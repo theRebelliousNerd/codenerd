@@ -1,6 +1,7 @@
 package context
 
 import (
+	"codenerd/internal/config"
 	"strings"
 	"sync"
 	"testing"
@@ -97,7 +98,7 @@ func TestCountFact_MangleAtomScalesWithText(t *testing.T) {
 }
 
 func TestWorkingStore_SaveRejectsEmptyID(t *testing.T) {
-	w, err := NewWorkingSet(nil, t.TempDir(), "ids")
+	w, err := NewWorkingSet(nil, t.TempDir(), "ids", config.DefaultWorkingConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +109,7 @@ func TestWorkingStore_SaveRejectsEmptyID(t *testing.T) {
 }
 
 func TestWorkingStore_CandidatesRejectsBadLimit(t *testing.T) {
-	w, err := NewWorkingSet(nil, t.TempDir(), "limits")
+	w, err := NewWorkingSet(nil, t.TempDir(), "limits", config.DefaultWorkingConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +128,7 @@ func TestWorkingStore_CandidatesRejectsBadLimit(t *testing.T) {
 // Two stop reasons derived at once must resolve to the same decision every
 // time: the harness reports the reason, and a flapping reason is a lying one.
 func TestWorkingSetContinue_MultiStopIsDeterministic(t *testing.T) {
-	w, err := NewWorkingSet(nil, t.TempDir(), "stops")
+	w, err := NewWorkingSet(nil, t.TempDir(), "stops", config.DefaultWorkingConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +177,7 @@ func TestWorkingSetSelect_WorldFactsAnnotate(t *testing.T) {
 		"dependency_link": {{Predicate: "dependency_link", Args: []any{"a.go", "b.go", "import"}}},
 		"code_defines":    {{Predicate: "code_defines", Args: []any{"a.go", "Main", "/func", int64(1), int64(10)}}},
 	}}
-	w, err := NewWorkingSet(world, t.TempDir(), "world")
+	w, err := NewWorkingSet(world, t.TempDir(), "world", config.DefaultWorkingConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

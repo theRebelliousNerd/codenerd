@@ -168,7 +168,7 @@ func run() error {
 			sessionPolicy, err = userCfg.GetSessionConfig().Resolve()
 		}
 		if err == nil {
-			cfg := session.ExecutorConfigFrom(sessionPolicy)
+			cfg := session.ExecutorConfigFrom(sessionPolicy, userCfg.GetWorkingConfig())
 			cfg.WorkspaceRoot = *root
 			// No tool-call or round pins on the codeNERD side: its loop
 			// continues while the working policy derives no stop, and pinning

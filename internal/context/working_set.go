@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -39,7 +40,12 @@ type WorkingSet struct {
 	selector *Compressor
 }
 
-func NewWorkingSet(world WorkingWorld, root, scope string) (*WorkingSet, error) {
+// NewWorkingSet builds a task's working set. spans is the working section of
+// .nerd/config.json: the policy reads every span it decides with from it
+// (config_param rows), and the set refuses to build while one it requires is
+// missing, rather than run a loop whose stop and finalize rules can never
+// fire.
+func NewWorkingSet(world WorkingWorld, root, scope string, spans config.WorkingConfig) (*WorkingSet, error) {
 	root, err := tools.CanonicalWorkspaceRoot(root)
 	if err != nil {
 		return nil, err
@@ -52,15 +58,27 @@ func NewWorkingSet(world WorkingWorld, root, scope string) (*WorkingSet, error) 
 	if err != nil {
 		return nil, err
 	}
+	params, err := core.GetDefaultContent("policy/config_params.mg")
+	if err != nil {
+		return nil, err
+	}
 	cfg := mangle.DefaultConfig()
 	cfg.AutoEval = true
 	engine, err := mangle.NewEngine(cfg, nil)
 	if err != nil {
 		return nil, err
 	}
-	if err = engine.LoadSchemaString(schemas + "\n" + policy + "\n" + workingSetPolicy); err != nil {
+	if err = engine.LoadSchemaString(schemas + "\n" + policy + "\n" + params + "\n" + workingSetPolicy); err != nil {
 		_ = engine.Close()
 		return nil, err
+	}
+	var rows []mangle.Fact
+	for _, p := range spans.Params() {
+		rows = append(rows, mangle.Fact{Predicate: config.ConfigParamPredicate, Args: []any{p.Key, p.Value}})
+	}
+	if err = engine.AddFacts(rows); err != nil {
+		_ = engine.Close()
+		return nil, fmt.Errorf("assert the working spans: %w", err)
 	}
 	// Facts written in the policy (the spans, the transcript window) reach
 	// the fact store only when an evaluation runs; before the first Select or
@@ -68,6 +86,17 @@ func NewWorkingSet(world WorkingWorld, root, scope string) (*WorkingSet, error) 
 	if err = engine.Evaluate(); err != nil {
 		_ = engine.Close()
 		return nil, err
+	}
+	if missing := engine.QueryFacts("config_param_missing"); len(missing) > 0 {
+		_ = engine.Close()
+		var keys []string
+		for _, f := range missing {
+			if len(f.Args) == 2 {
+				keys = append(keys, strings.TrimPrefix(fmt.Sprint(f.Args[1]), "/"))
+			}
+		}
+		sort.Strings(keys)
+		return nil, fmt.Errorf("the working policy needs %s from the working section of config.json", strings.Join(keys, ", "))
 	}
 	storage, err := OpenWorkingStore(root, scope)
 	if err != nil {

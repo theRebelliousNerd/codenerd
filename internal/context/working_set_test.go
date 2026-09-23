@@ -1,6 +1,7 @@
 package context
 
 import (
+	"codenerd/internal/config"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +15,7 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "b.go"), []byte("package b"), 0600))
-	w, err := NewWorkingSet(nil, root, "task")
+	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	for i := 0; i < 120; i++ {
@@ -38,7 +39,7 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 	page, err := w.Recall(t.Context(), "0", 0, 1000)
 	require.NoError(t, err)
 	require.Contains(t, page, "fact-0", "eviction is not deletion")
-	other, err := NewWorkingSet(nil, root, "sibling")
+	other, err := NewWorkingSet(nil, root, "sibling", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	defer other.Close()
 	_, err = other.Recall(t.Context(), "0", 0, 1000)
@@ -57,7 +58,7 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 // and line, then read on for the rest of a 30-minute ceiling without running
 // the test the task named.
 func TestWorkingSetContinuePolicy(t *testing.T) {
-	w, err := NewWorkingSet(nil, t.TempDir(), "policy")
+	w, err := NewWorkingSet(nil, t.TempDir(), "policy", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	ctx := t.Context()
@@ -110,7 +111,7 @@ func TestWorkingSetContinuePolicy(t *testing.T) {
 func TestWorkingSetSelectShowsALongObservationWithinBudget(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task")
+	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	body := strings.Repeat("payload line\n", 3000) + "tail-marker"
@@ -134,7 +135,7 @@ func TestWorkingSetSelectShowsALongObservationWithinBudget(t *testing.T) {
 func TestWorkingSetRecallReturnsTheWholeBodyUnlessPaged(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task")
+	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	body := strings.Repeat("0123456789", 2500) + "tail-marker"
@@ -162,7 +163,7 @@ func TestWorkingSetSelectFollowsTheFileAcrossAnEdit(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "a.go")
 	require.NoError(t, os.WriteFile(path, []byte("package a\n// v1\n"), 0600))
-	w, err := NewWorkingSet(nil, root, "task")
+	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 
@@ -193,7 +194,7 @@ func TestWorkingSetSelectFollowsTheFileAcrossAnEdit(t *testing.T) {
 func TestWorkingSetSelectCollapsesRepeatedBodies(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task")
+	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	rev := w.Revision("a.go")
@@ -216,7 +217,7 @@ func TestWorkingSetSelectCollapsesRepeatedBodies(t *testing.T) {
 func TestWorkingSetSelectCollapsesCoveredSpans(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task")
+	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	rev := w.Revision("a.go")
@@ -249,7 +250,7 @@ const wholeSpanEnd = 1_000_000_000
 func TestWorkingSetSelectSkipsObservationsShownInTheTranscript(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task")
+	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	rounds, err := w.TranscriptRounds(t.Context())
@@ -275,7 +276,7 @@ func TestWorkingSetSelectSkipsObservationsShownInTheTranscript(t *testing.T) {
 func TestWorkingSetSearchReportsBodyCharsNotAnEmptyBody(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "executor_tools.go"), []byte("package session"), 0600))
-	w, err := NewWorkingSet(nil, root, "search")
+	w, err := NewWorkingSet(nil, root, "search", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 
@@ -308,7 +309,7 @@ func TestWorkingSetSelectKeepsRecentObservationsOfOtherFiles(t *testing.T) {
 	for _, name := range files {
 		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte("package a // "+name), 0600))
 	}
-	w, err := NewWorkingSet(nil, root, "task")
+	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	for i, name := range files {

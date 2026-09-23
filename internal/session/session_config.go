@@ -20,12 +20,13 @@ var defaultSessionPolicy = func() config.SessionPolicy {
 	return p
 }()
 
-// ExecutorConfigFrom is the executor's config for a resolved session section.
-// The post-edit gates are on and the safety gate is enabled: those are not
-// the file's to switch off (see config.SessionConfig).
-func ExecutorConfigFrom(p config.SessionPolicy) ExecutorConfig {
+// ExecutorConfigFrom is the executor's config for a resolved session section
+// and the working section. The post-edit gates are on and the safety gate is
+// enabled: those are not the file's to switch off (see config.SessionConfig).
+func ExecutorConfigFrom(p config.SessionPolicy, working config.WorkingConfig) ExecutorConfig {
 	return ExecutorConfig{
 		ToolTimeout:        p.ToolTimeout,
+		Working:            working,
 		RepairMaxAttempts:  p.RepairMaxAttempts,
 		FinalAnswerReserve: p.FinalAnswerReserve,
 		EnableSafetyGate:   true,

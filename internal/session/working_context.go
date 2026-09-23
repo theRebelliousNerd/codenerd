@@ -191,7 +191,7 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 		shardID, intentTarget = cc.ShardID, cc.IntentTarget
 	}
 	scope := sessionID + "/" + shardID + "/" + scopeID
-	set, err := working.NewWorkingSet(world, root, scope)
+	set, err := working.NewWorkingSet(world, root, scope, e.configSnapshot().Working)
 	if err != nil {
 		return ctx, func() {}, err
 	}

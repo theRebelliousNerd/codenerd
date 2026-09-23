@@ -27,6 +27,7 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/broker"
+	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/jit/config"
@@ -270,6 +271,11 @@ type ExecutorConfig struct {
 	// ToolTimeout is the maximum time for a single tool execution.
 	ToolTimeout time.Duration
 
+	// Working is the working section of .nerd/config.json: the spans the
+	// working policy decides a tool loop's regime, steering, stop and finalize
+	// with. Zero fields take the section's defaults.
+	Working nerdconfig.WorkingConfig
+
 	// RepairMaxAttempts bounds one build/test repair episode
 	// (session.repair_max_attempts). Zero takes the section's default;
 	// repair is always bounded.
@@ -382,7 +388,7 @@ const defaultSemanticTopK = 20
 // section's defaults (config.DefaultSessionConfig). A boot builds it from the
 // user's file instead (ExecutorConfigFrom).
 func DefaultExecutorConfig() ExecutorConfig {
-	return ExecutorConfigFrom(defaultSessionPolicy)
+	return ExecutorConfigFrom(defaultSessionPolicy, nerdconfig.DefaultWorkingConfig())
 }
 
 // NewExecutor creates a new executor with the given dependencies.

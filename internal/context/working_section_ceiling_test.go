@@ -1,6 +1,7 @@
 package context
 
 import (
+	"codenerd/internal/config"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,7 +13,7 @@ import (
 // 256 KiB constant inherited from the old transcript cap. The policy states
 // the ceiling where a reader can see and change it, and Go reads it back.
 func TestWorkingSectionCeilingIsThePolicys(t *testing.T) {
-	w, err := NewWorkingSet(nil, t.TempDir(), "task")
+	w, err := NewWorkingSet(nil, t.TempDir(), "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 
