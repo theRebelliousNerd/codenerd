@@ -7,52 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/observation"
 	"codenerd/internal/tactile"
 )
-
-func TestFindWorkspaceFileByBase(t *testing.T) {
-	// Setup temporary workspace
-	workspace := t.TempDir()
-
-	// Test empty cases
-	if alt := findWorkspaceFileByBase("", "foo.txt"); alt != "" {
-		t.Errorf("expected empty string for empty workspace, got %s", alt)
-	}
-	if alt := findWorkspaceFileByBase(workspace, ""); alt != "" {
-		t.Errorf("expected empty string for empty base, got %s", alt)
-	}
-
-	// Create some files
-	subDir := filepath.Join(workspace, "sub")
-	if err := os.Mkdir(subDir, 0755); err != nil {
-		t.Fatalf("failed to create subdir: %v", err)
-	}
-
-	targetFile := filepath.Join(subDir, "target.txt")
-	if err := os.WriteFile(targetFile, []byte("content"), 0644); err != nil {
-		t.Fatalf("failed to create target file: %v", err)
-	}
-
-	// Test finding the file
-	alt := findWorkspaceFileByBase(workspace, "target.txt")
-	if alt != targetFile {
-		t.Errorf("expected %s, got %s", targetFile, alt)
-	}
-
-	// Test skipping ignored directories
-	ignoredDir := filepath.Join(workspace, ".git")
-	if err := os.Mkdir(ignoredDir, 0755); err != nil {
-		t.Fatalf("failed to create ignored subdir: %v", err)
-	}
-	ignoredFile := filepath.Join(ignoredDir, "ignored.txt")
-	if err := os.WriteFile(ignoredFile, []byte("content"), 0644); err != nil {
-		t.Fatalf("failed to create ignored file: %v", err)
-	}
-
-	if alt := findWorkspaceFileByBase(workspace, "ignored.txt"); alt != "" {
-		t.Errorf("expected empty string for ignored file, got %s", alt)
-	}
-}
 
 // mockExecutor implements tactile.Executor for testing
 type mockExecutor struct {
@@ -118,7 +75,7 @@ func TestRunTaskMicroCheckpoint(t *testing.T) {
 			},
 			workspace:   workspace,
 			expectError: true,
-			errorMsg:    "none of planned write_set paths exist",
+			errorMsg:    "none of the planned write_set paths exist",
 		},
 		{
 			name: "exact path exists",
@@ -130,13 +87,14 @@ func TestRunTaskMicroCheckpoint(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "alternate path exists",
+			name: "a same-named file elsewhere is not evidence",
 			task: &Task{
 				Type:     TaskTypeFileModify,
-				WriteSet: []string{filepath.Join(workspace, "wrong_dir", "existing.txt")}, // will find sub/existing.txt
+				WriteSet: []string{filepath.Join(workspace, "wrong_dir", "existing.txt")}, // sub/existing.txt exists; it is not this task's
 			},
 			workspace:   workspace,
-			expectError: false,
+			expectError: true,
+			errorMsg:    "none of the planned write_set paths exist",
 		},
 	}
 
@@ -246,26 +204,39 @@ func TestMicroCheckpoint_FileExists(t *testing.T) {
 	}
 }
 
-func TestMicroCheckpoint_AlternateFileExists(t *testing.T) {
+// A file of the same name elsewhere in the workspace is not evidence the task
+// did anything (sweep finding F12): a task whose write set is
+// docs/features/README.md and whose attempt wrote nothing passed because some
+// other README.md existed.
+func TestMicroCheckpoint_ASameNamedFileElsewhereIsNotEvidence(t *testing.T) {
 	workspace := t.TempDir()
-	// create under a subdirectory
-	err := os.Mkdir(filepath.Join(workspace, "sub"), 0755)
-	if err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(workspace, "sub", "exists.txt")
-	err = os.WriteFile(file, []byte(""), 0644)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("the repo's readme"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	o := &Orchestrator{workspace: workspace}
-	task := &Task{
-		Type: TaskTypeFileModify,
-		// asking for top level, but it exists in sub
-		WriteSet: []string{"exists.txt"},
+	task := &Task{ID: "/task_readme", Type: TaskTypeDocument, WriteSet: []string{"docs/features/README.md"}}
+	o.beginAttempt(task)
+	if err := o.runTaskMicroCheckpoint(context.Background(), task); err == nil {
+		t.Fatal("a task that wrote nothing passed because another README.md exists")
 	}
-	err = o.runTaskMicroCheckpoint(context.Background(), task)
-	if err != nil {
-		t.Fatalf("expected nil error for existing alternate file, got %v", err)
+}
+
+// Where the attempt wrote is where its change landed, when the planned path
+// was a guess (ladder C2): a write the attempt recorded, on disk, passes.
+func TestMicroCheckpoint_TheAttemptsOwnWriteIsEvidence(t *testing.T) {
+	workspace := t.TempDir()
+	written := filepath.Join(workspace, "docs", "features", "INDEX.md")
+	if err := os.MkdirAll(filepath.Dir(written), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(written, []byte("# index"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := &Orchestrator{workspace: workspace}
+	task := &Task{ID: "/task_index", Type: TaskTypeDocument, WriteSet: []string{"docs/features/README.md"}}
+	o.beginAttempt(task)
+	o.recordAttemptWrites(task, []observation.FileWrite{{Path: written}})
+	if err := o.runTaskMicroCheckpoint(context.Background(), task); err != nil {
+		t.Fatalf("the attempt wrote %s and the gate refused it: %v", written, err)
 	}
 }

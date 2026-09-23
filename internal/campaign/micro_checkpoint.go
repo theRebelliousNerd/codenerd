@@ -4,38 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"codenerd/internal/logging"
 )
-
-// findWorkspaceFileByBase walks workspace for a file with the given basename
-// (skips .nerd, node_modules, target). Used when planner paths don't match layout.
-func findWorkspaceFileByBase(workspace, base string) string {
-	if workspace == "" || base == "" || base == "." || base == string(filepath.Separator) {
-		return ""
-	}
-	var found string
-	_ = filepath.WalkDir(workspace, func(path string, d os.DirEntry, err error) error {
-		if err != nil || found != "" {
-			return nil
-		}
-		if d.IsDir() {
-			name := d.Name()
-			if name == ".nerd" || name == "node_modules" || name == "target" || name == ".git" || name == "dist" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.EqualFold(d.Name(), base) {
-			found = path
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return found
-}
 
 // runTaskMicroCheckpoint enforces a minimal per-task verification gate: a
 // mutating task left at least one of its paths on disk.
@@ -70,46 +41,17 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 		writeSet = append(writeSet, w.Path)
 	}
 
-	// File existence sanity for create/modify tasks (fail fast before expensive checks).
-	// Planner paths are often wrong (e.g. cmd/server/main.go when code is backend/main.go).
-	// Accept any write_set path that exists OR a same-basename file under the workspace
-	// so checkpoints do not hard-fail layout mismatches after successful nearby writes.
-	for _, p := range writeSet {
-		info, err := os.Stat(p)
-		if err == nil {
-			if info.IsDir() {
-				continue
-			}
-			continue
-		}
-		if alt := findWorkspaceFileByBase(o.workspace, filepath.Base(p)); alt != "" {
-			logging.Get(logging.CategoryCampaign).Warn(
-				"micro-checkpoint: planned path %s missing; found alternate %s", p, alt,
-			)
-			continue
-		}
-		// Soft-skip missing planned paths when ANY other write_set entry exists
-		// or any alternate was already accepted — planners invent extra files
-		// (server.py + main.py). Fail only if zero planned paths resolved.
-		logging.Get(logging.CategoryCampaign).Warn(
-			"micro-checkpoint: skipping missing planned path %s", p,
-		)
-		continue
-	}
-	// If write set was non-empty but nothing existed, fail.
-	anyExists := false
+	// The change landed where the task declared it or where the attempt wrote
+	// it: a path in either list that is on disk. A file of the same name
+	// elsewhere in the workspace is not evidence -- a task whose write set is
+	// docs/features/README.md and that wrote nothing used to pass because some
+	// other README.md existed (sweep finding F12). What a planner guessed wrong
+	// is covered by the attempt's own writes, above.
 	for _, p := range writeSet {
 		if _, err := os.Stat(p); err == nil {
-			anyExists = true
-			break
+			return nil
 		}
-		if findWorkspaceFileByBase(o.workspace, filepath.Base(p)) != "" {
-			anyExists = true
-			break
-		}
+		logging.Get(logging.CategoryCampaign).Warn("micro-checkpoint: planned path %s is not on disk", p)
 	}
-	if !anyExists {
-		return fmt.Errorf("micro-checkpoint: none of planned write_set paths exist: %v", writeSet)
-	}
-	return nil
+	return fmt.Errorf("micro-checkpoint: none of the planned write_set paths exist and the attempt wrote none of its own: %v", writeSet)
 }
