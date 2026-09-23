@@ -1068,28 +1068,17 @@ func (s *SessionPlannerShard) routeControlPacketToKernel(control *articulation.C
 	// 1. Assert mangle_updates as facts
 	if len(control.MangleUpdates) > 0 {
 		logging.SystemShardsDebug("[SessionPlanner] Routing %d mangle_updates to kernel", len(control.MangleUpdates))
-		policy := core.MangleUpdatePolicy{
-			AllowedPredicates: map[string]struct{}{
-				"missing_tool_for": {},
-				"observation":      {},
-				"task_status":      {},
-				"task_completed":   {},
-			},
-			AllowedPrefixes: []string{
-				"campaign_",
-				"phase_",
-				"task_",
-				"context_",
-				"plan_",
-				"replan_",
-				"build_",
-				"architectural_",
-				"suspicious_",
-				"eligible_",
-			},
-			MaxUpdates: 200,
-		}
-		facts, blocked := core.FilterMangleUpdates(kernel, control.MangleUpdates, policy)
+		// The planner's model gets the one allowlist every envelope surface
+		// uses. It had its own, of prefixes (campaign_, phase_, task_,
+		// eligible_, replan_, ...), and it runs whenever a campaign is current
+		// (activate_shard(/session_planner) :- current_campaign(_)): its model
+		// could write eligible_task to schedule a task the policy held back,
+		// replan_trigger to force a replan, or campaign_task and phase_checkpoint
+		// rows -- the campaign state phase and campaign completion are derived
+		// from. The proposal predicates its atom teaches (task_phase,
+		// phase_order, dependency_edge) have no Decl, so the prefixes admitted
+		// nothing the kernel could use except those.
+		facts, blocked := core.FilterMangleUpdates(kernel, control.MangleUpdates, core.ModelObservationPolicy())
 		for _, b := range blocked {
 			logging.SystemShardsDebug("[SessionPlanner] Blocked mangle_update %q: %s", b.Update, b.Reason)
 		}
