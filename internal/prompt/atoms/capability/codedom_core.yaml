@@ -8,20 +8,19 @@
   priority: 95
   is_mandatory: true
   shard_types: []  # Applies to all personas
-  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
+  requires_tools: [find_symbol, get_element]
   content: |
-    ## Refs Name Code; Line Ranges Edit It
+    ## Refs Name Code
 
-    The Code DOM indexes every declaration as a **Ref**: `lang:path/from/root:Context.Symbol`.
+    Every element of a Go or Mangle file has a ref, printed by every structural tool:
 
-    ```
-    go:backend/auth/user.go:User.Login     py:backend/models/user.py:User.login
-    ts:frontend/types.ts:IUser.userId      rs:core/lib.rs:Config::load
-    ```
+    - Go: directory, receiver and name - `internal/world.StructureIndex.Refresh`, `cmd/nerd.main`, `./Name` at the workspace root. When two files of one directory declare the same name, the ref ends in `@file.go`.
+    - A file's own regions: `internal/world/structure_index.go:header`, `path/file.go:syntax_error`.
+    - Mangle: file and statement - `internal/core/defaults/policy/impact.mg:decl:impact_caller/2`, `...:rule:impact_caller/2@3fa2c1`; the suffix hashes the rule's text, so it names the same rule after edits elsewhere in the file.
 
-    A Ref is an identity. It survives edits that move lines, so the kernel uses Refs for the facts it holds about code: who calls what, which type owns a method, which tests cover an element. When context you are given names a Ref, that is the element it is talking about.
+    A short name (`Refresh`, `RealKernel.evaluate`, `core.NewRealKernel`) is a search: `find_symbol` takes it and answers with refs. The edit verbs refuse a name that matches several elements and list the refs to choose from.
 
-    You do not edit by Ref. You edit by the 1-indexed file line range that `get_elements` reports for the element. Think in elements to decide WHAT to change; use line ranges to change it.
+    A **rev** hashes one element's own bytes. An edit elsewhere in the file leaves it unchanged, so a rev you hold stays a valid precondition until that element itself changes.
 
 - id: "capability/codedom_visibility"
   category: "capability"

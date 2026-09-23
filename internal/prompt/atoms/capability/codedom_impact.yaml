@@ -8,7 +8,7 @@
   priority: 92
   is_mandatory: true
   depends_on: ["capability/codedom_core"]
-  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
+  requires_tools: [callers_of, get_element, edit_element]
   shard_types: []  # Applies to all personas
   content: |
     ## Blast Radius: Look Before Changing A Contract
@@ -17,11 +17,11 @@
 
     Before changing a contract:
 
-    1. `grep` the symbol across the workspace to find its callers and implementers. A field with a wire name (a `json:"user_id"` tag) is also coupled to every other language that reads it, so grep the wire name too.
-    2. List every file that must change for the build to stay green.
-    3. Land them together with `apply_edits` so the tree is never left half-renamed.
+    1. Find what depends on it: `callers_of` for a function or method, `importers_of` for a package, `find_text` for a wire name (a `json:"user_id"` tag is also read by whatever else speaks that format).
+    2. Moving or renaming a package-level name is one `repoint from=... to=... paths=[...]`: every use rewritten, imports derived, every file parsed, all written or none. Deleting a name that is still used is refused until its uses are repointed (`delete_element replace_with=...`).
+    3. Otherwise change the declaration, then each dependent the queries listed, and run the build.
 
-    If dependency facts for the target were injected into your context (callers, methods of a type, covering tests), use them first: they come from the code graph, not from text search.
+    If dependency facts for the target were injected into your context (callers, methods of a type, covering tests), use them first: they come from the code graph.
 
 - id: "capability/codedom_safety"
   category: "capability"

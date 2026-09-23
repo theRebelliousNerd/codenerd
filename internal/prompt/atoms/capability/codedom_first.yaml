@@ -1,26 +1,28 @@
-# CodeDOM First — Prefer semantic Code DOM tools over whole-file text tools
+# CodeDOM First — edit Go and Mangle code by element, validated before it is written
 
 - id: "capability/codedom_first"
   category: "capability"
   priority: 88
   is_mandatory: true
   shard_types: [coder, reviewer, tester]
-  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
-  description: "Prefer Code DOM line-range tools over whole-file reads and text-match edits"
+  requires_tools: [find_symbol, package_outline, get_elements, get_element, edit_element, replace_element, insert_element]
+  description: "Address Go and Mangle code by element ref and rev; every edit is parsed, gofmt'd and import-derived before it is written"
   content: |
-    ## CodeDOM First: Locate, Read The Range, Edit The Range
+    ## CodeDOM First: Address Code By Element, Not By Line
 
-    1. **Locate** - `get_elements path=...` (optional `type`) returns every declaration's `name`, `signature`, `start_line`, `end_line`. `get_element path=... name=...` returns one. They return the signature and the range, NOT the body.
-    2. **Read only that range** - `read_file path=... start_line=S end_line=E`. Do not read a whole file to find a symbol, and do not re-read a range you already have unless an edit moved it.
-    3. **Edit by file line range** - `edit_lines` (replace S..E), `insert_lines` (after a line; 0 = top of file), `delete_lines`. All numbers are 1-indexed FILE lines, never element-relative.
+    Go and Mangle files are parsed. Every declaration, and a Go file's `header` (package clause, file doc, imports), is an element with a **ref** and a **rev**, printed by `find_symbol`, `package_outline`, `get_elements` and `get_element`.
 
-    ### Every edit moves the lines below it
+    1. **See it** - `get_element ref=...` returns the element's source with its doc comment, lines numbered, and its rev. Several at once: `refs=[...]`. An element over 400 lines answers with an outline of its parts (statements, case clauses, closures); ask for one with `part=12.3`.
+    2. **Change it** - give `path` (its file) and `ref` (as printed, or its name in that file):
+       - `edit_element old=... new=...` replaces text inside one element. `old` must occur once in that element (or in `part`), so a short anchor is enough. Most edits are this.
+       - `replace_element source=...` replaces the whole element, doc comment included.
+       - `insert_element anchor=<ref|header|end> position=before|after source=...` adds declarations.
+       - `delete_element` is refused while anything still uses the name, and lists the uses; `replace_with` + `paths` repoints them in the same call.
+       - `create_file` makes a new Go or Mangle file. `repoint from=... to=... paths=[...]` moves every use of a package-level name to another, across files, in one call.
+    3. **Trust the answer** - nothing is written unless the file parses, every other element keeps its bytes, the touched declaration is gofmt'd, and imports are derived: write no import lines, and unused ones are dropped. The answer says the file parses, lists the imports added or dropped, and shows each changed element as it now is with its new rev, so do not read it again. Pass `revision=<rev>` to refuse the edit if the element changed since you saw it.
 
-    Each edit's result states the shift, e.g. "File is now 377 lines (-11). WARNING: line numbers at or after 42 ... are now STALE - subtract 11". An index taken before an edit is valid only ABOVE that edit. Before the next edit to the same file, apply the stated correction or re-run `get_elements`. A stale edit does not fail: it silently overwrites the wrong declaration.
+    A refusal writes nothing and says why: the parse error, the elements the edit would have changed, where an ambiguous anchor occurs, the uses that block a delete, or the element's current text when a rev precondition failed. Correct the call; do not route around it with a line or whole-file tool.
 
-    - One region per file, then re-index; or
-    - work bottom-up (highest line first), so earlier numbers stay valid.
+    A file that does not parse lists its broken region as a `syntax_error` element: see it with `get_element`, repair it with `replace_element ref=syntax_error`.
 
-    ### Several files that must change together
-
-    `apply_edits` stages 2-16 line edits across distinct existing files and lands them all or none. Use it when a change is only correct if every file changes (a renamed symbol and its callers).
+    Line-range and whole-file editing is for files CodeDOM does not parse: Markdown, YAML, other languages.

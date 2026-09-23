@@ -9,25 +9,15 @@
   is_mandatory: true
   depends_on: ["capability/codedom_core"]
   shard_types: []  # Applies to all personas
-  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
+  requires_tools: [find_symbol, package_outline, callers_of, get_elements, get_element]
   content: |
     ## What The CodeDOM Tools Return
 
-    Argument schemas come with the tool definitions. These are the result shapes to expect.
+    - Rows (`find_symbol`, `package_outline`, `get_elements`, `callers_of` targets, `predicate_outline`): `path:start-end  kind  ref  rev <rev>  signature  // doc`. The span starts at the doc comment. A row is a finished citation; quote it as is.
+    - `get_element`: `ref  kind  path:start-end  rev <rev>`, then the source with line numbers.
+    - `find_text`: `path:line  ref  in string|comment|identifier  <the literal or comment line>`.
 
-    `get_elements` -> a JSON array, or the string "No code elements found":
-    ```json
-    [{"name": "Login", "type": "function", "file": "internal/auth/user.go",
-      "start_line": 42, "end_line": 55,
-      "signature": "func Login(ctx context.Context, email, password string) (*User, error)"}]
-    ```
-    `get_element` -> one such object, or the error "element not found: <name>". Neither returns the body.
-
-    `edit_lines` / `insert_lines` / `delete_lines` -> a confirmation with the new file length, the signed line shift and the first stale line. Read it; it is the only notice that your other line numbers moved.
-
-    `apply_edits` -> all staged edits landed, or none did and the failing entry is named.
-
-    Element `type` values: function, method, struct, class, interface, type_alias, module.
+    Kinds: `header`, `function`, `method`, `struct`, `interface`, `type`, `const`, `var`, `syntax_error`; Mangle `decl`, `rule`, `fact`, `query`.
 
 - id: "capability/codedom_test_tools"
   category: "capability"
@@ -39,73 +29,14 @@
   content: |
     ## Smart Test Selection Tools
 
-    Don't run all tests after every change. Use impact analysis to run only
-    the tests that actually exercise the modified code.
+    Do not run every test after every change. Every element edit (edit_element, replace_element, insert_element, delete_element, create_file, repoint) records which elements it changed, so with no arguments:
 
-    ### get_impacted_tests
+    - `get_impacted_tests` lists the tests that exercise what you changed, by priority, and the packages holding them (`include_coverage_gaps=true` also lists public functions no test reaches).
+    - `run_impacted_tests` runs them (`include_low_priority`, `verbose`, `timeout` optional).
 
-    Query which tests would be affected without running them:
+    `edited_refs` narrows either one to elements you name, in the kernel's form: `fn:auth.Login`, `fn:auth.Session.Refresh`, `struct:auth.User`.
 
-    ```json
-    {
-      "tool_name": "get_impacted_tests",
-      "tool_args": {
-        "edited_refs": [
-          "go:internal/auth/user.go:Login",
-          "go:internal/auth/user.go:ValidateToken"
-        ],
-        "include_coverage_gaps": true
-      }
-    }
-    ```
-
-    **Returns:**
-    ```json
-    {
-      "edited_refs": ["go:internal/auth/user.go:Login", ...],
-      "impacted_tests": [
-        {
-          "ref": "go:internal/auth/user_test.go:TestLogin",
-          "file": "internal/auth/user_test.go",
-          "priority": "high",
-          "reason": "depends_on_edited_code",
-          "triggers": ["go:internal/auth/user.go:Login"]
-        }
-      ],
-      "impacted_packages": ["./internal/auth"],
-      "coverage_gaps": ["go:internal/auth/user.go:RefreshToken"]
-    }
-    ```
-
-    ### run_impacted_tests
-
-    Run only the affected tests:
-
-    ```json
-    {
-      "tool_name": "run_impacted_tests",
-      "tool_args": {
-        "edited_refs": [...],
-        "include_low_priority": false,
-        "verbose": true,
-        "timeout": "5m"
-      }
-    }
-    ```
-
-    ### Test Priority Levels
-
-    - **High**: Test directly calls the edited function
-    - **Medium**: Test depends on edited function transitively
-    - **Low**: Test is in same package but no detected dependency
-
-    ### Benefits of Smart Test Selection
-
-    | Scenario | Full Test Suite | Smart Selection |
-    |----------|----------------|-----------------|
-    | Small fix | 50 tests, 2 min | 3 tests, 5 sec |
-    | Refactor | 200 tests, 8 min | 15 tests, 30 sec |
-    | New feature | 200 tests, 8 min | 0 tests (no deps yet) |
+    Priorities: **high** - the test calls the edited function; **medium** - it depends on it transitively; **low** - same package, no detected dependency.
 
 - id: "capability/codedom_query_tools"
   category: "capability"
@@ -146,7 +77,7 @@
 
     **Find callers of a function:**
     ```mangle
-    :- code_calls(Caller, "go:internal/auth/user.go:Login").
+    :- code_calls(Caller, "auth.Login").
     ```
 
     **Find data contracts:**
@@ -179,5 +110,5 @@
     1. **Query**: Find elements matching criteria
     2. **Analyze**: Review the results
     3. **Plan**: Decide which elements to modify
-    4. **Edit**: Use `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed file ranges from `get_elements`/`get_element` (code) or bounded `read_file`/`grep` (Markdown); `edit_file` only on concrete line-tool failure or for config/data formats
+    4. **Edit**: Go and Mangle by element ref; Markdown and other files CodeDOM does not parse by line range
     5. **Verify**: Run impacted tests

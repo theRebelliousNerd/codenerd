@@ -47,7 +47,7 @@ func TestProductionPromptRespectsRestrictedCapabilities(t *testing.T) {
 		}
 	}
 	assertRestricted(compile())
-	cc.AvailableTools = append(cc.AvailableTools, "get_elements", "get_element", "edit_lines", "insert_lines", "delete_lines")
+	cc.AvailableTools = append(cc.AvailableTools, "find_symbol", "package_outline", "get_elements", "get_element", "edit_element", "replace_element", "insert_element")
 	if !compile()["capability/codedom_first"] {
 		t.Error("available semantic editing guidance was suppressed")
 	}

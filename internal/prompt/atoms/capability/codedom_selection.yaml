@@ -7,30 +7,30 @@
   priority: 96  # Very high - guides tool selection before other CodeDOM atoms
   is_mandatory: true
   depends_on: []
-  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
+  requires_tools: [find_symbol, get_elements, get_element, callers_of, edit_element, edit_lines]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/debug", "/review", "/test"]
   content: |
     ## Worked Examples: One Edit, Done Right
 
     **Existing code - "fix Login":**
     ```
-    get_elements path="internal/auth/user.go" type="function"
-      -> Login: start_line 42, end_line 55
-    read_file    path="internal/auth/user.go" start_line=42 end_line=55
-    edit_lines   path="internal/auth/user.go" start_line=47 end_line=49 new_content="..."
-      -> result reports the line shift; apply it before any further edit to this file
+    find_symbol  name="Login"
+      -> internal/auth/user.go:40-55  function  internal/auth.Login  rev 3fa2c1d4e5f6  func Login(...) error
+    get_element  ref="internal/auth.Login"                 (the source, lines numbered)
+    edit_element path="internal/auth/user.go" ref="internal/auth.Login" old="return nil, nil" new="return nil, err"
+      -> the element's new text and rev; nothing to re-read, no import to add by hand
     ```
 
-    **Existing Markdown - "update the Usage section":**
+    **A message quoted in a brief** ("Vector recall query failed"): `find_text text="Vector recall query failed"` answers with the element that logs it.
+
+    **Existing Markdown - "update the Usage section":** Markdown has no semantic parser; `get_elements` does not parse Markdown. Locate the heading with one bounded `read_file` range or a scoped `grep`, then edit by 1-indexed line range with `path`, preferred over `edit_file`:
     ```
-    grep "^## Usage" docs/guide.md            (or read_file lines 1-80)
-      -> heading at line 42, section ends at 55
     edit_lines path="docs/guide.md" start_line=42 end_line=55 new_content="## Usage\n..."
     ```
 
-    **Wrong, in both cases:** `grep` for a name, guess the lines, then `edit_file` with old_text/new_text. It fails on a whitespace difference and skips the range you were given for free.
+    **Wrong:** reading a whole Go file to find a function; editing Go by line numbers; writing an import line; grepping for who calls or imports something.
 
-    Before an edit, three questions: does the target exist (if not: `write_file`, now); do I hold its current range, or did an earlier edit move it; does anything else have to change with it (if so: `apply_edits`).
+    Before an edit, two questions: does the target exist (a new Go or Mangle file is `create_file`; any other new file is `write_file`), and does anything else have to change with it (`callers_of`, `importers_of` first; moving or renaming a package-level name is one `repoint`).
 
 - id: "capability/codedom_workflow"
   category: "capability"
@@ -38,91 +38,15 @@
   priority: 89
   is_mandatory: false
   depends_on: ["capability/codedom_selection"]
-  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
+  requires_tools: [find_symbol, package_outline, get_element, callers_of, callees_of, edit_element, replace_element, insert_element]
   intent_verbs: ["/fix", "/implement", "/refactor"]
   content: |
     ## Standard CodeDOM Workflow
 
-    For ANY modification to an existing file, follow this workflow:
+    1. **Locate** - `find_symbol` (a name, several names `A|B`, or a `pattern`), `package_outline` for a directory, `find_text` for a message or comment, `predicate_outline` for a Mangle predicate. Each answers with refs.
+    2. **Read** - `get_element ref=...` (or `refs=[...]`); for an element over 400 lines, its outline, then `part=`.
+    3. **Understand the reach** - `callers_of`, `callees_of`, `importers_of`. A change to a signature, an exported name or a struct field reaches everything they list.
+    4. **Edit** - `edit_element` for text inside one element; `replace_element` for all of it; `insert_element` for new declarations; `delete_element` to remove one; `repoint` to move every use of a name; `create_file` for a new file. Each answer is the new text and rev: carry on from it.
+    5. **Verify** - run the tests covering the elements your edits changed (the impacted tests), then the build.
 
-    ### 1. DISCOVER — Find the target range
-
-    Existing source code (preferred):
-    ```json
-    {
-      "tool": "get_elements",
-      "params": {
-        "path": "path/to/file.go",
-        "type": "/function"
-      }
-    }
-    ```
-    Result gives you 1-indexed file `start_line`/`end_line` (and Ref for graph queries like `caller_of`). For a single known symbol, `get_element` with `path` + `name` returns the same file ranges.
-
-    Existing Markdown (`.md`/`.markdown`) — same edit tools, different locate step:
-    ```json
-    {
-      "tool": "read_file",
-      "params": {
-        "path": "docs/guide.md",
-        "start_line": 1,
-        "end_line": 80
-      }
-    }
-    ```
-    Or scoped `grep` for the heading. Do NOT use `get_elements` for Markdown — it has no CodeElement parser and does not return Markdown headings or Refs.
-
-    ### 2. UNDERSTAND — Query the code graph (for code)
-
-    Before editing code, understand impact:
-    - Who CALLS this function? `callers_of symbol="Login"`
-    - What does it CALL? `callees_of symbol="Login"`
-    - Does it touch API contracts? (`wire_name`, `api_dependency`)
-
-    ### 3. PLAN — Check safety
-
-    Query `deny_edit` rules. If editing would trigger safety blocks:
-    - `/auth_removed` - Don't remove auth decorators
-    - `/goroutine_leak_risk` - Don't remove context cancellation
-    - `/no_test_coverage` - Add tests first
-
-    ### 4. EDIT — Use line-range tools with `path` + 1-indexed file ranges
-
-    Existing code:
-    ```json
-    {
-      "tool": "edit_lines",
-      "params": {
-        "path": "internal/auth/user.go",
-        "start_line": 42,
-        "end_line": 47,
-        "new_content": "// fixed implementation\nreturn nil"
-      }
-    }
-    ```
-    Required: `path`, `start_line`, `end_line`, `new_content`. `insert_lines` requires `path`, `after_line`, `content`; `delete_lines` requires `path`, `start_line`, `end_line`. All line numbers are 1-indexed FILE ranges, not element-relative. Same `path` + range contract applies to existing Markdown after the bounded locate step.
-
-    New file (code or Markdown) with supplied full content: skip DISCOVER entirely — use `write_file` with `path` + complete `content` immediately (early-out).
-
-    Config/data (`.json`/`.yaml`/`.toml`/`.env`): `edit_file` is the correct default. For existing code/Markdown, `edit_file` is only a bounded fallback when line-range tools cannot represent the operation or return a concrete failure.
-
-    ### 5. RE-INDEX — Handle stale lines
-
-    Every `edit_lines`/`insert_lines`/`delete_lines` reports the shift. Before every subsequent edit to the same file, either apply the correction or re-run `get_elements` (code) / bounded `read_file` (Markdown). Also respect `identity/coder/investigate_first` bounded-evidence and `identity/coder/tool_usage` new-file early-out: do not defer writes and do not rediscover when task already supplies target + pattern.
-
-    ### 6. VERIFY — Run impacted tests
-
-    ```json
-    {
-      "tool": "get_impacted_tests",
-      "params": {
-        "edited_refs": ["go:internal/auth/user.go:Login"]
-      }
-    }
-    ```
-
-    Only run the tests that actually depend on your changes.
-
-    ### 7. ITERATE — If tests fail, repeat from step 1
-
-    The CodeDOM preserves your edit history and can rollback if needed.
+    A refusal writes nothing. Read why (a parse error, an untargeted element that would change, an ambiguous anchor, remaining uses) and correct the call; do not route around it with a line or whole-file tool.

@@ -10,19 +10,22 @@
   content: |
     ## The Workspace Is Already Parsed: Ask, Do Not Search
 
-    Every Go declaration and every call site in this workspace is indexed, and the index follows edits. One call answers what a text search answers in a guess per call plus a read per hit:
+    Every Go and Mangle declaration and every Go call site in this workspace is indexed, and the index follows edits. One call answers what a text search answers in a guess per call plus a read per hit:
 
     | Question | Tool |
     |---|---|
-    | Where is X declared? | `find_symbol name="RealKernel.evaluate"` |
+    | Where is X declared? (one name, several `A|B`, or a `pattern`) | `find_symbol name="RealKernel.evaluate"` |
     | What does this package or file contain? | `package_outline path="internal/context"` |
+    | Show me X's source | `get_element ref="internal/core.RealKernel.evaluate"` |
     | Who calls X? Does anything? | `callers_of symbol="FilterByThreshold"` |
     | What does X call? | `callees_of symbol="core.RealKernel.evaluate"` |
+    | Who imports this package? | `importers_of package="internal/features"` |
+    | Where does this message, comment or key appear? | `find_text text="Vector recall query failed"` |
+    | Where is this Mangle predicate declared, derived, read? | `predicate_outline predicate="modified_function"` |
     | What exists here that nothing uses? | `unreferenced_symbols path="internal/context"` |
-    | Show me X's source | `get_element`, or `read_file` with the line span a row gave you |
 
-    Every row comes back as `path:start-end  kind  id  signature`. That is a finished citation: repo-relative path, real lines, the symbol at them. Quote it as is; never retype a path from memory or shorten a filename.
+    Every row is `path:start-end  kind  ref  rev <rev>  signature`: a finished citation (repo-relative path, real lines) and an address every element tool accepts. Quote it as is; never retype a path from memory.
 
-    A name is a bare identifier (`evaluate`), a receiver-qualified method (`RealKernel.evaluate`), a package-qualified name (`core.NewRealKernel`) or a full id. `callers_of` marks a site `exact` when the package ties it to the target, and `by-name` when it is a method call through a variable: check a by-name site before relying on it.
+    `callers_of` marks a site `exact` when the package ties it to the target, and `by-name` when it is a method call through a variable: check a by-name site before relying on it.
 
-    `grep`, `glob`, `list_files` and `search_code` are not offered at the start of a task. They open once the structural queries have been tried and cannot answer: prose, configuration, Mangle, a language the index does not parse. `read_file` always works, on any file.
+    `grep`, `glob`, `list_files` and `search_code` are not offered at the start of a task; they open once the structural queries have been tried and cannot answer. `read_file` is for files CodeDOM does not parse: prose, configuration, other languages.
