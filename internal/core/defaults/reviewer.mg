@@ -2,23 +2,10 @@
 # Loaded by ReviewerShard kernel alongside base policy.gl
 # Part of Cortex 1.5.0 Architecture
 
-# =============================================================================
-# SECTION 1: REVIEWER TASK CLASSIFICATION
-# =============================================================================
-
-Decl reviewer_task(ID, Action, Files, Timestamp).
-
-reviewer_action(/review) :-
-    reviewer_task(_, /review, _, _).
-
-reviewer_action(/security_scan) :-
-    reviewer_task(_, /security_scan, _, _).
-
-reviewer_action(/style_check) :-
-    reviewer_task(_, /style_check, _, _).
-
-reviewer_action(/complexity) :-
-    reviewer_task(_, /complexity, _, _).
+# SECTION 1 (reviewer_task -> reviewer_action) is gone (2026-09-23): nothing
+# asserted reviewer_task and nothing read reviewer_action. What kind of review
+# a turn is, is its intent verb (/review, /security, /lint, ...), which
+# persona_verb and reasoning_intensive_verb already read.
 
 # =============================================================================
 # SECTION 2: FINDING SEVERITY CLASSIFICATION

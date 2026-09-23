@@ -149,7 +149,6 @@ var ruleGlossary = map[string]string{
 	"next_coder_action":  "coder action selection",
 	"next_tester_action": "tester action selection",
 	"tester_action":      "tester workflow step",
-	"reviewer_action":    "reviewer workflow step",
 	"active_strategy":    "active execution strategy",
 	"coder_strategy":     "coder strategy selection",
 	"route_decision":     "request routing decision",

@@ -51,7 +51,6 @@ relevant_to_intent
 review_approved
 review_complete
 review_rejection_rate_high
-reviewer_task
 rule_outcome
 security_anomaly
 shard_family
