@@ -18,7 +18,7 @@ import (
 // every dependent task's prompt.
 //
 // What was stored there before was json.Marshal of the handler's return value,
-// cut at 1000 bytes by completeTask and again at 10240 here. That is a
+// cut at 1000 bytes by completeTask and again at 10240 by storeTaskResult. That is a
 // transcript with its head kept and its tail thrown away — the shape most
 // likely to end mid-sentence, and the shape that gives a dependent task the
 // subagent's PREAMBLE rather than its conclusions, because a shard states its
@@ -87,12 +87,11 @@ func (o *Orchestrator) storeTaskResult(taskID, result string) {
 	// Compute which results are still needed by pending/active tasks.
 	needed := o.computeNeededResultIDs()
 
+	// Stored whole: the projection is bounded by structure (projectTaskReturn),
+	// and a byte cut here only ever removed its tail -- the last findings and
+	// the handle that redeems the rest.
 	o.resultsMu.Lock()
 	defer o.resultsMu.Unlock()
-	// Truncate if too large (keep first 10KB for context injection)
-	if len(result) > 10240 {
-		result = result[:10240] + "\n... [truncated]"
-	}
 
 	// Maintain insertion/LRU order
 	if _, exists := o.taskResults[taskID]; exists {

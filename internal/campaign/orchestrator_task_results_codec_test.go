@@ -95,3 +95,26 @@ func TestProjectTaskReturn_ShouldNotClaimArtifactsTheTaskDidNotRecord(t *testing
 		t.Errorf("the projection reported an artifact only the shard's prose claimed:\n%s", out)
 	}
 }
+
+// storeTaskResult cut whatever it was handed at 10240 bytes, keeping the head.
+// The projection it stores is already bounded by structure, so the cut only
+// ever removed its tail -- the last findings and the handle that redeems the
+// rest -- from the context a dependent task was built on.
+func TestStoreTaskResult_KeepsTheProjectionWhole(t *testing.T) {
+	o := &Orchestrator{
+		taskResults: map[string]string{},
+		policy:      testPolicy(nil),
+		campaign:    &Campaign{},
+	}
+	stored := strings.Repeat("finding line\n", 2000) + "LAST FINDING and subagent_expand handle=abc"
+	o.storeTaskResult("/task_up", stored)
+
+	got, ok := o.getTaskResult("/task_up")
+	if !ok || got != stored {
+		t.Fatalf("stored %d bytes, got back %d (ok=%v); the tail was cut", len(stored), len(got), ok)
+	}
+	input := o.buildTaskInput(&Task{ID: "/task_down", Description: "use it", ContextFrom: []string{"/task_up"}})
+	if !strings.Contains(input, "LAST FINDING and subagent_expand handle=abc") {
+		t.Fatal("the dependent task's input lost the tail of its upstream's result")
+	}
+}
