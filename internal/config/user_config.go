@@ -1410,37 +1410,32 @@ func (c *UserConfig) GetBrowserConfig() BrowserAutomationConfig {
 }
 
 // GetExecution returns execution settings with defaults.
+//
+// Every default comes from DefaultExecutionConfig. This used to restate the
+// lists by hand, and the copy had drifted: its allowed_env_vars fallback kept
+// four variables where the defaults list eight, dropping the TEMP, TMP,
+// GOCACHE and LOCALAPPDATA a Go build needs on Windows.
 func (c *UserConfig) GetExecution() ExecutionConfig {
-	if c.Execution != nil {
-		cfg := *c.Execution
-		if cfg.DefaultTimeout == "" {
-			cfg.DefaultTimeout = "30s"
-		}
-		if cfg.WorkingDirectory == "" {
-			cfg.WorkingDirectory = "."
-		}
-		if len(cfg.AllowedBinaries) == 0 {
-			cfg.AllowedBinaries = []string{
-				"go", "git", "grep", "ls", "mkdir", "cp", "mv",
-				"npm", "npx", "node", "python", "python3", "pip",
-				"cargo", "rustc", "make", "cmake",
-			}
-		}
-		if len(cfg.AllowedEnvVars) == 0 {
-			cfg.AllowedEnvVars = []string{"PATH", "HOME", "GOPATH", "GOROOT"}
-		}
-		return cfg
+	defaults := DefaultExecutionConfig()
+	if c.Execution == nil {
+		return *defaults
 	}
-	return ExecutionConfig{
-		AllowedBinaries: []string{
-			"go", "git", "grep", "ls", "mkdir", "cp", "mv",
-			"npm", "npx", "node", "python", "python3", "pip",
-			"cargo", "rustc", "make", "cmake",
-		},
-		DefaultTimeout:   "30s",
-		WorkingDirectory: ".",
-		AllowedEnvVars:   []string{"PATH", "HOME", "GOPATH", "GOROOT"},
+	cfg := *c.Execution
+	if cfg.DefaultTimeout == "" {
+		cfg.DefaultTimeout = defaults.DefaultTimeout
 	}
+	if cfg.WorkingDirectory == "" {
+		cfg.WorkingDirectory = defaults.WorkingDirectory
+	}
+	if len(cfg.AllowedBinaries) == 0 {
+		cfg.AllowedBinaries = defaults.AllowedBinaries
+	}
+	if len(cfg.AllowedEnvVars) == 0 {
+		cfg.AllowedEnvVars = defaults.AllowedEnvVars
+	}
+	// SecretPaths is not defaulted here: nil (absent) and [] (explicitly none)
+	// mean different things, and ResolvedSecretPaths is where they part.
+	return cfg
 }
 
 // GetLogging returns logging settings with defaults.
@@ -1502,6 +1497,7 @@ func DefaultUserConfig() *UserConfig {
 	ctxWin := DefaultContextWindowConfig()
 	reflection := DefaultReflectionConfig()
 	browserCfg := DefaultBrowserAutomationConfig()
+	campaign := DefaultCampaignConfig()
 
 	return &UserConfig{
 		Engine:                       "api",
@@ -1522,6 +1518,7 @@ func DefaultUserConfig() *UserConfig {
 		ToolGeneration:               &toolGen,
 		Build:                        &build,
 		Execution:                    DefaultExecutionConfig(),
+		Campaign:                     &campaign,
 		Logging:                      DefaultLoggingConfig(),
 		JIT:                          &jit,
 		LearningCandidateThreshold:   3,

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"reflect"
 	"sort"
 	"strings"
@@ -234,6 +235,27 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	emb := c.GetEmbeddingConfig()
 	if missing := emb.MissingModel(); missing != "" {
 		add(SeverityWarning, "embedding", missing, "")
+	}
+
+	// --- execution ---
+	// A secret pattern that path.Match cannot parse matches nothing, so the
+	// file it was written to protect would be readable while the config says
+	// it is not. That is a contradiction, and the file is refused.
+	if c.Execution != nil {
+		for i, pattern := range c.Execution.SecretPaths {
+			if strings.TrimSpace(pattern) == "" {
+				add(SeverityError, fmt.Sprintf("execution.secret_paths[%d]", i), "an empty pattern protects nothing", "remove it")
+				continue
+			}
+			if _, err := path.Match(pattern, ""); err != nil {
+				add(SeverityError, fmt.Sprintf("execution.secret_paths[%d]", i), fmt.Sprintf("%q is not a valid pattern: %v", pattern, err), "path.Match syntax: *, ?, [a-z]")
+			}
+		}
+	}
+
+	// --- campaign ---
+	if c.Campaign != nil {
+		out = append(out, c.Campaign.Check("campaign")...)
 	}
 
 	// --- everything the file leaves to a default ---
