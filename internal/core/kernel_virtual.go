@@ -10,7 +10,7 @@ func (k *RealKernel) SetVirtualStore(vs *VirtualStore) {
 	defer k.mu.Unlock()
 	k.virtualStore = vs
 	// Mark policy dirty so external predicates get re-registered on next eval
-	k.policyDirty = true
+	k.markPolicyDirtyLocked()
 }
 
 // GetVirtualStore returns the currently attached VirtualStore (if any).

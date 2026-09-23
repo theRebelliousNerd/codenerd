@@ -839,9 +839,34 @@ func TestLoadSchemas_ShouldSetPolicyDirty(t *testing.T) {
 	if !policyDirty {
 		t.Error("LoadSchemas did not mark the policy dirty; the new schema would never be reparsed")
 	}
-	if k.IsDirty() {
-		t.Error("LoadSchemas marked the facts dirty; replacing schemas asserts no facts and " +
-			"should not force a fact re-evaluation")
+	// The derived facts came from the old program, so they are stale even
+	// though no base fact changed. This used to assert the opposite, and
+	// queries then answered from the old program until an unrelated write.
+	if !k.IsDirty() {
+		t.Error("LoadSchemas left the facts clean; the next query would answer from the old program")
+	}
+}
+
+// A rule appended to the policy is live for the very next query, with no
+// write in between to force an evaluation.
+func TestAppendPolicy_TheNextQueryRunsTheNewRule(t *testing.T) {
+	k, err := NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := k.Assert(Fact{Predicate: "observation", Args: []any{"k", "v"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := k.Query("next_action(/append_probe)"); err != nil || len(got) != 0 {
+		t.Fatalf("before the rule: %v, %v", got, err)
+	}
+	k.AppendPolicy("next_action(/append_probe) :- observation(_, _).")
+	got, err := k.Query("next_action(/append_probe)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("after AppendPolicy the query returned %v; the appended rule did not run", got)
 	}
 }
 

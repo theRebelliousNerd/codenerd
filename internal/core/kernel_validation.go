@@ -544,7 +544,7 @@ func (k *RealKernel) SetSchemas(schemas string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.schemas = schemas
-	k.policyDirty = true
+	k.markPolicyDirtyLocked()
 	k.refreshSchemaValidatorLocked()
 	logging.KernelDebug("SetSchemas: policyDirty set to true, will rebuild on next evaluate")
 }

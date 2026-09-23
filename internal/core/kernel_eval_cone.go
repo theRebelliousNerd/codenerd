@@ -155,6 +155,18 @@ func (k *RealKernel) markDirtyLocked(preds ...string) {
 	k.factsDirty.Store(true)
 }
 
+// markPolicyDirtyLocked records that the program itself changed -- a rule, a
+// schema, a learned clause, the external predicates -- and so that every
+// derived fact is stale. Raising policyDirty alone used to leave factsDirty
+// down, and ensureEvaluated reads only factsDirty: a query after AppendPolicy
+// answered from the old program until some unrelated write forced an
+// evaluation (found 2026-09-22 by TestProseOnly_ARuleIntoAnExecSinkWithdraws
+// TheExemption). Caller holds k.mu, or the kernel is not yet shared.
+func (k *RealKernel) markPolicyDirtyLocked() {
+	k.policyDirty = true
+	k.markDirtyLocked()
+}
+
 // predicateNames flattens a predicate set for markDirtyLocked. An empty set
 // yields no names, which markDirtyLocked reads as "unknown": the safe side.
 func predicateNames(set map[string]struct{}) []string {

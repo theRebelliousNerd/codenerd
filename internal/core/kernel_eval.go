@@ -542,7 +542,7 @@ func (k *RealKernel) ClearSchemas() {
 	k.policy = ""
 	k.learned = ""
 	k.programInfo = nil
-	k.policyDirty = true
+	k.markPolicyDirtyLocked()
 }
 
 // writeFailedProgramDump saves the combined Mangle program that failed analysis

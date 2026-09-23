@@ -43,7 +43,7 @@ func (k *RealKernel) SetPolicy(policy string) {
 	defer k.mu.Unlock()
 	k.policy = policy
 	k.loadedPolicyFiles = make(map[string]struct{})
-	k.policyDirty = true
+	k.markPolicyDirtyLocked()
 	logging.KernelDebug("SetPolicy: policyDirty set to true")
 }
 
@@ -58,7 +58,7 @@ func (k *RealKernel) AppendPolicy(additionalPolicy string) {
 	defer k.mu.Unlock()
 	prevLen := len(k.policy)
 	k.policy = k.policy + "\n\n# Appended Policy\n" + additionalPolicy
-	k.policyDirty = true
+	k.markPolicyDirtyLocked()
 	logging.KernelDebug("AppendPolicy: policy grew from %d to %d bytes, policyDirty=true", prevLen, len(k.policy))
 }
 
@@ -141,7 +141,7 @@ func (k *RealKernel) LoadPolicyFile(path string) error {
 	prevLen := len(k.policy)
 	k.policy = k.policy + "\n\n# Appended Policy (" + baseName + ")\n" + string(data)
 	k.loadedPolicyFiles[key] = struct{}{}
-	k.policyDirty = true
+	k.markPolicyDirtyLocked()
 	logging.KernelDebug("LoadPolicyFile: policy grew from %d to %d bytes, policyDirty=true", prevLen, len(k.policy))
 	return nil
 }
@@ -469,7 +469,7 @@ func (k *RealKernel) applyLearnedRuleLocked(rule string) {
 	} else {
 		k.learned = "# HotLoaded Rule\n" + rule
 	}
-	k.policyDirty = true
+	k.markPolicyDirtyLocked()
 }
 
 // appendToLearnedFile appends a rule to learned.mg on disk.
@@ -524,7 +524,7 @@ func (k *RealKernel) SetLearned(learned string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.learned = learned
-	k.policyDirty = true
+	k.markPolicyDirtyLocked()
 	k.refreshSchemaValidatorLocked()
 }
 
@@ -538,7 +538,7 @@ func (k *RealKernel) LoadSchemas(schemaContent string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.schemas = schemaContent
-	k.policyDirty = true // Force reparse since schemas changed
+	k.markPolicyDirtyLocked() // Force reparse since schemas changed
 	logging.KernelDebug("LoadSchemas: replaced schemas (%d bytes), policyDirty=true", len(schemaContent))
 }
 
@@ -550,7 +550,7 @@ func (k *RealKernel) AppendSchema(schemaContent string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.schemas += "\n" + schemaContent
-	k.policyDirty = true // Force reparse since schemas changed
+	k.markPolicyDirtyLocked() // Force reparse since schemas changed
 	logging.KernelDebug("AppendSchema: appended %d bytes to schemas (total %d bytes), policyDirty=true", len(schemaContent), len(k.schemas))
 }
 
@@ -560,6 +560,6 @@ func (k *RealKernel) LoadPolicy(policyContent string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.policy = policyContent
-	k.policyDirty = true // Force reparse since policy changed
+	k.markPolicyDirtyLocked() // Force reparse since policy changed
 	logging.KernelDebug("LoadPolicy: replaced policy (%d bytes), policyDirty=true", len(policyContent))
 }
