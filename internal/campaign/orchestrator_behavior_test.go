@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/tactile"
@@ -33,130 +33,85 @@ func (s *stubLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userP
 	return ch, errCh
 }
 
-func TestOrchestrator_AssertsCampaignConfigFacts(t *testing.T) {
+// The campaign section of the user's config reaches the kernel as
+// config_param rows, and the rules read those rows: nothing about how a
+// campaign runs is a Go literal or a Mangle constant.
+func TestOrchestrator_PublishesTheCampaignPolicyAsConfigParams(t *testing.T) {
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
 	}
+	cfg := config.DefaultCampaignConfig()
+	cfg.MaxTaskAttempts = 5
+	cfg.AcceptanceRounds = 2
+	no := false
+	cfg.ReplanOnCheckpointFailure = &no
 
-	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:        t.TempDir(),
-		Kernel:           kernel,
-		LLMClient:        &stubLLM{},
-		ShardManager:     coreshards.NewShardManager(),
-		TaskExecutor:     &MockTaskExecutor{},
-		Executor:         tactile.NewDirectExecutor(),
-		VirtualStore:     &core.VirtualStore{},
-		MaxRetries:       5,
-		ReplanThreshold:  2,
-		AutoReplan:       true,
-		CheckpointOnFail: true,
-	})
-	if err != nil {
+	if _, err := NewOrchestrator(OrchestratorConfig{
+		Workspace:    t.TempDir(),
+		Kernel:       kernel,
+		LLMClient:    &stubLLM{},
+		ShardManager: coreshards.NewShardManager(),
+		TaskExecutor: &MockTaskExecutor{},
+		Executor:     tactile.NewDirectExecutor(),
+		VirtualStore: &core.VirtualStore{},
+		Campaign:     cfg,
+	}); err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
 	}
 
-	now := time.Now()
-	c := &Campaign{
-		ID:        "/campaign_test",
-		Type:      CampaignTypeCustom,
-		Title:     "Test",
-		Goal:      "Goal",
-		Status:    StatusActive,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := orch.SetCampaign(c); err != nil {
-		t.Fatalf("SetCampaign() error = %v", err)
-	}
-
-	facts, err := kernel.Query("campaign_config")
+	facts, err := kernel.Query("config_param")
 	if err != nil {
-		t.Fatalf("Query(campaign_config) error = %v", err)
+		t.Fatalf("Query(config_param) error = %v", err)
 	}
-	if len(facts) == 0 {
-		t.Fatalf("expected campaign_config fact, got none")
+	got := map[string]string{}
+	for _, f := range facts {
+		if len(f.Args) == 2 {
+			got[types.ExtractString(f.Args[0])] = fmt.Sprintf("%v", f.Args[1])
+		}
+	}
+	for key, want := range map[string]string{
+		"/campaign_max_task_attempts":            "5",
+		"/campaign_acceptance_rounds":            "2",
+		"/campaign_replan_on_checkpoint_failure": "0",
+		"/campaign_max_checkpoint_attempts":      "3",
+	} {
+		if got[key] != want {
+			t.Errorf("config_param(%s) = %q, want %q (all: %v)", key, got[key], want, got)
+		}
 	}
 
-	found := false
-	for _, f := range facts {
-		if len(f.Args) < 5 {
-			continue
-		}
-		if fmt.Sprintf("%v", f.Args[0]) != c.ID {
-			continue
-		}
-		found = true
-		if fmt.Sprintf("%v", f.Args[1]) != "5" || fmt.Sprintf("%v", f.Args[2]) != "2" {
-			t.Fatalf("unexpected config args: %v", f.Args)
-		}
-		if f.Args[3] != "/true" || f.Args[4] != "/true" {
-			t.Fatalf("unexpected boolean config args: %v", f.Args)
-		}
+	missing, err := kernel.Query("config_param_missing")
+	if err != nil {
+		t.Fatalf("Query(config_param_missing) error = %v", err)
 	}
-	if !found {
-		t.Fatalf("campaign_config for %s not found: %v", c.ID, facts)
+	for _, f := range missing {
+		if len(f.Args) == 2 && types.ExtractString(f.Args[0]) == "/campaign" {
+			t.Errorf("a campaign rule requires %v and the orchestrator did not publish it", f.Args[1])
+		}
 	}
 }
 
-func TestKernel_ReplanNeededRespectsCampaignConfig(t *testing.T) {
+// A threshold a rule needs and the kernel does not hold is named, so the
+// orchestrator can refuse to run instead of running on a rule that fails open.
+func TestKernel_AMissingCampaignThresholdIsNamed(t *testing.T) {
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
 	}
-
-	now := time.Now()
-	c := Campaign{
-		ID:        "/campaign_test",
-		Type:      CampaignTypeCustom,
-		Title:     "Test",
-		Goal:      "Goal",
-		Status:    StatusActive,
-		CreatedAt: now,
-		UpdatedAt: now,
+	facts, err := kernel.Query("config_param_missing")
+	if err != nil {
+		t.Fatalf("Query(config_param_missing) error = %v", err)
 	}
-	_ = kernel.LoadFacts(c.ToFacts())
-
-	_ = kernel.Assert(core.Fact{
-		Predicate: "campaign_config",
-		Args:      []any{c.ID, 3, 2, "/true", "/false"},
-	})
-	_ = kernel.Assert(core.Fact{
-		Predicate: "failed_campaign_task_count_computed",
-		Args:      []any{c.ID, 2},
-	})
-
-	facts, _ := kernel.Query("replan_needed")
-	hasCascade := false
+	named := false
 	for _, f := range facts {
-		if len(f.Args) >= 2 &&
-			fmt.Sprintf("%v", f.Args[0]) == c.ID &&
-			fmt.Sprintf("%v", f.Args[1]) == "/task_failure_cascade" {
-			hasCascade = true
+		if len(f.Args) == 2 && types.ExtractString(f.Args[0]) == "/campaign" &&
+			types.ExtractString(f.Args[1]) == "/campaign_acceptance_rounds" {
+			named = true
 		}
 	}
-	if !hasCascade {
-		t.Fatalf("expected task_failure_cascade replan_needed, got %v", facts)
-	}
-
-	// AutoReplan disabled should suppress cascade rule
-	kernel2, _ := core.NewRealKernel()
-	_ = kernel2.LoadFacts(c.ToFacts())
-	_ = kernel2.Assert(core.Fact{
-		Predicate: "campaign_config",
-		Args:      []any{c.ID, 3, 1, "/false", "/false"},
-	})
-	_ = kernel2.Assert(core.Fact{
-		Predicate: "failed_campaign_task_count_computed",
-		Args:      []any{c.ID, 5},
-	})
-	facts2, _ := kernel2.Query("replan_needed")
-	for _, f := range facts2 {
-		if len(f.Args) >= 2 &&
-			fmt.Sprintf("%v", f.Args[0]) == c.ID &&
-			fmt.Sprintf("%v", f.Args[1]) == "/task_failure_cascade" {
-			t.Fatalf("did not expect cascade replan when autoReplan disabled, got %v", facts2)
-		}
+	if !named {
+		t.Fatalf("with no config_param rows the kernel does not name /campaign_acceptance_rounds as missing: %v", facts)
 	}
 }
 

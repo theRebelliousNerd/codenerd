@@ -239,7 +239,7 @@ func TestReplan_CircularDependencyInjection(t *testing.T) {
 // - TestReplan_MangleAtomVsStringDissonance: In Go tests, construct an LLM response with valid string values. After processing, use `store.Read()` to retrieve the raw Mangle facts. Assert that `arg.Type()` explicitly returns `ast.NameType` for Priority, Status, and Type, NOT `ast.StringType`.
 
 // REMEDIATED: TEST_GAP: User Request Extremes & System Stress
-// - TestBuildReplanContext_ExtremeTokenExhaustion: Create a mock Campaign with 50 phases, 200 tasks, and massive error dumps. Assert `buildReplanContext` strictly bounds output length (e.g., `<= maxReplanContextChars`) to prevent HTTP 400 TokenLimitExceeded from the LLM provider.
+// - TestBuildReplanContext_ExtremeTokenExhaustion: Create a mock Campaign with 50 phases, 200 tasks, and massive error dumps. Assert `buildReplanContext` strictly bounds output length (e.g., `<= campaign.replan_context_bytes`) to prevent HTTP 400 TokenLimitExceeded from the LLM provider.
 // - TestReplan_InfiniteLoopPrevention: Simulate an LLM generating plans for an impossible task. Assert that the Replanner refuses to retry a task whose attempt count exceeds `MaxRetries`, breaking the infinite Replan -> Fail loop.
 // - TestReplan_DeeplyRecursiveDependencies: Mock LLM returning cyclic dependencies (A->B, B->C, C->A). Assert that the Replanner catches this graph cycle before asserting it, or that Mangle's `analysis.Analyze` rejects the transaction.
 // - TestReplan_PromptInjectionInErrors: Inject instruction overrides (e.g., `Ignore previous instructions...`) into `TaskAttempt.Error`. Validate that `buildReplanContext` properly delimits variables (e.g., using `<error>` XML tags) to mitigate injection crossover.
@@ -668,11 +668,11 @@ func TestBuildReplanContext_TruncatesLargeHistory(t *testing.T) {
 	}}
 
 	contextText := r.buildReplanContext(campaign, failedTasks, nil, nil)
-	if len(contextText) > maxReplanContextChars {
-		t.Fatalf("context length = %d, want <= %d", len(contextText), maxReplanContextChars)
+	if len(contextText) > r.limits.bytes {
+		t.Fatalf("context length = %d, want <= %d (campaign.replan_context_bytes)", len(contextText), r.limits.bytes)
 	}
-	if got := strings.Count(contextText, "Attempt "); got != maxReplanAttemptsPerTask {
-		t.Fatalf("attempt count in context = %d, want %d", got, maxReplanAttemptsPerTask)
+	if got := strings.Count(contextText, "Attempt "); got != r.limits.attempts {
+		t.Fatalf("attempt count in context = %d, want %d (campaign.replan_context_attempts)", got, r.limits.attempts)
 	}
 	if !strings.Contains(contextText, "[truncated]") {
 		t.Fatalf("expected truncated marker in context, got %q", contextText)

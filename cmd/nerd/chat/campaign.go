@@ -127,11 +127,14 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			// campaigns then reported every phase as verified while running no
 			// verification at all — a false green. Config validation did not
 			// catch it because a non-nil ShardManager satisfies the check.
-			TaskExecutor:         m.taskExecutor,
-			Executor:             m.executor,
-			VirtualStore:         m.virtualStore,
-			ProgressChan:         progressChan,
-			EventChan:            eventChan,
+			TaskExecutor: m.taskExecutor,
+			Executor:     m.executor,
+			VirtualStore: m.virtualStore,
+			ProgressChan: progressChan,
+			EventChan:    eventChan,
+			// The policy: the campaign section of the user's config, the same
+			// on every door a campaign starts through.
+			Campaign:             m.Config.GetCampaignConfig(),
 			IntelligenceGatherer: intelligenceGatherer,
 			AdvisoryBoard:        advisoryBoard,
 			EdgeCaseDetector:     edgeCaseDetector,

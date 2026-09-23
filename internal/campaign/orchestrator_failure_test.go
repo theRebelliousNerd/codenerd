@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"context"
 	"errors"
@@ -220,17 +221,15 @@ func newFailureTestOrchestrator(t *testing.T, maxRetries int) (*Orchestrator, *M
 	eventCh := make(chan OrchestratorEvent, 32)
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:        t.TempDir(),
-		Kernel:           kernel,
-		LLMClient:        &MockLLMClient{},
-		Executor:         tactile.NewDirectExecutor(),
-		VirtualStore:     &core.VirtualStore{},
-		ShardManager:     nil,
-		TaskExecutor:     &MockTaskExecutor{},
-		EventChan:        eventCh,
-		MaxRetries:       maxRetries,
-		CheckpointOnFail: false,
-		AutoReplan:       false,
+		Workspace:    t.TempDir(),
+		Kernel:       kernel,
+		LLMClient:    &MockLLMClient{},
+		Executor:     tactile.NewDirectExecutor(),
+		VirtualStore: &core.VirtualStore{},
+		ShardManager: nil,
+		TaskExecutor: &MockTaskExecutor{},
+		EventChan:    eventCh,
+		Campaign:     testCampaignConfig(func(c *config.CampaignConfig) { c.MaxTaskAttempts = maxRetries + 1 }),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
@@ -325,15 +324,20 @@ func TestOrchestratorFailure_NilError(t *testing.T) {
 	orch.handleTaskFailure(context.Background(), phase, task, nil)
 }
 
-func TestOrchestratorFailure_NegativeBackoff(t *testing.T) {
-	orch, _, _ := newFailureTestOrchestrator(t, 5)
-	// Force negative config
-	orch.config.RetryBackoffBase = -1
-	orch.config.RetryBackoffMax = -1
-
-	backoff := orch.computeRetryBackoff("test-task", 1)
-	if backoff < 0 {
-		t.Fatalf("computeRetryBackoff returned negative duration: %v", backoff)
+// A backoff that is not positive is a contradiction in the config, and the
+// orchestrator refuses it at construction rather than computing waits from it.
+func TestOrchestratorFailure_NegativeBackoffIsRefused(t *testing.T) {
+	_, err := NewOrchestrator(OrchestratorConfig{
+		Workspace:    t.TempDir(),
+		Kernel:       &MockKernel{},
+		LLMClient:    &MockLLMClient{},
+		TaskExecutor: &MockTaskExecutor{},
+		Executor:     tactile.NewDirectExecutor(),
+		VirtualStore: &core.VirtualStore{},
+		Campaign:     testCampaignConfig(func(c *config.CampaignConfig) { c.RetryBackoffBase = "-1ns" }),
+	})
+	if err == nil || !strings.Contains(err.Error(), "retry_backoff_base") {
+		t.Fatalf("NewOrchestrator error = %v, want a refusal naming campaign.retry_backoff_base", err)
 	}
 }
 
@@ -428,8 +432,8 @@ func TestOrchestratorFailure_RetryBackoff_Overflow(t *testing.T) {
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 
 	// Cause overflow
-	orch.config.RetryBackoffBase = time.Duration(math.MaxInt64)
-	orch.config.RetryBackoffMax = time.Duration(math.MaxInt64)
+	orch.policy.RetryBackoffBase = time.Duration(math.MaxInt64)
+	orch.policy.RetryBackoffMax = time.Duration(math.MaxInt64)
 
 	backoff := orch.computeRetryBackoff("task_mutate_1", 10)
 
@@ -440,7 +444,7 @@ func TestOrchestratorFailure_RetryBackoff_Overflow(t *testing.T) {
 
 func TestOrchestratorFailure_MaxRetriesZero(t *testing.T) {
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
-	orch.config.MaxRetries = 0 // Explicitly set to 0 to bypass default 3 in NewOrchestrator
+	orch.policy.MaxTaskAttempts = 1 // one failed attempt fails the task
 
 	phase := &orch.campaign.Phases[0]
 	task := &orch.campaign.Phases[0].Tasks[0]

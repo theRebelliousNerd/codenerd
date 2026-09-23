@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codenerd/internal/config"
 
 	"context"
 	"os"
@@ -248,16 +249,18 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 	}
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:           workspace,
-		Kernel:              mockKernel,
-		LLMClient:           &noopLLM{},
-		TaskExecutor:        executor,
-		Executor:            tactile.NewDirectExecutor(),
-		VirtualStore:        &core.VirtualStore{},
-		MaxParallelTasks:    2,
-		WriteSetLockTimeout: 1 * time.Second,
-		WriteSetLockRetry:   200 * time.Millisecond,
-		WriteSetLockPoll:    20 * time.Millisecond,
+		Workspace:    workspace,
+		Kernel:       mockKernel,
+		LLMClient:    &noopLLM{},
+		TaskExecutor: executor,
+		Executor:     tactile.NewDirectExecutor(),
+		VirtualStore: &core.VirtualStore{},
+		Campaign: testCampaignConfig(func(c *config.CampaignConfig) {
+			c.MaxParallelTasks = 2
+			c.WriteSetLockTimeout = "1s"
+			c.WriteSetLockRetry = "200ms"
+			c.WriteSetLockPoll = "20ms"
+		}),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
@@ -343,9 +346,7 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 
 func TestComputeWriteSetLockRetryDelay_BoundedAndContextAware(t *testing.T) {
 	orch := &Orchestrator{
-		config: OrchestratorConfig{
-			WriteSetLockRetry: 10 * time.Second,
-		},
+		policy: testPolicy(func(c *config.CampaignConfig) { c.WriteSetLockRetry = "10s" }),
 	}
 
 	delay := orch.computeWriteSetLockRetryDelay(context.Background(), 35*time.Millisecond)

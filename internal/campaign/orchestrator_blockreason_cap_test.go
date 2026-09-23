@@ -57,10 +57,9 @@ func TestFailCampaign_PersistsBlockReasonFromTaskLoop(t *testing.T) {
 			TotalPhases: 1,
 			TotalTasks:  1,
 		},
-		workspace:        tmp,
-		nerdDir:          tmp + "/.nerd",
-		maxParallelTasks: 3,
-		config:           OrchestratorConfig{MaxRetries: 3},
+		workspace: tmp,
+		nerdDir:   tmp + "/.nerd",
+		policy:    testPolicy(nil),
 	}
 
 	err := o.runPhase(context.Background(), &o.campaign.Phases[0])
@@ -94,7 +93,7 @@ func TestAttemptCap_TriggersReplanBeforeBlock(t *testing.T) {
 	orch, _, _ := newFailureTestOrchestrator(t, 0)
 	// NewOrchestrator treats zero as the default (3); override after
 	// construction to exercise the explicit fail-fast contract.
-	orch.config.MaxRetries = 0
+	orch.policy.MaxTaskAttempts = 1
 	orch.kernel = kernel
 	orch.replanner = NewReplanner(kernel, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {

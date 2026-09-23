@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // NewOrchestrator creates a new campaign orchestrator.
@@ -27,11 +26,17 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 
 	nerdDir := filepath.Join(cfg.Workspace, ".nerd")
 
+	policy, err := cfg.Campaign.Resolve()
+	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Invalid campaign policy: %v", err)
+		_ = cfg.NorthstarObserver.Close()
+		return nil, errors.Join(ErrInvalidConfig, err)
+	}
 	applyOrchestratorDefaults(&cfg)
 
 	logging.Campaign("Initializing campaign orchestrator for workspace: %s", cfg.Workspace)
-	logging.CampaignDebug("Orchestrator config: maxParallel=%d, checkpointOnFail=%v, autoReplan=%v, campaignTimeout=%v, taskTimeout=%v",
-		cfg.MaxParallelTasks, cfg.CheckpointOnFail, cfg.AutoReplan, cfg.CampaignTimeout, cfg.TaskTimeout)
+	logging.CampaignDebug("Orchestrator policy: %+v; campaignTimeout=%v, taskTimeout=%v",
+		policy.Section, cfg.CampaignTimeout, cfg.TaskTimeout)
 
 	// pauseCh starts CLOSED (state = running/resumed) so the runPhase loop's
 	// `select { case <-o.pauseCh: ... }` returns immediately when not paused.
@@ -49,10 +54,10 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 		nerdDir:          nerdDir,
 		progressChan:     cfg.ProgressChan,
 		eventChan:        cfg.EventChan,
-		maxParallelTasks: defaultParallelTasks,
 		taskResults:      make(map[string]string),
 		taskResultOrder:  make([]string, 0),
 		config:           cfg,
+		policy:           policy,
 		promptProvider:   NewStaticPromptProvider(),
 		writeSetLocks:    newWriteSetLockManager(cfg.Workspace),
 		pauseCh:          initialPauseCh,
@@ -75,13 +80,13 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 	wireIntelligenceComponents(o, cfg)
 	defaultWireIntelligence(o, cfg)
 
-	if cfg.MaxParallelTasks > 0 {
-		o.maxParallelTasks = cfg.MaxParallelTasks
-	}
+	o.replanner.SetContextLimits(policy)
+	o.checkpoint.SetCommandTimeout(policy.CheckpointCommandTimeout)
 	o.refreshRiskGateState()
+	o.publishPolicyParams()
 
 	logging.Campaign("Orchestrator initialized with maxParallelTasks=%d, campaignTimeout=%v, taskTimeout=%v",
-		o.maxParallelTasks, o.config.CampaignTimeout, o.config.TaskTimeout)
+		o.policy.MaxParallelTasks, o.config.CampaignTimeout, o.config.TaskTimeout)
 
 	return o, nil
 }
@@ -149,47 +154,14 @@ func validateOrchestratorConfig(cfg OrchestratorConfig) error {
 	if strings.TrimSpace(cfg.Workspace) == "" {
 		invalid = append(invalid, "workspace must be non-empty")
 	}
-	if cfg.MaxRetries < 0 {
-		invalid = append(invalid, "max_retries must be >= 0")
-	}
-	if cfg.ReplanThreshold < 0 {
-		invalid = append(invalid, "replan_threshold must be >= 0")
-	}
-	if cfg.MaxParallelTasks < 0 {
-		invalid = append(invalid, "max_parallel_tasks must be >= 0")
-	}
 	if cfg.ContextBudget < 0 {
 		invalid = append(invalid, "context_budget must be >= 0")
-	}
-	if cfg.TaskResultCacheLimit < 0 {
-		invalid = append(invalid, "task_result_cache_limit must be >= 0")
 	}
 	if cfg.CampaignTimeout < 0 {
 		invalid = append(invalid, "campaign_timeout must be >= 0")
 	}
 	if cfg.TaskTimeout < 0 {
 		invalid = append(invalid, "task_timeout must be >= 0")
-	}
-	if cfg.HeartbeatEvery < 0 {
-		invalid = append(invalid, "heartbeat_every must be >= 0")
-	}
-	if cfg.AutosaveEvery < 0 {
-		invalid = append(invalid, "autosave_every must be >= 0")
-	}
-	if cfg.RetryBackoffBase < 0 {
-		invalid = append(invalid, "retry_backoff_base must be >= 0")
-	}
-	if cfg.RetryBackoffMax < 0 {
-		invalid = append(invalid, "retry_backoff_max must be >= 0")
-	}
-	if cfg.WriteSetLockTimeout < 0 {
-		invalid = append(invalid, "write_set_lock_timeout must be >= 0")
-	}
-	if cfg.WriteSetLockRetry < 0 {
-		invalid = append(invalid, "write_set_lock_retry must be >= 0")
-	}
-	if cfg.WriteSetLockPoll < 0 {
-		invalid = append(invalid, "write_set_lock_poll must be >= 0")
 	}
 	if cfg.RiskGateThreshold < 0 {
 		invalid = append(invalid, "risk_gate_threshold must be >= 0")
@@ -336,37 +308,8 @@ func applyOrchestratorDefaults(cfg *OrchestratorConfig) {
 	// per campaign and 30 minutes per task unless DisableTimeouts was set --
 	// which every long-horizon caller (assault, recurse, the campaign runner)
 	// had to remember to do. A campaign stops when it stops making progress,
-	// and each model request is bounded by its client.
-	if cfg.MaxRetries == 0 {
-		cfg.MaxRetries = 3
-	}
-	if cfg.ReplanThreshold == 0 {
-		cfg.ReplanThreshold = 3
-	}
-	if cfg.HeartbeatEvery == 0 {
-		cfg.HeartbeatEvery = 15 * time.Second
-	}
-	if cfg.AutosaveEvery == 0 {
-		cfg.AutosaveEvery = time.Minute
-	}
-	if cfg.TaskResultCacheLimit == 0 {
-		cfg.TaskResultCacheLimit = 100
-	}
-	if cfg.RetryBackoffBase == 0 {
-		cfg.RetryBackoffBase = 5 * time.Second
-	}
-	if cfg.RetryBackoffMax == 0 {
-		cfg.RetryBackoffMax = 5 * time.Minute
-	}
-	if cfg.WriteSetLockTimeout <= 0 {
-		cfg.WriteSetLockTimeout = 15 * time.Second
-	}
-	if cfg.WriteSetLockRetry <= 0 {
-		cfg.WriteSetLockRetry = 500 * time.Millisecond
-	}
-	if cfg.WriteSetLockPoll <= 0 {
-		cfg.WriteSetLockPoll = defaultWriteSetLockPollInterval
-	}
+	// and each model request is bounded by its client. Every campaign knob
+	// is cfg.Campaign's -- the user's config -- resolved in NewOrchestrator.
 	if cfg.RiskGateThreshold <= 0 {
 		cfg.RiskGateThreshold = defaultRiskGateThreshold
 	}

@@ -359,9 +359,7 @@ func newSnapshotTestOrchestrator() *Orchestrator {
 		},
 		taskResults:     map[string]string{"/task_seed": "seed-result"},
 		taskResultOrder: []string{"/task_seed"},
-		config: OrchestratorConfig{
-			TaskResultCacheLimit: 100,
-		},
+		policy:          testPolicy(nil),
 	}
 }
 

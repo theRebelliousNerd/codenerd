@@ -44,8 +44,6 @@ func TestCampaignShardManifestContract(t *testing.T) {
 	// internal/campaign (production asserts, retracts, and kernel queries).
 	runtimeAsserted := []string{
 		"plan_revision",
-		"campaign_config",
-		"failed_campaign_task_count_computed",
 		"campaign_heartbeat",
 		"phase_checkpoint",
 		"task_result",

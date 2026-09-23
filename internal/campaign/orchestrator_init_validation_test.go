@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/tactile"
@@ -27,14 +28,14 @@ func TestNewOrchestrator_RejectsMissingDependencies(t *testing.T) {
 
 func TestNewOrchestrator_RejectsNegativeConfigurationValues(t *testing.T) {
 	_, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:        t.TempDir(),
-		Kernel:           &MockKernel{},
-		LLMClient:        &MockLLMClient{},
-		ShardManager:     coreshards.NewShardManager(),
-		Executor:         tactile.NewDirectExecutor(),
-		VirtualStore:     &core.VirtualStore{},
-		MaxParallelTasks: -1,
-		CampaignTimeout:  -time.Second,
+		Workspace:       t.TempDir(),
+		Kernel:          &MockKernel{},
+		LLMClient:       &MockLLMClient{},
+		ShardManager:    coreshards.NewShardManager(),
+		Executor:        tactile.NewDirectExecutor(),
+		VirtualStore:    &core.VirtualStore{},
+		Campaign:        config.CampaignConfig{MaxParallelTasks: -1},
+		CampaignTimeout: -time.Second,
 	})
 	if err == nil {
 		t.Fatal("expected invalid config error")

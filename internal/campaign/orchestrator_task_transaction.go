@@ -600,7 +600,7 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 		return err
 	}
 
-	o.assertCampaignConfigFacts()
+	o.publishPolicyParams()
 	if o.contextPager != nil && snapshot.campaign.ContextBudget > 0 {
 		o.contextPager.SetBudget(snapshot.campaign.ContextBudget)
 	}

@@ -109,15 +109,13 @@ func TestRunPhase_AnUnverifiedTurnFailsItsAttemptAndTheRetryIsToldWhy(t *testing
 		return observation.Return{Output: "Wrote the widget and its test.", Outcome: "/done"}, nil
 	}}
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:        workspace,
-		Kernel:           kernel,
-		LLMClient:        &MockLLMClient{},
-		TaskExecutor:     turns,
-		Executor:         tactile.NewDirectExecutor(),
-		VirtualStore:     &core.VirtualStore{},
-		MaxRetries:       2,
-		RetryBackoffBase: time.Millisecond,
-		RetryBackoffMax:  time.Millisecond,
+		Workspace:    workspace,
+		Kernel:       kernel,
+		LLMClient:    &MockLLMClient{},
+		TaskExecutor: turns,
+		Executor:     tactile.NewDirectExecutor(),
+		VirtualStore: &core.VirtualStore{},
+		Campaign:     testCampaignConfig(fastRetries(3)),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)

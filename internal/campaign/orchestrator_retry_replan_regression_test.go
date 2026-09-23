@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
@@ -85,7 +86,7 @@ func TestHandleTaskFailure_TerminalCanStillReplan(t *testing.T) {
 	orch, _, _ := newFailureTestOrchestrator(t, 0) // 0 => terminal on first failure
 	// NewOrchestrator treats zero as the default (3); override it after
 	// construction to exercise the explicit fail-fast contract.
-	orch.config.MaxRetries = 0
+	orch.policy.MaxTaskAttempts = 1
 	orch.kernel = kernel
 	orch.replanner = NewReplanner(kernel, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
@@ -169,14 +170,13 @@ func TestRunPhase_CancellationDrainsWorkers(t *testing.T) {
 	}
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:        tmpDir,
-		Kernel:           kernel,
-		LLMClient:        &MockLLMClient{},
-		Executor:         tactile.NewDirectExecutor(),
-		VirtualStore:     &core.VirtualStore{},
-		TaskExecutor:     &MockTaskExecutor{ExecuteFunc: blockUntilCancel},
-		MaxRetries:       3,
-		MaxParallelTasks: 2,
+		Workspace:    tmpDir,
+		Kernel:       kernel,
+		LLMClient:    &MockLLMClient{},
+		Executor:     tactile.NewDirectExecutor(),
+		VirtualStore: &core.VirtualStore{},
+		TaskExecutor: &MockTaskExecutor{ExecuteFunc: blockUntilCancel},
+		Campaign:     testCampaignConfig(func(c *config.CampaignConfig) { c.MaxParallelTasks = 2 }),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)

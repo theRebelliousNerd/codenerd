@@ -214,18 +214,18 @@ func (m Model) buildRecurseOrchestrator(camp *campaign.Campaign, progressChan ch
 	}
 
 	orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-		Workspace:            m.workspace,
-		Kernel:               m.kernel,
-		LLMClient:            m.client,
-		ShardManager:         m.shardMgr,
-		TaskExecutor:         m.taskExecutor,
-		Executor:             m.executor,
-		VirtualStore:         m.virtualStore,
-		ProgressChan:         progressChan,
-		EventChan:            eventChan,
-		AutoReplan:           true,
-		CheckpointOnFail:     true,
-		MaxParallelTasks:     1,
+		Workspace:    m.workspace,
+		Kernel:       m.kernel,
+		LLMClient:    m.client,
+		ShardManager: m.shardMgr,
+		TaskExecutor: m.taskExecutor,
+		Executor:     m.executor,
+		VirtualStore: m.virtualStore,
+		ProgressChan: progressChan,
+		EventChan:    eventChan,
+		// The policy: the campaign section of the user's config, the same on
+		// every door a campaign starts through.
+		Campaign:             m.Config.GetCampaignConfig(),
 		IntelligenceGatherer: intelligenceGatherer,
 		AdvisoryBoard:        advisoryBoard,
 		EdgeCaseDetector:     edgeCaseDetector,

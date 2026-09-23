@@ -1,12 +1,14 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"strings"
 	"testing"
 )
 
 func resumeFailedFixture() *Orchestrator {
 	return &Orchestrator{
+		policy: testPolicy(nil),
 		campaign: &Campaign{
 			ID:          "/campaign_resume",
 			Status:      StatusFailed,
@@ -31,7 +33,7 @@ func resumeFailedFixture() *Orchestrator {
 
 func TestPrepareResume_ResetsFailedTasks(t *testing.T) {
 	o := resumeFailedFixture()
-	// Zero-value config exercises the MaxRetries default (3).
+	// The config's default policy: four failed attempts are the cap.
 	if err := o.PrepareResume(); err != nil {
 		t.Fatalf("PrepareResume returned error: %v", err)
 	}
@@ -59,7 +61,7 @@ func TestPrepareResume_ResetsFailedTasks(t *testing.T) {
 
 func TestPrepareResume_AtCapReturnsError(t *testing.T) {
 	o := &Orchestrator{
-		config: OrchestratorConfig{MaxRetries: 3},
+		policy: testPolicy(func(c *config.CampaignConfig) { c.MaxTaskAttempts = 3 }),
 		campaign: &Campaign{
 			ID:          "/campaign_capped",
 			Status:      StatusFailed,
@@ -99,7 +101,7 @@ func TestPrepareResume_AtCapReturnsError(t *testing.T) {
 
 func TestPrepareResume_PausedIsNoop(t *testing.T) {
 	o := &Orchestrator{
-		config: OrchestratorConfig{MaxRetries: 3},
+		policy: testPolicy(nil),
 		campaign: &Campaign{
 			ID:          "/campaign_paused",
 			Status:      StatusPaused,

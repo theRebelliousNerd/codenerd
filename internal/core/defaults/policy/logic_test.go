@@ -39,14 +39,14 @@ func TestLogic_Golden(t *testing.T) {
 		},
 		{
 			name:        "Campaign Orchestration",
-			policyFiles: []string{"campaign_core.mg", "campaign_context.mg", "campaign_planning.mg", "campaign_tasks.mg"},
+			policyFiles: []string{"config_params.mg", "campaign_core.mg", "campaign_context.mg", "campaign_planning.mg", "campaign_tasks.mg"},
 			schemaFiles: []string{"../schemas_campaign.mg", "../schemas_shards.mg", "../schemas_safety.mg", "../schemas_intent.mg", "../schemas_analysis.mg", "../schemas_execution.mg"},
 			edbFile:     "testdata/campaign.edb",
 			goldenFile:  "testdata/campaign.golden",
 		},
 		{
 			name:        "Campaign Lock Backoff Routing",
-			policyFiles: []string{"campaign_core.mg", "campaign_context.mg", "campaign_phases.mg", "campaign_tasks.mg"},
+			policyFiles: []string{"config_params.mg", "campaign_core.mg", "campaign_context.mg", "campaign_phases.mg", "campaign_tasks.mg"},
 			schemaFiles: []string{"../schemas_campaign.mg", "../schemas_shards.mg", "../schemas_safety.mg", "../schemas_intent.mg", "../schemas_analysis.mg", "../schemas_execution.mg"},
 			edbFile:     "testdata/campaign_backoff.edb",
 			goldenFile:  "testdata/campaign_backoff.golden",

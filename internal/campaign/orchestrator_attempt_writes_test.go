@@ -139,7 +139,7 @@ func TestRunPhase_AFailedAttemptsWriteOutsideItsWriteSetIsUndone(t *testing.T) {
 	orch, err := NewOrchestrator(OrchestratorConfig{
 		Workspace: workspace, Kernel: kernel, LLMClient: &MockLLMClient{}, TaskExecutor: turns,
 		Executor: tactile.NewDirectExecutor(), VirtualStore: &core.VirtualStore{},
-		MaxRetries: 2, RetryBackoffBase: time.Millisecond, RetryBackoffMax: time.Millisecond,
+		Campaign: testCampaignConfig(fastRetries(3)),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)

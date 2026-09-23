@@ -1,73 +1,48 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strings"
 	"time"
 )
 
-// assertCampaignConfigFacts publishes runtime configuration to the kernel for policy rules.
-func (o *Orchestrator) assertCampaignConfigFacts() {
-	if o.campaign == nil || o.kernel == nil {
+// publishPolicyParams puts the campaign knobs the policy reads into the kernel
+// as config_param rows (config.CampaignPolicy.Params), replacing any earlier
+// value of each key. It is the one path from config.json to a campaign rule:
+// the retry cap, the checkpoint cap, the acceptance rounds and the rest are
+// never Mangle constants or Go literals.
+func (o *Orchestrator) publishPolicyParams() {
+	if o.kernel == nil {
 		return
 	}
-	campaignID := o.campaign.ID
-	_ = o.kernel.RetractFact(core.Fact{
-		Predicate: "campaign_config",
-		Args:      []any{campaignID},
-	})
-
-	maxRetries := o.config.MaxRetries
-	if maxRetries <= 0 {
-		maxRetries = 3
-	}
-	threshold := o.config.ReplanThreshold
-	if threshold <= 0 {
-		threshold = 3
-	}
-	autoReplan := "/false"
-	if o.config.AutoReplan {
-		autoReplan = "/true"
-	}
-	checkpointOnFail := "/false"
-	if o.config.CheckpointOnFail {
-		checkpointOnFail = "/true"
-	}
-
-	_ = o.kernel.Assert(core.Fact{
-		Predicate: "campaign_config",
-		Args:      []any{campaignID, maxRetries, threshold, autoReplan, checkpointOnFail},
-	})
-}
-
-// updateFailedTaskCount recomputes failed task totals and asserts a computed count fact.
-func (o *Orchestrator) updateFailedTaskCount() {
-	if o.campaign == nil || o.kernel == nil {
-		return
-	}
-	failedCount := 0
-	o.mu.RLock()
-	for _, phase := range o.campaign.Phases {
-		for _, t := range phase.Tasks {
-			if t.Status == TaskFailed {
-				failedCount++
-			}
+	for _, f := range config.ParamFacts(o.policy.Params()) {
+		_ = o.kernel.RetractFact(core.Fact{Predicate: f.Predicate, Args: []any{f.Args[0]}})
+		if err := o.kernel.Assert(f); err != nil {
+			logging.Get(logging.CategoryCampaign).Error("campaign policy param %v was not asserted: %v", f.Args[0], err)
 		}
 	}
-	campaignID := o.campaign.ID
-	o.mu.RUnlock()
+}
 
-	_ = o.kernel.RetractFact(core.Fact{
-		Predicate: "failed_campaign_task_count_computed",
-		Args:      []any{campaignID},
-	})
-	_ = o.kernel.Assert(core.Fact{
-		Predicate: "failed_campaign_task_count_computed",
-		Args:      []any{campaignID, failedCount},
-	})
+// missingPolicyParams names the /campaign thresholds a rule requires and the
+// kernel does not hold (config_param_missing). A rule over a missing threshold
+// derives nothing, which for a cap fails open, so Run refuses to start.
+func (o *Orchestrator) missingPolicyParams() ([]string, error) {
+	facts, err := o.kernel.Query("config_param_missing")
+	if err != nil {
+		return nil, err
+	}
+	var missing []string
+	for _, f := range facts {
+		if len(f.Args) == 2 && types.ExtractString(f.Args[0]) == "/campaign" {
+			missing = append(missing, types.ExtractString(f.Args[1]))
+		}
+	}
+	return missing, nil
 }
 
 // runPhaseCheckpoint runs the checkpoint for a phase.
@@ -222,7 +197,7 @@ func (o *Orchestrator) failCampaign(reason string) {
 // determineConcurrencyLimit calculates the dynamic parallelism limit based on active workload.
 func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *Phase) int {
 	// Base limit from config
-	limit := o.maxParallelTasks
+	limit := o.policy.MaxParallelTasks
 
 	// Check backpressure from spawn queue first
 	if o.shardMgr != nil {
@@ -265,7 +240,7 @@ func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *
 	// We can scale up, but let's be conservative.
 	if researchCount > 0 || testCount > 0 {
 		// Boost limit for IO heavy work
-		limit = min(o.maxParallelTasks*2, 10)
+		limit = min(o.policy.MaxParallelTasks*2, 10)
 	}
 
 	return limit

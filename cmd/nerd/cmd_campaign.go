@@ -150,14 +150,23 @@ var campaignListCmd = &cobra.Command{
 // MCP bridge, scanner, JIT compiler, planner/worker tiers) may be nil — the
 // accessors ToolGenerator/OuroborosLoop/MCPStore are nil-safe and every other
 // nil is degraded gracefully, never panicked.
-func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progressChan chan campaign.Progress, eventChan chan campaign.OrchestratorEvent) (campaign.OrchestratorConfig, campaign.PromptProvider) {
+//
+// The campaign policy is the workspace config's campaign section, read here
+// and nowhere else on the CLI: a config that does not load is an error, never
+// a campaign quietly run on defaults.
+func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progressChan chan campaign.Progress, eventChan chan campaign.OrchestratorEvent) (campaign.OrchestratorConfig, campaign.PromptProvider, error) {
 	var cfg campaign.OrchestratorConfig
 	cfg.Workspace = cwd
 	cfg.ProgressChan = progressChan
 	cfg.EventChan = eventChan
+	appCfg, err := config.LoadUserConfig(filepath.Join(cwd, ".nerd", "config.json"))
+	if err != nil {
+		return cfg, nil, fmt.Errorf("campaign policy: %w", err)
+	}
+	cfg.Campaign = appCfg.GetCampaignConfig()
 	if cortex == nil {
 		cfg.ToolPregenerator = campaign.NewToolPregenerator(nil, nil, nil)
-		return cfg, nil
+		return cfg, nil, nil
 	}
 	cfg.Kernel = cortex.Kernel
 	cfg.LLMClient = cortex.LLMClient
@@ -262,7 +271,7 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 		}
 	}
 
-	return cfg, promptProvider
+	return cfg, promptProvider, nil
 }
 
 // campaignNorthstarObserver builds the vision-guardian observer for one
@@ -371,7 +380,10 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
 
 	fmt.Println("🧠 Initializing intelligence gathering systems...")
-	orchCfg, campaignPromptProvider := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
+	orchCfg, campaignPromptProvider, err := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
+	if err != nil {
+		return err
+	}
 	fmt.Println("   ✓ World scanner initialized")
 	fmt.Println("   ✓ Intelligence gatherer initialized")
 	fmt.Println("   ✓ Advisory board initialized")
@@ -748,7 +760,10 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	progressChan := make(chan campaign.Progress, 10)
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
 
-	orchCfg, campaignPromptProvider := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
+	orchCfg, campaignPromptProvider, err := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
+	if err != nil {
+		return err
+	}
 
 	orchestrator, err := campaign.NewOrchestrator(orchCfg)
 	if err != nil {

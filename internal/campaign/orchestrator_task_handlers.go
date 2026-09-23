@@ -877,12 +877,21 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	cmdParts := append([]string{"go", "test", "-count=1"}, build.TestTagsForWorkspace(o.workspace)...)
 	command := strings.Join(append(cmdParts, target), " ")
 	actionID := "campaign-check-" + task.ID
-	pending := core.Fact{Predicate: "pending_action", Args: []any{actionID, core.MangleAtom("/run_tests"), command, `{"timeout":900}`, time.Now().Unix()}}
+	// campaign.test_run_timeout, in the seconds the run_tests action takes.
+	// permitted/3 matches the payload the action is routed with, so the
+	// asserted JSON and the routed map carry the same number.
+	timeoutSec := int(o.policy.TestRunTimeout.Seconds())
+	payload := map[string]any{"timeout": timeoutSec}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	pending := core.Fact{Predicate: "pending_action", Args: []any{actionID, core.MangleAtom("/run_tests"), command, string(payloadJSON), time.Now().Unix()}}
 	if err := o.kernel.Assert(pending); err != nil {
 		return nil, err
 	}
 	defer o.kernel.RetractFact(pending)
-	result, err := o.virtualStore.RouteActionResult(ctx, core.Fact{Predicate: "next_action", Args: []any{actionID, "run_tests", command, map[string]any{"timeout": 900}}})
+	result, err := o.virtualStore.RouteActionResult(ctx, core.Fact{Predicate: "next_action", Args: []any{actionID, "run_tests", command, payload}})
 	if err != nil {
 		return nil, err
 	}
@@ -1015,7 +1024,7 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 		Arguments:        []string{"build", "./..."},
 		WorkingDirectory: o.workspace,
 		Limits: &tactile.ResourceLimits{
-			TimeoutMs: 300 * 1000, // 5 minutes
+			TimeoutMs: o.policy.VerifyBuildTimeout.Milliseconds(),
 		},
 	}
 	res, err := o.executor.Execute(ctx, cmd)

@@ -50,7 +50,7 @@ func (o *Orchestrator) LoadCampaign(campaignID string) error {
 		return err
 	}
 	// Apply runtime config + budget
-	o.assertCampaignConfigFacts()
+	o.publishPolicyParams()
 	if o.contextPager != nil && o.campaign.ContextBudget > 0 {
 		o.contextPager.SetBudget(o.campaign.ContextBudget)
 	}
@@ -77,7 +77,7 @@ func (o *Orchestrator) SetCampaign(campaign *Campaign) error {
 		return err
 	}
 	// Apply runtime config + budget
-	o.assertCampaignConfigFacts()
+	o.publishPolicyParams()
 	if o.contextPager != nil && campaign.ContextBudget > 0 {
 		o.contextPager.SetBudget(campaign.ContextBudget)
 	}

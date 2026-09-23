@@ -23,8 +23,9 @@ next_action(/campaign_complete) :-
 
 # --- Acceptance: the campaign's deterministic witness ---
 
-# Failed acceptance rounds a campaign may remediate before it is blocked.
-campaign_acceptance_limit(3).
+# Failed acceptance rounds a campaign may remediate before it is blocked:
+# campaign.acceptance_rounds in the user's config.
+config_param_required(/campaign, /campaign_acceptance_rounds).
 
 campaign_accepted(CampaignID) :-
     campaign_acceptance_result(CampaignID, _, /pass).
@@ -36,7 +37,7 @@ campaign_acceptance_unmet(CampaignID) :-
 campaign_acceptance_exhausted(CampaignID) :-
     campaign_acceptance_unmet(CampaignID),
     campaign_acceptance_result(CampaignID, Round, /fail),
-    campaign_acceptance_limit(Limit),
+    config_param(/campaign_acceptance_rounds, Limit),
     Round >= Limit.
 
 # Every phase is done and the witness has not passed: run it.

@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"context"
 	"errors"
 	"fmt"
@@ -73,10 +74,11 @@ func TestClassifyTaskErrorKeepsItsExistingVerdicts(t *testing.T) {
 // attempts against a limit that has not moved; the only useful thing a retry
 // can do is arrive later.
 func TestRefusalBacksOffLongerThanALogicError(t *testing.T) {
-	o := &Orchestrator{config: OrchestratorConfig{
-		RetryBackoffBase: 5 * time.Second,
-		RetryBackoffMax:  5 * time.Minute,
-	}}
+	o := &Orchestrator{policy: testPolicy(func(c *config.CampaignConfig) {
+		c.RetryBackoffBase = "5s"
+		c.RetryBackoffMax = "5m"
+		c.RetryWithReasonBackoffMax = "30s"
+	})}
 
 	const attempt = 5 // 5s << 4 = 80s, above the 30s /logic cap
 	logic := o.computeRetryBackoff("/logic", attempt)

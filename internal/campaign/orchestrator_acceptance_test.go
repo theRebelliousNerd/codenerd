@@ -158,7 +158,7 @@ func TestAcceptance_APassingWitnessCompletes(t *testing.T) {
 	}
 }
 
-// The limit is the policy's (campaign_acceptance_limit). After that many failed
+// The limit is campaign.acceptance_rounds (config_param). After that many failed
 // rounds the kernel derives campaign_blocked /acceptance_failed and no further
 // remediation is planned: a campaign that cannot satisfy its witness stops and
 // says so, where it used to say "completed successfully".

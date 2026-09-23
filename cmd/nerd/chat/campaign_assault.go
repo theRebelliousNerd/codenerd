@@ -95,14 +95,17 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 			// return "skipped => passed" (internal/campaign/checkpoint.go:206-209,
 			// :258-261). An assault campaign exists to be adversarially verified,
 			// so silently skipping that is the worst possible false green.
-			TaskExecutor:         m.taskExecutor,
-			Executor:             m.executor,
-			VirtualStore:         m.virtualStore,
-			ProgressChan:         progressChan,
-			EventChan:            eventChan,
-			AutoReplan:           true,
-			CheckpointOnFail:     true,
-			MaxParallelTasks:     1,
+			TaskExecutor: m.taskExecutor,
+			Executor:     m.executor,
+			VirtualStore: m.virtualStore,
+			ProgressChan: progressChan,
+			EventChan:    eventChan,
+			// The policy: the campaign section of the user's config. Assault
+			// used to hard-code one task at a time, auto-replan and
+			// checkpoint-on-fail here, so it ran differently from a campaign
+			// started anywhere else; campaign.max_parallel_tasks and
+			// campaign.checkpoint_on_task_failure say so now.
+			Campaign:             m.Config.GetCampaignConfig(),
 			IntelligenceGatherer: intelligenceGatherer,
 			AdvisoryBoard:        advisoryBoard,
 			EdgeCaseDetector:     edgeCaseDetector,

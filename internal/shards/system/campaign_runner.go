@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"codenerd/internal/campaign"
+	"codenerd/internal/config"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
@@ -257,6 +258,14 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 	advisoryBoard := campaign.NewShardAdvisoryBoard(consultationMgr)
 	edgeCaseDetector := campaign.NewEdgeCaseDetector(s.Kernel, worldScanner)
 
+	// The policy is the workspace config's campaign section, as on every other
+	// door a campaign starts through; a config that does not load runs nothing.
+	appCfg, cfgErr := config.LoadUserConfig(filepath.Join(workspace, ".nerd", "config.json"))
+	if cfgErr != nil {
+		logging.Get(logging.CategorySystemShards).Error("[CampaignRunner] Campaign policy for %s unreadable: %v", campaignID, cfgErr)
+		return
+	}
+
 	orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 		Workspace:            workspace,
 		Kernel:               s.Kernel,
@@ -264,8 +273,7 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 		ShardManager:         shardMgr,
 		Executor:             executor,
 		VirtualStore:         s.VirtualStore,
-		AutoReplan:           true,
-		CheckpointOnFail:     true,
+		Campaign:             appCfg.GetCampaignConfig(),
 		IntelligenceGatherer: intelligenceGatherer,
 		AdvisoryBoard:        advisoryBoard,
 		EdgeCaseDetector:     edgeCaseDetector,

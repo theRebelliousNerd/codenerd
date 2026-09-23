@@ -5,13 +5,6 @@ import (
 	"fmt"
 )
 
-// defaultPrepareResumeMaxRetries mirrors applyOrchestratorDefaults
-// (orchestrator_init.go): a zero MaxRetries means the default, not "no
-// retries". PrepareResume applies it itself because resume-path
-// orchestrators may be built as literals without going through the
-// constructor.
-const defaultPrepareResumeMaxRetries = 3
-
 // PrepareResume re-arms a failed/blocked campaign so the next Run can make
 // progress instead of tripping the terminal-failure guard immediately.
 //
@@ -45,17 +38,17 @@ func (o *Orchestrator) PrepareResume() error {
 		return nil
 	}
 
-	maxRetries := o.config.MaxRetries
-	if maxRetries <= 0 {
-		maxRetries = defaultPrepareResumeMaxRetries
+	maxAttempts := o.policy.MaxTaskAttempts
+	if maxAttempts < 1 {
+		return fmt.Errorf("no campaign policy: campaign.max_task_attempts is %d", maxAttempts)
 	}
 
-	resetResumeTasks(o.campaign.Phases, maxRetries)
+	resetResumeTasks(o.campaign.Phases, maxAttempts)
 	rearmUnverifiedPhases(o.campaign.Phases)
 
 	target := findResumeTargetPhase(o.campaign.Phases)
 	if target != nil && countResumableTasks(target) == 0 {
-		return fmt.Errorf("resume impossible: every task in phase %s has reached the %d-attempt cap; re-plan the campaign", target.ID, maxRetries)
+		return fmt.Errorf("resume impossible: every task in phase %s has reached the %d-attempt cap (campaign.max_task_attempts); re-plan the campaign", target.ID, maxAttempts)
 	}
 
 	o.campaign.Status = StatusActive
@@ -82,10 +75,10 @@ func rearmUnverifiedPhases(phases []Phase) {
 
 // reached the attempt cap. Attempt history is kept untouched either way;
 // at-cap tasks are marked failed with a warning naming the task.
-func resetResumeTasks(phases []Phase, maxRetries int) {
+func resetResumeTasks(phases []Phase, maxAttempts int) {
 	for pi := range phases {
 		for ti := range phases[pi].Tasks {
-			resetResumeTask(&phases[pi].Tasks[ti], maxRetries)
+			resetResumeTask(&phases[pi].Tasks[ti], maxAttempts)
 		}
 	}
 }
@@ -93,15 +86,15 @@ func resetResumeTasks(phases []Phase, maxRetries int) {
 // resetResumeTask resets one task to pending when it is retryable and below
 // the attempt cap. Tasks that already completed, were skipped, or never
 // started are left alone.
-func resetResumeTask(task *Task, maxRetries int) {
+func resetResumeTask(task *Task, maxAttempts int) {
 	if task.Status != TaskFailed && task.Status != TaskInProgress && task.Status != TaskBlocked {
 		return
 	}
-	if len(task.Attempts) >= maxRetries {
+	if failedAttempts(task) >= maxAttempts {
 		task.Status = TaskFailed
 		logging.Get(logging.CategoryCampaign).Warn(
 			"PrepareResume: task %s has reached the %d-attempt cap; leaving failed",
-			task.ID, maxRetries)
+			task.ID, maxAttempts)
 		return
 	}
 	task.Status = TaskPending
@@ -141,4 +134,16 @@ func countResumableTasks(phase *Phase) int {
 		}
 	}
 	return resumable
+}
+
+// failedAttempts counts a task's attempts that ended /failure -- the count
+// campaign.max_task_attempts caps.
+func failedAttempts(task *Task) int {
+	n := 0
+	for _, a := range task.Attempts {
+		if a.Outcome == "/failure" {
+			n++
+		}
+	}
+	return n
 }

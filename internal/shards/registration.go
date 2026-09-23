@@ -205,7 +205,6 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// current_campaign and has_incomplete_phase, which derive here.
 				"campaign_acceptance",
 				"campaign_acceptance_result",
-				"campaign_config",
 				"campaign_dependency",
 				"campaign_goal",
 				"campaign_heartbeat",
@@ -220,7 +219,6 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"doc_layer",
 				"doc_metadata",
 				"doc_tag",
-				"failed_campaign_task_count_computed",
 				"goal_topic",
 				"phase_category",
 				"phase_checkpoint",
@@ -322,6 +320,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 // shard that owns a shared predicate, and the manifest test pins the rule.
 func SharedPredicates() []string {
 	return []string{
+		// Configuration: config_param(Key, Value) rows from .nerd/config.json
+		// (internal/config/params.go). Every domain's rules read their
+		// thresholds from it -- the campaign's caps, the session's spans --
+		// so it lives in every shard.
+		"config_param",
 		// The turn
 		"user_intent",
 		"current_intent",

@@ -70,7 +70,10 @@ func TestBuildCampaignOrchestratorConfig_CortexBacked(t *testing.T) {
 	progressChan := make(chan campaign.Progress, 10)
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
 
-	cfg, _ := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
+	cfg, _, err := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
+	if err != nil {
+		t.Fatalf("buildCampaignOrchestratorConfig: %v", err)
+	}
 
 	if cfg.ToolPregenerator == nil {
 		t.Fatalf("ToolPregenerator is nil: builder must always construct it (nil-safe on missing Ouroboros)")

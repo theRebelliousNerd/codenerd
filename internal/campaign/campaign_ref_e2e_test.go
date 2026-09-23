@@ -76,9 +76,7 @@ func campaignRefOrchestrator(t *testing.T, kernel core.Kernel, c *Campaign) (*Or
 		EventChan:    events,
 		// One retry only, with a negligible backoff: the point is the terminal
 		// status the policy produces, not the retry schedule.
-		MaxRetries:       1,
-		RetryBackoffBase: time.Millisecond,
-		RetryBackoffMax:  time.Millisecond,
+		Campaign: testCampaignConfig(fastRetries(2)),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)

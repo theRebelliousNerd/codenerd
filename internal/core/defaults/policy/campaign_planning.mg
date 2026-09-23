@@ -72,13 +72,6 @@ has_passed_checkpoint(PhaseID, CheckType) :-
 
 # --- Replanning Triggers ---
 
-# Trigger replan on repeated failures (configurable threshold).
-replan_needed(CampaignID, /task_failure_cascade) :-
-    campaign_config(CampaignID, _, Threshold, /true, _),
-    failed_campaign_task_count_computed(CampaignID, Count),
-    Count >= Threshold,
-    current_campaign(CampaignID).
-
 # Trigger replan if user provides new instruction during campaign
 replan_needed(CampaignID, /user_instruction) :-
     user_intent(/current_intent, /instruction, _, _, _),

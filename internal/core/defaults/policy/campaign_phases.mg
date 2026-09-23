@@ -122,13 +122,6 @@ failed_campaign_task(CampaignID, TaskID) :-
     campaign_task(TaskID, PhaseID, Desc, /failed, TaskType),
     campaign_phase(PhaseID, CampaignID, PhaseName, Seq, Status, Profile).
 
-# Trigger replan on repeated failures (configurable threshold).
-replan_needed(CampaignID, /task_failure_cascade) :-
-    current_campaign(CampaignID),
-    campaign_config(CampaignID, _, Threshold, /true, _),
-    failed_campaign_task_count_computed(CampaignID, Count),
-    Count >= Threshold.
-
 # Trigger replan if user provides new instruction during campaign
 replan_needed(CampaignID, /user_instruction) :-
     current_campaign(CampaignID),

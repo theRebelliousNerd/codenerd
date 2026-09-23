@@ -29,7 +29,7 @@ type Acceptance struct {
 	// shell string: the executor's binary allowlist sees Command[0].
 	Command []string `json:"command"`
 	// Rounds is every run, in order. Its length is the round count the policy
-	// compares with campaign_acceptance_limit.
+	// compares with config_param(/campaign_acceptance_rounds, _).
 	Rounds []AcceptanceRound `json:"rounds,omitempty"`
 }
 

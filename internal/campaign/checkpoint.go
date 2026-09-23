@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/build"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
@@ -26,6 +27,9 @@ type CheckpointRunner struct {
 	taskExecutor session.TaskExecutor
 	workspace    string
 	kernel       core.Kernel
+	// commandTimeout bounds a checkpoint's build or test command:
+	// campaign.checkpoint_command_timeout (SetCommandTimeout).
+	commandTimeout time.Duration
 }
 
 // NewCheckpointRunner creates a new checkpoint runner.
@@ -39,12 +43,26 @@ func NewCheckpointRunner(executor tactile.Executor, taskExecutor session.TaskExe
 	if len(kernels) > 0 {
 		k = kernels[0]
 	}
-	return &CheckpointRunner{
+	cr := &CheckpointRunner{
 		executor:     executor,
 		taskExecutor: taskExecutor,
 		workspace:    workspace,
 		kernel:       k,
 	}
+	// The config's default until the orchestrator sets the user's: one source.
+	if def, err := config.DefaultCampaignConfig().Resolve(); err == nil {
+		cr.commandTimeout = def.CheckpointCommandTimeout
+	}
+	return cr
+}
+
+// SetCommandTimeout takes the bound on a checkpoint's build or test command
+// from the campaign policy.
+func (cr *CheckpointRunner) SetCommandTimeout(d time.Duration) {
+	if cr == nil {
+		return
+	}
+	cr.commandTimeout = d
 }
 
 // SetKernel wires the kernel used for structured verdict lookup after
@@ -134,7 +152,7 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 		// them the tag above would turn the gate red on missing headers.
 		Environment: build.GetBuildEnv(nil, cr.workspace),
 		Limits: &tactile.ResourceLimits{
-			TimeoutMs: 600 * 1000, // 10 minutes
+			TimeoutMs: cr.commandTimeout.Milliseconds(),
 		},
 	}
 
@@ -199,7 +217,7 @@ func (cr *CheckpointRunner) runBuildCheckpoint(ctx context.Context) (bool, strin
 		Arguments:        parts[1:],
 		WorkingDirectory: cr.workspace,
 		Limits: &tactile.ResourceLimits{
-			TimeoutMs: 600 * 1000, // 10 minutes
+			TimeoutMs: cr.commandTimeout.Milliseconds(),
 		},
 	}
 

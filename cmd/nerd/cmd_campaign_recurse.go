@@ -164,7 +164,10 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 
 	progressChan := make(chan campaign.Progress, 10)
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
-	orchCfg, promptProvider := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
+	orchCfg, promptProvider, err := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
+	if err != nil {
+		return err
+	}
 	startCampaignEventPrinter(eventChan)
 
 	runner := &campaign.RecurseRunner{

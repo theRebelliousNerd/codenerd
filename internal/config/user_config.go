@@ -190,6 +190,9 @@ type UserConfig struct {
 	// World model scanning/AST parsing configuration
 	World *WorldConfig `json:"world,omitempty"`
 
+	// Campaign is every knob the campaign executive reads (campaign.go).
+	Campaign *CampaignConfig `json:"campaign,omitempty"`
+
 	// =========================================================================
 	// INTEGRATIONS
 	// =========================================================================

@@ -109,10 +109,7 @@ func (o *Orchestrator) storeTaskResult(taskID, result string) {
 	logging.CampaignDebug("Stored result for task %s (%d bytes)", taskID, len(result))
 
 	// Prune cache if needed.
-	limit := o.config.TaskResultCacheLimit
-	if limit <= 0 {
-		limit = 100
-	}
+	limit := o.policy.TaskResultCacheLimit
 	if len(o.taskResultOrder) > limit {
 		pruned := 0
 		rotations := 0

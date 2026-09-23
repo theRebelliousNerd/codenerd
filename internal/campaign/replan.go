@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -30,14 +31,34 @@ type Replanner struct {
 	// Gemini advanced features (nil if not Gemini or features unavailable)
 	grounding *research.GroundingHelper // Google Search / URL Context grounding
 	thinking  *research.ThinkingHelper  // Thinking mode metadata capture
+
+	// limits bound the replan context: campaign.replan_context_* in the
+	// user's config (SetContextLimits). Guarded by limitsMu, not mu: the
+	// context is built while Replan holds mu.
+	limitsMu sync.RWMutex
+	limits   replanContextLimits
 }
 
-const (
-	maxReplanContextTasks    = 25
-	maxReplanAttemptsPerTask = 3
-	maxReplanContextText     = 400
-	maxReplanContextChars    = 16000
-)
+// replanContextLimits is how much of the campaign's failure history the
+// replanner's prompt carries.
+type replanContextLimits struct {
+	tasks     int // failed/blocked tasks and triggers listed
+	attempts  int // latest attempts shown per failed task
+	textBytes int // each quoted description or error
+	bytes     int // the whole section
+}
+
+// SetContextLimits takes the replan context bounds from the campaign policy.
+func (r *Replanner) SetContextLimits(p config.CampaignPolicy) {
+	r.limitsMu.Lock()
+	defer r.limitsMu.Unlock()
+	r.limits = replanContextLimits{
+		tasks:     p.ReplanContextTasks,
+		attempts:  p.ReplanContextAttempts,
+		textBytes: p.ReplanContextTextBytes,
+		bytes:     p.ReplanContextBytes,
+	}
+}
 
 // NewReplanner creates a new replanner.
 //
@@ -52,6 +73,11 @@ func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient, workspace 
 		llmClient:      llmClient,
 		promptProvider: NewStaticPromptProvider(), // Default to static prompts
 		workspace:      workspace,
+	}
+	// The config's defaults until the orchestrator sets the user's
+	// (SetContextLimits): one source for both.
+	if def, err := config.DefaultCampaignConfig().Resolve(); err == nil {
+		r.SetContextLimits(def)
 	}
 
 	// Initialize Gemini advanced features helpers
@@ -144,16 +170,16 @@ func truncateForPrompt(text string, maxLen int) string {
 	return text[:maxLen-len(suffix)] + suffix
 }
 
-func appendReplanContextLine(sb *strings.Builder, line string) bool {
+func appendReplanContextLine(sb *strings.Builder, line string, limit int) bool {
 	if line == "" {
 		return true
 	}
 
-	if sb.Len() >= maxReplanContextChars {
+	if sb.Len() >= limit {
 		return false
 	}
 
-	remaining := maxReplanContextChars - sb.Len()
+	remaining := limit - sb.Len()
 	if len(line) > remaining {
 		if remaining <= 0 {
 			return false
@@ -161,7 +187,7 @@ func appendReplanContextLine(sb *strings.Builder, line string) bool {
 		line = truncateForPrompt(line, remaining)
 	}
 	sb.WriteString(line)
-	return sb.Len() < maxReplanContextChars
+	return sb.Len() < limit
 }
 
 // Replan adapts the campaign plan based on current state and failures.
@@ -860,72 +886,76 @@ func (r *Replanner) buildReplanContext(campaign *Campaign, failedTasks, blockedT
 	if campaign == nil {
 		return ""
 	}
+	r.limitsMu.RLock()
+	lim := r.limits
+	r.limitsMu.RUnlock()
 	var sb strings.Builder
+	line := func(s string) bool { return appendReplanContextLine(&sb, s, lim.bytes) }
 
-	appendReplanContextLine(&sb, fmt.Sprintf("Campaign: %s\n", truncateForPrompt(campaign.Title, 200)))
-	appendReplanContextLine(&sb, fmt.Sprintf("Status: %s\n", campaign.Status))
-	appendReplanContextLine(&sb, fmt.Sprintf("Progress: %d/%d phases, %d/%d tasks\n\n", campaign.CompletedPhases, campaign.TotalPhases, campaign.CompletedTasks, campaign.TotalTasks))
+	line(fmt.Sprintf("Campaign: %s\n", truncateForPrompt(campaign.Title, lim.textBytes)))
+	line(fmt.Sprintf("Status: %s\n", campaign.Status))
+	line(fmt.Sprintf("Progress: %d/%d phases, %d/%d tasks\n\n", campaign.CompletedPhases, campaign.TotalPhases, campaign.CompletedTasks, campaign.TotalTasks))
 
 	if len(failedTasks) > 0 {
-		if !appendReplanContextLine(&sb, "Failed Tasks:\n") {
+		if !line("Failed Tasks:\n") {
 			return sb.String()
 		}
 		for idx, task := range failedTasks {
-			if idx >= maxReplanContextTasks {
-				appendReplanContextLine(&sb, fmt.Sprintf("... %d additional failed tasks omitted\n", len(failedTasks)-idx))
+			if idx >= lim.tasks {
+				line(fmt.Sprintf("... %d additional failed tasks omitted\n", len(failedTasks)-idx))
 				break
 			}
-			if !appendReplanContextLine(&sb, fmt.Sprintf("- [%s] %s\n", task.ID, truncateForPrompt(task.Description, 240))) {
+			if !line(fmt.Sprintf("- [%s] %s\n", task.ID, truncateForPrompt(task.Description, lim.textBytes))) {
 				return sb.String()
 			}
 			if task.LastError != "" {
-				if !appendReplanContextLine(&sb, fmt.Sprintf("  Error: %q\n", truncateForPrompt(task.LastError, maxReplanContextText))) {
+				if !line(fmt.Sprintf("  Error: %q\n", truncateForPrompt(task.LastError, lim.textBytes))) {
 					return sb.String()
 				}
 			}
 			start := 0
-			if len(task.Attempts) > maxReplanAttemptsPerTask {
-				start = len(task.Attempts) - maxReplanAttemptsPerTask
+			if len(task.Attempts) > lim.attempts {
+				start = len(task.Attempts) - lim.attempts
 			}
 			for _, attempt := range task.Attempts[start:] {
-				if !appendReplanContextLine(&sb, fmt.Sprintf("  Attempt %d: %s - %q\n", attempt.Number, attempt.Outcome, truncateForPrompt(attempt.Error, maxReplanContextText))) {
+				if !line(fmt.Sprintf("  Attempt %d: %s - %q\n", attempt.Number, attempt.Outcome, truncateForPrompt(attempt.Error, lim.textBytes))) {
 					return sb.String()
 				}
 			}
 		}
-		if !appendReplanContextLine(&sb, "\n") {
+		if !line("\n") {
 			return sb.String()
 		}
 	}
 
 	if len(blockedTasks) > 0 {
-		if !appendReplanContextLine(&sb, "Blocked Tasks:\n") {
+		if !line("Blocked Tasks:\n") {
 			return sb.String()
 		}
 		for idx, task := range blockedTasks {
-			if idx >= maxReplanContextTasks {
-				appendReplanContextLine(&sb, fmt.Sprintf("... %d additional blocked tasks omitted\n", len(blockedTasks)-idx))
+			if idx >= lim.tasks {
+				line(fmt.Sprintf("... %d additional blocked tasks omitted\n", len(blockedTasks)-idx))
 				break
 			}
-			if !appendReplanContextLine(&sb, fmt.Sprintf("- [%s] %s (depends on: %v)\n", task.ID, truncateForPrompt(task.Description, 240), task.DependsOn)) {
+			if !line(fmt.Sprintf("- [%s] %s (depends on: %v)\n", task.ID, truncateForPrompt(task.Description, lim.textBytes), task.DependsOn)) {
 				return sb.String()
 			}
 		}
-		if !appendReplanContextLine(&sb, "\n") {
+		if !line("\n") {
 			return sb.String()
 		}
 	}
 
 	if len(triggers) > 0 {
-		if !appendReplanContextLine(&sb, "Replan Triggers:\n") {
+		if !line("Replan Triggers:\n") {
 			return sb.String()
 		}
 		for idx, trigger := range triggers {
-			if idx >= maxReplanContextTasks {
-				appendReplanContextLine(&sb, fmt.Sprintf("... %d additional triggers omitted\n", len(triggers)-idx))
+			if idx >= lim.tasks {
+				line(fmt.Sprintf("... %d additional triggers omitted\n", len(triggers)-idx))
 				break
 			}
-			if !appendReplanContextLine(&sb, fmt.Sprintf("- %s at %s\n", trigger.Reason, trigger.TriggeredAt.Format(time.RFC3339))) {
+			if !line(fmt.Sprintf("- %s at %s\n", trigger.Reason, trigger.TriggeredAt.Format(time.RFC3339))) {
 				return sb.String()
 			}
 		}

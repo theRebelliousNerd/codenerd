@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/northstar"
@@ -12,8 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 )
-
-const defaultParallelTasks = 3
 
 // Orchestrator runs the campaign execution loop.
 // It manages phase transitions, task execution, context paging, and checkpoints.
@@ -79,11 +78,11 @@ type Orchestrator struct {
 	// Insertion/LRU order for pruning task results
 	taskResultOrder []string
 
-	// Concurrency control
-	maxParallelTasks int
-
 	// Configuration (including timeouts)
 	config OrchestratorConfig
+	// policy is config.Campaign resolved: defaults filled, durations parsed,
+	// checked. Every campaign knob is read from here.
+	policy config.CampaignPolicy
 
 	// Deterministic write-set locking for mutating tasks.
 	writeSetLocks *writeSetLockManager
@@ -134,22 +133,16 @@ type OrchestratorConfig struct {
 	VirtualStore         *core.VirtualStore
 	ProgressChan         chan Progress
 	EventChan            chan OrchestratorEvent
-	MaxRetries           int           // Max retries per task (default 3)
-	CheckpointOnFail     bool          // Run checkpoint after task failure
-	AutoReplan           bool          // Auto-replan on too many failures
-	ReplanThreshold      int           // Failures before replan (default 3)
-	MaxParallelTasks     int           // Max tasks to run in parallel (default 3)
-	CampaignTimeout      time.Duration // Caller's own limit on the whole campaign; zero means none
-	TaskTimeout          time.Duration // Caller's own limit per task; zero means none
-	HeartbeatEvery       time.Duration // Emit heartbeat/progress every N duration (default: 15s)
-	AutosaveEvery        time.Duration // Persist campaign every N duration (default: 1m)
-	TaskResultCacheLimit int           // Max task results kept for context injection (default: 100)
-	RetryBackoffBase     time.Duration // Base backoff between retries (default: 5s)
-	RetryBackoffMax      time.Duration // Max backoff between retries (default: 5m)
-	ContextBudget        int           // Token budget for context pager (default: from config.ContextWindow.MaxTokens)
-	WriteSetLockTimeout  time.Duration // Max wait to acquire write_set lock before timeout route (default: 15s)
-	WriteSetLockRetry    time.Duration // Delay before retrying a timed-out write_set lock attempt (default: 500ms)
-	WriteSetLockPoll     time.Duration // Poll interval while waiting for write_set lock (default: 10ms)
+	// Campaign is the policy: every knob that decides how the campaign runs
+	// (attempts, backoffs, checkpoints, acceptance, scheduling, command
+	// limits, context budgets), from the user's .nerd/config.json
+	// (UserConfig.GetCampaignConfig). It is the only policy input, so every
+	// door a campaign starts through runs it the same way. A zero value is
+	// the config's defaults.
+	Campaign        config.CampaignConfig
+	CampaignTimeout time.Duration // Caller's own limit on the whole campaign; zero means none
+	TaskTimeout     time.Duration // Caller's own limit per task; zero means none
+	ContextBudget   int           // Token budget for context pager (default: from config.ContextWindow.MaxTokens)
 
 	// Deterministic risk gating.
 	EnableRiskAutoWiring bool // Enable deterministic risk gate enforcement (default: true)

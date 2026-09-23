@@ -76,13 +76,7 @@ taskSearch:
 			o.campaign.Phases[i].Tasks[j].LastError = errStr
 			phaseID = o.campaign.Phases[i].ID
 
-			maxRetries := o.config.MaxRetries
-			if maxRetries < 0 {
-				maxRetries = 3 // -1 could mean default, but 0 means no retries allowed (i.e. fail on attempt 1)
-			}
-
-			// If maxRetries is 0, attemptNum (1) > maxRetries (0) is true -> fails.
-			// If maxRetries is 3, attemptNum (4) > maxRetries (3) is true -> fails.
+			maxRetries := o.policy.MaxTaskAttempts - 1
 			if attemptNum > maxRetries {
 				logging.Get(logging.CategoryCampaign).Error("Task %s exceeded max retries (%d), marking as failed", task.ID, maxRetries)
 				o.campaign.Phases[i].Tasks[j].Status = TaskFailed
@@ -181,11 +175,8 @@ taskSearch:
 		})
 	}
 
-	// Update computed failed-task count for Mangle replanning threshold rules.
-	o.updateFailedTaskCount()
-
 	// Optionally run checkpoint immediately after a task is fully failed.
-	if markedFailed && o.config.CheckpointOnFail {
+	if markedFailed && o.policy.CheckpointOnTaskFailure {
 		if _, _, chkErr := o.runPhaseCheckpoint(ctx, phase); chkErr != nil {
 			logging.Get(logging.CategoryCampaign).Warn("Checkpoint-on-fail error: %v", chkErr)
 			o.emitEvent(EventCheckpointFailed, phaseID, "", chkErr.Error(), nil)
@@ -469,14 +460,8 @@ var transientErrorHints = []string{
 
 // computeRetryBackoff returns exponential backoff based on attempt number.
 func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) time.Duration {
-	base := o.config.RetryBackoffBase
-	if base <= 0 {
-		base = 5 * time.Second
-	}
-	maxBackoff := o.config.RetryBackoffMax
-	if maxBackoff <= 0 {
-		maxBackoff = 5 * time.Minute
-	}
+	base := o.policy.RetryBackoffBase
+	maxBackoff := o.policy.RetryBackoffMax
 
 	shift := min(max(attemptNum-1, 0), 10)
 
@@ -496,8 +481,8 @@ func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) tim
 	}
 
 	// Logic errors often benefit from faster replans; cap their backoff lower.
-	if errorType == "/logic" && backoff > 30*time.Second {
-		backoff = 30 * time.Second
+	if errorType == "/logic" && backoff > o.policy.RetryWithReasonBackoffMax {
+		backoff = o.policy.RetryWithReasonBackoffMax
 	}
 	// A refusal gets the opposite treatment, and deliberately keeps the full
 	// exponential rather than the shortened one. Retrying quickly against a

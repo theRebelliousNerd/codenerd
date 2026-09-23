@@ -50,7 +50,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 	logging.Campaign("Executing phase: %s (tasks=%d)", phase.Name, len(phase.Tasks))
 
 	active := make(map[string]bool)
-	results := make(chan taskResult, o.maxParallelTasks*2)
+	results := make(chan taskResult, o.policy.MaxParallelTasks*2)
 
 	// drainActive joins in-flight task goroutines after context cancellation.
 	// Deterministic contract: on cancellation, stop scheduling and drain results
@@ -423,15 +423,12 @@ func (o *Orchestrator) acquireWriteSetLease(ctx context.Context, phaseID string,
 		return nil, nil
 	}
 
-	timeout := o.config.WriteSetLockTimeout
-	if timeout <= 0 {
-		timeout = 15 * time.Second
-	}
+	timeout := o.policy.WriteSetLockTimeout
 
 	lockCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	lease, err := o.writeSetLocks.acquire(lockCtx, task.ID, writeSet, o.config.WriteSetLockPoll)
+	lease, err := o.writeSetLocks.acquire(lockCtx, task.ID, writeSet, o.policy.WriteSetLockPoll)
 	if err == nil {
 		return lease, nil
 	}
@@ -458,10 +455,7 @@ func (o *Orchestrator) acquireWriteSetLease(ctx context.Context, phaseID string,
 }
 
 func (o *Orchestrator) computeWriteSetLockRetryDelay(ctx context.Context, lockTimeout time.Duration) time.Duration {
-	retryDelay := o.config.WriteSetLockRetry
-	if retryDelay <= 0 {
-		retryDelay = 500 * time.Millisecond
-	}
+	retryDelay := o.policy.WriteSetLockRetry
 
 	const (
 		minRetryDelay = 10 * time.Millisecond

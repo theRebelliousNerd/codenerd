@@ -28,13 +28,11 @@ Decl campaign_metadata(CampaignID, CreatedAt, EstimatedPhases, Confidence) bound
 # The high-level goal in natural language
 Decl campaign_goal(CampaignID, GoalDescription) bound [/string, /string].
 
-# campaign_config(CampaignID, MaxRetries, ReplanThreshold, AutoReplan, CheckpointOnFail)
-# Runtime configuration asserted by the Go Campaign Orchestrator.
-Decl campaign_config(CampaignID, MaxRetries, ReplanThreshold, AutoReplan, CheckpointOnFail) bound [/string, /number, /number, /name, /name].
-
-# failed_campaign_task_count_computed(CampaignID, Count)
-# Runtime-computed count of fully failed tasks in the current campaign.
-Decl failed_campaign_task_count_computed(CampaignID, Count) bound [/string, /number].
+# The campaign's knobs reach its rules as config_param(/campaign_<field>, V)
+# (policy/config_params.mg), from the campaign section of .nerd/config.json.
+# campaign_config/5 and failed_campaign_task_count_computed/2 were a one-off
+# bridge whose values were Go defaults and a count Go kept itself; their only
+# reader was a replan_needed rule whose only reader was a Path-B stub.
 
 # -----------------------------------------------------------------------------
 # 27.2 Phase Decomposition (LLM + Mangle Collaboration)
@@ -377,9 +375,8 @@ Decl campaign_acceptance(CampaignID, Command) bound [/string, /string].
 # all phases were done. Round counts from 1; Verdict is /pass or /fail.
 Decl campaign_acceptance_result(CampaignID, Round, Verdict) bound [/string, /number, /name].
 
-# campaign_acceptance_limit(Rounds) - failed rounds after which the campaign is
-# blocked rather than remediated again.
-Decl campaign_acceptance_limit(Rounds) bound [/number].
+# The failed rounds after which the campaign is blocked rather than remediated
+# again are config_param(/campaign_acceptance_rounds, N): campaign.acceptance_rounds.
 
 Decl campaign_accepted(CampaignID) bound [/string].
 Decl campaign_acceptance_unmet(CampaignID) bound [/string].

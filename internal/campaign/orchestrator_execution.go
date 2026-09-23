@@ -26,6 +26,17 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		return fmt.Errorf("campaign already running")
 	}
 
+	// Every threshold a campaign rule decides with must be in the kernel: a
+	// rule over a missing one derives nothing, and for a cap that fails open.
+	o.publishPolicyParams()
+	if missing, err := o.missingPolicyParams(); err != nil || len(missing) > 0 {
+		o.mu.Unlock()
+		if err != nil {
+			return fmt.Errorf("campaign policy check: %w", err)
+		}
+		return fmt.Errorf("campaign policy incomplete: the kernel holds no config_param for %s", strings.Join(missing, ", "))
+	}
+
 	logging.Campaign("=== Starting campaign execution: %s ===", o.campaign.ID)
 	logging.Campaign("Campaign: %s (type=%s, phases=%d, tasks=%d)",
 		o.campaign.Title, o.campaign.Type, o.campaign.TotalPhases, o.campaign.TotalTasks)
@@ -309,8 +320,8 @@ func (o *Orchestrator) finalizeCancellation(ctx context.Context) {
 // runHeartbeatLoop periodically emits progress, updates kernel heartbeat facts,
 // and persists the campaign even when tasks are idle or blocked.
 func (o *Orchestrator) runHeartbeatLoop(ctx context.Context) {
-	heartbeatTicker := time.NewTicker(o.config.HeartbeatEvery)
-	autosaveTicker := time.NewTicker(o.config.AutosaveEvery)
+	heartbeatTicker := time.NewTicker(o.policy.HeartbeatEvery)
+	autosaveTicker := time.NewTicker(o.policy.AutosaveEvery)
 	defer heartbeatTicker.Stop()
 	defer autosaveTicker.Stop()
 
