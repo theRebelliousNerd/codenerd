@@ -223,9 +223,10 @@ func (p *sameCallProvider) CompleteWithToolResults(_ context.Context, _ string, 
 
 // working_stop(/repeated_cycle) fires from working_control(/yes, _), which the
 // loop asserts when the tail of the trace repeats for working_repeat_threshold
-// cycles. With the policy's threshold of 2, the second identical round is the
-// stop — measured in Go because only the loop can see the trace, decided in
-// Mangle because only the policy says what a repeat means.
+// cycles, on a change task that has written nothing. With the policy's
+// threshold of 2, the second identical round is the stop — measured in Go
+// because only the loop can see the trace, decided in Mangle because only the
+// policy says what a repeat means.
 func TestToolLoop_StopsOnDerivedRepeatedCycle(t *testing.T) {
 	const toolName = "working_loop_cycle_probe"
 	registerTestTool(t, &tools.Tool{
@@ -234,7 +235,7 @@ func TestToolLoop_StopsOnDerivedRepeatedCycle(t *testing.T) {
 	})
 	client := &sameCallProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName}
 	e := newWorkingLoopExecutor(t, client)
-	result := &ExecutionResult{Intent: perception.Intent{Verb: "/explain"}}
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 
 	_, _, err := e.runToolLoop(context.Background(), "system", "probe it",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
@@ -249,6 +250,38 @@ func TestToolLoop_StopsOnDerivedRepeatedCycle(t *testing.T) {
 		t.Fatalf("executed = %d, want 2: working_repeat_threshold(2) makes the second identical round the cycle", result.ToolCallsExecuted)
 	}
 	assertNoBudgetVocabulary(t, client.histories)
+}
+
+// The same repeat on a read task is the end of its reading, not a failure:
+// the policy derives working_finalize(/repeat_after_reading) and the harness
+// asks for the conclusion. Observed 2026-09-22 on campaign 7b853890: a
+// /research task was stopped here after 21 reads, failed, and was retried from
+// nothing.
+func TestToolLoop_ARepeatingReadTaskFinalizesWithItsConclusion(t *testing.T) {
+	const toolName = "working_loop_read_cycle_probe"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) { return "observed", nil },
+	})
+	client := &sameCallProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName}
+	e := newWorkingLoopExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/explain"}}
+
+	resp, _, err := e.runToolLoop(context.Background(), "system", "probe it",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if err != nil {
+		t.Fatalf("err = %v, want the read task finalized with its conclusion, not stopped", err)
+	}
+	if resp == nil || resp.Text != "done" {
+		t.Fatalf("response = %+v, want the conclusion the forced-final call collected", resp)
+	}
+	// Two rounds make the repeat; the batch in hand when the policy finalized
+	// is executed too, because every provider requires each tool_use to be
+	// paired with its result before the conclusion is asked for.
+	if result.ToolCallsExecuted != 3 {
+		t.Fatalf("executed = %d, want 3: two rounds to see the repeat, then the pending batch", result.ToolCallsExecuted)
+	}
 }
 
 // scriptedCallsProvider answers each model call with the next scripted tool

@@ -395,10 +395,14 @@ func (e *Executor) runToolLoopPass(
 		// be shown back as its own history on the very next round, so a
 		// signature lost here is lost while the reasoning it belongs to is
 		// still live.
+		//
+		// history stays whole. Which rounds a request carries is the working
+		// policy's decision (working_transcript_rounds, working_transcript_slack),
+		// taken in workingRequestParts. Until 2026-09-22 a cut here kept the last
+		// three messages, so the policy only ever saw two rounds: measured over
+		// 481 rounds, no request carried a third, the slack never ran, and no
+		// transcript byte was ever served from the provider cache.
 		history = append(history, types.AssistantMessageFrom(nextResp))
-		if activeWorkingLoop(ctx) != nil && len(history) > 4 {
-			history = append([]types.Message(nil), history[len(history)-3:]...)
-		}
 
 		if len(nextResp.ToolCalls) == 0 {
 			verified, verifyErr := verifyTerminal(currentResponse)

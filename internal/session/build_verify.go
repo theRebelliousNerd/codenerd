@@ -746,7 +746,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	}
 
 	history = append(history, types.Message{Role: "user", Text: formatUpliftPrompt(worth)})
-	uplifted, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
+	uplifted, err := e.completeWithWorkingContext(ctx, trp, systemPrompt, history, toolDefs)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("uplift round failed (%v); turn continues", err)
 		return nil, nil

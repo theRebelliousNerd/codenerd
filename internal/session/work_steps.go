@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -336,29 +337,45 @@ func workStepReport(steps []workStep) string {
 	return b.String()
 }
 
-// languageOfFile names the prompt corpus's language key for a file, or "" when
-// the file's language is not one the corpus distinguishes (the step then keeps
-// the project's). The keys are the atom corpus's own (languages: ["/mangle"],
-// ["/go"], ...): this is the address of knowledge, not a judgement about it.
-func languageOfFile(path string) string {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".mg":
-		return "/mangle"
-	case ".go":
-		return "/go"
-	case ".py":
-		return "/python"
-	case ".ts", ".tsx":
-		return "/typescript"
-	case ".js", ".jsx", ".mjs", ".cjs":
-		return "/javascript"
-	case ".rs":
-		return "/rust"
-	case ".java":
-		return "/java"
-	default:
+// languageOfFile asks the kernel what language a file is (policy/coder_language.mg,
+// detected_language/2), or "" when the policy has no row for its extension (the
+// compile then keeps the project's language). Go measures the extension; the
+// table that maps it to a language key is policy. The key is the atom corpus's
+// own address for knowledge (languages: ["/mangle"], ["/go"], ["/markdown"]...).
+//
+// This used to be a Go switch with no row for any prose format, so a turn aimed
+// at a Markdown file kept the project's /go and carried ~4.7k tokens of Go atoms
+// (measured 2026-09-22 on the features docs campaign), while the policy table
+// that did have the row sat dormant: nothing ever asserted file_extension.
+func (e *Executor) languageOfFile(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	if e.kernel == nil || ext == "" {
 		return ""
 	}
+	measured := types.Fact{Predicate: "file_extension", Args: []interface{}{path, ext}}
+	if err := e.kernel.Assert(measured); err != nil {
+		logging.Get(logging.CategorySession).Warn("file_extension for %s not asserted: %v", path, err)
+		return ""
+	}
+	defer func() {
+		if err := e.kernel.RetractFact(measured); err != nil {
+			logging.Get(logging.CategorySession).Warn("file_extension for %s not retracted: %v", path, err)
+		}
+	}()
+	facts, err := e.kernel.Query(fmt.Sprintf("detected_language(%s, Lang)", strconv.Quote(path)))
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("detected_language query for %s failed: %v", path, err)
+		return ""
+	}
+	for _, f := range facts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		if lang := types.ExtractString(f.Args[1]); lang != "" {
+			return "/" + strings.TrimPrefix(lang, "/")
+		}
+	}
+	return ""
 }
 
 // targetNeeds asks the kernel what a compile aimed at a file of this language
@@ -407,7 +424,7 @@ func (e *Executor) stepSystemPrompt(
 	if e.jitCompiler == nil || stepCtx == nil {
 		return turnPrompt
 	}
-	if lang := languageOfFile(stepCtx.IntentTarget); lang != "" {
+	if lang := e.languageOfFile(stepCtx.IntentTarget); lang != "" {
 		stepCtx.Language = lang
 	}
 	stepCtx.DerivedNeeds = e.targetNeeds(stepCtx.Language)

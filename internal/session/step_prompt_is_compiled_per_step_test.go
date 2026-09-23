@@ -54,6 +54,8 @@ func TestPlannedStep_RunsUnderAPromptCompiledForItsOwnFileAndLanguage(t *testing
 	})
 	client := &stepPromptRecorder{stepScriptProvider: inner, systems: map[string][]string{}}
 	e := newPlannedStepsExecutor(t, client)
+	// A file's language is the kernel's answer (policy/coder_language.mg).
+	e.kernel = realKernel(t)
 
 	var compiles []prompt.CompilationContext
 	e.jitCompiler = &MockJITCompiler{
@@ -130,13 +132,17 @@ func TestPlannedStep_KeepsTheTurnsPromptWhenItsOwnDoesNotCompile(t *testing.T) {
 
 // A turn aimed at a policy file compiles for /mangle even in a Go project: the
 // file the turn edits outranks the project's language, or the corpus's /mangle
-// atoms are never candidates for the one turn that needs them.
+// atoms are never candidates for the one turn that needs them. A document gets
+// a prose key, so the project's code corpus stays out of its turn; a file the
+// policy has no row for keeps the project's language ("").
 func TestTurnAimedAtAPolicyFileCompilesForMangle(t *testing.T) {
-	e := &Executor{}
+	e := &Executor{kernel: realKernel(t)}
 	for target, want := range map[string]string{
 		"internal/context/working_set.mg": "/mangle",
 		"internal/session/executor.go":    "/go",
-		"notes.txt":                       "",
+		"Docs/journeys/05-ladder.md":      "/markdown",
+		"notes.txt":                       "/text",
+		"Makefile":                        "",
 	} {
 		cc := e.buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix", Target: target})
 		if cc.Language != want {

@@ -10,6 +10,13 @@
 # -----------------------------------------------------------------------------
 # 3.1 Language Detection
 # -----------------------------------------------------------------------------
+# This table is the only answer to "what language is this file". The session
+# executor measures file_extension(Target, Ext) for the file a turn or a planned
+# step is aimed at and asks detected_language(Target, Lang); the answer becomes
+# the compile's language, which is what selects (and excludes) the atom corpus's
+# language-tagged knowledge. A file whose extension has no row keeps the
+# project's language. Prose formats have rows so a turn on a document is not
+# handed the project's code corpus.
 
 detected_language(File, /go) :-
     file_extension(File, ".go").
@@ -28,6 +35,12 @@ detected_language(File, /javascript) :-
 
 detected_language(File, /javascript) :-
     file_extension(File, ".jsx").
+
+detected_language(File, /javascript) :-
+    file_extension(File, ".mjs").
+
+detected_language(File, /javascript) :-
+    file_extension(File, ".cjs").
 
 detected_language(File, /rust) :-
     file_extension(File, ".rs").
@@ -79,6 +92,18 @@ detected_language(File, /json) :-
 
 detected_language(File, /markdown) :-
     file_extension(File, ".md").
+
+detected_language(File, /markdown) :-
+    file_extension(File, ".markdown").
+
+detected_language(File, /restructuredtext) :-
+    file_extension(File, ".rst").
+
+detected_language(File, /asciidoc) :-
+    file_extension(File, ".adoc").
+
+detected_language(File, /text) :-
+    file_extension(File, ".txt").
 
 detected_language(File, /shell) :-
     file_extension(File, ".sh").

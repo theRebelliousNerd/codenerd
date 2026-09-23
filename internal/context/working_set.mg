@@ -125,15 +125,17 @@ working_search_open() :-
 working_search_open() :-
     working_structural(_, Misses), working_structural_miss_limit(N), Misses >= N.
 
-# A repeated trace before anything was written is a stall, and stops the turn.
-# After a write it is the model re-checking work it has already made, and it
-# finalizes instead (working_finalize(/repeat_after_write), below). Stopping it
-# failed the task, and the campaign's task transaction then restored the
-# pre-task snapshot: observed 2026-09-21 on campaign 7b853890, documents were
+# A repeated trace on a change task that has written nothing is a stall, and
+# stops the turn. After a write it is the model re-checking work it has already
+# made, and it finalizes instead (working_finalize(/repeat_after_write), below).
+# Stopping it failed the task, and the campaign's task transaction then restored
+# the pre-task snapshot: observed 2026-09-21 on campaign 7b853890, documents were
 # written, read back and recalled until this rule fired, failed, deleted and
 # rewritten from scratch -- 03-GAP-ANALYSIS.md three times -- while the
-# policy's own verify nudge was asking for exactly that reading.
-working_stop(/repeated_cycle) :- working_control(/yes, _), working_progress(_, _, 0, _, _).
+# policy's own verify nudge was asking for exactly that reading. A read task
+# that repeats has finished reading, and finalizes too
+# (working_finalize(/repeat_after_reading)).
+working_stop(/repeated_cycle) :- working_control(/yes, _), working_progress(/write, _, 0, _, _).
 working_stop(/tool_failures) :- working_control(_, Failed), Failed >= 3.
 # A change task that has only read for the whole stall span never started.
 # Observed 2026-09-11: 300 reads in 25 minutes before a one-line edit the
@@ -159,6 +161,14 @@ working_finalize(/verify_after_write) :-
 working_finalize(/repeat_after_write) :-
     working_control(/yes, _),
     working_progress(_, _, Writes, _, _), Writes > 0.
+# A read task's product is its conclusion, so a repeat means reading is done:
+# the harness asks for the conclusion from what was gathered. Stopping it failed
+# the task and threw the reading away: observed 2026-09-22 on campaign
+# 7b853890, a /research task made 21 reads and recalls, repeated, was stopped,
+# failed, and was retried from nothing.
+working_finalize(/repeat_after_reading) :-
+    working_control(/yes, _),
+    working_progress(/read, _, 0, _, _).
 
 # Steering, well before the stop and finalize thresholds.
 working_nudge(/implement) :-

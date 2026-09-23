@@ -1238,7 +1238,7 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 	// a policy file in a Go project needs the /mangle corpus, and the project's
 	// language would hand it the Go one (planned steps do the same per step,
 	// work_steps.go stepSystemPrompt).
-	if lang := languageOfFile(intent.Target); lang != "" {
+	if lang := e.languageOfFile(intent.Target); lang != "" {
 		cc.Language = lang
 	}
 	cc.DerivedNeeds = e.targetNeeds(cc.Language)
