@@ -788,8 +788,8 @@ func TestE2E_ChatLoop_AmbiguousIntent_ClarificationThenResume(t *testing.T) {
 		updated, _ := m.Update(msg)
 		m = updated.(Model)
 		t.Log("DOCUMENTED BEHAVIOR: Low confidence (0.42) routed to direct response " +
-			"instead of clarification. shouldClarifyIntent may require kernel " +
-			"rules or heuristic thresholds that aren't loaded in test context.")
+			"instead of clarification: no /clarify lane derived for this intent " +
+			"(policy/routing_arbitration.mg).")
 		assertIdle(t, m)
 	} else {
 		// Some other message type

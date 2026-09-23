@@ -371,12 +371,10 @@ func TestE2E_TaskRouting_AmbiguousEdit_ClarifiesBeforeDelegation(t *testing.T) {
 
 	outcome := routeInput(t, m, "fix it")
 
-	// shouldClarifyIntent fires because:
-	//   - target == "none"
-	//   - confidence < 0.45
-	//   - /fix is actionable (maps to "coder")
-	// Without a running clarifier shard, runClarifierShard returns error and
-	// the path falls through. But the key assertion is no shard executed.
+	// The kernel derives /clarify (routing_arbitration.mg): /fix acts on a
+	// target and the target is "none", and the confidence is below the
+	// delegation gate. Without a running clarifier shard the fallback question
+	// is asked. The key assertion is no shard executed.
 	assertNoCampaignStarted(t, outcome)
 	assertNoMultistep(t, outcome)
 	assertRoutingIdle(t, outcome)
@@ -408,12 +406,10 @@ func TestE2E_TaskRouting_PlanRequest_AutoClarifyNotExecution(t *testing.T) {
 
 	outcome := routeInput(t, m, "Plan a project to add multi-tenant auth and billing")
 
-	// shouldAutoClarify returns true because:
-	//   - category == "/instruction" (buildish)
-	//   - input contains "plan" and "project" (campaign keywords)
-	//   - target is empty (needsDetails)
-	// The clarifier shard may not be available in mock, so it might fall through,
-	// but NO execution should happen.
+	// The kernel derives /clarify: /generate acts on a target and the target is
+	// empty, so the confident coder candidate yields to asking first. (Until
+	// 2026-09-23 a Go keyword match over "plan" and "project" decided this.)
+	// NO execution should happen.
 	assertNoCampaignStarted(t, outcome)
 	assertNoMultistep(t, outcome)
 	assertRoutingIdle(t, outcome)
@@ -449,8 +445,9 @@ func TestE2E_TaskRouting_DreamWins_NoExecutionNoCampaign(t *testing.T) {
 
 	outcome := routeInput(t, m, "What if we refactored the auth system into middleware? Don't do it, just think it through.")
 
-	// Dream is checked at line 309: if intent.Verb == "/dream" → handleDreamState
-	// This runs BEFORE assault, auto-clarify, clarification, multistep, delegation.
+	// Perception already answered this /dream turn, so the kernel derives the
+	// perception_answer lane, which precedes every other; without a reply it
+	// would derive /dream (handleDreamState). Either way nothing executes.
 	assertNoCampaignStarted(t, outcome)
 	assertNoClarification(t, outcome)
 	assertNoMultistep(t, outcome)
@@ -681,9 +678,9 @@ func TestE2E_TaskRouting_ClarifierLoopGuard_SameInputNoReClarify(t *testing.T) {
 
 	outcome := routeInput(t, m, "fix it")
 
-	// shouldAutoClarify, shouldClarifyFromKernel, shouldClarifyIntent all check
-	// for EqualFold(input, lastClarifyInput) and return false when matched.
-	// The input should fall through to delegation or articulation.
+	// The same input the last clarification asked about asserts
+	// intent_signal(/clarified_already), and the /clarify lane stands down.
+	// The input falls through to delegation or articulation.
 	assertNoClarification(t, outcome)
 	assertRoutingIdle(t, outcome)
 	t.Logf("Loop guard routing: %s (no clarification loop)", outcome.MsgType)
@@ -787,10 +784,9 @@ func TestE2E_TaskRouting_ArbitrationMatrix(t *testing.T) {
 				Category: "/query", Verb: "/dream", Target: "delete auth middleware",
 				Confidence: 0.92, Response: "Hypothetically...",
 			},
-			// /dream is always-conversational and the intent carries a ready
-			// surface response, so the pre-perception willConverse fast-path
-			// returns it directly. handleDreamState only runs when perception
-			// produced no usable response.
+			// The intent carries a ready surface response and no shard, so
+			// the kernel derives perception_answer, which precedes /dream:
+			// handleDreamState only runs when perception produced no reply.
 			expectedType:   "responseMsg",
 			forbidCampaign: true, forbidClarify: true, forbidSubtasks: true,
 		},

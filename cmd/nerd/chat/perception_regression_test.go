@@ -1,167 +1,92 @@
 package chat
 
 import (
-	"codenerd/internal/perception"
 	"testing"
+
+	"codenerd/internal/perception"
 )
 
-// TestIsConversationalIntent_WhenGreeting_ShouldReturnTrue is a regression test
-// for the bug where saying "hi" triggered a clarification request instead of a
-// friendly greeting. The root cause was that /converse (mapped from action_type
-// "chat") was missing from the alwaysConversational map in isConversationalIntent.
-func TestIsConversationalIntent_WhenGreeting_ShouldReturnTrue(t *testing.T) {
-	tests := []struct {
-		name   string
-		intent perception.Intent
-		want   bool
-	}{
-		// === Conversational intents: these MUST return true ===
-		{
-			name:   "greet verb with empty target",
-			intent: perception.Intent{Verb: "/greet", Target: ""},
-			want:   true,
-		},
-		{
-			name:   "converse verb with empty target (regression: was missing from alwaysConversational)",
-			intent: perception.Intent{Verb: "/converse", Target: ""},
-			want:   true,
-		},
-		{
-			name:   "converse verb with target none",
-			intent: perception.Intent{Verb: "/converse", Target: "none"},
-			want:   true,
-		},
-		{
-			name:   "help verb with empty target",
-			intent: perception.Intent{Verb: "/help", Target: ""},
-			want:   true,
-		},
-		{
-			name:   "knowledge verb with empty target",
-			intent: perception.Intent{Verb: "/knowledge", Target: ""},
-			want:   true,
-		},
-		{
-			name:   "configure verb with empty target",
-			intent: perception.Intent{Verb: "/configure", Target: ""},
-			want:   true,
-		},
-		{
-			name:   "dream verb with empty target",
-			intent: perception.Intent{Verb: "/dream", Target: ""},
-			want:   true,
-		},
-		{
-			name:   "shadow verb with empty target",
-			intent: perception.Intent{Verb: "/shadow", Target: ""},
-			want:   true,
-		},
-		// === Actionable intents: these MUST return false ===
-		{
-			name:   "fix verb with file target is actionable",
-			intent: perception.Intent{Verb: "/fix", Target: "auth.go"},
-			want:   false,
-		},
-		{
-			name:   "review verb with codebase target is actionable",
-			intent: perception.Intent{Verb: "/review", Target: "codebase"},
-			want:   false,
-		},
-		{
-			name:   "create verb with feature target is actionable",
-			intent: perception.Intent{Verb: "/create", Target: "new_feature"},
-			want:   false,
-		},
-		{
-			name:   "explain verb goes through articulation intentionally",
-			intent: perception.Intent{Verb: "/explain", Target: "auth"},
-			want:   false,
-		},
-	}
+// routeFor seeds user_intent the way process.go does and asks the kernel for
+// the turn's lane (policy/routing_arbitration.mg).
+func routeFor(t *testing.T, input string, intent perception.Intent) RouteDecision {
+	t.Helper()
+	m := newRoundtripModel(t)
+	assertRouteIntent(t, m, intent)
+	return m.decideRoute(input, intent, resolveShardTypeForIntent(intent))
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isConversationalIntent(tt.intent)
-			if got != tt.want {
-				t.Errorf("isConversationalIntent(%+v) = %v, want %v", tt.intent, got, tt.want)
+// A turn perception already answered, that needs nothing the workspace holds
+// and has no shard to hand to, returns perception's reply
+// (route_decision(/perception_answer)). Until 2026-09-23 this was a Go fast
+// path over a verb table (isConversationalIntent). Its regression stands: "hi"
+// once produced a clarification request because /converse was missing from
+// that table.
+func TestDecideRoute_ConversationIsAnsweredByPerception(t *testing.T) {
+	for _, intent := range []perception.Intent{
+		{Category: "/query", Verb: "/greet", Target: "", Confidence: 0.1},
+		{Category: "/query", Verb: "/converse", Target: "", Confidence: 0.3},
+		{Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.3},
+		{Category: "/query", Verb: "/help", Target: "none", Confidence: 0.2},
+		{Category: "/query", Verb: "/knowledge", Target: ""},
+		{Category: "/instruction", Verb: "/configure", Target: ""},
+		{Category: "/query", Verb: "/shadow", Target: ""},
+		{Category: "/query", Verb: "/dream", Target: "delete auth middleware"},
+		{Category: "/query", Verb: "/read", Target: ""},
+		{Category: "/query", Verb: "/read", Target: "none"},
+		{Category: "/query", Verb: "/explain", Target: "capabilities"},
+	} {
+		t.Run(intent.Verb+"/"+intent.Target, func(t *testing.T) {
+			intent.Response = "Hello!"
+			if got := routeFor(t, "hi", intent); got.Kind != RoutePerceptionAnswer {
+				t.Fatalf("route = %s, want perception_answer", got.Kind)
 			}
 		})
 	}
 }
 
-// TestShouldClarifyIntent_WhenConversational_ShouldReturnFalse is a regression
-// test ensuring conversational intents NEVER trigger clarification, even with
-// low confidence, empty targets, or ambiguity entries. This directly validates
-// the fix for the "hi" → clarification bug.
-func TestShouldClarifyIntent_WhenConversational_ShouldReturnFalse(t *testing.T) {
-	tests := []struct {
+// The same verbs without a reply from perception, and the verbs whose answer
+// needs the workspace, do not take that lane.
+func TestDecideRoute_NotEveryConversationIsAnsweredByPerception(t *testing.T) {
+	cases := []struct {
+		name   string
+		intent perception.Intent
+		want   RouteKind
+	}{
+		{"a greeting with no reply is articulated", perception.Intent{Category: "/query", Verb: "/greet"}, RouteRespondDirectly},
+		{"a codebase explanation goes through articulation", perception.Intent{Category: "/query", Verb: "/explain", Target: "auth", Response: "It..."}, RouteRespondDirectly},
+		{"a read of a file is not answered from perception", perception.Intent{Category: "/query", Verb: "/read", Target: "main.go", Response: "Sure."}, RouteNone},
+		{"a hypothetical with no reply consults the shards", perception.Intent{Category: "/query", Verb: "/dream", Target: "delete auth middleware"}, RouteDream},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := routeFor(t, "input", tc.intent); got.Kind != tc.want {
+				t.Fatalf("route = %s, want %s", got.Kind, tc.want)
+			}
+		})
+	}
+}
+
+// A request whose verb acts on something and that names nothing to act on is
+// asked about before any lane acts on a guess -- also over a confident shard
+// candidate, which the Go clarifiers overrode the same way. A targeted,
+// confident one delegates. Until 2026-09-23 these were shouldClarifyIntent and
+// shouldAutoClarify (a keyword match over the input) in Go.
+func TestDecideRoute_ARequestNamingNothingClarifies(t *testing.T) {
+	cases := []struct {
 		name   string
 		input  string
 		intent perception.Intent
-		want   bool
+		want   RouteKind
 	}{
-		{
-			name:  "converse with low confidence should not clarify",
-			input: "hi",
-			intent: perception.Intent{
-				Verb:       "/converse",
-				Target:     "none",
-				Confidence: 0.3,
-			},
-			want: false,
-		},
-		{
-			name:  "greet with very low confidence should not clarify",
-			input: "hello",
-			intent: perception.Intent{
-				Verb:       "/greet",
-				Target:     "",
-				Confidence: 0.1,
-			},
-			want: false,
-		},
-		{
-			name:  "help with low confidence should not clarify",
-			input: "help",
-			intent: perception.Intent{
-				Verb:       "/help",
-				Target:     "none",
-				Confidence: 0.2,
-			},
-			want: false,
-		},
-		{
-			name:  "actionable verb with high confidence and target should not clarify",
-			input: "fix the auth bug",
-			intent: perception.Intent{
-				Verb:       "/fix",
-				Target:     "auth.go",
-				Confidence: 0.9,
-			},
-			want: false,
-		},
-		{
-			name:  "actionable verb with no target and low confidence should clarify",
-			input: "fix something",
-			intent: perception.Intent{
-				Verb:       "/fix",
-				Target:     "none",
-				Confidence: 0.3,
-			},
-			want: true,
-		},
+		{"an untargeted, uncertain fix", "fix something", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.3}, RouteClarify},
+		{"an untargeted, confident fix", "fix it", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.9}, RouteClarify},
+		{"an untargeted plan", "plan a new auth system", perception.Intent{Category: "/instruction", Verb: "/generate", Target: "", Confidence: 0.84}, RouteClarify},
+		{"a targeted, confident fix delegates", "fix the auth bug", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "auth.go", Confidence: 0.9}, RouteDelegate},
 	}
-
-	// Create a minimal Model value for calling the method.
-	m := Model{}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			intent := tt.intent // local copy for pointer
-			got := m.shouldClarifyIntent(&intent, tt.input)
-			if got != tt.want {
-				t.Errorf("shouldClarifyIntent(intent=%+v, input=%q) = %v, want %v",
-					tt.intent, tt.input, got, tt.want)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := routeFor(t, tc.input, tc.intent); got.Kind != tc.want {
+				t.Fatalf("route = %s (shard %q), want %s", got.Kind, got.Shard, tc.want)
 			}
 		})
 	}

@@ -118,28 +118,10 @@ func (m Model) processInput(input string) tea.Cmd {
 		// lastShardResult in ConversationContext), so they still work — through
 		// the same single pipeline as everything else.
 
-		// =====================================================================
-		// 0.5 FAST-PATH GREETING DETECTION (Pre-Perception)
-		// =====================================================================
-		// Bypasses the LLM entirely for simple conversational greetings
-		lowerTrimmed := strings.ToLower(trimmed)
-		if lowerTrimmed == "hi" || lowerTrimmed == "hello" || lowerTrimmed == "hey" || lowerTrimmed == "sup" || lowerTrimmed == "greetings" || lowerTrimmed == "yo" {
-			logging.Routing("[processInput] PRE-PERCEPTION FAST-PATH: simple greeting | OODA total=%dms", time.Since(oodaStart).Milliseconds())
-
-			// Glass Box: Emit fast-path event (immediate → chat stream)
-			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
-					Timestamp: time.Now(),
-					Category:  transparency.CategoryControl,
-					Summary:   "FAST-PATH: /greet (bypassed perception)",
-					Details:   "Pre-perception heuristic matched greeting",
-					TurnID:    m.turnCount,
-				})
-			}
-
-			greetingResp := "Hello! I'm codeNERD. I can help you analyze, test, and refactor your code. What are we working on today?"
-			return responseMsg(m.appendSystemSummary(greetingResp, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
-		}
+		// A greeting goes through perception like any other input; the kernel's
+		// perception_answer lane returns perception's own reply. Until
+		// 2026-09-23 six literal words ("hi", "hello", ...) were matched here in
+		// Go and answered with a canned string before perception ran.
 
 		// 1. PERCEPTION (Transducer) - with conversation history for context
 		perceptionStart := time.Now()
@@ -210,7 +192,6 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Whether the turn delegates is the kernel's route decision (1.3.5),
 		// logged there; this line records only what perception produced.
 		shardType := resolveShardTypeForIntent(intent)
-		willConverse := shardType == "" && intent.Response != "" && isConversationalIntent(intent)
 		logging.Routing("[processInput] PERCEPTION complete: %dms | verb=%s category=%s target=%q confidence=%.2f | candidate shard=%s system_shard=%v | response_len=%d ambiguity=%v",
 			time.Since(perceptionStart).Milliseconds(), intent.Verb, intent.Category,
 			truncateSummary(intent.Target, 60), intent.Confidence,
@@ -230,33 +211,6 @@ func (m Model) processInput(input string) tea.Cmd {
 				Details:   details,
 				TurnID:    m.turnCount,
 			})
-		}
-
-		// FAST-PATH: For conversational intents with a surface_response ready,
-		// return immediately without going through ORIENT/DECIDE/ACT.
-		// Kernel state updates happen asynchronously.
-		if willConverse && intent.Response != "" {
-			logging.Routing("[processInput] FAST-PATH: conversational response | verb=%s confidence=%.2f | responseLen=%d | OODA total=%dms (skipped ORIENT/DECIDE/ACT)",
-				intent.Verb, intent.Confidence, len(intent.Response), time.Since(oodaStart).Milliseconds())
-
-			// Glass Box: Emit fast-path event
-			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
-					Timestamp: time.Now(),
-					Category:  transparency.CategoryControl,
-					Summary:   fmt.Sprintf("FAST-PATH: %s (bypassed ORIENT/DECIDE/ACT)", intent.Verb),
-					Details:   "Conversational intent handled directly from perception surface_response",
-					TurnID:    m.turnCount,
-				})
-			}
-
-			// Async kernel update: assert user_intent in background so kernel state
-			// eventually reflects this turn. Non-blocking.
-			if m.kernel != nil {
-				go m.fastPathKernelUpdate(intent)
-			}
-
-			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 		}
 
 		// Seed the shared kernel immediately so system shards can begin deriving actions.
@@ -304,7 +258,41 @@ func (m Model) processInput(input string) tea.Cmd {
 					})
 				}
 			}
+		}
 
+		// =====================================================================
+		// ROUTING ARBITRATION (Kernel) -- the single DECIDE point
+		// =====================================================================
+		// The kernel derives one lane for this turn at most
+		// (policy/routing_arbitration.mg): perception_answer, dream,
+		// respond_directly, clarify, multi_step, or delegate. It is asked as
+		// soon as user_intent is in, before the slower ORIENT work below, so a
+		// turn perception already answered returns without it. RouteNone (no
+		// lane derived, or no kernel to ask) delegates and decomposes nothing:
+		// articulation answers. Until 2026-09-23 the conversational fast path,
+		// the /dream check and two clarifiers decided in Go before this was
+		// asked.
+		route := m.decideRoute(input, intent, shardType)
+		logging.Routing("[processInput] ROUTE decision: %s shard=%q | verb=%s category=%s question=%v confidence=%.2f | elapsed=%dms",
+			route.Kind, route.Shard, intent.Verb, intent.Category, intent.IsQuestion, intent.Confidence, time.Since(oodaStart).Milliseconds())
+		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+			m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+				Timestamp: time.Now(),
+				Category:  transparency.CategoryKernel,
+				Summary:   fmt.Sprintf("Route: %s (verb=%s, question=%v)", route.Kind, intent.Verb, intent.IsQuestion),
+				Details:   "Kernel routing arbitration (route_decision/2, policy/routing_arbitration.mg)",
+				TurnID:    m.turnCount,
+			})
+		}
+
+		// The perception pass already answered: its reply is the answer.
+		if route.Kind == RoutePerceptionAnswer {
+			logging.Routing("[processInput] PERCEPTION ANSWER: verb=%s | responseLen=%d | OODA total=%dms",
+				intent.Verb, len(intent.Response), time.Since(oodaStart).Milliseconds())
+			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+		}
+
+		if m.kernel != nil {
 			// If this is an issue-driven request, seed issue facts for activation and JIT selection.
 			// The turn context bounds the sparse-retrieval pass this now runs.
 			m.seedIssueFacts(ctx, intent, input)
@@ -327,9 +315,9 @@ func (m Model) processInput(input string) tea.Cmd {
 		// 1.3.1 MEMORY OPERATIONS
 		m.processMemoryOperations(intent, &warnings)
 
-		// 1.3.2 DREAM STATE: Multi-agent simulation/learning mode
-		// When user asks "what if", "imagine", "hypothetically" - consult all shards without executing
-		if intent.Verb == "/dream" {
+		// 1.3.2 DREAM STATE: the kernel derived the /dream lane -- consult the
+		// shards on a hypothetical without executing anything.
+		if route.Kind == RouteDream {
 			logging.Routing("[processInput] DECIDE: dream mode, total so far %dms", time.Since(oodaStart).Milliseconds())
 			m.ReportStatus("Dream: consulting shards...")
 			return m.handleDreamState(ctx, intent, input)
@@ -343,34 +331,28 @@ func (m Model) processInput(input string) tea.Cmd {
 			return cmd()
 		}
 
-		// =====================================================================
-		// 1.3.5 ROUTING ARBITRATION (Kernel) — the single DECIDE point
-		// =====================================================================
-		// The kernel derives exactly one lane for this turn
-		// (policy/routing_arbitration.mg): respond_directly, clarify,
-		// multi_step, or delegate. Questions and conversation terminate in
-		// prose — no clarifier shards, no decomposition, no delegation, no
-		// autopoiesis analysis. RouteNone (no lane derived, or no kernel to
-		// ask) delegates and decomposes nothing: articulation answers.
-		route := m.decideRoute(input, intent, shardType)
+		// Questions and conversation terminate in prose: no clarifier shards,
+		// no decomposition, no delegation, no autopoiesis analysis.
 		answerDirectly := route.Kind == RouteRespondDirectly
 		routeWantsClarify := route.Kind == RouteClarify
-		logging.Routing("[processInput] ROUTE decision: %s shard=%q | verb=%s category=%s question=%v confidence=%.2f | elapsed=%dms",
-			route.Kind, route.Shard, intent.Verb, intent.Category, intent.IsQuestion, intent.Confidence, time.Since(oodaStart).Milliseconds())
-		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-			m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
-				Timestamp: time.Now(),
-				Category:  transparency.CategoryKernel,
-				Summary:   fmt.Sprintf("Route: %s (verb=%s, question=%v)", route.Kind, intent.Verb, intent.IsQuestion),
-				Details:   "Kernel routing arbitration (route_decision/2, policy/routing_arbitration.mg)",
-				TurnID:    m.turnCount,
-			})
-		}
 
-		// 1.4 AUTO-CLARIFICATION: If the request looks like a campaign/plan ask, run the clarifier shard
+		// 1.4 CLARIFICATION: the derived /clarify lane asks before acting. The
+		// kernel's own question comes first when it has one (clarification.mg:
+		// an unknown or unmapped verb, an unreachable model), then the
+		// clarifier shard's, then the fallback below. Until 2026-09-23 two Go
+		// heuristics (shouldAutoClarify, a keyword match over the raw input;
+		// shouldClarifyIntent) could clarify on any turn not answered
+		// directly, over a derived /delegate.
 		logging.Routing("[processInput] DECIDE phase starting at %dms", time.Since(oodaStart).Milliseconds())
-		if routeWantsClarify || (!answerDirectly && m.shouldAutoClarify(&intent, input)) {
-			logging.Routing("[processInput] DECIDE: auto-clarify triggered")
+		if routeWantsClarify {
+			if question, options, ok := m.kernelClarification(); ok {
+				return clarificationMsg{
+					Question:      question,
+					Options:       options,
+					Context:       input,
+					PendingIntent: &intent,
+				}
+			}
 			m.ReportStatus("Clarifier: generating questions...")
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
 				surface := m.appendSystemSummary(
@@ -385,33 +367,6 @@ func (m Model) processInput(input string) tea.Cmd {
 						LaunchClarifyGoal:    input,
 						LaunchClarifyAnswers: "",
 					},
-				}
-			} else if err != nil {
-				warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
-			}
-		}
-
-		// 1.4.1 GENERAL CLARIFICATION: Guard ambiguous intents before delegation.
-		if question, options, ok := m.shouldClarifyFromKernel(&intent, input); ok && (routeWantsClarify || !answerDirectly) {
-			return clarificationMsg{
-				Question:      question,
-				Options:       options,
-				Context:       input,
-				PendingIntent: &intent,
-			}
-		}
-
-		// 1.4.2 FALLBACK CLARIFICATION: Heuristic-only check if kernel has no question.
-		if (routeWantsClarify || !answerDirectly) && m.shouldClarifyIntent(&intent, input) {
-			logging.Routing("[processInput] DECIDE: fallback clarification triggered | verb=%s target=%q confidence=%.2f isConversational=%v | REASON: actionable intent with low confidence or missing target",
-				intent.Verb, intent.Target, intent.Confidence, isConversationalIntent(intent))
-			m.ReportStatus("Clarifier: resolving ambiguity...")
-			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
-				return clarificationMsg{
-					Question:      res,
-					Options:       []string{},
-					Context:       input,
-					PendingIntent: &intent,
 				}
 			} else if err != nil {
 				warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
@@ -676,30 +631,6 @@ func (m Model) processInput(input string) tea.Cmd {
 				))
 			}
 			return responseMsg(m.appendSystemSummary(statsResp, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
-		}
-
-		// 1.7 DIRECT RESPONSE: For non-actionable verbs (/explain, /read, etc.) with
-		// no shard and a valid perception response, return the perception response
-		// directly. This handles greetings, capability questions, and general queries
-		// without requiring a second articulation LLM call.
-		if shardType == "" && intent.Response != "" && isConversationalIntent(intent) {
-			respPreview := intent.Response
-			if len(respPreview) > 120 {
-				respPreview = respPreview[:120] + "..."
-			}
-			logging.Routing("[processInput] ACT: direct conversational response | verb=%s responseLen=%d | preview=%q | OODA total=%dms (no articulation needed)",
-				intent.Verb, len(intent.Response), respPreview, time.Since(oodaStart).Milliseconds())
-			// Glass Box: Emit direct response path
-			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
-					Timestamp: time.Now(),
-					Category:  transparency.CategoryControl,
-					Summary:   fmt.Sprintf("Direct response: %s (bypassing articulation)", intent.Verb),
-					Details:   "Conversational intent handled directly from perception without full articulation pass",
-					TurnID:    m.turnCount,
-				})
-			}
-			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 		}
 
 		// 1.8 AUTOPOIESIS CHECK: Analyze for complexity, persistence, and tool needs

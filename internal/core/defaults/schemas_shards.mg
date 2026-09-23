@@ -93,6 +93,22 @@ Decl conversational_verb(Verb) bound [/name].
 # the request is phrased as a question ("can you review my code?").
 Decl workhorse_verb(Verb) bound [/name].
 
+# The early lanes (routing_arbitration.mg): perception already answered, or a
+# hypothetical to consult on. Both exclude every later lane.
+Decl perception_answer_verb(Verb) bound [/name].
+Decl perception_answer_target(Verb, Target) bound [/name, /string].
+Decl perception_answer_lane() bound [].
+Decl dream_lane() bound [].
+Decl early_lane() bound [].
+
+# The clarify lane: needs_clarification says why a turn must ask first
+# (uncertain, untargeted, or a question the kernel already has); clarify_lane
+# applies the precedence and the loop guard, and the delegate lane yields to it.
+Decl clarify_lane() bound [].
+Decl needs_clarification() bound [].
+Decl acts_on_target(Verb) bound [/name].
+Decl target_names_nothing(Target) bound [/string].
+
 # spawn_subagent(Persona) - derived: subagent should be spawned
 # Persona is the closed persona vocabulary shared with persona/1
 # (/researcher, /tester, /nemesis) - see policy/intent_routing_rules.mg.

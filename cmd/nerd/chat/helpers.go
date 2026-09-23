@@ -391,56 +391,6 @@ func (m Model) loadType3Agents() []nerdinit.CreatedAgent {
 	return registry.Agents
 }
 
-// isConversationalIntent returns true if the intent is conversational (greetings,
-// help requests, general questions, stats) rather than requiring code actions or shard work.
-// These intents can use the perception response directly without articulation.
-func isConversationalIntent(intent perception.Intent) bool {
-	// Verbs that are ALWAYS conversational and don't require shard execution
-	alwaysConversational := map[string]bool{
-		"/greet":     true, // Greetings: hello, hi, hey
-		"/converse":  true, // Casual chat: mapped from action_type "chat"
-		"/help":      true, // Capability questions: what can you do?
-		"/knowledge": true, // Memory queries: what do you remember?
-		"/shadow":    true, // What-if queries: what would happen if?
-		"/dream":     true, // Dream mode queries: hypothetical scenarios
-		"/configure": true, // Configuration instructions: preferences, settings
-	}
-
-	// If it's an always-conversational verb, return true immediately
-	if alwaysConversational[intent.Verb] {
-		return true
-	}
-
-	// Verbs that are conditionally conversational based on target
-	conditionalVerbs := map[string]bool{
-		"/read":    true, // Simple file reads (when target is "none" or empty)
-		"/explain": true, // Meta-questions about the agent itself are conversational
-	}
-
-	// Check if it's a conditional verb
-	if !conditionalVerbs[intent.Verb] {
-		return false
-	}
-
-	// For /read with no specific target, it's conversational
-	if intent.Verb == "/read" {
-		target := strings.ToLower(intent.Target)
-		if target == "" || target == "none" {
-			return true
-		}
-	}
-
-	// For /explain: meta-questions about the agent itself are conversational.
-	// Codebase explanations (target = specific file/symbol) need articulation
-	// so the LLM can emit knowledge_requests for unknown topics.
-	if intent.Verb == "/explain" {
-		target := strings.ToLower(intent.Target)
-		return target == "capabilities" || target == "session"
-	}
-
-	return false
-}
-
 // =============================================================================
 // VERIFICATION HELPERS
 // =============================================================================

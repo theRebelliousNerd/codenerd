@@ -5,7 +5,7 @@
 # an if/for/switch condition, or a bounding composite field. "textmatch": a
 # strings match over .Description, .Error(), .Response or .Text.
 
-literal cmd/nerd/chat 192
+literal cmd/nerd/chat 191
 literal internal/campaign 146
 literal internal/session 62
 literal internal/verification 1

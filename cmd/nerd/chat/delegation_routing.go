@@ -27,10 +27,16 @@ const (
 	// Go copies of the delegation and multi-step gates instead, which answered
 	// in place of the kernel's "no" (sweep finding F12).
 	RouteNone RouteKind = iota
+	// RoutePerceptionAnswer returns perception's own reply: the turn needs
+	// nothing the workspace holds and has no shard to hand to.
+	RoutePerceptionAnswer
+	// RouteDream consults the shards on a hypothetical and executes nothing.
+	RouteDream
 	// RouteRespondDirectly terminates the turn in prose: no clarifier shards,
 	// no decomposition, no delegation, no autopoiesis analysis.
 	RouteRespondDirectly
-	// RouteClarify asks the user before acting (low-confidence mutation).
+	// RouteClarify asks the user before acting: an uncertain or untargeted
+	// request, or one the kernel already has a question for.
 	RouteClarify
 	// RouteMultiStep decomposes the request into sequential subtasks.
 	RouteMultiStep
@@ -41,6 +47,10 @@ const (
 // String renders the lane for logs and Glass Box events.
 func (k RouteKind) String() string {
 	switch k {
+	case RoutePerceptionAnswer:
+		return "perception_answer"
+	case RouteDream:
+		return "dream"
 	case RouteRespondDirectly:
 		return "respond_directly"
 	case RouteClarify:
@@ -122,6 +132,9 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	if trimmed := strings.TrimSpace(input); trimmed != "" && strings.EqualFold(trimmed, strings.TrimSpace(m.lastClarifyInput)) {
 		signals = append(signals, "/clarified_already")
 	}
+	if strings.TrimSpace(intent.Response) != "" {
+		signals = append(signals, "/has_surface_response")
+	}
 	for _, sig := range signals {
 		if err := m.kernel.Assert(core.Fact{
 			Predicate: "intent_signal",
@@ -163,6 +176,10 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	}
 	var decision RouteDecision
 	switch route := types.ExtractString(f.Args[0]); route {
+	case "/perception_answer":
+		decision = RouteDecision{Kind: RoutePerceptionAnswer}
+	case "/dream":
+		decision = RouteDecision{Kind: RouteDream}
 	case "/respond_directly":
 		decision = RouteDecision{Kind: RouteRespondDirectly}
 	case "/multi_step":

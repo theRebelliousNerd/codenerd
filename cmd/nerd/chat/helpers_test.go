@@ -204,53 +204,6 @@ func TestBuildFileTopologyFact(t *testing.T) {
 	}
 }
 
-func TestIsConversationalIntent(t *testing.T) {
-	tests := []struct {
-		name   string
-		intent perception.Intent
-		want   bool
-	}{
-		{
-			name:   "always conversational",
-			intent: perception.Intent{Verb: "/greet"},
-			want:   true,
-		},
-		{
-			name:   "read with empty target",
-			intent: perception.Intent{Verb: "/read", Target: ""},
-			want:   true,
-		},
-		{
-			name:   "read with none target",
-			intent: perception.Intent{Verb: "/read", Target: "none"},
-			want:   true,
-		},
-		{
-			name:   "read with file target",
-			intent: perception.Intent{Verb: "/read", Target: "main.go"},
-			want:   false,
-		},
-		{
-			name:   "non conversational verb",
-			intent: perception.Intent{Verb: "/review"},
-			want:   false,
-		},
-		{
-			name:   "explain stays routed",
-			intent: perception.Intent{Verb: "/explain"},
-			want:   false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isConversationalIntent(tt.intent); got != tt.want {
-				t.Fatalf("isConversationalIntent = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 // ============================================================================
 // model_helpers.go tests - isAffirmativeResponse, isNegativeResponse, etc.
 // ============================================================================

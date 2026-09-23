@@ -19,40 +19,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// shouldAutoClarify heuristically decides when to trigger the clarifier shard without a command.
-func (m Model) shouldAutoClarify(intent *perception.Intent, input string) bool {
-	// Avoid loops on the same input
-	if strings.TrimSpace(input) != "" && strings.EqualFold(strings.TrimSpace(input), strings.TrimSpace(m.lastClarifyInput)) {
-		return false
-	}
-
-	lower := strings.ToLower(input)
-
-	looksLikeCampaign := strings.Contains(lower, "campaign") ||
-		strings.Contains(lower, "plan") ||
-		strings.Contains(lower, "roadmap") ||
-		strings.Contains(lower, "project") ||
-		strings.Contains(lower, "initiative") ||
-		strings.Contains(lower, "blueprint") ||
-		strings.Contains(lower, "feature")
-
-	needsDetails := intent != nil && (intent.Target == "" || intent.Constraint == "" || intent.Verb == "/generate" || intent.Verb == "/scaffold")
-
-	isBuildish := intent != nil && (intent.Category == "/mutation" || intent.Category == "/instruction")
-
-	return isBuildish && (looksLikeCampaign || needsDetails)
-}
-
-func (m Model) shouldClarifyFromKernel(intent *perception.Intent, input string) (string, []string, bool) {
-	if m.kernel == nil || intent == nil {
-		return "", nil, false
-	}
-
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" || strings.HasPrefix(trimmed, "/") {
-		return "", nil, false
-	}
-	if strings.EqualFold(trimmed, strings.TrimSpace(m.lastClarifyInput)) {
+// kernelClarification reads the question and options the kernel derived for
+// the current intent (clarification.mg), for a turn whose route is /clarify.
+// It decides nothing: whether to ask is the lane's.
+func (m Model) kernelClarification() (string, []string, bool) {
+	if m.kernel == nil {
 		return "", nil, false
 	}
 
@@ -114,52 +85,6 @@ func (m Model) shouldClarifyFromKernel(intent *perception.Intent, input string) 
 	}
 
 	return question, options, true
-}
-
-func (m Model) shouldClarifyIntent(intent *perception.Intent, input string) bool {
-	if intent == nil {
-		return false
-	}
-
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" || strings.HasPrefix(trimmed, "/") {
-		return false
-	}
-
-	lower := strings.ToLower(trimmed)
-	if strings.Contains(lower, "clarification:") {
-		return false
-	}
-
-	if strings.EqualFold(trimmed, strings.TrimSpace(m.lastClarifyInput)) {
-		return false
-	}
-
-	if isConversationalIntent(*intent) {
-		return false
-	}
-
-	shardType := perception.GetShardTypeForVerb(intent.Verb)
-	actionable := shardType != "" || intent.Verb == "/read" || intent.Verb == "/search" || intent.Verb == "/run" || intent.Verb == "/test" || intent.Verb == "/diff" || intent.Verb == "/git" || intent.Verb == "/build" || intent.Verb == "/fix" || intent.Verb == "/refactor" || intent.Verb == "/review" || intent.Verb == "/generate" || intent.Verb == "/create"
-
-	if !actionable {
-		return false
-	}
-
-	// NOTE: intent.Ambiguity is NOT checked here because the Understanding adapter
-	// always populates it with debug metadata (semantic_type, action_type, domain).
-	// The real ambiguity signal is the confidence score below.
-
-	if intent.Confidence < 0.45 {
-		return true
-	}
-
-	target := strings.TrimSpace(intent.Target)
-	if target == "" || target == "none" {
-		return true
-	}
-
-	return false
 }
 
 func (m Model) needsWorkspaceScanForDelegation(intent perception.Intent) bool {
