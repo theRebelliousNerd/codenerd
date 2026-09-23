@@ -1937,9 +1937,9 @@ func startOnDemandWatcher(bctx *bootContext) func() {
 
 // registerUserAgentConfigAtoms gives every user-defined agent in
 // .nerd/agents.json a config atom under both verb shapes the executor can see:
-// "/<name>" (from `nerd spawn <name>` / Cortex.SpawnTask, lower-cased by
-// normalizeTaskIntentVerb) and "/consult/<name>" (chat delegation and
-// SpawnConsultation).
+// "/<name>" (any bare agent name, lower-cased by the task executor's
+// intentFor) and "/consult/<name>" (SpawnConsultation and campaign
+// specialists).
 //
 // Without this, ConfigFactory.Generate found no atom for a custom agent, logged
 // a warning, and fell back to /general — a read-only tool set. A specialist

@@ -54,10 +54,9 @@ func (r TaskRequest) TaskText() string {
 // Two shapes reach the executor for a user agent defined in
 // .nerd/agents/<name>/prompts.yaml:
 //
-//	/consult/<name>  chat delegation (cmd/nerd/chat/delegation_routing.go
-//	                 personaToIntent) and JITExecutor.SpawnConsultation
-//	/<name>          `nerd spawn <name>` and Cortex.SpawnTask, via
-//	                 normalizeTaskIntentVerb's bare-identifier branch
+//	/consult/<name>  JITExecutor.SpawnConsultation and campaign specialists
+//	/<name>          any bare name that is not a persona (chat delegation,
+//	                 `nerd spawn <name>`, Cortex.SpawnTask), via intentFor
 //
 // The returned name is lower-cased; the JIT compiler's shard-DB registry is
 // keyed case-insensitively (internal/prompt/compiler_db.go shardDBKey) so it
@@ -126,57 +125,93 @@ type TaskResult struct {
 	Completed bool
 }
 
-// normalizeTaskIntentVerb maps CLI/shard-type names onto canonical intent verbs.
-// Accepts already-canonical forms ("/fix", "/review") unchanged.
-func normalizeTaskIntentVerb(verb string) (string, error) {
+// imageGeneratorNames fail closed: image generation must use the Cortex
+// ShardManager's image client (Nano Banana 2, gemini-3.1-flash-image). Run
+// here it would land on the worker client via the JIT executor -- the
+// dual-LLM mis-route FM15 forbids.
+var imageGeneratorNames = map[string]bool{
+	"image_generator": true, "image-generator": true, "imagegenerator": true,
+	"imagen": true, "image": true, "nano_banana": true, "nanobanana": true,
+}
+
+// intentFor is the intent verb a request runs, and the one place a persona
+// becomes a verb (sweep finding F6). Chat, the delegation verifier and this
+// executor each kept a persona table and they disagreed (nemesis ran /attack
+// from chat and /review from here); now every caller passes what it has and
+// this asks the kernel's persona_verb table (policy/delegation.mg).
+//
+//   - "/consult/<name>" and a verb the taxonomy knows ("/fix") are unchanged.
+//   - A persona, bare or slashed ("coder", "/coder" from a delegate_task
+//     fact), becomes its persona_verb verb.
+//   - Any other slashed single name is unchanged; any other bare name is a
+//     user agent, "/<name>".
+func (j *JITExecutor) intentFor(verb string) (string, error) {
 	verb = strings.TrimSpace(verb)
 	if verb == "" {
 		return "", fmt.Errorf("invalid intent verb: empty")
 	}
-	// Domain shard types used by `nerd spawn <type>` and Cortex.SpawnTask.
-	// The leading slash is stripped before the switch: policy delegate_task
-	// facts carry slashed atoms (/coder, /tester), and passing them through
-	// verbatim miscategorized every delegated fix as /query (observed live:
-	// intent=/coder ran the query-shaped path and analyzed instead of
-	// editing). Canonical verbs and /consult/... match no case below and
-	// return unchanged via the slashed branch.
-	candidate := strings.TrimPrefix(verb, "/")
-	switch strings.ToLower(candidate) {
-	case "coder":
-		return "/fix", nil
-	case "tester":
-		return "/test", nil
-	case "reviewer":
-		return "/review", nil
-	case "researcher":
-		return "/research", nil
-	case "generalist":
-		return "/implement", nil
-	case "specialist":
-		return "/research", nil
-	case "tool_generator", "tool-generator", "toolgenerator":
-		return "/generate_tool", nil
-	case "nemesis":
-		return "/review", nil
-	case "image_generator", "image-generator", "imagegenerator", "imagen", "image", "nano_banana", "nanobanana":
-		// Fail closed: image gen must use Cortex/ShardManager Nano Banana 2
-		// (Gemini image client). Mapping to /create would run on the worker
-		// Ollama client via JITExecutor — the dual-LLM mis-route FM15 forbids.
-		return "", fmt.Errorf("image_generator requires ShardManager image LLM (Nano Banana 2 / gemini-3.1-flash-image), not TaskExecutor worker path")
-	default:
-		if strings.HasPrefix(verb, "/") {
-			// Canonical verb or /consult/...: unchanged. (Slashed image
-			// names do NOT reach here — they match the fail-closed case
-			// above, closing the old bypass where "/image" slipped past
-			// the guard that bare "image" hit.)
+	if strings.HasPrefix(verb, "/consult/") {
+		return verb, nil
+	}
+	name := strings.ToLower(strings.TrimPrefix(verb, "/"))
+	if imageGeneratorNames[name] {
+		return "", fmt.Errorf("%s requires ShardManager image LLM (Nano Banana 2 / gemini-3.1-flash-image), not TaskExecutor worker path", verb)
+	}
+	slashed := strings.HasPrefix(verb, "/")
+	if slashed && perception.GetShardTypeForVerb(verb) != "" {
+		return verb, nil
+	}
+	if strings.ContainsAny(name, " \t\n/") {
+		if slashed {
 			return verb, nil
 		}
-		// Bare identifier: treat as /identifier (e.g. user agents).
-		if strings.ContainsAny(verb, " \t\n/") {
-			return "", fmt.Errorf("invalid intent verb '%s', must start with '/' or be a known shard type", verb)
-		}
-		return "/" + strings.ToLower(verb), nil
+		return "", fmt.Errorf("invalid intent verb '%s', must start with '/' or be a persona or agent name", verb)
 	}
+	mapped, err := j.personaVerb(name)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case mapped != "":
+		return mapped, nil
+	case slashed:
+		return verb, nil
+	default:
+		return "/" + name, nil
+	}
+}
+
+// personaVerb is persona_verb's verb for name, or "" when name is no persona.
+func (j *JITExecutor) personaVerb(name string) (string, error) {
+	if name == "" {
+		return "", nil
+	}
+	k := j.kernel()
+	if k == nil {
+		return "", fmt.Errorf("no kernel to map %q to a verb", name)
+	}
+	rows, err := k.Query("persona_verb")
+	if err != nil {
+		return "", fmt.Errorf("query persona_verb: %w", err)
+	}
+	if len(rows) == 0 {
+		return "", fmt.Errorf("the kernel holds no persona_verb table (policy/delegation.mg); %q cannot be mapped", name)
+	}
+	for _, f := range rows {
+		if len(f.Args) == 2 && strings.TrimPrefix(types.ExtractString(f.Args[0]), "/") == name {
+			return types.ExtractString(f.Args[1]), nil
+		}
+	}
+	return "", nil
+}
+
+// kernel is the session executor's kernel, which holds the persona and
+// isolation tables.
+func (j *JITExecutor) kernel() types.Kernel {
+	if j.executor == nil {
+		return nil
+	}
+	return j.executor.kernel
 }
 
 // presetIntentForTask builds the pre-classified intent for a delegated task.
@@ -282,7 +317,7 @@ func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sess
 	// often pass bare shard names ("tester", "reviewer") rather than Mangle verbs
 	// ("/test", "/review"). Only "coder" was special-cased before — other domain
 	// shards hard-failed with "must start with '/'".
-	normalized, nerr := normalizeTaskIntentVerb(req.IntentVerb)
+	normalized, nerr := j.intentFor(req.IntentVerb)
 	if nerr != nil {
 		return observation.Return{}, nerr
 	}
@@ -313,8 +348,12 @@ func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sess
 		return j.executeWithSubagent(ctx, req, sessionCtx)
 	}
 
-	// Determine if we need a subagent or can use inline execution
-	if j.needsSubagent(req.IntentVerb) {
+	// Whether the verb runs isolated is the kernel's (verb_isolated).
+	isolated, err := j.runsIsolated(req.IntentVerb)
+	if err != nil {
+		return observation.Return{}, err
+	}
+	if isolated {
 		return j.executeWithSubagent(ctx, req, sessionCtx)
 	}
 
@@ -348,7 +387,7 @@ func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sess
 		preset.Constraint = strings.TrimSpace(req.Constraint)
 	}
 	result, err := exec.ProcessWithIntent(ctx, inlineTask, preset)
-	observed := withTurnWrites(observedReturn(j.intentToAgentName(req.IntentVerb), inlineTask, result), exec.workspaceForVerification(), result)
+	observed := withTurnWrites(observedReturn(agentName(req.IntentVerb), inlineTask, result), exec.workspaceForVerification(), result)
 	if err != nil {
 		// Still surface any partial response text for diagnostics, but never
 		// treat hollow/tool failure as success for CLI one-shots.
@@ -395,7 +434,7 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest,
 	// policy derives a stall, never on a clock of the harness's own (the
 	// 30-minute shard ceiling was removed 2026-09-19).
 	spawnReq := SpawnRequest{
-		Name:           j.intentToAgentName(req.IntentVerb),
+		Name:           agentName(req.IntentVerb),
 		Task:           req.TaskText(),
 		Type:           SubAgentTypeEphemeral,
 		IntentVerb:     req.IntentVerb,
@@ -557,18 +596,23 @@ func (j *JITExecutor) waitObserved(ctx context.Context, taskID string) (observat
 	}
 }
 
-// needsSubagent determines if a task requires a separate subagent.
-// Complex tasks, long-running operations, and certain intents benefit from isolation.
-func (j *JITExecutor) needsSubagent(intent string) bool {
-	// Intents that typically benefit from subagent isolation
-	complexIntents := map[string]bool{
-		"/research":  true, // Research can be long-running
-		"/implement": true, // Implementation may need multiple turns
-		"/refactor":  true, // Refactoring is complex
-		"/campaign":  true, // Campaigns always need isolation
+// runsIsolated reports whether the kernel runs verb as an isolated subagent
+// (verb_isolated, policy/delegation.mg).
+func (j *JITExecutor) runsIsolated(verb string) (bool, error) {
+	k := j.kernel()
+	if k == nil {
+		return false, fmt.Errorf("no kernel to ask whether %s runs isolated", verb)
 	}
-
-	return complexIntents[intent]
+	rows, err := k.Query("verb_isolated")
+	if err != nil {
+		return false, fmt.Errorf("query verb_isolated: %w", err)
+	}
+	for _, f := range rows {
+		if len(f.Args) == 1 && types.ExtractString(f.Args[0]) == verb {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // executeWithSubagent spawns a subagent and waits for the result.
@@ -581,27 +625,17 @@ func (j *JITExecutor) executeWithSubagent(ctx context.Context, req TaskRequest, 
 	return j.waitObserved(ctx, taskID)
 }
 
-// intentToAgentName maps intent verbs to agent names for logging and identification.
-func (j *JITExecutor) intentToAgentName(intent string) string {
-	switch intent {
-	case "/fix", "/implement", "/refactor", "/create":
-		return "coder"
-	case "/test", "/cover", "/verify":
-		return "tester"
-	case "/review", "/audit", "/check":
-		return "reviewer"
-	case "/research", "/learn", "/document":
-		return "researcher"
-	case "/attack":
-		return "nemesis"
-	case "/legislate":
-		return "legislator"
-	case "/plan":
-		return "planner"
-	}
-	// /consult/<persona> → <persona>
-	if after, ok := strings.CutPrefix(intent, "/consult/"); ok {
+// agentName labels a request's subagent and its return: the persona the
+// taxonomy maps the verb to (verb_def), the agent's name for
+// "/consult/<name>", and "executor" otherwise. It replaced two Go tables
+// (JITExecutor.intentToAgentName, Spawner.determineAgentName) that disagreed
+// with the taxonomy and with each other (sweep finding F6).
+func agentName(verb string) string {
+	if after, ok := strings.CutPrefix(verb, "/consult/"); ok {
 		return after
+	}
+	if shard := strings.TrimPrefix(perception.GetShardTypeForVerb(verb), "/"); shard != "" && shard != "none" {
+		return shard
 	}
 	return "executor"
 }

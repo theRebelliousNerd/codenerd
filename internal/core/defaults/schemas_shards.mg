@@ -57,6 +57,12 @@ Decl wants_direct_answer() bound [].
 # asks delegation_move. Retracted when the delegation ends.
 # -----------------------------------------------------------------------------
 
+# persona_verb(Persona, Verb) - the verb a persona's turn runs: the one persona
+# table (policy/delegation.mg).
+Decl persona_verb(Persona, Verb) bound [/name, /name].
+# verb_isolated(Verb) - a verb whose turn runs as an isolated subagent.
+Decl verb_isolated(Verb) bound [/name].
+
 # delegation_request(Root, Persona, Cap) - the persona and its attempt cap
 # (shard_profiles.<persona>.max_retries).
 Decl delegation_request(Root, Persona, Cap) bound [/string, /name, /number].

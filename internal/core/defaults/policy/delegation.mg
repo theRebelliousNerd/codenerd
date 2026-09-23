@@ -396,6 +396,35 @@ delegation_move(Root, A, /escalate) :-
     delegation_request(Root, Persona, Cap),
     N >= Cap.
 
+# ONE PERSONA -> VERB TABLE (sweep finding F6). A persona name ("coder", or
+# "/coder" from a delegate_task fact) becomes the verb its turn runs, and the
+# verb decides the turn's atoms, tools and owed gates. Chat, the delegation
+# verifier and the task executor each kept their own copy and they disagreed:
+# nemesis ran /attack from chat and /review through the executor, and
+# generalist, specialist and tool_generator existed in one copy only. The task
+# executor, which every delegation passes through, is the one reader
+# (internal/session/task_executor.go intentFor).
+persona_verb(/coder, /fix).
+persona_verb(/tester, /test).
+persona_verb(/reviewer, /review).
+persona_verb(/researcher, /research).
+persona_verb(/nemesis, /attack).
+persona_verb(/librarian, /learn).
+persona_verb(/planner, /plan).
+persona_verb(/legislator, /legislate).
+persona_verb(/constitution, /audit).
+persona_verb(/generalist, /implement).
+persona_verb(/specialist, /research).
+persona_verb(/tool_generator, /generate_tool).
+
+# Verbs whose turn runs as an isolated subagent rather than inline on a clone
+# of the session executor: long or multi-turn work. Read by the task executor
+# (was a Go map, needsSubagent).
+verb_isolated(/research).
+verb_isolated(/implement).
+verb_isolated(/refactor).
+verb_isolated(/campaign).
+
 # Step 5: MULTI-STEP CLASSIFICATION (decision moves to policy; extraction stays
 # in Go). Go's detectMultiStepTask computes the individual signals from the
 # (quote-stripped) input — campaign verb, multi-step keyword match, verb-count

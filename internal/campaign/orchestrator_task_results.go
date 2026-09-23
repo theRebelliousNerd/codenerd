@@ -331,20 +331,3 @@ func (o *Orchestrator) writeSetBriefing(task *Task) string {
 	b.WriteString("\nThis task modifies existing files. Creating a new file does not satisfy it: the change must land in one of the files above, and a new helper file that nothing calls is not a change. Add tests next to the code you changed.")
 	return b.String()
 }
-
-// inferShardFromTaskType maps a TaskType to its default shard for backward compatibility.
-// Tasks with explicit Shard fields bypass this inference.
-func inferShardFromTaskType(taskType TaskType) string {
-	switch taskType {
-	case TaskTypeFileCreate, TaskTypeFileModify, TaskTypeRefactor, TaskTypeDocument, TaskTypeIntegrate:
-		return "coder"
-	case TaskTypeTestWrite, TaskTypeTestRun:
-		return "tester"
-	case TaskTypeResearch:
-		return "researcher"
-	case TaskTypeVerify:
-		return "reviewer"
-	default:
-		return "coder" // Default to coder for unknown types
-	}
-}

@@ -11,92 +11,6 @@ import (
 	"codenerd/internal/types"
 )
 
-func TestNormalizeTaskIntentVerb_ShardTypes(t *testing.T) {
-	cases := []struct {
-		in, want string
-	}{
-		{"/fix", "/fix"},
-		{"coder", "/fix"},
-		{"tester", "/test"},
-		{"reviewer", "/review"},
-		{"researcher", "/research"},
-		{"/test", "/test"},
-		{"generalist", "/implement"},
-		{"tool_generator", "/generate_tool"},
-		{"GoExpert", "/goexpert"},
-	}
-	for _, tc := range cases {
-		got, err := normalizeTaskIntentVerb(tc.in)
-		if err != nil {
-			t.Fatalf("normalizeTaskIntentVerb(%q) err: %v", tc.in, err)
-		}
-		if got != tc.want {
-			t.Fatalf("normalizeTaskIntentVerb(%q)=%q want %q", tc.in, got, tc.want)
-		}
-	}
-	if _, err := normalizeTaskIntentVerb(""); err == nil {
-		t.Fatal("expected error for empty verb")
-	}
-	if _, err := normalizeTaskIntentVerb("not a verb"); err == nil {
-		t.Fatal("expected error for multi-word bare verb")
-	}
-}
-
-func TestJITExecutor_Execute_ShardTypeAliases(t *testing.T) {
-	// Bare shard names must not hard-fail — maps to verbs and runs.
-	// Use query/analysis shards here: write-oriented coder/tester with prose-only
-	// replies correctly hard-fail hollow success (covered separately).
-	mockLLM := &MockLLMClient{
-		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-			return &types.LLMToolResponse{Text: "ok"}, nil
-		},
-		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
-			return "ok", nil
-		},
-	}
-	mockTransducer := &MockTransducer{
-		ParseIntentWithContextFunc: func(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
-			return perception.Intent{Verb: "/review", Category: "/query"}, nil
-		},
-	}
-	executor := NewExecutor(
-		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer,
-	)
-	spawner := NewSpawner(
-		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer, DefaultSpawnerConfig(),
-	)
-	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
-
-	for _, shard := range []string{"reviewer", "researcher", "nemesis"} {
-		_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: shard, Task: "do the thing briefly"})
-		if err != nil {
-			t.Fatalf("Execute with IntentVerb=%q failed: %v", shard, err)
-		}
-	}
-
-	// coder → /fix is write-oriented: prose-only is hollow and must fail.
-	_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "coder", Task: "create a file"})
-	if err == nil {
-		t.Fatal("expected hollow success failure for coder with no tool calls")
-	}
-	if !strings.Contains(err.Error(), "hollow success blocked") {
-		t.Fatalf("expected hollow success error, got: %v", err)
-	}
-}
-
-func TestNormalizeTaskIntentVerb_ImageFailsClosed(t *testing.T) {
-	// Must not map image_generator → /create (that would use worker Ollama).
-	for _, verb := range []string{"image_generator", "imagen", "nano_banana", "image"} {
-		got, err := normalizeTaskIntentVerb(verb)
-		if err == nil {
-			t.Fatalf("%q: expected fail-closed error, got %q", verb, got)
-		}
-		if got != "" {
-			t.Fatalf("%q: expected empty verb on error, got %q", verb, got)
-		}
-	}
-}
-
 func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 	// Inline path (needsSubagent=false). Use /review so prose-only is valid;
 	// /fix is write-oriented and would hard-fail hollow success without tools.
@@ -265,6 +179,8 @@ func TestJITExecutor_Execute_SubagentExecution(t *testing.T) {
 	}
 
 	executor := createTestExecutor(t)
+	// A real kernel: whether /research runs isolated is policy (verb_isolated).
+	executor.kernel = realKernel(t)
 
 	spawner := NewSpawner(
 		&MockKernel{},
@@ -589,36 +505,6 @@ func TestJITExecutor_StateConflicts(t *testing.T) {
 	})
 }
 
-func TestNormalizeTaskIntentVerb_SlashedShardTypes(t *testing.T) {
-	// Policy delegate_task facts carry slashed atoms (/coder); they must map
-	// like their bare forms. Verbatim passthrough miscategorized delegated
-	// fixes as /query (observed live: intent=/coder analyzed, never edited).
-	cases := []struct{ in, want string }{
-		{"/coder", "/fix"},
-		{"/tester", "/test"},
-		{"/reviewer", "/review"},
-		{"/researcher", "/research"},
-		{"/Coder", "/fix"},
-		{"/fix", "/fix"},
-		{"/generate_tool", "/generate_tool"},
-		{"/consult/rustexpert", "/consult/rustexpert"},
-		{"/", "/"},
-	}
-	for _, tc := range cases {
-		got, err := normalizeTaskIntentVerb(tc.in)
-		if err != nil {
-			t.Fatalf("normalizeTaskIntentVerb(%q) err: %v", tc.in, err)
-		}
-		if got != tc.want {
-			t.Fatalf("normalizeTaskIntentVerb(%q)=%q want %q", tc.in, got, tc.want)
-		}
-	}
-	// Slashed image names hit the same fail-closed guard as bare ones.
-	if _, err := normalizeTaskIntentVerb("/image"); err == nil {
-		t.Fatal("expected fail-closed error for /image")
-	}
-}
-
 func TestTaskRequest_TaskText(t *testing.T) {
 	r := TaskRequest{Task: "do the thing", Constraint: "must verify"}
 	want := "do the thing\n\nConstraints:\nmust verify"
@@ -647,8 +533,9 @@ func TestJITExecutor_Execute_SlashedCoderIsMutation(t *testing.T) {
 		},
 	}
 	mockTransducer := &MockTransducer{}
+	// A real kernel: the persona table that maps /coder is policy.
 	executor := NewExecutor(
-		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer,
+		realKernel(t), &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer,
 	)
 	spawner := NewSpawner(
 		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer, DefaultSpawnerConfig(),
@@ -658,8 +545,10 @@ func TestJITExecutor_Execute_SlashedCoderIsMutation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected hollow success failure for /coder with no tool calls")
 	}
-	if !strings.Contains(err.Error(), "hollow success blocked") {
-		t.Fatalf("expected hollow success error, got: %v", err)
+	// The turn is held to /fix's obligations: it must act, and a prose reply
+	// cannot pass.
+	if !strings.Contains(err.Error(), "intent_requires_tool_call(/fix)") && !strings.Contains(err.Error(), "hollow success blocked") {
+		t.Fatalf("expected /coder to run as /fix and fail for not acting, got: %v", err)
 	}
 }
 

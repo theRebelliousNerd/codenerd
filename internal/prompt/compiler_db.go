@@ -206,7 +206,7 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 // its on-disk directory name (internal/system/factory.go: RegisterAgentDBWithJIT
 // with agent.ID from DiscoverAgentsOnDisk, e.g. "RustExpert"), but every verb
 // that reaches the compiler has been lower-cased on the way in — `nerd spawn
-// RustExpert` becomes "/rustexpert" in normalizeTaskIntentVerb
+// RustExpert` becomes "/rustexpert" in the task executor's intentFor
 // (internal/session/task_executor.go). A case-sensitive map turned that into a
 // silent miss: the agent's own prompt atoms were loaded, indexed, and never
 // selected. Normalizing both ends removes the whole class.

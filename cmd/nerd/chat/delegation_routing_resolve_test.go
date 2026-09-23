@@ -22,18 +22,6 @@ func TestResolveShardTypeForIntent_LLMSuggestedResearcher(t *testing.T) {
 	}
 }
 
-func TestResolveShardTypeForIntent_CodebaseHeuristic(t *testing.T) {
-	intent := perception.Intent{
-		Verb:       "/explain",
-		Target:     "the whole codebase architecture",
-		Confidence: 0.85,
-	}
-	got := resolveShardTypeForIntent(intent)
-	if got != "researcher" {
-		t.Fatalf("got %q want researcher", got)
-	}
-}
-
 func TestResolveShardTypeForIntent_VerbCorpusWins(t *testing.T) {
 	// /fix should still map to coder from corpus, not LLM noise.
 	intent := perception.Intent{

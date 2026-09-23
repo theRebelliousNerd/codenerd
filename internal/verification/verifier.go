@@ -120,16 +120,9 @@ func (v *TaskVerifier) SetKernel(k Kernel) {
 // whose output is context for the next attempt and whose verdict nothing
 // reads. It uses TaskExecutor when available, falling back to ShardManager.
 // A delegation's own attempts go through ExecuteObserved (VerifyWithRetry).
-//
-// A persona or specialist name is coerced to an intent verb, since the
-// executor rejects verbs that don't start with "/".
-//
-// Mapping rules (mirror chat/delegation.go's personaToIntent):
-//   - already a "/verb" → use as-is
-//   - known persona → canonical intent verb
-//   - everything else → /consult/<name> (consultation dispatch)
+// The persona or verb goes to the executor as it is: the executor maps a
+// persona to its verb (the kernel's persona_verb table).
 func (v *TaskVerifier) spawnTask(ctx context.Context, intent string, task string) (string, error) {
-	intent = normalizeIntentVerb(intent)
 
 	// Prefer TaskExecutor when available
 	if v.taskExecutor != nil {
@@ -146,42 +139,6 @@ func (v *TaskVerifier) spawnTask(ctx context.Context, intent string, task string
 	}
 
 	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
-}
-
-// normalizeIntentVerb coerces a shard name or persona into a valid intent
-// verb (one that starts with "/"). Mirrors cmd/nerd/chat.personaToIntent so
-// a delegation routes the same way as the chat delegation path. Kept in this
-// package to avoid an import cycle.
-func normalizeIntentVerb(intent string) string {
-	st := strings.TrimSpace(intent)
-	if st == "" {
-		return "/general"
-	}
-	if strings.HasPrefix(st, "/") {
-		return st
-	}
-	switch strings.ToLower(st) {
-	case "coder":
-		return "/fix"
-	case "tester":
-		return "/test"
-	case "reviewer":
-		return "/review"
-	case "researcher":
-		return "/research"
-	case "nemesis":
-		return "/attack"
-	case "librarian":
-		return "/learn"
-	case "planner":
-		return "/plan"
-	case "legislator":
-		return "/legislate"
-	case "constitution":
-		return "/audit"
-	default:
-		return "/consult/" + st
-	}
 }
 
 // NewTaskVerifier creates a new verifier with all dependencies.
@@ -264,7 +221,7 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 		return "", nil, fmt.Errorf("assert the delegation: %w", err)
 	}
 
-	intent := normalizeIntentVerb(d.Persona)
+	intent := strings.TrimSpace(d.Persona)
 	task := d.Task
 	for attempt := int64(1); ; attempt++ {
 		ret, err := observed.ExecuteObserved(ctx, session.TaskRequest{IntentVerb: intent, Task: task})

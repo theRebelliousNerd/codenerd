@@ -459,7 +459,7 @@ func (s *Spawner) SpawnForIntent(ctx context.Context, intent perception.Intent, 
 	agentType := s.determineAgentType(intent)
 
 	req := SpawnRequest{
-		Name:       s.determineAgentName(intent),
+		Name:       agentName(intent.Verb),
 		Task:       task,
 		Type:       agentType,
 		IntentVerb: intent.Verb,
@@ -720,22 +720,5 @@ func (s *Spawner) determineAgentType(intent perception.Intent) SubAgentType {
 		return SubAgentTypeSystem
 	default:
 		return SubAgentTypeEphemeral
-	}
-}
-
-// determineAgentName maps intents to subagent names.
-func (s *Spawner) determineAgentName(intent perception.Intent) string {
-	// Map common verbs to agent names
-	switch intent.Verb {
-	case "/fix", "/implement", "/refactor", "/create":
-		return "coder"
-	case "/test", "/cover", "/verify":
-		return "tester"
-	case "/review", "/audit", "/check":
-		return "reviewer"
-	case "/research", "/learn", "/document":
-		return "researcher"
-	default:
-		return "executor"
 	}
 }

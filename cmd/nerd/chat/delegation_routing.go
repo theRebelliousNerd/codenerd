@@ -211,66 +211,16 @@ func resolveShardTypeForIntent(intent perception.Intent) string {
 			}
 		}
 	}
-	// Whole-repo explain/teach → researcher even without explicit suggestion
-	if intent.Confidence >= 0.7 && (intent.Verb == "/explain" || intent.Verb == "/explore" || intent.Verb == "/search") {
-		t := strings.ToLower(intent.Target)
-		if strings.Contains(t, "codebase") || strings.Contains(t, "project") ||
-			strings.Contains(t, "architecture") || strings.Contains(t, "repository") ||
-			strings.Contains(t, "entire") || strings.Contains(t, "whole") {
-			return "researcher"
-		}
-	}
 	return ""
 }
 
-// shardTypeToTaskRequest maps a shard/persona name OR an intent verb into a
-// TaskRequest. The executor requires IntentVerb to start with "/", so persona
-// names get mapped to their canonical intent (and recorded as Persona for
-// downstream routing).
+// shardTypeToTaskRequest hands a persona or intent verb to the task executor
+// as it is: the executor's intentFor is the one place a persona becomes a
+// verb (the kernel's persona_verb table). Chat kept its own table
+// (personaToIntent) until 2026-09-23, and it disagreed with the executor's
+// (sweep finding F6).
 func shardTypeToTaskRequest(shardType, task string) session.TaskRequest {
-	st := strings.TrimSpace(shardType)
-	if strings.HasPrefix(st, "/") {
-		// Already an intent verb.
-		return session.TaskRequest{IntentVerb: st, Task: task}
-	}
-	// The intent verb carries the persona losslessly: built-ins map back through
-	// perception.GetShardTypeForVerb, custom specialists through
-	// "/consult/<name>" (session.UserAgentFromIntentVerb). TaskRequest used to
-	// also carry a Persona field, which nothing ever read.
-	intent := personaToIntent(st)
-	return session.TaskRequest{IntentVerb: intent, Task: task}
-}
-
-// personaToIntent maps a persona / agent name to its canonical intent verb.
-// Unknown personas fall back to /consult/<name> so the executor can dispatch
-// to a consultation flow rather than rejecting the request.
-func personaToIntent(persona string) string {
-	switch strings.ToLower(persona) {
-	case "coder":
-		return "/fix"
-	case "tester":
-		return "/test"
-	case "reviewer":
-		return "/review"
-	case "researcher":
-		return "/research"
-	case "nemesis":
-		return "/attack"
-	case "librarian":
-		return "/learn"
-	case "planner":
-		return "/plan"
-	case "legislator":
-		return "/legislate"
-	case "constitution":
-		return "/audit"
-	case "":
-		return "/general"
-	default:
-		// Custom specialist — route through a consultation intent so the
-		// executor and config factory can pick it up by name.
-		return "/consult/" + persona
-	}
+	return session.TaskRequest{IntentVerb: strings.TrimSpace(shardType), Task: task}
 }
 
 func (m *Model) withShardModelContext(ctx context.Context, shardType string) context.Context {
