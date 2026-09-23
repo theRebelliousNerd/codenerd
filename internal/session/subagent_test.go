@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -257,24 +259,53 @@ func TestSubAgent_CompressMemory_MassiveSummary(t *testing.T) {
 		agent.conversationHistory = append(agent.conversationHistory, perception.ConversationTurn{})
 	}
 
-	// Gap 3: Massive 5MB summary
+	// A 5MB "summary" of fifteen empty turns is not a compression: the turns
+	// stay, whole. Until 2026-09-23 the summary was cut at 4096 bytes and
+	// replaced them.
 	massiveSummary := strings.Repeat("A", 5*1024*1024)
 	agent.SetCompressor(&mockCompressor{summary: massiveSummary})
 
 	_ = agent.CompressMemory(context.Background(), 10)
 
-	// Summary should be truncated to 4096 + "..."
-	summaryTurn := agent.conversationHistory[0]
-	if len(summaryTurn.Content) > 5000 {
-		t.Errorf("Summary was not truncated! Length: %d", len(summaryTurn.Content))
+	if len(agent.conversationHistory) != 15 {
+		t.Fatalf("history = %d turns, want the 15 it had: a summary no shorter than what it summarizes replaces nothing", len(agent.conversationHistory))
 	}
+}
 
-	// Gap 4: Type Coercion. Role is "assistant".
-	if summaryTurn.Role != "assistant" {
-		t.Errorf("Expected role 'assistant', got '%s'", summaryTurn.Role)
+// A real compression replaces the older turns with one summary turn, kept
+// whole, and keeps the recent ones.
+func TestSubAgent_CompressMemory_ASummaryReplacesTheOlderTurnsWhole(t *testing.T) {
+	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	for i := range 15 {
+		agent.conversationHistory = append(agent.conversationHistory, perception.ConversationTurn{Role: "user", Content: strings.Repeat("x", 1000) + fmt.Sprint(i)})
 	}
-	if !strings.HasPrefix(summaryTurn.Content, "[MEMORY SUMMARY]") {
-		t.Errorf("Expected prefix '[MEMORY SUMMARY]', got '%s'", summaryTurn.Content[:min(20, len(summaryTurn.Content))])
+	summary := strings.Repeat("s", 6000) // longer than the old 4096 cut, shorter than the turns
+	agent.SetCompressor(&mockCompressor{summary: summary})
+
+	_ = agent.CompressMemory(context.Background(), 10)
+
+	if len(agent.conversationHistory) != 6 {
+		t.Fatalf("history = %d turns, want the summary and the 5 most recent", len(agent.conversationHistory))
+	}
+	first := agent.conversationHistory[0]
+	if first.Role != "assistant" || !strings.HasPrefix(first.Content, "[MEMORY SUMMARY]") || !strings.HasSuffix(first.Content, summary) {
+		t.Fatalf("summary turn = %s %.40q..., want the whole summary under [MEMORY SUMMARY]", first.Role, first.Content)
+	}
+}
+
+// A compressor that fails leaves the history whole. Until 2026-09-23 every
+// turn past the threshold was dropped, unrecorded.
+func TestSubAgent_CompressMemory_AFailedCompressionKeepsTheHistory(t *testing.T) {
+	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	for i := range 15 {
+		agent.conversationHistory = append(agent.conversationHistory, perception.ConversationTurn{Role: "user", Content: fmt.Sprint(i)})
+	}
+	agent.SetCompressor(&mockCompressor{err: errors.New("compressor unavailable")})
+
+	_ = agent.CompressMemory(context.Background(), 10)
+
+	if len(agent.conversationHistory) != 15 {
+		t.Fatalf("history = %d turns, want the 15 it had", len(agent.conversationHistory))
 	}
 }
 

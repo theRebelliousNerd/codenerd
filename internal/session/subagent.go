@@ -476,17 +476,24 @@ func (s *SubAgent) CompressMemory(ctx context.Context, threshold int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// A failed compression, and a "summary" no shorter than the turns it
+	// summarizes, leave the history as it is: nothing is lost, and the
+	// executor already bounds what a request replays of it
+	// (session.history_turn_window, history_char_budget). Until 2026-09-23 a
+	// failure dropped every turn past the threshold unrecorded, and a long
+	// summary was cut at 4096 bytes -- mid-rune, with no word of what went.
 	if err != nil {
-		logging.Get(logging.CategorySession).Warn("SubAgent %s memory compression failed: %v", s.config.Name, err)
-		// Fallback: simple trim to threshold
-		s.conversationHistory = s.conversationHistory[len(s.conversationHistory)-threshold:]
+		logging.Get(logging.CategorySession).Warn("SubAgent %s memory compression failed; history kept whole: %v", s.config.Name, err)
 		return nil
 	}
-
-	// Truncate massive hallucinated summaries
-	const maxSummaryLen = 4096
-	if len(summary) > maxSummaryLen {
-		summary = summary[:maxSummaryLen] + "..."
+	summarized := 0
+	for _, turn := range toCompress {
+		summarized += len(turn.Content)
+	}
+	if len(summary) >= summarized {
+		logging.Get(logging.CategorySession).Warn("SubAgent %s memory compression returned %d bytes for %d bytes of turns; history kept whole",
+			s.config.Name, len(summary), summarized)
+		return nil
 	}
 
 	// Create summary turn
