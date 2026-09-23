@@ -126,7 +126,17 @@ Decl task_inference(TaskID, InferredFrom, Confidence, Reasoning) bound [/string,
 # Outcome: /success, /failure, /partial
 Decl task_attempt(TaskID, AttemptNumber, Outcome, Timestamp) bound [/string, /number, /name, /number].
 
-# task_error(TaskID, ErrorType, ErrorMessage)
+# task_attempt_signal(TaskID, AttemptNumber, Signal) - a failed attempt's typed
+# failure signal (internal/campaign/failure_signals.go lists the vocabulary);
+# the task's next move is derived from them (policy/campaign_decisions.mg).
+Decl task_attempt_signal(TaskID, AttemptNumber, Signal) bound [/string, /number, /name].
+
+# task_replanned_at_cap(TaskID) - the failure-driven replanner already ran for
+# this task at its attempt cap (Task.ReplannedAtCap); it runs once per task.
+Decl task_replanned_at_cap(TaskID) bound [/string].
+
+# task_error(TaskID, ErrorType, ErrorMessage) - the task's last error, under
+# its last failed attempt's first signal (/unclassified when it had none).
 Decl task_error(TaskID, ErrorType, ErrorMessage) bound [/string, /name, /string].
 
 # -----------------------------------------------------------------------------

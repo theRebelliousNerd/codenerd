@@ -15,7 +15,7 @@ source_document/4 atom,string,atom,number
 task_artifact/4 atom,atom,string,string
 task_attempt/4 atom,number,atom,number
 task_dependency/2 atom,atom
-task_error/3 atom,string,string
+task_error/3 atom,atom,string
 task_inference/4 atom,atom,number,string
 task_order/2 atom,number
 task_priority/2 atom,atom

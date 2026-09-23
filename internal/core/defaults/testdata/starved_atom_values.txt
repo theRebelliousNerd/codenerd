@@ -8,7 +8,6 @@
 # Format: predicate<TAB>/atom
 atom_tag	/debug_only
 atom_tag	/dream_only
-coder_state	/build_failed
 coder_state	/build_passed
 coder_state	/context_ready
 coder_state	/edit_applied
@@ -36,9 +35,6 @@ reviewer_task	/style_check
 system_invariant	/goroutine_limit
 system_invariant	/http_500_rate
 system_invariant	/latency_limit_ms
-task_error	/domain_specific
-task_error	/too_complex
-task_error	/unknown_api
 task_failure_reason	/missing_capability
 test_scope	/full_suite
 test_state	/cause_found

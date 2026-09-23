@@ -241,6 +241,12 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"source_document",
 				"task_artifact",
 				"task_attempt",
+				// The typed signals of a failed attempt and the one-replan
+				// marker: task_next_move (policy/campaign_decisions.mg) joins
+				// them with task_attempt, so homed anywhere else the move never
+				// sees a signal on the production kernel.
+				"task_attempt_signal",
+				"task_replanned_at_cap",
 				"task_dependency",
 				"task_error",
 				"task_inference",

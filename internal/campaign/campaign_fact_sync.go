@@ -22,6 +22,8 @@ var taskFactPredicates = []string{
 	"task_artifact",
 	"task_inference",
 	"task_attempt",
+	"task_attempt_signal",
+	"task_replanned_at_cap",
 	"task_retry_at",
 	"task_error",
 	"task_write_target",

@@ -7,6 +7,8 @@
 #   verify_task_route(Task, /build | /review)  how a /verify task is judged
 #   checkpoint_verdict_outcome(Key, /pass | /fail | /inconclusive)
 #                                              what a reviewer's verdict decides
+#   task_next_move(Task, /retry | /retry_later | /repro_first | /fail | /replan)
+#                                              what a failed task does next
 #
 # Thresholds are config_param rows from the campaign section of
 # .nerd/config.json (policy/config_params.mg); each is declared required next
@@ -26,13 +28,17 @@
 # The phase's write class comes from its tasks' declared write sets
 # (task_write_ext, asserted with task_write_target) through write_class, the
 # same table that decides what a turn's writes owe.
+Decl task_writes_code(TaskID) bound [/string].
 Decl phase_writes_code(PhaseID) bound [/string].
 Decl verify_task_route(TaskID, Route) bound [/string, /name].
 
-phase_writes_code(PhaseID) :-
-    campaign_task(TaskID, PhaseID, Desc, Status, Type),
+task_writes_code(TaskID) :-
     task_write_ext(TaskID, Ext),
     write_class(Ext, /go).
+
+phase_writes_code(PhaseID) :-
+    campaign_task(TaskID, PhaseID, Desc, Status, Type),
+    task_writes_code(TaskID).
 
 verify_task_route(TaskID, /build) :-
     campaign_task(TaskID, PhaseID, Desc, Status, /verify),
@@ -103,3 +109,131 @@ campaign_blocked(CampaignID, /unverifiable_objective) :-
     current_campaign(CampaignID),
     campaign_phase(PhaseID, CampaignID, Name, Order, Status, Profile),
     phase_has_unknown_method(PhaseID).
+
+# =============================================================================
+# What a failed task does next
+# =============================================================================
+# Each failed attempt is recorded as task_attempt(Task, N, /failure, At) with a
+# task_attempt_signal(Task, N, Signal) row per typed signal (the vocabulary is
+# internal/campaign/failure_signals.go). The orchestrator records the attempt,
+# asks for task_next_move and does it; no derived move fails the task.
+#
+#   /fail         the task has had campaign.max_task_attempts failed attempts
+#   /replan       the same, the first time, when campaign.replan_at_attempt_cap:
+#                 the task fails and the replanner may drop or retype it
+#   /repro_first  a task that writes code has failed on a red suite
+#                 campaign.repro_after_failures times, the last one included:
+#                 a test run that reproduces the failure goes first
+#   /retry_later  the attempt ended because the broker refused or its context
+#                 ended; nothing about the task was wrong, and a retry can
+#                 only usefully arrive later (the full backoff)
+#   /retry        anything else (the shortened backoff)
+#
+# Until 2026-09-23 this was Go: a substring classifier over the error text
+# ("connection", "eof", "i/o" meant transient) picked the backoff, a repro task
+# was inserted after two "logic" failures of any mutating task -- a Markdown
+# task's failed review included -- or after twenty minutes of failing, and a
+# rule here called a task exhausted at attempt 3 while Go retried it to 4.
+Decl task_failed_attempt(TaskID, Attempt) bound [/string, /number].
+Decl campaign_task_failure_count(TaskID, Count) bound [/string, /number].
+Decl task_last_failed_attempt(TaskID, Attempt) bound [/string, /number].
+Decl task_exhausted(TaskID) bound [/string].
+Decl task_replan_due(TaskID) bound [/string].
+Decl red_suite_signal(Signal) bound [/name].
+Decl task_red_suite_attempt(TaskID, Attempt) bound [/string, /number].
+Decl task_red_suite_failures(TaskID, Count) bound [/string, /number].
+Decl task_last_failure_red(TaskID) bound [/string].
+Decl task_is_repro(TaskID) bound [/string].
+Decl task_owes_repro(TaskID) bound [/string].
+Decl retry_later_signal(Signal) bound [/name].
+Decl task_last_failure_waits(TaskID) bound [/string].
+Decl task_next_move(TaskID, Move) bound [/string, /name].
+
+config_param_required(/campaign, /campaign_max_task_attempts).
+config_param_required(/campaign, /campaign_replan_at_attempt_cap).
+config_param_required(/campaign, /campaign_repro_after_failures).
+
+task_failed_attempt(TaskID, N) :-
+    task_attempt(TaskID, N, /failure, At).
+
+campaign_task_failure_count(TaskID, Count) :-
+    task_failed_attempt(TaskID, N)
+    |> do fn:group_by(TaskID), let Count = fn:count().
+
+task_last_failed_attempt(TaskID, Last) :-
+    task_failed_attempt(TaskID, N)
+    |> do fn:group_by(TaskID), let Last = fn:max(N).
+
+task_exhausted(TaskID) :-
+    campaign_task_failure_count(TaskID, Count),
+    config_param(/campaign_max_task_attempts, Max),
+    Count >= Max.
+
+task_replan_due(TaskID) :-
+    task_exhausted(TaskID),
+    config_param(/campaign_replan_at_attempt_cap, 1),
+    !task_replanned_at_cap(TaskID).
+
+# A red suite: the turn's kernel verdict found tests or a test run not green,
+# or a campaign test run found the suite red.
+red_suite_signal(/tests_not_green).
+red_suite_signal(/test_run_not_green).
+red_suite_signal(/tests_red).
+
+task_red_suite_attempt(TaskID, N) :-
+    task_attempt_signal(TaskID, N, Signal),
+    red_suite_signal(Signal).
+
+task_red_suite_failures(TaskID, Count) :-
+    task_red_suite_attempt(TaskID, N)
+    |> do fn:group_by(TaskID), let Count = fn:count().
+
+task_last_failure_red(TaskID) :-
+    task_last_failed_attempt(TaskID, N),
+    task_red_suite_attempt(TaskID, N).
+
+# The repro task a /repro_first move inserts. It writes nothing, so it never
+# owes a repro of its own; this names it as well.
+task_is_repro(TaskID) :-
+    task_inference(TaskID, From, Confidence, "/logic_failure_repro_guard").
+
+task_owes_repro(TaskID) :-
+    task_writes_code(TaskID),
+    task_last_failure_red(TaskID),
+    task_red_suite_failures(TaskID, Count),
+    config_param(/campaign_repro_after_failures, Min),
+    Count >= Min,
+    !task_is_repro(TaskID).
+
+retry_later_signal(/refused).
+retry_later_signal(/deadline).
+retry_later_signal(/canceled).
+
+task_last_failure_waits(TaskID) :-
+    task_last_failed_attempt(TaskID, N),
+    task_attempt_signal(TaskID, N, Signal),
+    retry_later_signal(Signal).
+
+task_next_move(TaskID, /replan) :-
+    task_replan_due(TaskID).
+
+task_next_move(TaskID, /fail) :-
+    task_exhausted(TaskID),
+    !task_replan_due(TaskID).
+
+task_next_move(TaskID, /repro_first) :-
+    campaign_task_failure_count(TaskID, Count),
+    !task_exhausted(TaskID),
+    task_owes_repro(TaskID).
+
+task_next_move(TaskID, /retry_later) :-
+    campaign_task_failure_count(TaskID, Count),
+    !task_exhausted(TaskID),
+    !task_owes_repro(TaskID),
+    task_last_failure_waits(TaskID).
+
+task_next_move(TaskID, /retry) :-
+    campaign_task_failure_count(TaskID, Count),
+    !task_exhausted(TaskID),
+    !task_owes_repro(TaskID),
+    !task_last_failure_waits(TaskID).

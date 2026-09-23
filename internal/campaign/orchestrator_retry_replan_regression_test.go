@@ -21,33 +21,24 @@ import (
 // Contract: never invoke failure-driven Replanner while the failed task is still
 // retryable/pending; replan only after terminal failure.
 func TestHandleTaskFailure_RetryableDoesNotReplanNorDuplicate(t *testing.T) {
-	kernel := &MockKernel{}
+	orch, kernel := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 4 }, Task{
+		ID: "/task_mutate_1", Description: "Modify internal/foo/bar.go to add doc comment", Type: TaskTypeFileModify,
+	})
 	// Simulate the policy having derived replan_needed while the task is still retryable.
-	_ = kernel.Assert(core.Fact{Predicate: "replan_needed", Args: []any{"campaign_retry_guard", "/task_failure_cascade"}})
+	_ = kernel.Assert(core.Fact{Predicate: "replan_needed", Args: []any{"/campaign_failure_policy", "/task_failure_cascade"}})
 
 	var replanCalls atomic.Int32
-	orch, _, _ := newFailureTestOrchestrator(t, 3)
-	// Override kernel and replanner to observe replan invocation.
-	orch.kernel = kernel
 	orch.replanner = NewReplanner(kernel, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			replanCalls.Add(1)
 			// Would add a semantically duplicate file_modify if called.
-			return `{"success": true, "change_summary": "duplicate", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "phase_failure_lane", "description": "Modify source file", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
+			return `{"success": true, "change_summary": "duplicate", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/phase_failure_policy", "description": "Modify source file", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
 	}, "")
-	// Ensure campaign and kernel are consistent for the test phase ID.
-	orch.campaign.ID = "campaign_retry_guard"
-	phase := &orch.campaign.Phases[0]
-	task := &orch.campaign.Phases[0].Tasks[0]
-	// Ensure task is file_modify so the live duplicate scenario applies.
-	task.Type = TaskTypeFileModify
-	task.Description = "Modify internal/foo/bar.go to add doc comment"
-
-	beforeTasks := len(phase.Tasks)
+	beforeTasks := len(orch.campaign.Phases[0].Tasks)
 	beforeRevision := orch.campaign.RevisionNumber
 
-	orch.handleTaskFailure(context.Background(), phase, task, errors.New("compile failed: undefined symbol x"))
+	live := failTask(orch, "/task_mutate_1", errors.New("compile failed: undefined symbol x"))
 
 	if got := replanCalls.Load(); got != 0 {
 		t.Fatalf("retryable failure must not invoke Replanner, but Replan was called %d times", got)
@@ -56,54 +47,40 @@ func TestHandleTaskFailure_RetryableDoesNotReplanNorDuplicate(t *testing.T) {
 		t.Fatalf("retryable failure must not insert duplicate task: before=%d after=%d tasks=%v", beforeTasks, len(orch.campaign.Phases[0].Tasks), orch.campaign.Phases[0].Tasks)
 	}
 	// Original must remain retryable/pending with backoff, not terminally failed.
-	liveTask := &orch.campaign.Phases[0].Tasks[0]
-	if liveTask.Status != TaskPending {
-		t.Fatalf("retryable task status = %s, want %s", liveTask.Status, TaskPending)
+	if live.Status != TaskPending {
+		t.Fatalf("retryable task status = %s, want %s", live.Status, TaskPending)
 	}
-	if liveTask.NextRetryAt.IsZero() {
+	if live.NextRetryAt.IsZero() {
 		t.Fatalf("retryable task should have non-zero NextRetryAt backoff")
 	}
 	if orch.campaign.RevisionNumber != beforeRevision {
 		t.Fatalf("revision must not change on retryable failure: before=%d after=%d", beforeRevision, orch.campaign.RevisionNumber)
 	}
-	// Verify that scheduling would not run a duplicate: the original is in backoff
-	// so eligible is empty, and no duplicate exists to run.
-	eligible := orch.getEligibleTasks(&orch.campaign.Phases[0])
-	if len(eligible) != 0 {
+	// Scheduling would not run a duplicate: the original is in backoff, so
+	// nothing is eligible, and no duplicate exists to run.
+	if eligible := orch.getEligibleTasks(&orch.campaign.Phases[0]); len(eligible) != 0 {
 		t.Fatalf("retryable task in backoff should not be eligible, got %d eligible: %v", len(eligible), eligible)
 	}
 }
 
 // TestHandleTaskFailure_TerminalCanStillReplan verifies the other half of the
-// contract: once the task is terminally failed (exceeded MaxRetries) the
-// failure-driven replan IS allowed and can insert its replacement. This prevents
-// the retry-gate from permanently disabling replanning.
+// contract: once the task has used its attempts, the failure-driven replan IS
+// allowed and can insert its replacement. This prevents the retry gate from
+// permanently disabling replanning.
 func TestHandleTaskFailure_TerminalCanStillReplan(t *testing.T) {
-	kernel := &MockKernel{}
-	_ = kernel.Assert(core.Fact{Predicate: "replan_needed", Args: []any{"campaign_terminal_replan", "/task_failure_cascade"}})
-
+	orch, kernel := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 1 }, Task{
+		ID: "/task_mutate_1", Description: "Modify internal/foo/bar.go to add doc comment", Type: TaskTypeFileModify,
+	})
 	var replanCalls atomic.Int32
-	orch, _, _ := newFailureTestOrchestrator(t, 0) // 0 => terminal on first failure
-	// NewOrchestrator treats zero as the default (3); override it after
-	// construction to exercise the explicit fail-fast contract.
-	orch.policy.MaxTaskAttempts = 1
-	orch.kernel = kernel
 	orch.replanner = NewReplanner(kernel, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			replanCalls.Add(1)
-			return `{"success": true, "change_summary": "terminal replan ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "phase_failure_lane", "description": "Add follow-up fix for terminal failure", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
+			return `{"success": true, "change_summary": "terminal replan ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/phase_failure_policy", "description": "Add follow-up fix for terminal failure", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
 	}, "")
-	orch.campaign.ID = "campaign_terminal_replan"
-	// Seed current_phase and campaign_phase facts so livePhaseByID etc. are coherent
-	// (not strictly needed for handleTaskFailure but mirrors production wiring).
-	phase := &orch.campaign.Phases[0]
-	task := &orch.campaign.Phases[0].Tasks[0]
-	task.Type = TaskTypeFileModify
-	task.Description = "Modify internal/foo/bar.go to add doc comment"
+	beforeTasks := len(orch.campaign.Phases[0].Tasks)
 
-	beforeTasks := len(phase.Tasks)
-	orch.handleTaskFailure(context.Background(), phase, task, errors.New("terminal logic failure"))
+	live := failTask(orch, "/task_mutate_1", errors.New("terminal logic failure"))
 
 	if got := replanCalls.Load(); got != 1 {
 		t.Fatalf("terminal failure must invoke Replanner exactly once, got %d", got)
@@ -111,19 +88,9 @@ func TestHandleTaskFailure_TerminalCanStillReplan(t *testing.T) {
 	if len(orch.campaign.Phases[0].Tasks) != beforeTasks+1 {
 		t.Fatalf("terminal replan should insert replacement task: before=%d after=%d", beforeTasks, len(orch.campaign.Phases[0].Tasks))
 	}
-	liveTask := orch.campaign.Phases[0].Tasks[0]
-	// The failed task itself should be terminally failed, not left pending.
-	foundFailed := false
-	for _, tk := range orch.campaign.Phases[0].Tasks {
-		if tk.ID == task.ID && tk.Status == TaskFailed {
-			foundFailed = true
-			break
-		}
+	if live.Status != TaskFailed {
+		t.Fatalf("original task should be %s after terminal failure, got %s", TaskFailed, live.Status)
 	}
-	if !foundFailed {
-		t.Fatalf("original task should be %s after terminal failure, tasks=%v", TaskFailed, orch.campaign.Phases[0].Tasks)
-	}
-	_ = liveTask // avoid unused
 	if orch.campaign.RevisionNumber == 0 {
 		t.Fatalf("expected revision to be bumped by Replan, got %d", orch.campaign.RevisionNumber)
 	}

@@ -160,75 +160,12 @@ prefer_specialist_for_task(TaskID, SpecialistName) :-
 # -----------------------------------------------------------------------------
 # 2.3 Task Retry Strategy
 # -----------------------------------------------------------------------------
-
-# Task has exhausted basic retries
-task_retry_exhausted(TaskID) :-
-    task_attempt(TaskID, 3, /failure, _).
-
-# Task should try with enriched context
-task_needs_enrichment(TaskID) :-
-    task_attempt(TaskID, AttemptNum, /failure, _),
-    AttemptNum >= 1,
-    AttemptNum < 3,
-    !task_retry_exhausted(TaskID).
-
-# Specific enrichment strategies based on failure type (computed in stratum 0)
-# Note: /research for /unknown_api is a specific strategy, not the default
-#
-# NONE OF THE FOUR SPECIFIC RULES BELOW CAN FIRE TODAY, and the reason is worth
-# stating here rather than leaving for the next person to find the hard way.
-#
-# They select on the second argument of task_error, and the Go producer and this
-# consumer speak disjoint vocabularies. classifyTaskError in
-# internal/campaign/orchestrator_failure.go emits /transient, /logic, /refused,
-# /logic_failure_escalated and max_retries_N. These rules match /unknown_api,
-# /missing_context, /too_complex and /domain_specific. The two sets do not
-# overlap at all, so every failing task falls through to the /research default
-# below regardless of why it failed — which is to say the kernel's adaptive
-# retry, the thing that makes it more than a retry loop, is inert.
-#
-# The other end is disconnected too: no Go code queries enrichment_strategy or
-# specific_enrichment, so even a firing rule would derive a conclusion nothing
-# reads. Both halves have to be built for either to be worth building, and
-# emitting these four types from a string-matching classifier would be guessing
-# — a wrong /decompose is worse than a uniform /research, because the agent acts
-# on it with confidence.
-#
-# TestStarvedPredicateBudget does not see this: task_error IS produced, just
-# never with these values, and starvation at the level of a value is invisible
-# to a check that works at the level of a predicate.
-#
-# The one mapping that would NOT be guesswork, when this is picked up:
-# a broker refusal with code window_exceeded means the request did not fit the
-# context window, and /too_complex -> /decompose is exactly the right response
-# to that. classifyTaskError already distinguishes refusals as /refused.
-specific_enrichment(TaskID, /research) :-
-    task_needs_enrichment(TaskID),
-    task_error(TaskID, /unknown_api, _).
-
-specific_enrichment(TaskID, /documentation) :-
-    task_needs_enrichment(TaskID),
-    task_error(TaskID, /missing_context, _).
-
-specific_enrichment(TaskID, /decompose) :-
-    task_needs_enrichment(TaskID),
-    task_error(TaskID, /too_complex, _).
-
-specific_enrichment(TaskID, /specialist) :-
-    task_needs_enrichment(TaskID),
-    task_error(TaskID, /domain_specific, _).
-
-# Helper: task has a specific enrichment strategy (for safe negation in stratum 1)
-has_specific_enrichment(TaskID) :-
-    specific_enrichment(TaskID, _).
-
-# Final enrichment_strategy: either specific or default to /research (stratum 1)
-enrichment_strategy(TaskID, Strategy) :-
-    specific_enrichment(TaskID, Strategy).
-
-enrichment_strategy(TaskID, /research) :-
-    task_needs_enrichment(TaskID),
-    !has_specific_enrichment(TaskID).
+# What a failed task does next is task_next_move (policy/campaign_decisions.mg),
+# over typed attempt signals and the campaign's configured attempt cap. The
+# rules that stood here are deleted: task_retry_exhausted said "exhausted" at a
+# literal attempt 3 while the orchestrator retried to 4, and the enrichment
+# strategy (task_needs_enrichment, specific_enrichment, enrichment_strategy)
+# selected on task_error values nothing produced and was read by nothing.
 
 # =============================================================================
 # SECTION 3: QUALITY ENFORCEMENT
@@ -573,13 +510,13 @@ debug_why_blocked(TaskID, DepID) :-
 # 6.3 Recovery Actions
 # -----------------------------------------------------------------------------
 
-# Skip non-critical failed task after 3 retries
+# Skip a non-critical task that has used its attempts (task_exhausted)
 task_can_skip(TaskID) :-
-    task_retry_exhausted(TaskID),
+    task_exhausted(TaskID),
     task_priority(TaskID, /low).
 
 task_can_skip(TaskID) :-
-    task_retry_exhausted(TaskID),
+    task_exhausted(TaskID),
     !task_blocks_others(TaskID),
     task_priority(TaskID, /normal).
 
@@ -589,11 +526,11 @@ task_blocks_others(TaskID) :-
 
 # Critical task failure requires escalation
 escalation_required(TaskID, "critical_task_failed") :-
-    task_retry_exhausted(TaskID),
+    task_exhausted(TaskID),
     task_priority(TaskID, /critical).
 
 escalation_required(TaskID, "high_priority_failed") :-
-    task_retry_exhausted(TaskID),
+    task_exhausted(TaskID),
     task_priority(TaskID, /high),
     task_blocks_others(TaskID).
 

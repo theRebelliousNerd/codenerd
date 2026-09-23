@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 )
 
 // ToFacts is the transduction boundary between the Go plan and the Mangle
@@ -161,6 +162,10 @@ func shapeOf(facts []core.Fact) []factShape {
 // e.g. a confidence emitted as float64 into a slot declared /number.
 func argKind(arg any) string {
 	switch v := arg.(type) {
+	case types.MangleString:
+		return "string"
+	case types.MangleAtom:
+		return "atom"
 	case string:
 		if strings.HasPrefix(v, "/") {
 			return "atom"

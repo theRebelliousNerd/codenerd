@@ -50,7 +50,9 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 	ret, err := observed.ExecuteObserved(ctx, req)
 	o.recordAttemptWrites(task, ret.Writes)
 	if err != nil {
-		return ret.Output, err
+		// A turn that errored may still have been judged; its verdict is
+		// part of why the attempt failed.
+		return ret.Output, withSignals(err, returnSignals(ret)...)
 	}
 	if !ret.Done() {
 		return ret.Output, turnNotDoneError(intent, ret)
@@ -65,14 +67,16 @@ var ErrTaskNotDone = errors.New("the task's turn did not end done")
 // turnNotDoneError names what the turn left unmet, from the kernel's own
 // turn_missing_evidence, so the failure -- and the retry that reads it -- says
 // why rather than only that.
+// The verdict and the missing evidence ride on the error as typed signals, so
+// the next move is derived from them rather than read back out of this text.
 func turnNotDoneError(intent string, ret observation.Return) error {
 	if ret.Outcome == "" {
 		return fmt.Errorf("%w: the %s turn returned no verdict", ErrTaskNotDone, intent)
 	}
 	if why := session.DescribeMissingEvidence(ret.Missing); why != "" {
-		return fmt.Errorf("%w: the %s turn ended %s: %s", ErrTaskNotDone, intent, ret.Outcome, why)
+		return withSignals(fmt.Errorf("%w: the %s turn ended %s: %s", ErrTaskNotDone, intent, ret.Outcome, why), returnSignals(ret)...)
 	}
-	return fmt.Errorf("%w: the %s turn ended %s", ErrTaskNotDone, intent, ret.Outcome)
+	return withSignals(fmt.Errorf("%w: the %s turn ended %s", ErrTaskNotDone, intent, ret.Outcome), returnSignals(ret)...)
 }
 
 // withPreviousAttempt carries why the task's last attempt failed into the next
@@ -876,7 +880,7 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 		return nil, err
 	}
 	if !result.Success {
-		return nil, fmt.Errorf("test execution failed: %s", testFailureSummary(target, result.Error, result.Output))
+		return nil, withSignals(fmt.Errorf("test execution failed: %s", testFailureSummary(target, result.Error, result.Output)), "/tests_red")
 	}
 	after, err := evidence.Snapshot(ctx, o.workspace)
 	if err != nil {
@@ -1014,7 +1018,7 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 	// non-zero exit, not as an error (runBuildCheckpoint reads it the same
 	// way); only exit 0 verifies.
 	if err == nil && res != nil && res.ExitCode != 0 {
-		err = fmt.Errorf("go build ./... exited %d", res.ExitCode)
+		err = withSignals(fmt.Errorf("go build ./... exited %d:\n%s", res.ExitCode, output), "/build_failed")
 	}
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Verify task %s failed: %v", task.ID, err)

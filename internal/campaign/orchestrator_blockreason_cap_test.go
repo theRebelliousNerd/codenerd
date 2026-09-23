@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"context"
 	"errors"
@@ -82,59 +83,33 @@ func TestFailCampaign_PersistsBlockReasonFromTaskLoop(t *testing.T) {
 
 // TestAttemptCap_TriggersReplanBeforeBlock proves the failure-driven replanner
 // runs exactly once when a task reaches the attempt cap, before any block can
-// fire, and never again for the same task.
+// fire, and never again for the same task: the kernel derives
+// task_next_move(/replan) once, then /fail once task_replanned_at_cap holds.
 func TestAttemptCap_TriggersReplanBeforeBlock(t *testing.T) {
-	kernel := &MockKernel{}
-	// No replan_needed fact is seeded on purpose: the attempt-cap replan must
-	// fire even when the policy has not derived one, otherwise a poison task
-	// (e.g. pathless duplicate) blocks the phase with no replan at the cap.
-
+	orch, kernel := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 1 }, Task{
+		ID: "/task_mutate_1", Description: "Modify internal/foo/bar.go to add doc comment", Type: TaskTypeFileModify,
+	})
 	var replanCalls atomic.Int32
-	orch, _, _ := newFailureTestOrchestrator(t, 0)
-	// NewOrchestrator treats zero as the default (3); override after
-	// construction to exercise the explicit fail-fast contract.
-	orch.policy.MaxTaskAttempts = 1
-	orch.kernel = kernel
 	orch.replanner = NewReplanner(kernel, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			replanCalls.Add(1)
-			return `{"success": true, "change_summary": "attempt-cap replan ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "phase_failure_lane", "description": "Add follow-up fix for attempt-cap failure", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
+			return `{"success": true, "change_summary": "attempt-cap replan ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/phase_failure_policy", "description": "Add follow-up fix for attempt-cap failure", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
 	}, "")
-	orch.campaign.ID = "campaign_attempt_cap"
-	phase := &orch.campaign.Phases[0]
-	task := &orch.campaign.Phases[0].Tasks[0]
-	task.Type = TaskTypeFileModify
-	task.Description = "Modify internal/foo/bar.go to add doc comment"
 
-	orch.handleTaskFailure(context.Background(), phase, task, errors.New("attempt-cap failure"))
-
+	live := failTask(orch, "/task_mutate_1", errors.New("attempt-cap failure"))
 	if got := replanCalls.Load(); got != 1 {
 		t.Fatalf("task hitting the cap must invoke Replanner exactly once, got %d", got)
 	}
-	live := &orch.campaign.Phases[0].Tasks[0]
-	// The failed task itself is terminally failed; the replacement (if any) is
-	// appended. Find the original by ID.
-	found := false
-	for _, tk := range orch.campaign.Phases[0].Tasks {
-		if tk.ID == task.ID {
-			if !tk.ReplannedAtCap {
-				t.Fatalf("original task %s must record ReplannedAtCap after cap replan", tk.ID)
-			}
-			if tk.Status != TaskFailed {
-				t.Fatalf("original task status = %s, want %s", tk.Status, TaskFailed)
-			}
-			found = true
-			break
-		}
+	if !live.ReplannedAtCap {
+		t.Fatalf("task %s must record ReplannedAtCap after the cap replan", live.ID)
 	}
-	if !found {
-		t.Fatalf("original task %s missing after cap replan, tasks=%v", task.ID, orch.campaign.Phases[0].Tasks)
+	if live.Status != TaskFailed {
+		t.Fatalf("task status = %s, want %s", live.Status, TaskFailed)
 	}
-	_ = live
 
 	// A second failure of the same task must not trigger another replan.
-	orch.handleTaskFailure(context.Background(), phase, task, errors.New("same task fails again"))
+	failTask(orch, "/task_mutate_1", errors.New("same task fails again"))
 	if got := replanCalls.Load(); got != 1 {
 		t.Fatalf("second failure of the same task must not replan again, got %d calls", got)
 	}

@@ -1,27 +1,30 @@
 package campaign
 
 import (
-	"codenerd/internal/broker"
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"slices"
 	"strings"
 	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
 )
 
-const (
-	logicFailureEscalationWindowAttempts = 3
-	logicFailureEscalationMinFailures    = 2
-	logicFailureEscalationMaxLoopAge     = 20 * time.Minute
+// reproDiagnosticDescriptionPrefix marks a repro task's description for a
+// reader; the task is recognized by its inference reason, not by this text.
+const reproDiagnosticDescriptionPrefix = "[diagnostic-repro]"
 
-	reproDiagnosticDescriptionPrefix = "[diagnostic-repro]"
-)
+// reproInferenceReason is the inference reason a repro task carries, which the
+// policy names it by (task_is_repro). The value predates the typed signals and
+// stays as it was so repro tasks in persisted campaigns are still recognized.
+const reproInferenceReason = "/logic_failure_repro_guard"
 
-// handleTaskFailure handles task execution failure.
+// handleTaskFailure records a failed attempt with its typed signals, asks the
+// kernel for the task's next move (task_next_move, policy/campaign_decisions.mg)
+// and does it. The move is never decided here: a kernel that derives none, or
+// more than one, fails the task.
 func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task *Task, err error) {
 	if task == nil {
 		logging.Get(logging.CategoryCampaign).Warn("Handling task failure: <nil task> - %v", err)
@@ -31,189 +34,124 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 	if err != nil {
 		errStr = err.Error()
 	}
-	logging.Get(logging.CategoryCampaign).Warn("Handling task failure: %s - %v", task.ID, errStr)
+	signals := failureSignals(err)
+	logging.Get(logging.CategoryCampaign).Warn("Handling task failure: %s %v - %s", task.ID, signals, errStr)
 
-	errorType := classifyTaskError(err)
 	phaseID := ""
 	if phase != nil {
 		phaseID = phase.ID
 	}
 
+	// Record the attempt.
 	o.mu.Lock()
-	markedFailed := false
-	newStatus := TaskPending
-	nextRetryAt := time.Time{}
-	logicEscalated := false
-	logicEscalationReason := ""
-	reproTaskID := ""
-	reproTaskInserted := false
-	exceededMaxRetries := false
-	actualMaxRetries := 0
-	capTaskID := ""
-	capNeedsReplan := false
+	live, pi, _ := o.liveTaskLocked(task.ID)
+	if live == nil {
+		o.mu.Unlock()
+		logging.Get(logging.CategoryCampaign).Warn("Task %s failed but is not in the campaign; nothing to record", task.ID)
+		return
+	}
+	attempt := TaskAttempt{
+		Number:    len(live.Attempts) + 1,
+		Outcome:   "/failure",
+		Timestamp: time.Now(),
+		Error:     errStr,
+		Signals:   signals,
+	}
+	live.Attempts = append(live.Attempts, attempt)
+	live.LastError = errStr
+	phaseID = o.campaign.Phases[pi].ID
+	errFact, hasErrFact := taskErrorFact(live)
+	o.mu.Unlock()
 
-	// Record attempt and update retry/backoff state
-taskSearch:
-	for i := range o.campaign.Phases {
-		for j := range o.campaign.Phases[i].Tasks {
-			if o.campaign.Phases[i].Tasks[j].ID != task.ID {
-				continue
+	o.assertTaskFacts(task.ID, attemptFacts(task.ID, attempt)...)
+	if hasErrFact {
+		_ = o.kernel.RetractFact(core.Fact{Predicate: "task_error", Args: []any{task.ID}})
+		o.assertTaskFacts(task.ID, errFact)
+	}
+
+	// Ask the kernel what the task does next.
+	move, moveErr := o.oneDerivedFor("task_next_move", task.ID)
+	if moveErr != nil {
+		logging.Get(logging.CategoryCampaign).Error("Task %s: %v; the task fails", task.ID, moveErr)
+		move = "/fail"
+	}
+	logging.Campaign("Task %s attempt %d failed %v; next move %s", task.ID, attempt.Number, signals, move)
+
+	// Do it.
+	status := TaskFailed
+	var nextRetryAt time.Time
+	reproTaskID, reproInserted := "", false
+	replan := false
+	o.mu.Lock()
+	if live, pi, ti := o.liveTaskLocked(task.ID); live != nil {
+		switch move {
+		case "/retry", "/retry_later", "/repro_first":
+			// A refusal or an ended context is waited out on the full
+			// backoff: retrying fast against a broker that just declined
+			// spends attempts against a limit that has not moved.
+			nextRetryAt = attempt.Timestamp.Add(o.computeRetryBackoff(attempt.Number, move == "/retry_later"))
+			status = TaskPending
+			live.NextRetryAt = nextRetryAt
+			if move == "/repro_first" {
+				// Last: inserting the repro task moves this task in its slice.
+				reproTaskID, reproInserted = o.insertReproDiagnosticTaskLocked(pi, ti, attempt.Number, errStr)
 			}
-
-			attemptNum := len(o.campaign.Phases[i].Tasks[j].Attempts) + 1
-			logging.CampaignDebug("Task %s attempt %d failed", task.ID, attemptNum)
-
-			attemptedAt := time.Now()
-			o.campaign.Phases[i].Tasks[j].Attempts = append(
-				o.campaign.Phases[i].Tasks[j].Attempts,
-				TaskAttempt{
-					Number:    attemptNum,
-					Outcome:   "/failure",
-					Timestamp: attemptedAt,
-					Error:     errStr,
-				},
-			)
-			o.campaign.Phases[i].Tasks[j].LastError = errStr
-			phaseID = o.campaign.Phases[i].ID
-
-			maxRetries := o.policy.MaxTaskAttempts - 1
-			if attemptNum > maxRetries {
-				logging.Get(logging.CategoryCampaign).Error("Task %s exceeded max retries (%d), marking as failed", task.ID, maxRetries)
-				o.campaign.Phases[i].Tasks[j].Status = TaskFailed
-				o.campaign.Phases[i].Tasks[j].NextRetryAt = time.Time{}
-				markedFailed = true
-				newStatus = TaskFailed
-
-				exceededMaxRetries = true
-				actualMaxRetries = maxRetries
-				capTaskID = o.campaign.Phases[i].Tasks[j].ID
-				if !o.campaign.Phases[i].Tasks[j].ReplannedAtCap {
-					o.campaign.Phases[i].Tasks[j].ReplannedAtCap = true
-					capNeedsReplan = true
-				}
-			} else {
-				// Backoff before retrying to avoid tight failure loops.
-				backoff := o.computeRetryBackoff(errorType, attemptNum)
-				nextRetryAt = attemptedAt.Add(backoff)
-				o.campaign.Phases[i].Tasks[j].Status = TaskPending
-				o.campaign.Phases[i].Tasks[j].NextRetryAt = nextRetryAt
-				newStatus = TaskPending
-
-				if errorType == "/logic" &&
-					isMutatingTaskType(o.campaign.Phases[i].Tasks[j].Type) &&
-					!isReproDiagnosticTask(&o.campaign.Phases[i].Tasks[j]) {
-					shouldEscalate, reason := shouldEscalateLogicFailure(o.campaign.Phases[i].Tasks[j].Attempts, attemptedAt)
-					if shouldEscalate {
-						logicEscalated = true
-						logicEscalationReason = reason
-						reproTaskID, reproTaskInserted = o.insertReproDiagnosticTaskLocked(i, j, attemptNum, err, reason)
-					}
-				}
-			}
-			break taskSearch
+		case "/replan":
+			live.NextRetryAt = time.Time{}
+			live.ReplannedAtCap = true
+			replan = true
+		default: // "/fail"
+			live.NextRetryAt = time.Time{}
 		}
 	}
 	o.mu.Unlock()
 
-	if exceededMaxRetries {
-		// Record in kernel
-		_ = o.kernel.Assert(core.Fact{
-			Predicate: "task_error",
-			Args:      []any{task.ID, fmt.Sprintf("max_retries_%d", actualMaxRetries), errStr},
-		})
+	o.updateTaskStatus(task, status)
+	if replan {
+		o.assertTaskFacts(task.ID, core.Fact{Predicate: "task_replanned_at_cap", Args: []any{task.ID}})
 	}
-
-	// Update kernel-visible task status for retries.
-	o.updateTaskStatus(task, newStatus)
-
-	// Record error taxonomy + retry window for policy/debugging.
-	_ = o.kernel.Assert(core.Fact{
-		Predicate: "task_error",
-		Args:      []any{task.ID, errorType, errStr},
-	})
-	if logicEscalated {
-		_ = o.kernel.Assert(core.Fact{
-			Predicate: "task_error",
-			Args:      []any{task.ID, "/logic_failure_escalated", logicEscalationReason},
-		})
-		_ = o.kernel.Assert(core.Fact{
-			Predicate: "task_error",
-			Args:      []any{task.ID, "/repro_test_first_required", reproTaskID},
-		})
-	}
+	_ = o.kernel.RetractFact(core.Fact{Predicate: "task_retry_at", Args: []any{task.ID}})
 	if !nextRetryAt.IsZero() {
-		_ = o.kernel.RetractFact(core.Fact{
-			Predicate: "task_retry_at",
-			Args:      []any{task.ID},
-		})
-		_ = o.kernel.Assert(core.Fact{
-			Predicate: "task_retry_at",
-			Args:      []any{task.ID, nextRetryAt.Unix()},
-		})
-	} else {
-		_ = o.kernel.RetractFact(core.Fact{
-			Predicate: "task_retry_at",
-			Args:      []any{task.ID},
-		})
+		o.assertTaskFacts(task.ID, core.Fact{Predicate: "task_retry_at", Args: []any{task.ID, nextRetryAt.Unix()}})
 	}
 
-	o.emitEvent(EventTaskFailed, phaseID, task.ID, errStr, nil)
-	if logicEscalated {
-		o.emitEvent(EventLogicFailureEscalated, phaseID, task.ID, "Deterministic logic escalation triggered", map[string]any{
-			"reason":                logicEscalationReason,
-			"repro_task_id":         reproTaskID,
-			"repro_task_inserted":   reproTaskInserted,
-			"window_attempts":       logicFailureEscalationWindowAttempts,
-			"window_min_failures":   logicFailureEscalationMinFailures,
-			"window_max_loop_age_s": int(logicFailureEscalationMaxLoopAge.Seconds()),
-		})
-	}
-	if reproTaskInserted {
+	o.emitEvent(EventTaskFailed, phaseID, task.ID, errStr, map[string]any{
+		"attempt": attempt.Number,
+		"signals": signals,
+		"move":    move,
+	})
+	if reproInserted {
 		o.emitEvent(EventDiagnosticTaskInserted, phaseID, reproTaskID, "Inserted repro-test-first diagnostic task", map[string]any{
 			"failed_task_id": task.ID,
-			"reason":         logicEscalationReason,
+			"signals":        signals,
 		})
 	}
 
 	// Optionally run checkpoint immediately after a task is fully failed.
-	if markedFailed && o.policy.CheckpointOnTaskFailure {
+	if status == TaskFailed && o.policy.CheckpointOnTaskFailure {
 		if _, _, chkErr := o.runPhaseCheckpoint(ctx, phase); chkErr != nil {
 			logging.Get(logging.CategoryCampaign).Warn("Checkpoint-on-fail error: %v", chkErr)
 			o.emitEvent(EventCheckpointFailed, phaseID, "", chkErr.Error(), nil)
 		}
 	}
 
-	// Deterministic retry/replan contract: never invoke failure-driven Replanner while
-	// the failed task is still retryable/pending. Observed live: a /file_modify left
-	// pending for bounded retry was immediately replaced by a semantically duplicate
-	// task via replan_needed, and runPhase scheduled both concurrently producing
-	// competing files. Gate replanning until terminal failure.
-	if !markedFailed {
-		logging.CampaignDebug("Skipping failure-driven replan for %s: still retryable (status=%s, nextRetryAt=%v)", task.ID, newStatus, nextRetryAt)
-	} else if capNeedsReplan {
-		// Attempt-cap replan: the task just reached its attempt cap. Invoke the
-		// failure-driven replanner once for this task before the runPhase block
-		// check can fire, so the planner can drop or retype a poison task (e.g.
-		// pathless duplicate) and let the phase proceed. Bounded to one attempt
-		// per task via ReplannedAtCap; if unavailable or failing, fall through
-		// to today's block.
-		replanID := capTaskID
-		if replanID == "" {
-			replanID = task.ID
-		}
+	// The replanner runs only on a failed task, never on one still retrying:
+	// observed live, a /file_modify left pending for retry was replaced by a
+	// semantically duplicate task and runPhase scheduled both, producing
+	// competing files. /replan comes once per task (task_replanned_at_cap), so
+	// the planner can drop or retype a poison task and let the phase proceed.
+	if replan {
 		if o.replanner == nil {
-			logging.Get(logging.CategoryCampaign).Warn("Replan needed but no replanner configured for task %s", replanID)
-		} else if repErr := o.replanner.Replan(ctx, o.campaign, replanID); repErr != nil {
-			logging.Get(logging.CategoryCampaign).Error("Attempt-cap replan failed for task %s: %v", replanID, repErr)
+			logging.Get(logging.CategoryCampaign).Warn("Replan needed but no replanner configured for task %s", task.ID)
+		} else if repErr := o.replanner.Replan(ctx, o.campaign, task.ID); repErr != nil {
+			logging.Get(logging.CategoryCampaign).Error("Attempt-cap replan failed for task %s: %v", task.ID, repErr)
 			o.emitEvent(EventReplanFailed, "", "", repErr.Error(), nil)
 		} else {
 			o.mu.Lock()
-			logging.Campaign("Campaign replanned at attempt cap for task %s, new revision: %d", replanID, o.campaign.RevisionNumber)
+			logging.Campaign("Campaign replanned at attempt cap for task %s, new revision: %d", task.ID, o.campaign.RevisionNumber)
 			o.persistCampaign("attempt-cap replan")
 			o.mu.Unlock()
 		}
-	} else {
-		logging.CampaignDebug("Skipping failure-driven replan for %s: already replanned at attempt cap", task.ID)
 	}
 
 	// Persist failure updates for durability.
@@ -222,57 +160,38 @@ taskSearch:
 	o.mu.Unlock()
 }
 
-func shouldEscalateLogicFailure(attempts []TaskAttempt, now time.Time) (bool, string) {
-	if len(attempts) == 0 {
-		return false, ""
+// liveTaskLocked finds the campaign's own copy of a task by ID; callers hold
+// o.mu. A replan or a repro insertion can move a task, so a caller's pointer
+// is never trusted across an unlock.
+func (o *Orchestrator) liveTaskLocked(taskID string) (*Task, int, int) {
+	if o.campaign == nil {
+		return nil, -1, -1
 	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-
-	start := max(len(attempts)-logicFailureEscalationWindowAttempts, 0)
-	window := attempts[start:]
-
-	logicFailures := 0
-	oldestLoopFailure := time.Time{}
-	for _, attempt := range attempts {
-		if attempt.Outcome != "/failure" || attempt.Timestamp.IsZero() {
-			continue
-		}
-		if oldestLoopFailure.IsZero() || attempt.Timestamp.Before(oldestLoopFailure) {
-			oldestLoopFailure = attempt.Timestamp
+	for i := range o.campaign.Phases {
+		for j := range o.campaign.Phases[i].Tasks {
+			if o.campaign.Phases[i].Tasks[j].ID == taskID {
+				return &o.campaign.Phases[i].Tasks[j], i, j
+			}
 		}
 	}
-
-	for _, attempt := range window {
-		if attempt.Outcome != "/failure" {
-			continue
-		}
-		if classifyTaskAttempt(attempt) != "/logic" {
-			continue
-		}
-		logicFailures++
-	}
-
-	if logicFailures >= logicFailureEscalationMinFailures {
-		return true, fmt.Sprintf("logic_failures_%d_of_last_%d", logicFailures, len(window))
-	}
-
-	if !oldestLoopFailure.IsZero() && now.Sub(oldestLoopFailure) >= logicFailureEscalationMaxLoopAge {
-		return true, fmt.Sprintf("logic_loop_age_exceeded_%ds", int(now.Sub(oldestLoopFailure).Seconds()))
-	}
-
-	return false, ""
+	return nil, -1, -1
 }
 
-func classifyTaskAttempt(attempt TaskAttempt) string {
-	if strings.TrimSpace(attempt.Error) == "" {
-		return "/logic"
+// assertTaskFacts asserts what a failure changed. A dropped assert leaves the
+// kernel deciding the next move on an attempt it never saw, so it is logged
+// at Error.
+func (o *Orchestrator) assertTaskFacts(taskID string, facts ...core.Fact) {
+	if o.kernel == nil {
+		return
 	}
-	return classifyTaskError(errors.New(attempt.Error))
+	for _, f := range facts {
+		if err := o.kernel.Assert(f); err != nil {
+			logging.Get(logging.CategoryCampaign).Error("Task %s: %s was not asserted: %v", taskID, f.Predicate, err)
+		}
+	}
 }
 
-func (o *Orchestrator) insertReproDiagnosticTaskLocked(phaseIdx, taskIdx, attemptNum int, originalErr error, reason string) (string, bool) {
+func (o *Orchestrator) insertReproDiagnosticTaskLocked(phaseIdx, taskIdx, attemptNum int, lastErr string) (string, bool) {
 	if o == nil || o.campaign == nil {
 		return "", false
 	}
@@ -287,36 +206,26 @@ func (o *Orchestrator) insertReproDiagnosticTaskLocked(phaseIdx, taskIdx, attemp
 	failedTaskID := phase.Tasks[taskIdx].ID
 	if existing := findActiveReproTaskID(phase.Tasks, failedTaskID); existing != "" {
 		if ensureTaskDependsOn(&phase.Tasks[taskIdx], existing) {
-			if o.kernel != nil {
-				_ = o.kernel.Assert(core.Fact{
-					Predicate: "task_dependency",
-					Args:      []any{failedTaskID, existing},
-				})
-			}
+			o.assertTaskFacts(failedTaskID, core.Fact{Predicate: "task_dependency", Args: []any{failedTaskID, existing}})
 		}
 		return existing, false
 	}
 
-	errSummary := "logic failure"
-	if originalErr != nil && strings.TrimSpace(originalErr.Error()) != "" {
-		errSummary = strings.TrimSpace(originalErr.Error())
-	}
-	if len(errSummary) > 220 {
-		errSummary = errSummary[:220] + "..."
-	}
-
+	// The error's first line names the failure; the whole of it is the failed
+	// task's LastError, which its next attempt reads.
+	firstLine, _, _ := strings.Cut(strings.TrimSpace(lastErr), "\n")
 	reproTaskID := fmt.Sprintf("%s/repro_%03d", failedTaskID, attemptNum)
 	reproTask := Task{
 		ID:              reproTaskID,
 		PhaseID:         phase.Tasks[taskIdx].PhaseID,
-		Description:     fmt.Sprintf("%s Reproduce failing loop for %s (%s): run tests before next mutation. Last error: %s", reproDiagnosticDescriptionPrefix, failedTaskID, reason, errSummary),
+		Description:     fmt.Sprintf("%s Reproduce the red suite %s failed on: run tests before its next change. Last error: %s", reproDiagnosticDescriptionPrefix, failedTaskID, firstLine),
 		Status:          TaskPending,
 		Type:            TaskTypeTestRun,
 		Priority:        PriorityCritical,
 		Order:           0,
 		InferredFrom:    failedTaskID,
 		InferenceConf:   1.0,
-		InferenceReason: "/logic_failure_repro_guard",
+		InferenceReason: reproInferenceReason,
 	}
 
 	phase.Tasks = append([]Task{reproTask}, phase.Tasks...)
@@ -325,21 +234,12 @@ func (o *Orchestrator) insertReproDiagnosticTaskLocked(phaseIdx, taskIdx, attemp
 		phase.Tasks[idx].PhaseID = phase.ID
 	}
 
-	originalIdx := -1
 	for idx := range phase.Tasks {
 		if phase.Tasks[idx].ID == failedTaskID {
-			originalIdx = idx
-			break
-		}
-	}
-	if originalIdx >= 0 {
-		if ensureTaskDependsOn(&phase.Tasks[originalIdx], reproTaskID) {
-			if o.kernel != nil {
-				_ = o.kernel.Assert(core.Fact{
-					Predicate: "task_dependency",
-					Args:      []any{failedTaskID, reproTaskID},
-				})
+			if ensureTaskDependsOn(&phase.Tasks[idx], reproTaskID) {
+				o.assertTaskFacts(failedTaskID, core.Fact{Predicate: "task_dependency", Args: []any{failedTaskID, reproTaskID}})
 			}
+			break
 		}
 	}
 
@@ -353,10 +253,7 @@ func (o *Orchestrator) insertReproDiagnosticTaskLocked(phaseIdx, taskIdx, attemp
 
 func findActiveReproTaskID(tasks []Task, failedTaskID string) string {
 	for _, t := range tasks {
-		if t.InferredFrom != failedTaskID {
-			continue
-		}
-		if t.Type != TaskTypeTestRun || !isReproDiagnosticTask(&t) {
+		if t.InferredFrom != failedTaskID || !isReproDiagnosticTask(&t) {
 			continue
 		}
 		if t.Status == TaskPending || t.Status == TaskInProgress {
@@ -378,88 +275,16 @@ func ensureTaskDependsOn(task *Task, depID string) bool {
 }
 
 func isReproDiagnosticTask(task *Task) bool {
-	if task == nil {
-		return false
-	}
-	if task.Type != TaskTypeTestRun {
-		return false
-	}
-	if strings.HasPrefix(strings.TrimSpace(task.Description), reproDiagnosticDescriptionPrefix) {
-		return true
-	}
-	return strings.TrimSpace(task.InferenceReason) == "/logic_failure_repro_guard"
+	return task != nil && task.Type == TaskTypeTestRun && strings.TrimSpace(task.InferenceReason) == reproInferenceReason
 }
 
-// classifyTaskError uses heuristics to bucket errors into retry taxonomies.
-// errorTypeRefused marks a task that failed because the inference broker
-// declined the request, rather than because anything about the task is wrong.
-//
-// It is separated from /logic because of what /logic costs. A task classified
-// /logic retries on a backoff capped at 30 seconds and, after enough attempts,
-// has a repro-diagnostic task inserted so the agent can debug it. Applied to a
-// budget refusal that is exactly backwards: the broker has just said there are
-// no tokens to spend, and the response is to schedule a fresh unit of work that
-// needs tokens to investigate why the model would not answer. The premise of
-// the diagnostic is false — there is nothing to reproduce — so the work is
-// wasted at the precise moment the system is out of budget.
-//
-// It is not /transient either. A transient error is expected to clear on its
-// own, and a spent purpose cap does not; only an operator raising it, or a
-// smaller request, changes the answer.
-const errorTypeRefused = "/refused"
-
-func classifyTaskError(err error) string {
-	if err == nil {
-		return "/logic"
-	}
-	// Checked before anything else, and with IsAdmissionError rather than a
-	// type assertion: a refusal raised inside perception reaches here wrapped
-	// as "observation failed: %w", which is every path a refusal travels.
-	if _, refused := broker.IsAdmissionError(err); refused {
-		return errorTypeRefused
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return "/transient"
-	}
-
-	msg := strings.ToLower(strings.TrimSpace(err.Error()))
-	if msg == "" {
-		return "/logic"
-	}
-
-	for _, hint := range transientErrorHints {
-		if strings.Contains(msg, hint) {
-			return "/transient"
-		}
-	}
-	return "/logic"
-}
-
-var transientErrorHints = []string{
-	"timeout",
-	"timed out",
-	"context deadline",
-	"context canceled",
-	"context cancelled",
-	"temporar",
-	"rate limit",
-	"too many requests",
-	"resource exhausted",
-	"try again",
-	"connection reset",
-	"connection refused",
-	"connection",
-	"unavailable",
-	"network",
-	"tls handshake timeout",
-	"broken pipe",
-	"eof",
-	"i/o timeout",
-	"i/o",
-}
-
-// computeRetryBackoff returns exponential backoff based on attempt number.
-func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) time.Duration {
+// computeRetryBackoff returns the exponential backoff for an attempt:
+// campaign.retry_backoff_base doubled per attempt up to
+// campaign.retry_backoff_max. A retry with a reason to change something
+// (/retry, /repro_first) is capped lower, at
+// campaign.retry_with_reason_backoff_max; one that can only wait (/retry_later)
+// keeps the full exponential.
+func (o *Orchestrator) computeRetryBackoff(attemptNum int, waitOut bool) time.Duration {
 	base := o.policy.RetryBackoffBase
 	maxBackoff := o.policy.RetryBackoffMax
 
@@ -469,26 +294,17 @@ func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) tim
 	multiplier := time.Duration(1 << shift)
 	var backoff time.Duration
 	if base > 0 && multiplier > 0 && base > math.MaxInt64/multiplier {
-		// Overflow would occur, cap at max
 		backoff = maxBackoff
 	} else {
 		backoff = base * multiplier
 	}
-
 	if backoff < 0 {
-		// Just in case, if it somehow overflowed to negative, cap it
 		backoff = maxBackoff
 	}
 
-	// Logic errors often benefit from faster replans; cap their backoff lower.
-	if errorType == "/logic" && backoff > o.policy.RetryWithReasonBackoffMax {
+	if !waitOut && backoff > o.policy.RetryWithReasonBackoffMax {
 		backoff = o.policy.RetryWithReasonBackoffMax
 	}
-	// A refusal gets the opposite treatment, and deliberately keeps the full
-	// exponential rather than the shortened one. Retrying quickly against a
-	// broker that just declined spends attempts against a limit that has not
-	// moved; the useful thing a retry can do here is arrive later, after a
-	// window has rolled or an operator has raised a cap.
 	if backoff > maxBackoff {
 		backoff = maxBackoff
 	}

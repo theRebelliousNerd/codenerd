@@ -14,6 +14,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 	"codenerd/internal/logging"
 	"path/filepath"
 	"sort"
@@ -388,6 +389,40 @@ type TaskAttempt struct {
 	Outcome   string    `json:"outcome"` // /success, /failure, /partial
 	Timestamp time.Time `json:"timestamp"`
 	Error     string    `json:"error,omitzero"`
+	// Signals are the attempt's typed failure signals (failureSignals), the
+	// facts the kernel derives the task's next move from. Attempts recorded
+	// before signals existed have none and count only as failures.
+	Signals []string `json:"signals,omitempty"`
+}
+
+// attemptFacts are the kernel's record of one attempt: task_attempt, and a
+// task_attempt_signal row per signal.
+func attemptFacts(taskID string, a TaskAttempt) []core.Fact {
+	facts := []core.Fact{{
+		Predicate: "task_attempt",
+		Args:      []any{taskID, a.Number, a.Outcome, a.Timestamp.Unix()},
+	}}
+	for _, sig := range a.Signals {
+		facts = append(facts, core.Fact{
+			Predicate: "task_attempt_signal",
+			Args:      []any{taskID, a.Number, sig},
+		})
+	}
+	return facts
+}
+
+// taskErrorFact records a task's last error under its last attempt's first
+// signal, so systemic-error rules group failures by what they were rather than
+// by one constant.
+func taskErrorFact(t *Task) (core.Fact, bool) {
+	if t.LastError == "" {
+		return core.Fact{}, false
+	}
+	kind := signalUnclassified
+	if n := len(t.Attempts); n > 0 && len(t.Attempts[n-1].Signals) > 0 {
+		kind = t.Attempts[n-1].Signals[0]
+	}
+	return core.Fact{Predicate: "task_error", Args: []any{t.ID, kind, t.LastError}}, true
 }
 
 // Checkpoint represents a verification checkpoint for a phase.
@@ -695,16 +730,16 @@ func (t *Task) ToFacts() []core.Fact {
 	if t.InferredFrom != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "task_inference",
-			Args:      []any{t.ID, t.InferredFrom, int64(t.InferenceConf * 100), t.InferenceReason},
+			Args:      []any{t.ID, t.InferredFrom, int64(t.InferenceConf * 100), types.MangleString(t.InferenceReason)},
 		})
 	}
 
 	// Attempts
 	for _, attempt := range t.Attempts {
-		facts = append(facts, core.Fact{
-			Predicate: "task_attempt",
-			Args:      []any{t.ID, attempt.Number, attempt.Outcome, attempt.Timestamp.Unix()},
-		})
+		facts = append(facts, attemptFacts(t.ID, attempt)...)
+	}
+	if t.ReplannedAtCap {
+		facts = append(facts, core.Fact{Predicate: "task_replanned_at_cap", Args: []any{t.ID}})
 	}
 
 	// Retry backoff window
@@ -716,11 +751,8 @@ func (t *Task) ToFacts() []core.Fact {
 	}
 
 	// Error
-	if t.LastError != "" {
-		facts = append(facts, core.Fact{
-			Predicate: "task_error",
-			Args:      []any{t.ID, "execution_error", t.LastError},
-		})
+	if f, ok := taskErrorFact(t); ok {
+		facts = append(facts, f)
 	}
 
 	// Deterministic write contract

@@ -15,202 +15,202 @@ import (
 	"codenerd/internal/tactile"
 )
 
-func TestClassifyTaskError_DeterministicBuckets(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want string
-	}{
-		{
-			name: "nil error defaults to logic",
-			err:  nil,
-			want: "/logic",
-		},
-		{
-			name: "deadline exceeded is transient",
-			err:  context.DeadlineExceeded,
-			want: "/transient",
-		},
-		{
-			name: "wrapped deadline exceeded is transient",
-			err:  fmt.Errorf("executor timeout: %w", context.DeadlineExceeded),
-			want: "/transient",
-		},
-		{
-			name: "context canceled is transient",
-			err:  context.Canceled,
-			want: "/transient",
-		},
-		{
-			name: "rate limit hint is transient",
-			err:  errors.New("HTTP 429: too many requests"),
-			want: "/transient",
-		},
-		{
-			name: "network hint is transient",
-			err:  errors.New("temporary network unavailable"),
-			want: "/transient",
-		},
-		{
-			name: "generic compile error is logic",
-			err:  errors.New("compile failed: undefined symbol x"),
-			want: "/logic",
-		},
+// newPolicyFailureOrchestrator is an orchestrator over the shipped kernel, for
+// tests of what a failed task does next: the move is derived
+// (task_next_move, policy/campaign_decisions.mg), so a mock kernel would fail
+// every task for want of one.
+func newPolicyFailureOrchestrator(t *testing.T, edit func(*config.CampaignConfig), task Task) (*Orchestrator, core.Kernel) {
+	t.Helper()
+	kernel, err := core.NewRealKernelWithWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := classifyTaskError(tc.err)
-			if got != tc.want {
-				t.Fatalf("classifyTaskError(%v) = %s, want %s", tc.err, got, tc.want)
-			}
-		})
+	orch, err := NewOrchestrator(OrchestratorConfig{
+		Workspace:    t.TempDir(),
+		Kernel:       kernel,
+		LLMClient:    &MockLLMClient{},
+		Executor:     tactile.NewDirectExecutor(),
+		VirtualStore: &core.VirtualStore{},
+		TaskExecutor: &MockTaskExecutor{},
+		EventChan:    make(chan OrchestratorEvent, 64),
+		Campaign:     testCampaignConfig(edit),
+	})
+	if err != nil {
+		t.Fatalf("NewOrchestrator: %v", err)
 	}
-}
-
-func TestShouldEscalateLogicFailure_DeterministicPredicate(t *testing.T) {
+	task.PhaseID = "/phase_failure_policy"
+	task.Status = TaskPending
 	now := time.Now()
-
-	tests := []struct {
-		name     string
-		attempts []TaskAttempt
-		want     bool
-	}{
-		{
-			name: "2 logic failures in last 3 attempts escalates",
-			attempts: []TaskAttempt{
-				{Outcome: "/failure", Timestamp: now.Add(-3 * time.Minute), Error: "compile failed: missing import"},
-				{Outcome: "/failure", Timestamp: now.Add(-2 * time.Minute), Error: "timeout reaching service"},
-				{Outcome: "/failure", Timestamp: now.Add(-1 * time.Minute), Error: "undefined variable x"},
-			},
-			want: true,
-		},
-		{
-			name: "20 minute failing loop escalates even when last-3 logic count is below threshold",
-			attempts: []TaskAttempt{
-				{Outcome: "/failure", Timestamp: now.Add(-25 * time.Minute), Error: "compile failed: old issue"},
-				{Outcome: "/failure", Timestamp: now.Add(-12 * time.Minute), Error: "network unavailable"},
-				{Outcome: "/failure", Timestamp: now.Add(-6 * time.Minute), Error: "timeout reaching service"},
-				{Outcome: "/failure", Timestamp: now.Add(-1 * time.Minute), Error: "compile failed: current issue"},
-			},
-			want: true,
-		},
-		{
-			name: "transient-only failures do not escalate",
-			attempts: []TaskAttempt{
-				{Outcome: "/failure", Timestamp: now.Add(-5 * time.Minute), Error: "network unavailable"},
-				{Outcome: "/failure", Timestamp: now.Add(-4 * time.Minute), Error: "rate limit exceeded"},
-				{Outcome: "/failure", Timestamp: now.Add(-3 * time.Minute), Error: "connection refused"},
-			},
-			want: false,
-		},
+	orch.campaign = &Campaign{
+		ID: "/campaign_failure_policy", Type: CampaignTypeCustom, Title: "failure policy", Goal: "g",
+		Status: StatusActive, CreatedAt: now, UpdatedAt: now, TotalPhases: 1, TotalTasks: 1,
+		Phases: []Phase{{
+			ID: "/phase_failure_policy", CampaignID: "/campaign_failure_policy", Name: "p",
+			Status: PhaseInProgress, Tasks: []Task{task},
+		}},
 	}
+	if err := kernel.LoadFacts(orch.campaign.ToFacts()); err != nil {
+		t.Fatalf("load campaign facts: %v", err)
+	}
+	return orch, kernel
+}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, reason := shouldEscalateLogicFailure(tc.attempts, now)
-			if got != tc.want {
-				t.Fatalf("shouldEscalateLogicFailure() = %v (%s), want %v", got, reason, tc.want)
-			}
-			if got && strings.TrimSpace(reason) == "" {
-				t.Fatalf("expected non-empty reason for escalation")
-			}
-		})
+// redSuite is a failure whose turn verdict found the tests not green.
+func redSuite() error {
+	return withSignals(fmt.Errorf("turn: %w", ErrTaskNotDone), "/unverified", "/tests_not_green")
+}
+
+func failTask(orch *Orchestrator, id string, err error) *Task {
+	phase := &orch.campaign.Phases[0]
+	live, _, _ := orch.liveTaskLocked(id)
+	orch.handleTaskFailure(context.Background(), phase, live, err)
+	live, _, _ = orch.liveTaskLocked(id)
+	return live
+}
+
+func reproTasks(orch *Orchestrator) []Task {
+	var out []Task
+	for _, t := range orch.campaign.Phases[0].Tasks {
+		if isReproDiagnosticTask(&t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// The calibration case (campaign 7b853890): a Markdown task failed twice, and a
+// repro task ran `go test ./...` for 29 minutes before the Markdown task could
+// retry. A repro is owed only by a task that writes code; a document task never
+// owes one, whatever its failure said.
+func TestHandleTaskFailure_ADocumentTaskNeverOwesARepro(t *testing.T) {
+	orch, _ := newPolicyFailureOrchestrator(t, nil, Task{
+		ID: "/task_doc", Description: "write the gap analysis", Type: TaskTypeFileCreate,
+		WriteSet: []string{"Docs/architecture/features/03-GAP-ANALYSIS.md"},
+	})
+	for i, err := range []error{
+		errors.New("task unresolved: the working policy derived working_stop(/repeated_cycle)"),
+		redSuite(),
+		redSuite(),
+	} {
+		live := failTask(orch, "/task_doc", err)
+		if n := len(reproTasks(orch)); n != 0 {
+			t.Fatalf("failure %d of a document task inserted %d repro task(s)", i+1, n)
+		}
+		if live.Status != TaskPending || live.NextRetryAt.IsZero() {
+			t.Fatalf("failure %d: status %s, next retry %v; want a pending retry", i+1, live.Status, live.NextRetryAt)
+		}
 	}
 }
 
-func TestHandleTaskFailure_InsertsReproTaskAfterRepeatedLogicFailures(t *testing.T) {
-	orch, kernel, events := newFailureTestOrchestrator(t, 5)
+// A task that writes Go and fails on a red suite repro_after_failures times gets
+// one repro task first, depends on it, and further failures reuse it.
+func TestHandleTaskFailure_ACodeTaskOnARedSuiteGetsOneRepro(t *testing.T) {
+	orch, kernel := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) {
+		c.MaxTaskAttempts = 5
+		c.ReproAfterFailures = 2
+	}, Task{
+		ID: "/task_code", Description: "fix the pool", Type: TaskTypeFileModify,
+		WriteSet: []string{"internal/pool/pool.go"},
+	})
 
-	phase := &orch.campaign.Phases[0]
-	task := &orch.campaign.Phases[0].Tasks[0]
-
-	orch.handleTaskFailure(context.Background(), phase, task, errors.New("compile failed: undefined symbol"))
-	if got := len(orch.campaign.Phases[0].Tasks); got != 1 {
-		t.Fatalf("expected no repro insertion on first failure, got %d tasks", got)
+	failTask(orch, "/task_code", redSuite())
+	if n := len(reproTasks(orch)); n != 0 {
+		t.Fatalf("the first red-suite failure inserted %d repro task(s); the policy asks for 2", n)
 	}
-
-	orch.handleTaskFailure(context.Background(), phase, task, errors.New("build failed: unresolved reference"))
-
-	updatedPhase := &orch.campaign.Phases[0]
-	if got := len(updatedPhase.Tasks); got != 2 {
-		t.Fatalf("expected repro task insertion after deterministic escalation, got %d tasks", got)
+	live := failTask(orch, "/task_code", redSuite())
+	repros := reproTasks(orch)
+	if len(repros) != 1 {
+		t.Fatalf("the second red-suite failure inserted %d repro tasks, want 1", len(repros))
 	}
-
-	reproTask := updatedPhase.Tasks[0]
-	if !isReproDiagnosticTask(&reproTask) {
-		t.Fatalf("expected first task to be repro diagnostic marker, got %#v", reproTask)
+	if repros[0].Type != TaskTypeTestRun || repros[0].InferredFrom != "/task_code" {
+		t.Fatalf("repro task = %+v", repros[0])
 	}
-	if reproTask.Type != TaskTypeTestRun {
-		t.Fatalf("expected repro task type %s, got %s", TaskTypeTestRun, reproTask.Type)
+	if !slices.Contains(live.DependsOn, repros[0].ID) {
+		t.Fatalf("the failed task does not depend on its repro (deps %v)", live.DependsOn)
 	}
-	if reproTask.Priority != PriorityCritical {
-		t.Fatalf("expected repro task priority %s, got %s", PriorityCritical, reproTask.Priority)
-	}
-	if reproTask.InferredFrom != task.ID {
-		t.Fatalf("expected repro inferred_from %s, got %s", task.ID, reproTask.InferredFrom)
-	}
-	if !strings.Contains(reproTask.Description, "run tests before next mutation") {
-		t.Fatalf("expected repro description to include deterministic marker, got %q", reproTask.Description)
-	}
-
-	originalTask := updatedPhase.Tasks[1]
-	if !containsString(originalTask.DependsOn, reproTask.ID) {
-		t.Fatalf("expected failed task to depend on repro task %s, deps=%v", reproTask.ID, originalTask.DependsOn)
-	}
-
-	depFacts, _ := kernel.Query("task_dependency")
-	foundDepFact := false
-	for _, fact := range depFacts {
-		if len(fact.Args) < 2 {
-			continue
-		}
-		if fmt.Sprintf("%v", fact.Args[0]) == task.ID && fmt.Sprintf("%v", fact.Args[1]) == reproTask.ID {
-			foundDepFact = true
-			break
+	deps, _ := kernel.Query("task_dependency")
+	found := false
+	for _, f := range deps {
+		if len(f.Args) >= 2 && fmt.Sprint(f.Args[0]) == "/task_code" && fmt.Sprint(f.Args[1]) == repros[0].ID {
+			found = true
 		}
 	}
-	if !foundDepFact {
-		t.Fatalf("expected task_dependency fact for %s -> %s", task.ID, reproTask.ID)
+	if !found {
+		t.Fatalf("no task_dependency(/task_code, %s) in the kernel", repros[0].ID)
 	}
 
-	taskErrFacts, _ := kernel.Query("task_error")
-	foundReproMarker := false
-	for _, fact := range taskErrFacts {
-		if len(fact.Args) < 3 {
-			continue
-		}
-		if fmt.Sprintf("%v", fact.Args[0]) == task.ID &&
-			fmt.Sprintf("%v", fact.Args[1]) == "/repro_test_first_required" &&
-			fmt.Sprintf("%v", fact.Args[2]) == reproTask.ID {
-			foundReproMarker = true
-			break
-		}
+	failTask(orch, "/task_code", redSuite())
+	if n := len(reproTasks(orch)); n != 1 {
+		t.Fatalf("a third failure left %d repro tasks, want the one still active", n)
 	}
-	if !foundReproMarker {
-		t.Fatalf("expected /repro_test_first_required marker for task %s and repro %s", task.ID, reproTask.ID)
-	}
+}
 
-	// Third failure should NOT insert another repro task while one is still active.
-	orch.handleTaskFailure(context.Background(), phase, task, errors.New("compile failed: still broken"))
-	if got := len(orch.campaign.Phases[0].Tasks); got != 2 {
-		t.Fatalf("expected no duplicate repro insertion, got %d tasks", got)
+// A failure that is not a red suite never owes a repro, on a code task either.
+func TestHandleTaskFailure_ACodeTaskFailingOtherwiseOwesNoRepro(t *testing.T) {
+	orch, _ := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 5 }, Task{
+		ID: "/task_code", Description: "fix the pool", Type: TaskTypeFileModify,
+		WriteSet: []string{"internal/pool/pool.go"},
+	})
+	for range 3 {
+		failTask(orch, "/task_code", errors.New("compile failed: undefined: Pool"))
 	}
+	if n := len(reproTasks(orch)); n != 0 {
+		t.Fatalf("a code task failing without a red suite got %d repro task(s)", n)
+	}
+}
 
-	// Auditability signal: escalation event should be emitted.
-	foundEscalationEvent := false
-	for {
-		select {
-		case evt := <-events:
-			if evt.Type == "logic_failure_escalated" {
-				foundEscalationEvent = true
-			}
-		default:
-			if !foundEscalationEvent {
-				t.Fatalf("expected logic_failure_escalated event")
-			}
-			return
+// A repro task that fails does not get a repro of its own.
+func TestHandleTaskFailure_AReproNeverOwesARepro(t *testing.T) {
+	orch, _ := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 5 }, Task{
+		ID: "/task_code/repro_002", Description: reproDiagnosticDescriptionPrefix + " reproduce", Type: TaskTypeTestRun,
+		InferredFrom: "/task_code", InferenceConf: 1, InferenceReason: reproInferenceReason,
+		// A Go write set, so everything but task_is_repro says it owes one.
+		WriteSet: []string{"internal/pool/pool_test.go"},
+	})
+	for range 3 {
+		failTask(orch, "/task_code/repro_002", redSuite())
+	}
+	if n := len(reproTasks(orch)); n != 1 {
+		t.Fatalf("a failing repro task produced %d repro tasks; want only itself", n)
+	}
+}
+
+// A refusal is waited out on the full backoff; any other failure retries on
+// the shorter one.
+func TestHandleTaskFailure_ARefusalWaitsLongerThanAFailure(t *testing.T) {
+	edit := func(c *config.CampaignConfig) {
+		c.RetryBackoffBase = "20s"
+		c.RetryBackoffMax = "10m"
+		c.RetryWithReasonBackoffMax = "30s"
+	}
+	// The second attempt's backoff is 20s << 1 = 40s: above the 30s cap.
+	wait := func(err error) time.Duration {
+		orch, _ := newPolicyFailureOrchestrator(t, edit, Task{ID: "/task_x", Description: "x", Type: TaskTypeFileModify})
+		failTask(orch, "/task_x", err)
+		live := failTask(orch, "/task_x", err)
+		if live.Status != TaskPending {
+			t.Fatalf("status %s, want a pending retry", live.Status)
 		}
+		return live.NextRetryAt.Sub(live.Attempts[len(live.Attempts)-1].Timestamp)
+	}
+	if got := wait(refusal()); got != 40*time.Second {
+		t.Errorf("a refusal waits %v, want the full 40s", got)
+	}
+	if got := wait(errors.New("compile failed")); got != 30*time.Second {
+		t.Errorf("a failure waits %v, want the 30s cap", got)
+	}
+}
+
+// At the attempt cap a task fails; with replan_at_attempt_cap off it fails
+// outright.
+func TestHandleTaskFailure_TheCapFailsTheTask(t *testing.T) {
+	no := false
+	orch, _ := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) {
+		c.MaxTaskAttempts = 1
+		c.ReplanAtAttemptCap = &no
+	}, Task{ID: "/task_x", Description: "x", Type: TaskTypeFileModify})
+	if live := failTask(orch, "/task_x", errors.New("fail fast")); live.Status != TaskFailed {
+		t.Fatalf("status %s at the cap, want %s", live.Status, TaskFailed)
 	}
 }
 
@@ -279,17 +279,12 @@ func containsString(values []string, target string) bool {
 // Gap Implementations
 // -----------------------------------------------------------------------------
 
-// TODO: TEST_GAP: [Null/Undefined/Empty] Verify classifyTaskError(err error) with completely empty or whitespace-only error strings.
-// TODO: TEST_GAP: [Null/Undefined/Empty] Verify shouldEscalateLogicFailure(attempts []TaskAttempt, now time.Time) with an empty attempts slice.
-// TODO: TEST_GAP: [Null/Undefined/Empty] Verify shouldEscalateLogicFailure with zero-value Timestamp in TaskAttempts.
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify insertReproDiagnosticTaskLocked with empty or nil slices (e.g. phase.Tasks == nil).
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify findActiveReproTaskID with nil tasks slice.
 // TODO: TEST_GAP: [Type Coercion] Verify Mangle Fact Type Dissonance in task_error assertions (ensuring ast.Name is used, not string "/logic").
 // TODO: TEST_GAP: [Type Coercion] Verify task_retry_at Timestamp Coercion correctly handles int64 vs float64/int limits in Mangle layer.
-// TODO: TEST_GAP: [User Request Extremes] Verify Massive Error Strings (50MB) in classifyTaskError and Kernel Assertions don't cause OOM or store limits.
 // TODO: TEST_GAP: [User Request Extremes] Verify Unbounded Retries and Integer Overflow in computeRetryBackoff (passing math.MaxInt32).
 // TODO: TEST_GAP: [User Request Extremes] Verify Repro Task Cascade (Infinite Insertion Loop) - a repro task failing should not spawn another repro task.
-// TODO: TEST_GAP: [User Request Extremes] Verify Extreme Number of Task Attempts (1,000,000) passed to shouldEscalateLogicFailure does not cause CPU spike.
 // TODO: TEST_GAP: [State Conflicts] Verify Race Condition during Phase/Task Mutation (e.g. AbortCampaign called while handleTaskFailure holds mu lock).
 // TODO: TEST_GAP: [State Conflicts] Verify Kernel State vs In-Memory State Desynchronization if kernel.Assert throws an error halfway through handler.
 // TODO: TEST_GAP: [State Conflicts] Verify TOC/TOU (Time of Check / Time of Use) in Repro Task Dependency Assertion (Go struct mutated before Kernel fact).
@@ -297,11 +292,9 @@ func containsString(values []string, target string) bool {
 
 // TODO: Gap - Null/Undefined/Empty: Test handleTaskFailure when task.ID is an empty string. Validate kernel assertion safety.
 // TODO: Gap - User Request Extremes: Test computeRetryBackoff with RetryBackoffBase/Max set to time.Duration(math.MaxInt64) to check for integer overflow causing negative wait times.
-// TODO: Gap - User Request Extremes: Test behavior when config.MaxRetries is explicitly 0 (fail-fast vs defaulting to 3).
 // TODO: Gap - State Conflicts: Test handleTaskFailure when the kernel.Assert returns an error (e.g. read-only mode). Ensure orchestrator state doesn't desync or hang.
 // TODO: Gap - Type Coercion / Adversarial: Test handleTaskFailure where err contains unescaped Mangle syntax or adversarial payload strings to ensure they don't break kernel fact parsing.
 // TODO: Gap - State Conflicts: Pass an already canceled context.Context to handleTaskFailure and verify if o.saveCampaign() blocks or correctly handles the cancellation.
-// TODO: Gap - User Request Extremes (Performance): Test shouldEscalateLogicFailure and handleTaskFailure with a task that has 100,000 previous attempts to ensure lock contention and memory pressure are manageable.
 
 func TestOrchestratorFailure_NullEmptyPointers(t *testing.T) {
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
@@ -353,24 +346,6 @@ func TestOrchestratorFailure_MassiveErrorString(t *testing.T) {
 	orch.handleTaskFailure(context.Background(), phase, task, err)
 }
 
-func TestOrchestratorFailure_InfiniteRecursionProtection(t *testing.T) {
-	orch, _, _ := newFailureTestOrchestrator(t, 5)
-	phase := &orch.campaign.Phases[0]
-	task := &orch.campaign.Phases[0].Tasks[0]
-
-	// Make the task a Repro Diagnostic task
-	task.Type = TaskTypeTestRun
-	task.Description = "repro diagnostic: run tests before next mutation"
-
-	// Fail the repro task
-	orch.handleTaskFailure(context.Background(), phase, task, errors.New("logic failure in repro"))
-
-	// Should NOT spawn another repro task
-	if len(phase.Tasks) > 1 {
-		t.Fatalf("expected no repro task spawned from a repro task, got %d", len(phase.Tasks))
-	}
-}
-
 func TestOrchestratorFailure_StateConflicts_Concurrency(t *testing.T) {
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 	phase := &orch.campaign.Phases[0]
@@ -402,11 +377,9 @@ func TestOrchestratorFailure_StateConflicts_Concurrency(t *testing.T) {
 
 // TODO: Gap - Null/Undefined/Empty: Test handleTaskFailure when task.ID is an empty string. Validate kernel assertion safety.
 // TODO: Gap - User Request Extremes: Test computeRetryBackoff with RetryBackoffBase/Max set to time.Duration(math.MaxInt64) to check for integer overflow causing negative wait times.
-// TODO: Gap - User Request Extremes: Test behavior when config.MaxRetries is explicitly 0 (fail-fast vs defaulting to 3).
 // TODO: Gap - State Conflicts: Test handleTaskFailure when the kernel.Assert returns an error (e.g. read-only mode). Ensure orchestrator state doesn't desync or hang.
 // TODO: Gap - Type Coercion / Adversarial: Test handleTaskFailure where err contains unescaped Mangle syntax or adversarial payload strings to ensure they don't break kernel fact parsing.
 // TODO: Gap - State Conflicts: Pass an already canceled context.Context to handleTaskFailure and verify if o.saveCampaign() blocks or correctly handles the cancellation.
-// TODO: Gap - User Request Extremes (Performance): Test shouldEscalateLogicFailure and handleTaskFailure with a task that has 100,000 previous attempts to ensure lock contention and memory pressure are manageable.
 
 func TestOrchestratorFailure_EmptyTaskID(t *testing.T) {
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
@@ -435,27 +408,10 @@ func TestOrchestratorFailure_RetryBackoff_Overflow(t *testing.T) {
 	orch.policy.RetryBackoffBase = time.Duration(math.MaxInt64)
 	orch.policy.RetryBackoffMax = time.Duration(math.MaxInt64)
 
-	backoff := orch.computeRetryBackoff("task_mutate_1", 10)
+	backoff := orch.computeRetryBackoff(10, true)
 
 	if backoff < 0 {
 		t.Fatalf("computeRetryBackoff caused integer overflow and returned negative time: %v", backoff)
-	}
-}
-
-func TestOrchestratorFailure_MaxRetriesZero(t *testing.T) {
-	orch, _, _ := newFailureTestOrchestrator(t, 5)
-	orch.policy.MaxTaskAttempts = 1 // one failed attempt fails the task
-
-	phase := &orch.campaign.Phases[0]
-	task := &orch.campaign.Phases[0].Tasks[0]
-
-	err := errors.New("fail fast")
-
-	orch.handleTaskFailure(context.Background(), phase, task, err)
-
-	// Task should be failed immediately
-	if task.Status != TaskFailed {
-		t.Fatalf("expected task to be TaskFailed when MaxRetries is 0, got %s", task.Status)
 	}
 }
 
