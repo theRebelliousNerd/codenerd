@@ -584,9 +584,17 @@ func (c *Campaign) ToFacts() []core.Fact {
 		})
 	}
 
-	// Phases
+	// Phases. A phase belongs to the campaign that holds it, whatever its own
+	// CampaignID field says: campaign_phases_done reads campaign_phase rows by
+	// campaign, so a phase whose field was empty or stale was invisible to it
+	// and the campaign counted as done with that phase still pending.
 	for i := range c.Phases {
-		facts = append(facts, c.Phases[i].ToFacts()...)
+		for _, f := range c.Phases[i].ToFacts() {
+			if f.Predicate == "campaign_phase" && len(f.Args) > 1 {
+				f.Args[1] = c.ID
+			}
+			facts = append(facts, f)
+		}
 	}
 
 	logging.CampaignDebug("Campaign %s converted: %d total facts (phases=%d, profiles=%d, docs=%d)",

@@ -136,8 +136,10 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 		}
 
 	schedule:
-		// If phase is done and no active tasks, run checkpoint and finish
-		if o.isPhaseComplete(phase) && len(active) == 0 {
+		// Nothing running and the kernel derives every task done: run the
+		// checkpoint and finish. The kernel is asked only when nothing is
+		// running, not on every poll.
+		if len(active) == 0 && o.phaseTasksDone(phase) {
 			logging.Campaign("Phase %s complete, running checkpoint", phase.Name)
 			allPassed, failedSummary, err := o.runPhaseCheckpoint(ctx, phase)
 			if err != nil {

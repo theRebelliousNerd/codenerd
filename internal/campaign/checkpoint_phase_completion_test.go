@@ -93,6 +93,11 @@ func newCheckpointPolicyOrchestrator(t *testing.T, review string, edit func(*con
 			}},
 		}},
 	}
+	// Run loads the campaign's facts before any phase runs; the kernel derives
+	// the phase's completion and its checkpoint moves from them.
+	if err := kernel.LoadFacts(orch.campaign.ToFacts()); err != nil {
+		t.Fatalf("load campaign facts: %v", err)
+	}
 	return orch, events
 }
 

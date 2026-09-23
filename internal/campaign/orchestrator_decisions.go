@@ -39,6 +39,24 @@ func (o *Orchestrator) derivedFor(predicate, key string) ([]string, error) {
 	return out, nil
 }
 
+// holdsFor reports whether the kernel derives the unary predicate for key (a
+// phase, a campaign). A failed query is an error, never a default.
+func (o *Orchestrator) holdsFor(predicate, key string) (bool, error) {
+	if o.kernel == nil {
+		return false, fmt.Errorf("no kernel to derive %s for %s", predicate, key)
+	}
+	facts, err := o.kernel.Query(predicate)
+	if err != nil {
+		return false, fmt.Errorf("query %s: %w", predicate, err)
+	}
+	for _, f := range facts {
+		if len(f.Args) > 0 && types.ExtractString(f.Args[0]) == key {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // oneDerivedFor is derivedFor for a decision that must have exactly one answer.
 func (o *Orchestrator) oneDerivedFor(predicate, key string) (string, error) {
 	got, err := o.derivedFor(predicate, key)

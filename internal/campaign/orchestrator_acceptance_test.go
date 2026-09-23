@@ -128,7 +128,7 @@ func TestAcceptance_AFailingWitnessHoldsCompletionAndBriefsARemediation(t *testi
 	if len(task.WriteSet) != 1 || task.WriteSet[0] != "Docs/architecture/diff" {
 		t.Errorf("remediation write set = %v, want what the campaign wrote", task.WriteSet)
 	}
-	if orch.isCampaignComplete() {
+	if orch.campaignPhasesDone() {
 		t.Error("the loop would complete the campaign with a remediation phase pending")
 	}
 	// The whole output is on disk, where the round says it is.

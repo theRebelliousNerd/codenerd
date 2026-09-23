@@ -178,8 +178,8 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		// 1. Query Mangle for current state
 		currentPhase := o.getCurrentPhase()
 		if currentPhase == nil {
-			// Check if campaign is complete
-			if o.isCampaignComplete() {
+			// Every phase done, as the kernel derives it
+			if o.campaignPhasesDone() {
 				// Every phase is done. If the user declared an acceptance
 				// command, the phases being done is not the campaign being
 				// done: the witness has to pass first.

@@ -9,13 +9,19 @@ current_campaign(CampaignID) :-
 active_strategy(/campaign_execution) :-
     current_campaign(_).
 
+# Every phase of the campaign is completed or skipped. The orchestrator asks
+# this when no phase is current, and then settles the acceptance command; it
+# used to decide it with an in-memory scan beside this rule (sweep finding F3).
+campaign_phases_done(CampaignID) :-
+    current_campaign(CampaignID),
+    !has_incomplete_phase(CampaignID).
+
 # Campaign complete when all phases complete and, where the user declared an
 # acceptance command, that command has passed. This is the only definition of
 # campaign_complete: a second copy without the acceptance premise would be a
 # way round it.
 campaign_complete(CampaignID) :-
-    current_campaign(CampaignID),
-    !has_incomplete_phase(CampaignID),
+    campaign_phases_done(CampaignID),
     !campaign_acceptance_unmet(CampaignID).
 
 next_action(/campaign_complete) :-

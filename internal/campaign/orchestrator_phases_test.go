@@ -211,111 +211,79 @@ func TestOrchestrator_GetNextTask(t *testing.T) {
 
 }
 
-// TODO: [Null/Undefined/Empty] Test isCampaignComplete when o.campaign is nil or o.campaign.Phases is empty/nil.
-// TODO: [User Request Extremes] Test isCampaignComplete with 10,000+ phases to measure iterator overhead.
-// TODO: [State Conflicts] Test isCampaignComplete when another goroutine is modifying Phase.Status concurrently.
-func TestOrchestrator_IsCampaignComplete(t *testing.T) {
-	// Case: Nil campaign
-	orchNil := &Orchestrator{campaign: nil}
-	if !orchNil.isCampaignComplete() {
-		t.Error("Nil campaign should be complete")
+// Completion is the kernel's: campaign_phases_done and all_phase_tasks_complete,
+// derived from the campaign's own rows. The in-memory scans that decided it
+// beside those rules (isCampaignComplete, isPhaseComplete) are deleted (sweep
+// finding F3).
+func completionOrchestrator(t *testing.T, c *Campaign) *Orchestrator {
+	t.Helper()
+	kernel, err := core.NewRealKernelWithWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
+	if err := kernel.LoadFacts(c.ToFacts()); err != nil {
+		t.Fatalf("load campaign facts: %v", err)
+	}
+	return &Orchestrator{kernel: kernel, campaign: c}
+}
 
-	// Case: Empty phases
-	cEmpty := &Campaign{Phases: []Phase{}}
-	orchEmpty := &Orchestrator{campaign: cEmpty}
-	if !orchEmpty.isCampaignComplete() {
-		t.Error("Empty campaign should be complete")
+func TestOrchestrator_CampaignPhasesDoneIsTheKernels(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		statuses []PhaseStatus
+		want     bool
+	}{
+		{"no phases", nil, true},
+		{"completed and skipped", []PhaseStatus{PhaseCompleted, PhaseSkipped}, true},
+		{"one in progress", []PhaseStatus{PhaseCompleted, PhaseInProgress}, false},
+		{"one pending", []PhaseStatus{PhaseCompleted, PhasePending}, false},
+		{"one closed unverified", []PhaseStatus{PhaseCompleted, PhaseUnverified}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Campaign{ID: "/campaign_done", Title: "done", Status: StatusActive}
+			for i, s := range tc.statuses {
+				c.Phases = append(c.Phases, Phase{ID: fmt.Sprintf("/phase_done_%d", i), CampaignID: c.ID, Name: "p", Order: i, Status: s})
+			}
+			if got := completionOrchestrator(t, c).campaignPhasesDone(); got != tc.want {
+				t.Fatalf("campaignPhasesDone = %v, want %v", got, tc.want)
+			}
+		})
 	}
-	// Case 1: All completed or skipped
-	c1 := &Campaign{
-		Phases: []Phase{
-			{ID: "p1", Status: PhaseCompleted},
-			{ID: "p2", Status: PhaseSkipped},
-		},
-	}
-	orch1 := &Orchestrator{campaign: c1}
-	if !orch1.isCampaignComplete() {
-		t.Error("Campaign should be complete")
-	}
-
-	// Case 2: One in progress
-	c2 := &Campaign{
-		Phases: []Phase{
-			{ID: "p1", Status: PhaseCompleted},
-			{ID: "p2", Status: PhaseInProgress},
-		},
-	}
-	orch2 := &Orchestrator{campaign: c2}
-	if orch2.isCampaignComplete() {
-		t.Error("Campaign should not be complete (p2 in progress)")
-	}
-
-	// Case 3: One pending
-	c3 := &Campaign{
-		Phases: []Phase{
-			{ID: "p1", Status: PhaseCompleted},
-			{ID: "p2", Status: PhasePending},
-		},
-	}
-	orch3 := &Orchestrator{campaign: c3}
-	if orch3.isCampaignComplete() {
-		t.Error("Campaign should not be complete (p2 pending)")
+	// A campaign the kernel holds no row for is not done: no finished
+	// campaign is declared on a kernel that does not know it.
+	orch := completionOrchestrator(t, &Campaign{ID: "/campaign_done", Title: "done", Status: StatusActive})
+	orch.campaign = &Campaign{ID: "/campaign_unknown"}
+	if orch.campaignPhasesDone() {
+		t.Fatal("a campaign the kernel holds no row for was declared done")
 	}
 }
 
-// TODO: [Null/Undefined/Empty] Test isPhaseComplete when phase argument is nil or phase.Tasks is nil/empty.
-func TestOrchestrator_IsPhaseComplete(t *testing.T) {
-	orch := &Orchestrator{}
-
-	// Case: Nil Phase
-	if orch.isPhaseComplete(nil) {
-		t.Error("Phase should not be complete when phase is nil")
+func TestOrchestrator_PhaseTasksDoneIsTheKernels(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		statuses []TaskStatus
+		want     bool
+	}{
+		{"no tasks", nil, true},
+		{"completed and skipped", []TaskStatus{TaskCompleted, TaskSkipped}, true},
+		{"one in progress", []TaskStatus{TaskCompleted, TaskInProgress}, false},
+		{"one pending", []TaskStatus{TaskCompleted, TaskPending}, false},
+		{"one failed", []TaskStatus{TaskCompleted, TaskFailed}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			phase := Phase{ID: "/phase_tasks", CampaignID: "/campaign_tasks", Name: "p", Status: PhaseInProgress}
+			for i, s := range tc.statuses {
+				phase.Tasks = append(phase.Tasks, Task{ID: fmt.Sprintf("/task_done_%d", i), PhaseID: phase.ID, Description: "t", Status: s, Type: TaskTypeFileModify})
+			}
+			c := &Campaign{ID: "/campaign_tasks", Title: "tasks", Status: StatusActive, Phases: []Phase{phase}}
+			orch := completionOrchestrator(t, c)
+			if got := orch.phaseTasksDone(&c.Phases[0]); got != tc.want {
+				t.Fatalf("phaseTasksDone = %v, want %v", got, tc.want)
+			}
+		})
 	}
-
-	// Case: Nil Tasks
-	pNilTasks := &Phase{Tasks: nil}
-	if !orch.isPhaseComplete(pNilTasks) {
-		t.Error("Phase should be complete when Tasks is nil")
-	}
-
-	// Case: Empty Tasks
-	pEmptyTasks := &Phase{Tasks: []Task{}}
-	if !orch.isPhaseComplete(pEmptyTasks) {
-		t.Error("Phase should be complete when Tasks is empty")
-	}
-
-	// Case 1: All tasks completed or skipped
-	p1 := &Phase{
-		Tasks: []Task{
-			{ID: "t1", Status: TaskCompleted},
-			{ID: "t2", Status: TaskSkipped},
-		},
-	}
-	if !orch.isPhaseComplete(p1) {
-		t.Error("Phase should be complete")
-	}
-
-	// Case 2: Task in progress
-	p2 := &Phase{
-		Tasks: []Task{
-			{ID: "t1", Status: TaskCompleted},
-			{ID: "t2", Status: TaskInProgress},
-		},
-	}
-	if orch.isPhaseComplete(p2) {
-		t.Error("Phase should not be complete (t2 in progress)")
-	}
-
-	// Case 3: Task pending
-	p3 := &Phase{
-		Tasks: []Task{
-			{ID: "t1", Status: TaskCompleted},
-			{ID: "t2", Status: TaskPending},
-		},
-	}
-	if orch.isPhaseComplete(p3) {
-		t.Error("Phase should not be complete (t2 pending)")
+	if (&Orchestrator{}).phaseTasksDone(nil) {
+		t.Fatal("a nil phase is done")
 	}
 }
 

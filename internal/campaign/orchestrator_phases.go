@@ -222,26 +222,75 @@ func (o *Orchestrator) getNextTask(phase *Phase) *Task {
 	return nil
 }
 
-// isCampaignComplete checks if all phases are complete.
-func (o *Orchestrator) isCampaignComplete() bool {
-	if o.campaign == nil || len(o.campaign.Phases) == 0 {
-		return true
-	}
-	completedCount := 0
-	skippedCount := 0
-	for _, phase := range o.campaign.Phases {
-		if phase.Status == PhaseCompleted {
-			completedCount++
-		} else if phase.Status == PhaseSkipped {
-			skippedCount++
-		} else {
-			logging.CampaignDebug("Campaign not complete: phase %s is %s", phase.ID, phase.Status)
-			return false
+// campaignPhasesDone asks the kernel whether every phase of the campaign is
+// completed or skipped (campaign_phases_done). A failed query is not done: the
+// loop goes on to the block check rather than declare a campaign finished on a
+// kernel it could not ask. A kernel missing a row for one of the campaign's
+// phases would call it done without that phase, so the rows are checked and
+// reloaded first (askWithCampaignState).
+func (o *Orchestrator) campaignPhasesDone() bool {
+	o.mu.RLock()
+	id := ""
+	var phaseIDs []string
+	if o.campaign != nil {
+		id = o.campaign.ID
+		for i := range o.campaign.Phases {
+			phaseIDs = append(phaseIDs, o.campaign.Phases[i].ID)
 		}
 	}
-	logging.CampaignDebug("Campaign complete check: completed=%d, skipped=%d, total=%d",
-		completedCount, skippedCount, len(o.campaign.Phases))
-	return true
+	o.mu.RUnlock()
+	done, err := o.askWithCampaignState("campaign_phases_done", id, map[string][]string{"campaign_phase": phaseIDs})
+	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("campaign_phases_done for %s: %v", id, err)
+		return false
+	}
+	return done
+}
+
+// askWithCampaignState asks the kernel whether it derives the unary decision
+// for key, after making sure it holds the rows the decision is derived from:
+// for each predicate, a row whose first argument is each of the given IDs.
+// Rows it does not hold are missing state, not a decision -- a rule cannot see
+// a phase or a task it was never told of, and a completion rule then fires
+// early or never -- so the campaign's facts are reloaded first, as
+// getEligibleTasks does for tasks it does not hold. The in-memory IDs only
+// find missing rows; the kernel decides.
+func (o *Orchestrator) askWithCampaignState(decision, key string, needed map[string][]string) (bool, error) {
+	if o.kernel == nil {
+		return false, fmt.Errorf("no kernel to derive %s for %s", decision, key)
+	}
+	missing := 0
+	for predicate, ids := range needed {
+		if len(ids) == 0 {
+			continue
+		}
+		rows, err := o.kernel.Query(predicate)
+		if err != nil {
+			return false, fmt.Errorf("query %s: %w", predicate, err)
+		}
+		held := make(map[string]bool, len(rows))
+		for _, f := range rows {
+			if len(f.Args) > 0 {
+				held[types.ExtractString(f.Args[0])] = true
+			}
+		}
+		for _, id := range ids {
+			if !held[id] {
+				missing++
+			}
+		}
+	}
+	if missing > 0 {
+		logging.Get(logging.CategoryCampaign).Warn(
+			"The kernel is missing %d campaign row(s) %s depends on for %s; reloading the campaign's facts", missing, decision, key)
+		o.mu.RLock()
+		reload := o.campaign.ToFacts()
+		o.mu.RUnlock()
+		if err := o.kernel.LoadFacts(reload); err != nil {
+			return false, fmt.Errorf("reload campaign facts: %w", err)
+		}
+	}
+	return o.holdsFor(decision, key)
 }
 
 // getCampaignBlockReason checks if campaign is blocked.
@@ -263,26 +312,30 @@ func (o *Orchestrator) getCampaignBlockReason() string {
 	return reason
 }
 
-// isPhaseComplete checks if all tasks in a phase are complete.
-func (o *Orchestrator) isPhaseComplete(phase *Phase) bool {
+// phaseTasksDone asks the kernel whether every task of the phase is completed
+// or skipped (all_phase_tasks_complete), from the campaign_task rows
+// updateTaskStatus keeps current. A failed query is not done: no checkpoint
+// runs on a kernel the orchestrator could not ask. The phase's own row and its
+// tasks' rows are checked and reloaded first (askWithCampaignState): without
+// the phase row the rule never fires and the phase loop waits forever; without
+// a task's row it fires with that task still pending.
+func (o *Orchestrator) phaseTasksDone(phase *Phase) bool {
 	if phase == nil {
 		return false
 	}
-	completedCount := 0
-	skippedCount := 0
-	for _, task := range phase.Tasks {
-		if task.Status == TaskCompleted {
-			completedCount++
-		} else if task.Status == TaskSkipped {
-			skippedCount++
-		} else {
-			logging.CampaignDebug("Phase %s not complete: task %s is %s", phase.ID, task.ID, task.Status)
-			return false
-		}
+	taskIDs := make([]string, 0, len(phase.Tasks))
+	for i := range phase.Tasks {
+		taskIDs = append(taskIDs, phase.Tasks[i].ID)
 	}
-	logging.CampaignDebug("Phase %s complete check: completed=%d, skipped=%d, total=%d",
-		phase.ID, completedCount, skippedCount, len(phase.Tasks))
-	return true
+	done, err := o.askWithCampaignState("all_phase_tasks_complete", phase.ID, map[string][]string{
+		"campaign_phase": {phase.ID},
+		"campaign_task":  taskIDs,
+	})
+	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("all_phase_tasks_complete for %s: %v", phase.ID, err)
+		return false
+	}
+	return done
 }
 
 // startNextPhase starts the next eligible phase.

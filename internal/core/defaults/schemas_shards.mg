@@ -315,6 +315,10 @@ Decl all_phase_tasks_complete(PhaseID) bound [/string].
 # campaign_complete(CampaignID) - derived: entire campaign is complete
 Decl campaign_complete(CampaignID) bound [/string].
 
+# campaign_phases_done(CampaignID) - derived: every phase completed or skipped
+# (the orchestrator then settles the campaign's acceptance)
+Decl campaign_phases_done(CampaignID) bound [/string].
+
 # -----------------------------------------------------------------------------
 # 32.2 Campaign Derived Predicates (from policy.mg Section 19)
 # -----------------------------------------------------------------------------

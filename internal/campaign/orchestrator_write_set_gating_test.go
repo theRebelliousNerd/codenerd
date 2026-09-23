@@ -244,6 +244,12 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 			if err := os.WriteFile(conflictPath, []byte(req.Task+"\n"), 0o644); err != nil {
 				return "", err
 			}
+			// The scripted kernel answers the phase's completion the way it
+			// answers eligibility: once the second task has run, both are done
+			// (all_phase_tasks_complete is the kernel's, not a scan of memory).
+			if strings.Contains(req.Task, "task-two") {
+				_ = mockKernel.Assert(core.Fact{Predicate: "all_phase_tasks_complete", Args: []any{"/phase_1"}})
+			}
 			return "ok", nil
 		},
 	}
