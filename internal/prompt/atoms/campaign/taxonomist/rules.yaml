@@ -194,94 +194,6 @@
     3. If sort fails, circular dependency exists
     4. Revise phase assignments to break cycles
 
-- id: "campaign/taxonomist/output_protocol"
-  category: "protocol"
-  subcategory: "piggyback"
-  priority: 82
-  is_mandatory: true
-  shard_types: ["taxonomist", "planner"]
-  campaign_phases: ["taxonomy", "planning"]
-  depends_on: ["campaign/taxonomist/hallucinations"]
-  description: "Piggyback Protocol output format for taxonomy classification results"
-  content: |
-    # OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
-
-    You must ALWAYS output a JSON object with this exact structure. No exceptions.
-
-    ## Output Format
-
-    ```json
-    {
-      "control_packet": {
-        "intent_classification": {
-          "category": "/mutation",
-          "verb": "/classify_phase",
-          "target": "task_list",
-          "confidence": 0.95
-        },
-        "mangle_updates": [
-          "task_phase(\"Define User struct\", /domain_core)",
-          "phase_order(/domain_core, 2)",
-          "dependency_edge(/service, /domain_core)"
-        ],
-        "reasoning_trace": "1. Analyzed task dependencies. 2. Identified struct definitions as /domain_core. 3. Handlers depend on services, placed in /transport. 4. Verified no cycles in dependency graph."
-      },
-      "surface_response": "Classified 5 tasks into phases with correct dependency ordering.",
-      "classifications": [
-        {"task": "Define User struct", "phase": "/domain_core", "order": 2}
-      ]
-    }
-    ```
-
-    ## Critical Requirements
-
-    - The control_packet MUST contain intent_classification
-    - The mangle_updates MUST list all phase assignments as atoms
-    - The reasoning_trace MUST show dependency analysis
-    - The classifications array MUST list all task→phase mappings
-
-- id: "campaign/taxonomist/reasoning_trace"
-  category: "protocol"
-  subcategory: "reasoning"
-  priority: 80
-  is_mandatory: true
-  shard_types: ["taxonomist", "planner"]
-  campaign_phases: ["taxonomy", "planning"]
-  depends_on: ["campaign/taxonomist/output_protocol"]
-  description: "Reasoning trace requirements for taxonomy classification decisions"
-  content: |
-    # REASONING TRACE REQUIREMENTS
-
-    ## Minimum Length
-    30 words minimum - demonstrate systematic analysis, not shortcuts.
-
-    ## Required Elements
-
-    Your reasoning_trace must include:
-
-    1. **What dependencies were identified?**
-       - List the key dependency relationships discovered
-       - Example: "UserService depends on UserRepository interface"
-
-    2. **What phase assignments were made?**
-       - Enumerate each task and its assigned phase
-       - Example: "User struct → /domain_core, UserService → /service"
-
-    3. **Was the topological sort valid?**
-       - Confirm no circular dependencies exist
-       - Example: "Verified dependency graph is acyclic: scaffold→domain→service→transport"
-
-    ## Example Reasoning Trace
-
-    "Analyzed 8 tasks. Identified User struct definition as foundational → /domain_core. UserRepository implementation depends on User struct → /data_layer. UserService orchestrates repository calls → /service. HTTP handlers call UserService → /transport. Verified topological sort: no cycles detected. All dependencies flow downward from integration to scaffold."
-
-    ## Quality Standards
-
-    - Be specific about which tasks depend on which
-    - Explain WHY each phase assignment was made
-    - Demonstrate understanding of dependency topology
-    - Show verification of acyclic property
-
 - id: "campaign/taxonomist/execution_strategy"
   category: "methodology"
   subcategory: "execution"
@@ -289,7 +201,11 @@
   is_mandatory: true
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]
-  depends_on: ["campaign/taxonomist/reasoning_trace"]
+  # Was reasoning_trace, a protocol atom: the planner (the only shard this
+  # family reaches) is structured-output, the selector drops protocol atoms
+  # for it before dependencies resolve, and this mandatory atom was pruned
+  # with its missing dependency on every planner compile.
+  depends_on: ["campaign/taxonomist/hallucinations"]
   description: "Strategy for executing classified tasks in correct dependency order"
   content: |
     # EXECUTION STRATEGY

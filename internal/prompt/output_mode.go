@@ -38,12 +38,13 @@ func IsStructuredOutputOnly(shardType string) bool {
 //
 // The check is by CATEGORY, not by ID prefix. It used to match only
 // "protocol/piggyback/" and "protocol/reasoning/", which let
-// campaign/taxonomist/output_protocol through: that atom is gated
-// shard_types: ["taxonomist", "planner"], so it lands in the Decomposer's
-// compile carrying "# OUTPUT PROTOCOL (PIGGYBACK ENVELOPE) — You must ALWAYS
-// output a JSON object with this exact structure. No exceptions." The planner
-// then returned a control_packet instead of a plan, exactly as before, and the
-// only visible difference was one fewer copy of the instruction.
+// campaign/taxonomist/output_protocol (since deleted) through: that atom was
+// gated shard_types: ["taxonomist", "planner"], so it landed in the
+// Decomposer's compile carrying "# OUTPUT PROTOCOL (PIGGYBACK ENVELOPE) — You
+// must ALWAYS output a JSON object with this exact structure. No exceptions."
+// The planner then returned a control_packet instead of a plan, exactly as
+// before, and the only visible difference was one fewer copy of the
+// instruction.
 //
 // Any atom in CategoryProtocol is a competing output contract by definition. A
 // structured-output shard gets its schema from its role prompt, so all of them

@@ -142,10 +142,6 @@ func (d *Decomposer) buildPlanProposalContext(ctx context.Context, campaignID st
 		contextBuilder.WriteString("\n")
 	}
 
-	// Add strict build taxonomy guidance
-	contextBuilder.WriteString(TaxonomyLogic)
-	contextBuilder.WriteString("\n\n")
-
 	// Add source metadata
 	if len(files) > 0 {
 		contextBuilder.WriteString("SOURCE DOCUMENTS (metadata):\n")
