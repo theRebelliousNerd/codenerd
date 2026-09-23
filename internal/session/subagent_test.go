@@ -277,3 +277,12 @@ func TestSubAgent_CompressMemory_MassiveSummary(t *testing.T) {
 		t.Errorf("Expected prefix '[MEMORY SUMMARY]', got '%s'", summaryTurn.Content[:min(20, len(summaryTurn.Content))])
 	}
 }
+
+// A subagent carries no clock of the harness's own: it runs under its
+// caller's context. DefaultSubAgentConfig set a 30-minute wall clock until
+// 2026-09-23 (and a 100-task cap, which no longer exists).
+func TestDefaultSubAgentConfig_SetsNoClock(t *testing.T) {
+	if cfg := DefaultSubAgentConfig("probe"); cfg.Timeout != 0 {
+		t.Fatalf("DefaultSubAgentConfig.Timeout = %s, want none: runs take hours, and the only clock is the caller's", cfg.Timeout)
+	}
+}

@@ -379,7 +379,6 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		IntentVerb:                  req.IntentVerb,
 		IntentTarget:                req.IntentTarget,
 		Timeout:                     req.Timeout,
-		MaxTurns:                    100,
 		SessionContext:              req.SessionContext,
 	}
 

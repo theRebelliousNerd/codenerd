@@ -87,11 +87,10 @@ type SubAgentConfig struct {
 	// without inferring it from the task text.
 	IntentTarget string
 
-	// Timeout for the entire subagent execution.
+	// Timeout is a caller's own limit on the subagent's execution. Zero means
+	// none: the subagent runs under the caller's context and stops when the
+	// working policy derives a stall.
 	Timeout time.Duration
-
-	// MaxTurns limits conversation turns before forcing completion.
-	MaxTurns int
 
 	// SessionContext provides shared state (e.g., DreamMode, Blackboard)
 	SessionContext *types.SessionContext
@@ -99,14 +98,16 @@ type SubAgentConfig struct {
 
 var subagentCounter uint64
 
-// DefaultSubAgentConfig returns sensible defaults.
+// DefaultSubAgentConfig returns an ephemeral subagent's identity. It sets no
+// clock and no turn cap: a subagent runs under its caller's context (the
+// user's --timeout, when set) and stops when the working policy derives a
+// stall. Until 2026-09-23 it set a 30-minute wall clock and a 100-task cap
+// (the spawner, which had dropped its clock on 2026-09-19, kept the cap).
 func DefaultSubAgentConfig(name string) SubAgentConfig {
 	return SubAgentConfig{
-		ID:       fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), atomic.AddUint64(&subagentCounter, 1)),
-		Name:     name,
-		Type:     SubAgentTypeEphemeral,
-		Timeout:  30 * time.Minute,
-		MaxTurns: 100,
+		ID:   fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), atomic.AddUint64(&subagentCounter, 1)),
+		Name: name,
+		Type: SubAgentTypeEphemeral,
 	}
 }
 
@@ -261,7 +262,7 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 			ctx = types.WithModelCapability(ctx, capabilityHintForAgentName(s.config.Name))
 		}
 
-		// Apply timeout
+		// A caller's own limit, when it set one.
 		if s.config.Timeout > 0 {
 			var timeoutCancel context.CancelFunc
 			ctx, timeoutCancel = context.WithTimeout(ctx, s.config.Timeout)
@@ -290,13 +291,6 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 
 // execute runs the clean loop for this subagent.
 func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
-	s.mu.RLock()
-	if s.config.MaxTurns > 0 && s.turnCount >= s.config.MaxTurns {
-		s.mu.RUnlock()
-		return "", fmt.Errorf("subagent has reached maximum turns limit (%d)", s.config.MaxTurns)
-	}
-	s.mu.RUnlock()
-
 	// Inject compiled EffectiveAgentRuntimeConfig and current history into the executor
 	s.mu.RLock()
 	if s.config.EffectiveAgentRuntimeConfig != nil {
