@@ -77,8 +77,15 @@ func Apply(old *File, ch Change, targeted []string, res Resolver) (*Outcome, err
 		nf, _ := Parse(old.Path, s)
 		return nf
 	}
+	// The lines the change wrote, in the new source: a refusal shows only
+	// these, never a neighbouring element's text.
+	written := Normalize(ch.Text)
+	span := lineSpan{lo: strings.Count(src[:ch.Start], "\n") + 1}
+	if written != "" {
+		span.hi = span.lo + strings.Count(strings.TrimSuffix(written, "\n"), "\n")
+	}
 	nf := parse(src)
-	if err := parseVerdict(old, nf); err != nil {
+	if err := parseVerdict(old, nf, span); err != nil {
 		return nil, err
 	}
 
@@ -90,7 +97,7 @@ func Apply(old *File, ch Change, targeted []string, res Resolver) (*Outcome, err
 			return nil, err
 		}
 		nf = parse(formatted)
-		if err := parseVerdict(old, nf); err != nil {
+		if err := parseVerdict(old, nf, span); err != nil {
 			return nil, err
 		}
 		if res != nil {
@@ -101,7 +108,7 @@ func Apply(old *File, ch Change, targeted []string, res Resolver) (*Outcome, err
 			report = rep
 			if rep.Changed() {
 				nf = parse(derived)
-				if err := parseVerdict(old, nf); err != nil {
+				if err := parseVerdict(old, nf, span); err != nil {
 					return nil, fmt.Errorf("deriving imports broke the file: %w", err)
 				}
 				target[HeaderKey] = true
@@ -164,19 +171,35 @@ func Apply(old *File, ch Change, targeted []string, res Resolver) (*Outcome, err
 	return out, nil
 }
 
+// lineSpan is a 1-based inclusive range of lines. hi < lo is empty; the zero
+// value is unbounded.
+type lineSpan struct{ lo, hi int }
+
 // parseVerdict refuses a result that does not parse, or for a file that was
-// already broken, one that parses worse.
-func parseVerdict(old, nf *File) error {
+// already broken, one that parses worse. The refusal quotes only lines inside
+// span: an element verb that handed back its neighbour's source to explain a
+// parse error was a raw read of that neighbour (the R8 ratchet caught
+// replace_element doing it).
+func parseVerdict(old, nf *File, span lineSpan) error {
 	if nf.Parsed {
 		return nil
 	}
 	if old.Parsed || len(nf.Errors) > len(old.Errors) {
-		return fmt.Errorf("the result does not parse, so nothing was written: %s", describeErrors(nf))
+		return fmt.Errorf("the result does not parse, so nothing was written: %s", describeErrorsWithin(nf, span))
 	}
 	return nil
 }
 
+// describeErrors names a file's parse errors and shows the lines around the
+// first one.
 func describeErrors(f *File) string {
+	return describeErrorsWithin(f, lineSpan{})
+}
+
+// describeErrorsWithin is describeErrors with the excerpt clipped to span. An
+// excerpt that would fall wholly outside it is left out: the error's line and
+// column still say where.
+func describeErrorsWithin(f *File, span lineSpan) string {
 	if len(f.Errors) == 0 {
 		if f.Err != nil {
 			return f.Err.Error()
@@ -192,7 +215,14 @@ func describeErrors(f *File) string {
 		parts = append(parts, fmt.Sprintf("line %d:%d: %s", e.Line, e.Column, e.Msg))
 	}
 	first := f.Errors[0].Line
-	return strings.Join(parts, "; ") + "\n" + f.NumberedLines(max(1, first-3), min(f.LineCount(), first+3))
+	lo, hi := max(1, first-3), min(f.LineCount(), first+3)
+	if span != (lineSpan{}) {
+		lo, hi = max(lo, span.lo), min(hi, span.hi)
+	}
+	if hi < lo {
+		return strings.Join(parts, "; ")
+	}
+	return strings.Join(parts, "; ") + "\n" + f.NumberedLines(lo, hi)
 }
 
 // squash collapses whitespace, so a group gofmt realigned compares equal to

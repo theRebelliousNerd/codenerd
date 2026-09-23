@@ -231,6 +231,39 @@ func TestApply_RefusesAResultThatDoesNotParse(t *testing.T) {
 	}
 }
 
+// A refused edit quotes the lines it wrote and nothing of the elements around
+// it: an element verb that explained a parse error with its neighbour's source
+// was a raw read of that neighbour.
+func TestApply_ARefusalQuotesOnlyWhatTheEditWrote(t *testing.T) {
+	const src = `package demo
+
+// A holds the neighbour text.
+func A() string {
+	return "NEIGHBOURTEXT"
+}
+
+// B is the element the edit replaces.
+func B() int {
+	return 1
+}
+`
+	f := ParseGo("demo.go", src)
+	b := f.Element("B")
+	if b == nil {
+		t.Fatal("no element B")
+	}
+	_, err := Apply(f, Change{Start: b.Start, End: b.End, Text: "WRITTENLINE\n"}, []string{"B"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "does not parse") {
+		t.Fatalf("got %v, want a parse refusal", err)
+	}
+	if !strings.Contains(err.Error(), "WRITTENLINE") {
+		t.Errorf("the refusal does not show what the edit wrote: %v", err)
+	}
+	if strings.Contains(err.Error(), "NEIGHBOURTEXT") {
+		t.Errorf("the refusal quotes the neighbouring element: %v", err)
+	}
+}
+
 type fakeResolver map[string]string
 
 func (r fakeResolver) ResolveQualifier(q string) (string, []string) {
