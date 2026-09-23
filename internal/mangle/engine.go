@@ -78,6 +78,15 @@ type Engine struct {
 	persistence     Persistence
 	fileFacts       map[string][]ast.Atom
 	lastUpdate      time.Time // Last mutation of the store (base or derived); zero before any
+
+	// Exact re-derivation (engine_rederive.go): the program's rule graph, what
+	// changed since the last evaluation, and the base facts asserted into
+	// rule-head predicates, which clearing their derived atoms must keep.
+	rules        ruleGraph
+	dirtyPreds   map[string]struct{}
+	dirtyRemoval bool
+	dirtyAll     bool
+	idbBase      map[ast.PredicateSym]map[string]struct{}
 }
 
 // Fact represents a single fact in the knowledge graph.
@@ -202,7 +211,7 @@ func (e *Engine) RecomputeRules() error {
 	}()
 
 	// Use EvalProgramWithStats for visibility with gas limit enforcement
-	stats, err := e.evalWithGasLimit()
+	stats, err := e.rederiveLocked()
 	close(done)
 
 	if err != nil {
@@ -339,6 +348,10 @@ func (e *Engine) rebuildProgramLocked() error {
 		return err
 	}
 
+	var previousIdb map[ast.PredicateSym]struct{}
+	if e.programInfo != nil {
+		previousIdb = e.programInfo.IdbPredicates
+	}
 	e.programInfo = programInfo
 
 	// Cache stratification for EvalStratifiedProgramWithStats
@@ -373,6 +386,7 @@ func (e *Engine) rebuildProgramLocked() error {
 	}
 
 	e.queryContext = ctx
+	e.adoptProgramLocked(previousIdb)
 	return nil
 }
 
@@ -411,7 +425,7 @@ func (e *Engine) WarmFromPersistence(ctx context.Context) error {
 	e.autoEval = wasAuto
 
 	if e.autoEval {
-		_, err := e.evalWithGasLimit()
+		_, err := e.rederiveLocked()
 		if err != nil {
 			return fmt.Errorf("recompute rules after warm start: %w", err)
 		}
@@ -476,7 +490,7 @@ func (e *Engine) AddFactsContext(ctx context.Context, facts []Fact) error {
 	}
 
 	if e.autoEval {
-		_, err := e.evalWithGasLimit()
+		_, err := e.rederiveLocked()
 		if err != nil {
 			logging.Get(logging.CategoryKernel).Error("Rule evaluation failed after fact insertion: %v", err)
 		}
@@ -518,7 +532,7 @@ func (e *Engine) replaceFactsForFileImpl(file string, facts []Fact, contentHash 
 	}
 
 	if e.autoEval {
-		_, err := e.evalWithGasLimit()
+		_, err := e.rederiveLocked()
 		if err != nil {
 			e.mu.Unlock()
 			return err
@@ -553,7 +567,7 @@ func (e *Engine) Evaluate() error {
 	if e.programInfo == nil {
 		return errNoSchemas
 	}
-	_, err := e.evalWithGasLimit()
+	_, err := e.rederiveLocked()
 	return err
 }
 
@@ -563,12 +577,10 @@ func (e *Engine) Evaluate() error {
 // It exists for control facts whose first argument is not a file path.
 // ReplaceFactsForFile keys facts by their first string argument, so a fact
 // such as working_control(/no, 0) was never removed by it and every call
-// accumulated one more. Evaluation is also monotone: a stop derived from a
-// fact that no longer exists stayed derived, so a working loop that once hit
-// three failed rounds was stopped for that reason on every later round.
-// Every rule-head predicate is cleared before re-evaluation here. It is
-// meant for small task-private engines; a world-model engine would re-derive
-// everything on each call.
+// accumulated one more. A stop derived from a fact that no longer exists
+// stayed derived, so a working loop that once hit three failed rounds was
+// stopped for that reason on every later round; the removal now clears what
+// was derived downstream of the replaced predicates (rederiveLocked).
 func (e *Engine) ReplaceControlFacts(facts []Fact, predicates ...string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -580,29 +592,25 @@ func (e *Engine) ReplaceControlFacts(facts []Fact, predicates ...string) error {
 		if !ok {
 			return fmt.Errorf("predicate %s is not declared in schemas", predicate)
 		}
-		e.removePredicateLocked(sym, true)
+		e.removePredicateLocked(sym)
 	}
 	for _, fact := range facts {
 		if err := e.insertFactLocked(fact); err != nil {
 			return err
 		}
 	}
-	for sym := range e.programInfo.IdbPredicates {
-		e.removePredicateLocked(sym, false)
-	}
-	// Always re-derive, even when autoEval is off. This method promises to
-	// "re-derive from scratch" and it has just wiped every IDB predicate:
-	// honouring the autoEval flag here would return an engine whose derived
-	// state is silently empty until someone happens to call RecomputeRules.
-	if _, err := e.evalWithGasLimit(); err != nil {
+	// Always re-derive, even when autoEval is off. This method promises a
+	// derived state that matches the facts it just replaced: honouring the
+	// autoEval flag here would leave conclusions about the old facts standing
+	// until someone happens to call RecomputeRules.
+	if _, err := e.rederiveLocked(); err != nil {
 		return err
 	}
 	return nil
 }
 
-// removePredicateLocked drops every stored atom of one predicate. counted
-// says whether the atoms were base facts that insertFactLocked counted.
-func (e *Engine) removePredicateLocked(sym ast.PredicateSym, counted bool) {
+// removePredicateLocked drops every stored base atom of one predicate.
+func (e *Engine) removePredicateLocked(sym ast.PredicateSym) {
 	var atoms []ast.Atom
 	_ = e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
 		atoms = append(atoms, atom)
@@ -610,12 +618,14 @@ func (e *Engine) removePredicateLocked(sym ast.PredicateSym, counted bool) {
 	})
 	for _, atom := range atoms {
 		if e.baseStore.Remove(atom) {
-			if counted && e.factCount > 0 {
+			if e.factCount > 0 {
 				e.factCount--
 			}
+			e.forgetBaseLocked(atom)
 			e.lastUpdate = time.Now()
 		}
 	}
+	e.markDirtyLocked(true, sym.Symbol)
 }
 
 // isNilPersistence guards against typed nil persistence implementations.
@@ -641,6 +651,8 @@ func (e *Engine) insertFactLocked(fact Fact) error {
 		e.factCount++
 		e.lastUpdate = time.Now()
 		e.maybeWarnFactLimit()
+		e.recordBaseLocked(atom)
+		e.markDirtyLocked(false, atom.Predicate.Symbol)
 
 		// Update reverse index if this fact applies to a file
 		if len(atom.Args) > 0 {
@@ -1101,6 +1113,8 @@ func (e *Engine) Clear() {
 	e.store = factstore.NewConcurrentFactStore(e.baseStore)
 	e.factCount = 0
 	e.fileFacts = make(map[string][]ast.Atom)
+	e.idbBase = nil
+	e.dirtyAll, e.dirtyRemoval, e.dirtyPreds = false, false, nil
 	e.lastUpdate = time.Now()
 
 	// The query evaluator holds its own copy of the store reference
@@ -1140,6 +1154,9 @@ func (e *Engine) Reset() {
 	e.predicateIndex = make(map[string]ast.PredicateSym)
 	e.schemaFragments = nil
 	e.derivedCount = 0
+	e.rules = ruleGraph{}
+	e.idbBase = nil
+	e.dirtyAll, e.dirtyRemoval, e.dirtyPreds = false, false, nil
 	e.lastUpdate = time.Now()
 }
 
@@ -1301,6 +1318,8 @@ func (e *Engine) removeFactsLocked(file string) int {
 				if e.factCount > 0 {
 					e.factCount--
 				}
+				e.forgetBaseLocked(atom)
+				e.markDirtyLocked(true, atom.Predicate.Symbol)
 				removed++
 			}
 		}
@@ -1312,8 +1331,9 @@ func (e *Engine) removeFactsLocked(file string) int {
 
 	// Optimization: Fallback path removed.
 	// The fileFacts index is guaranteed to be consistent for all explicitly added facts
-	// via insertFactLocked. Derived facts are not tracked in fileFacts and are not
-	// removed by ReplaceFactsForFile, which is the intended behavior (only source facts replaced).
+	// via insertFactLocked. What was derived from the removed facts is not
+	// removed here: the removal is recorded, and the next evaluation clears the
+	// derived facts downstream of it before re-deriving (rederiveLocked).
 	// This avoids an O(N) scan of the entire fact store.
 
 	return removed
