@@ -97,19 +97,29 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 	return nil
 }
 
-// remeasureGates measures every gate the verdict reads on the workspace as it
-// is now, in the order the post-edit gates run. Nothing here asks the model
-// anything or edits a file: the rounds are over, and this is what they left.
-// A deleted test fails the turn, as it does in its own round; the other gates
-// leave their findings on the result for the verdict to read.
+// remeasureGates measures again, on the workspace as it is now, every gate
+// whose round the schedule ran (result.roundsRan, recorded when the kernel's
+// turn_next_round named it), in the order the rounds run. Nothing here asks
+// the model anything or edits a file: the rounds are over, and this is what
+// they left. A deleted test fails the turn, as it does in its own round; the
+// other gates leave their findings on the result for the verdict to read.
+//
+// Which gates: the rounds that ran, not the config switches alone. Until
+// 2026-09-23 the switches decided here, so a turn the schedule owed no /test
+// or /vet round had one measured at the closure anyway -- a second answer to
+// turn_round_owed. A switch still turns a round's measurement off, here as in
+// the round.
 func (e *Executor) remeasureGates(ctx context.Context, workspace string, result *ExecutionResult) error {
 	cfg := e.configSnapshot()
-	if cfg.VerifyBuildAfterEdits {
+	ran := result.roundsRan
+	if ran["/build"] && cfg.VerifyBuildAfterEdits {
 		fresh := verifyBuild(ctx, workspace, nil)
 		fresh.Repair = inheritRepair(fresh.Verdict(), result.BuildCheck.Repair)
 		result.BuildCheck = fresh
 	}
-	if cfg.VerifyTestsAfterEdits {
+	// Coverage is owed exactly when the tests are (turn_rounds.mg), and is
+	// measured by the same run.
+	if ran["/test"] && cfg.VerifyTestsAfterEdits {
 		result.UntestedPaths = untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths)
 		// Must stay the same helper the post-edit gate uses (gateTests), or a
 		// tag-gated package fails the turn twice over. With coverage: the
@@ -124,19 +134,21 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 		// leaves it unmeasured -- the turn fails on the tests. It used to
 		// ask turn_owes_gate again here, and a failed query meant no
 		// remeasure: the verdict then read a pin check older than the code.
-		if result.roundsRan["/pinned"] && result.TestCheck.Verdict() == VerifyPassed {
+		if ran["/pinned"] && result.TestCheck.Verdict() == VerifyPassed {
 			pin := verifyPinning(ctx, workspace, result, false)
 			pin.Repair = inheritRepair(pin.Verdict(), result.PinCheck.Repair)
 			result.PinCheck = pin
 		}
 	}
-	if cfg.VerifyBuildAfterEdits {
+	if ran["/vet"] && cfg.VerifyBuildAfterEdits {
 		fresh := verifyVet(ctx, workspace, result.WrittenPaths, result.PreWriteContents)
 		fresh.Repair = inheritRepair(fresh.Verdict(), result.VetCheck.Repair)
 		result.VetCheck = fresh
 	}
-	if removed := removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents); len(removed) > 0 {
-		return removedTestsError(removed)
+	if ran["/removed_tests"] {
+		if removed := removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents); len(removed) > 0 {
+			return removedTestsError(removed)
+		}
 	}
 	return nil
 }

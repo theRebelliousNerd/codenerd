@@ -139,9 +139,9 @@ func verifyGateExecutor(t *testing.T) (*Executor, *ExecutionResult) {
 	cfg.VerifyTestsAfterEdits = true
 	cfg.WorkspaceRoot = t.TempDir()
 	e := &Executor{config: cfg}
-	// As the round driver leaves a Go write once its build round has run: the
-	// closure remeasures the gates of a turn whose build round ran.
-	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"main.go"}, roundsRan: map[string]bool{"/build": true}}
+	// As the round driver leaves a Go write: the closure remeasures the gates
+	// whose rounds ran (turn_rounds.mg schedules these for a Go write).
+	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"main.go"}, roundsRan: goWriteRounds()}
 	return e, result
 }
 

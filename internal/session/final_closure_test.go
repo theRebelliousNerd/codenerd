@@ -115,6 +115,29 @@ func TestCloseChangeEvidence_ALaterVetFindingIsNamed(t *testing.T) {
 	}
 }
 
+// The closure remeasures the rounds the schedule ran, not every gate the
+// config switches allow: a turn whose schedule owed no /vet round keeps the
+// vet check it has, though a later write would now fail vet. Until 2026-09-23
+// the switches decided here -- a second answer to turn_round_owed.
+func TestCloseChangeEvidence_OnlyTheRoundsThatRanAreRemeasured(t *testing.T) {
+	e, result := verifyGateExecutor(t)
+	before := closureWorkspace(t, e, map[string]string{"main.go": closureDouble, "main_test.go": closureTestDouble})
+	result.PreWriteContents = map[string]PreImage{"main.go": {}}
+	delete(result.roundsRan, "/vet")
+	result.VetCheck = BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed}
+
+	laterWrite(t, e, "main.go", "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n\tprintln(\"never\")\n\treturn 0\n}\n\nfunc main() {}\n")
+	if err := e.closeChangeEvidence(context.Background(), result, before); err != nil {
+		t.Fatalf("closeChangeEvidence: %v", err)
+	}
+	if result.VetCheck.Verdict() != VerifyPassed {
+		t.Fatalf("VetCheck = %+v, want the round's own verdict: the schedule ran no /vet round", result.VetCheck)
+	}
+	if result.TestCheck.Verdict() != VerifyPassed {
+		t.Fatalf("TestCheck = %+v, want passed: the /test round ran and is remeasured", result.TestCheck)
+	}
+}
+
 func TestCloseChangeEvidence_ALaterDeletedTestFailsTheTurn(t *testing.T) {
 	e, result := verifyGateExecutor(t)
 	before := closureWorkspace(t, e, map[string]string{"main.go": closureDouble, "main_test.go": closureTestBoth})

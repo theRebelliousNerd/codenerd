@@ -102,11 +102,13 @@ func TestCloseChangeEvidence_APinTheTurnLostLaterIsNamed(t *testing.T) {
 		return result
 	}
 
-	ran := closeAfterALaterWrite(map[string]bool{"/build": true, "/pinned": true})
+	withPin := goWriteRounds()
+	withPin["/pinned"] = true
+	ran := closeAfterALaterWrite(withPin)
 	if ran.PinCheck.Verdict() != VerifyFailed || !strings.Contains(ran.PinCheck.Output, "calc.go: Greet") {
 		t.Fatalf("PinCheck = %s:\n%s\nwant failed naming calc.go: Greet -- nothing pins it since the later write", ran.PinCheck.Verdict(), ran.PinCheck.Output)
 	}
-	notRan := closeAfterALaterWrite(map[string]bool{"/build": true})
+	notRan := closeAfterALaterWrite(goWriteRounds())
 	if notRan.PinCheck.Verdict() != VerifyPassed {
 		t.Fatalf("PinCheck = %s, want the round's own verdict: the schedule did not run /pinned", notRan.PinCheck.Verdict())
 	}

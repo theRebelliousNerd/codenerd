@@ -14,6 +14,13 @@ import (
 // second answer to turn_owes_gate. The kernel's turn_next_round is the
 // schedule now (policy/turn_rounds.mg).
 
+// goWriteRounds is the rounds the schedule runs for a Go write whose turn owes
+// no pinning (a closure fixture with no verb): what the round driver leaves
+// in result.roundsRan.
+func goWriteRounds() map[string]bool {
+	return map[string]bool{"/build": true, "/test": true, "/critic": true, "/coverage": true, "/vet": true, "/removed_tests": true}
+}
+
 // roundsExecutor is an executor on a real kernel loaded with the policy
 // corpus.
 func roundsExecutor(t *testing.T) *Executor {
