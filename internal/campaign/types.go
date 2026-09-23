@@ -724,10 +724,29 @@ func (t *Task) ToFacts() []core.Fact {
 	}
 
 	// Deterministic write contract
-	for _, writePath := range t.DeterministicWriteSet() {
+	writeSet := t.DeterministicWriteSet()
+	for _, writePath := range writeSet {
 		facts = append(facts, core.Fact{
 			Predicate: "task_write_target",
 			Args:      []any{t.ID, writePath},
+		})
+	}
+
+	// The kinds of file the task writes, by extension, from the same write
+	// set: the policy classes them with write_class (coder_safety.mg) to
+	// decide what the task's phase can be verified by (verify_task_route) and
+	// what a failure of the task owes (task_owes_repro). A directory target
+	// has no extension and says nothing about its kind.
+	seenExt := make(map[string]bool, len(writeSet))
+	for _, writePath := range writeSet {
+		ext := strings.ToLower(filepath.Ext(writePath))
+		if ext == "" || seenExt[ext] {
+			continue
+		}
+		seenExt[ext] = true
+		facts = append(facts, core.Fact{
+			Predicate: "task_write_ext",
+			Args:      []any{t.ID, ext},
 		})
 	}
 

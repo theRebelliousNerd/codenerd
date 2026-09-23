@@ -198,31 +198,6 @@ func TestNeedsAnalysisRetry(t *testing.T) {
 	}
 }
 
-func TestIsAnalyticalVerifyDescription(t *testing.T) {
-	analytical := []string{
-		"Inspect logic defects and invariant violations in internal/world.",
-		"Assess error-handling mistakes across the scanner.",
-		"Audit API contract drift between emitters and predicate sets.",
-		"Review the resource ownership and lifecycle of the LSP manager.",
-		"Identify race conditions in the worker pool.",
-	}
-	for _, d := range analytical {
-		if !isAnalyticalVerifyDescription(d) {
-			t.Errorf("expected analytical routing for %q", d)
-		}
-	}
-	buildOnly := []string{
-		"Verify the package compiles with go build ./...",
-		"Confirm the tree builds after the change.",
-		"Run go build and report the exit status.",
-	}
-	for _, d := range buildOnly {
-		if isAnalyticalVerifyDescription(d) {
-			t.Errorf("expected build path (not analytical) for %q", d)
-		}
-	}
-}
-
 func TestPersistTaskOutputArtifact_SkipsWhenDurableOutputExists(t *testing.T) {
 	o := newArtifactTestOrchestrator(t)
 	// Simulate a task that already wrote a durable /doc output.

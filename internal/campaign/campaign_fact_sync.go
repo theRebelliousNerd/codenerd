@@ -7,6 +7,27 @@ import (
 	"time"
 )
 
+// taskFactPredicates are the predicates Task.ToFacts emits, each keyed by the
+// task ID in its first argument: every one is retracted before a task's facts
+// are reloaded, so a changed task never leaves a stale row behind. A predicate
+// ToFacts gains is added here in the same change.
+var taskFactPredicates = []string{
+	"campaign_task",
+	"task_priority",
+	"task_order",
+	"task_dependency",
+	"task_soft_dependency",
+	"requires_resource",
+	"task_sub_campaign",
+	"task_artifact",
+	"task_inference",
+	"task_attempt",
+	"task_retry_at",
+	"task_error",
+	"task_write_target",
+	"task_write_ext",
+}
+
 func syncCampaignFacts(kernel core.Kernel, previous, next *Campaign, revisionSummary string) error {
 	if kernel == nil {
 		return ErrNilKernel
@@ -111,44 +132,10 @@ func retractCampaignFacts(kernel core.Kernel, campaign *Campaign) error {
 		}
 
 		for _, task := range phase.Tasks {
-			if err := retract(core.Fact{Predicate: "campaign_task", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_priority", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_order", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_dependency", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_soft_dependency", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "requires_resource", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_sub_campaign", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_artifact", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_inference", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_attempt", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_retry_at", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_error", Args: []any{task.ID}}); err != nil {
-				return err
-			}
-			if err := retract(core.Fact{Predicate: "task_write_target", Args: []any{task.ID}}); err != nil {
-				return err
+			for _, pred := range taskFactPredicates {
+				if err := retract(core.Fact{Predicate: pred, Args: []any{task.ID}}); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -182,19 +169,9 @@ func queueCampaignFactRetractions(tx *types.KernelTx, campaign *Campaign) {
 		tx.RetractFact(core.Fact{Predicate: "context_compression", Args: []any{phase.ID}})
 
 		for _, task := range phase.Tasks {
-			tx.RetractFact(core.Fact{Predicate: "campaign_task", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_priority", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_order", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_dependency", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_soft_dependency", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "requires_resource", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_sub_campaign", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_artifact", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_inference", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_attempt", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_retry_at", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_error", Args: []any{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_write_target", Args: []any{task.ID}})
+			for _, pred := range taskFactPredicates {
+				tx.RetractFact(core.Fact{Predicate: pred, Args: []any{task.ID}})
+			}
 		}
 	}
 }

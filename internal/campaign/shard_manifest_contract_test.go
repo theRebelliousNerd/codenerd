@@ -33,7 +33,7 @@ func TestCampaignShardManifestContract(t *testing.T) {
 		"campaign_task", "task_priority", "task_order", "task_dependency",
 		"task_soft_dependency", "requires_resource", "task_sub_campaign",
 		"task_artifact", "task_inference", "task_attempt", "task_retry_at",
-		"task_error", "task_write_target",
+		"task_error", "task_write_target", "task_write_ext",
 	}
 
 	// Runtime campaign facts asserted by the campaign package outside ToFacts:

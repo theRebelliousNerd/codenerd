@@ -140,12 +140,17 @@ func buildHollowVerifyFixture(t *testing.T, withUpstream bool) (*Orchestrator, *
 		}
 		return o, &o.campaign.Phases[1].Tasks[0], reportRel
 	}
+	// A phase that also wrote Go, so the kernel routes the /verify task to the
+	// build this fixture's executor answers (verify_task_route).
 	o.campaign.Phases = []Phase{
 		{ID: "phase_b", Order: 0, Tasks: []Task{
-			{ID: "task_v", PhaseID: "phase_b", Type: TaskTypeVerify, Status: TaskPending, Description: "Verify the summary document is short and every item links to file plus symbol", Artifacts: []TaskArtifact{{Type: "/doc", Path: reportRel}}},
+			{ID: "task_code", PhaseID: "phase_b", Type: TaskTypeFileModify, Status: TaskCompleted, Description: "change the scanner", WriteSet: []string{"internal/world/scan.go"}},
+			{ID: "task_v", PhaseID: "phase_b", Type: TaskTypeVerify, Status: TaskPending, Order: 1, Description: "Verify the summary document is short and every item links to file plus symbol", Artifacts: []TaskArtifact{{Type: "/doc", Path: reportRel}}},
 		}},
 	}
-	return o, &o.campaign.Phases[0].Tasks[0], reportRel
+	o.kernel = realKernelFor(t, o.campaign, true)
+	o.policy = testPolicy(nil)
+	return o, &o.campaign.Phases[0].Tasks[1], reportRel
 }
 
 func TestUpstreamVerifyTask_HollowFailsWithUpstream(t *testing.T) {

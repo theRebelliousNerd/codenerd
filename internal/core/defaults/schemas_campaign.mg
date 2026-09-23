@@ -110,6 +110,11 @@ Decl task_artifact(TaskID, ArtifactType, Path, Hash) bound [/string, /name, /str
 # Canonical deterministic write_set declared by runtime/planner.
 Decl task_write_target(TaskID, Path) bound [/string, /string].
 
+# task_write_ext(TaskID, Ext) - the lower-cased extension of each path in the
+# task's write set (".go", ".md"); none for a directory target. Classed by
+# write_class (policy/coder_safety.mg).
+Decl task_write_ext(TaskID, Ext) bound [/string, /string].
+
 # task_write_path(TaskID, Path) - derived canonical path for conflict/activation rules
 Decl task_write_path(TaskID, Path) bound [/string, /string].
 

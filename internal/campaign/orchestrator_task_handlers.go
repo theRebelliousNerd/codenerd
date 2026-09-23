@@ -308,29 +308,6 @@ func needsAnalysisRetry(result string) bool {
 	return isTrivialResult(result) || looksLikeIntentStub(result)
 }
 
-// analyticalVerifyKeywords mark a /verify task whose real objective is analytical
-// review (produce findings) rather than a build check (run go build).
-var analyticalVerifyKeywords = []string{
-	"inspect", "audit", "review", "identify", "analyze", "analyse", "assess",
-	"examine", "evaluate", "defect", "vulnerab", "contract drift", "api contract",
-	"error-handling", "error handling", "code smell", "anti-pattern", "antipattern",
-	"race condition", "lifecycle", "ownership", "invariant", "risk", "finding",
-}
-
-// isAnalyticalVerifyDescription reports whether a /verify task's description asks
-// for analytical review (which must produce durable findings) rather than a plain
-// build/compile check (which the go-build path handles). Build-verification tasks
-// stay on the build path for backward compatibility.
-func isAnalyticalVerifyDescription(desc string) bool {
-	d := strings.ToLower(desc)
-	for _, k := range analyticalVerifyKeywords {
-		if strings.Contains(d, k) {
-			return true
-		}
-	}
-	return false
-}
-
 // executeResearchTask spawns a researcher shard.
 func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any, error) {
 	logging.CampaignDebug("Spawning researcher shard for task %s", task.ID)
@@ -989,8 +966,10 @@ func firstFailureDetail(output string) string {
 	return ""
 }
 
-// executeVerifyTask runs verification (build, lint, etc.).
-// executeVerifyTask runs verification (build, lint, etc.).
+// executeVerifyTask judges a /verify task the way the kernel decides
+// (verify_task_route): a build when the task's phase wrote code, a review of
+// the phase's artifacts otherwise. The build is evidence only about code; a
+// phase that wrote Markdown is not verified by `go build ./...`.
 func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, error) {
 	if task == nil {
 		return nil, fmt.Errorf("task cannot be nil")
@@ -1003,18 +982,17 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 		logging.Get(logging.CategoryCampaign).Error("Verify task %s rejected hollow report: %v", task.ID, herr)
 		return nil, herr
 	}
-	// F-VERIFY-1: /verify historically meant "go build ./...". But decomposers of
-	// audit/remediation campaigns emit the phase's actual analytical work (inspect
-	// logic defects, error-handling mistakes, API-contract drift) as /verify tasks.
-	// Running only a build ignores the task description, produces no findings, and
-	// leaves the phase's real deliverable missing — the checkpoint reviewer then
-	// correctly fails the phase (observed live, run 13 phase 1: /verify tasks 1_1,
-	// 1_2, 1_5, 1_6 delivered nothing). Route analytical verify tasks to the
-	// research+persist path (which retries on empty and writes a durable artifact);
-	// keep the build path for genuine build-verification tasks.
-	if isAnalyticalVerifyDescription(task.Description) {
-		logging.Campaign("Verify task %s is analytical (audit/review); routing to research+persist instead of go build", task.ID)
+	route, err := o.oneDerivedFor("verify_task_route", task.ID)
+	if err != nil {
+		return nil, fmt.Errorf("verify task %s: %w", task.ID, err)
+	}
+	switch route {
+	case "/build":
+	case "/review":
+		logging.Campaign("Verify task %s: its phase wrote no code; the kernel routes it to a review of the phase's artifacts", task.ID)
 		return o.executeResearchTask(ctx, task)
+	default:
+		return nil, fmt.Errorf("verify task %s: the kernel derived verify_task_route %s, which this orchestrator cannot run", task.ID, route)
 	}
 
 	logging.CampaignDebug("Executing verify task %s: go build ./...", task.ID)
@@ -1031,6 +1009,12 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 	output := ""
 	if res != nil {
 		output = res.Output()
+	}
+	// The executor reports a command that ran and failed as a result with a
+	// non-zero exit, not as an error (runBuildCheckpoint reads it the same
+	// way); only exit 0 verifies.
+	if err == nil && res != nil && res.ExitCode != 0 {
+		err = fmt.Errorf("go build ./... exited %d", res.ExitCode)
 	}
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Verify task %s failed: %v", task.ID, err)
