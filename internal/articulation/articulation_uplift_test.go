@@ -139,12 +139,15 @@ func TestFindJSONCandidates_CapsRichCandidates(t *testing.T) {
 	}
 }
 
+// Around an atom's strings the emitter refuses the extended characters too;
+// inside them it is the kernel gate's call (core's
+// TestFilterMangleUpdates_ExtendedMetacharsInActionStrings).
 func TestApplyCaps_RejectsExtendedShellMetachars(t *testing.T) {
 	for _, atom := range []string{
-		`run("a && b").`,
-		`run("a > /tmp/x").`,
-		`run("a < /etc/passwd").`,
-		`run("a & b").`,
+		`run("a") && b.`,
+		`run("a") > /tmp/x.`,
+		`run("a") < /etc/passwd.`,
+		`run("a") & b.`,
 	} {
 		raw := `{"control_packet":{` +
 			`"intent_classification":{"category":"/query","verb":"/read","target":"t","confidence":0.9},` +

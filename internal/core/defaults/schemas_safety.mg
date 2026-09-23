@@ -42,6 +42,33 @@ Decl dangerous_content(ActionType, Payload) bound [/name, /string].
 # requires human approval. See session/delete_recoverable.go.
 Decl file_recoverable(Path) bound [/string].
 
+# touches_secret_path(Target) - this action's target names a secret file
+#
+# Asserted by the executor, per tool call and retracted with the pending_action
+# it accompanies, when the target is a path matching execution.secret_paths in
+# config.json, or a shell command line with a token that does. The constitution
+# turns it into dangerous_content, so permitted cannot derive and the call is
+# refused, whatever the action. A secret file's contents would otherwise go to
+# the model's provider. See tools/secret_paths.go and
+# session/secret_paths_gate.go.
+Decl touches_secret_path(Target) bound [/string].
+
+# exec_sink(Predicate) - the host acts on facts of this predicate
+#
+# The predicates a Go site reads to run something: dispatch an action, spawn a
+# delegate, or pass the permission gate. A string a model wrote reaches an exec
+# site exactly when some rule routes it into one of these.
+Decl exec_sink(Predicate) bound [/name].
+
+# prose_only(Predicate) - this predicate's strings are prose by contract
+#
+# Read back and printed, never an action's input, so a model may put
+# punctuation in them: core.FilterMangleUpdates skips the shell-metacharacter
+# check on its string arguments. The declaration is held to the program: a
+# prose_only predicate that any rule routes into an exec_sink loses the
+# exemption, and TestProseOnlyPredicatesReachNoExecSink fails.
+Decl prose_only(Predicate) bound [/name].
+
 # admin_override(User)
 Decl admin_override(User) bound [/string].
 

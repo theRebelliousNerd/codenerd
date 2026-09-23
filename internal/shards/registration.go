@@ -169,6 +169,14 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// shipped, as a "split join [file_recoverable@cortex,
 				// pending_action@policy]".
 				"file_recoverable",
+				// The same shape, for the same reason: the executor asserts
+				// touches_secret_path(Target) beside the pending_action it
+				// measures, and constitution.mg joins the two into
+				// dangerous_content. Homed anywhere else, the secret-file
+				// refusal never fires on the production kernel (the audit
+				// caught it: "split join [pending_action@policy,
+				// touches_secret_path@cortex]", 2026-09-23).
+				"touches_secret_path",
 				"blocked",
 				"constitution",
 				"commit_barrier",

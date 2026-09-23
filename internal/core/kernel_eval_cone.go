@@ -137,6 +137,26 @@ func (c *coneIndex) closure(written map[string]struct{}) map[string]struct{} {
 	return cone
 }
 
+// downstream returns every predicate a rule derives, directly or through other
+// rules, from facts of pred. Unlike closure it adds no volatile heads: it is
+// the question "where can this predicate's facts flow", not "what must be
+// re-derived".
+func (c *coneIndex) downstream(pred string) map[string]struct{} {
+	out := make(map[string]struct{})
+	queue := []string{pred}
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		for _, head := range c.consumers[p] {
+			if _, seen := out[head]; !seen {
+				out[head] = struct{}{}
+				queue = append(queue, head)
+			}
+		}
+	}
+	return out
+}
+
 // markDirtyLocked is the only place factsDirty is raised. Naming the written
 // predicates keeps the next evaluate() inside their cone; naming none declares
 // the write set unknown and the next evaluate() is a full one. Caller holds

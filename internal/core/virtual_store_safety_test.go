@@ -246,6 +246,42 @@ func TestMaybePruneActionLogsUsesExecutionResultTimestamp(t *testing.T) {
 	}
 }
 
+// The production kernel is sharded. The prune used to type-assert *RealKernel
+// and return for anything else, so on CortexKernel the action logs grew without
+// bound.
+func TestMaybePruneActionLogsRunsOnTheShardedKernel(t *testing.T) {
+	cortex := NewCortexKernel("cortex")
+	shard, err := NewKernelShard(KernelShardConfig{Domain: "cortex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cortex.RegisterShard(shard); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := cortex.AssertBatch([]Fact{
+		{Predicate: "execution_result", Args: []any{"old-result", MangleAtom("/read_file"), "old.go", true, "out", now.Add(-16 * time.Minute).Unix()}},
+		{Predicate: "execution_result", Args: []any{"recent-result", MangleAtom("/read_file"), "new.go", true, "out", now.Unix()}},
+	}); err != nil {
+		t.Fatalf("AssertBatch: %v", err)
+	}
+
+	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
+	vs.SetKernel(cortex)
+	vs.maybePruneActionLogs(now)
+
+	results, err := cortex.Query("execution_result")
+	if err != nil {
+		t.Fatalf("Query(execution_result): %v", err)
+	}
+	if _, ok := findFactByFirstArg(results, "old-result"); ok {
+		t.Fatal("a stale execution_result survived the prune on the sharded kernel")
+	}
+	if _, ok := findFactByFirstArg(results, "recent-result"); !ok {
+		t.Fatal("the recent execution_result was pruned")
+	}
+}
+
 func TestRouteActionReturnsPostValidationFailure(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "verified.txt")
 	if err := os.WriteFile(target, []byte("content"), 0o600); err != nil {

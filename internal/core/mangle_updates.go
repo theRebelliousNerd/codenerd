@@ -2,7 +2,11 @@ package core
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
 )
 
 // MangleUpdatePolicy constrains which control-packet updates may be asserted.
@@ -142,10 +146,110 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 			}
 		}
 
+		if arg, found := shellEscapingArg(fact); found && !proseOnly(kernel, fact.Predicate) {
+			blocked = append(blocked, MangleUpdateBlock{
+				Update: update,
+				Reason: fmt.Sprintf("shell metacharacters in a string argument of %s (%q), which is not prose_only", fact.Predicate, arg),
+			})
+			continue
+		}
+
 		facts = append(facts, fact)
 	}
 
 	return facts, blocked
+}
+
+// shellMetacharacters are the characters that let text escape into a shell:
+// substitution, chaining, backgrounding, pipes and redirects. (The airtight
+// fix lives at the exec site -- never interpolate a fact into a shell -- but a
+// hostile string should not reach the kernel unremarked on its way there.)
+const shellMetacharacters = "`$;|&<>"
+
+// shellEscapingArg returns the first string argument of fact that carries a
+// shell metacharacter. Names cannot carry one; composite constants arrive
+// rendered as strings and are checked whole.
+func shellEscapingArg(fact Fact) (string, bool) {
+	for _, arg := range fact.Args {
+		if s, ok := arg.(string); ok && strings.ContainsAny(s, shellMetacharacters) {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// proseOnly reports whether a model may put shell metacharacters in the
+// string arguments of predicate. It is a property of the predicate, not a
+// list here: the policy declares it (prose_only/1, constitution.mg), and the
+// program must agree -- no rule may route the predicate into an exec_sink.
+// A declaration the rules contradict grants nothing, and anything the kernel
+// cannot answer is not prose.
+func proseOnly(kernel Kernel, predicate string) bool {
+	graph, ok := kernel.(execReachability)
+	if !ok || graph == nil {
+		return false
+	}
+	declared, err := kernel.Query(fmt.Sprintf("prose_only(/%s)", predicate))
+	if err != nil || len(declared) == 0 {
+		return false
+	}
+	sinks, err := graph.ExecSinksReachedBy(predicate)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Warn("prose_only(/%s) not granted: %v", predicate, err)
+		return false
+	}
+	if len(sinks) > 0 {
+		logging.Get(logging.CategoryKernel).Error(
+			"prose_only(/%s) is contradicted by the rules: its facts reach exec_sink %v; its strings stay checked", predicate, sinks)
+		return false
+	}
+	return true
+}
+
+// execReachability is a kernel that can say where a predicate's facts flow:
+// the single-store RealKernel and the sharded CortexKernel production runs.
+type execReachability interface {
+	ExecSinksReachedBy(predicate string) ([]string, error)
+}
+
+var (
+	_ execReachability = (*RealKernel)(nil)
+	_ execReachability = (*CortexKernel)(nil)
+)
+
+// ExecSinksReachedBy returns the exec_sink predicates (constitution.mg) that
+// facts of predicate can contribute to through the program's rules, the
+// predicate itself included when it is one. The walk is over the rule
+// dependency graph, negated premises included, so it over-approximates where a
+// string can flow; it never under-approximates.
+func (k *RealKernel) ExecSinksReachedBy(predicate string) ([]string, error) {
+	declared, err := k.Query("exec_sink")
+	if err != nil {
+		return nil, fmt.Errorf("exec_sink query: %w", err)
+	}
+	if len(declared) == 0 {
+		return nil, fmt.Errorf("the policy declares no exec_sink")
+	}
+	k.mu.RLock()
+	cone := k.cone
+	k.mu.RUnlock()
+	if cone == nil {
+		return nil, fmt.Errorf("no rule-dependency index")
+	}
+	reached := cone.downstream(predicate)
+	reached[predicate] = struct{}{}
+	var hit []string
+	for _, f := range declared {
+		if len(f.Args) == 0 {
+			continue
+		}
+		sink := strings.TrimPrefix(fmt.Sprint(f.Args[0]), "/")
+		if _, ok := reached[sink]; ok {
+			hit = append(hit, sink)
+		}
+	}
+	sort.Strings(hit)
+	return hit, nil
 }
 
 func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
@@ -179,7 +283,10 @@ func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 		// of intents that owe /pinned.
 		"turn_verb", "behavior_change_intent",
 		"hollow_success", "has_hollow_success", "has_turn_tools", "has_turn_write", "has_turn_test",
-		"build_state", "test_state":
+		"build_state", "test_state",
+		// What may carry unchecked strings, and what the host acts on: a
+		// model that could write either could exempt its own strings.
+		"prose_only", "exec_sink":
 		return false
 	}
 	if len(policy.AllowedPredicates) == 0 && len(policy.AllowedPrefixes) == 0 {
@@ -196,16 +303,19 @@ func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 	return false
 }
 
+// validatePredicateDeclaration checks a model-written fact against the
+// program's declarations, read through the Kernel interface so it runs on the
+// sharded production kernel too. It used to type-assert *RealKernel and answer
+// "valid" for anything else -- which on CortexKernel was every model fact, so
+// arity and declaration were never checked in production (found 2026-09-23).
 func validatePredicateDeclaration(kernel Kernel, predicate string, arity int) (bool, string) {
-	rk, ok := kernel.(*RealKernel)
-	if !ok || rk == nil {
-		return true, ""
+	programInfo := kernel.GetProgramInfo()
+	var schemaValidator *mangle.SchemaValidator
+	if rk, ok := kernel.(*RealKernel); ok && rk != nil {
+		rk.mu.RLock()
+		schemaValidator = rk.schemaValidator
+		rk.mu.RUnlock()
 	}
-
-	rk.mu.RLock()
-	programInfo := rk.programInfo
-	schemaValidator := rk.schemaValidator
-	rk.mu.RUnlock()
 
 	if programInfo != nil && programInfo.Decls != nil {
 		for predSym := range programInfo.Decls {

@@ -2645,6 +2645,24 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 		}
 	}
 
+	// 2c. A secret file's contents never reach a model. The measurement is
+	// asserted here and the refusal is the constitution's (secret_paths_gate.go).
+	secret, touchesSecret := secretPathFact(actionAtom, target, call.Args)
+	if touchesSecret {
+		if err := e.kernel.Assert(secret); err != nil {
+			// A guard that could not be told is a guard that did not run: fail
+			// closed rather than let the query below permit the call.
+			logging.Get(logging.CategorySession).Error("Failed to assert %s: %v", secretPathPredicate, err)
+			e.assertSecurityViolation(actionAtom, "failed to assert the secret-path measurement")
+			return false, "failed to assert the secret-path measurement"
+		}
+		defer func() {
+			if err := e.kernel.RetractFact(secret); err != nil {
+				logging.Get(logging.CategorySession).Warn("Failed to retract %s: %v", secretPathPredicate, err)
+			}
+		}()
+	}
+
 	// 3. Query permitted(Action, Target, Payload) using the kernel's grounded
 	// pattern form. This avoids scanning the whole permitted relation on the
 	// normal allowed path. The bare-predicate fallback preserves compatibility
@@ -2699,6 +2717,10 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 
 	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
 	reason := fmt.Sprintf("action not permitted: target=%s", target)
+	if touchesSecret {
+		// Say why, so the model does not try the same content another way.
+		reason = fmt.Sprintf("action not permitted: %s is a secret file (execution.secret_paths); no tool may read, write, copy or search its contents", target)
+	}
 	e.assertSecurityViolation(actionAtom, reason)
 	return false, reason
 }

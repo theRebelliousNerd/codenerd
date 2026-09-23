@@ -846,13 +846,15 @@ func (v *VirtualStore) maybePruneActionLogs(now time.Time) {
 	kernel := v.kernel
 	v.mu.Unlock()
 
-	realKernel, ok := kernel.(*RealKernel)
-	if !ok || realKernel == nil {
+	// Through the Kernel interface: this used to type-assert *RealKernel and
+	// return for anything else, so on the sharded production kernel the action
+	// logs were never pruned at all (found 2026-09-23).
+	if kernel == nil {
 		return
 	}
 
 	prune := func(predicate string, tsIndex int, cutoffUnix int64) {
-		facts, err := realKernel.Query(predicate)
+		facts, err := kernel.Query(predicate)
 		if err != nil || len(facts) == 0 {
 			return
 		}
@@ -869,7 +871,7 @@ func (v *VirtualStore) maybePruneActionLogs(now time.Time) {
 		if len(toRemove) == 0 {
 			return
 		}
-		if err := realKernel.RetractExactFactsBatch(toRemove); err != nil {
+		if err := kernel.RetractExactFactsBatch(toRemove); err != nil {
 			logging.Get(logging.CategoryKernel).Warn("failed to retract stale facts batch: %v", err)
 		}
 	}
@@ -881,13 +883,13 @@ func (v *VirtualStore) maybePruneActionLogs(now time.Time) {
 
 	// Cap diagnostics by count (no timestamp field).
 	pruneByCount := func(predicate string, maxFacts int) {
-		facts, err := realKernel.Query(predicate)
+		facts, err := kernel.Query(predicate)
 		if err != nil || len(facts) <= maxFacts {
 			return
 		}
 		// Remove oldest first (they appear earlier in the slice).
 		excess := facts[:len(facts)-maxFacts]
-		if err := realKernel.RetractExactFactsBatch(excess); err != nil {
+		if err := kernel.RetractExactFactsBatch(excess); err != nil {
 			logging.Get(logging.CategoryKernel).Warn("failed to cap %s facts: %v", predicate, err)
 		}
 	}

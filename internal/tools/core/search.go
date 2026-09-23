@@ -383,6 +383,14 @@ func (s contentSearch) run() ([]GrepMatch, error) {
 				return nil
 			}
 
+			// A secret file is never searched: this walk has no single target
+			// for the constitution to judge, and it used to take hidden files
+			// (only hidden directories were skipped), so a pattern over the
+			// workspace root returned .env's lines (tools/secret_paths.go).
+			if tools.IsSecretPath(p) {
+				return nil
+			}
+
 			// Check file pattern
 			if s.filePattern != "" {
 				matched, _ := filepath.Match(s.filePattern, info.Name())
@@ -398,6 +406,9 @@ func (s contentSearch) run() ([]GrepMatch, error) {
 			return nil, fmt.Errorf("failed to walk directory: %w", walkErr)
 		}
 	} else {
+		if tools.IsSecretPath(s.path) {
+			return nil, fmt.Errorf("%s is a secret file (execution.secret_paths); its contents are never searched", s.path)
+		}
 		files = []string{s.path}
 	}
 

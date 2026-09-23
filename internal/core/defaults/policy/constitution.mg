@@ -319,6 +319,35 @@ requires_permission(/system_modify).
 # Note: dangerous_action takes ActionType (e.g., /delete_file), not ActionID.
 dangerous_action(ActionType) :- requires_permission(ActionType).
 
+# A secret file's contents never reach a model: whatever a tool returns goes to
+# the provider. The executor measures the target against execution.secret_paths
+# and asserts touches_secret_path; this makes it dangerous content for every
+# action, so the permitted rules above (safe_action, the recoverable delete)
+# cannot derive for it. Hand-built 2026-09-22: a model must not widen the rule
+# that constrains it.
+dangerous_content(Action, Target) :-
+    pending_action(_, Action, Target, _, _),
+    touches_secret_path(Target).
+
+# What the host acts on. A Go site dispatches next_action and the executive's
+# next-action variants, spawns delegate_task, and gates pending_action through
+# permitted. Hand-built 2026-09-22 with the prose_only rows below.
+exec_sink(/next_action).
+exec_sink(/tdd_next_action).
+exec_sink(/campaign_next_action).
+exec_sink(/repair_next_action).
+exec_sink(/delegate_task).
+exec_sink(/pending_action).
+exec_sink(/permitted).
+
+# Model-written facts whose strings are prose: a reviewer's reason and a
+# model's observation are read back and printed, and a readable reason has
+# semicolons in it. Observed 2026-09-21 (campaign aab9612b) and 2026-09-22
+# (7b853890): a /fail verdict and an observation were dropped for their
+# punctuation, and the checkpoint reported that no verdict existed.
+prose_only(/checkpoint_verdict).
+prose_only(/observation).
+
 # Identify dangerous command content
 # string_contains requires both args bound in the same rule.
 # Pattern: bind Payload/Target from pending_action, then check each constant pattern.
@@ -500,6 +529,17 @@ safe_action(/callers_of).
 safe_action(/callees_of).
 safe_action(/unreferenced_symbols).
 safe_action(/get_element).
+# Structural reads and element-addressed edits (CodeDOM, R8, 2026-09-23). The
+# edits are the same class as edit_lines and write_file: every one names its
+# file(s) in path/paths, so the secret-path and write gates see its target.
+safe_action(/importers_of).
+safe_action(/find_text).
+safe_action(/predicate_outline).
+safe_action(/replace_element).
+safe_action(/insert_element).
+safe_action(/delete_element).
+safe_action(/create_file).
+safe_action(/repoint).
 
 # Autopoiesis tool execution
 safe_action(/exec_tool).

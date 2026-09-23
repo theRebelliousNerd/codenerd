@@ -855,6 +855,10 @@ func initCoreComponents(bctx *bootContext) error {
 	// re-parse the same file. The injected config is pinned so a later
 	// ReloadConfig cannot silently revert to disk.
 	config.ApplyLoggingConfig(appCfg)
+	// The secret-path patterns every tool and the constitution's measurement
+	// consult (tools/secret_paths.go), from execution.secret_paths.
+	execCfg := appCfg.GetExecution()
+	tools.SetSecretPathPatterns(execCfg.ResolvedSecretPaths())
 	if err := logging.Initialize(bctx.workspace); err != nil {
 		return fmt.Errorf("initialize workspace logging: %w", err)
 	}

@@ -410,12 +410,10 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 			logging.ArticulationWarn("mangle_update skipped (%s): %s", reason, truncateUTF8Bytes(trimmed, 120))
 			continue
 		}
-		// Reject shell metacharacters that could escape from Mangle into exec.
-		// & and <> matter too: && chains, & backgrounds, > redirects, and <
-		// feeds input, all without any of the older four. (The airtight fix
-		// lives at the exec site — never interpolate atom text into a shell —
-		// but a hostile atom should not sail through parsing unremarked on
-		// its way there.)
+		// Reject shell metacharacters around the atom's strings. & and <>
+		// matter too: && chains, & backgrounds, > redirects, and < feeds
+		// input. The strings themselves are checked by the kernel gate, which
+		// knows whether their predicate can reach an exec site.
 		if strings.ContainsAny(shellCheckedText(trimmed), "`$;|&<>") {
 			result.Warnings = append(result.Warnings, "Mangle update with shell metacharacters skipped")
 			logging.ArticulationWarn("mangle_update skipped (shell metacharacters): %s", truncateUTF8Bytes(trimmed, 120))
@@ -1138,36 +1136,20 @@ func MustExtractSurface(rawResponse string) string {
 	return processed.Surface
 }
 
-// proseVerdictPredicates are the facts whose quoted arguments are prose by
-// contract and are only ever read back and printed, never handed to an exec
-// site. For these, and only these, the shell-metacharacter check looks at the
-// atom outside its string literals.
+// shellCheckedText returns the part of a mangle update the emitter's
+// shell-metacharacter check applies to: the atom outside its string literals.
+// Outside a literal none of those characters belongs in a fact, so a hit there
+// is structure smuggled around the atom.
 //
-// Observed 2026-09-21, campaign aab9612b: the reviewer of the closing
-// checkpoint returned a well-formed checkpoint_verdict three times, /fail each
-// time, with the reason "5 files lack front-matter; verified-against not a
-// commit; ...". The semicolons in the reason got the fact dropped here, and
-// the campaign reported "review verdict could not be determined" and exited
-// blocked, when the truth was that the review had failed for exactly the
-// reasons it gave. A readable reason contains punctuation.
-//
-// The list is deliberately one entry long. For every other predicate a string
-// argument may be an action's input, which is what the check exists for.
-var proseVerdictPredicates = []string{"checkpoint_verdict("}
-
-// shellCheckedText returns the part of a mangle update the shell-metacharacter
-// check applies to: all of it, except the string literals of a prose verdict.
+// What is inside a literal is the kernel gate's question
+// (core.FilterMangleUpdates), because whether a string may carry punctuation
+// is a property of its predicate -- can it reach an exec site -- and only the
+// kernel knows the predicate's declaration and the rules it feeds. This check
+// used to take the whole atom except for one predicate named in a Go list:
+// observed 2026-09-21 (campaign aab9612b) and 2026-09-22 (7b853890), a /fail
+// checkpoint verdict and a model observation were dropped for the semicolons
+// in their prose.
 func shellCheckedText(update string) string {
-	prose := false
-	for _, prefix := range proseVerdictPredicates {
-		if strings.HasPrefix(update, prefix) {
-			prose = true
-			break
-		}
-	}
-	if !prose {
-		return update
-	}
 	var sb strings.Builder
 	inString, escaped := false, false
 	for _, r := range update {

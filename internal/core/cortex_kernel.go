@@ -746,6 +746,20 @@ func (c *CortexKernel) GetProgramInfo() *analysis.ProgramInfo {
 	return nil
 }
 
+// ExecSinksReachedBy answers from the catch-all shard, like GetProgramInfo:
+// every shard runs the same program, and where a predicate's facts can flow is
+// a property of the program's rules. The program-level answer over-approximates
+// the sharded one (a split join never fires), which is the safe side.
+func (c *CortexKernel) ExecSinksReachedBy(predicate string) ([]string, error) {
+	c.mu.RLock()
+	shard, ok := c.shards[c.cortexDomain]
+	c.mu.RUnlock()
+	if !ok || shard == nil || shard.kernel == nil {
+		return nil, fmt.Errorf("[cortex] no catch-all shard to answer exec reachability")
+	}
+	return shard.kernel.ExecSinksReachedBy(predicate)
+}
+
 // Reset clears all facts in all shards while keeping schemas/policies.
 func (c *CortexKernel) Reset() {
 	c.mu.RLock()
