@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"codenerd/internal/jit/config"
@@ -78,6 +79,42 @@ func TestToolLoop_RequestsCarryThePolicysTranscriptWindow(t *testing.T) {
 			if got := firstCarriedCall(client.histories[n]); got != first {
 				t.Errorf("request %d starts its transcript at %q, request %d at %q: it moved between cuts",
 					n+1, got, keepRounds+1, first)
+			}
+		}
+	}
+}
+
+// Inside a working loop nothing is lost to the transcript's byte bound: every
+// result a request carries is whole, or archived behind a recall_context
+// pointer. The bound used to blank payloads the policy's window still showed
+// and tell the model to re-run a tool whose output was archived.
+func TestToolLoop_AWorkingLoopLosesNoResultToTheByteBound(t *testing.T) {
+	const toolName = "transcript_bytes_probe"
+	payload := strings.Repeat("x", 120*1024)
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) { return payload, nil },
+	})
+	const rounds = 5 // 600 KiB of results against the 256 KiB bound
+	client := &roundScriptProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName, rounds: rounds}
+	e := newWorkingLoopExecutor(t, client)
+
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/explain"}}
+	if _, _, err := e.runToolLoop(context.Background(), "system", "probe it",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		&prompt.CompilationContext{ShardID: "probe"}, result); err != nil {
+		t.Fatalf("runToolLoop: %v", err)
+	}
+	for n, history := range client.histories {
+		for _, m := range history {
+			for _, r := range m.ToolResults {
+				switch {
+				case r.Content == payload, strings.HasPrefix(r.Content, archivedResultPrefix):
+				case r.Content == evictedToolResultNotice:
+					t.Fatalf("request %d carried an evicted result telling the model to re-run the tool", n+1)
+				default:
+					t.Fatalf("request %d carried a cut result (%d of %d bytes)", n+1, len(r.Content), len(payload))
+				}
 			}
 		}
 	}

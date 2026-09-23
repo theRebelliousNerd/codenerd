@@ -1916,6 +1916,22 @@ const (
 	minClampedToolResultBytes = 2048
 )
 
+// boundedTranscript bounds the loop's history when nothing else does. Inside a
+// working loop every request is already bounded, without loss: the policy's
+// window picks the rounds (working_transcript_rounds, working_transcript_slack)
+// and workingRequestParts archives any result the window cannot fit behind a
+// recall_context pointer. Blanking payloads here as well cut results the window
+// still shows, clamped the newest one, and told the model to re-run a tool
+// whose output was one recall away (2026-09-22 sweep, alarm 9; it mattered
+// once the loop stopped cutting history to three messages). Without a working
+// loop there is no archive, and the byte bound with its re-run notice is true.
+func boundedTranscript(ctx context.Context, history []types.Message) []types.Message {
+	if activeWorkingLoop(ctx) != nil {
+		return history
+	}
+	return boundToolLoopHistory(history)
+}
+
 // boundToolLoopHistory caps the total bytes of a tool-loop transcript by
 // blanking the oldest tool-result payloads, oldest-first, until the transcript
 // fits. Message structure, ordering, and every ToolUseID are preserved.

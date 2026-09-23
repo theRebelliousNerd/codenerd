@@ -341,15 +341,10 @@ func (e *Executor) runToolLoopPass(
 			Role:        "user",
 			ToolResults: toolResults,
 		})
-		// `history` is append-only and is re-sent WHOLE on every round-trip,
-		// and results arrive whole. This blanks the oldest payloads and keeps
-		// the newest, which is the half the model is still reasoning about;
-		// an evicted payload is still in the working-context archive, so the
-		// notice it leaves behind names a recall, not a loss. It is a no-op
-		// below the ceiling, preserves message count, ordering and every
-		// ToolUseID — an unpaired tool_use is a hard 400 from the provider —
-		// and is idempotent, so calling it at more sites is safe.
-		history = boundToolLoopHistory(history)
+		// Outside a working loop `history` is re-sent whole on every
+		// round-trip, so its bytes are bounded here; inside one the working
+		// request bounds it without loss (boundedTranscript).
+		history = boundedTranscript(ctx, history)
 
 		// A tool can itself reach the exploration cutoff. Its result (including
 		// any cancellation error) is already paired in history, so do not run
@@ -765,10 +760,9 @@ func (e *Executor) forceFinalAnswer(
 	}
 
 	*history = append(*history, types.Message{Role: "user", Text: nudge})
-	// The forced-final call resends the whole transcript, including every tool
-	// result accumulated before the deadline fired. Bounding here covers every
-	// append this function makes.
-	*history = boundToolLoopHistory(*history)
+	// The forced-final call sends the transcript like any round; bounding here
+	// covers every append this function makes (boundedTranscript).
+	*history = boundedTranscript(ctx, *history)
 
 	final, err := e.completeWithWorkingContext(ctx, trp, systemPrompt, *history, finalTools)
 	if err != nil {
