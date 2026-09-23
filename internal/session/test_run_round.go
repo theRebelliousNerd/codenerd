@@ -65,27 +65,6 @@ func (e *Executor) verifyAndRepairTestRun(
 	return repaired, repairErrs, settleForcingRepair(err)
 }
 
-// turnOwesGate asks the policy whether this turn's writes owe gate. The
-// writes are asserted under the turn's own key -- the closure asserts its
-// verdict under the same one -- so the answer is the corpus's, not a Go
-// reading of the extensions.
-func (e *Executor) turnOwesGate(result *ExecutionResult, gate string) bool {
-	turn := result.turnAtom()
-	e.assertTurnVerb(turn, result.Intent.Verb, result)
-	e.assertTurnWrites(turn, result)
-	rows, err := e.turnRows("turn_owes_gate", turn)
-	if err != nil {
-		logging.Get(logging.CategorySession).Warn("turn_owes_gate query failed; no %s round: %v", gate, err)
-		return false
-	}
-	for _, row := range rows {
-		if len(row.Args) > 1 && types.ExtractString(row.Args[1]) == gate {
-			return true
-		}
-	}
-	return false
-}
-
 // testRunShortfall says what the /test_run gate saw since the turn's last
 // write: no test process at all, or one that failed.
 func testRunShortfall(result *ExecutionResult) string {

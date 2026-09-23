@@ -119,10 +119,12 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 		fresh.Repair = inheritRepair(fresh.Verdict(), result.TestCheck.Repair)
 		result.TestCheck = fresh
 		result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
-		// The pinning gate, where the turn owes it, over the tests as they
-		// are now; a red suite leaves it unmeasured -- the turn fails on the
-		// tests.
-		if e.kernel != nil && result.TestCheck.Verdict() == VerifyPassed && e.turnOwesGate(result, "/pinned") {
+		// The pinning gate, where the schedule ran its round
+		// (turn_round_ran), over the tests as they are now; a red suite
+		// leaves it unmeasured -- the turn fails on the tests. It used to
+		// ask turn_owes_gate again here, and a failed query meant no
+		// remeasure: the verdict then read a pin check older than the code.
+		if result.roundsRan["/pinned"] && result.TestCheck.Verdict() == VerifyPassed {
 			pin := verifyPinning(ctx, workspace, result, false)
 			pin.Repair = inheritRepair(pin.Verdict(), result.PinCheck.Repair)
 			result.PinCheck = pin

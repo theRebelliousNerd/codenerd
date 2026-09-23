@@ -69,6 +69,49 @@ func TestVerifyPinning_ACallSiteOnlyAHelperTestReachesIsUnpinned(t *testing.T) {
 	}
 }
 
+// The closure remeasures the pinning gate where the schedule ran its round
+// (turn_round_ran /pinned), over the tests a later round left. It used to ask
+// turn_owes_gate again, and a failed query meant no remeasure: the verdict
+// read a pin check older than the code. Where the round did not run, the
+// closure leaves the check alone.
+func TestCloseChangeEvidence_APinTheTurnLostLaterIsNamed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	closeAfterALaterWrite := func(rounds map[string]bool) *ExecutionResult {
+		ws, result := pinTurn(t)
+		writeWorkspaceFile(t, ws, "helper_test.go", pinHelperTests+pinGreetTest)
+		cfg := DefaultExecutorConfig()
+		cfg.EnableSafetyGate = false
+		cfg.VerifyBuildAfterEdits = true
+		cfg.VerifyTestsAfterEdits = true
+		cfg.WorkspaceRoot = ws
+		e := &Executor{config: cfg}
+		// What the rounds measured: TestGreet pins Greet.
+		result.PinCheck = BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed}
+		result.roundsRan = rounds
+		before, err := snapshotForTest(ws)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A later round drops TestGreet, which the turn itself had added.
+		writeWorkspaceFile(t, ws, "helper_test.go", pinHelperTests)
+		if err := e.closeChangeEvidence(context.Background(), result, before); err != nil {
+			t.Fatalf("closeChangeEvidence: %v", err)
+		}
+		return result
+	}
+
+	ran := closeAfterALaterWrite(map[string]bool{"/build": true, "/pinned": true})
+	if ran.PinCheck.Verdict() != VerifyFailed || !strings.Contains(ran.PinCheck.Output, "calc.go: Greet") {
+		t.Fatalf("PinCheck = %s:\n%s\nwant failed naming calc.go: Greet -- nothing pins it since the later write", ran.PinCheck.Verdict(), ran.PinCheck.Output)
+	}
+	notRan := closeAfterALaterWrite(map[string]bool{"/build": true})
+	if notRan.PinCheck.Verdict() != VerifyPassed {
+		t.Fatalf("PinCheck = %s, want the round's own verdict: the schedule did not run /pinned", notRan.PinCheck.Verdict())
+	}
+}
+
 // A turn that changed a function and wrote no test pins nothing: every change
 // is named, without running anything.
 func TestVerifyPinning_AChangeWithNoTestOfTheTurnsIsUnpinned(t *testing.T) {
@@ -163,14 +206,14 @@ func TestFileUnits_KeepsTheImportsThePutBackCodeNeeds(t *testing.T) {
 	}
 }
 
-// The verdict: a behaviour change owes /pinned, and without it green it is
-// not done.
+// The verdict: a behaviour change owes /pinned (its round is on the kernel's
+// schedule), and without it green it is not done.
 func TestTurnWhoseChangeIsPinnedByNoTestIsNotDone(t *testing.T) {
 	owes := func(verb string) bool {
 		e := newObligationExec(t)
 		result := writeTurnResult()
 		result.Intent.Verb = verb
-		return e.turnOwesGate(result, "/pinned")
+		return slices.Contains(schedule(t, e, result), "/pinned")
 	}
 	for _, verb := range []string{"/fix", "/create", "/implement"} {
 		if !owes(verb) {
