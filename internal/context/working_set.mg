@@ -180,8 +180,13 @@ working_finalize(/repeat_after_write) :-
 # the task and threw the reading away: observed 2026-09-22 on campaign
 # 7b853890, a /research task made 21 reads and recalls, repeated, was stopped,
 # failed, and was retried from nothing.
+# Only a repeat that read something: when every call in the repeating round
+# failed (working_control(/yes, Failed), Failed > 0) nothing was gathered to
+# conclude from, and the finalize asked the model for a conclusion one round
+# before working_stop(/tool_failures) could name the failure -- the turn ended
+# quietly with no error (e2e InfiniteToolLoop, 2026-09-23).
 working_finalize(/repeat_after_reading) :-
-    working_control(/yes, _),
+    working_control(/yes, 0),
     working_progress(/read, _, 0, _, _).
 
 # Steering, well before the stop and finalize thresholds.

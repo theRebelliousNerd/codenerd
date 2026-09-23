@@ -72,6 +72,10 @@ func TestWorkingSetContinuePolicy(t *testing.T) {
 		// reads, was stopped, failed and retried from nothing. A read task's
 		// product is its conclusion; a repeat means the reading is done.
 		{"a repeated cycle on a read task finalizes", WorkingProgress{Cycle: true, Rounds: 2, SinceWrite: 2, SinceVerify: 2}, WorkingDecision{Continue: true, Finalize: "repeat_after_reading"}},
+		// A repeat of calls that all failed read nothing: there is no
+		// conclusion to ask for, and the failures run on to working_stop.
+		{"a repeated cycle of failed reads does not finalize", WorkingProgress{Cycle: true, FailedRounds: 2, Rounds: 2, SinceWrite: 2, SinceVerify: 2}, WorkingDecision{Continue: true}},
+		{"a repeated cycle of failed reads stops at three", WorkingProgress{Cycle: true, FailedRounds: 3, Rounds: 3, SinceWrite: 3, SinceVerify: 3}, WorkingDecision{Stop: "tool_failures"}},
 		{"a repeated cycle on a change task that has not written stops", WorkingProgress{WriteIntent: true, Cycle: true, Rounds: 5, SinceWrite: 5, SinceVerify: 5}, WorkingDecision{Stop: "repeated_cycle"}},
 		// Campaign 7b853890, 2026-09-21: a document written, read back until the
 		// repeat detector fired, failed, rolled back and rewritten -- three times.

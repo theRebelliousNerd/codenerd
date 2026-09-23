@@ -284,6 +284,32 @@ func TestToolLoop_ARepeatingReadTaskFinalizesWithItsConclusion(t *testing.T) {
 	}
 }
 
+// A repeat of a call that fails every time read nothing, so there is no
+// conclusion to ask for: the read-repeat finalize does not fire, and the
+// failures run on to working_stop(/tool_failures), which names them. Until
+// 2026-09-23 the finalize fired at the second failed round and the turn ended
+// with the model's text and no error (e2e InfiniteToolLoop).
+func TestToolLoop_ARepeatingFailedReadStopsOnToolFailures(t *testing.T) {
+	const toolName = "working_loop_failing_cycle_probe"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) { return "", errors.New("probe failed") },
+	})
+	client := &sameCallProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName}
+	e := newWorkingLoopExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/explain"}}
+
+	_, _, err := e.runToolLoop(context.Background(), "system", "probe it",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if err == nil || !strings.Contains(err.Error(), "working_stop(/tool_failures)") {
+		t.Fatalf("err = %v, want working_stop(/tool_failures): a repeat of failed calls gathered nothing to conclude from", err)
+	}
+	if result.ToolCallsExecuted != 3 {
+		t.Fatalf("executed = %d, want 3: the third failed round is the stop", result.ToolCallsExecuted)
+	}
+}
+
 // scriptedCallsProvider answers each model call with the next scripted tool
 // call. Once the script runs out, or no tools are offered (the forced-final
 // call), it answers with text. It keeps every history it was handed.
