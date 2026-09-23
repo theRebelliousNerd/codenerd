@@ -56,18 +56,20 @@ func TestStructureIndexFindSymbolForms(t *testing.T) {
 	_, idx := newStructFixture(t)
 	ctx := context.Background()
 	for _, query := range []string{"Run", "Engine.Run", "lib.Engine.Run"} {
-		got, _, err := idx.FindSymbol(ctx, query, "")
+		got, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{query}})
 		if err != nil {
 			t.Fatalf("FindSymbol(%q): %v", query, err)
 		}
-		if len(got) != 1 || got[0].ID != "lib.Engine.Run" || got[0].File != "lib/lib.go" || got[0].StartLine != 7 {
-			t.Fatalf("FindSymbol(%q) = %+v, want lib.Engine.Run at lib/lib.go:7", query, got)
+		// The span starts at the doc comment: replacing an element replaces
+		// its doc too.
+		if len(got) != 1 || got[0].ID != "lib.Engine.Run" || got[0].Ref != "lib.Engine.Run" || got[0].File != "lib/lib.go" || got[0].StartLine != 6 {
+			t.Fatalf("FindSymbol(%q) = %+v, want lib.Engine.Run at lib/lib.go:6", query, got)
 		}
 		if got[0].Kind != "method" || got[0].Signature != "func (*Engine) Run() error" {
 			t.Fatalf("FindSymbol(%q) kind/signature = %q / %q", query, got[0].Kind, got[0].Signature)
 		}
 	}
-	structs, _, err := idx.FindSymbol(ctx, "Engine", "struct")
+	structs, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"Engine"}, Kind: "struct"})
 	if err != nil || len(structs) != 1 || structs[0].Doc != "Engine runs things." {
 		t.Fatalf("FindSymbol(Engine, struct) = %+v, err=%v", structs, err)
 	}
@@ -134,8 +136,8 @@ func TestStructureIndexCalleesResolveCandidates(t *testing.T) {
 	if len(callees) != 2 {
 		t.Fatalf("Callees(app.Start) = %+v, want two calls", callees)
 	}
-	if callees[0].Call != "lib.Build" || len(callees[0].Candidates) != 1 || callees[0].Candidates[0] != "lib.Build @ lib/lib.go:15" {
-		t.Fatalf("first callee = %+v, want lib.Build resolved to lib/lib.go:15", callees[0])
+	if callees[0].Call != "lib.Build" || len(callees[0].Candidates) != 1 || callees[0].Candidates[0] != "lib.Build @ lib/lib.go:14" {
+		t.Fatalf("first callee = %+v, want lib.Build resolved to lib/lib.go:14", callees[0])
 	}
 }
 
@@ -216,7 +218,7 @@ var seeded = lib.Seed()
 func TestStructureIndexFollowsEdits(t *testing.T) {
 	root, idx := newStructFixture(t)
 	ctx := context.Background()
-	if _, _, err := idx.FindSymbol(ctx, "Orphan", ""); err != nil {
+	if _, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"Orphan"}}); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
 
@@ -226,7 +228,7 @@ func TestStructureIndexFollowsEdits(t *testing.T) {
 		t.Fatalf("chtimes: %v", err)
 	}
 
-	found, stats, err := idx.FindSymbol(ctx, "Later", "")
+	found, stats, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"Later"}})
 	if err != nil {
 		t.Fatalf("FindSymbol: %v", err)
 	}
@@ -249,7 +251,7 @@ func TestStructureIndexFollowsEdits(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	gone, _, err := idx.FindSymbol(ctx, "Later", "")
+	gone, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"Later"}})
 	if err != nil || len(gone) != 0 {
 		t.Fatalf("FindSymbol(Later) after delete = %+v, err=%v; want nothing", gone, err)
 	}
@@ -281,7 +283,7 @@ func TestStructureIndexRepositoryScale(t *testing.T) {
 	if warm.Reparsed != 0 {
 		t.Fatalf("warm refresh reparsed %d files with nothing changed", warm.Reparsed)
 	}
-	found, _, err := idx.FindSymbol(ctx, "StructureIndex.FindSymbol", "")
+	found, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"StructureIndex.FindSymbol"}})
 	if err != nil || len(found) != 1 || found[0].File != "internal/world/structure_index.go" {
 		t.Fatalf("the index cannot find its own method: %+v err=%v", found, err)
 	}

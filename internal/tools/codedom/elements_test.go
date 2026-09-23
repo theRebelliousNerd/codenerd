@@ -2,524 +2,248 @@ package codedom
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codenerd/internal/tools"
 )
 
-// =============================================================================
-// CODE ELEMENT TESTS
-// =============================================================================
+const elementFixture = `// Package demo is a fixture.
+package demo
 
-func TestCodeElement_Fields(t *testing.T) {
-	t.Parallel()
+import "strings"
 
-	elem := CodeElement{
-		Name:      "TestFunc",
-		Type:      "function",
-		File:      "test.go",
-		StartLine: 10,
-		EndLine:   20,
-		Signature: "func TestFunc()",
-	}
+// Limit bounds things.
+const Limit = 3
 
-	if elem.Name != "TestFunc" {
-		t.Errorf("Name mismatch: got %q", elem.Name)
-	}
-	if elem.Type != "function" {
-		t.Errorf("Type mismatch: got %q", elem.Type)
-	}
+var (
+	// verbose logs more.
+	verbose bool
+	count   int
+)
+
+// T is a type.
+type T struct{ x int }
+
+// M does the thing.
+func (t *T) M() string {
+	return strings.Repeat("a", t.x)
 }
 
-// =============================================================================
-// GET ELEMENTS TOOL TESTS
-// =============================================================================
+// N does another.
+func (t T) N() string { return "n" }
 
-func TestGetElementsTool_Definition(t *testing.T) {
-	t.Parallel()
+func Close() error { return nil }
 
-	tool := GetElementsTool()
+type A struct{}
 
-	if tool.Name != "get_elements" {
-		t.Errorf("Name mismatch: got %q", tool.Name)
-	}
-	if tool.Description == "" {
-		t.Error("Description should not be empty")
-	}
-	if tool.Execute == nil {
-		t.Error("Execute should be set")
-	}
-	if len(tool.Schema.Required) == 0 {
-		t.Error("Required fields should be specified")
-	}
-}
-
-func TestGetElementsTool_Execute_MissingPath(t *testing.T) {
-	t.Parallel()
-
-	_, err := executeGetElements(context.Background(), map[string]any{})
-	if err == nil {
-		t.Error("expected error for missing path")
-	}
-	if !strings.Contains(err.Error(), "path is required") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestGetElementsTool_Execute_FileNotFound(t *testing.T) {
-	t.Parallel()
-
-	_, err := executeGetElements(context.Background(), map[string]any{
-		"path": "/nonexistent/file.go",
-	})
-	if err == nil {
-		t.Error("expected error for nonexistent file")
-	}
-}
-
-func TestGetElementsTool_Execute_GoFile(t *testing.T) {
-	t.Parallel()
-
-	// Create a temp Go file
-	tmpDir := t.TempDir()
-	goFile := filepath.Join(tmpDir, "test.go")
-	content := `package test
-
-func Hello() {
-    fmt.Println("hello")
-}
-
-type MyStruct struct {
-    Name string
-}
-
-func (m *MyStruct) Method() {
-}
+func (a *A) Close() error { return nil }
 `
-	if err := os.WriteFile(goFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
 
-	result, err := executeGetElements(wsCtxFor(t, goFile), map[string]any{
-		"path": goFile,
-	})
-	if err != nil {
-		t.Fatalf("executeGetElements error: %v", err)
+func writeElementFixture(t *testing.T, name, content string) (context.Context, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
 	}
-
-	if result == "" {
-		t.Error("expected non-empty result")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(result, "Hello") {
-		t.Error("expected to find Hello function")
-	}
-	if !strings.Contains(result, "MyStruct") {
-		t.Error("expected to find MyStruct")
-	}
+	return tools.WithWorkspaceRoot(context.Background(), dir), name
 }
 
-func TestGetElementsTool_Execute_WithTypeFilter(t *testing.T) {
+func TestElementsFromSource_GoComesFromTheAST(t *testing.T) {
 	t.Parallel()
-
-	tmpDir := t.TempDir()
-	goFile := filepath.Join(tmpDir, "test.go")
-	content := `package test
-
-func Func1() {}
-func Func2() {}
-
-type Struct1 struct {}
-`
-	if err := os.WriteFile(goFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+	els := ElementsFromSource("demo.go", elementFixture)
+	got := map[string]CodeElement{}
+	for _, e := range els {
+		got[e.Name] = e
 	}
-
-	result, err := executeGetElements(wsCtxFor(t, goFile), map[string]any{
-		"path": goFile,
-		"type": "function",
-	})
-	if err != nil {
-		t.Fatalf("executeGetElements error: %v", err)
-	}
-
-	if !strings.Contains(result, "Func1") {
-		t.Error("expected to find Func1")
-	}
-	// Should not contain struct when filtering for functions
-	if strings.Contains(result, `"type": "struct"`) {
-		t.Error("should not find struct when filtering for function")
-	}
-}
-
-// =============================================================================
-// EXTRACT CODE ELEMENTS TESTS
-// =============================================================================
-
-func TestExtractCodeElements_Go(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	goFile := filepath.Join(tmpDir, "test.go")
-	content := `package test
-
-func Standalone() {}
-
-type MyInterface interface {
-    Method()
-}
-
-type MyStruct struct {}
-
-func (m *MyStruct) Method() {}
-`
-	if err := os.WriteFile(goFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	elements, err := extractCodeElements(goFile)
-	if err != nil {
-		t.Fatalf("extractCodeElements error: %v", err)
-	}
-
-	if len(elements) < 3 {
-		t.Errorf("expected at least 3 elements, got %d", len(elements))
-	}
-
-	// Check for expected types
-	foundFunc := false
-	foundStruct := false
-	foundInterface := false
-	for _, e := range elements {
-		switch e.Type {
-		case "function":
-			foundFunc = true
-		case "struct":
-			foundStruct = true
-		case "interface":
-			foundInterface = true
+	for name, kind := range map[string]string{
+		"Limit": "const", "verbose": "var", "count": "var", "T": "struct",
+		"T.M": "method", "T.N": "method", "Close": "function", "A.Close": "method",
+	} {
+		if got[name].Type != kind {
+			t.Errorf("%s: kind %q, want %q (have %v)", name, got[name].Type, kind, els)
 		}
 	}
-
-	if !foundFunc {
-		t.Error("expected to find function")
-	}
-	if !foundStruct {
-		t.Error("expected to find struct")
-	}
-	if !foundInterface {
-		t.Error("expected to find interface")
+	m := got["T.M"]
+	if m.DeclLine != m.StartLine+1 {
+		t.Fatalf("T.M spans its doc (start %d) and declares on the next line (decl %d)", m.StartLine, m.DeclLine)
 	}
 }
 
-func TestExtractCodeElements_Python(t *testing.T) {
+func TestElementsFromSource_RegexLanguagesStillQualifyMembers(t *testing.T) {
 	t.Parallel()
-
-	tmpDir := t.TempDir()
-	pyFile := filepath.Join(tmpDir, "test.py")
-	content := `class MyClass:
-    def method(self):
-        pass
-
-def standalone_func():
-    pass
-`
-	if err := os.WriteFile(pyFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+	py := ElementsFromSource("x.py", "class A:\n    def close(self):\n        pass\n\n    def outer(self):\n        def inner():\n            pass\n\ndef close():\n    pass\n")
+	names := map[string]string{}
+	for _, e := range py {
+		names[e.Name] = e.Type
 	}
+	if names["A.close"] != "method" || names["close"] != "function" {
+		t.Fatalf("python: %v", py)
+	}
+	js := ElementsFromSource("x.js", "class A {\n  close() {\n    return '}';\n  }\n}\nclass B {\n  close() {\n    // {\n  }\n}\n")
+	var qualified []string
+	for _, e := range js {
+		if e.Type == "method" {
+			qualified = append(qualified, fmt.Sprintf("%s:%d-%d", e.Name, e.StartLine, e.EndLine))
+		}
+	}
+	if strings.Join(qualified, ",") != "A.close:2-4,B.close:7-9" {
+		t.Fatalf("js methods scoped to their class with brace-counted extents: %v", qualified)
+	}
+}
 
-	elements, err := extractCodeElements(pyFile)
+func TestGetElements_ListsEveryKindWithRefsAndRevisions(t *testing.T) {
+	ctx, path := writeElementFixture(t, "demo.go", elementFixture)
+	out, err := executeGetElements(ctx, map[string]any{"path": path})
 	if err != nil {
-		t.Fatalf("extractCodeElements error: %v", err)
+		t.Fatal(err)
 	}
-
-	if len(elements) < 2 {
-		t.Errorf("expected at least 2 elements, got %d", len(elements))
+	for _, want := range []string{
+		"(go, package demo", "parses)",
+		"demo.go:1-4  header  demo.go:header  rev ",
+		"const  ./Limit  rev ", "var  ./verbose", "var  ./count", "struct  ./T  rev ",
+		"method  ./T.M  rev ", "// M does the thing.", "method  ./A.Close",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("get_elements is missing %q:\n%s", want, out)
+		}
+	}
+	only, err := executeGetElements(ctx, map[string]any{"path": path, "kind": "var"})
+	if err != nil || strings.Contains(only, "method") || !strings.Contains(only, "-- 2 rows, complete") {
+		t.Fatalf("kind filter: %v\n%s", err, only)
 	}
 }
 
-func TestExtractCodeElements_JavaScript(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	jsFile := filepath.Join(tmpDir, "test.js")
-	content := `function hello() {
-    console.log("hello");
-}
-
-class MyClass {
-    constructor() {}
-}
-
-const arrowFunc = (x) => x * 2;
-`
-	if err := os.WriteFile(jsFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	elements, err := extractCodeElements(jsFile)
+func TestGetElements_BrokenFileStaysListedWithItsError(t *testing.T) {
+	broken := strings.Replace(elementFixture, `strings.Repeat("a", t.x)`, `strings.Repeat("a", t.x`, 1)
+	ctx, path := writeElementFixture(t, "demo.go", broken)
+	out, err := executeGetElements(ctx, map[string]any{"path": path})
 	if err != nil {
-		t.Fatalf("extractCodeElements error: %v", err)
+		t.Fatal(err)
 	}
-
-	if len(elements) < 2 {
-		t.Errorf("expected at least 2 elements, got %d", len(elements))
+	for _, want := range []string{"DOES NOT PARSE", "syntax error at line", "syntax_error  demo.go:syntax_error", "./Limit", "./A.Close"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("broken listing is missing %q:\n%s", want, out)
+		}
 	}
-}
-
-// =============================================================================
-// GET ELEMENT TOOL TESTS
-// =============================================================================
-
-func TestGetElementTool_Definition(t *testing.T) {
-	t.Parallel()
-
-	tool := GetElementTool()
-
-	if tool.Name != "get_element" {
-		t.Errorf("Name mismatch: got %q", tool.Name)
-	}
-	if len(tool.Schema.Required) != 2 {
-		t.Errorf("expected 2 required fields, got %d", len(tool.Schema.Required))
+	region, err := executeGetElement(ctx, map[string]any{"ref": "demo.go:syntax_error"})
+	if err != nil || !strings.Contains(region, "func (t *T) M()") || !strings.Contains(region, "does not parse") {
+		t.Fatalf("the broken region is viewable by ref: %v\n%s", err, region)
 	}
 }
 
-func TestGetElementTool_Execute_MissingPath(t *testing.T) {
-	t.Parallel()
-
-	_, err := executeGetElement(context.Background(), map[string]any{
-		"name": "test",
-	})
-	if err == nil {
-		t.Error("expected error for missing path")
+func TestGetElements_UnparsedLanguageSaysSo(t *testing.T) {
+	ctx, path := writeElementFixture(t, "x.py", "def f():\n    pass\n")
+	out, err := executeGetElements(ctx, map[string]any{"path": path})
+	if err != nil || !strings.Contains(out, "no parser for this language") || !strings.Contains(out, "function  f") {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }
 
-func TestGetElementTool_Execute_MissingName(t *testing.T) {
-	t.Parallel()
-
-	_, err := executeGetElement(context.Background(), map[string]any{
-		"path": "/some/file.go",
-	})
-	if err == nil {
-		t.Error("expected error for missing name")
-	}
-}
-
-func TestGetElementTool_Execute_Found(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	goFile := filepath.Join(tmpDir, "test.go")
-	content := `package test
-
-func TargetFunc() {}
-func OtherFunc() {}
-`
-	if err := os.WriteFile(goFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	result, err := executeGetElement(wsCtxFor(t, goFile), map[string]any{
-		"path": goFile,
-		"name": "TargetFunc",
-	})
+// The R8 audit's failing test for G1: get_element returned no body, so every
+// look at code went through read_file.
+func TestGetElement_ReturnsTheSourceWithItsDocCommentAndRevision(t *testing.T) {
+	ctx, path := writeElementFixture(t, "demo.go", elementFixture)
+	out, err := executeGetElement(ctx, map[string]any{"path": path, "ref": "T.M"})
 	if err != nil {
-		t.Fatalf("executeGetElement error: %v", err)
+		t.Fatal(err)
 	}
-
-	if !strings.Contains(result, "TargetFunc") {
-		t.Error("expected result to contain TargetFunc")
-	}
-}
-
-func TestGetElementTool_Execute_NotFound(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	goFile := filepath.Join(tmpDir, "test.go")
-	content := `package test
-
-func Existing() {}
-`
-	if err := os.WriteFile(goFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	_, err := executeGetElement(wsCtxFor(t, goFile), map[string]any{
-		"path": goFile,
-		"name": "NonExistent",
-	})
-	if err == nil {
-		t.Error("expected error for not found element")
-	}
-	if !strings.Contains(err.Error(), "element not found") {
-		t.Errorf("unexpected error: %v", err)
+	for _, want := range []string{
+		"./T.M  method  demo.go:18-21  rev ",
+		"18  // M does the thing.",
+		"19  func (t *T) M() string {",
+		`20  	return strings.Repeat("a", t.x)`,
+		"21  }",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("get_element is missing %q:\n%s", want, out)
+		}
 	}
 }
 
-// =============================================================================
-// BLOCK EXTENT TESTS (table-driven)
-// =============================================================================
-
-func TestExtractCodeElements_BlockExtent(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		filename  string
-		content   string
-		wantName  string
-		wantType  string
-		wantStart int
-		wantEnd   int
-	}{
-		{
-			name:      "multi-line Go func",
-			filename:  "test.go",
-			content:   "package test\n\nfunc Foo(a int, b string) error {\n    if a > 0 {\n        return nil\n    }\n    return fmt.Errorf(\"nope\")\n}\n",
-			wantName:  "Foo",
-			wantType:  "function",
-			wantStart: 3,
-			wantEnd:   8,
-		},
-		{
-			name:      "Go struct",
-			filename:  "test.go",
-			content:   "package test\n\ntype MyStruct struct {\n    Name string\n    Age  int\n}\n",
-			wantName:  "MyStruct",
-			wantType:  "struct",
-			wantStart: 3,
-			wantEnd:   6,
-		},
-		{
-			name:      "nested braces",
-			filename:  "test.go",
-			content:   "package test\n\nfunc Nested() {\n    if true {\n        for i := 0; i < 10; i++ {\n            fmt.Println(i)\n        }\n    }\n}\n",
-			wantName:  "Nested",
-			wantType:  "function",
-			wantStart: 3,
-			wantEnd:   9,
-		},
-		{
-			name:      "brace inside string literal",
-			filename:  "test.go",
-			content:   "package test\n\nfunc WithString() {\n    fmt.Println(\"{ not a block }\")\n    x := \"}\"\n    y := '{'\n}\n",
-			wantName:  "WithString",
-			wantType:  "function",
-			wantStart: 3,
-			wantEnd:   7,
-		},
-		{
-			name:      "python function",
-			filename:  "test.py",
-			content:   "def foo():\n    x = 1\n    if True:\n        y = 2\n    return x\n\ndef bar():\n    pass\n",
-			wantName:  "foo",
-			wantType:  "function",
-			wantStart: 1,
-			wantEnd:   5,
-		},
+func TestGetElement_AcceptsEverySpellingAndRefusesAmbiguity(t *testing.T) {
+	ctx, path := writeElementFixture(t, "demo.go", elementFixture)
+	for _, ref := range []string{"T.M", "(*T).M", "*T.M", "./T.M", "demo.go:T.M"} {
+		args := map[string]any{"ref": ref}
+		if !strings.HasPrefix(ref, "demo.go:") {
+			args["path"] = path
+		}
+		out, err := executeGetElement(ctx, args)
+		if err != nil || !strings.Contains(out, "func (t *T) M()") {
+			t.Errorf("ref %q: %v\n%s", ref, err, out)
+		}
 	}
-
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			tmpDir := t.TempDir()
-			path := filepath.Join(tmpDir, tc.filename)
-			if err := os.WriteFile(path, []byte(tc.content), 0644); err != nil {
-				t.Fatalf("failed to write test file: %v", err)
-			}
-			elements, err := extractCodeElements(path)
-			if err != nil {
-				t.Fatalf("extractCodeElements error: %v", err)
-			}
-			var found *CodeElement
-			for i := range elements {
-				if elements[i].Name == tc.wantName && elements[i].Type == tc.wantType {
-					found = &elements[i]
-					break
-				}
-			}
-			if found == nil {
-				t.Fatalf("element %q (%s) not found; elements=%v", tc.wantName, tc.wantType, elements)
-			}
-			if found.StartLine != tc.wantStart {
-				t.Errorf("StartLine mismatch: want %d, got %d", tc.wantStart, found.StartLine)
-			}
-			if found.EndLine != tc.wantEnd {
-				t.Errorf("EndLine mismatch: want %d, got %d", tc.wantEnd, found.EndLine)
-			}
-		})
+	// Close is both a function and a method: the bare name picks the function.
+	fn, err := executeGetElement(ctx, map[string]any{"path": path, "ref": "Close"})
+	if err != nil || !strings.Contains(fn, "func Close()") {
+		t.Fatalf("bare Close: %v\n%s", err, fn)
+	}
+	twoMethods := elementFixture + "\ntype B struct{}\n\nfunc (b *B) Size() int { return 0 }\n\nfunc (a *A) Size() int { return 1 }\n"
+	ctx2, path2 := writeElementFixture(t, "two.go", twoMethods)
+	_, err = executeGetElement(ctx2, map[string]any{"path": path2, "ref": "Size"})
+	if err == nil || !strings.Contains(err.Error(), "./B.Size") || !strings.Contains(err.Error(), "./A.Size") {
+		t.Fatalf("an ambiguous name must be refused with every candidate ref: %v", err)
+	}
+	if _, err := executeGetElement(ctx, map[string]any{"path": path, "ref": "Nope"}); err == nil || !strings.Contains(err.Error(), "get_elements") {
+		t.Fatalf("not found must point at get_elements: %v", err)
+	}
+	if _, err := executeGetElement(ctx, map[string]any{"path": path}); err == nil {
+		t.Fatal("a missing ref must be refused")
+	}
+	both, err := executeGetElement(ctx, map[string]any{"path": path, "refs": []any{"Limit", "T.N"}})
+	if err != nil || !strings.Contains(both, "const Limit = 3") || !strings.Contains(both, `func (t T) N()`) {
+		t.Fatalf("several refs in one call: %v\n%s", err, both)
+	}
+	hdr, err := executeGetElement(ctx, map[string]any{"ref": "demo.go:header"})
+	if err != nil || !strings.Contains(hdr, `import "strings"`) || !strings.Contains(hdr, "// Package demo") {
+		t.Fatalf("the header is an element: %v\n%s", err, hdr)
 	}
 }
 
-func TestExtractCodeElements_BlockExtent_Additional(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		filename  string
-		content   string
-		wantName  string
-		wantStart int
-		wantEnd   int
-	}{
-		{
-			name:      "brace in line comment",
-			filename:  "test.go",
-			content:   "package test\n\nfunc CommentBrace() {\n    // this { is a comment\n    x := 1\n}\n",
-			wantName:  "CommentBrace",
-			wantStart: 3,
-			wantEnd:   6,
-		},
-		{
-			name:      "brace in block comment",
-			filename:  "test.go",
-			content:   "package test\n\nfunc BlockComment() {\n    /* { block comment } */\n    x := 1\n}\n",
-			wantName:  "BlockComment",
-			wantStart: 3,
-			wantEnd:   6,
-		},
-		{
-			name:      "python nested def indent",
-			filename:  "test.py",
-			content:   "def outer():\n    x = 1\n    y = 2\n\ndef next_func():\n    pass\n",
-			wantName:  "outer",
-			wantStart: 1,
-			wantEnd:   3,
-		},
+func TestGetElement_LargeElementAnswersWithItsPartsAndPartNarrows(t *testing.T) {
+	var body strings.Builder
+	body.WriteString("package big\n\n// Huge is long.\nfunc Huge(x int) int {\n\tswitch x {\n")
+	for i := range elementPageLines {
+		fmt.Fprintf(&body, "\tcase %d:\n\t\tx++\n", i)
 	}
+	body.WriteString("\t}\n\treturn x\n}\n")
+	ctx, path := writeElementFixture(t, "big.go", body.String())
+	out, err := executeGetElement(ctx, map[string]any{"path": path, "ref": "Huge"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "its parts") || !strings.Contains(out, "part 1  lines 5-") || !strings.Contains(out, "part 2  lines") {
+		t.Fatalf("a large element answers with its outline:\n%.1500s", out)
+	}
+	if strings.Contains(out, "x++") {
+		t.Fatal("the outline must not print the whole body")
+	}
+	part, err := executeGetElement(ctx, map[string]any{"path": path, "ref": "Huge", "part": "1.301"})
+	if err != nil || !strings.Contains(part, "case 300:") || strings.Contains(part, "case 299:") {
+		t.Fatalf("part narrows to one case clause: %v\n%s", err, part)
+	}
+	whole, err := executeGetElement(ctx, map[string]any{"path": path, "ref": "Huge", "full": true})
+	if err != nil || !strings.Contains(whole, "case 399:") {
+		t.Fatalf("full returns everything: %v", err)
+	}
+}
 
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			tmpDir := t.TempDir()
-			path := filepath.Join(tmpDir, tc.filename)
-			if err := os.WriteFile(path, []byte(tc.content), 0644); err != nil {
-				t.Fatalf("failed to write test file: %v", err)
-			}
-			elements, err := extractCodeElements(path)
-			if err != nil {
-				t.Fatalf("extractCodeElements error: %v", err)
-			}
-			var found *CodeElement
-			for i := range elements {
-				if elements[i].Name == tc.wantName {
-					found = &elements[i]
-					break
-				}
-			}
-			if found == nil {
-				t.Fatalf("element %q not found; elements=%v", tc.wantName, elements)
-			}
-			if found.StartLine != tc.wantStart {
-				t.Errorf("StartLine mismatch: want %d, got %d", tc.wantStart, found.StartLine)
-			}
-			if found.EndLine != tc.wantEnd {
-				t.Errorf("EndLine mismatch: want %d, got %d", tc.wantEnd, found.EndLine)
-			}
-		})
+func TestGetElement_MangleStatementsAreElements(t *testing.T) {
+	src := "# Declares edges.\nDecl edge(X, Y) bound [/string, /string].\n\npath(X, Y) :- edge(X, Y).\n"
+	ctx, path := writeElementFixture(t, "p.mg", src)
+	list, err := executeGetElements(ctx, map[string]any{"path": path})
+	if err != nil || !strings.Contains(list, "decl  p.mg:decl:edge/2") || !strings.Contains(list, "rule  p.mg:rule:path/2@") {
+		t.Fatalf("%v\n%s", err, list)
+	}
+	decl, err := executeGetElement(ctx, map[string]any{"ref": "p.mg:decl:edge/2"})
+	if err != nil || !strings.Contains(decl, "1  # Declares edges.") || !strings.Contains(decl, "Decl edge(X, Y)") {
+		t.Fatalf("%v\n%s", err, decl)
 	}
 }

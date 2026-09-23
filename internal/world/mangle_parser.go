@@ -3,6 +3,7 @@ package world
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/world/codemodel"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,7 @@ func (p *MangleCodeParser) Parse(path string, content []byte) ([]CodeElement, er
 	start := time.Now()
 	logging.WorldDebug("MangleCodeParser: parsing file: %s", filepath.Base(path))
 
-	statements := splitMangleStatements(string(content))
+	statements := codemodel.SplitMangleStatements(string(content))
 	logging.WorldDebug("MangleCodeParser: mangle statements in %s: %d", filepath.Base(path), len(statements))
 
 	defaultActions := []ActionType{ActionView, ActionReplace, ActionInsertBefore, ActionInsertAfter, ActionDelete}
@@ -50,8 +51,8 @@ func (p *MangleCodeParser) Parse(path string, content []byte) ([]CodeElement, er
 
 	var elements []CodeElement
 	for _, st := range statements {
-		head, isRule := splitMangleHead(st.Text)
-		pred, arity := parseManglePredicateAndArity(head)
+		head, isRule := codemodel.MangleHead(st.Text)
+		pred, arity := codemodel.ManglePredicate(head)
 		if pred == "" {
 			continue
 		}

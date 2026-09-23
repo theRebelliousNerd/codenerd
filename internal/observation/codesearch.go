@@ -420,9 +420,14 @@ func Project(s Search, read SourceReader, limits Limits) CodeSearchResult {
 				symbolOrder = append(symbolOrder, ref)
 			}
 			sym.Hits++
-			if m.Line == element.StartLine {
-				sym.Declared = true
+			// The element spans its doc comment. A hit there is prose about
+			// the symbol, like the declaration line is where it is: neither
+			// is a use of what the search asked for.
+			if m.Line <= element.DeclLine {
 				declHits[ref]++
+			}
+			if m.Line == element.DeclLine {
+				sym.Declared = true
 			}
 		}
 	}

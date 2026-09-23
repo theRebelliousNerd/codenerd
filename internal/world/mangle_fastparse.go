@@ -2,17 +2,18 @@ package world
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/world/codemodel"
 	"fmt"
 )
 
 func extractMangleSymbolFacts(path string, content string) []core.Fact {
-	statements := splitMangleStatements(content)
+	statements := codemodel.SplitMangleStatements(content)
 	seen := make(map[string]struct{}, len(statements))
 
 	facts := make([]core.Fact, 0, len(statements))
 	for _, st := range statements {
-		head, _ := splitMangleHead(st.Text)
-		pred, arity := parseManglePredicateAndArity(head)
+		head, _ := codemodel.MangleHead(st.Text)
+		pred, arity := codemodel.ManglePredicate(head)
 		if pred == "" {
 			continue
 		}

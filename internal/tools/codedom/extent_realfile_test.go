@@ -57,8 +57,10 @@ func TestExtractCodeElements_RealFileExtents(t *testing.T) {
 			continue
 		}
 		found = true
-		if el.StartLine != wantStart {
-			t.Errorf("ForbidsPath StartLine = %d, want %d", el.StartLine, wantStart)
+		// The declaration line is the func keyword; the span starts above it
+		// at the doc comment, which an element replace also replaces.
+		if el.DeclLine != wantStart || el.StartLine > wantStart {
+			t.Errorf("ForbidsPath DeclLine = %d StartLine = %d, want DeclLine %d and the doc above it", el.DeclLine, el.StartLine, wantStart)
 		}
 		if el.EndLine <= el.StartLine {
 			t.Errorf("ForbidsPath EndLine = %d, StartLine = %d — extent tracking is not working; "+

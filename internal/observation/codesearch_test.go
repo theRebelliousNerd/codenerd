@@ -97,11 +97,14 @@ func TestProject_WhenMatchesLandInsideFunctions_ShouldNameTheSymbolsNotTheLines(
 		t.Errorf("caller hits = %d, want 2: both call sites are inside caller, and collapsing them loses how heavily it depends on Encode", caller.Hits)
 	}
 
-	// The comment on line 8 sits outside every element, so it must be reported
-	// as an unattributed file hit rather than silently attributed to the
-	// function declared on the next line.
-	if len(r.Unscoped) != 1 || r.Unscoped[0].File != "widget.go" || r.Unscoped[0].Hits != 1 {
-		t.Errorf("hits outside every symbol = %v, want widget.go x1", r.Unscoped)
+	// The comment on line 8 is Encode's doc comment, and the element model
+	// spans a declaration's doc: it is attributed to Encode, as prose about it
+	// (no reference edge, see the next test), not left unscoped.
+	if len(r.Unscoped) != 0 {
+		t.Errorf("hits outside every symbol = %v, want none", r.Unscoped)
+	}
+	if decl.Hits != 2 {
+		t.Errorf("Encode hits = %d, want 2: its doc comment and its declaration", decl.Hits)
 	}
 }
 

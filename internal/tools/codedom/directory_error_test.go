@@ -35,7 +35,7 @@ func TestCodedomRead_DirectoryReturnsActionableError(t *testing.T) {
 	assertActionableDirectoryError(t, err)
 
 	// executeGetElement also goes through extractCodeElements.
-	_, err = executeGetElement(elemCtx, map[string]any{"path": subdir, "name": "Foo"})
+	_, err = executeGetElement(elemCtx, map[string]any{"path": subdir, "ref": "Foo"})
 	if err == nil {
 		t.Fatal("expected error for directory, got nil from executeGetElement")
 	}

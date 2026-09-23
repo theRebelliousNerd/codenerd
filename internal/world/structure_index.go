@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
-	gotypes "go/types"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -17,13 +17,15 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
+	"codenerd/internal/world/codemodel"
 )
 
 // =============================================================================
 // STRUCTURE INDEX
 // =============================================================================
 // The workspace-wide, symbol-level layer of the world model: every Go
-// declaration with its line span, and every call site with its line.
+// declaration and Mangle statement with its line span and revision, and every
+// Go call site with its line.
 //
 // Why it exists. The deep facts the Cartographer produces (code_defines,
 // code_calls) are computed for the active file and its one-hop neighbours, so
@@ -33,29 +35,43 @@ import (
 // against 14 get_elements calls, because grep was the only tool that answered a
 // question spanning files.
 //
-// It is a plain go/ast pass, without the Cartographer's data-flow extraction,
-// so the whole tree is cheap to hold. Symbol IDs follow the Cartographer's
-// convention (pkg.Name, pkg.Receiver.Name) so a ref means the same thing here
-// and in code_defines.
+// Elements come from codemodel, the one element model every CodeDOM surface
+// reads, so a declaration's span, kind, doc and revision mean the same thing
+// here, in get_element, and in the edit verbs.
+//
+// Identity. A symbol's ID follows the Cartographer's convention (pkg.Name,
+// pkg.Receiver.Name) so the kernel's code_calls and modified_function facts
+// join. Its Ref is the model-facing address, keyed by directory rather than
+// package name: this repository has `package main` in 20 directories, and a
+// name that resolves to 20 declarations is a search key, not an address.
 //
 // Freshness. Every query re-stats the tree and re-parses exactly the files
 // whose fingerprint moved, so an answer never describes a file as it was
-// before the last edit.
+// before the last edit. A file that stops parsing keeps its last clean
+// element list beside its current one: the answer from before the edit is
+// labelled as such, and the file stays addressable for its repair.
 
 // StructSymbol is one declaration.
 type StructSymbol struct {
 	ID        string `json:"id"`
-	Kind      string `json:"kind"` // function, method, struct, interface, type, const, var
+	Ref       string `json:"ref"`
+	Key       string `json:"key"`
+	Kind      string `json:"kind"`
 	File      string `json:"file"`
 	StartLine int    `json:"start_line"`
 	EndLine   int    `json:"end_line"`
 	Signature string `json:"signature,omitempty"`
 	Doc       string `json:"doc,omitempty"`
+	Revision  string `json:"revision,omitempty"`
 	Exported  bool   `json:"exported"`
 
 	name     string
 	receiver string
 	pkg      string
+	dir      string
+	lang     string
+	// bodyPreds are the predicates a Mangle statement's body reads.
+	bodyPreds []string
 }
 
 // StructCall is one call site, attributed to the declaration containing it.
@@ -65,6 +81,7 @@ type StructCall struct {
 	Line      int    `json:"line"`
 	Qualifier string `json:"-"` // identifier before the dot, empty for a bare call
 	Name      string `json:"-"`
+	callerKey string
 }
 
 // StructCallerMatch is a call site reported for a target symbol.
@@ -78,20 +95,30 @@ type StructCallerMatch struct {
 
 type structFile struct {
 	fingerprint string
+	lang        string
 	pkg         string
 	dir         string
-	imports     map[string]string // local name -> import path
+	imports     []codemodel.Import
+	importNames map[string]string // local name -> path
 	symbols     []StructSymbol
 	calls       []StructCall
 	idents      map[string]int // identifier name -> occurrences, declarations included
+	parsed      bool
+	errors      []string
+	// lastGood is the symbol list of the last clean parse, kept while the
+	// file does not parse.
+	lastGood []StructSymbol
 }
 
-// StructureIndex holds the parsed structure of every Go file under a root.
+// StructureIndex holds the parsed structure of every Go and Mangle file under
+// a root.
 type StructureIndex struct {
 	root string
 
 	mu          sync.Mutex
 	files       map[string]*structFile // canonical path -> parsed file
+	module      string
+	moduleFP    string
 	lastRefresh time.Time
 	lastParsed  int
 }
@@ -107,12 +134,19 @@ type StructureStats struct {
 	Symbols      int           `json:"symbols"`
 	Calls        int           `json:"calls"`
 	Reparsed     int           `json:"reparsed"`
+	Broken       int           `json:"broken"`
 	RefreshTook  time.Duration `json:"-"`
 	RefreshTookS string        `json:"refresh_took"`
 }
 
-var structureSkipDirs = map[string]struct{}{
-	"vendor": {}, "node_modules": {}, "testdata": {},
+// Line renders the stats as the footer every structural answer carries.
+func (s StructureStats) Line() string {
+	line := fmt.Sprintf("%d files, %d declarations, %d call sites; %d reparsed for this answer (%s)",
+		s.Files, s.Symbols, s.Calls, s.Reparsed, s.RefreshTookS)
+	if s.Broken > 0 {
+		line += fmt.Sprintf("; %d files do not parse (get_elements shows their errors)", s.Broken)
+	}
+	return line
 }
 
 // Refresh brings the index up to date with the tree. Caller holds no lock.
@@ -137,14 +171,12 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 		}
 		name := d.Name()
 		if d.IsDir() {
-			if path != s.root {
-				if _, skip := structureSkipDirs[name]; skip || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
-					return filepath.SkipDir
-				}
+			if path != s.root && codemodel.SkipDir(name) {
+				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(name, ".go") {
+		if codemodel.LanguageOf(name) == "" {
 			return nil
 		}
 		info, err := d.Info()
@@ -168,6 +200,7 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 			delete(s.files, canonical)
 		}
 	}
+	s.refreshModuleLocked()
 
 	if len(stale) > 0 {
 		parsed := make([]*structFile, len(stale))
@@ -183,199 +216,238 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 		}
 		wg.Wait()
 		for i, c := range stale {
-			if parsed[i] != nil {
-				s.files[c.canonical] = parsed[i]
-			} else {
-				// A file that does not parse keeps no stale entry: an answer
-				// from before the edit is worse than no answer.
+			next := parsed[i]
+			if next == nil {
 				delete(s.files, c.canonical)
+				continue
 			}
+			if !next.parsed {
+				if prev, ok := s.files[c.canonical]; ok {
+					if prev.parsed {
+						next.lastGood = prev.symbols
+					} else {
+						next.lastGood = prev.lastGood
+					}
+				}
+			}
+			s.files[c.canonical] = next
 		}
+		s.assignRefsLocked()
 	}
 
 	stats := StructureStats{Files: len(s.files), Reparsed: len(stale), RefreshTook: time.Since(started)}
 	for _, f := range s.files {
 		stats.Symbols += len(f.symbols)
 		stats.Calls += len(f.calls)
+		if !f.parsed {
+			stats.Broken++
+		}
 	}
 	stats.RefreshTookS = stats.RefreshTook.Round(time.Millisecond).String()
 	s.lastRefresh, s.lastParsed = time.Now(), len(stale)
 	if len(stale) > 0 {
-		logging.World("structure index refreshed: files=%d symbols=%d calls=%d reparsed=%d in %v",
-			stats.Files, stats.Symbols, stats.Calls, stats.Reparsed, stats.RefreshTook)
+		logging.World("structure index refreshed: files=%d symbols=%d calls=%d reparsed=%d broken=%d in %v",
+			stats.Files, stats.Symbols, stats.Calls, stats.Reparsed, stats.Broken, stats.RefreshTook)
 	}
 	return stats, nil
 }
 
+// refreshModuleLocked reads the module path from go.mod when it changed.
+func (s *StructureIndex) refreshModuleLocked() {
+	path := filepath.Join(s.root, "go.mod")
+	info, err := os.Stat(path)
+	if err != nil {
+		s.module, s.moduleFP = "", ""
+		return
+	}
+	fp := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
+	if fp == s.moduleFP {
+		return
+	}
+	s.moduleFP = fp
+	s.module = ""
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			s.module = strings.Trim(strings.TrimSpace(rest), `"`)
+			return
+		}
+	}
+}
+
+// assignRefsLocked gives every symbol its workspace ref. A Go ref is its
+// directory and key; two files of one directory declaring the same key (build
+// tag twins, an init per file) get the file name as a discriminator.
+func (s *StructureIndex) assignRefsLocked() {
+	counts := make(map[string]int)
+	for _, f := range s.files {
+		if f.lang != codemodel.LangGo {
+			continue
+		}
+		for _, sym := range f.symbols {
+			counts[f.dir+"\x00"+sym.Key]++
+		}
+	}
+	for canonical, f := range s.files {
+		for i := range f.symbols {
+			f.symbols[i].Ref = refFor(f, canonical, f.symbols[i].Key, counts[f.dir+"\x00"+f.symbols[i].Key] > 1)
+		}
+		for i := range f.lastGood {
+			f.lastGood[i].Ref = refFor(f, canonical, f.lastGood[i].Key, true)
+		}
+	}
+}
+
+func refFor(f *structFile, canonical, key string, ambiguous bool) string {
+	if f.lang != codemodel.LangGo {
+		return canonical + ":" + key
+	}
+	ref := dirRefPrefix(f.dir) + key
+	if ambiguous {
+		ref += "@" + filepath.Base(canonical)
+	}
+	return ref
+}
+
+// dirRefPrefix is the directory part of a Go ref: "internal/world." for a
+// directory, "./" for the workspace root.
+func dirRefPrefix(dir string) string {
+	dir = strings.Trim(dir, "/")
+	if dir == "" || dir == "." {
+		return "./"
+	}
+	return dir + "."
+}
+
 func parseStructFile(fsPath, canonical, fingerprint string) *structFile {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, fsPath, nil, parser.ParseComments|parser.SkipObjectResolution)
-	if err != nil || node == nil {
+	data, err := os.ReadFile(fsPath)
+	if err != nil {
 		return nil
 	}
 	f := &structFile{
 		fingerprint: fingerprint,
-		pkg:         node.Name.Name,
+		lang:        codemodel.LanguageOf(canonical),
 		dir:         filepath.ToSlash(filepath.Dir(canonical)),
-		imports:     make(map[string]string),
+		importNames: make(map[string]string),
 		idents:      make(map[string]int),
 	}
-	for _, imp := range node.Imports {
-		path := strings.Trim(imp.Path.Value, `"`)
-		local := path[strings.LastIndex(path, "/")+1:]
-		if imp.Name != nil {
-			local = imp.Name.Name
+	if f.lang == codemodel.LangMangle {
+		model := codemodel.ParseMangle(canonical, string(data))
+		f.parsed = model.Parsed
+		for _, se := range model.Errors {
+			f.errors = append(f.errors, se.Msg)
 		}
-		f.imports[local] = path
-	}
-	line := func(p token.Pos) int { return fset.Position(p).Line }
-	add := func(sym StructSymbol) {
-		sym.File = canonical
-		sym.pkg = f.pkg
-		sym.Exported = ast.IsExported(sym.name)
-		f.symbols = append(f.symbols, sym)
-	}
-	// collectCalls records every call under node as made by caller, including
-	// the calls inside function literals: a closure's calls belong to the
-	// declaration that holds it.
-	collectCalls := func(node ast.Node, caller string) {
-		ast.Inspect(node, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			switch fun := call.Fun.(type) {
-			case *ast.Ident:
-				f.calls = append(f.calls, StructCall{Caller: caller, File: canonical, Line: line(call.Pos()), Name: fun.Name})
-			case *ast.SelectorExpr:
-				qualifier := ""
-				if x, ok := fun.X.(*ast.Ident); ok {
-					qualifier = x.Name
-				}
-				f.calls = append(f.calls, StructCall{Caller: caller, File: canonical, Line: line(call.Pos()), Qualifier: qualifier, Name: fun.Sel.Name})
-			}
-			return true
-		})
+		for i := range model.Elements {
+			e := &model.Elements[i]
+			sym := symbolFromElement(e, canonical, "", f.dir, f.lang)
+			sym.ID = e.Key
+			sym.bodyPreds = codemodel.MangleBodyPredicates(model.Text(e))
+			f.symbols = append(f.symbols, sym)
+		}
+		return f
 	}
 
-	for _, decl := range node.Decls {
-		switch d := decl.(type) {
-		case *ast.FuncDecl:
-			sym := StructSymbol{name: d.Name.Name, Kind: "function", StartLine: line(d.Pos()), EndLine: line(d.End()),
-				Doc: firstDocLine(d.Doc), Signature: funcSignature(fset, d)}
-			if d.Recv != nil && len(d.Recv.List) > 0 {
-				sym.Kind = "method"
-				sym.receiver = receiverTypeName(d.Recv.List[0].Type)
-			}
-			sym.ID = f.pkg + "." + sym.name
-			if sym.receiver != "" {
-				sym.ID = f.pkg + "." + sym.receiver + "." + sym.name
-			}
-			add(sym)
-			if d.Body != nil {
-				collectCalls(d.Body, sym.ID)
-			}
-		case *ast.GenDecl:
-			for _, spec := range d.Specs {
-				switch sp := spec.(type) {
-				case *ast.TypeSpec:
-					kind := "type"
-					switch sp.Type.(type) {
-					case *ast.StructType:
-						kind = "struct"
-					case *ast.InterfaceType:
-						kind = "interface"
-					}
-					doc := firstDocLine(sp.Doc)
-					if doc == "" {
-						doc = firstDocLine(d.Doc)
-					}
-					add(StructSymbol{name: sp.Name.Name, ID: f.pkg + "." + sp.Name.Name, Kind: kind,
-						StartLine: line(sp.Pos()), EndLine: line(sp.End()), Doc: doc})
-				case *ast.ValueSpec:
-					kind := "var"
-					if d.Tok == token.CONST {
-						kind = "const"
-					}
-					caller := ""
-					for _, name := range sp.Names {
-						if name.Name == "_" {
-							continue
-						}
-						add(StructSymbol{name: name.Name, ID: f.pkg + "." + name.Name, Kind: kind,
-							StartLine: line(name.Pos()), EndLine: line(sp.End())})
-						if caller == "" {
-							caller = f.pkg + "." + name.Name
-						}
-					}
-					// Calls in an initializer are calls: every cobra command's
-					// RunE closure lives in a package-level var, as do function
-					// tables and `var x = f()`. They were never walked, so
-					// callers_of answered "tests only" for functions the CLI
-					// calls in production, and unreferenced_symbols called them
-					// dead (2026-09-21: features.ConfigSchemaJSON, called from
-					// cmd/nerd/cmd_features.go:37, reported with 3 test callers).
-					if caller == "" {
-						caller = f.pkg + ".init"
-					}
-					for _, value := range sp.Values {
-						collectCalls(value, caller)
-					}
-				}
+	model, fset, node := codemodel.ParseGoAST(canonical, string(data))
+	f.pkg = model.Package
+	f.parsed = model.Parsed
+	for _, se := range model.Errors {
+		f.errors = append(f.errors, fmt.Sprintf("line %d:%d: %s", se.Line, se.Column, se.Msg))
+	}
+	f.imports = model.Imports
+	for _, imp := range model.Imports {
+		f.importNames[imp.LocalName()] = imp.Path
+	}
+	for i := range model.Elements {
+		e := &model.Elements[i]
+		if e.Kind == codemodel.KindHeader {
+			continue
+		}
+		f.symbols = append(f.symbols, symbolFromElement(e, canonical, f.pkg, f.dir, f.lang))
+	}
+	if node == nil {
+		return f
+	}
+
+	line := func(p token.Pos) int { return fset.Position(p).Line }
+	// A call belongs to the innermost element whose span holds its line;
+	// calls inside a closure belong to the declaration that holds it, and
+	// calls in a package-level initializer to that var: every cobra
+	// command's RunE closure lives in one, and before 2026-09-21 those calls
+	// were never walked, so callers_of answered "tests only" for functions
+	// the CLI calls in production.
+	owner := func(l int) (id, key string) {
+		for i := range f.symbols {
+			sym := &f.symbols[i]
+			if l >= sym.StartLine && l <= sym.EndLine && sym.Kind != string(codemodel.KindSyntaxError) {
+				return sym.ID, sym.Key
 			}
 		}
+		return f.pkg + ".init", ""
 	}
 	ast.Inspect(node, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok {
-			f.idents[id.Name]++
+		switch x := n.(type) {
+		case *ast.Ident:
+			f.idents[x.Name]++
+		case *ast.CallExpr:
+			l := line(x.Pos())
+			caller, key := owner(l)
+			switch fun := x.Fun.(type) {
+			case *ast.Ident:
+				f.calls = append(f.calls, StructCall{Caller: caller, callerKey: key, File: canonical, Line: l, Name: fun.Name})
+			case *ast.SelectorExpr:
+				qualifier := ""
+				if id, ok := fun.X.(*ast.Ident); ok {
+					qualifier = id.Name
+				}
+				f.calls = append(f.calls, StructCall{Caller: caller, callerKey: key, File: canonical, Line: l, Qualifier: qualifier, Name: fun.Sel.Name})
+			}
 		}
 		return true
 	})
 	return f
 }
 
-func firstDocLine(group *ast.CommentGroup) string {
-	if group == nil {
-		return ""
+func symbolFromElement(e *codemodel.Element, canonical, pkg, dir, lang string) StructSymbol {
+	sym := StructSymbol{
+		Key: e.Key, Kind: string(e.Kind), File: canonical,
+		StartLine: e.StartLine, EndLine: e.EndLine,
+		Signature: e.Signature, Doc: e.Doc, Revision: e.Revision, Exported: e.Exported,
+		name: e.Name, receiver: e.Receiver, pkg: pkg, dir: dir, lang: lang,
 	}
-	text := strings.TrimSpace(group.Text())
-	if i := strings.IndexByte(text, '\n'); i >= 0 {
-		text = text[:i]
+	if e.Kind == codemodel.KindSyntaxError {
+		sym.Doc = e.Err
 	}
-	return text
+	if lang == codemodel.LangGo {
+		sym.ID = pkg + "." + e.Name
+		if e.Receiver != "" {
+			sym.ID = pkg + "." + e.Receiver + "." + e.Name
+		}
+	}
+	return sym
 }
 
-func receiverTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		return receiverTypeName(t.X)
-	case *ast.IndexExpr:
-		return receiverTypeName(t.X)
-	case *ast.IndexListExpr:
-		return receiverTypeName(t.X)
-	}
-	return ""
-}
-
-func funcSignature(_ *token.FileSet, d *ast.FuncDecl) string {
-	var sb strings.Builder
-	sb.WriteString("func ")
-	if d.Recv != nil && len(d.Recv.List) > 0 {
-		sb.WriteString("(" + gotypes.ExprString(d.Recv.List[0].Type) + ") ")
-	}
-	sb.WriteString(d.Name.Name)
-	sb.WriteString(gotypes.ExprString(d.Type)[len("func"):])
-	return sb.String()
-}
-
-// matchSymbol says whether a query names this symbol. A query is a bare name
-// ("evaluate"), a receiver-qualified method ("RealKernel.evaluate"), a
-// package-qualified name ("core.NewRealKernel") or a full ID.
+// matchSymbol says whether a query names this symbol. A query is a ref as
+// the tools print it (internal/world.StructureIndex.Refresh, with or without
+// its @file discriminator), a file-scoped ref (internal/world/x.go:Name), a
+// bare name ("evaluate"), a receiver-qualified method
+// ("RealKernel.evaluate"), a package-qualified name ("core.NewRealKernel"),
+// a Cartographer ID, or for Mangle a predicate name or pred/arity.
 func (sym *StructSymbol) matchSymbol(query string) bool {
-	if query == sym.ID || query == sym.name {
+	if query == sym.Ref || query == sym.ID || query == sym.name || query == sym.Key {
 		return true
+	}
+	if base, _, ok := strings.Cut(sym.Ref, "@"); ok && query == base {
+		return true
+	}
+	if query == sym.File+":"+sym.Key {
+		return true
+	}
+	if sym.lang == codemodel.LangMangle {
+		pred, _, _ := strings.Cut(strings.TrimPrefix(sym.Key, sym.Kind+":"), "@")
+		return query == pred
 	}
 	if sym.receiver != "" && query == sym.receiver+"."+sym.name {
 		return true
@@ -392,29 +464,81 @@ func sortSymbols(symbols []StructSymbol) {
 	})
 }
 
-// FindSymbol returns every declaration the query names, optionally of one kind.
-func (s *StructureIndex) FindSymbol(ctx context.Context, query, kind string) ([]StructSymbol, StructureStats, error) {
+// SymbolFilter is what FindSymbol narrows by. Every set field narrows.
+type SymbolFilter struct {
+	Names   []string
+	Pattern string
+	Kind    string
+	Path    string
+}
+
+// FindSymbol returns every declaration the filter names.
+func (s *StructureIndex) FindSymbol(ctx context.Context, q SymbolFilter) ([]StructSymbol, StructureStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	stats, err := s.refreshLocked(ctx)
 	if err != nil {
 		return nil, stats, err
 	}
-	query = strings.TrimSpace(query)
+	var re *regexp.Regexp
+	if q.Pattern != "" {
+		re, err = regexp.Compile(q.Pattern)
+		if err != nil {
+			return nil, stats, fmt.Errorf("pattern %q is not a regular expression: %w", q.Pattern, err)
+		}
+	}
+	scope := s.scopeLocked(q.Path)
 	var out []StructSymbol
-	for _, f := range s.files {
+	for canonical, f := range s.files {
+		if !scope(canonical, f) {
+			continue
+		}
 		for i := range f.symbols {
 			sym := &f.symbols[i]
-			if kind != "" && !strings.EqualFold(kind, sym.Kind) {
+			if sym.Kind == string(codemodel.KindSyntaxError) {
 				continue
 			}
-			if sym.matchSymbol(query) {
+			if q.Kind != "" && !strings.EqualFold(q.Kind, sym.Kind) {
+				continue
+			}
+			matched := len(q.Names) == 0 && re != nil && re.MatchString(sym.name)
+			for _, name := range q.Names {
+				if sym.matchSymbol(strings.TrimSpace(name)) {
+					matched = true
+					break
+				}
+			}
+			if matched && len(q.Names) > 0 && re != nil && !re.MatchString(sym.name) {
+				matched = false
+			}
+			if matched {
 				out = append(out, *sym)
 			}
 		}
 	}
 	sortSymbols(out)
 	return out, stats, nil
+}
+
+// scopeLocked returns a predicate over files for a path filter: a file, or a
+// directory searched recursively. An empty path is the whole workspace.
+func (s *StructureIndex) scopeLocked(path string) func(string, *structFile) bool {
+	target := s.target(path)
+	if target == "" {
+		return func(string, *structFile) bool { return true }
+	}
+	return func(canonical string, f *structFile) bool {
+		dir := strings.Trim(f.dir, "/.")
+		return canonical == target || dir == target || strings.HasPrefix(dir, target+"/")
+	}
+}
+
+func (s *StructureIndex) target(path string) string {
+	target := strings.Trim(filepath.ToSlash(types.CanonicalPath(s.root, strings.TrimSpace(path))), "/")
+	if target == "." {
+		return ""
+	}
+	return target
 }
 
 // Outline returns every declaration in a file, or in the Go files directly
@@ -426,13 +550,10 @@ func (s *StructureIndex) Outline(ctx context.Context, path string) ([]StructSymb
 	if err != nil {
 		return nil, stats, err
 	}
-	target := strings.Trim(filepath.ToSlash(types.CanonicalPath(s.root, path)), "/")
-	if target == "." {
-		target = ""
-	}
+	target := s.target(path)
 	var out []StructSymbol
 	for canonical, f := range s.files {
-		if filepath.ToSlash(canonical) == target || strings.Trim(f.dir, "/.") == target {
+		if filepath.ToSlash(canonical) == target || (f.lang == codemodel.LangGo && strings.Trim(f.dir, "/.") == target) {
 			out = append(out, f.symbols...)
 		}
 	}
@@ -440,17 +561,67 @@ func (s *StructureIndex) Outline(ctx context.Context, path string) ([]StructSymb
 	return out, stats, nil
 }
 
-func (s *StructureIndex) resolveLocked(query string) []StructSymbol {
-	var targets []StructSymbol
+// Resolve returns the declarations a ref or short name names.
+func (s *StructureIndex) Resolve(ctx context.Context, ref string) ([]StructSymbol, StructureStats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stats, err := s.refreshLocked(ctx)
+	if err != nil {
+		return nil, stats, err
+	}
+	return s.resolveAnyLocked(strings.TrimSpace(ref)), stats, nil
+}
+
+// resolveAnyLocked prefers an exact ref (or the ref without its @file
+// discriminator) over the short-name search forms, so a printed ref always
+// resolves to what was printed.
+func (s *StructureIndex) resolveAnyLocked(query string) []StructSymbol {
+	var exact, loose []StructSymbol
 	for _, f := range s.files {
 		for i := range f.symbols {
-			if f.symbols[i].matchSymbol(query) && (f.symbols[i].Kind == "function" || f.symbols[i].Kind == "method") {
-				targets = append(targets, f.symbols[i])
+			sym := &f.symbols[i]
+			if sym.Kind == string(codemodel.KindSyntaxError) {
+				continue
+			}
+			base, _, _ := strings.Cut(sym.Ref, "@")
+			switch {
+			case query == sym.Ref || query == base || query == sym.File+":"+sym.Key:
+				exact = append(exact, *sym)
+			case sym.matchSymbol(query):
+				loose = append(loose, *sym)
 			}
 		}
 	}
-	sortSymbols(targets)
+	if len(exact) > 0 {
+		sortSymbols(exact)
+		return exact
+	}
+	sortSymbols(loose)
+	return loose
+}
+
+func (s *StructureIndex) resolveLocked(query string) []StructSymbol {
+	var targets []StructSymbol
+	for _, sym := range s.resolveAnyLocked(query) {
+		if sym.Kind == "function" || sym.Kind == "method" {
+			targets = append(targets, sym)
+		}
+	}
 	return targets
+}
+
+// refOfCall is the ref of the element a call sits in.
+func (s *StructureIndex) refOfCall(c StructCall) string {
+	f := s.files[c.File]
+	if f == nil || c.callerKey == "" {
+		return c.Caller
+	}
+	for _, sym := range f.symbols {
+		if sym.Key == c.callerKey {
+			return sym.Ref
+		}
+	}
+	return c.Caller
 }
 
 // Callers returns the call sites of the functions or methods the query names.
@@ -478,13 +649,12 @@ func (s *StructureIndex) Callers(ctx context.Context, query string) ([]StructSym
 			}
 			match := ""
 			for _, t := range candidates {
-				tdir := filepath.ToSlash(filepath.Dir(t.File))
 				switch {
-				case call.Qualifier == "" && t.receiver == "" && tdir == f.dir:
+				case call.Qualifier == "" && t.receiver == "" && t.dir == f.dir:
 					match = "exact"
-				case call.Qualifier != "" && t.receiver == "" && strings.HasSuffix(f.imports[call.Qualifier], "/"+tdir):
+				case call.Qualifier != "" && t.receiver == "" && strings.HasSuffix(f.importNames[call.Qualifier], "/"+t.dir):
 					match = "exact"
-				case call.Qualifier != "" && t.receiver != "" && f.imports[call.Qualifier] == "":
+				case call.Qualifier != "" && t.receiver != "" && f.importNames[call.Qualifier] == "":
 					if match == "" {
 						match = "by-name"
 					}
@@ -494,7 +664,9 @@ func (s *StructureIndex) Callers(ctx context.Context, query string) ([]StructSym
 				}
 			}
 			if match != "" {
-				out = append(out, StructCallerMatch{StructCall: call, Match: match})
+				m := StructCallerMatch{StructCall: call, Match: match}
+				m.Caller = s.refOfCall(call)
+				out = append(out, m)
 			}
 		}
 	}
@@ -515,7 +687,7 @@ func (s *StructureIndex) Callers(ctx context.Context, query string) ([]StructSym
 type StructCallee struct {
 	Call       string   `json:"call"`
 	Line       int      `json:"line"`
-	Candidates []string `json:"candidates,omitempty"` // "id @ file:line"
+	Candidates []string `json:"candidates,omitempty"` // "ref @ file:line"
 }
 
 // Callees returns the calls made inside the functions or methods the query names.
@@ -545,7 +717,7 @@ func (s *StructureIndex) Callees(ctx context.Context, query string) ([]StructSym
 			continue
 		}
 		for _, call := range f.calls {
-			if call.Caller != t.ID || call.Line < t.StartLine || call.Line > t.EndLine {
+			if call.callerKey != t.Key || call.Line < t.StartLine || call.Line > t.EndLine {
 				continue
 			}
 			label := call.Name
@@ -554,12 +726,11 @@ func (s *StructureIndex) Callees(ctx context.Context, query string) ([]StructSym
 			}
 			callee := StructCallee{Call: label, Line: call.Line}
 			for _, c := range byName[call.Name] {
-				cdir := filepath.ToSlash(filepath.Dir(c.File))
-				local := call.Qualifier == "" && c.receiver == "" && cdir == f.dir
-				imported := call.Qualifier != "" && c.receiver == "" && strings.HasSuffix(f.imports[call.Qualifier], "/"+cdir)
-				method := call.Qualifier != "" && c.receiver != "" && f.imports[call.Qualifier] == ""
+				local := call.Qualifier == "" && c.receiver == "" && c.dir == f.dir
+				imported := call.Qualifier != "" && c.receiver == "" && strings.HasSuffix(f.importNames[call.Qualifier], "/"+c.dir)
+				method := call.Qualifier != "" && c.receiver != "" && f.importNames[call.Qualifier] == ""
 				if local || imported || method {
-					callee.Candidates = append(callee.Candidates, fmt.Sprintf("%s @ %s:%d", c.ID, c.File, c.StartLine))
+					callee.Candidates = append(callee.Candidates, fmt.Sprintf("%s @ %s:%d", c.Ref, c.File, c.StartLine))
 				}
 			}
 			if len(callee.Candidates) > 6 {
@@ -590,21 +761,19 @@ func (s *StructureIndex) Unreferenced(ctx context.Context, path string) ([]Struc
 			uses[name] += n
 		}
 		for _, sym := range f.symbols {
-			decls[sym.name]++
+			if sym.lang == codemodel.LangGo {
+				decls[sym.name]++
+			}
 		}
 	}
-	target := strings.Trim(filepath.ToSlash(types.CanonicalPath(s.root, path)), "/")
-	if target == "." {
-		target = ""
-	}
+	scope := s.scopeLocked(path)
 	var out []StructSymbol
 	for canonical, f := range s.files {
-		dir := strings.Trim(f.dir, "/.")
-		if filepath.ToSlash(canonical) != target && dir != target && !strings.HasPrefix(dir, target+"/") && target != "" {
+		if f.lang != codemodel.LangGo || !scope(canonical, f) {
 			continue
 		}
 		for _, sym := range f.symbols {
-			if isToolchainEntryPoint(sym.name) || uses[sym.name] > decls[sym.name] {
+			if sym.name == "_" || sym.Kind == string(codemodel.KindSyntaxError) || isToolchainEntryPoint(sym.name) || uses[sym.name] > decls[sym.name] {
 				continue
 			}
 			out = append(out, sym)

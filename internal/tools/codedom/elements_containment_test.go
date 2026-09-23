@@ -50,7 +50,7 @@ func TestElementTools_WhenPathEscapesWorkspace_ShouldRefuse(t *testing.T) {
 				t.Fatalf("get_elements leaked out-of-workspace content: %q", out)
 			}
 
-			out, err = executeGetElement(ctx, map[string]any{"path": path, "name": "ApiKey"})
+			out, err = executeGetElement(ctx, map[string]any{"path": path, "ref": "ApiKey"})
 			if err == nil {
 				t.Fatalf("get_element read outside the workspace: %q", out)
 			}

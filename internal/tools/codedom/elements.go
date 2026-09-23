@@ -2,8 +2,8 @@ package codedom
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -11,27 +11,28 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tools"
+	"codenerd/internal/world/codemodel"
 )
 
-// CodeElement represents a code element (function, class, method, etc.)
+// CodeElement is one declaration as the read and search codecs and the
+// holographic outline see it: a name, a kind and a line span.
 type CodeElement struct {
 	Name      string `json:"name"`
-	Type      string `json:"type"` // function, class, method, interface, struct
+	Type      string `json:"type"` // function, method, struct, interface, type, const, var, class, ...
 	File      string `json:"file"`
 	StartLine int    `json:"start_line"`
 	EndLine   int    `json:"end_line"`
+	// DeclLine is the line of the declaration keyword, after any doc comment
+	// StartLine includes.
+	DeclLine  int    `json:"decl_line"`
 	Signature string `json:"signature,omitempty"`
 }
 
-// Pre-compiled regex patterns
+// Regex extractors for the languages CodeDOM has no element model for. Go and
+// Mangle never come through here: they are parsed (codemodel), and the four Go
+// regexes that used to serve get_elements -- no body, no doc, no const or var
+// -- are gone.
 var (
-	goPatterns = map[string]*regexp.Regexp{
-		"function":  regexp.MustCompile(`^func\s+(\w+)\s*\(`),
-		"method":    regexp.MustCompile(`^func\s+\([^)]+\)\s+(\w+)\s*\(`),
-		"struct":    regexp.MustCompile(`^type\s+(\w+)\s+struct`),
-		"interface": regexp.MustCompile(`^type\s+(\w+)\s+interface`),
-	}
-
 	pyPatterns = map[string]*regexp.Regexp{
 		"function": regexp.MustCompile(`^def\s+(\w+)\s*\(`),
 		"class":    regexp.MustCompile(`^class\s+(\w+)`),
@@ -70,76 +71,7 @@ var (
 	}
 )
 
-// GetElementsTool returns a tool for listing code elements in a file.
-func GetElementsTool() *tools.Tool {
-	return &tools.Tool{
-		Name:          "get_elements",
-		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
-		Description:   "List code elements (functions, classes, methods) in a file",
-		Category:      tools.CategoryCode,
-		Priority:      80,
-		Execute:       executeGetElements,
-		Schema: tools.ToolSchema{
-			Required: []string{"path"},
-			Properties: map[string]tools.Property{
-				"path": {
-					Type:        "string",
-					Description: "File path to analyze",
-				},
-				"type": {
-					Type:        "string",
-					Description: "Filter by element type (function, class, method, struct, interface)",
-				},
-			},
-		},
-	}
-}
-
-func executeGetElements(ctx context.Context, args map[string]any) (string, error) {
-	rawPath, _ := args["path"].(string)
-	if rawPath == "" {
-		return "", fmt.Errorf("path is required")
-	}
-	// get_elements/get_element read whatever path they are handed. The line
-	// tools next door in lines.go were contained; these two were not, and they
-	// return file contents (the Content field of every element), so an
-	// uncontained read here is an arbitrary file disclosure with extra steps.
-	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
-	if err != nil {
-		return "", err
-	}
-
-	filterType, _ := args["type"].(string)
-
-	logging.ToolsDebug("get_elements: path=%s, type=%s", path, filterType)
-
-	elements, err := extractCodeElements(path)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract elements: %w", err)
-	}
-
-	// Filter by type if specified
-	if filterType != "" {
-		var filtered []CodeElement
-		for _, e := range elements {
-			if strings.EqualFold(e.Type, filterType) {
-				filtered = append(filtered, e)
-			}
-		}
-		elements = filtered
-	}
-
-	if len(elements) == 0 {
-		return "No code elements found", nil
-	}
-
-	output, _ := json.MarshalIndent(elements, "", "  ")
-	logging.Tools("get_elements completed: %s (%d elements)", path, len(elements))
-	return string(output), nil
-}
-
-// extractCodeElements extracts code elements from a file using regex patterns.
-// This is a simplified implementation - full AST parsing is done by VirtualStore.
+// extractCodeElements reads a file and returns its declarations.
 func extractCodeElements(path string) ([]CodeElement, error) {
 	data, err := projectdoc.ReadFileForTool(path)
 	if err != nil {
@@ -148,44 +80,52 @@ func extractCodeElements(path string) ([]CodeElement, error) {
 	return ElementsFromSource(path, string(data)), nil
 }
 
-// ElementsFromSource extracts code elements from source text that the caller
-// already holds.
+// ElementsFromSource returns the declarations of source text the caller
+// already holds, from the element model for Go and Mangle and from the
+// per-language regexes otherwise.
 //
-// It is separate from extractCodeElements so that a caller which has just read
-// a file for another reason does not read it a second time, and — more
-// importantly — so that a caller can decide for itself which bytes are
-// analysed. The observation codec needs the second property: it projects the
-// bytes it observed, and a helper that always went back to disk would let the
+// It takes the text rather than a path so the observation codec can project
+// exactly the bytes it observed: a helper that went back to disk would let the
 // projection describe a file that had changed since the search ran.
 func ElementsFromSource(path, content string) []CodeElement {
-	// Split into lines; handle empty file.
+	if f, ok := codemodel.Parse(path, content); ok {
+		out := make([]CodeElement, 0, len(f.Elements))
+		for _, e := range f.Elements {
+			if e.Kind == codemodel.KindHeader || e.Kind == codemodel.KindSyntaxError {
+				continue
+			}
+			out = append(out, CodeElement{
+				Name: e.Key, Type: string(e.Kind), File: path,
+				StartLine: e.StartLine, EndLine: e.EndLine, DeclLine: e.DeclLine,
+				Signature: e.Signature,
+			})
+		}
+		return out
+	}
+	return regexElements(path, content)
+}
+
+// regexElements is the line-pattern extractor for languages with no model.
+func regexElements(path, content string) []CodeElement {
 	var lines []string
-	if content == "" {
-		lines = []string{}
-	} else {
+	if content != "" {
 		lines = strings.Split(content, "\n")
-		// strings.Split with trailing newline yields an extra empty element that is not a real line.
+		// A trailing newline yields an empty last element that is not a line.
 		if strings.HasSuffix(content, "\n") && len(lines) > 0 && lines[len(lines)-1] == "" {
 			lines = lines[:len(lines)-1]
 		}
-		// Strip trailing \r for CRLF files to emulate bufio.Scanner behavior.
 		for i, l := range lines {
 			lines[i] = strings.TrimSuffix(l, "\r")
 		}
 	}
 
-	// Language detection based on extension
 	ext := ""
 	if dot := strings.LastIndex(path, "."); dot != -1 {
 		ext = strings.ToLower(path[dot+1:])
 	}
 
-	// Patterns for different languages
 	var patterns map[string]*regexp.Regexp
-
 	switch ext {
-	case "go":
-		patterns = goPatterns
 	case "py":
 		patterns = pyPatterns
 	case "js", "ts", "jsx", "tsx":
@@ -211,7 +151,7 @@ func ElementsFromSource(path, content string) []CodeElement {
 
 	isPy := ext == "py"
 	_, hasMethod := patterns["method"]
-	isBrace := hasMethod && ext != "go" && ext != "py"
+	isBrace := hasMethod && !isPy
 
 	type pyScope struct {
 		name    string
@@ -250,36 +190,27 @@ func ElementsFromSource(path, content string) []CodeElement {
 			}
 		}
 		for _, elemType := range typeNames {
-			pattern := patterns[elemType]
-			if matches := pattern.FindStringSubmatch(line); matches != nil {
-				startLine := idx + 1
-				var endLine int
-				if ext == "py" {
-					endLine = findPythonEndLine(lines, idx)
-				} else {
-					endLine = findBraceEndLine(lines, idx)
-				}
-				name := matches[1]
-				if ext == "go" && elemType == "method" {
-					if recv := goReceiverBase(line); recv != "" {
-						name = recv + "." + name
-					}
-				}
-				if isPy && elemType == "method" && pyEnclosing != "" {
-					name = pyEnclosing + "." + name
-				}
-				if isBrace && elemType == "method" && len(braceStack) > 0 {
-					name = braceStack[len(braceStack)-1].name + "." + name
-				}
-				elements = append(elements, CodeElement{
-					Name:      name,
-					Type:      elemType,
-					File:      path,
-					StartLine: startLine,
-					EndLine:   endLine,
-					Signature: strings.TrimSpace(line),
-				})
+			matches := patterns[elemType].FindStringSubmatch(line)
+			if matches == nil {
+				continue
 			}
+			startLine := idx + 1
+			endLine := findBraceEndLine(lines, idx)
+			if isPy {
+				endLine = findPythonEndLine(lines, idx)
+			}
+			name := matches[1]
+			if isPy && elemType == "method" && pyEnclosing != "" {
+				name = pyEnclosing + "." + name
+			}
+			if isBrace && elemType == "method" && len(braceStack) > 0 {
+				name = braceStack[len(braceStack)-1].name + "." + name
+			}
+			elements = append(elements, CodeElement{
+				Name: name, Type: elemType, File: path,
+				StartLine: startLine, EndLine: endLine, DeclLine: startLine,
+				Signature: strings.TrimSpace(line),
+			})
 		}
 		if isPy {
 			trimmed := strings.TrimSpace(line)
@@ -303,10 +234,7 @@ func ElementsFromSource(path, content string) []CodeElement {
 }
 
 func braceNetChange(line string) int {
-	inSingle := false
-	inDouble := false
-	inBacktick := false
-	escaped := false
+	inSingle, inDouble, inBacktick, escaped := false, false, false, false
 	delta := 0
 	for i := 0; i < len(line); i++ {
 		c := line[i]
@@ -314,26 +242,15 @@ func braceNetChange(line string) int {
 			escaped = false
 			continue
 		}
-		if inSingle {
-			if c == '\\' {
+		if inSingle || inDouble || inBacktick {
+			switch {
+			case c == '\\':
 				escaped = true
-			} else if c == '\'' {
+			case inSingle && c == '\'':
 				inSingle = false
-			}
-			continue
-		}
-		if inDouble {
-			if c == '\\' {
-				escaped = true
-			} else if c == '"' {
+			case inDouble && c == '"':
 				inDouble = false
-			}
-			continue
-		}
-		if inBacktick {
-			if c == '\\' {
-				escaped = true
-			} else if c == '`' {
+			case inBacktick && c == '`':
 				inBacktick = false
 			}
 			continue
@@ -358,129 +275,6 @@ func braceNetChange(line string) int {
 	return delta
 }
 
-// goReceiverBase extracts the receiver type base name from a Go method
-// declaration line, e.g. "func (b *B) Close() error" yields "B". The second
-// return reports whether a receiver was present. Pointer markers, generic
-// instantiations ("Box[T]"), and package qualifiers ("pkg.T") are stripped so
-// the qualifier stays a plain identifier that get_element can match.
-func goReceiverBase(line string) string {
-	base, _ := splitReceiverName(line)
-	return base
-}
-
-// splitReceiverName parses the receiver out of a Go method declaration line.
-// It returns the base type name and true when the line declares a method with
-// a receiver; otherwise it returns "", false.
-func splitReceiverName(line string) (string, bool) {
-	open := strings.Index(line, "(")
-	if open == -1 {
-		return "", false
-	}
-	// The receiver is the first parenthesized group, and only when it appears
-	// before the "func" keyword's argument list: a method declaration starts
-	// with "func" followed by "(".
-	rest := strings.TrimSpace(line[:open])
-	if !strings.HasSuffix(rest, "func") {
-		return "", false
-	}
-	close := strings.Index(line[open:], ")")
-	if close == -1 {
-		return "", false
-	}
-	recv := strings.TrimSpace(line[open+1 : open+close])
-	if recv == "" {
-		return "", false
-	}
-	fields := strings.Fields(recv)
-	typeExpr := fields[len(fields)-1]
-	typeExpr = strings.TrimPrefix(typeExpr, "*")
-	if idx := strings.Index(typeExpr, "["); idx != -1 {
-		typeExpr = typeExpr[:idx]
-	}
-	if idx := strings.LastIndex(typeExpr, "."); idx != -1 {
-		typeExpr = typeExpr[idx+1:]
-	}
-	if typeExpr == "" {
-		return "", false
-	}
-	return typeExpr, true
-}
-
-// normalizeReceiver canonicalizes a Go receiver reference so lookups agree
-// with the base names get_elements stores: "B", "*B", "(B)", "(*B)",
-// "pkg.B" and "Box[T]" all normalize to "B" (or "Box").
-func normalizeReceiver(s string) string {
-	s = strings.TrimSpace(s)
-	for len(s) >= 2 && strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
-		s = strings.TrimSpace(s[1 : len(s)-1])
-	}
-	s = strings.TrimPrefix(s, "*")
-	s = strings.TrimSpace(s)
-	for len(s) >= 2 && strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
-		s = strings.TrimSpace(s[1 : len(s)-1])
-	}
-	s = strings.TrimPrefix(s, "*")
-	s = strings.TrimSpace(s)
-	if idx := strings.Index(s, "["); idx != -1 {
-		s = s[:idx]
-	}
-	if idx := strings.LastIndex(s, "."); idx != -1 {
-		s = s[idx+1:]
-	}
-	for len(s) >= 2 && strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
-		s = strings.TrimSpace(s[1 : len(s)-1])
-	}
-	s = strings.TrimPrefix(s, "*")
-	return strings.TrimSpace(s)
-}
-
-// parseElementRef splits a get_element query into receiver and method parts.
-// Bare names ("Close") report qualified=false. Receiver-qualified names
-// ("B.Close", "*B.Close", "(*B).Close", "pkg.B.Close") report the normalized
-// receiver and method with qualified=true.
-func parseElementRef(ref string) (recv, method string, qualified bool) {
-	ref = strings.TrimSpace(ref)
-	dot := strings.LastIndex(ref, ".")
-	if dot == -1 {
-		return "", ref, false
-	}
-	method = strings.TrimSpace(ref[dot+1:])
-	recvPart := strings.TrimSpace(ref[:dot])
-	if method == "" || recvPart == "" {
-		return "", ref, false
-	}
-	if idx := strings.Index(method, "("); idx != -1 {
-		method = strings.TrimSpace(method[:idx])
-	}
-	if method == "" {
-		return "", ref, false
-	}
-	if idx := strings.LastIndex(recvPart, "."); idx != -1 {
-		recvPart = strings.TrimSpace(recvPart[idx+1:])
-	}
-	recv = normalizeReceiver(recvPart)
-	if recv == "" {
-		return "", ref, false
-	}
-	return recv, method, true
-}
-
-// splitStoredName splits a stored element name into receiver and method
-// parts. Names without a dot (functions, structs, bare names) report
-// isMethod=false with the full name as method.
-func splitStoredName(stored string) (recv, method string, isMethod bool) {
-	dot := strings.LastIndex(stored, ".")
-	if dot == -1 {
-		return "", stored, false
-	}
-	recv = strings.TrimSpace(stored[:dot])
-	method = strings.TrimSpace(stored[dot+1:])
-	if recv == "" || method == "" {
-		return "", stored, false
-	}
-	return recv, method, true
-}
-
 // findBraceEndLine computes the end line for brace-based languages by counting
 // braces from the declaration line until they balance. Braces inside string
 // literals (", ', `), rune literals and comments (//, /* */) are ignored.
@@ -494,90 +288,45 @@ func findBraceEndLine(lines []string, startIdx int) int {
 		line := lines[i]
 		inDouble := false
 		inSingle := false
-		inLineComment := false
 		j := 0
 		for j < len(line) {
-			if inBlockComment {
-				if line[j] == '*' && j+1 < len(line) && line[j+1] == '/' {
+			c := line[j]
+			switch {
+			case inBlockComment:
+				if c == '*' && j+1 < len(line) && line[j+1] == '/' {
 					inBlockComment = false
 					j += 2
 					continue
 				}
-				j++
-				continue
-			}
-			if inLineComment {
-				break
-			}
-			if inSingle {
-				if line[j] == '\\' {
-					// escaped character inside rune/char literal
-					if j+1 < len(line) {
-						j += 2
-					} else {
-						j++
-					}
-					continue
-				}
-				if line[j] == '\'' {
-					inSingle = false
-				}
-				j++
-				continue
-			}
-			if inDouble {
-				if line[j] == '\\' {
-					if j+1 < len(line) {
-						j += 2
-					} else {
-						j++
-					}
-					continue
-				}
-				if line[j] == '"' {
-					inDouble = false
-				}
-				j++
-				continue
-			}
-			if inBacktick {
-				if line[j] == '`' {
-					inBacktick = false
-				}
-				j++
-				continue
-			}
-			// Not inside any literal or comment
-			if line[j] == '/' && j+1 < len(line) {
-				if line[j+1] == '/' {
-					inLineComment = true
-					break
-				}
-				if line[j+1] == '*' {
-					inBlockComment = true
+			case inSingle || inDouble:
+				if c == '\\' {
 					j += 2
 					continue
 				}
-			}
-			if line[j] == '"' {
+				if (inSingle && c == '\'') || (inDouble && c == '"') {
+					inSingle, inDouble = false, false
+				}
+			case inBacktick:
+				if c == '`' {
+					inBacktick = false
+				}
+			case c == '/' && j+1 < len(line) && line[j+1] == '/':
+				j = len(line)
+				continue
+			case c == '/' && j+1 < len(line) && line[j+1] == '*':
+				inBlockComment = true
+				j += 2
+				continue
+			case c == '"':
 				inDouble = true
-				j++
-				continue
-			}
-			if line[j] == '\'' {
+			case c == '\'':
 				inSingle = true
-				j++
-				continue
-			}
-			if line[j] == '`' {
+			case c == '`':
 				inBacktick = true
-				j++
-				continue
-			}
-			if line[j] == '{' {
+			case c == '{':
 				depth++
 				opened = true
-			} else if line[j] == '}' {
+			case c == '}':
 				depth--
 				if opened && depth == 0 {
 					return i + 1
@@ -595,21 +344,20 @@ func findBraceEndLine(lines []string, startIdx int) int {
 	return len(lines)
 }
 
-// indentLevel returns the indentation level (number of leading spaces/tabs) of a line.
+// indentLevel returns the number of leading spaces/tabs of a line.
 func indentLevel(line string) int {
 	count := 0
 	for _, ch := range line {
-		if ch == ' ' || ch == '\t' {
-			count++
-		} else {
+		if ch != ' ' && ch != '\t' {
 			break
 		}
+		count++
 	}
 	return count
 }
 
-// findPythonEndLine computes the end line for Python by indentation.
-// The element ends at the last line more indented than the declaration.
+// findPythonEndLine computes the end line for Python by indentation: the
+// element ends at the last line more indented than the declaration.
 func findPythonEndLine(lines []string, startIdx int) int {
 	if startIdx < 0 || startIdx >= len(lines) {
 		return startIdx + 1
@@ -617,124 +365,418 @@ func findPythonEndLine(lines []string, startIdx int) int {
 	baseIndent := indentLevel(lines[startIdx])
 	endIdx := startIdx
 	for i := startIdx + 1; i < len(lines); i++ {
-		line := lines[i]
-		if strings.TrimSpace(line) == "" {
+		if strings.TrimSpace(lines[i]) == "" {
 			continue
 		}
-		curIndent := indentLevel(line)
-		if curIndent > baseIndent {
-			endIdx = i
-		} else {
+		if indentLevel(lines[i]) <= baseIndent {
 			break
 		}
+		endIdx = i
 	}
 	return endIdx + 1
 }
 
-// GetElementTool returns a tool for getting a specific code element.
-func GetElementTool() *tools.Tool {
+// =============================================================================
+// get_elements / get_element
+// =============================================================================
+
+// GetElementsTool lists every element of a file.
+func GetElementsTool() *tools.Tool {
 	return &tools.Tool{
-		Name:          "get_element",
+		Name:          "get_elements",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
-		Description:   "Get a specific code element by name",
-		Category:      tools.CategoryCode,
-		Priority:      80,
-		Execute:       executeGetElement,
+		Description: "List every element of one file with its line span, kind, ref, rev, signature and doc line: for Go the header (package clause, file doc, build tags, imports) and every func, method, type, const and var; for Mangle every Decl, rule, fact and query. " +
+			"A file that does not parse is listed too, with its errors and its broken region as a syntax_error element. Pass a row's ref to get_element to see the source, or to the element edit verbs.",
+		Category: tools.CategoryCode,
+		Priority: 80,
+		Effect:   tools.EffectRead,
+		Execute:  executeGetElements,
 		Schema: tools.ToolSchema{
-			Required: []string{"path", "name"},
+			Required: []string{"path"},
 			Properties: map[string]tools.Property{
-				"path": {
-					Type:        "string",
-					Description: "File path to search",
-				},
-				"name": {
-					Type:        "string",
-					Description: "Element name to find",
-				},
+				"path": {Type: "string", Description: "Workspace-relative file path"},
+				"kind": {Type: "string", Description: "Optional filter: header, function, method, struct, interface, type, const, var, decl, rule, fact, query, syntax_error"},
 			},
 		},
 	}
 }
 
-func executeGetElement(ctx context.Context, args map[string]any) (string, error) {
-	rawPath, _ := args["path"].(string)
-	if rawPath == "" {
-		return "", fmt.Errorf("path is required")
+// loadedFile is one file read for an element tool.
+type loadedFile struct {
+	abs, rel string
+	data     []byte
+}
+
+func loadFile(ctx context.Context, rawPath string) (*loadedFile, error) {
+	if strings.TrimSpace(rawPath) == "" {
+		return nil, fmt.Errorf("path is required")
 	}
-	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	// Contained like every other file tool: an uncontained read here is an
+	// arbitrary file disclosure, since get_element returns file contents.
+	abs, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	if err != nil {
+		return nil, err
+	}
+	data, err := projectdoc.ReadFileForTool(abs)
+	if err != nil {
+		return nil, err
+	}
+	return &loadedFile{abs: abs, rel: tools.WorkspaceDisplayPath(ctx, abs), data: data}, nil
+}
+
+func executeGetElements(ctx context.Context, args map[string]any) (string, error) {
+	rawPath, _ := args["path"].(string)
+	lf, err := loadFile(ctx, rawPath)
 	if err != nil {
 		return "", err
 	}
+	kind, _ := args["kind"].(string)
+	kind = strings.TrimSpace(kind)
 
-	name, _ := args["name"].(string)
-	if name == "" {
-		return "", fmt.Errorf("name is required")
+	model, ok := codemodel.Parse(lf.rel, string(lf.data))
+	if !ok {
+		return regexElementList(lf, kind), nil
 	}
+	refs := canonicalRefs(ctx, lf.rel, model)
 
-	logging.ToolsDebug("get_element: path=%s, name=%s", path, name)
-
-	elements, err := extractCodeElements(path)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract elements: %w", err)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "elements of %s (%s", lf.rel, model.Language)
+	if model.Package != "" {
+		fmt.Fprintf(&sb, ", package %s", model.Package)
 	}
-
-	// Query may be bare ("Close") or receiver-qualified ("B.Close",
-	// "(*B).Close", "*B.Close", "pkg.B.Close"). Parentheses, pointer
-	// markers, generic arguments and package qualifiers are stripped so
-	// every name get_elements shows is accepted here.
-	qRecv, qMethod, qQualified := parseElementRef(name)
-	var matches []CodeElement
-	if qQualified {
-		for _, e := range elements {
-			eRecv, eMethod, eIsMethod := splitStoredName(e.Name)
-			if !eIsMethod {
-				continue
-			}
-			if eMethod != qMethod {
-				continue
-			}
-			if normalizeReceiver(eRecv) != qRecv {
-				if goReceiverBase(e.Signature) != qRecv {
-					continue
-				}
-			}
-			matches = append(matches, e)
-		}
+	if model.BuildConstraint != "" {
+		fmt.Fprintf(&sb, ", //go:build %s", model.BuildConstraint)
+	}
+	fmt.Fprintf(&sb, ", %d lines", model.LineCount())
+	if model.Parsed {
+		sb.WriteString(", parses):\n")
 	} else {
-		// Bare name: prefer exact full-name matches so a function stays
-		// fetchable when a method shares its suffix (func Close vs A.Close).
-		// Only when no exact match exists, fall back to method-suffix
-		// matches so a lone method stays fetchable by its bare name.
-		for _, e := range elements {
-			if e.Name == qMethod {
-				matches = append(matches, e)
-			}
-		}
-		if len(matches) == 0 {
-			for _, e := range elements {
-				_, eMethod, eIsMethod := splitStoredName(e.Name)
-				if !eIsMethod {
-					continue
-				}
-				if eMethod != qMethod {
-					continue
-				}
-				matches = append(matches, e)
-			}
+		sb.WriteString(", DOES NOT PARSE):\n")
+		for _, se := range model.Errors {
+			fmt.Fprintf(&sb, "-- syntax error at line %d:%d: %s\n", se.Line, se.Column, se.Msg)
 		}
 	}
-	if len(matches) == 1 {
-		output, _ := json.MarshalIndent(matches[0], "", "  ")
-		return string(output), nil
-	}
-	if len(matches) > 1 {
-		qualified := make([]string, 0, len(matches))
-		for _, e := range matches {
-			qualified = append(qualified, e.Name)
+	var rows []string
+	for i := range model.Elements {
+		e := &model.Elements[i]
+		if kind != "" && !strings.EqualFold(kind, string(e.Kind)) {
+			continue
 		}
-		sort.Strings(qualified)
-		return "", fmt.Errorf("element %q is ambiguous (%d matches); use one of: %s", name, len(matches), strings.Join(qualified, ", "))
+		rows = append(rows, symbolRow(symbolOf(lf.rel, e, refs)))
 	}
+	if len(rows) == 0 {
+		sb.WriteString("none")
+		if kind != "" {
+			sb.WriteString(" of kind " + kind)
+		}
+		sb.WriteString("\n" + tools.StructuralNoRows + "\n")
+	}
+	for _, r := range rows {
+		sb.WriteString(r + "\n")
+	}
+	if len(rows) > 0 {
+		fmt.Fprintf(&sb, "-- %d rows, complete\n", len(rows))
+	}
+	if !model.Parsed {
+		sb.WriteString(lastGoodNote(ctx, lf.rel, model))
+		sb.WriteString("-- repair: get_element ref=" + lf.rel + ":syntax_error shows the broken region; replace_element with that ref replaces it.\n")
+	}
+	logging.Tools("get_elements completed: %s (%d elements, parsed=%v)", lf.rel, len(rows), model.Parsed)
+	return sb.String(), nil
+}
 
-	return "", fmt.Errorf("element not found: %s", name)
+// lastGoodNote lists the declarations the last clean parse had that the
+// broken file no longer shows, from the index when one is registered.
+func lastGoodNote(ctx context.Context, rel string, model *codemodel.File) string {
+	provider := optionalStructureProvider()
+	if provider == nil {
+		return ""
+	}
+	st, err := provider.FileStatus(ctx, rel)
+	if err != nil || len(st.LastGood) == 0 {
+		return ""
+	}
+	var missing []string
+	for _, s := range st.LastGood {
+		if model.Element(s.Key) == nil {
+			missing = append(missing, fmt.Sprintf("%s (was lines %d-%d)", s.Key, s.StartLine, s.EndLine))
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return "-- the last clean parse also had: " + strings.Join(missing, ", ") + "; they are inside the broken region now\n"
+}
+
+func regexElementList(lf *loadedFile, kind string) string {
+	elements := ElementsFromSource(lf.abs, string(lf.data))
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "elements of %s (no parser for this language; spans are from line patterns and not editable by ref):\n", lf.rel)
+	n := 0
+	for _, e := range elements {
+		if kind != "" && !strings.EqualFold(kind, e.Type) {
+			continue
+		}
+		n++
+		fmt.Fprintf(&sb, "%s:%d-%d  %s  %s  %s\n", lf.rel, e.StartLine, e.EndLine, e.Type, e.Name, e.Signature)
+	}
+	if n == 0 {
+		sb.WriteString("none\n" + tools.StructuralNoRows + "\n")
+	} else {
+		fmt.Fprintf(&sb, "-- %d rows, complete\n", n)
+	}
+	return sb.String()
+}
+
+// canonicalRefs asks the index for the workspace refs of a file's elements,
+// so the refs printed here are the ones every other tool resolves. Without
+// an index (a bare registry, a file outside the walk), refs are derived from
+// the path alone.
+func canonicalRefs(ctx context.Context, rel string, model *codemodel.File) map[string]string {
+	if provider := optionalStructureProvider(); provider != nil {
+		if refs, err := provider.CanonicalRefs(ctx, rel); err == nil && len(refs) > 0 {
+			return refs
+		}
+	}
+	return nil
+}
+
+// RefOf is an element's workspace ref: directory, receiver and name for a Go
+// declaration, file and key for everything else (a Go header, a broken
+// region, a Mangle statement).
+func RefOf(rel string, e *codemodel.Element, refs map[string]string) string {
+	if r, ok := refs[e.Key]; ok {
+		return r
+	}
+	if !strings.HasSuffix(strings.ToLower(rel), ".go") || e.Kind == codemodel.KindHeader || e.Kind == codemodel.KindSyntaxError {
+		return rel + ":" + e.Key
+	}
+	dir := filepath.ToSlash(filepath.Dir(rel))
+	if dir == "." || dir == "" {
+		return "./" + e.Key
+	}
+	return dir + "." + e.Key
+}
+
+func symbolOf(rel string, e *codemodel.Element, refs map[string]string) StructureSymbol {
+	doc := e.Doc
+	if e.Kind == codemodel.KindSyntaxError {
+		doc = e.Err
+	}
+	return StructureSymbol{
+		Ref: RefOf(rel, e, refs), Key: e.Key, Kind: string(e.Kind), File: rel,
+		Signature: e.Signature, Doc: doc, Revision: e.Revision,
+		StartLine: e.StartLine, EndLine: e.EndLine, Exported: e.Exported,
+	}
+}
+
+// GetElementTool returns one element's source.
+func GetElementTool() *tools.Tool {
+	return &tools.Tool{
+		Name:          "get_element",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
+		Description: "Return an element's source -- doc comment included, line-numbered -- with its ref and rev (pass the rev to an edit verb as its precondition). " +
+			"Address it by ref as any structural tool prints it; path is optional and narrows the lookup to one file. " +
+			"An element over " + fmt.Sprint(elementPageLines) + " lines answers with an outline of its nested parts (statements, case clauses, closures); ask for one with part, or for all of it with full.",
+		Category: tools.CategoryCode,
+		Priority: 80,
+		Effect:   tools.EffectRead,
+		Execute:  executeGetElement,
+		Schema: tools.ToolSchema{
+			Required: []string{},
+			Properties: map[string]tools.Property{
+				"ref":  {Type: "string", Description: "Element ref (internal/world.StructureIndex.Refresh, internal/core/defaults/policy/impact.mg:decl:impact_caller/2), or with path, the element's name in that file (StructureIndex.Refresh, header)"},
+				"refs": {Type: "array", Description: "Several refs to return in one call", Items: &tools.PropertyItems{Type: "string"}},
+				"path": {Type: "string", Description: "Optional workspace-relative file the element is in"},
+				"part": {Type: "string", Description: "A nested part by its path in the element's outline: 3 (third statement), 3.2 (its second case clause or branch)"},
+				"full": {Type: "boolean", Description: "Return a large element whole instead of its outline"},
+			},
+		},
+	}
+}
+
+// elementPageLines is the size above which get_element answers with the
+// outline of an element's parts rather than its text: the median Go read in
+// the audited runs spanned 35 lines, and a 1,058-line function in one answer
+// is 40 KB the model rarely needs all of. It is a page, not a cut: the answer
+// names every part and how to get it, and full=true returns the whole.
+const elementPageLines = 400
+
+// partExpandLines is the size above which the outline lists a part's own
+// children, so a giant switch shows its cases without every statement.
+const partExpandLines = 60
+
+// resolvedElement is an element found for a ref, with its file.
+type resolvedElement struct {
+	file  *loadedFile
+	model *codemodel.File
+	elem  *codemodel.Element
+	refs  map[string]string
+}
+
+// resolveElement finds the one element a ref names. With a path the lookup
+// is within that file; without one it goes through the index. A ref naming
+// several elements is refused with every candidate's ref, never guessed.
+func resolveElement(ctx context.Context, ref, path string) (*resolvedElement, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, fmt.Errorf("ref is required")
+	}
+	if path == "" {
+		if p, key, ok := splitFileRef(ref); ok {
+			path, ref = p, key
+		}
+	}
+	if path == "" {
+		provider := optionalStructureProvider()
+		if provider == nil {
+			return nil, fmt.Errorf("ref %q needs the structure index to resolve; pass path as well", ref)
+		}
+		candidates, _, err := provider.Resolve(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		switch len(candidates) {
+		case 0:
+			return nil, fmt.Errorf("no element is named %q; find_symbol searches by name and pattern", ref)
+		case 1:
+			path, ref = candidates[0].File, candidates[0].Key
+		default:
+			return nil, refAmbiguity(ref, candidates)
+		}
+	}
+	lf, err := loadFile(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	model, ok := codemodel.Parse(lf.rel, string(lf.data))
+	if !ok {
+		return nil, fmt.Errorf("%s is not a file CodeDOM parses (Go or Mangle); it has no elements to address by ref", lf.rel)
+	}
+	refs := canonicalRefs(ctx, lf.rel, model)
+	matches := lookupInFile(model, lf.rel, ref, refs)
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("%s has no element %q; get_elements path=%s lists what it has", lf.rel, ref, lf.rel)
+	case 1:
+		return &resolvedElement{file: lf, model: model, elem: matches[0], refs: refs}, nil
+	}
+	var syms []StructureSymbol
+	for _, m := range matches {
+		syms = append(syms, symbolOf(lf.rel, m, refs))
+	}
+	return nil, refAmbiguity(ref, syms)
+}
+
+// lookupInFile matches a ref against one file: its canonical ref, its key,
+// the ref with the directory prefix or @file discriminator removed, or any
+// name the model's Lookup accepts.
+func lookupInFile(model *codemodel.File, rel, ref string, refs map[string]string) []*codemodel.Element {
+	for i := range model.Elements {
+		e := &model.Elements[i]
+		if r := RefOf(rel, e, refs); r == ref {
+			return []*codemodel.Element{e}
+		}
+	}
+	key := ref
+	if base, file, ok := strings.Cut(key, "@"); ok && !strings.Contains(file, "/") && strings.HasSuffix(file, ".go") {
+		if file != filepath.Base(rel) {
+			return nil
+		}
+		key = base
+	}
+	prefix := "./"
+	if dir := filepath.ToSlash(filepath.Dir(rel)); dir != "." && dir != "" {
+		prefix = dir + "."
+	}
+	key = strings.TrimPrefix(key, prefix)
+	return model.Lookup(key)
+}
+
+// splitFileRef reads a file-scoped ref, "path/to/file.go:Key".
+func splitFileRef(ref string) (path, key string, ok bool) {
+	for _, ext := range []string{".go:", ".mg:", ".dl:", ".mangle:"} {
+		if i := strings.Index(ref, ext); i > 0 {
+			return ref[:i+len(ext)-1], ref[i+len(ext):], true
+		}
+	}
+	return "", "", false
+}
+
+func refAmbiguity(ref string, candidates []StructureSymbol) error {
+	rows := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		rows = append(rows, fmt.Sprintf("%s (%s:%d-%d)", c.Ref, c.File, c.StartLine, c.EndLine))
+	}
+	return fmt.Errorf("%q names %d elements, so it is a search, not an address; use one of these refs: %s", ref, len(candidates), strings.Join(rows, "; "))
+}
+
+func executeGetElement(ctx context.Context, args map[string]any) (string, error) {
+	path, _ := args["path"].(string)
+	part, _ := args["part"].(string)
+	full, _ := args["full"].(bool)
+	refs := parseStringArray(args["refs"])
+	if ref, _ := args["ref"].(string); strings.TrimSpace(ref) != "" {
+		refs = append([]string{ref}, refs...)
+	}
+	if len(refs) == 0 {
+		return "", fmt.Errorf("ref is required")
+	}
+	if len(refs) > 1 && part != "" {
+		return "", fmt.Errorf("part addresses one element; ask for one ref at a time with part")
+	}
+	var sb strings.Builder
+	for i, ref := range refs {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		re, err := resolveElement(ctx, ref, path)
+		if err != nil {
+			if len(refs) == 1 {
+				return "", err
+			}
+			fmt.Fprintf(&sb, "%s: %v\n", ref, err)
+			continue
+		}
+		text, err := renderElement(re, part, full)
+		if err != nil {
+			return "", err
+		}
+		sb.WriteString(text)
+	}
+	return sb.String(), nil
+}
+
+// renderElement is the view of one element: its header line, then its
+// numbered source, or for a large element the outline of its parts.
+func renderElement(re *resolvedElement, part string, full bool) (string, error) {
+	e := re.elem
+	ref := RefOf(re.file.rel, e, re.refs)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s  %s  %s:%d-%d  rev %s\n", ref, e.Kind, re.file.rel, e.StartLine, e.EndLine, e.Revision)
+	if e.Kind == codemodel.KindSyntaxError {
+		fmt.Fprintf(&sb, "-- does not parse: %s\n", e.Err)
+	}
+	if part != "" {
+		p, err := re.model.FindPart(e, part)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&sb, "-- part %s: %s (lines %d-%d)\n", p.Path, p.Label, p.StartLine, p.EndLine)
+		sb.WriteString(re.model.NumberedLines(p.StartLine, p.EndLine))
+		return sb.String(), nil
+	}
+	lines := e.EndLine - e.StartLine + 1
+	if lines > elementPageLines && !full {
+		if parts := re.model.Parts(e); len(parts) > 0 {
+			sb.WriteString(re.model.NumberedLines(e.StartLine, min(e.DeclLine, e.EndLine)))
+			fmt.Fprintf(&sb, "-- %d lines; its parts (ask get_element ref=%s part=<path>, or full=true for all of it):\n", lines, ref)
+			for _, row := range codemodel.RenderParts(parts, partExpandLines) {
+				sb.WriteString(row + "\n")
+			}
+			return sb.String(), nil
+		}
+	}
+	sb.WriteString(re.model.NumberedLines(e.StartLine, e.EndLine))
+	return sb.String(), nil
 }
