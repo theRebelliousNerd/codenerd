@@ -123,16 +123,16 @@ type OrchestratorEvent struct {
 
 // OrchestratorConfig holds configuration for the orchestrator.
 type OrchestratorConfig struct {
-	Workspace            string
-	Kernel               core.Kernel
-	LLMClient            perception.LLMClient
-	Transducer           perception.Transducer    // Optional: Inject transducer for testing
-	ShardManager         *coreshards.ShardManager // For monitoring. Use TaskExecutor for task execution.
-	TaskExecutor         session.TaskExecutor     // For task execution (replaces direct ShardManager.Spawn calls)
-	Executor             tactile.Executor
-	VirtualStore         *core.VirtualStore
-	ProgressChan         chan Progress
-	EventChan            chan OrchestratorEvent
+	Workspace    string
+	Kernel       core.Kernel
+	LLMClient    perception.LLMClient
+	Transducer   perception.Transducer    // Optional: Inject transducer for testing
+	ShardManager *coreshards.ShardManager // For monitoring. Use TaskExecutor for task execution.
+	TaskExecutor session.TaskExecutor     // For task execution (replaces direct ShardManager.Spawn calls)
+	Executor     tactile.Executor
+	VirtualStore *core.VirtualStore
+	ProgressChan chan Progress
+	EventChan    chan OrchestratorEvent
 	// Campaign is the policy: every knob that decides how the campaign runs
 	// (attempts, backoffs, checkpoints, acceptance, scheduling, command
 	// limits, context budgets), from the user's .nerd/config.json
