@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -172,9 +173,13 @@ func setupRaceEnvironment(t *testing.T, llmDelay time.Duration) (*session.Execut
 	}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
-	executor.SetConfig(writeTurnExecutorConfig())
+	execCfg := writeTurnExecutorConfig(t)
+	executor.SetConfig(execCfg)
 
+	// The spawner's subagents (isolated verbs, async tasks) run on the same
+	// executor config, as the production boot wires it (system/factory.go).
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
+	spawner.SetExecutorConfig(&execCfg)
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
 	return executor, jitExecutor
@@ -534,10 +539,12 @@ func TestE2E_OrchestratorExecutor_Cascading_ExtremePayload(t *testing.T) {
 	}
 	payload := payloadBuilder.String()
 
-	// Execute inline
+	// About 525k tokens against the fixture's 65,536-token budget: the task is
+	// never cut, so each turn is refused, by name, without crashing -- inline
+	// and async alike.
 	_, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: payload})
-	if err != nil {
-		t.Fatalf("Failed to execute massive payload inline: %v", err)
+	if !errors.Is(err, session.ErrInputBudgetExceeded) {
+		t.Fatalf("massive payload inline: %v, want ErrInputBudgetExceeded", err)
 	}
 
 	// Execute async
@@ -547,8 +554,8 @@ func TestE2E_OrchestratorExecutor_Cascading_ExtremePayload(t *testing.T) {
 	}
 
 	_, err = jitExecutor.WaitForResult(ctx, taskID)
-	if err != nil {
-		t.Fatalf("Failed to wait for massive payload async task: %v", err)
+	if !errors.Is(err, session.ErrInputBudgetExceeded) {
+		t.Fatalf("massive payload async: %v, want ErrInputBudgetExceeded", err)
 	}
 }
 

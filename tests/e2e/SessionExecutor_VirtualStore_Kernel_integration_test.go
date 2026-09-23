@@ -226,6 +226,7 @@ func setupTestExecutor(t *testing.T) (*session.Executor, *mockKernel, *mockLLMCl
 	exec := session.NewExecutor(kernel, vStore, llm, jit, cf, trans)
 
 	cfg := session.DefaultExecutorConfig()
+	cfg.WorkspaceRoot = t.TempDir()
 	cfg.EnableSafetyGate = false
 	cfg.ToolTimeout = 1 * time.Second
 	exec.SetConfig(cfg)
@@ -325,11 +326,19 @@ func TestE2E_ContractViolation_ToolSpamming(t *testing.T) {
 
 	res, err := exec.Process(ctx, "start infinite loop")
 
+	// The model's first batch -- ten identical calls -- is executed whole:
+	// every provider pairs each tool_use with its result. Identical calls
+	// with identical results are a repeated cycle (working_repeat_threshold),
+	// so the read turn finalizes with its conclusion instead of asking for a
+	// second batch; the policy ends it, not the 2s context.
 	if err != nil {
-		t.Errorf("Expected success, got error: %v", err)
+		t.Fatalf("Expected the repeat to finalize the turn, got error: %v", err)
 	}
-	if res.ToolCallsExecuted != 2 {
-		t.Errorf("Expected exactly 2 tools executed, got: %d", res.ToolCallsExecuted)
+	if res.ToolCallsExecuted != 10 {
+		t.Errorf("Expected the first batch of 10 executed and no second batch, got: %d", res.ToolCallsExecuted)
+	}
+	if ctx.Err() != nil {
+		t.Errorf("the turn ran into the context deadline: the policy did not end it")
 	}
 }
 
@@ -602,6 +611,7 @@ func TestE2E_StateCorruption_VirtualStoreFFIRace(t *testing.T) {
 	}})
 
 	cfg := session.DefaultExecutorConfig()
+	cfg.WorkspaceRoot = t.TempDir()
 	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
@@ -648,6 +658,7 @@ func TestE2E_ResourceExhaustion_ConcurrentToolExecutions(t *testing.T) {
 		return hugeData, nil
 	}})
 	cfg := session.DefaultExecutorConfig()
+	cfg.WorkspaceRoot = t.TempDir()
 	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
@@ -697,6 +708,7 @@ func TestE2E_TemporalFailure_GoroutineLeakPrevention(t *testing.T) {
 	}})
 
 	cfg := session.DefaultExecutorConfig()
+	cfg.WorkspaceRoot = t.TempDir()
 	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
@@ -761,13 +773,18 @@ func TestE2E_Recovery_ContextTimeoutThenSuccess(t *testing.T) {
 	}})
 
 	cfg := session.DefaultExecutorConfig()
+	cfg.WorkspaceRoot = t.TempDir()
 	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
-	callCount := 0
+	// Which call the model makes is keyed to the turn, not to a call count:
+	// the first turn's 50ms deadline can expire before its model call (the
+	// working set is built first), and a counter then handed the slow call
+	// to the second turn.
+	var slowTurn atomic.Bool
+	slowTurn.Store(true)
 	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
-		callCount++
-		if callCount == 1 {
+		if slowTurn.Load() {
 			return &types.LLMToolResponse{
 				Text: "Timeout call",
 				ToolCalls: []types.ToolCall{
@@ -798,6 +815,7 @@ func TestE2E_Recovery_ContextTimeoutThenSuccess(t *testing.T) {
 	if err1 == nil {
 		t.Fatalf("Expected timeout error on first turn")
 	}
+	slowTurn.Store(false)
 
 	res, err2 := exec.Process(context.Background(), "do fast")
 	if err2 != nil {

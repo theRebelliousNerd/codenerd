@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -172,9 +173,13 @@ func setupTestEnvironment(t *testing.T) (*session.Executor, *session.JITExecutor
 	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
-	executor.SetConfig(writeTurnExecutorConfig())
+	execCfg := writeTurnExecutorConfig(t)
+	executor.SetConfig(execCfg)
 
+	// The spawner's subagents (isolated verbs, async tasks) run on the same
+	// executor config, as the production boot wires it (system/factory.go).
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
+	spawner.SetExecutorConfig(&execCfg)
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
 	return executor, jitExecutor
@@ -317,8 +322,13 @@ func TestE2E_OrchestratorExecutor_ResourceExhaustion_ConcurrentTasks(t *testing.
 		t.Errorf("Concurrent execution error: %v", err)
 	}
 
+	// A stall detector, not a performance bound: each task is a real write
+	// turn (kernel, working store, the post-edit schedule), and 100 of them
+	// took 8.3-9.4s alone and 10.2s in the suite (2026-09-23). The 10s this
+	// allowed was measured when every turn was refused at once for want of a
+	// workspace.
 	duration := time.Since(start)
-	if duration > 10*time.Second {
+	if duration > 60*time.Second {
 		t.Errorf("System stalled under concurrent load: %v", duration)
 	}
 }
@@ -339,9 +349,13 @@ func TestE2E_OrchestratorExecutor_Cancellation_DoesNotHang(t *testing.T) {
 	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
-	executor.SetConfig(writeTurnExecutorConfig())
+	execCfg := writeTurnExecutorConfig(t)
+	executor.SetConfig(execCfg)
 
+	// The spawner's subagents (isolated verbs, async tasks) run on the same
+	// executor config, as the production boot wires it (system/factory.go).
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
+	spawner.SetExecutorConfig(&execCfg)
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -473,9 +487,13 @@ func TestE2E_OrchestratorExecutor_PartialFailure_JITCompilationFails(t *testing.
 	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
-	executor.SetConfig(writeTurnExecutorConfig())
+	execCfg := writeTurnExecutorConfig(t)
+	executor.SetConfig(execCfg)
 
+	// The spawner's subagents (isolated verbs, async tasks) run on the same
+	// executor config, as the production boot wires it (system/factory.go).
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
+	spawner.SetExecutorConfig(&execCfg)
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
 	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "trigger error"})
@@ -533,9 +551,13 @@ func TestE2E_OrchestratorExecutor_ConcurrentCancellation_GoroutineLeaks(t *testi
 	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
-	executor.SetConfig(writeTurnExecutorConfig())
+	execCfg := writeTurnExecutorConfig(t)
+	executor.SetConfig(execCfg)
 
+	// The spawner's subagents (isolated verbs, async tasks) run on the same
+	// executor config, as the production boot wires it (system/factory.go).
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
+	spawner.SetExecutorConfig(&execCfg)
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
 	var wg sync.WaitGroup
@@ -604,12 +626,11 @@ func TestE2E_OrchestratorExecutor_TokenBudget_OOMPrevention(t *testing.T) {
 	}
 	massiveTask += " end"
 
-	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: massiveTask})
-	if err != nil {
-		t.Fatalf("System failed to handle massive task string: %v", err)
-	}
-	if res == "" {
-		t.Fatalf("Expected valid response despite massive input")
+	// About 200k tokens against the fixture's 65,536-token budget: the task is
+	// never cut, so the turn is refused, by name, before any model call.
+	_, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: massiveTask})
+	if !errors.Is(err, session.ErrInputBudgetExceeded) {
+		t.Fatalf("massive task string: %v, want ErrInputBudgetExceeded", err)
 	}
 }
 
@@ -666,9 +687,13 @@ func TestE2E_OrchestratorExecutor_TransducerFailure_GracefulHandling(t *testing.
 	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
-	executor.SetConfig(writeTurnExecutorConfig())
+	execCfg := writeTurnExecutorConfig(t)
+	executor.SetConfig(execCfg)
 
+	// The spawner's subagents (isolated verbs, async tasks) run on the same
+	// executor config, as the production boot wires it (system/factory.go).
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
+	spawner.SetExecutorConfig(&execCfg)
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
 	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "", Task: "unknown intent"})
@@ -701,9 +726,13 @@ func TestE2E_OrchestratorExecutor_LateCancellation(t *testing.T) {
 	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
-	executor.SetConfig(writeTurnExecutorConfig())
+	execCfg := writeTurnExecutorConfig(t)
+	executor.SetConfig(execCfg)
 
+	// The spawner's subagents (isolated verbs, async tasks) run on the same
+	// executor config, as the production boot wires it (system/factory.go).
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
+	spawner.SetExecutorConfig(&execCfg)
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
 	ctx, cancel := context.WithCancel(context.Background())

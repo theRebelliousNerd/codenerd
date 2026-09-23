@@ -234,6 +234,7 @@ func setupExecutor(t *testing.T, tr *sclMockTransducer, jc *sclMockJITCompiler, 
 
 	exec := session.NewExecutor(nil, nil, lc, jc, cf, tr)
 	cfg := session.DefaultExecutorConfig()
+	cfg.WorkspaceRoot = t.TempDir()
 	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 	return exec
@@ -646,11 +647,12 @@ func TestE2E_SessionExecutor_EmptyLLMResponse_HandledGracefully(t *testing.T) {
 	}
 }
 
-// TestE2E_SessionExecutor_LargePayload_Truncation checks memory safety.
-// CONTRACT: a 10MB user input neither crashes the turn nor lands whole in
-// history: the recorded turn is clamped to head+tail with a marker naming
-// what was removed, while the turn itself completes normally.
-func TestE2E_SessionExecutor_LargePayload_Truncation(t *testing.T) {
+// TestE2E_SessionExecutor_LargePayload_RefusedWhole checks memory safety.
+// CONTRACT: a 10MB user input is larger than any input budget, and the task is
+// never cut (a truncated task is a different task): the turn is refused with
+// ErrInputBudgetExceeded before the model is called, without crashing, and
+// the 10MB input does not land whole in history.
+func TestE2E_SessionExecutor_LargePayload_RefusedWhole(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
 	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
@@ -659,27 +661,18 @@ func TestE2E_SessionExecutor_LargePayload_Truncation(t *testing.T) {
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
 	largeInput := strings.Repeat("A", 10*1024*1024)
-	res, err := exec.Process(context.Background(), largeInput)
+	_, err := exec.Process(context.Background(), largeInput)
 
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
+	if !errors.Is(err, session.ErrInputBudgetExceeded) {
+		t.Fatalf("Process = %v, want ErrInputBudgetExceeded", err)
 	}
-	if res.Response != "handled" {
-		t.Errorf("Expected model text, got %q", res.Response)
+	if n := lc.Invocations(); n != 0 {
+		t.Errorf("the model was called %d time(s) with a request over the budget", n)
 	}
-	history := exec.GetHistory()
-	if len(history) != 2 {
-		t.Fatalf("Expected 2 history turns, got %d", len(history))
-	}
-	recorded := history[0].Content
-	if len(recorded) >= len(largeInput) {
-		t.Fatalf("History stored the full 10MB input unclamped (%d chars)", len(recorded))
-	}
-	if !strings.Contains(recorded, "conversation turn") || !strings.Contains(recorded, "10485760") {
-		t.Errorf("Clamped turn lost its truncation marker: %.120q...", recorded)
-	}
-	if history[1].Content != "handled" {
-		t.Errorf("Assistant turn not recorded intact: %q", history[1].Content)
+	for i, turn := range exec.GetHistory() {
+		if len(turn.Content) >= len(largeInput) {
+			t.Fatalf("history turn %d stored the full 10MB input (%d chars)", i, len(turn.Content))
+		}
 	}
 }
 

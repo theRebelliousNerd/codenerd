@@ -265,8 +265,11 @@ func (m *mockRealLLM) CompleteWithTools(ctx context.Context, system, prompt stri
 	return &types.LLMToolResponse{Text: "{}"}, nil
 }
 
-// CompleteWithToolResults continues a scripted native tool conversation. An
-// exhausted queue ends the turn with benign prose instead of looping forever.
+// CompleteWithToolResults continues a scripted native tool conversation. It
+// is also a working turn's first call (the working loop sends its request as
+// messages), so it serves the next prose fixture the way CompleteWithTools
+// does. An exhausted script ends the turn with benign prose instead of
+// looping forever.
 func (m *mockRealLLM) CompleteWithToolResults(ctx context.Context, system string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	if err := m.awaitUnblock(ctx); err != nil {
 		return nil, err
@@ -280,6 +283,11 @@ func (m *mockRealLLM) CompleteWithToolResults(ctx context.Context, system string
 		resp := m.toolQueue[m.toolIdx]
 		m.toolIdx++
 		return resp, nil
+	}
+	if m.idx < len(m.responses) {
+		resp := m.responses[m.idx]
+		m.idx++
+		return &types.LLMToolResponse{Text: resp}, nil
 	}
 	return &types.LLMToolResponse{Text: "done"}, nil
 }
@@ -363,8 +371,7 @@ func setupRealIntegrationEnv(t *testing.T, responses ...string) *realTestEnv {
 	// test / critic verification is off: fixture files live outside any Go
 	// module (same precedent as writeTurnExecutorConfig). The safety gate and
 	// the landing validator stay ON.
-	fixtureCfg := writeTurnExecutorConfig()
-	fixtureCfg.WorkspaceRoot = t.TempDir()
+	fixtureCfg := writeTurnExecutorConfig(t)
 	baseExec.SetConfig(fixtureCfg)
 	s.SetExecutorConfig(&fixtureCfg)
 	exec := session.NewJITExecutor(baseExec, s, mockTransducer)
@@ -858,7 +865,13 @@ func TestE2E_Executor_CancelMidFlight_HaltsAgent(t *testing.T) {
 		t.Errorf("Expected context error, got: %v", err)
 	}
 
-	if duration > 1*time.Second {
+	// The model is parked until the test ends, so returning at all is the
+	// context's doing; the bound only tells that apart from another clock
+	// (a request timeout is minutes) ending the turn. What remains is the
+	// isolated spawn's setup before its first context check: 0.35-0.5s alone
+	// and 1.06s under the full suite's parallel load (2026-09-23), which the
+	// 1s bound this had could not hold.
+	if duration > 5*time.Second {
 		t.Errorf("Execution took too long, context was not respected. Duration: %v", duration)
 	}
 }

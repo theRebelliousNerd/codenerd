@@ -174,7 +174,11 @@ func buildAdversarialPiggybackJSON() string {
 				`diagnostic(/warning, "auth.go", 12, "E2E_CHECK", "safe diagnostic").`,
 				// Attempt to inject a rule — MUST be blocked
 				`evil_rule(X) :- observation(X, Y).`,
-				// Shell metachar injection — MUST be blocked by applyCaps
+				// Shell metachar injection into a predicate that is not prose
+				// (a file path) — MUST be blocked by the kernel gate.
+				`modified("$(rm -rf /)").`,
+				// The same string in a prose_only predicate is kept as data:
+				// observation's strings reach no exec_sink (constitution.mg).
 				`observation(/bad_shell, "$(rm -rf /)").`,
 			},
 			ToolRequests: []articulation.ToolRequest{
@@ -346,6 +350,7 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 
 	exec := session.NewExecutor(kernel, vstore, mockLLM, jit, cfgFactory, trans)
 	execCfg := session.DefaultExecutorConfig()
+	execCfg.WorkspaceRoot = t.TempDir()
 	execCfg.EnableSafetyGate = true // Constitutional safety gate ON
 	execCfg.ToolTimeout = 5 * time.Second
 	exec.SetConfig(execCfg)
@@ -506,18 +511,30 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 			}
 		}
 
-		// Verify the shell metachar injection was also blocked
-		obsFacts, obsErr := kernel.Query("observation")
-		if obsErr == nil {
-			for _, f := range obsFacts {
-				if len(f.Args) >= 2 {
-					arg0 := types.ExtractString(f.Args[0])
-					arg1 := types.ExtractString(f.Args[1])
-					if arg0 == "/bad_shell" || strings.Contains(arg1, "rm -rf") {
-						t.Errorf("SECURITY VIOLATION: shell metachar observation leaked: %v", f.Args)
-					}
+		// Verify the shell metachar injection was also blocked. Whether a
+		// string may carry shell metacharacters is a property of its
+		// predicate: modified's argument is a file path, so the kernel gate
+		// refuses it.
+		modFacts, modErr := kernel.Query("modified")
+		if modErr == nil {
+			for _, f := range modFacts {
+				if len(f.Args) >= 1 && strings.Contains(types.ExtractString(f.Args[0]), "rm -rf") {
+					t.Errorf("SECURITY VIOLATION: shell metachar modified() leaked: %v", f.Args)
 				}
 			}
+		}
+		// The same string in observation, which is prose_only and reaches no
+		// exec_sink, is data: the gate keeps it.
+		proseKept := false
+		if obsFacts, obsErr := kernel.Query("observation"); obsErr == nil {
+			for _, f := range obsFacts {
+				if len(f.Args) >= 2 && types.ExtractString(f.Args[0]) == "/bad_shell" {
+					proseKept = true
+				}
+			}
+		}
+		if !proseKept {
+			t.Errorf("observation(/bad_shell, ...) was dropped: a prose_only predicate's punctuation is data, not an injection")
 		}
 	})
 

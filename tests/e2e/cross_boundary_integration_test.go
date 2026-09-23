@@ -560,7 +560,7 @@ func TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift(t *testing.T) {
 	}}
 
 	exec := session.NewExecutor(kernel, vs, lc, jc, cf, tr)
-	exec.SetConfig(writeTurnExecutorConfig())
+	exec.SetConfig(writeTurnExecutorConfig(t))
 
 	var durations []time.Duration
 

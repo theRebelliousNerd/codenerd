@@ -149,8 +149,12 @@ func writeTurnAllowedTools() []string { return []string{"write_file"} }
 // writeTurnExecutorConfig disables the post-edit verification passes. These
 // fixtures write into a temp directory with no Go module in it, so a build or
 // test verification would fail for reasons unrelated to anything under test.
-func writeTurnExecutorConfig() session.ExecutorConfig {
+// It gives the executor a workspace root: the tool loop builds its working set
+// there, and refuses a turn it cannot build one for.
+func writeTurnExecutorConfig(t *testing.T) session.ExecutorConfig {
+	t.Helper()
 	cfg := session.DefaultExecutorConfig()
+	cfg.WorkspaceRoot = t.TempDir()
 	cfg.VerifyBuildAfterEdits = false
 	cfg.VerifyTestsAfterEdits = false
 	cfg.CriticReviewAfterEdits = false

@@ -174,6 +174,11 @@ func setupTestExecutorLLM(t *testing.T, llmClient core.LLMClient, maxConcurrent 
 	}
 
 	executor := session.NewExecutor(newMockKernelLLM(), nil, scheduledLLM, &mockJITCompilerLLM{}, &mockConfigFactoryLLM{}, nil)
+	// The tool loop builds its working set in the workspace root and refuses
+	// a turn it cannot build one for.
+	execCfg := session.DefaultExecutorConfig()
+	execCfg.WorkspaceRoot = t.TempDir()
+	executor.SetConfig(execCfg)
 
 	// Tool execution resolves against tools.Global(): the suite registers
 	// mock_tool there once (registerSchedMockTools) because the executor
@@ -390,10 +395,14 @@ func TestE2E_SchedulerSession_ResourceExhaustion_ThunderingHerd(t *testing.T) {
 		close(waitCh)
 	}()
 
+	// A deadlock detector, not a performance bound. Each turn is a real one
+	// -- kernel, working store, policy -- and 1000 of them took 27.5s on a
+	// 16-core desktop (2026-09-23). The 15s this used to allow was measured
+	// when every turn was refused at once for want of a workspace.
 	select {
 	case <-waitCh:
 		// Success
-	case <-time.After(15 * time.Second):
+	case <-time.After(120 * time.Second):
 		t.Fatal("Thundering herd deadlocked or took too long")
 	}
 
@@ -424,11 +433,7 @@ func TestE2E_SchedulerSession_ResourceExhaustion_InfiniteToolLoop(t *testing.T) 
 	exec, _ := setupTestExecutorLLM(t, llm, 5)
 
 	// The "5" in the setup helper is scheduler slots, not a tool-loop cap;
-	// there is no tool-loop cap. The executor needs a declared workspace so
-	// the working policy has a working set to run in.
-	execCfg := session.DefaultExecutorConfig()
-	execCfg.WorkspaceRoot = t.TempDir()
-	exec.SetConfig(execCfg)
+	// there is no tool-loop cap.
 	res, err := exec.ProcessWithIntent(context.Background(), "start loop", &perception.Intent{Verb: "/general"})
 
 	// It must NOT run forever. Every round calls a tool that does not exist,
@@ -455,7 +460,11 @@ func TestE2E_SchedulerSession_ResourceExhaustion_InfiniteToolLoop(t *testing.T) 
 // TestE2E_SchedulerSession_Temporal_AcquireTimeout
 // Verifies that a context timeout while waiting in queue propagates correctly and doesn't leak.
 func TestE2E_SchedulerSession_Temporal_AcquireTimeout(t *testing.T) {
-	t.Parallel()
+	// Not parallel: the assertion is a latency, and only latency tells a
+	// cancelled wait from a waited-out one (both end in DeadlineExceeded).
+	// Alone the queued turn returns in 0.16s; beside the suite's parallel
+	// tests its pre-model setup alone took 1.1-1.6s (2026-09-23), which
+	// measured the neighbours, not the executor.
 
 	llm := &mockLLMClientWithControls{
 		blockChan: make(chan struct{}), // block all calls indefinitely
@@ -463,8 +472,20 @@ func TestE2E_SchedulerSession_Temporal_AcquireTimeout(t *testing.T) {
 	// Max 1 slot
 	exec, scheduler := setupTestExecutorLLM(t, llm, 1)
 
-	// Task 1: Acquires the slot and blocks forever
-	go exec.ProcessWithIntent(context.Background(), "task1", &perception.Intent{Verb: "/general"})
+	// Task 1: Acquires the slot and blocks until the test ends. Its turn holds
+	// the workspace's working store open, so it is released and waited for
+	// before the temp workspace is removed (Windows cannot delete an open
+	// file). Cleanups run last-registered first, so this one precedes the
+	// TempDir removal the setup helper registered.
+	task1Done := make(chan struct{})
+	go func() {
+		defer close(task1Done)
+		_, _ = exec.ProcessWithIntent(context.Background(), "task1", &perception.Intent{Verb: "/general"})
+	}()
+	t.Cleanup(func() {
+		close(llm.blockChan)
+		<-task1Done
+	})
 
 	time.Sleep(50 * time.Millisecond) // let task 1 take the slot
 
