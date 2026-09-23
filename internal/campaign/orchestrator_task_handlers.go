@@ -302,8 +302,12 @@ func (o *Orchestrator) hasDeliverableOnDisk(task *Task) bool {
 
 // executeResearchTask spawns a researcher shard.
 func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any, error) {
-	logging.CampaignDebug("Spawning researcher shard for task %s", task.ID)
-	result, err := o.spawnTask(ctx, task, "/research", o.buildTaskInput(task))
+	verb, err := o.taskVerb(task)
+	if err != nil {
+		return nil, err
+	}
+	logging.CampaignDebug("Spawning %s for task %s", verb, task.ID)
+	result, err := o.spawnTask(ctx, task, verb, o.buildTaskInput(task))
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Researcher shard failed for task %s: %v", task.ID, err)
 		return nil, err
@@ -497,10 +501,13 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	if task.Type == TaskTypeFileModify {
 		shardTask += o.writeSetBriefing(task)
 	}
-	logging.CampaignDebug("Spawning coder shard: action=%s, path=%s, task=%s", action, targetPath, shardTask)
+	verb, err := o.taskVerb(task)
+	if err != nil {
+		return nil, err
+	}
+	logging.CampaignDebug("Spawning %s: action=%s, path=%s, task=%s", verb, action, targetPath, shardTask)
 
-	// Delegate to coder shard
-	result, err := o.spawnTask(ctx, task, "/fix", shardTask)
+	result, err := o.spawnTask(ctx, task, verb, shardTask)
 	if err != nil {
 		// F-CAMP-3: once the context is expired or cancelled, any fallback's
 		// LLM call can only fail with a bare "context deadline exceeded" that
@@ -758,8 +765,11 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 	// Build task string for tester shard
 	shardTask := o.testWriteShardTask(task, targetPath)
 
-	// Delegate to tester shard
-	result, err := o.spawnTask(ctx, task, "/test", shardTask)
+	verb, err := o.taskVerb(task)
+	if err != nil {
+		return nil, err
+	}
+	result, err := o.spawnTask(ctx, task, verb, shardTask)
 	if err != nil {
 		// F-CAMP-3: an expired or cancelled context makes any downstream
 		// fallback's LLM call fail with a bare "context deadline exceeded" that
@@ -1010,8 +1020,10 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 // executeShardSpawnTask spawns a specialized shard.
 // executeShardSpawnTask spawns a specialized shard.
 func (o *Orchestrator) executeShardSpawnTask(ctx context.Context, task *Task) (any, error) {
-	// Extract shard type from description
-	intent := "/fix" // Default
+	intent, err := o.taskVerb(task)
+	if err != nil {
+		return nil, err
+	}
 	logging.CampaignDebug("Executing shard spawn task %s: intent=%s", task.ID, intent)
 	// Holographic context: shard-spawn inputs carry upstream durable findings.
 	result, err := o.spawnTask(ctx, task, intent, o.buildTaskInput(task))
@@ -1036,10 +1048,13 @@ func (o *Orchestrator) executeRefactorTask(ctx context.Context, task *Task) (any
 	// Build task string for coder shard. Holographic context: the instruction
 	// carries upstream durable findings via buildTaskInput.
 	shardTask := fmt.Sprintf("refactor file:%s instruction:%s", targetPath, o.buildTaskInput(task))
-	logging.CampaignDebug("Spawning coder shard for refactoring")
+	verb, err := o.taskVerb(task)
+	if err != nil {
+		return nil, err
+	}
+	logging.CampaignDebug("Spawning %s for refactoring", verb)
 
-	// Delegate to coder shard
-	result, err := o.spawnTask(ctx, task, "/fix", shardTask)
+	result, err := o.spawnTask(ctx, task, verb, shardTask)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Refactor shard failed for task %s, falling back to file task: %v", task.ID, err)
 		// Fallback to generic file task
@@ -1306,9 +1321,13 @@ func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any,
 	if task == nil || (task.Description == "" && task.ShardInput == "") {
 		return nil, fmt.Errorf("task description cannot be empty")
 	}
-	logging.CampaignDebug("Executing generic task %s via coder shard", task.ID)
+	verb, err := o.taskVerb(task)
+	if err != nil {
+		return nil, err
+	}
+	logging.CampaignDebug("Executing generic task %s as %s", task.ID, verb)
 	// Holographic context: generic inputs carry upstream durable findings.
-	result, err := o.spawnTask(ctx, task, "/fix", o.buildTaskInput(task))
+	result, err := o.spawnTask(ctx, task, verb, o.buildTaskInput(task))
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Generic task %s failed: %v", task.ID, err)
 		return nil, err

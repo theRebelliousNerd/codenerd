@@ -412,6 +412,15 @@ Decl campaign_acceptance_due(CampaignID) bound [/string].
 # projecting the wildcard away makes the negation actually filter.
 Decl campaign_is_blocked(CampaignID) bound [/string].
 
+# task_type_persona(TaskType, Persona) - the persona a task type runs as
+# (campaign_rules.mg 8.1); task_delegation(TaskID, Verb) - the verb a task's
+# turn runs (8.3), read by the orchestrator's handlers.
+Decl task_type_persona(TaskType, Persona) bound [/name, /name].
+Decl task_type_known(TaskType) bound [/name].
+Decl task_persona(TaskID, Persona) bound [/string, /name].
+Decl task_creates_doc(TaskID) bound [/string].
+Decl task_delegation(TaskID, Verb) bound [/string, /name].
+
 # Bound-negation helper for final_shard_for_task; see bound_negation_test.go.
 Decl task_has_shard_override(TaskID) bound [/string].
 

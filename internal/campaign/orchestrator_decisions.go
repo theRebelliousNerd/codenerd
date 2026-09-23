@@ -57,6 +57,40 @@ func (o *Orchestrator) holdsFor(predicate, key string) (bool, error) {
 	return false, nil
 }
 
+// taskVerb is the verb a task's turn runs: the kernel's task_delegation
+// (campaign_rules.mg 8.3), from the task type's persona through the one
+// persona table, except that a new document is created, not fixed. Until
+// 2026-09-23 each handler named its own verb, and every file, refactor,
+// shard-spawn and generic task ran as /fix (sweep finding F6).
+func (o *Orchestrator) taskVerb(task *Task) (string, error) {
+	if err := o.ensureTaskRows(task); err != nil {
+		return "", err
+	}
+	return o.oneDerivedFor("task_delegation", task.ID)
+}
+
+// ensureTaskRows makes sure the kernel holds the task's own rows before a
+// decision about it is asked: a row it does not hold is missing state, not a
+// decision. The task in hand supplies them (Task.ToFacts).
+func (o *Orchestrator) ensureTaskRows(task *Task) error {
+	if o.kernel == nil {
+		return fmt.Errorf("no kernel to derive the delegation of %s", task.ID)
+	}
+	rows, err := o.kernel.Query("campaign_task")
+	if err != nil {
+		return fmt.Errorf("query campaign_task: %w", err)
+	}
+	for _, f := range rows {
+		if len(f.Args) > 0 && types.ExtractString(f.Args[0]) == task.ID {
+			return nil
+		}
+	}
+	if err := o.kernel.LoadFacts(task.ToFacts()); err != nil {
+		return fmt.Errorf("load the rows of %s: %w", task.ID, err)
+	}
+	return nil
+}
+
 // oneDerivedFor is derivedFor for a decision that must have exactly one answer.
 func (o *Orchestrator) oneDerivedFor(predicate, key string) (string, error) {
 	got, err := o.derivedFor(predicate, key)

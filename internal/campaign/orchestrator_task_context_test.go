@@ -40,7 +40,7 @@ func TestTypeRoutedContextInjection_FileDocument(t *testing.T) {
 			},
 		}
 		o := &Orchestrator{
-			kernel:          &MockKernel{},
+			kernel:          newAssertTestKernel(t),
 			workspace:       workspace,
 			taskExecutor:    executor,
 			taskResults:     map[string]string{},
@@ -102,7 +102,7 @@ func TestTypeRoutedContextInjection_FileDocument(t *testing.T) {
 			},
 		}
 		o := &Orchestrator{
-			kernel:          &MockKernel{},
+			kernel:          newAssertTestKernel(t),
 			workspace:       workspace,
 			taskExecutor:    executor,
 			taskResults:     map[string]string{},
@@ -154,7 +154,7 @@ func TestTypeRoutedContextInjection_FileDocument(t *testing.T) {
 			},
 		}
 		o := &Orchestrator{
-			kernel:          &MockKernel{},
+			kernel:          newAssertTestKernel(t),
 			workspace:       workspace,
 			taskExecutor:    executor,
 			taskResults:     map[string]string{},
@@ -193,7 +193,7 @@ func TestTypeRoutedContextInjection_Research(t *testing.T) {
 			},
 		}
 		o := &Orchestrator{
-			kernel:          &MockKernel{},
+			kernel:          newAssertTestKernel(t),
 			workspace:       t.TempDir(),
 			taskExecutor:    executor,
 			taskResults:     map[string]string{},
@@ -236,7 +236,7 @@ func TestTypeRoutedContextInjection_Research(t *testing.T) {
 			},
 		}
 		o := &Orchestrator{
-			kernel:          &MockKernel{},
+			kernel:          newAssertTestKernel(t),
 			workspace:       t.TempDir(),
 			taskExecutor:    executor,
 			taskResults:     map[string]string{},
@@ -273,7 +273,7 @@ func TestTypeRoutedContextInjection_TestHandlers(t *testing.T) {
 			},
 		}
 		o := &Orchestrator{
-			kernel:          &MockKernel{},
+			kernel:          newAssertTestKernel(t),
 			workspace:       t.TempDir(),
 			taskExecutor:    executor,
 			taskResults:     map[string]string{},
@@ -317,7 +317,7 @@ func TestTypeRoutedContextInjection_TestHandlers(t *testing.T) {
 			},
 		}
 		o := &Orchestrator{
-			kernel:          &MockKernel{},
+			kernel:          newAssertTestKernel(t),
 			workspace:       t.TempDir(),
 			taskExecutor:    executor,
 			taskResults:     map[string]string{},
@@ -355,7 +355,7 @@ func TestTypeRoutedContextInjection_TestHandlers(t *testing.T) {
 			},
 		}
 		o := &Orchestrator{
-			kernel:          &MockKernel{},
+			kernel:          newAssertTestKernel(t),
 			workspace:       t.TempDir(),
 			taskExecutor:    executor,
 			taskResults:     map[string]string{},
@@ -391,7 +391,7 @@ func TestTypeRoutedContextInjection_MissingDep(t *testing.T) {
 		},
 	}
 	o := &Orchestrator{
-		kernel:          &MockKernel{},
+		kernel:          newAssertTestKernel(t),
 		workspace:       t.TempDir(),
 		taskExecutor:    executor,
 		taskResults:     map[string]string{},

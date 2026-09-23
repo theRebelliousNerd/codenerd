@@ -32,6 +32,7 @@ func TestFileTask_WriteSetTargetPath(t *testing.T) {
 		},
 	}
 	o := &Orchestrator{
+		kernel:       newAssertTestKernel(t),
 		workspace:    workspace,
 		taskExecutor: mockExec,
 		campaign:     &Campaign{ID: "/campaign_test"},
@@ -81,6 +82,7 @@ func TestFileTask_WriteSetAbsoluteTargetPath(t *testing.T) {
 		},
 	}
 	o := &Orchestrator{
+		kernel:       newAssertTestKernel(t),
 		workspace:    workspace,
 		taskExecutor: mockExec,
 		campaign:     &Campaign{ID: "/campaign_test"},

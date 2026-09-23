@@ -25,6 +25,7 @@ func countingExecutor(ret observation.Return, spawns *int) *MockTaskExecutor {
 
 func TestResearchTask_ADoneTurnWithNothingToPersistFails(t *testing.T) {
 	o := newArtifactTestOrchestrator(t)
+	o.kernel = newAssertTestKernel(t)
 	spawns := 0
 	o.taskExecutor = countingExecutor(observation.Return{Output: "  ", Outcome: "/done"}, &spawns)
 	task := &Task{ID: "/task_abc_3_1", PhaseID: "/phase_abc_3", Type: TaskTypeResearch, Description: "Audit internal/world"}
@@ -40,6 +41,7 @@ func TestResearchTask_ADoneTurnWithNothingToPersistFails(t *testing.T) {
 
 func TestResearchTask_ATerseFindingIsDelivered(t *testing.T) {
 	o := newArtifactTestOrchestrator(t)
+	o.kernel = newAssertTestKernel(t)
 	spawns := 0
 	o.taskExecutor = countingExecutor(observation.Return{Output: "No issues found in internal/world.", Outcome: "/done"}, &spawns)
 	task := &Task{ID: "/task_abc_3_2", PhaseID: "/phase_abc_3", Type: TaskTypeResearch, Description: "Audit internal/world"}
@@ -57,6 +59,7 @@ func TestResearchTask_ATerseFindingIsDelivered(t *testing.T) {
 
 func TestExplicitShardTask_ADoneTurnWithNothingToPersistFails(t *testing.T) {
 	o := newArtifactTestOrchestrator(t)
+	o.kernel = newAssertTestKernel(t)
 	spawns := 0
 	o.taskExecutor = countingExecutor(observation.Return{Output: "", Outcome: "/done"}, &spawns)
 	task := &Task{ID: "/task_abc_4_1", PhaseID: "/phase_abc_4", Type: TaskTypeResearch, Shard: "reviewer", Description: "Audit the invariants of internal/world"}

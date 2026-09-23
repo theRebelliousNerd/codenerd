@@ -574,6 +574,7 @@ func TestUserRequestExtremes(t *testing.T) {
 func TestExecuteFileTask_ShardFailure_Fallback(t *testing.T) {
 	ctx := context.Background()
 	o := &Orchestrator{
+		kernel:    newAssertTestKernel(t),
 		workspace: t.TempDir(),
 		taskExecutor: &MockTaskExecutor{
 			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
@@ -603,6 +604,7 @@ func TestExecuteFileTask_ShardFailure_Fallback(t *testing.T) {
 func TestExecuteFileTask_VerificationFailure(t *testing.T) {
 	ctx := context.Background()
 	o := &Orchestrator{
+		kernel:    newAssertTestKernel(t),
 		workspace: t.TempDir(),
 		taskExecutor: &MockTaskExecutor{
 			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
@@ -676,6 +678,7 @@ func TestExecuteFileTask_CoderTaskTargetLabel(t *testing.T) {
 		}
 		var captured string
 		o := &Orchestrator{
+			kernel:    newAssertTestKernel(t),
 			workspace: ws,
 			taskExecutor: &MockTaskExecutor{
 				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
@@ -709,6 +712,7 @@ func TestExecuteFileTask_CoderTaskTargetLabel(t *testing.T) {
 		}
 		var captured string
 		o := &Orchestrator{
+			kernel:    newAssertTestKernel(t),
 			workspace: ws,
 			taskExecutor: &MockTaskExecutor{
 				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
@@ -828,6 +832,7 @@ func TestExecuteFileTask_BriefingForModifyOnly(t *testing.T) {
 		}
 		var captured string
 		o := &Orchestrator{
+			kernel:    newAssertTestKernel(t),
 			workspace: ws,
 			taskExecutor: &MockTaskExecutor{
 				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
@@ -858,6 +863,7 @@ func TestExecuteFileTask_BriefingForModifyOnly(t *testing.T) {
 		}
 		var captured string
 		o := &Orchestrator{
+			kernel:    newAssertTestKernel(t),
 			workspace: ws,
 			taskExecutor: &MockTaskExecutor{
 				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {

@@ -177,6 +177,8 @@ func TestRunPhase_CancellationDrainsWorkers(t *testing.T) {
 	_ = kernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"t3"}})
 	for _, tk := range orch.campaign.Phases[0].Tasks {
 		_ = kernel.Assert(core.Fact{Predicate: "campaign_task", Args: []any{tk.ID, tk.PhaseID, tk.Description, string(tk.Status), string(tk.Type)}})
+		// The verb each task runs, scripted like the rest of this kernel.
+		_ = kernel.Assert(core.Fact{Predicate: "task_delegation", Args: []any{tk.ID, "/fix"}})
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -101,7 +101,9 @@ func TestExecuteVerifyTask_AMarkdownPhaseIsReviewedNeverBuilt(t *testing.T) {
 			t.Fatalf("a /verify task in a phase that wrote only Markdown ran %q", cmd)
 		}
 	}
-	if !slices.Contains(intents, "/research") {
+	// The review runs as the reviewer: the kernel's task_delegation for a
+	// /verify task (task_type_persona(/verify, /reviewer)).
+	if !slices.Contains(intents, "/review") {
 		t.Fatalf("the review path did not run: spawned intents %v", intents)
 	}
 }

@@ -606,44 +606,28 @@ progress_changed(CampaignID) :-
 # Rules for choosing the right shard for campaign tasks.
 
 # -----------------------------------------------------------------------------
-# 8.1 Task Type to Shard Mapping
+# 8.1 Task Type to Persona
 # -----------------------------------------------------------------------------
+# One table: the persona a task type runs as. campaign_task_shard (a pending
+# task's shard, read by final_shard_for_task) and task_delegation (8.3, the
+# verb a task's turn runs) both read it. It replaced nine rules of this section
+# and the orchestrator's own copy, inferShardFromTaskType, which nothing called.
 
-# File creation → Coder
-campaign_task_shard(TaskID, /coder) :-
-    campaign_task(TaskID, _, _, /pending, /file_create).
+task_type_persona(/file_create, /coder).
+task_type_persona(/file_modify, /coder).
+task_type_persona(/test_write, /tester).
+task_type_persona(/test_run, /tester).
+task_type_persona(/research, /researcher).
+task_type_persona(/verify, /reviewer).
+# Refactoring with reviewer support; integration and documentation.
+task_type_persona(/refactor, /coder).
+task_type_persona(/integrate, /coder).
+task_type_persona(/document, /coder).
+task_type_persona(/shard_spawn, /coder).
 
-# File modification → Coder
-campaign_task_shard(TaskID, /coder) :-
-    campaign_task(TaskID, _, _, /pending, /file_modify).
-
-# Test writing → Tester
-campaign_task_shard(TaskID, /tester) :-
-    campaign_task(TaskID, _, _, /pending, /test_write).
-
-# Test running → Tester
-campaign_task_shard(TaskID, /tester) :-
-    campaign_task(TaskID, _, _, /pending, /test_run).
-
-# Research → Researcher
-campaign_task_shard(TaskID, /researcher) :-
-    campaign_task(TaskID, _, _, /pending, /research).
-
-# Verification → Reviewer
-campaign_task_shard(TaskID, /reviewer) :-
-    campaign_task(TaskID, _, _, /pending, /verify).
-
-# Refactoring → Coder (with reviewer support)
-campaign_task_shard(TaskID, /coder) :-
-    campaign_task(TaskID, _, _, /pending, /refactor).
-
-# Integration → Coder
-campaign_task_shard(TaskID, /coder) :-
-    campaign_task(TaskID, _, _, /pending, /integrate).
-
-# Documentation → Coder
-campaign_task_shard(TaskID, /coder) :-
-    campaign_task(TaskID, _, _, /pending, /document).
+campaign_task_shard(TaskID, Persona) :-
+    campaign_task(TaskID, _, _, /pending, TaskType),
+    task_type_persona(TaskType, Persona).
 
 # -----------------------------------------------------------------------------
 # 8.2 Specialist Override
@@ -670,6 +654,41 @@ task_has_shard_override(TaskID) :-
 final_shard_for_task(TaskID, ShardType) :-
     campaign_task_shard(TaskID, ShardType),
     !task_has_shard_override(TaskID).
+
+# -----------------------------------------------------------------------------
+# 8.3 The verb a task's turn runs (sweep finding F6)
+# -----------------------------------------------------------------------------
+# The orchestrator's handlers named the verb themselves: every file, refactor,
+# shard-spawn and generic task ran as /fix, and a .md deliverable ran as
+# "/fix create file:..." with /fix's atoms. The verb is the task type's
+# persona through the one persona table (persona_verb, policy/delegation.mg),
+# except that a new document is created, not fixed. A task type with no
+# persona runs as the coder, as the generic handler always did. The rules do
+# not read the status: the handler asks while the task is in progress.
+
+task_type_known(TaskType) :-
+    task_type_persona(TaskType, Persona).
+
+task_persona(TaskID, Persona) :-
+    campaign_task(TaskID, _, _, _, TaskType),
+    task_type_persona(TaskType, Persona).
+
+task_persona(TaskID, /coder) :-
+    campaign_task(TaskID, _, _, _, TaskType),
+    !task_type_known(TaskType).
+
+task_creates_doc(TaskID) :-
+    campaign_task(TaskID, _, _, _, /file_create),
+    task_write_ext(TaskID, Ext),
+    write_class(Ext, /doc).
+
+task_delegation(TaskID, /create) :-
+    task_creates_doc(TaskID).
+
+task_delegation(TaskID, Verb) :-
+    task_persona(TaskID, Persona),
+    persona_verb(Persona, Verb),
+    !task_creates_doc(TaskID).
 
 # =============================================================================
 # SECTION 9: CAMPAIGN INTENT HANDLING
