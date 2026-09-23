@@ -9,6 +9,13 @@ import (
 )
 
 func TestTracker_TrackAggregatesAndPersists(t *testing.T) {
+	// TODO: Test `Track` with empty string inputs for metadata.
+	// TODO: Test `Track` with negative token counts.
+	// TODO: Test `Track` with missing context keys.
+	// TODO: Test integer overflow on token accumulation.
+	// TODO: Test extreme concurrency (e.g., 1000 goroutines calling `Track`).
+	// TODO: Test the `maxSessions` pruning logic exactly at the boundary (500, 501 sessions).
+	// TODO: Test the `maxEvents` ring buffer wraparound.
 	ws := t.TempDir()
 	tracker, err := NewTracker(ws)
 	if err != nil {
