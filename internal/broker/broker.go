@@ -181,6 +181,12 @@ func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported
 	// Cached and thinking counts are sub-classifications the observer channel
 	// does not carry. They are metadata, already inside the input/output totals
 	// above, so copying them here enriches the receipt without double counting.
+	//
+	// That is the contract every client reports to: InputTokens INCLUDES cache
+	// reads. Meta's Responses API (input_tokens_details.cached_tokens) and
+	// Gemini (cachedContentTokenCount within promptTokenCount) report it that
+	// way natively; a provider that bills cache reads separately (Anthropic's
+	// cache_read_input_tokens) must add them into InputTokens in its client.
 	if reported != nil {
 		actual.CachedTokens = int64(reported.CachedContentTokens)
 		actual.ThinkingTokens = int64(reported.ThinkingTokens)
@@ -203,7 +209,7 @@ func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported
 	// alone cannot detect a bias shared by both sides -- it would quietly
 	// absorb it into the ratio -- so the comparison is kept separately.
 	if c.cfg.Reconciler != nil && receipt.Estimated.Tokens > 0 {
-		c.cfg.Reconciler.Observe(req.Model, receipt.Estimated.Tokens, actual.InputTokens+actual.CachedTokens)
+		c.cfg.Reconciler.Observe(req.Model, receipt.Estimated.Tokens, actual.InputTokens)
 	}
 
 	c.emit(receipt)
@@ -218,11 +224,14 @@ func (c *core) calibrate(req *Request, actual Spend) {
 		return
 	}
 
-	// Add cached tokens back before calibrating. A provider that excludes cache
-	// reads from input_tokens makes a cache hit look like content that
-	// tokenized ten times more densely than it did, and calibrating on that
-	// corrupts the ratio with exactly the optimization that was working.
-	input := actual.InputTokens + actual.CachedTokens
+	// InputTokens already includes cache reads (the contract in settle). This
+	// used to add CachedTokens back, for a provider that excludes them; no
+	// client reports that way, so every cache hit was counted twice. Measured
+	// 2026-09-22 over 1,360 Meta receipts: cached <= input on every one, and the
+	// estimate ran 1.40-1.50x the bill at every hit rate -- the calibrated ratio
+	// learned a token count that was never sent, and the reconciler reported
+	// "drifting" against a bill inflated by the cache it was meant to credit.
+	input := actual.InputTokens
 	if input <= 0 {
 		return
 	}
