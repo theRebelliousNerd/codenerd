@@ -149,12 +149,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	}
 
 	logStep("Initializing task verifier...")
-	taskVerifier := verification.NewTaskVerifier(
-		llmClient,
-		localDB,
-		shardMgr,
-		autopoiesisOrch,
-	)
+	taskVerifier := verification.NewTaskVerifier(llmClient, localDB)
 	taskVerifier.SetTaskExecutor(taskExecutor)
 	taskVerifier.SetKernel(kernel)
 

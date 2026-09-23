@@ -3,7 +3,7 @@ package verification
 import "testing"
 
 func TestSetTaskExecutor(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
+	v := NewTaskVerifier(nil, nil)
 	// Setting a nil executor must not panic and should store the value.
 	v.SetTaskExecutor(nil)
 	v.mu.Lock()

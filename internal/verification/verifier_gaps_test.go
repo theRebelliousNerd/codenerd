@@ -115,25 +115,19 @@ func TestParseVerificationResponse_WithQualityViolations_ShouldParseAll(t *testi
 // =============================================================================
 
 func TestNewTaskVerifier_WhenAllNil_ShouldNotPanic(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
+	v := NewTaskVerifier(nil, nil)
 	if v == nil {
 		t.Fatal("NewTaskVerifier should not return nil")
 	}
 }
 
 func TestNewTaskVerifier_ShouldStoreFields(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
+	v := NewTaskVerifier(nil, nil)
 	if v.client != nil {
 		t.Error("client should be nil")
 	}
 	if v.localDB != nil {
 		t.Error("localDB should be nil")
-	}
-	if v.shardMgr != nil {
-		t.Error("shardMgr should be nil")
-	}
-	if v.autopoiesis != nil {
-		t.Error("autopoiesis should be nil")
 	}
 }
 
@@ -142,7 +136,7 @@ func TestNewTaskVerifier_ShouldStoreFields(t *testing.T) {
 // =============================================================================
 
 func TestSetSessionContext_ShouldStoreValues(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
+	v := NewTaskVerifier(nil, nil)
 	v.SetSessionContext("session123", 5)
 
 	v.mu.RLock()
@@ -156,44 +150,16 @@ func TestSetSessionContext_ShouldStoreValues(t *testing.T) {
 }
 
 // =============================================================================
-// spawnTask TESTS
+// retryTask TESTS
 // =============================================================================
 
-func TestSpawnTask_WhenNoExecutor_ShouldError(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-
-	_, err := v.spawnTask(context.Background(), "test", "task")
-	if err == nil {
-		t.Fatal("spawnTask with no executor should error")
-	}
-	if !strings.Contains(err.Error(), "no executor available") {
-		t.Errorf("Error should mention no executor: %v", err)
+func TestRetryTask_WithoutAVerdictIsTheTask(t *testing.T) {
+	if got := retryTask("original task", nil); got != "original task" {
+		t.Errorf("retryTask = %q, want the task unchanged", got)
 	}
 }
 
-// =============================================================================
-// enrichTaskWithContext TESTS
-// =============================================================================
-
-func TestEnrichTaskWithContext_WhenNoVerification_ShouldAddContextOnly(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-
-	result := v.enrichTaskWithContext("original task", "extra context", nil)
-
-	if !strings.Contains(result, "original task") {
-		t.Error("Should contain original task")
-	}
-	if !strings.Contains(result, "extra context") {
-		t.Error("Should contain extra context")
-	}
-	if !strings.Contains(result, "IMPORTANT") {
-		t.Error("Should contain quality reminder")
-	}
-}
-
-func TestEnrichTaskWithContext_WhenVerificationFailed_ShouldAddFailureInfo(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-
+func TestRetryTask_CarriesWhyTheAttemptFailed(t *testing.T) {
 	verification := &VerificationResult{
 		Success:           false,
 		Reason:            "Code has quality issues",
@@ -201,32 +167,31 @@ func TestEnrichTaskWithContext_WhenVerificationFailed_ShouldAddFailureInfo(t *te
 		Evidence:          []string{"line 5: mock", "line 10: TODO"},
 	}
 
-	result := v.enrichTaskWithContext("fix the code", "", verification)
+	result := retryTask("fix the code", verification)
 
-	if !strings.Contains(result, "Previous Attempt Failed") {
-		t.Error("Should contain failure header")
-	}
-	if !strings.Contains(result, "Code has quality issues") {
-		t.Error("Should contain failure reason")
-	}
-	if !strings.Contains(result, "mock_code") {
-		t.Error("Should list violations")
-	}
-	if !strings.Contains(result, "line 5: mock") {
-		t.Error("Should list evidence")
+	for _, want := range []string{"fix the code", "Previous Attempt Failed", "Code has quality issues", "mock_code", "line 5: mock"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("retry task does not carry %q:\n%s", want, result)
+		}
 	}
 }
 
-func TestEnrichTaskWithContext_WhenEmptyContext_ShouldStillAddReminder(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-
-	result := v.enrichTaskWithContext("task", "", nil)
-
-	if !strings.Contains(result, "Do NOT use mock") {
-		t.Error("Should contain anti-mock reminder")
+// The judge's corrective action reaches the retry as advice. Until 2026-09-23
+// the verifier ran it: a specialist chosen by a keyword table, or a tool
+// generated through autopoiesis, on the judge's word -- and the judge can only
+// withhold (F5).
+func TestRetryTask_TheJudgesCorrectiveActionIsAdviceNotAnAction(t *testing.T) {
+	verification := &VerificationResult{
+		Reason:           "the scraper calls an API that does not exist",
+		CorrectiveAction: &CorrectiveAction{Type: CorrectiveTool, Query: "a rod page scraper", Reason: "no tool reads the page"},
 	}
-	if !strings.Contains(result, "Do NOT use TODO") {
-		t.Error("Should contain anti-TODO reminder")
+
+	result := retryTask("scrape the page", verification)
+
+	for _, want := range []string{"Suggested Next Step", "tool: a rod page scraper", "no tool reads the page"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("retry task does not carry %q:\n%s", want, result)
+		}
 	}
 }
 
@@ -235,7 +200,7 @@ func TestEnrichTaskWithContext_WhenEmptyContext_ShouldStillAddReminder(t *testin
 // =============================================================================
 
 func TestVerifyWithRetry_WhenNoExecutor_ShouldError(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
+	v := NewTaskVerifier(nil, nil)
 
 	_, _, err := v.VerifyWithRetry(context.Background(), Delegation{Task: "test task", Persona: "coder", MaxAttempts: 1})
 	if err == nil {
@@ -260,65 +225,11 @@ func TestVerifyWithRetry_WhenNoAttemptCap_ShouldRefuse(t *testing.T) {
 }
 
 // =============================================================================
-// applyCorrectiveAction TESTS
-// =============================================================================
-
-func TestApplyCorrectiveAction_WhenNil_ShouldReturnEmpty(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	result := v.applyCorrectiveAction(context.Background(), nil)
-	if result != "" {
-		t.Errorf("Expected empty string for nil action, got %q", result)
-	}
-}
-
-func TestApplyCorrectiveAction_WhenDecompose_ShouldReturnHint(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	action := &CorrectiveAction{
-		Type:  CorrectiveDecompose,
-		Query: "break into smaller steps",
-	}
-
-	result := v.applyCorrectiveAction(context.Background(), action)
-	if !strings.Contains(result, "Task Decomposition") {
-		t.Error("Should contain decomposition hint")
-	}
-	if !strings.Contains(result, "break into smaller steps") {
-		t.Error("Should contain the query")
-	}
-}
-
-func TestApplyCorrectiveAction_WhenToolNoAutopoiesis_ShouldReturnEmpty(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	action := &CorrectiveAction{
-		Type:   CorrectiveTool,
-		Query:  "generate_tool",
-		Reason: "need tool",
-	}
-
-	result := v.applyCorrectiveAction(context.Background(), action)
-	if result != "" {
-		t.Errorf("Expected empty with no autopoiesis, got %q", result)
-	}
-}
-
-// =============================================================================
-// findMatchingSpecialist TESTS
-// =============================================================================
-
-func TestFindMatchingSpecialist_WhenNoShardMgr_ShouldReturnEmpty(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	result := v.findMatchingSpecialist("hint", "query")
-	if result != "" {
-		t.Errorf("Expected empty with no shard manager, got %q", result)
-	}
-}
-
-// =============================================================================
 // storeVerification TESTS
 // =============================================================================
 
 func TestStoreVerification_WhenNoLocalDB_ShouldNotPanic(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
+	v := NewTaskVerifier(nil, nil)
 	verification := &VerificationResult{
 		Success:    true,
 		Confidence: 0.9,
@@ -396,7 +307,7 @@ func TestErrMaxRetriesExceeded_ShouldBeDescriptive(t *testing.T) {
 // =============================================================================
 
 func TestVerifyTask_WhenNilClient_ShouldReturnUnavailable(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
+	v := NewTaskVerifier(nil, nil)
 
 	result, err := v.verifyTask(context.Background(), "task", "result", "/implementation")
 	if err == nil {

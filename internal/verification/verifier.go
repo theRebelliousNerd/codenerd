@@ -7,10 +7,8 @@
 package verification
 
 import (
-	"codenerd/internal/autopoiesis"
 	"codenerd/internal/broker"
 	"codenerd/internal/config"
-	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
@@ -53,14 +51,16 @@ const (
 // CorrectiveType defines the type of corrective action to take.
 type CorrectiveType string
 
+// The kinds of next step a judge may suggest. They reach the retry as words
+// (retryTask); nothing here runs them.
 const (
-	CorrectiveResearch  CorrectiveType = "research"  // Use ResearcherShard
-	CorrectiveDocs      CorrectiveType = "docs"      // Use Context7 API
-	CorrectiveTool      CorrectiveType = "tool"      // Use Autopoiesis to generate tool
-	CorrectiveDecompose CorrectiveType = "decompose" // Break into smaller tasks
+	CorrectiveResearch  CorrectiveType = "research"  // look something up
+	CorrectiveDocs      CorrectiveType = "docs"      // read an API's documentation
+	CorrectiveTool      CorrectiveType = "tool"      // a tool the task lacks
+	CorrectiveDecompose CorrectiveType = "decompose" // break the task into smaller steps
 )
 
-// CorrectiveAction describes what action to take to fix a verification failure.
+// CorrectiveAction is the judge's suggested next step for a failed attempt.
 type CorrectiveAction struct {
 	Type      CorrectiveType `json:"type"`
 	Query     string         `json:"query"`
@@ -92,10 +92,8 @@ type TaskVerifier struct {
 	mu           sync.RWMutex
 	client       perception.LLMClient
 	localDB      *store.LocalStore
-	shardMgr     *coreshards.ShardManager // For ListAvailableShards. Use taskExecutor for task execution.
-	taskExecutor session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
-	kernel       Kernel                   // Decides each delegation's attempts
-	autopoiesis  *autopoiesis.Orchestrator
+	taskExecutor session.TaskExecutor // Runs each attempt (ExecuteObserved)
+	kernel       Kernel               // Decides each delegation's attempts
 
 	// Session context for persistence
 	sessionID string
@@ -116,44 +114,10 @@ func (v *TaskVerifier) SetKernel(k Kernel) {
 	v.kernel = k
 }
 
-// spawnTask runs a corrective action's side task (a specialist's knowledge),
-// whose output is context for the next attempt and whose verdict nothing
-// reads. It uses TaskExecutor when available, falling back to ShardManager.
-// A delegation's own attempts go through ExecuteObserved (VerifyWithRetry).
-// The persona or verb goes to the executor as it is: the executor maps a
-// persona to its verb (the kernel's persona_verb table).
-func (v *TaskVerifier) spawnTask(ctx context.Context, intent string, task string) (string, error) {
-
-	// Prefer TaskExecutor when available
-	if v.taskExecutor != nil {
-		req := session.TaskRequest{
-			IntentVerb: intent,
-			Task:       task,
-		}
-		return v.taskExecutor.Execute(ctx, req)
-	}
-
-	// Fall back to ShardManager
-	if v.shardMgr != nil {
-		return v.shardMgr.Spawn(ctx, intent, task)
-	}
-
-	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
-}
-
-// NewTaskVerifier creates a new verifier with all dependencies.
-func NewTaskVerifier(
-	client perception.LLMClient,
-	localDB *store.LocalStore,
-	shardMgr *coreshards.ShardManager,
-	autopoiesisOrch *autopoiesis.Orchestrator,
-) *TaskVerifier {
-	return &TaskVerifier{
-		client:      client,
-		localDB:     localDB,
-		shardMgr:    shardMgr,
-		autopoiesis: autopoiesisOrch,
-	}
+// NewTaskVerifier creates a verifier: the judge's client and the store its
+// judgments are recorded in. The executor and the kernel are set after boot.
+func NewTaskVerifier(client perception.LLMClient, localDB *store.LocalStore) *TaskVerifier {
+	return &TaskVerifier{client: client, localDB: localDB}
 }
 
 // SetSessionContext sets the current session for persistence.
@@ -280,11 +244,7 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 			return ret.Output, verdict, ErrMaxRetriesExceeded
 		case "/retry":
 			v.storeVerification(d.Task, d.Persona, verdict, int(attempt-1), false)
-			var gathered string
-			if verdict.CorrectiveAction != nil {
-				gathered = v.applyCorrectiveAction(ctx, verdict.CorrectiveAction)
-			}
-			task = v.enrichTaskWithContext(d.Task, gathered, verdict)
+			task = retryTask(d.Task, verdict)
 		default:
 			return ret.Output, verdict, fmt.Errorf("the kernel derived an unknown move %s for %s", moves[0], root)
 		}
@@ -462,166 +422,44 @@ Analyze this result for quality violations and determine if the task was complet
 	return verification, nil
 }
 
-// applyCorrectiveAction gathers additional context based on failure analysis.
-// Priority: 1) Existing specialist shards, 2) Context7 docs, 3) Researcher web search
-func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *CorrectiveAction) string {
-	if action == nil {
-		return ""
-	}
-
-	// FIRST: Check if we have a specialist shard that can help
-	// This avoids unnecessary Context7 API calls when we have local knowledge
-	if action.ShardHint != "" && (v.shardMgr != nil || v.taskExecutor != nil) {
-		if specialist := v.findMatchingSpecialist(action.ShardHint, action.Query); specialist != "" {
-			result, err := v.spawnTask(ctx, specialist, action.Query)
-			if err == nil && result != "" {
-				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, result)
-			}
-		}
-	}
-
-	switch action.Type {
-	case CorrectiveResearch:
-		// Check for specialist before web research
-		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && (v.shardMgr != nil || v.taskExecutor != nil) {
-			result, err := v.spawnTask(ctx, specialist, action.Query)
-			if err == nil && result != "" {
-				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, result)
-			}
-		}
-
-	case CorrectiveDocs:
-		// Check for specialist with pre-built knowledge
-		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && (v.shardMgr != nil || v.taskExecutor != nil) {
-			result, err := v.spawnTask(ctx, specialist, "docs: "+action.Query)
-			if err == nil && result != "" {
-				return fmt.Sprintf("## Specialist Documentation (%s)\n%s", specialist, result)
-			}
-		}
-
-	case CorrectiveTool:
-		// Use Autopoiesis to generate missing tool
-		if v.autopoiesis != nil {
-			toolNeed := &autopoiesis.ToolNeed{
-				Name:       action.Query,
-				Purpose:    action.Reason,
-				Confidence: 0.8,
-			}
-			tool, err := v.autopoiesis.GenerateTool(ctx, toolNeed)
-			if err == nil && tool != nil {
-				return fmt.Sprintf("## Generated Tool: %s\n%s", tool.Name, tool.Description)
-			}
-		}
-
-	case CorrectiveDecompose:
-		// Return hint to break task into smaller pieces
-		return fmt.Sprintf("## Task Decomposition Needed\nBreak this task into smaller steps: %s", action.Query)
-	}
-
-	return ""
-}
-
-// findMatchingSpecialist checks if we have a specialist shard that matches the query.
-// Returns the specialist name if found, empty string otherwise.
-func (v *TaskVerifier) findMatchingSpecialist(hint, query string) string {
-	if v.shardMgr == nil {
-		return ""
-	}
-
-	// Get available shards
-	available := v.shardMgr.ListAvailableShards()
-
-	// Technology keywords to match against specialist names
-	techKeywords := map[string][]string{
-		"rod":     {"browser", "rod", "cdp", "devtools", "scraping", "automation", "chromium"},
-		"golang":  {"go", "golang", "goroutine", "channel", "interface"},
-		"react":   {"react", "jsx", "tsx", "component", "hook", "usestate"},
-		"mangle":  {"mangle", "datalog", "logic", "predicate", "rule"},
-		"sql":     {"sql", "database", "query", "postgres", "sqlite", "mysql"},
-		"api":     {"api", "rest", "http", "endpoint", "handler"},
-		"testing": {"test", "spec", "coverage", "mock", "assert"},
-	}
-
-	queryLower := strings.ToLower(query)
-	hintLower := strings.ToLower(hint)
-
-	// First check if hint directly matches a specialist
-	if hint != "" {
-		for _, shard := range available {
-			if strings.EqualFold(shard.Name, hint) && shard.Type == "specialist" {
-				return shard.Name
-			}
-		}
-	}
-
-	// Then check query keywords against specialist knowledge domains
-	for _, shard := range available {
-		if shard.Type != "specialist" {
-			continue
-		}
-
-		shardLower := strings.ToLower(shard.Name)
-
-		// Check if shard name appears in query
-		if strings.Contains(queryLower, shardLower) || strings.Contains(hintLower, shardLower) {
-			return shard.Name
-		}
-
-		// Check tech keywords
-		if keywords, ok := techKeywords[shardLower]; ok {
-			for _, kw := range keywords {
-				if strings.Contains(queryLower, kw) {
-					return shard.Name
-				}
-			}
-		}
-	}
-
-	return ""
-}
-
-// enrichTaskWithContext adds corrective context to the task for retry.
-func (v *TaskVerifier) enrichTaskWithContext(
-	originalTask string,
-	additionalContext string,
-	verification *VerificationResult,
-) string {
+// retryTask is the task a retry runs: the original, and why the attempt
+// before it was not accepted -- the verdict's reason, violations and evidence,
+// and the judge's suggested next step, as words. The judge's corrective action
+// is advice to the next attempt, not an action: until 2026-09-23 the verifier
+// ran it, spawning a specialist chosen by a keyword table or generating a tool
+// through autopoiesis on the judge's say-so, and the judge can only withhold
+// (F5). The persona's own compile carries the quality rules the retry used to
+// restate here as a Go-written "IMPORTANT" list.
+func retryTask(originalTask string, verification *VerificationResult) string {
 	var builder strings.Builder
 	builder.WriteString(originalTask)
-
-	// Add failure feedback
-	if verification != nil && verification.Reason != "" {
+	if verification == nil {
+		return builder.String()
+	}
+	if verification.Reason != "" {
 		builder.WriteString("\n\n## Previous Attempt Failed\n")
 		builder.WriteString(verification.Reason)
-
-		if len(verification.QualityViolations) > 0 {
-			builder.WriteString("\n\n## Quality Issues to Fix\n")
-			for _, v := range verification.QualityViolations {
-				builder.WriteString(fmt.Sprintf("- %s\n", v))
-			}
-		}
-
-		if len(verification.Evidence) > 0 {
-			builder.WriteString("\n## Specific Problems\n")
-			for _, e := range verification.Evidence {
-				builder.WriteString(fmt.Sprintf("- %s\n", e))
-			}
+	}
+	if len(verification.QualityViolations) > 0 {
+		builder.WriteString("\n\n## Quality Issues to Fix\n")
+		for _, v := range verification.QualityViolations {
+			builder.WriteString(fmt.Sprintf("- %s\n", v))
 		}
 	}
-
-	// Add gathered context
-	if additionalContext != "" {
-		builder.WriteString("\n\n")
-		builder.WriteString(additionalContext)
+	if len(verification.Evidence) > 0 {
+		builder.WriteString("\n## Specific Problems\n")
+		for _, e := range verification.Evidence {
+			builder.WriteString(fmt.Sprintf("- %s\n", e))
+		}
 	}
-
-	// Add quality reminder
-	builder.WriteString("\n\n## IMPORTANT\n")
-	builder.WriteString("- Do NOT use mock implementations or placeholder code\n")
-	builder.WriteString("- Do NOT use TODO/FIXME comments\n")
-	builder.WriteString("- Do NOT hallucinate APIs that don't exist\n")
-	builder.WriteString("- Implement the ACTUAL functionality requested\n")
-
+	if a := verification.CorrectiveAction; a != nil && strings.TrimSpace(a.Query) != "" {
+		builder.WriteString("\n## Suggested Next Step (from the review)\n")
+		builder.WriteString(fmt.Sprintf("%s: %s", a.Type, a.Query))
+		if a.Reason != "" {
+			builder.WriteString(" -- " + a.Reason)
+		}
+		builder.WriteString("\n")
+	}
 	return builder.String()
 }
 
