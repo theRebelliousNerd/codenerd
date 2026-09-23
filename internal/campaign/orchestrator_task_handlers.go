@@ -223,32 +223,25 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 
 	logging.CampaignDebug("Shard %s completed for task %s, result_len=%d", shardType, task.ID, len(result))
 
-	// F-HOLLOW-2: an explicit analysis shard can return an empty/near-empty result
-	// on a package-audit task (observed live, run 14 phase 1: shard=reviewer
-	// returned "result":"" for invariant/error-contract audits; shard=testarchitect
-	// returned a 367-byte stub). The checkpoint reviewer then correctly fails the
-	// phase for missing findings. Retry once via the research path, which reliably
-	// produces written findings for audit tasks (run 14 phase 0 researcher tasks
-	// each delivered 7-11KB). Skip file/test/tool tasks, which legitimately return
-	// only a short confirmation after writing their own durable output.
-	if needsAnalysisRetry(result) && !isFileProducingType(task.Type) {
-		logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s (shard=%s) returned a non-deliverable result (%d bytes, empty-or-intent-stub); retrying via research path", task.ID, shardType, len(strings.TrimSpace(result)))
-		retryInput := task.Description + "\n\nIMPORTANT: Do NOT describe what you WILL do and do NOT return a plan. Perform the audit NOW and report concrete findings in your final response, with file+symbol anchors where possible (or an explicit \"no issues found\" for a surface you checked). Do NOT return an empty response."
-		if retried, rerr := o.spawnTask(ctx, task, "/research", retryInput); rerr == nil && !needsAnalysisRetry(retried) {
-			result = retried
-			logging.Campaign("Research-path retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
-		} else {
-			logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s still returned no substantive output after research-path retry", task.ID)
-			o.emitEvent(EventShardResultEmpty, task.PhaseID, task.ID, fmt.Sprintf("shard %s returned no substantive output after retry", shardType), nil)
-		}
-	}
-
 	// F-DURABLE-1: an explicit-shard task that produces analysis (research,
 	// audit, review, discovery) rather than a file returns its result only in
 	// memory. Persist it as a durable artifact so the findings survive and the
 	// phase-checkpoint reviewer can verify a real output. No-op for file/test/
 	// tool tasks and when a durable output already exists (see helper).
 	o.persistTaskOutputArtifact(task, result)
+
+	// F-HOLLOW-2 (run 14 phase 1: shard=reviewer returned "result":"" for an
+	// audit): an analysis task delivered when an output it declares is on
+	// disk with content, and nothing else. A done turn that left none fails
+	// the attempt, and the campaign's retry carries why. Until 2026-09-23 the
+	// answer's shape decided instead -- under 40 runes, or opening "I'll" or
+	// "let me" -- and triggered an inline re-spawn with a Go-written prompt,
+	// so a terse real finding was redone (sweep finding F12). File, test and
+	// tool tasks write their own output and are judged by their write gates.
+	if !isFileProducingType(task.Type) && !o.hasDeliverableOnDisk(task) {
+		o.emitEvent(EventShardResultEmpty, task.PhaseID, task.ID, fmt.Sprintf("shard %s ended done with nothing to persist", shardType), nil)
+		return nil, fmt.Errorf("%w: shard %s ended done for %s with nothing to persist", ErrNoDeliverable, shardType, task.ID)
+	}
 
 	return map[string]any{
 		"shard":  shardType,
@@ -257,10 +250,14 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 	}, nil
 }
 
-// isTrivialResult reports whether a shard result carries no substantive content
-// and is therefore not worth persisting or counting as a real deliverable. The
-// 40-rune floor rejects empty responses and one-line acknowledgements while
-// admitting even a terse but real finding.
+// ErrNoDeliverable marks an analysis attempt whose turn ended done but left no
+// durable output: no declared output on disk with content, and no answer to
+// persist in its place.
+var ErrNoDeliverable = errors.New("the task's turn delivered nothing")
+
+// isTrivialResult reports whether an upstream result carries no substantive
+// content (countFindingUpstreams). The 40-rune floor rejects empty responses
+// and one-line acknowledgements.
 func isTrivialResult(s string) bool {
 	return len([]rune(strings.TrimSpace(s))) < 40
 }
@@ -278,38 +275,29 @@ func isFileProducingType(t TaskType) bool {
 	return false
 }
 
-// intentStubPrefixes open a plan-only ("I will do X") response rather than actual
-// findings. Matched case-insensitively against the trimmed result prefix.
-var intentStubPrefixes = []string{
-	"i'll ", "i will ", "i am going to ", "i'm going to ", "let me ",
-	"i plan to ", "i intend to ", "i would ", "i'm planning", "i am planning",
-	"first, i", "here is my plan", "here's my plan", "my plan", "plan:",
-}
-
-// looksLikeIntentStub reports whether a result is a short plan-only preamble
-// ("I'll audit internal/world for ... Starting with ...") that clears the
-// emptiness floor but contains no findings (observed live, run 15 phases 2/3/4:
-// the checkpoint reviewer flagged artifacts as "only an intent stub"). Only short
-// results qualify: a long result that opens with a planning phrase has still done
-// the work, so the rune cap avoids false positives on real analysis.
-func looksLikeIntentStub(s string) bool {
-	t := strings.ToLower(strings.TrimSpace(s))
-	if len([]rune(t)) > 600 {
-		return false
-	}
-	for _, p := range intentStubPrefixes {
-		if strings.HasPrefix(t, p) {
-			return true
-		}
+// isOutputArtifactType reports whether an artifact type is a task's output.
+// Input artifacts (/source_file, /knowledge_base) are the material a task
+// works on, not what it delivers.
+func isOutputArtifactType(t string) bool {
+	switch t {
+	case "/doc", "/test_file", "/config", "/file":
+		return true
 	}
 	return false
 }
 
-// needsAnalysisRetry reports whether an analysis-task result is not a real
-// deliverable — either trivially empty or a plan-only intent stub — and should
-// be retried with a stronger, execute-now instruction.
-func needsAnalysisRetry(result string) bool {
-	return isTrivialResult(result) || looksLikeIntentStub(result)
+// hasDeliverableOnDisk reports whether an output artifact the task holds is on
+// disk with content: the evidence an analysis task delivered.
+func (o *Orchestrator) hasDeliverableOnDisk(task *Task) bool {
+	for _, a := range task.Artifacts {
+		if !isOutputArtifactType(a.Type) || a.Path == "" {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(o.workspace, a.Path)); err == nil && fi.Size() > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // executeResearchTask spawns a researcher shard.
@@ -322,30 +310,22 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 	}
 	logging.CampaignDebug("Researcher shard completed for task %s", task.ID)
 
-	// F-HOLLOW-1: a research subagent can return an empty final response (observed
-	// live, run 13 task 0_2: "Fallback parse: empty response ... EOF") yet be
-	// marked "completed successfully", producing a hollow success that delivers
-	// nothing durable — the phase-checkpoint reviewer then correctly fails the
-	// phase for the missing artifact. Retry once, explicitly demanding the written
-	// findings, before accepting an empty deliverable.
-	if needsAnalysisRetry(result) {
-		logging.Get(logging.CategoryCampaign).Warn("Research task %s returned a non-deliverable result (%d bytes, empty-or-intent-stub); retrying once", task.ID, len(strings.TrimSpace(result)))
-		retryInput := task.Description + "\n\nIMPORTANT: Do NOT describe what you WILL do and do NOT return a plan. Perform the work NOW and report concrete findings as a complete written report in your final response (or an explicit \"no issues found\" for a surface you checked). Do NOT return an empty response."
-		if retried, rerr := o.spawnTask(ctx, task, "/research", retryInput); rerr == nil && !needsAnalysisRetry(retried) {
-			result = retried
-			logging.Campaign("Research retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
-		} else {
-			logging.Get(logging.CategoryCampaign).Warn("Research task %s still returned no substantive output after retry", task.ID)
-			o.emitEvent(EventResearchEmpty, task.PhaseID, task.ID, "research task returned no substantive output after retry", nil)
-		}
-	}
-
 	// F-DURABLE-1: research/audit tasks previously returned their findings only
 	// in memory, leaving nothing on disk. The phase-checkpoint reviewer then
 	// correctly reported "no durable discovery outputs" and failed the phase even
 	// though the work was done (observed live, run 12 phases 0/1). Persist the
 	// findings so they survive the campaign and the reviewer has a real output.
 	o.persistTaskOutputArtifact(task, result)
+
+	// F-HOLLOW-1 (run 13 task 0_2: an empty final response marked completed):
+	// the task delivered when its findings are on disk. A done turn with
+	// nothing to persist fails the attempt, and the campaign's retry carries
+	// why; the answer's shape is not evidence either way (sweep finding F12).
+	// Whether findings are substantive is the phase checkpoint's judgement.
+	if !o.hasDeliverableOnDisk(task) {
+		o.emitEvent(EventResearchEmpty, task.PhaseID, task.ID, "research turn ended done with no findings to persist", nil)
+		return nil, fmt.Errorf("%w: the research turn for %s ended done with no findings to persist", ErrNoDeliverable, task.ID)
+	}
 	return map[string]any{"research_result": result}, nil
 }
 
@@ -366,19 +346,16 @@ func (o *Orchestrator) persistTaskOutputArtifact(task *Task, result string) {
 		return
 	}
 	trimmed := strings.TrimSpace(result)
-	if isTrivialResult(trimmed) {
-		return // nothing substantial worth persisting
+	if trimmed == "" {
+		return // nothing to persist
 	}
 	if isFileProducingType(task.Type) {
 		return // these produce their own durable file/test/tool output
 	}
 	for _, a := range task.Artifacts {
-		switch a.Type {
-		case "/doc", "/test_file", "/config", "/file":
-			if a.Path != "" {
-				if _, err := os.Stat(filepath.Join(o.workspace, a.Path)); err == nil {
-					return // a durable output already exists; don't duplicate it
-				}
+		if isOutputArtifactType(a.Type) && a.Path != "" {
+			if _, err := os.Stat(filepath.Join(o.workspace, a.Path)); err == nil {
+				return // a durable output already exists; don't duplicate it
 			}
 		}
 	}

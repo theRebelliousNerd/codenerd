@@ -94,17 +94,30 @@ func TestPersistTaskOutputArtifact_SkipsFileTasks(t *testing.T) {
 	}
 }
 
-func TestPersistTaskOutputArtifact_SkipsTrivialResult(t *testing.T) {
+func TestPersistTaskOutputArtifact_AnEmptyResultPersistsNothing(t *testing.T) {
 	o := newArtifactTestOrchestrator(t)
 	task := &Task{
 		ID:   "/task_abc_2_1",
 		Type: TaskTypeResearch,
 	}
 
-	o.persistTaskOutputArtifact(task, "ok")
+	o.persistTaskOutputArtifact(task, "  \n ")
 
 	if len(task.Artifacts) != 0 {
-		t.Fatalf("trivial result must not persist an artifact, got %+v", task.Artifacts)
+		t.Fatalf("an empty result must not persist an artifact, got %+v", task.Artifacts)
+	}
+}
+
+// A terse real finding is a finding: the answer's length is not evidence
+// (sweep finding F12). Under the 40-rune floor this was dropped.
+func TestPersistTaskOutputArtifact_ATerseFindingPersists(t *testing.T) {
+	o := newArtifactTestOrchestrator(t)
+	task := &Task{ID: "/task_abc_2_2", Type: TaskTypeResearch, Description: "Audit internal/world"}
+
+	o.persistTaskOutputArtifact(task, "No issues found in internal/world.")
+
+	if !o.hasDeliverableOnDisk(task) {
+		t.Fatalf("a terse finding was not persisted: %+v", task.Artifacts)
 	}
 }
 
@@ -146,58 +159,6 @@ func TestIsFileProducingType(t *testing.T) {
 		}
 	}
 }
-
-func TestLooksLikeIntentStub(t *testing.T) {
-	// The actual stub captured live in run 15 phase 2 (task 2_1).
-	realStub := "I'll audit `internal/world` for nil panics, bounds issues, unchecked " +
-		"type assertions, missing validation, and unsafe API-boundary assumptions. " +
-		"Starting with the package inventory and high-risk patterns."
-	stubs := []string{
-		realStub,
-		"I will examine the error-handling paths next.",
-		"Let me review the concurrency primitives.",
-		"I'm going to audit the lifecycle of the scanner.",
-		"Plan: enumerate closers, then check double-close.",
-	}
-	for _, s := range stubs {
-		if !looksLikeIntentStub(s) {
-			t.Errorf("expected intent stub: %q", s)
-		}
-	}
-
-	notStubs := []string{
-		// Real findings, even when terse.
-		"Found a nil-deref at fs.go:212: canonicalScanPath dereferences a nil FileInfo when Stat fails.",
-		"No issues found in the exported invariants; all constructors validate inputs.",
-		substantialFindings,
-		// A long summary that opens with a planning phrase has still done the work.
-		"Let me summarize the findings. " + strings.Repeat("Concrete finding with file:line evidence. ", 20),
-	}
-	for _, s := range notStubs {
-		if looksLikeIntentStub(s) {
-			t.Errorf("expected NOT an intent stub (len=%d): %q", len(s), s)
-		}
-	}
-}
-
-func TestNeedsAnalysisRetry(t *testing.T) {
-	retry := []string{"", "   ", "ok", "I'll audit the package for hazards, starting now."}
-	for _, s := range retry {
-		if !needsAnalysisRetry(s) {
-			t.Errorf("expected needsAnalysisRetry for %q", s)
-		}
-	}
-	noRetry := []string{
-		substantialFindings,
-		"Found a bounds bug at deep_scan.go:88 where the slice index is unchecked.",
-	}
-	for _, s := range noRetry {
-		if needsAnalysisRetry(s) {
-			t.Errorf("expected NO retry for %q", s)
-		}
-	}
-}
-
 func TestPersistTaskOutputArtifact_SkipsWhenDurableOutputExists(t *testing.T) {
 	o := newArtifactTestOrchestrator(t)
 	// Simulate a task that already wrote a durable /doc output.
