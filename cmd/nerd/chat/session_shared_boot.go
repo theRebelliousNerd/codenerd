@@ -156,6 +156,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		autopoiesisOrch,
 	)
 	taskVerifier.SetTaskExecutor(taskExecutor)
+	taskVerifier.SetKernel(kernel)
 
 	glassBoxEventBus := transparency.NewGlassBoxEventBus()
 	glassBoxEventBus.Enable()

@@ -3,178 +3,9 @@ package verification
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 )
-
-// =============================================================================
-// isReviewTask TESTS — extended coverage
-// =============================================================================
-
-func TestIsReviewTask_WhenEdgeCases_ShouldClassifyCorrectly(t *testing.T) {
-	tests := []struct {
-		task string
-		want bool
-	}{
-		// True cases — prefix matches
-		{"review the code", true},
-		{"analyze dependencies", true},
-		{"security_scan all files", true},
-		{"audit the authentication flow", true},
-		{"inspect the module graph", true},
-		{"examine edge cases", true},
-		{"assess code quality", true},
-		{"evaluate the design", true},
-
-		// False cases — implementation tasks
-		{"implement feature X", false},
-		{"run unit tests", false},
-		{"fix the bug", false},
-		{"refactor the handler", false},
-		{"deploy to staging", false},
-		{"write documentation", false},
-		{"create a new endpoint", false},
-
-		// Edge cases
-		{"", false},
-		{"REVIEW uppercase", true}, // case insensitive
-		{"Review Mixed Case", true},
-		{"prereview setup", true},       // substring match: "prereview setup" contains "review "
-		{"the analysis is done", false}, // "analyze" embedded differently
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.task, func(t *testing.T) {
-			got := isReviewTask(tc.task)
-			if got != tc.want {
-				t.Errorf("isReviewTask(%q) = %v, want %v", tc.task, got, tc.want)
-			}
-		})
-	}
-}
-
-// =============================================================================
-// basicQualityCheck TESTS — expanded violation detection
-// =============================================================================
-
-func TestBasicQualityCheck_WhenCleanCode_ShouldPass(t *testing.T) {
-	v := &TaskVerifier{}
-
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{"simple_function", "func Add(a, b int) int { return a + b }"},
-		{"error_handling", `if err != nil { return fmt.Errorf("failed: %w", err) }`},
-		{"clean_test", `func TestAdd(t *testing.T) { if Add(1,2) != 3 { t.Fatal("wrong") } }`},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			res := v.basicQualityCheck(tc.input)
-			if !res.Success {
-				t.Errorf("Expected success for clean code, got violations: %v", res.QualityViolations)
-			}
-			if len(res.QualityViolations) != 0 {
-				t.Errorf("Expected 0 violations for clean code, got %d", len(res.QualityViolations))
-			}
-		})
-	}
-}
-
-func TestBasicQualityCheck_WhenTODO_ShouldDetectPlaceholder(t *testing.T) {
-	v := &TaskVerifier{}
-	res := v.basicQualityCheck("// TODO: implement this function")
-
-	if res.Success {
-		t.Error("Should fail on TODO")
-	}
-	if !containsViolation(res.QualityViolations, PlaceholderCode) {
-		t.Error("Should detect PlaceholderCode")
-	}
-}
-
-func TestBasicQualityCheck_WhenFIXME_ShouldDetectPlaceholder(t *testing.T) {
-	v := &TaskVerifier{}
-	res := v.basicQualityCheck("// FIXME: this is broken")
-
-	if res.Success {
-		t.Error("Should fail on FIXME")
-	}
-	if !containsViolation(res.QualityViolations, PlaceholderCode) {
-		t.Error("Should detect PlaceholderCode")
-	}
-}
-
-func TestBasicQualityCheck_WhenMock_ShouldDetectMockCode(t *testing.T) {
-	v := &TaskVerifier{}
-
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{"lowercase_mock", "this is a mock implementation"},
-		{"uppercase_mock", "func MockHandler() {}"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			res := v.basicQualityCheck(tc.input)
-			if res.Success {
-				t.Error("Should fail on mock code")
-			}
-			if !containsViolation(res.QualityViolations, MockCode) {
-				t.Error("Should detect MockCode")
-			}
-		})
-	}
-}
-
-func TestBasicQualityCheck_WhenNotImplemented_ShouldDetectIncomplete(t *testing.T) {
-	v := &TaskVerifier{}
-
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{"not_implemented_text", "this feature is not implemented yet"},
-		{"panic_not_implemented", `panic("not implemented")`},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			res := v.basicQualityCheck(tc.input)
-			if res.Success {
-				t.Error("Should fail on incomplete implementation")
-			}
-			if !containsViolation(res.QualityViolations, IncompleteImpl) {
-				t.Error("Should detect IncompleteImpl")
-			}
-		})
-	}
-}
-
-func TestBasicQualityCheck_WhenPlaceholderStub_ShouldDetect(t *testing.T) {
-	v := &TaskVerifier{}
-	res := v.basicQualityCheck("this is a placeholder stub for the real implementation")
-
-	if res.Success {
-		t.Error("Should fail on placeholder/stub")
-	}
-	if !containsViolation(res.QualityViolations, PlaceholderCode) {
-		t.Error("Should detect PlaceholderCode")
-	}
-}
-
-func TestBasicQualityCheck_ShouldHaveLowerConfidence(t *testing.T) {
-	v := &TaskVerifier{}
-	res := v.basicQualityCheck("clean code")
-
-	if res.Confidence != 0.6 {
-		t.Errorf("Confidence = %f, want 0.6", res.Confidence)
-	}
-}
 
 // =============================================================================
 // parseVerificationResponse TESTS
@@ -400,135 +231,31 @@ func TestEnrichTaskWithContext_WhenEmptyContext_ShouldStillAddReminder(t *testin
 }
 
 // =============================================================================
-// heuristicShardSelection TESTS
-// =============================================================================
-
-func TestHeuristicShardSelection_WhenHallucinatedAPI_ShouldSuggestResearch(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	verification := &VerificationResult{
-		QualityViolations: []QualityViolation{HallucinatedAPI},
-	}
-
-	result := v.heuristicShardSelection("/fix", verification)
-
-	if result.ShardType != "/research" {
-		t.Errorf("ShardType = %q, want '/research'", result.ShardType)
-	}
-}
-
-func TestHeuristicShardSelection_WhenMissingErrors_ShouldSuggestReview(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	verification := &VerificationResult{
-		QualityViolations: []QualityViolation{MissingErrors},
-	}
-
-	result := v.heuristicShardSelection("/fix", verification)
-
-	if result.ShardType != "/review" {
-		t.Errorf("ShardType = %q, want '/review'", result.ShardType)
-	}
-}
-
-func TestHeuristicShardSelection_WhenFakeTests_ShouldSuggestTester(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	verification := &VerificationResult{
-		QualityViolations: []QualityViolation{FakeTests},
-	}
-
-	result := v.heuristicShardSelection("/fix", verification)
-
-	if result.ShardType != "/test" {
-		t.Errorf("ShardType = %q, want '/test'", result.ShardType)
-	}
-}
-
-func TestHeuristicShardSelection_WhenNoSpecificViolation_ShouldRetrySame(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	verification := &VerificationResult{
-		QualityViolations: []QualityViolation{MockCode}, // no special mapping
-	}
-
-	result := v.heuristicShardSelection("/fix", verification)
-
-	if result.ShardType != "/fix" {
-		t.Errorf("ShardType = %q, want '/fix'", result.ShardType)
-	}
-}
-
-func TestHeuristicShardSelection_WhenNoViolations_ShouldRetrySame(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	verification := &VerificationResult{
-		QualityViolations: nil,
-	}
-
-	result := v.heuristicShardSelection("/code", verification)
-
-	if result.ShardType != "/code" {
-		t.Errorf("ShardType = %q, want '/code'", result.ShardType)
-	}
-}
-
-// =============================================================================
-// parseShardSelection TESTS
-// =============================================================================
-
-func TestParseShardSelection_WhenValidJSON_ShouldParse(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	response := `{"selected_shard": "golang-specialist", "shard_type": "specialist", "reason": "Go expert needed", "confidence": 0.9, "alternatives": ["coder"]}`
-
-	result := v.parseShardSelection(response, "/fix")
-
-	if result.ShardType != "golang-specialist" {
-		t.Errorf("ShardType = %q, want 'golang-specialist'", result.ShardType)
-	}
-	if result.Confidence != 0.9 {
-		t.Errorf("Confidence = %f, want 0.9", result.Confidence)
-	}
-}
-
-func TestParseShardSelection_WhenInvalidJSON_ShouldFallback(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-
-	result := v.parseShardSelection("not json", "/fallback")
-
-	if result.ShardType != "/fallback" {
-		t.Errorf("ShardType = %q, want '/fallback'", result.ShardType)
-	}
-}
-
-func TestParseShardSelection_WhenCodeFenced_ShouldStrip(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	response := "```json\n{\"selected_shard\": \"test-shard\"}\n```"
-
-	result := v.parseShardSelection(response, "/fallback")
-
-	if result.ShardType != "test-shard" {
-		t.Errorf("ShardType = %q, want 'test-shard'", result.ShardType)
-	}
-}
-
-// =============================================================================
 // VerifyWithRetry TESTS
 // =============================================================================
 
 func TestVerifyWithRetry_WhenNoExecutor_ShouldError(t *testing.T) {
 	v := NewTaskVerifier(nil, nil, nil, nil)
 
-	_, _, err := v.VerifyWithRetry(context.Background(), "test task", "/fix", 1)
+	_, _, err := v.VerifyWithRetry(context.Background(), Delegation{Task: "test task", Persona: "coder", MaxAttempts: 1})
 	if err == nil {
 		t.Fatal("VerifyWithRetry should error when no executor available")
 	}
 }
 
-func TestVerifyWithRetry_WhenZeroRetries_ShouldDefaultTo3(t *testing.T) {
-	// We verify this indirectly by checking it doesn't immediately return
-	// with max retries exceeded (it should try at least once, but will fail
-	// due to no executor)
-	v := NewTaskVerifier(nil, nil, nil, nil)
+// A delegation with no attempt cap is refused before any attempt runs: the
+// cap is the persona's shard_profiles.<persona>.max_retries, never a
+// constant of the verifier's.
+func TestVerifyWithRetry_WhenNoAttemptCap_ShouldRefuse(t *testing.T) {
+	exec := &stubTaskExecutor{outcome: "/done", result: "out"}
+	v := newDelegationVerifier(t, nil, nil, exec)
 
-	_, _, err := v.VerifyWithRetry(context.Background(), "test", "/fix", 0)
-	if err == nil {
-		t.Fatal("Should error with no executor")
+	_, _, err := v.VerifyWithRetry(context.Background(), Delegation{Task: "test", Persona: "coder", MaxAttempts: 0})
+	if err == nil || !strings.Contains(err.Error(), "max_retries") {
+		t.Fatalf("VerifyWithRetry = %v, want a refusal naming max_retries", err)
+	}
+	if exec.calls != 0 {
+		t.Fatalf("ran %d attempts with no cap", exec.calls)
 	}
 }
 
@@ -671,7 +398,7 @@ func TestErrMaxRetriesExceeded_ShouldBeDescriptive(t *testing.T) {
 func TestVerifyTask_WhenNilClient_ShouldReturnUnavailable(t *testing.T) {
 	v := NewTaskVerifier(nil, nil, nil, nil)
 
-	result, err := v.verifyTask(context.Background(), "task", "result")
+	result, err := v.verifyTask(context.Background(), "task", "result", "/implementation")
 	if err == nil {
 		t.Fatal("verifyTask with nil client should error fail-closed")
 	}
@@ -680,59 +407,5 @@ func TestVerifyTask_WhenNilClient_ShouldReturnUnavailable(t *testing.T) {
 	}
 	if result != nil {
 		t.Fatalf("verifyTask result = %#v, want nil when verification could not run", result)
-	}
-}
-
-// =============================================================================
-// selectBestShard TESTS
-// =============================================================================
-
-func TestSelectBestShard_WhenNilShardMgr_ShouldFallback(t *testing.T) {
-	v := NewTaskVerifier(nil, nil, nil, nil)
-	verification := &VerificationResult{
-		QualityViolations: []QualityViolation{MockCode},
-	}
-
-	result := v.selectBestShard(context.Background(), "task", "/fix", verification)
-
-	if result == nil {
-		t.Fatal("Should return a result")
-	}
-	if result.ShardType != "/fix" {
-		t.Errorf("ShardType = %q, want '/fix' (fallback)", result.ShardType)
-	}
-}
-
-// =============================================================================
-// Multiple violations combined
-// =============================================================================
-
-func TestBasicQualityCheck_WhenMultipleViolations_ShouldDetectAll(t *testing.T) {
-	v := &TaskVerifier{}
-	input := fmt.Sprintf(
-		"TODO: fix this\n%s\n%s\n%s",
-		"func MockHandler() {}",
-		`panic("not implemented")`,
-		"this is a placeholder stub",
-	)
-
-	res := v.basicQualityCheck(input)
-	if res.Success {
-		t.Error("Should fail with multiple violations")
-	}
-
-	// Should detect all violation types present
-	if !containsViolation(res.QualityViolations, PlaceholderCode) {
-		t.Error("Missing PlaceholderCode (TODO + placeholder + stub)")
-	}
-	if !containsViolation(res.QualityViolations, MockCode) {
-		t.Error("Missing MockCode")
-	}
-	if !containsViolation(res.QualityViolations, IncompleteImpl) {
-		t.Error("Missing IncompleteImpl")
-	}
-
-	if len(res.Evidence) == 0 {
-		t.Error("Should have evidence items")
 	}
 }

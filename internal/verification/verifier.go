@@ -1,18 +1,21 @@
-// Package verification implements the quality-enforcing verification loop.
-// This ensures tasks are completed PROPERLY - no shortcuts, no mock code, no corner-cutting.
-// After shard execution, results are verified and automatically retried with corrective
-// action until success or max retries.
+// Package verification runs a chat delegation to its end: it spawns the
+// persona's turn, reads the turn's kernel verdict, has an LLM judge look at an
+// attempt the kernel called done, and asks the kernel what happens next
+// (delegation_move, policy/delegation.mg): accept, retry carrying why, or
+// escalate at the persona's cap. The kernel's verdict decides; the judge can
+// only withhold (sweep finding F5).
 package verification
 
 import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/broker"
+	"codenerd/internal/config"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
-	// researcher removed - JIT clean loop handles research
 	"codenerd/internal/session"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,6 +24,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ErrMaxRetriesExceeded is returned when verification fails after max retries.
@@ -64,15 +68,6 @@ type CorrectiveAction struct {
 	ShardHint string         `json:"shard_hint,omitempty"` // Suggested shard to use
 }
 
-// ShardSelectionResult contains the decision about which shard to use.
-type ShardSelectionResult struct {
-	ShardType    string   // Selected shard type
-	ShardName    string   // Specific shard name (for specialists)
-	Reason       string   // Why this shard was selected
-	Confidence   float64  // Confidence in this selection
-	Alternatives []string // Other shards that could work
-}
-
 // VerificationResult contains the outcome of verifying a task result.
 type VerificationResult struct {
 	Success           bool               `json:"success"`
@@ -84,13 +79,22 @@ type VerificationResult struct {
 	CorrectiveAction  *CorrectiveAction  `json:"corrective_action,omitempty"`
 }
 
-// TaskVerifier implements the quality-enforcing verification loop.
+// Kernel is what a delegation needs of the kernel: to assert its facts, ask
+// what they derive, and retract them when it ends.
+type Kernel interface {
+	Query(predicate string) ([]types.Fact, error)
+	Assert(fact types.Fact) error
+	RetractFact(fact types.Fact) error
+}
+
+// TaskVerifier runs chat delegations to their end.
 type TaskVerifier struct {
 	mu           sync.RWMutex
 	client       perception.LLMClient
 	localDB      *store.LocalStore
 	shardMgr     *coreshards.ShardManager // For ListAvailableShards. Use taskExecutor for task execution.
 	taskExecutor session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
+	kernel       Kernel                   // Decides each delegation's attempts
 	autopoiesis  *autopoiesis.Orchestrator
 
 	// Session context for persistence
@@ -105,16 +109,20 @@ func (v *TaskVerifier) SetTaskExecutor(te session.TaskExecutor) {
 	v.taskExecutor = te
 }
 
-// spawnTask is the unified entry point for task execution.
-// It uses TaskExecutor when available, falling back to ShardManager.
+// SetKernel sets the kernel that decides each delegation's attempts.
+func (v *TaskVerifier) SetKernel(k Kernel) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.kernel = k
+}
+
+// spawnTask runs a corrective action's side task (a specialist's knowledge),
+// whose output is context for the next attempt and whose verdict nothing
+// reads. It uses TaskExecutor when available, falling back to ShardManager.
+// A delegation's own attempts go through ExecuteObserved (VerifyWithRetry).
 //
-// Normalization: the verifier's retry-selection LLM may return a bare shard
-// NAME (e.g. "world_model_ingestor") as its "selected_shard", which then
-// flows through here as the `intent` argument. TaskExecutor rejects intent
-// verbs that don't start with "/" — so without normalization, every retry
-// that picks a new shard immediately fails with
-// `invalid intent verb '<name>', must start with '/'`. We coerce here so
-// the retry path actually retries instead of dying at the validator.
+// A persona or specialist name is coerced to an intent verb, since the
+// executor rejects verbs that don't start with "/".
 //
 // Mapping rules (mirror chat/delegation.go's personaToIntent):
 //   - already a "/verb" → use as-is
@@ -142,8 +150,8 @@ func (v *TaskVerifier) spawnTask(ctx context.Context, intent string, task string
 
 // normalizeIntentVerb coerces a shard name or persona into a valid intent
 // verb (one that starts with "/"). Mirrors cmd/nerd/chat.personaToIntent so
-// the verifier's retry-selection path routes the same way as the chat
-// delegation path. Kept in this package to avoid an import cycle.
+// a delegation routes the same way as the chat delegation path. Kept in this
+// package to avoid an import cycle.
 func normalizeIntentVerb(intent string) string {
 	st := strings.TrimSpace(intent)
 	if st == "" {
@@ -199,18 +207,50 @@ func (v *TaskVerifier) SetSessionContext(sessionID string, turnCount int) {
 	v.turnCount = turnCount
 }
 
-// VerifyWithRetry is the main entry point - loops until success or max retries.
-// It executes the shard, verifies quality, and applies corrective actions if needed.
-// Uses intelligent shard selection to pick the best shard for each retry across all 4 types:
-// system shards, LLM-created specialists, user-created specialists, and ephemeral shards.
-func (v *TaskVerifier) VerifyWithRetry(
-	ctx context.Context,
-	task string,
-	shardType string,
-	maxRetries int,
-) (string, *VerificationResult, error) {
-	if maxRetries <= 0 {
-		maxRetries = 3
+// Delegation is one chat request handed to a persona.
+type Delegation struct {
+	// Task is what the persona is asked to do.
+	Task string
+	// Persona is the shard persona ("coder", "reviewer", a specialist's
+	// name) or an intent verb.
+	Persona string
+	// MaxAttempts is the persona's attempt cap,
+	// shard_profiles.<persona>.max_retries.
+	MaxAttempts int
+	// Params are the delegation section's thresholds
+	// (config.DelegationConfig.Params).
+	Params []config.Param
+}
+
+// VerifyWithRetry runs a delegation to its end. Each attempt spawns the
+// persona's turn through the observed executor, so the turn's kernel verdict
+// comes back typed; that verdict, and the LLM judge's view of an attempt the
+// kernel called done, are asserted, and the kernel derives the move
+// (delegation_move): accept, retry with why the attempt was not accepted, or
+// escalate at the persona's cap (ErrMaxRetriesExceeded). The judge can only
+// withhold. A judge that cannot run fails the delegation closed
+// (ErrVerificationUnavailable): retrying cannot fix it.
+//
+// Until 2026-09-23 the attempts went through the string-only executor, which
+// dropped the verdict, so a turn the kernel ended /unverified completed the
+// request on the judge's word; an LLM advisor picked who retried, and a retry
+// without a corrective action re-ran the task with no word of why.
+func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (string, *VerificationResult, error) {
+	v.mu.RLock()
+	te, k := v.taskExecutor, v.kernel
+	v.mu.RUnlock()
+	observed, ok := te.(session.ObservedTaskExecutor)
+	if !ok {
+		return "", nil, fmt.Errorf("task executor %T returns no verdict; a delegation reads each attempt's", te)
+	}
+	if k == nil {
+		return "", nil, errors.New("no kernel to decide the delegation's attempts")
+	}
+	if d.MaxAttempts < 1 {
+		return "", nil, fmt.Errorf("no attempt cap for %s: shard_profiles.%s.max_retries must be at least 1", d.Persona, d.Persona)
+	}
+	if err := config.EnsureParams(k, d.Params); err != nil {
+		return "", nil, fmt.Errorf("assert the delegation thresholds: %w", err)
 	}
 
 	// Verification retries multiply spend: a task verified three times costs
@@ -218,95 +258,170 @@ func (v *TaskVerifier) VerifyWithRetry(
 	// multiplier visible instead of hiding inside the caller's budget.
 	ctx = broker.WithPurpose(ctx, broker.PurposeVerification)
 
-	var lastResult string
-	var lastVerification *VerificationResult
-	currentTask := task
-	currentShardType := shardType
+	root := fmt.Sprintf("delegation-%d", time.Now().UnixNano())
+	defer forgetDelegation(k, root)
+	if err := k.Assert(types.Fact{Predicate: "delegation_request", Args: []any{root, personaAtom(d.Persona), int64(d.MaxAttempts)}}); err != nil {
+		return "", nil, fmt.Errorf("assert the delegation: %w", err)
+	}
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		// 1. Execute shard (uses selected shard type which may change between attempts)
-		result, err := v.spawnTask(ctx, currentShardType, currentTask)
+	intent := normalizeIntentVerb(d.Persona)
+	task := d.Task
+	for attempt := int64(1); ; attempt++ {
+		ret, err := observed.ExecuteObserved(ctx, session.TaskRequest{IntentVerb: intent, Task: task})
 		if err != nil {
-			// Shard execution failed - not a verification issue
-			return "", nil, fmt.Errorf("shard execution failed: %w", err)
+			return ret.Output, nil, fmt.Errorf("shard execution failed: %w", err)
 		}
-		lastResult = result
+		if err := k.Assert(types.Fact{Predicate: "delegation_attempt", Args: []any{root, attempt, outcomeAtom(ret.Outcome)}}); err != nil {
+			return ret.Output, nil, fmt.Errorf("assert attempt %d: %w", attempt, err)
+		}
 
-		// 2. Verify quality
-		// Fail closed: if verification itself could not run (LLM failure,
-		// timeout, malformed judgment, missing client), do NOT fabricate a
-		// success. Record the outage as a failed verification and stop
-		// retrying — re-running the shard cannot fix a broken verifier.
-		// The shard's actual output is still returned so the caller can
-		// show it with a warning.
-		verification, verifyErr := v.verifyTask(ctx, currentTask, result)
-		if verifyErr != nil {
-			verification = &VerificationResult{
-				Success:    false,
-				Confidence: 0,
-				Reason:     fmt.Sprintf("verification unavailable: %v", verifyErr),
+		verdict := turnVerdict(ret.Outcome, ret.Missing)
+		due, err := derivedFor(k, "delegation_judge_due", root, attempt)
+		if err != nil {
+			return ret.Output, verdict, err
+		}
+		if len(due) > 0 {
+			rubric, err := derivedFor(k, "delegation_judge_rubric", root, -1)
+			if err != nil || len(rubric) != 1 {
+				return ret.Output, verdict, fmt.Errorf("the kernel derived %d judge rubrics for %s (%v)", len(rubric), root, err)
 			}
-			lastVerification = verification
-			v.storeVerification(currentTask, currentShardType, verification, attempt, false)
-			return lastResult, verification, fmt.Errorf("shard result could not be verified (%v): %w", verifyErr, ErrVerificationUnavailable)
-		}
-		lastVerification = verification
-
-		// 3. Success? We're done
-		if verification.Success && len(verification.QualityViolations) == 0 {
-			v.storeVerification(currentTask, currentShardType, verification, attempt, true)
-			return result, verification, nil
-		}
-
-		// 4. Store failed attempt for learning
-		v.storeVerification(currentTask, currentShardType, verification, attempt, false)
-
-		// 5. Intelligent shard selection for retry
-		// Consider all 4 types: system, LLM-created specialists, user-created specialists, ephemeral
-		if attempt < maxRetries-1 {
-			shardSelection := v.selectBestShard(ctx, currentTask, currentShardType, verification)
-			if shardSelection != nil && shardSelection.ShardType != "" {
-				currentShardType = shardSelection.ShardType
+			judged, jerr := v.verifyTask(ctx, d.Task, ret.Output, rubric[0])
+			if jerr != nil {
+				verdict = &VerificationResult{
+					Success:    false,
+					Confidence: 0,
+					Reason:     fmt.Sprintf("verification unavailable: %v", jerr),
+				}
+				v.storeVerification(d.Task, d.Persona, verdict, int(attempt-1), false)
+				return ret.Output, verdict, fmt.Errorf("shard result could not be verified (%v): %w", jerr, ErrVerificationUnavailable)
+			}
+			verdict = judged
+			if err := k.Assert(types.Fact{Predicate: "judge_verdict", Args: []any{root, attempt, judgeAtom(judged), percent(judged.Confidence)}}); err != nil {
+				return ret.Output, verdict, fmt.Errorf("assert the judgment of attempt %d: %w", attempt, err)
 			}
 		}
 
-		// 6. Apply corrective action if suggested
-		if verification.CorrectiveAction != nil && attempt < maxRetries-1 {
-			additionalContext := v.applyCorrectiveAction(ctx, verification.CorrectiveAction)
-			if additionalContext != "" {
-				currentTask = v.enrichTaskWithContext(currentTask, additionalContext, verification)
+		moves, err := derivedFor(k, "delegation_move", root, attempt)
+		if err != nil {
+			return ret.Output, verdict, err
+		}
+		if len(moves) != 1 {
+			return ret.Output, verdict, fmt.Errorf("the kernel derived %d moves for attempt %d of %s (%v); the policy must decide one", len(moves), attempt, root, moves)
+		}
+		switch moves[0] {
+		case "/accept":
+			if !verdict.Success {
+				// The kernel accepted over a judge below
+				// delegation.judge_reject_confidence.
+				verdict.Reason = fmt.Sprintf("accepted: the turn ended /done; the judge's objection (%.0f%% confidence) is below delegation.judge_reject_confidence: %s", verdict.Confidence*100, verdict.Reason)
+				verdict.Success = true
 			}
+			v.storeVerification(d.Task, d.Persona, verdict, int(attempt-1), true)
+			return ret.Output, verdict, nil
+		case "/escalate":
+			v.storeVerification(d.Task, d.Persona, verdict, int(attempt-1), false)
+			return ret.Output, verdict, ErrMaxRetriesExceeded
+		case "/retry":
+			v.storeVerification(d.Task, d.Persona, verdict, int(attempt-1), false)
+			var gathered string
+			if verdict.CorrectiveAction != nil {
+				gathered = v.applyCorrectiveAction(ctx, verdict.CorrectiveAction)
+			}
+			task = v.enrichTaskWithContext(d.Task, gathered, verdict)
+		default:
+			return ret.Output, verdict, fmt.Errorf("the kernel derived an unknown move %s for %s", moves[0], root)
 		}
 	}
-
-	// Max retries reached - escalate
-	return lastResult, lastVerification, ErrMaxRetriesExceeded
 }
 
-// isReviewTask checks if the task is a review/analysis task (not implementation).
-func isReviewTask(task string) bool {
-	lower := strings.ToLower(task)
-	reviewKeywords := []string{
-		"review", "analyze", "security_scan", "complexity",
-		"audit", "inspect", "examine", "assess", "evaluate",
+// turnVerdict is what the turn's kernel verdict says, before any judge.
+func turnVerdict(outcome string, missing []string) *VerificationResult {
+	if outcome == "/done" {
+		return &VerificationResult{Success: true, Confidence: 1, Reason: "the turn ended /done"}
 	}
-	for _, kw := range reviewKeywords {
-		if strings.HasPrefix(lower, kw) || strings.Contains(lower, kw+" ") {
-			return true
-		}
+	if outcome == "" {
+		return &VerificationResult{Reason: "the turn returned no verdict"}
 	}
-	return false
+	reason := "the turn ended " + outcome
+	if why := session.DescribeMissingEvidence(missing); why != "" {
+		reason += ": " + why
+	}
+	return &VerificationResult{Reason: reason}
 }
 
-// verifyTask uses LLM to assess if the task was completed properly.
-func (v *TaskVerifier) verifyTask(ctx context.Context, task, result string) (*VerificationResult, error) {
+func outcomeAtom(outcome string) types.MangleAtom {
+	if strings.HasPrefix(outcome, "/") && len(outcome) > 1 {
+		return types.MangleAtom(outcome)
+	}
+	return types.MangleAtom("/none")
+}
+
+func personaAtom(persona string) types.MangleAtom {
+	return types.MangleAtom("/" + strings.TrimPrefix(strings.TrimSpace(persona), "/"))
+}
+
+// judgeAtom is the judge's verdict: a pass is a success with no quality
+// violation.
+func judgeAtom(judged *VerificationResult) types.MangleAtom {
+	if judged.Success && len(judged.QualityViolations) == 0 {
+		return types.MangleAtom("/pass")
+	}
+	return types.MangleAtom("/fail")
+}
+
+// percent is a 0-1 confidence as an integer percent: Mangle compares
+// integers only.
+func percent(confidence float64) int64 {
+	return int64(min(max(confidence, 0), 1) * 100)
+}
+
+// derivedFor returns the last argument of every row of predicate whose first
+// argument is root and, when attempt is not negative, whose second is
+// attempt.
+func derivedFor(k Kernel, predicate, root string, attempt int64) ([]string, error) {
+	rows, err := k.Query(predicate)
+	if err != nil {
+		return nil, fmt.Errorf("query %s: %w", predicate, err)
+	}
+	var out []string
+	for _, f := range rows {
+		if len(f.Args) < 2 || types.ExtractString(f.Args[0]) != root {
+			continue
+		}
+		if attempt >= 0 {
+			if n, ok := f.Args[1].(int64); !ok || n != attempt {
+				continue
+			}
+		}
+		out = append(out, types.ExtractString(f.Args[len(f.Args)-1]))
+	}
+	return out, nil
+}
+
+// forgetDelegation retracts a finished delegation's facts: they describe
+// attempts that are over.
+func forgetDelegation(k Kernel, root string) {
+	for _, p := range []string{"delegation_request", "delegation_attempt", "judge_verdict"} {
+		if err := k.RetractFact(types.Fact{Predicate: p, Args: []any{root}}); err != nil {
+			logging.SystemShardsWarn("retract %s for %s: %v", p, root, err)
+		}
+	}
+}
+
+// verifyTask asks the LLM judge whether an attempt did the task properly,
+// with the rubric the kernel chose (delegation_judge_rubric: /review for an
+// analysis persona, /implementation otherwise). A judgment that cannot be
+// had -- no client, a failed call, a malformed answer -- is an error: the
+// caller fails closed. Until 2026-09-23 a malformed answer fell back to a
+// keyword scan of the output for "todo" and "mock", which could pass it,
+// and the rubric was picked by keywords in the task text.
+func (v *TaskVerifier) verifyTask(ctx context.Context, task, result, rubric string) (*VerificationResult, error) {
 	if v.client == nil {
 		return nil, ErrVerificationUnavailable
 	}
 
-	// Use different verification criteria for review vs implementation tasks
 	var systemPrompt string
-	if isReviewTask(task) {
+	if rubric == "/review" {
 		// REVIEW TASK: Verify the review output is useful, not the code being reviewed
 		systemPrompt = `You are verifying a CODE REVIEW task. The shard was asked to review/analyze existing code.
 
@@ -383,13 +498,10 @@ Analyze this result for quality violations and determine if the task was complet
 		return nil, fmt.Errorf("verification LLM call failed: %w", err)
 	}
 
-	// Parse JSON response
 	verification, parseErr := parseVerificationResponse(response)
 	if parseErr != nil {
-		// If parsing fails, do basic quality checks
-		return v.basicQualityCheck(result), nil
+		return nil, fmt.Errorf("the judgment was malformed: %w", parseErr)
 	}
-
 	return verification, nil
 }
 
@@ -609,45 +721,6 @@ func (v *TaskVerifier) storeVerification(
 	}
 }
 
-// basicQualityCheck performs simple pattern matching for quality violations.
-func (v *TaskVerifier) basicQualityCheck(result string) *VerificationResult {
-	violations := []QualityViolation{}
-	evidence := []string{}
-
-	lower := strings.ToLower(result)
-
-	// Check for common violations
-	if strings.Contains(lower, "todo") || strings.Contains(lower, "fixme") {
-		violations = append(violations, PlaceholderCode)
-		evidence = append(evidence, "Contains TODO/FIXME comments")
-	}
-
-	if strings.Contains(lower, "mock") || strings.Contains(result, "Mock") {
-		violations = append(violations, MockCode)
-		evidence = append(evidence, "Contains mock implementations")
-	}
-
-	if strings.Contains(lower, "not implemented") || strings.Contains(result, "panic(\"not implemented\")") {
-		violations = append(violations, IncompleteImpl)
-		evidence = append(evidence, "Contains 'not implemented' code")
-	}
-
-	if strings.Contains(lower, "placeholder") || strings.Contains(lower, "stub") {
-		violations = append(violations, PlaceholderCode)
-		evidence = append(evidence, "Contains placeholder/stub code")
-	}
-
-	success := len(violations) == 0
-
-	return &VerificationResult{
-		Success:           success,
-		Confidence:        0.6, // Lower confidence for basic check
-		Reason:            "Basic quality check",
-		QualityViolations: violations,
-		Evidence:          evidence,
-	}
-}
-
 // parseVerificationResponse parses the LLM's JSON response.
 func parseVerificationResponse(response string) (*VerificationResult, error) {
 	// Clean up response - remove markdown code blocks if present
@@ -663,160 +736,4 @@ func parseVerificationResponse(response string) (*VerificationResult, error) {
 	}
 
 	return &result, nil
-}
-
-// selectBestShard analyzes the failure and selects the best shard to fix it.
-// It considers all 4 shard types: system, LLM-created specialists, user-created specialists, and ephemeral.
-func (v *TaskVerifier) selectBestShard(
-	ctx context.Context,
-	task string,
-	originalShardType string,
-	verification *VerificationResult,
-) *ShardSelectionResult {
-	if v.shardMgr == nil || v.client == nil {
-		return &ShardSelectionResult{
-			ShardType:  originalShardType,
-			Reason:     "No shard manager or LLM client available",
-			Confidence: 0.5,
-		}
-	}
-
-	// Get all available shards from the manager
-	availableShards := v.shardMgr.ListAvailableShards()
-
-	// Build context for LLM decision
-	var violationList []string
-	for _, v := range verification.QualityViolations {
-		violationList = append(violationList, string(v))
-	}
-
-	systemPrompt := `You are a shard selection advisor. Given a failed task and available shards,
-select the BEST shard to fix the problem. Consider:
-
-1. SYSTEM SHARDS: Built-in shards for core operations (perception, execution, planning)
-2. SPECIALIST SHARDS: Pre-trained on specific domains (frameworks, languages, tools)
-3. EPHEMERAL SHARDS: General-purpose (coder, tester, reviewer, researcher)
-
-IMPORTANT: Prefer specialists if the task matches their domain - they have pre-loaded knowledge.
-
-Response format (JSON only):
-{
-  "selected_shard": "shard_name",
-  "shard_type": "system|specialist|ephemeral",
-  "reason": "why this shard is best for the failure",
-  "confidence": 0.0-1.0,
-  "alternatives": ["other", "options"]
-}`
-
-	userPrompt := fmt.Sprintf(`## Failed Task
-%s
-
-## Original Shard: %s
-
-## Quality Violations
-%v
-
-## Failure Reason
-%s
-
-## Evidence
-%v
-
-## Available Shards
-%v
-
-Select the best shard to fix this failure.`,
-		task,
-		originalShardType,
-		violationList,
-		verification.Reason,
-		verification.Evidence,
-		availableShards,
-	)
-
-	response, err := v.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-	if err != nil {
-		// Fallback to heuristic selection
-		return v.heuristicShardSelection(originalShardType, verification)
-	}
-
-	// Parse LLM response
-	return v.parseShardSelection(response, originalShardType)
-}
-
-// heuristicShardSelection uses simple rules when LLM is unavailable.
-func (v *TaskVerifier) heuristicShardSelection(
-	originalShardType string,
-	verification *VerificationResult,
-) *ShardSelectionResult {
-	// Check for specific violation patterns
-	for _, violation := range verification.QualityViolations {
-		switch violation {
-		case HallucinatedAPI:
-			// Need research to find real APIs
-			return &ShardSelectionResult{
-				ShardType:    "/research",
-				Reason:       "Hallucinated API detected - researcher can find real documentation",
-				Confidence:   0.8,
-				Alternatives: []string{originalShardType},
-			}
-		case MissingErrors:
-			// Reviewer can identify error handling patterns
-			return &ShardSelectionResult{
-				ShardType:    "/review",
-				Reason:       "Missing error handling - reviewer can identify patterns",
-				Confidence:   0.7,
-				Alternatives: []string{"/fix", originalShardType},
-			}
-		case FakeTests:
-			// Tester knows how to write real tests
-			return &ShardSelectionResult{
-				ShardType:    "/test",
-				Reason:       "Fake tests detected - tester shard specializes in real tests",
-				Confidence:   0.85,
-				Alternatives: []string{originalShardType},
-			}
-		}
-	}
-
-	// Default: retry with same shard but with more context
-	return &ShardSelectionResult{
-		ShardType:    originalShardType,
-		Reason:       "No specific shard better suited - retry with additional context",
-		Confidence:   0.6,
-		Alternatives: []string{"/research"},
-	}
-}
-
-// parseShardSelection parses the LLM's shard selection response.
-func (v *TaskVerifier) parseShardSelection(response, fallback string) *ShardSelectionResult {
-	response = strings.TrimSpace(response)
-	response = strings.TrimPrefix(response, "```json")
-	response = strings.TrimPrefix(response, "```")
-	response = strings.TrimSuffix(response, "```")
-	response = strings.TrimSpace(response)
-
-	var result struct {
-		SelectedShard string   `json:"selected_shard"`
-		ShardType     string   `json:"shard_type"`
-		Reason        string   `json:"reason"`
-		Confidence    float64  `json:"confidence"`
-		Alternatives  []string `json:"alternatives"`
-	}
-
-	if err := json.Unmarshal([]byte(response), &result); err != nil {
-		return &ShardSelectionResult{
-			ShardType:  fallback,
-			Reason:     "Failed to parse shard selection",
-			Confidence: 0.5,
-		}
-	}
-
-	return &ShardSelectionResult{
-		ShardType:    result.SelectedShard,
-		ShardName:    result.SelectedShard,
-		Reason:       result.Reason,
-		Confidence:   result.Confidence,
-		Alternatives: result.Alternatives,
-	}
 }

@@ -31,6 +31,7 @@ invariant_value	/p99_latency_ms
 pytest_failure	/assertion
 pytest_failure	/fixture
 raw_finding	/maintainability
+reviewer_task	/security_scan
 reviewer_task	/style_check
 system_invariant	/goroutine_limit
 system_invariant	/http_500_rate

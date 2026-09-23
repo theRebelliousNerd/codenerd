@@ -285,8 +285,9 @@ func (m *Model) withShardModelContext(ctx context.Context, shardType string) con
 	return config.ShardProfileContext(ctx, profile)
 }
 
-// shardMaxRetries is the verification attempt cap for a shard type, from its
-// profile; VerifyWithRetry treats a non-positive value as its default.
+// shardMaxRetries is a delegation's attempt cap for a shard type, from its
+// profile (shard_profiles.<type>.max_retries); VerifyWithRetry refuses a
+// non-positive one.
 func (m *Model) shardMaxRetries(shardType string) int {
 	if m == nil || m.Config == nil {
 		return 0

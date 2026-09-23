@@ -341,6 +341,61 @@ should_delegate(ShardType) :-
     config_param(/routing_delegation_min_confidence, Min),
     Conf >= Min.
 
+# Step 4b: A CHAT DELEGATION'S ATTEMPTS (sweep finding F5). A delegated
+# mutation used to take an LLM judge's word as its verdict: the verifier
+# spawned through the string-only executor, so the turn's kernel verdict
+# (/unverified with /tests_not_written, say) was dropped, a judge answering
+# "success" completed the request, and an LLM advisor picked who retried.
+# The turn's verdict decides now. The judge looks only at an attempt the
+# kernel called done, and can only withhold it; the cap is the persona's
+# shard_profiles.<persona>.max_retries, asserted with the request.
+config_param_required(/delegation, /delegation_judge_reject_confidence).
+
+delegation_judge_due(Root, A) :-
+    delegation_attempt(Root, A, /done).
+
+# Whose output the judge reads as analysis rather than implementation: a
+# reviewer reporting that code is incomplete has done its job.
+analysis_persona(/reviewer).
+
+delegation_judge_rubric(Root, /review) :-
+    delegation_request(Root, Persona, Cap),
+    analysis_persona(Persona).
+
+delegation_judge_rubric(Root, /implementation) :-
+    delegation_request(Root, Persona, Cap),
+    !analysis_persona(Persona).
+
+judge_rejects(Root, A) :-
+    judge_verdict(Root, A, /fail, Confidence),
+    config_param(/delegation_judge_reject_confidence, Min),
+    Confidence >= Min.
+
+delegation_attempt_accepted(Root, A) :-
+    delegation_attempt(Root, A, /done),
+    !judge_rejects(Root, A).
+
+delegation_attempt_count(Root, N) :-
+    delegation_attempt(Root, A, Outcome)
+    |> do fn:group_by(Root), let N = fn:count().
+
+delegation_move(Root, A, /accept) :-
+    delegation_attempt_accepted(Root, A).
+
+delegation_move(Root, A, /retry) :-
+    delegation_attempt(Root, A, Outcome),
+    !delegation_attempt_accepted(Root, A),
+    delegation_attempt_count(Root, N),
+    delegation_request(Root, Persona, Cap),
+    N < Cap.
+
+delegation_move(Root, A, /escalate) :-
+    delegation_attempt(Root, A, Outcome),
+    !delegation_attempt_accepted(Root, A),
+    delegation_attempt_count(Root, N),
+    delegation_request(Root, Persona, Cap),
+    N >= Cap.
+
 # Step 5: MULTI-STEP CLASSIFICATION (decision moves to policy; extraction stays
 # in Go). Go's detectMultiStepTask computes the individual signals from the
 # (quote-stripped) input — campaign verb, multi-step keyword match, verb-count

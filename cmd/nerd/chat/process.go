@@ -32,7 +32,9 @@ import (
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
+	"codenerd/internal/verification"
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"strings"
@@ -500,7 +502,12 @@ func (m Model) processInput(input string) tea.Cmd {
 				// Set session context for verification persistence
 				m.verifier.SetSessionContext(m.sessionID, m.turnCount)
 
-				result, verification, verifyErr := m.verifier.VerifyWithRetry(ctx, task, shardType, m.shardMaxRetries(shardType))
+				result, verdict, verifyErr := m.verifier.VerifyWithRetry(ctx, verification.Delegation{
+					Task:        task,
+					Persona:     shardType,
+					MaxAttempts: m.shardMaxRetries(shardType),
+					Params:      m.Config.GetDelegationConfig().Params(),
+				})
 
 				// CRITICAL FIX: Inject verified shard results as facts for cross-turn context
 				shardID := fmt.Sprintf("%s-verified-%d", shardType, time.Now().UnixNano())
@@ -517,9 +524,9 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 
 				if verifyErr != nil {
-					// Check if max retries exceeded - escalate to user
-					if verifyErr.Error() == "max retries exceeded - escalating to user" {
-						response := formatVerificationEscalation(task, shardType, verification)
+					// The persona's attempts are spent: escalate to the user.
+					if errors.Is(verifyErr, verification.ErrMaxRetriesExceeded) {
+						response := formatVerificationEscalation(task, shardType, verdict)
 						return assistantMsg{
 							Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
 							ShardResult: srPayload,
@@ -529,7 +536,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 
 				// Format response with verification confidence
-				response := formatVerifiedResponse(intent, shardType, task, result, verification)
+				response := formatVerifiedResponse(intent, shardType, task, result, verdict)
 				return assistantMsg{
 					Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
 					ShardResult: srPayload,

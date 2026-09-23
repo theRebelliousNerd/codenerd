@@ -201,6 +201,10 @@ type UserConfig struct {
 	// interactive turn's lane with (routing.go).
 	Routing *RoutingConfig `json:"routing,omitempty"`
 
+	// Delegation is the thresholds the kernel decides a chat delegation's
+	// attempts with (delegation.go).
+	Delegation *DelegationConfig `json:"delegation,omitempty"`
+
 	// =========================================================================
 	// INTEGRATIONS
 	// =========================================================================
@@ -1508,6 +1512,7 @@ func DefaultUserConfig() *UserConfig {
 	campaign := DefaultCampaignConfig()
 	sessionCfg := DefaultSessionConfig()
 	routingCfg := DefaultRoutingConfig()
+	delegationCfg := DefaultDelegationConfig()
 
 	return &UserConfig{
 		Engine:                       "api",
@@ -1531,6 +1536,7 @@ func DefaultUserConfig() *UserConfig {
 		Campaign:                     &campaign,
 		Session:                      &sessionCfg,
 		Routing:                      &routingCfg,
+		Delegation:                   &delegationCfg,
 		Logging:                      DefaultLoggingConfig(),
 		JIT:                          &jit,
 		LearningCandidateThreshold:   3,

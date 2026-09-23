@@ -48,6 +48,33 @@ Decl route_decision(Route, ShardType) bound [/name, /name].
 # conversation), so the turn must terminate in prose, not shard work.
 Decl wants_direct_answer() bound [].
 
+# -----------------------------------------------------------------------------
+# 6.0.2 Chat delegation attempts (policy/delegation.mg)
+# A chat request handed to a persona runs attempts until the kernel accepts
+# one or the persona's cap is reached. Go asserts, per delegation Root: the
+# request, each attempt's turn verdict (the executor's kernel verdict, carried
+# back typed), and the LLM judge's verdict on an attempt that ended done; it
+# asks delegation_move. Retracted when the delegation ends.
+# -----------------------------------------------------------------------------
+
+# delegation_request(Root, Persona, Cap) - the persona and its attempt cap
+# (shard_profiles.<persona>.max_retries).
+Decl delegation_request(Root, Persona, Cap) bound [/string, /name, /number].
+# delegation_attempt(Root, Attempt, Outcome) - the attempt's turn verdict:
+# /done, /unverified, /hollow, /failed, or /none when the turn returned none.
+Decl delegation_attempt(Root, Attempt, Outcome) bound [/string, /number, /name].
+# judge_verdict(Root, Attempt, Verdict, Confidence) - the LLM judge on a done
+# attempt: /pass or /fail, with its confidence as a percent.
+Decl judge_verdict(Root, Attempt, Verdict, Confidence) bound [/string, /number, /name, /number].
+Decl delegation_judge_due(Root, Attempt) bound [/string, /number].
+Decl analysis_persona(Persona) bound [/name].
+Decl delegation_judge_rubric(Root, Rubric) bound [/string, /name].
+Decl judge_rejects(Root, Attempt) bound [/string, /number].
+Decl delegation_attempt_accepted(Root, Attempt) bound [/string, /number].
+Decl delegation_attempt_count(Root, N) bound [/string, /number].
+# delegation_move(Root, Attempt, Move) - derived: /accept, /retry or /escalate.
+Decl delegation_move(Root, Attempt, Move) bound [/string, /number, /name].
+
 # multi_step_lane() - derived: the turn decomposes (a multi-step mutation that
 # is not answered directly). Negated by the delegate and clarify lanes, so
 # route_decision holds for one lane at most.

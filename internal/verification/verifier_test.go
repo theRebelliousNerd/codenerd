@@ -5,55 +5,6 @@ import (
 	"testing"
 )
 
-func TestIsReviewTask(t *testing.T) {
-	cases := []struct {
-		task string
-		want bool
-	}{
-		{task: "review internal/core/kernel.go", want: true},
-		{task: "security_scan internal", want: true},
-		{task: "please audit this patch", want: true},
-		{task: "implement feature X", want: false},
-		{task: "run unit tests", want: false},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.task, func(t *testing.T) {
-			if got := isReviewTask(tc.task); got != tc.want {
-				t.Fatalf("isReviewTask(%q) = %v, want %v", tc.task, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestBasicQualityCheck(t *testing.T) {
-	v := &TaskVerifier{}
-
-	t.Run("clean", func(t *testing.T) {
-		res := v.basicQualityCheck("all good")
-		if !res.Success || len(res.QualityViolations) != 0 {
-			t.Fatalf("clean result = %#v", res)
-		}
-	})
-
-	t.Run("detects_common_violations", func(t *testing.T) {
-		res := v.basicQualityCheck("TODO: implement\nfunc MockThing() {}\npanic(\"not implemented\")\nplaceholder stub")
-		if res.Success {
-			t.Fatalf("Success=true, want false: %#v", res)
-		}
-
-		if !containsViolation(res.QualityViolations, PlaceholderCode) {
-			t.Fatalf("missing PlaceholderCode: %#v", res.QualityViolations)
-		}
-		if !containsViolation(res.QualityViolations, MockCode) {
-			t.Fatalf("missing MockCode: %#v", res.QualityViolations)
-		}
-		if !containsViolation(res.QualityViolations, IncompleteImpl) {
-			t.Fatalf("missing IncompleteImpl: %#v", res.QualityViolations)
-		}
-	})
-}
-
 func TestParseVerificationResponse_StripsCodeFences(t *testing.T) {
 	response := "```json\n" +
 		"{\"success\":true,\"confidence\":0.9,\"reason\":\"ok\",\"quality_violations\":[],\"evidence\":[\"e\"],\"suggestions\":[\"s\"]}\n" +
