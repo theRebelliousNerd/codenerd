@@ -7,6 +7,7 @@ campaign_task/5 atom,atom,string,atom,atom
 context_compression/4 atom,string,number,number
 context_profile/4 atom,string,string,string
 phase_category/2 atom,atom
+phase_checkpoint_failure/2 atom,number
 phase_dependency/3 atom,atom,atom
 phase_estimate/3 atom,number,atom
 phase_objective/4 atom,atom,string,atom

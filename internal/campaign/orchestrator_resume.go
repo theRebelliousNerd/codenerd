@@ -44,7 +44,11 @@ func (o *Orchestrator) PrepareResume() error {
 	}
 
 	resetResumeTasks(o.campaign.Phases, maxAttempts)
-	rearmUnverifiedPhases(o.campaign.Phases)
+	for _, id := range rearmUnverifiedPhases(o.campaign.Phases) {
+		// The fresh budget is the kernel's too: phase_ckpt_failures counts
+		// the rows, and an old run left there would close the phase early.
+		o.syncCheckpointFailures(id, 0)
+	}
 
 	target := findResumeTargetPhase(o.campaign.Phases)
 	if target != nil && countResumableTasks(target) == 0 {
@@ -62,13 +66,17 @@ func (o *Orchestrator) PrepareResume() error {
 // progress with a fresh attempt budget. A resume is the operator's signal that
 // the workspace may have changed, and the phase still owes its verification:
 // it is never marked completed here -- only a passing checkpoint does that.
-func rearmUnverifiedPhases(phases []Phase) {
+// It returns the IDs of the phases it re-armed.
+func rearmUnverifiedPhases(phases []Phase) []string {
+	var rearmed []string
 	for i := range phases {
 		if phases[i].Status == PhaseUnverified {
 			phases[i].Status = PhaseInProgress
 			phases[i].CheckpointFailures = 0
+			rearmed = append(rearmed, phases[i].ID)
 		}
 	}
+	return rearmed
 }
 
 // resetResumeTasks returns every retryable task to pending unless it has

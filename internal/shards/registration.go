@@ -253,6 +253,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// sees a signal on the production kernel.
 				"task_attempt_signal",
 				"task_replanned_at_cap",
+				// A phase's failed checkpoint runs, with the campaign rows
+				// phase_ckpt_move (campaign_decisions.mg) is read beside.
+				"phase_checkpoint_failure",
 				"task_dependency",
 				"task_error",
 				"task_inference",

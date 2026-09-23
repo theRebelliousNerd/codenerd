@@ -289,6 +289,10 @@ func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 		// could write repair_attempt could keep its own episode alive.
 		"repair_attempt", "repair_attempt_count", "repair_exhausted", "repair_not_converging",
 		"repair_gives_up", "repair_move", "repair_closed",
+		// What a failed checkpoint leads to (campaign_decisions.mg): a model
+		// that could write phase_checkpoint_failure could close or keep open
+		// its own phase.
+		"phase_checkpoint_failure", "phase_ckpt_failures", "phase_ckpt_exhausted", "phase_ckpt_move",
 		// The user's thresholds (config_params.mg): a model that could write
 		// config_param could raise its own attempt cap or lower a gate's bar.
 		"config_param", "config_param_required",

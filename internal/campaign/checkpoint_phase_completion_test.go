@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
@@ -21,14 +22,24 @@ import (
 // failure path and the success path converge two statements apart in
 // orchestrator_tasks.go and an early `completePhase` there would be silent.
 //
-// The bounded escape hatch is not an exception to that: after
-// maxPhaseCheckpointAttempts the phase stops spinning failure -> replan ->
-// re-checkpoint and closes /unverified -- not completed -- so the phases built
-// on it stay blocked and a resume re-arms the checkpoint.
+// The bounded escape hatch is not an exception to that: at
+// campaign.max_checkpoint_attempts the phase stops spinning failure -> replan
+// -> re-checkpoint and closes /unverified -- not completed -- so the phases
+// built on it stay blocked and a resume re-arms the checkpoint. What a failed
+// checkpoint leads to is the policy's (phase_ckpt_move), so the orchestrator
+// runs on the real corpus with the campaign section published, as Run does.
 func newCheckpointRegressionOrchestrator(t *testing.T, review string) (*Orchestrator, chan OrchestratorEvent) {
 	t.Helper()
+	return newCheckpointPolicyOrchestrator(t, review, nil)
+}
 
-	kernel := &MockKernel{}
+func newCheckpointPolicyOrchestrator(t *testing.T, review string, edit func(*config.CampaignConfig)) (*Orchestrator, chan OrchestratorEvent) {
+	t.Helper()
+
+	kernel, err := core.NewRealKernelWithWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := make(chan OrchestratorEvent, 64)
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
@@ -39,10 +50,12 @@ func newCheckpointRegressionOrchestrator(t *testing.T, review string) (*Orchestr
 		Executor:     tactile.NewDirectExecutor(),
 		VirtualStore: &core.VirtualStore{},
 		EventChan:    events,
+		Campaign:     testCampaignConfig(edit),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	orch.publishPolicyParams()
 
 	// The checkpoint runs a /shard_validation review through the task executor.
 	// Returning a verdict string makes pass/fail deterministic with no LLM.
@@ -144,14 +157,34 @@ func TestRunPhase_WhenCheckpointPasses_ShouldCompletePhase(t *testing.T) {
 // exhaustCheckpoints runs the phase until its checkpoint attempts are spent.
 func exhaustCheckpoints(t *testing.T, orch *Orchestrator) {
 	t.Helper()
-	for attempt := 1; attempt <= maxPhaseCheckpointAttempts; attempt++ {
+	max := orch.policy.MaxCheckpointAttempts
+	for attempt := 1; attempt <= max; attempt++ {
 		if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
 			t.Fatalf("runPhase attempt %d returned error: %v", attempt, err)
 		}
 		if orch.campaign.Phases[0].Status == PhaseCompleted {
-			t.Fatalf("phase completed on attempt %d of %d with every checkpoint failing", attempt, maxPhaseCheckpointAttempts)
+			t.Fatalf("phase completed on attempt %d of %d with every checkpoint failing", attempt, max)
+		}
+		if attempt < max && orch.campaign.Phases[0].Status == PhaseUnverified {
+			t.Fatalf("phase closed unverified on attempt %d, before the cap of %d", attempt, max)
 		}
 	}
+}
+
+// phaseStatusRows is every campaign_phase status the kernel holds.
+func phaseStatusRows(t *testing.T, orch *Orchestrator) []string {
+	t.Helper()
+	facts, err := orch.kernel.Query("campaign_phase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []string
+	for _, f := range facts {
+		if len(f.Args) > 4 {
+			rows = append(rows, fmt.Sprint(f.Args[4]))
+		}
+	}
+	return rows
 }
 
 // External audit N03 (2026-09-19): the cap on failed checkpoints used to
@@ -165,7 +198,7 @@ func TestRunPhase_WhenCheckpointExhausted_ThePhaseClosesUnverified(t *testing.T)
 
 	phase := orch.campaign.Phases[0]
 	if phase.Status != PhaseUnverified {
-		t.Fatalf("after %d failed checkpoints status = %s, want %s", maxPhaseCheckpointAttempts, phase.Status, PhaseUnverified)
+		t.Fatalf("after %d failed checkpoints status = %s, want %s", orch.policy.MaxCheckpointAttempts, phase.Status, PhaseUnverified)
 	}
 	if orch.campaign.CompletedPhases != 0 {
 		t.Fatalf("CompletedPhases = %d, want 0: an unverified phase is not a completed one", orch.campaign.CompletedPhases)
@@ -179,12 +212,7 @@ func TestRunPhase_WhenCheckpointExhausted_ThePhaseClosesUnverified(t *testing.T)
 		t.Fatalf("a phase_completed event was emitted for a phase whose checkpoint never passed; got %v", seen)
 	}
 
-	var rows []string
-	for _, f := range orch.kernel.(*MockKernel).Facts {
-		if f.Predicate == "campaign_phase" && len(f.Args) > 4 {
-			rows = append(rows, fmt.Sprint(f.Args[4]))
-		}
-	}
+	rows := phaseStatusRows(t, orch)
 	if !slices.Contains(rows, "/unverified") || slices.Contains(rows, "/completed") {
 		t.Fatalf("kernel campaign_phase statuses = %v, want /unverified and never /completed", rows)
 	}
@@ -232,5 +260,54 @@ func TestPrepareResume_ReArmsAnUnverifiedPhase(t *testing.T) {
 	if orch.campaign.Phases[0].Status != PhaseCompleted || orch.campaign.CompletedPhases != 1 {
 		t.Fatalf("a passing checkpoint after resume must complete the phase: status = %s, CompletedPhases = %d",
 			orch.campaign.Phases[0].Status, orch.campaign.CompletedPhases)
+	}
+}
+
+// How many failed checkpoints close a phase is the user's
+// (campaign.max_checkpoint_attempts), read by the policy: with 1, the first
+// failure closes it. A Go const of 3 decided this while the config key was
+// published to the kernel and read by nothing (sweep finding F3).
+func TestRunPhase_TheCheckpointCapIsTheUsersConfig(t *testing.T) {
+	orch, events := newCheckpointPolicyOrchestrator(t, "FAIL: still broken", func(c *config.CampaignConfig) {
+		c.MaxCheckpointAttempts = 1
+	})
+	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
+		t.Fatalf("runPhase: %v", err)
+	}
+	if got := orch.campaign.Phases[0].Status; got != PhaseUnverified {
+		t.Fatalf("with max_checkpoint_attempts=1 one failed checkpoint left the phase %s, want %s", got, PhaseUnverified)
+	}
+	if drainEventTypes(events)[EventCheckpointExhausted] == 0 {
+		t.Fatal("closing the phase unverified was not announced")
+	}
+}
+
+// Whether a failed checkpoint asks the replanner is the user's
+// (campaign.replan_on_checkpoint_failure). Off, the phase stays open for its
+// checkpoint to run again, and no replan is triggered.
+func TestRunPhase_ReplanOnCheckpointFailureIsTheUsersConfig(t *testing.T) {
+	triggers := func(orch *Orchestrator) int {
+		facts, err := orch.kernel.Query("replan_trigger")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(facts)
+	}
+	for _, tc := range []struct {
+		replan bool
+		want   int
+	}{{true, 1}, {false, 0}} {
+		orch, _ := newCheckpointPolicyOrchestrator(t, "FAIL: still broken", func(c *config.CampaignConfig) {
+			c.ReplanOnCheckpointFailure = &tc.replan
+		})
+		if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
+			t.Fatalf("replan=%v: runPhase: %v", tc.replan, err)
+		}
+		if got := orch.campaign.Phases[0].Status; got != PhaseInProgress {
+			t.Fatalf("replan=%v: one failed checkpoint below the cap left the phase %s, want %s", tc.replan, got, PhaseInProgress)
+		}
+		if got := triggers(orch); got != tc.want {
+			t.Fatalf("replan_on_checkpoint_failure=%v: %d replan trigger(s), want %d", tc.replan, got, tc.want)
+		}
 	}
 }

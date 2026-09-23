@@ -633,6 +633,16 @@ func (p *Phase) ToFacts() []core.Fact {
 		})
 	}
 
+	// Failed checkpoint runs since the phase's budget was armed: the policy
+	// counts these rows (phase_ckpt_failures), so a resumed campaign decides
+	// from the same record the file keeps.
+	for run := 1; run <= p.CheckpointFailures; run++ {
+		facts = append(facts, core.Fact{
+			Predicate: "phase_checkpoint_failure",
+			Args:      []any{p.ID, run},
+		})
+	}
+
 	// Phase estimates
 	facts = append(facts, core.Fact{
 		Predicate: "phase_estimate",

@@ -9,6 +9,8 @@
 #                                              what a reviewer's verdict decides
 #   task_next_move(Task, /retry | /retry_later | /repro_first | /fail | /replan)
 #                                              what a failed task does next
+#   phase_ckpt_move(Phase, /close_unverified | /replan | /recheck)
+#                                              what a failed checkpoint leads to
 #
 # Thresholds are config_param rows from the campaign section of
 # .nerd/config.json (policy/config_params.mg); each is declared required next
@@ -237,3 +239,53 @@ task_next_move(TaskID, /retry) :-
     !task_exhausted(TaskID),
     !task_owes_repro(TaskID),
     !task_last_failure_waits(TaskID).
+
+# =============================================================================
+# What a failed checkpoint leads to
+# =============================================================================
+# phase_checkpoint_failure(Phase, Run) is one failed checkpoint run of the
+# phase since its budget was last armed (a resume re-arms it), mirrored from
+# the campaign's own record (Phase.CheckpointFailures), so a resumed campaign
+# rebuilds the same view. The orchestrator asks phase_ckpt_move after each
+# failure and does it:
+#
+#   /close_unverified  campaign.max_checkpoint_attempts failures: the phase
+#                      closes /unverified, not completed, and its hard
+#                      dependents stay blocked
+#   /replan            below the cap, when campaign.replan_on_checkpoint_failure:
+#                      the replanner is asked, and the phase stays open
+#   /recheck           below the cap otherwise: the phase stays open and its
+#                      checkpoint runs again
+#
+# Until 2026-09-23 this was Go: a const cap of 3 and an unconditional replan,
+# while campaign.max_checkpoint_attempts and replan_on_checkpoint_failure were
+# published to the kernel and read by nothing (sweep finding F3).
+Decl phase_checkpoint_failure(PhaseID, Run) bound [/string, /number].
+Decl phase_ckpt_failures(PhaseID, Count) bound [/string, /number].
+Decl phase_ckpt_exhausted(PhaseID) bound [/string].
+Decl phase_ckpt_move(PhaseID, Move) bound [/string, /name].
+
+config_param_required(/campaign, /campaign_max_checkpoint_attempts).
+config_param_required(/campaign, /campaign_replan_on_checkpoint_failure).
+
+phase_ckpt_failures(PhaseID, Count) :-
+    phase_checkpoint_failure(PhaseID, Run)
+    |> do fn:group_by(PhaseID), let Count = fn:count().
+
+phase_ckpt_exhausted(PhaseID) :-
+    phase_ckpt_failures(PhaseID, Count),
+    config_param(/campaign_max_checkpoint_attempts, Max),
+    Count >= Max.
+
+phase_ckpt_move(PhaseID, /close_unverified) :-
+    phase_ckpt_exhausted(PhaseID).
+
+phase_ckpt_move(PhaseID, /replan) :-
+    phase_ckpt_failures(PhaseID, Count),
+    !phase_ckpt_exhausted(PhaseID),
+    config_param(/campaign_replan_on_checkpoint_failure, 1).
+
+phase_ckpt_move(PhaseID, /recheck) :-
+    phase_ckpt_failures(PhaseID, Count),
+    !phase_ckpt_exhausted(PhaseID),
+    config_param(/campaign_replan_on_checkpoint_failure, 0).

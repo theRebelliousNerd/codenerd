@@ -77,6 +77,8 @@ func goldenToFactsCampaign() *Campaign {
 			Category:       "/implementation",
 			Status:         PhaseCompleted,
 			ContextProfile: "/profile_golden",
+			// One failed checkpoint run: phase_checkpoint_failure is pinned.
+			CheckpointFailures: 1,
 			Objectives: []PhaseObjective{{
 				Type:               ObjectiveCreate,
 				Description:        "do the thing",
@@ -296,7 +298,7 @@ func TestToFacts_GoldenFixture_ShouldExerciseEveryEmitBranch(t *testing.T) {
 	required := []string{
 		"campaign", "campaign_metadata", "campaign_goal", "campaign_progress",
 		"context_profile", "source_document",
-		"campaign_phase", "phase_category", "phase_objective", "phase_dependency",
+		"campaign_phase", "phase_category", "phase_checkpoint_failure", "phase_objective", "phase_dependency",
 		"phase_estimate", "context_compression",
 		"campaign_task", "task_priority", "task_order", "task_dependency",
 		"task_soft_dependency", "requires_resource", "task_sub_campaign",

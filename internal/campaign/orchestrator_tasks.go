@@ -15,13 +15,10 @@ import (
 	"time"
 )
 
-// maxPhaseCheckpointAttempts bounds how many times a phase's verification
-// checkpoint may fail before the phase is force-advanced with an unverified
-// checkpoint, preventing the F-CKPT-2 failure→replan→re-checkpoint infinite loop.
-const maxPhaseCheckpointAttempts = 3
-
 // incrementCheckpointFailures bumps and returns the failure counter for the phase
-// with the given ID in the live campaign.
+// with the given ID in the live campaign. The counter is the campaign's durable
+// record; syncCheckpointFailures mirrors it to the kernel, where the policy
+// decides what the failure leads to (phase_ckpt_move).
 func (o *Orchestrator) incrementCheckpointFailures(phaseID string) int {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -35,6 +32,23 @@ func (o *Orchestrator) incrementCheckpointFailures(phaseID string) int {
 		}
 	}
 	return 0
+}
+
+// syncCheckpointFailures makes the kernel's phase_checkpoint_failure rows for
+// the phase the runs 1..n, replacing whatever it held: the policy counts those
+// rows (phase_ckpt_failures), so they are the campaign's own record, never an
+// append that a re-armed phase (n = 0) would inherit.
+func (o *Orchestrator) syncCheckpointFailures(phaseID string, n int) {
+	if o.kernel == nil {
+		return
+	}
+	_ = o.kernel.RetractFact(core.Fact{Predicate: "phase_checkpoint_failure", Args: []any{phaseID}})
+	for run := 1; run <= n; run++ {
+		if err := o.kernel.Assert(core.Fact{Predicate: "phase_checkpoint_failure", Args: []any{phaseID, run}}); err != nil {
+			logging.Get(logging.CategoryCampaign).Error(
+				"Checkpoint failure %d of phase %s was not recorded in the kernel: %v", run, phaseID, err)
+		}
+	}
 }
 
 // runPhase executes all tasks in a phase with bounded parallelism, checkpoints,
@@ -131,33 +145,52 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 				o.emitEvent(EventCheckpointFailed, phase.ID, "", err.Error(), nil)
 			}
 
-			// If any verification failed, trigger a replan and keep the phase open.
+			// A failed checkpoint keeps the phase open; what it leads to is the
+			// policy's (campaign_decisions.mg phase_ckpt_move): a replan, a
+			// recheck, or -- at campaign.max_checkpoint_attempts -- closing the
+			// phase unverified.
 			if !allPassed {
 				attempts := o.incrementCheckpointFailures(phase.ID)
-				logging.Get(logging.CategoryCampaign).Warn("Phase %s checkpoint failure %d/%d: %s", phase.ID, attempts, maxPhaseCheckpointAttempts, failedSummary)
+				o.syncCheckpointFailures(phase.ID, attempts)
 				o.emitEvent(EventCheckpointFailed, phase.ID, "", failedSummary, nil)
+				move, moveErr := o.oneDerivedFor("phase_ckpt_move", phase.ID)
+				if moveErr != nil {
+					// No answer closes the phase unverified: it is not
+					// completed, so nothing built on it runs, and it does not
+					// spin failure -> checkpoint on a policy that cannot say
+					// when to stop.
+					logging.Get(logging.CategoryCampaign).Error("Phase %s: %v; it closes UNVERIFIED", phase.ID, moveErr)
+					move = "/close_unverified"
+				}
+				logging.Get(logging.CategoryCampaign).Warn("Phase %s checkpoint failure %d/%d (%s): %s",
+					phase.ID, attempts, o.policy.MaxCheckpointAttempts, move, failedSummary)
 
 				// Bounded retry (F-CKPT-2): a checkpoint that keeps failing — a tool
 				// error, or a review that a replan cannot fix — must not spin the
 				// phase in an endless failure→replan→re-checkpoint loop (each attempt
-				// is a full LLM checkpoint call). After the cap the phase closes
+				// is a full LLM checkpoint call). At the cap the phase closes
 				// /unverified: not completed, so its hard dependents stay blocked
 				// and, when nothing else can run, the campaign ends blocked on it
 				// by name. It used to be completed here -- /completed in the
 				// kernel, a completed-phase count, a success to the Northstar
 				// observer -- so a known failed checkpoint unlocked the phases
 				// built on it (external audit N03, 2026-09-19).
-				if attempts >= maxPhaseCheckpointAttempts {
-					logging.Get(logging.CategoryCampaign).Warn("Phase %s exhausted %d checkpoint attempts; it closes UNVERIFIED and its hard dependents stay blocked", phase.ID, maxPhaseCheckpointAttempts)
+				switch move {
+				case "/close_unverified":
+					logging.Get(logging.CategoryCampaign).Warn("Phase %s exhausted %d checkpoint attempts; it closes UNVERIFIED and its hard dependents stay blocked", phase.ID, attempts)
 					o.emitEvent(EventCheckpointExhausted, phase.ID, "", failedSummary, map[string]any{
 						"attempts": attempts,
-						"max":      maxPhaseCheckpointAttempts,
+						"max":      o.policy.MaxCheckpointAttempts,
 					})
 					o.closePhaseUnverified(phase, failedSummary)
 					return nil
+				case "/recheck":
+					// campaign.replan_on_checkpoint_failure is off: the phase
+					// stays open and its checkpoint runs again.
+					return nil
 				}
 
-				// Seed a replan trigger so Replanner has a hard signal.
+				// /replan. Seed a replan trigger so Replanner has a hard signal.
 				if err := o.kernel.Assert(core.Fact{
 					Predicate: "replan_trigger",
 					Args:      []any{o.campaign.ID, "/checkpoint_failed", time.Now().Unix()},

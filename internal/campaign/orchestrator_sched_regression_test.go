@@ -92,21 +92,23 @@ func TestIncrementCheckpointFailures_BoundsAndIsolation(t *testing.T) {
 		Status:     PhasePending,
 	})
 
-	// Monotonic increment on phase 0 up to the cap.
-	for want := 1; want <= maxPhaseCheckpointAttempts; want++ {
+	// Monotonic increment on phase 0. The counter is the durable record; the
+	// cap is the policy's (phase_ckpt_move), not this counter's.
+	const runs = 3
+	for want := 1; want <= runs; want++ {
 		if got := orch.incrementCheckpointFailures("/phase_0"); got != want {
 			t.Fatalf("increment #%d for /phase_0 = %d, want %d", want, got, want)
 		}
 	}
-	if got := orch.campaign.Phases[0].CheckpointFailures; got != maxPhaseCheckpointAttempts {
-		t.Fatalf("persisted /phase_0 CheckpointFailures = %d, want %d", got, maxPhaseCheckpointAttempts)
+	if got := orch.campaign.Phases[0].CheckpointFailures; got != runs {
+		t.Fatalf("persisted /phase_0 CheckpointFailures = %d, want %d", got, runs)
 	}
 
 	// Phases are independent.
 	if got := orch.incrementCheckpointFailures("/phase_1"); got != 1 {
 		t.Fatalf("first increment for /phase_1 = %d, want 1", got)
 	}
-	if got := orch.campaign.Phases[0].CheckpointFailures; got != maxPhaseCheckpointAttempts {
+	if got := orch.campaign.Phases[0].CheckpointFailures; got != runs {
 		t.Fatalf("/phase_0 counter mutated by /phase_1 increment: %d", got)
 	}
 
