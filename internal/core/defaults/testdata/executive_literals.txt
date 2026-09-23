@@ -1,0 +1,15 @@
+# Executive literals -- per package, counts that may only shrink.
+#
+# Regenerate: CODENERD_UPDATE_LITERALS=1 go test ./internal/core/defaults/ -run TestExecutiveLiteralBudget
+# See executive_literals_test.go. "literal": a numeric literal > 1 in a const,
+# an if/for/switch condition, or a bounding composite field. "textmatch": a
+# strings match over .Description, .Error(), .Response or .Text.
+
+literal cmd/nerd/chat 192
+literal internal/campaign 146
+literal internal/session 62
+literal internal/verification 1
+textmatch cmd/nerd/chat 2
+textmatch internal/campaign 18
+textmatch internal/session 1
+textmatch internal/verification 0
