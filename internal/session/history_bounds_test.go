@@ -88,8 +88,8 @@ func TestAppendToHistory_BoundsTurnText(t *testing.T) {
 func TestPriorTurnMessages_OneHugeTurnDoesNotEvictTheWindow(t *testing.T) {
 	e := &Executor{}
 	e.SetConfig(ExecutorConfig{
-		HistoryTurnWindow: DefaultHistoryTurnWindow,
-		HistoryCharBudget: DefaultHistoryCharBudget,
+		HistoryTurnWindow: defaultSessionPolicy.HistoryTurnWindow,
+		HistoryCharBudget: defaultSessionPolicy.HistoryCharBudget,
 	})
 
 	e.appendToHistory(perception.ConversationTurn{Role: "user", Content: "EARLIEST question"})
@@ -109,8 +109,8 @@ func TestPriorTurnMessages_OneHugeTurnDoesNotEvictTheWindow(t *testing.T) {
 	if !strings.Contains(joined, "LATEST answer") {
 		t.Error("the most recent turn must survive")
 	}
-	if total := len(joined); total > DefaultHistoryCharBudget+2048 {
-		t.Errorf("replay window is %d chars, budget is %d", total, DefaultHistoryCharBudget)
+	if total := len(joined); total > defaultSessionPolicy.HistoryCharBudget+2048 {
+		t.Errorf("replay window is %d chars, budget is %d", total, defaultSessionPolicy.HistoryCharBudget)
 	}
 }
 

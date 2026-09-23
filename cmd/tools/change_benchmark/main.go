@@ -163,8 +163,12 @@ func run() error {
 	} else {
 		var cortex *system.Cortex
 		cortex, err = system.BootCortexWithConfig(ctx, system.BootConfig{Workspace: *root, UserConfigOverride: userCfg, LLMClientOverride: client})
+		var sessionPolicy config.SessionPolicy
 		if err == nil {
-			cfg := session.DefaultExecutorConfig()
+			sessionPolicy, err = userCfg.GetSessionConfig().Resolve()
+		}
+		if err == nil {
+			cfg := session.ExecutorConfigFrom(sessionPolicy)
 			cfg.WorkspaceRoot = *root
 			// No tool-call or round pins on the codeNERD side: its loop
 			// continues while the working policy derives no stop, and pinning

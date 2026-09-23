@@ -258,6 +258,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Campaign.Check("campaign")...)
 	}
 
+	// --- session ---
+	if c.Session != nil {
+		out = append(out, c.Session.Check("session")...)
+	}
+
 	// --- everything the file leaves to a default ---
 	if raw != nil {
 		for _, path := range ImplicitFields(raw) {

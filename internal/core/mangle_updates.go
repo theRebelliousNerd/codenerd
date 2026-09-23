@@ -282,6 +282,12 @@ func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 		// What a behaviour change owes (N22): the turn's intent and the table
 		// of intents that owe /pinned.
 		"turn_verb", "behavior_change_intent",
+		// What the planner is spent on: the sites the host measured in the
+		// brief, and the conclusion drawn from them.
+		"turn_brief_site", "turn_brief_site_count", "turn_needs_step_plan",
+		// The user's thresholds (config_params.mg): a model that could write
+		// config_param could raise its own attempt cap or lower a gate's bar.
+		"config_param", "config_param_required",
 		"hollow_success", "has_hollow_success", "has_turn_tools", "has_turn_write", "has_turn_test",
 		"build_state", "test_state",
 		// What may carry unchecked strings, and what the host acts on: a

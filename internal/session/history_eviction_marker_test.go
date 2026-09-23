@@ -19,7 +19,7 @@ import (
 func TestHistoryEviction_MarksAndRetains(t *testing.T) {
 	e := &Executor{}
 	e.SetConfig(ExecutorConfig{
-		HistoryTurnWindow: DefaultHistoryTurnWindow,
+		HistoryTurnWindow: defaultSessionPolicy.HistoryTurnWindow,
 		HistoryCharBudget: 4000,
 	})
 
@@ -76,8 +76,8 @@ func TestHistoryEviction_MarksAndRetains(t *testing.T) {
 func TestHistoryEviction_SaysNothingWhenNothingWasEvicted(t *testing.T) {
 	e := &Executor{}
 	e.SetConfig(ExecutorConfig{
-		HistoryTurnWindow: DefaultHistoryTurnWindow,
-		HistoryCharBudget: DefaultHistoryCharBudget,
+		HistoryTurnWindow: defaultSessionPolicy.HistoryTurnWindow,
+		HistoryCharBudget: defaultSessionPolicy.HistoryCharBudget,
 	})
 	e.appendToHistory(perception.ConversationTurn{Role: "user", Content: "fix the router"})
 	e.appendToHistory(perception.ConversationTurn{Role: "assistant", Content: "done"})

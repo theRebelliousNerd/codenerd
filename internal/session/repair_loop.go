@@ -13,9 +13,9 @@ import (
 	jitconfig "codenerd/internal/jit/config"
 )
 
-// DefaultRepairMaxAttempts bounds one repair episode. Three iterations give a
-// model room to misdiagnose once and still recover; beyond that the loop is
-// burning budget going nowhere and the turn must fail loudly instead.
+// A repair episode is bounded by its attempts (session.repair_max_attempts,
+// default 3: room to misdiagnose once and still recover; beyond that the loop
+// is burning budget going nowhere and the turn must fail loudly instead).
 //
 // The attempts are the episode's only bound. Each ends in a recheck, so
 // attempts that did not converge are a repeated failure, and that is what
@@ -23,7 +23,6 @@ import (
 // evidence about whether it is converging (ladder run R1-4d: a 368 s call,
 // cut with nothing returned by a 6.2-minute clock sized for faster models).
 // The turn's own deadline, when the user set one, still applies.
-const DefaultRepairMaxAttempts = 3
 
 // repairRoundsPerAttempt bounds one attempt's read-diagnose-edit cycle: each
 // attempt is allowed multiple model calls so it can read, then edit, before
@@ -48,7 +47,7 @@ type RepairBudget struct {
 // bounded by its attempts; there is no way to configure an unbounded loop.
 func (e *Executor) repairBudgetFor() RepairBudget {
 	cfg := e.configSnapshot()
-	b := RepairBudget{MaxAttempts: DefaultRepairMaxAttempts}
+	b := RepairBudget{MaxAttempts: defaultSessionPolicy.RepairMaxAttempts}
 	if cfg.RepairMaxAttempts > 0 {
 		b.MaxAttempts = cfg.RepairMaxAttempts
 	}

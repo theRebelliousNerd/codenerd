@@ -52,10 +52,16 @@ func TestJourney_PlannedSteps_WritesBothFilesAndLedgers(t *testing.T) {
 		},
 	})
 
-	plan := "STEP a.txt :: create it with the greeting\nSTEP b.txt :: create it with the farewell\n"
+	// The brief names its two files with their directory, the way a brief
+	// names a site; that is what the policy counts before it spends a
+	// planning call (turn_needs_step_plan).
+	if err := os.MkdirAll(filepath.Join(root, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan := "STEP notes/a.txt :: create it with the greeting\nSTEP notes/b.txt :: create it with the farewell\n"
 	client := newStepScriptProvider(plan, map[string][]types.ToolCall{
-		"a.txt": {{ID: "j-w-a", Name: writeTool, Input: map[string]any{"path": "a.txt", "content": "hello"}}},
-		"b.txt": {{ID: "j-w-b", Name: writeTool, Input: map[string]any{"path": "b.txt", "content": "bye"}}},
+		"notes/a.txt": {{ID: "j-w-a", Name: writeTool, Input: map[string]any{"path": "notes/a.txt", "content": "hello"}}},
+		"notes/b.txt": {{ID: "j-w-b", Name: writeTool, Input: map[string]any{"path": "notes/b.txt", "content": "bye"}}},
 	})
 
 	kernel, err := core.NewRealKernel()
@@ -73,7 +79,7 @@ func TestJourney_PlannedSteps_WritesBothFilesAndLedgers(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	result, err := executor.Process(ctx, "create a.txt with the greeting and b.txt with the farewell")
+	result, err := executor.Process(ctx, "create notes/a.txt with the greeting and notes/b.txt with the farewell")
 	if err != nil {
 		t.Fatalf("planned-steps turn failed: %v", err)
 	}
@@ -83,7 +89,7 @@ func TestJourney_PlannedSteps_WritesBothFilesAndLedgers(t *testing.T) {
 	if writes.Load() != 2 {
 		t.Fatalf("writes = %d, want 2 (one per step)", writes.Load())
 	}
-	for file, want := range map[string]string{"a.txt": "hello", "b.txt": "bye"} {
+	for file, want := range map[string]string{"notes/a.txt": "hello", "notes/b.txt": "bye"} {
 		got, readErr := os.ReadFile(filepath.Join(root, file))
 		if readErr != nil {
 			t.Fatalf("read %s: %v", file, readErr)

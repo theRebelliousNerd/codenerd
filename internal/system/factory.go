@@ -2044,7 +2044,15 @@ func initFinalExecutors(bctx *bootContext) error {
 	// set a core limit?" left verification without a tree to compile on any
 	// workspace that took the defaults — a guard that is off by default for most
 	// users is not a guard.
-	execCfg := session.DefaultExecutorConfig()
+	//
+	// Its thresholds are the `session` section of .nerd/config.json. The
+	// loader has already refused a file whose section does not check, so a
+	// Resolve error here is a section the checker let through.
+	sessionPolicy, err := bctx.appCfg.GetSessionConfig().Resolve()
+	if err != nil {
+		return fmt.Errorf("session config: %w", err)
+	}
+	execCfg := session.ExecutorConfigFrom(sessionPolicy)
 	execCfg.WorkspaceRoot = bctx.workspace
 	bctx.sessionExecutor.SetConfig(execCfg)
 	// The shard profile's enable_learning gates what the executor records

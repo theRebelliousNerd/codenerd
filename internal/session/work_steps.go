@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
@@ -33,15 +32,6 @@ import (
 // ErrStepsIncomplete marks a planned task some of whose steps made no edit.
 // Wrapped so errors.Is can tell it from a provider failure.
 var ErrStepsIncomplete = errors.New("planned steps incomplete")
-
-// maxPlannedSteps bounds a plan. A task that divides into more than this is
-// not one turn's work; the executive runs the first steps and reports.
-const maxPlannedSteps = 12
-
-// planStepsTimeout bounds the planning call. Planning is one short answer to
-// one short prompt; a plan that has not come back in this time is abandoned
-// and the task runs as a single pass.
-const planStepsTimeout = 2 * time.Minute
 
 const workStepPlanSystem = `You divide one code-change task into the edit steps an executive will run one at a time, each as its own turn with the file named.
 
@@ -83,8 +73,10 @@ type toolLoopPass struct {
 // that is a directory on disk when workspace is known, or a change that is
 // the task's verify command: the executive runs verification itself).
 // Paths that do not exist yet (new files) stay. Duplicates collapse; the
-// count is bounded.
-func parseWorkSteps(workspace, text string) []workStep {
+// count is bounded by maxSteps (session.step_plan_max_steps): a task that
+// divides into more is not one turn's work, and the executive runs the first
+// steps and reports.
+func parseWorkSteps(workspace, text string, maxSteps int) []workStep {
 	var steps []workStep
 	seen := map[string]bool{}
 	for _, line := range strings.Split(text, "\n") {
@@ -112,7 +104,7 @@ func parseWorkSteps(workspace, text string) []workStep {
 		}
 		seen[key] = true
 		steps = append(steps, workStep{File: file, Change: change})
-		if len(steps) == maxPlannedSteps {
+		if len(steps) == maxSteps {
 			break
 		}
 	}
@@ -152,10 +144,14 @@ func emptyCompletionError(err error) bool {
 }
 
 // planTurnSteps decides whether this turn is a planned task and, if so, what
-// its steps are. Only a write-oriented turn on the native tool path inside a
-// working loop is planned; every other turn keeps the single pass. A plan
-// with fewer than two steps is a single pass too: the planning call then
-// cost one short answer and changed nothing.
+// its steps are. The transport has to be able to run steps (the native tool
+// path inside a working loop, with a write tool); whether this brief is worth
+// a planning call is the policy's: turn_needs_step_plan derives from the edit
+// sites the brief names (briefSites), and a brief that names fewer than
+// session.step_plan_min_sites of them runs as one pass without asking.
+// Measured 2026-09-21: a campaign run made 13 planning calls, every one on a
+// one-site brief, and every one came back "one step". A plan with fewer than
+// two steps is a single pass too.
 func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, task string, cfg *config.EffectiveAgentRuntimeConfig, result *ExecutionResult) []workStep {
 	// This runs before beginWorkingLoop installs the loop, so it asks whether
 	// one will exist rather than reading it off the context.
@@ -174,11 +170,23 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 	if cfg == nil || !hasWriteTool(cfg.AllowedTools) {
 		return nil
 	}
+	if !e.briefNeedsStepPlan(task, result) {
+		return nil
+	}
+	settings := e.configSnapshot()
+	timeout := settings.StepPlanTimeout
+	if timeout <= 0 {
+		timeout = defaultSessionPolicy.StepPlanTimeout
+	}
+	maxSteps := settings.StepPlanMaxSteps
+	if maxSteps <= 0 {
+		maxSteps = defaultSessionPolicy.StepPlanMaxSteps
+	}
 	user := workStepPlanUser(task, result.Intent.Verb)
 	var text string
 	var err error
 	for attempt := 1; attempt <= 2; attempt++ {
-		planCtx, cancel := context.WithTimeout(ctx, planStepsTimeout)
+		planCtx, cancel := context.WithTimeout(ctx, timeout)
 		text, err = client.CompleteWithSystem(planCtx, workStepPlanSystem, user)
 		cancel()
 		if err == nil {
@@ -198,7 +206,7 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 		logging.Get(logging.CategorySession).Warn("Step planning failed (%v); the task runs as one pass", err)
 		return nil
 	}
-	steps := parseWorkSteps(e.workspaceForVerification(), text)
+	steps := parseWorkSteps(e.workspaceForVerification(), text, maxSteps)
 	if len(steps) < 2 {
 		logging.SessionDebug("Step planning found %d step(s); the task runs as one pass", len(steps))
 		return nil

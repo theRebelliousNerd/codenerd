@@ -193,6 +193,10 @@ type UserConfig struct {
 	// Campaign is every knob the campaign executive reads (campaign.go).
 	Campaign *CampaignConfig `json:"campaign,omitempty"`
 
+	// Session is every knob the session executor reads for one turn
+	// (session.go).
+	Session *SessionConfig `json:"session,omitempty"`
+
 	// =========================================================================
 	// INTEGRATIONS
 	// =========================================================================
@@ -1498,6 +1502,7 @@ func DefaultUserConfig() *UserConfig {
 	reflection := DefaultReflectionConfig()
 	browserCfg := DefaultBrowserAutomationConfig()
 	campaign := DefaultCampaignConfig()
+	sessionCfg := DefaultSessionConfig()
 
 	return &UserConfig{
 		Engine:                       "api",
@@ -1519,6 +1524,7 @@ func DefaultUserConfig() *UserConfig {
 		Build:                        &build,
 		Execution:                    DefaultExecutionConfig(),
 		Campaign:                     &campaign,
+		Session:                      &sessionCfg,
 		Logging:                      DefaultLoggingConfig(),
 		JIT:                          &jit,
 		LearningCandidateThreshold:   3,

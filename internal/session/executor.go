@@ -270,9 +270,19 @@ type ExecutorConfig struct {
 	// ToolTimeout is the maximum time for a single tool execution.
 	ToolTimeout time.Duration
 
-	// RepairMaxAttempts bounds one build/test repair episode. Zero falls
-	// back to DefaultRepairMaxAttempts; repair is always bounded.
+	// RepairMaxAttempts bounds one build/test repair episode
+	// (session.repair_max_attempts). Zero takes the section's default;
+	// repair is always bounded.
 	RepairMaxAttempts int
+
+	// StepPlanMinSites is how many edit sites a write-oriented brief must
+	// name before the executive spends a planning call on it; the policy
+	// reads it as config_param(/session_step_plan_min_sites)
+	// (turn_needs_step_plan). StepPlanMaxSteps bounds a plan, and
+	// StepPlanTimeout one planning request. Zero takes the section's default.
+	StepPlanMinSites int
+	StepPlanMaxSteps int
+	StepPlanTimeout  time.Duration
 
 	// FinalAnswerReserve keeps the tail of a deadline-bound turn available for
 	// one tool-free completion. Ordinary tool exploration is cancelled at the
@@ -341,7 +351,7 @@ type ExecutorConfig struct {
 	// HistoryCharBudget caps the total characters of prior-turn text sent to
 	// the generating model. Oldest turns are dropped first, never splitting a
 	// pair, so a trimmed window always ends on a complete exchange. Zero or
-	// negative falls back to DefaultHistoryCharBudget.
+	// negative takes the section's default (session.history_char_budget).
 	HistoryCharBudget int
 }
 
@@ -362,44 +372,17 @@ func DefaultTokenBudget() int {
 	return broker.Default().PromptBudget(0.5, defaultTokenBudgetFallback)
 }
 
-const (
-	defaultToolTimeout        = 5 * time.Minute
-	defaultFinalAnswerReserve = 5 * time.Minute
-)
-
-// DefaultHistoryTurnWindow is the number of prior conversation messages that
-// reach the generating model when ExecutorConfig leaves HistoryTurnWindow
-// unset via DefaultExecutorConfig. 6 messages = 3 user/assistant exchanges.
-const DefaultHistoryTurnWindow = 6
-
-// DefaultHistoryCharBudget caps prior-turn text sent to the generating model
-// when ExecutorConfig leaves HistoryCharBudget unset. 24000 characters holds
-// several substantive exchanges without crowding the prompt budget.
-const DefaultHistoryCharBudget = 24000
-
 // defaultSemanticTopK matches the value NewCompilationContext applies. This
 // path builds the CompilationContext as a literal, so it gets no defaults from
 // that constructor and must supply its own — a zero here reaches
 // VectorSearcher.Search as topK=0.
 const defaultSemanticTopK = 20
 
-// DefaultExecutorConfig returns sensible defaults.
+// DefaultExecutorConfig is the executor's config for the `session`
+// section's defaults (config.DefaultSessionConfig). A boot builds it from the
+// user's file instead (ExecutorConfigFrom).
 func DefaultExecutorConfig() ExecutorConfig {
-	return ExecutorConfig{
-		ToolTimeout:        defaultToolTimeout,
-		RepairMaxAttempts:  DefaultRepairMaxAttempts,
-		FinalAnswerReserve: defaultFinalAnswerReserve,
-		EnableSafetyGate:   true,
-		TokenBudget:        DefaultTokenBudget(),
-		HistoryTurnWindow:  DefaultHistoryTurnWindow,
-		HistoryCharBudget:  DefaultHistoryCharBudget,
-		// On by default: the failure this prevents (confident, non-compiling
-		// edits reported as complete) is silent, and a default-off guard against
-		// a silent failure protects nobody.
-		VerifyBuildAfterEdits:  true,
-		VerifyTestsAfterEdits:  true,
-		CriticReviewAfterEdits: true,
-	}
+	return ExecutorConfigFrom(defaultSessionPolicy)
 }
 
 // NewExecutor creates a new executor with the given dependencies.
@@ -2055,7 +2038,7 @@ func toolLoopHistoryBytes(history []types.Message) int {
 // so the same blob was re-sent on every turn until it aged out of a 50-slot
 // window.
 //
-// 8000 chars is a third of DefaultHistoryCharBudget: three capped turns still
+// 8000 chars is a third of the default history budget: three capped turns still
 // fit the replay window, so the cap bounds a pathological turn without
 // shrinking a normal conversation.
 const maxHistoryTurnChars = 8000
@@ -2135,7 +2118,7 @@ func (e *Executor) priorTurnMessages() []types.Message {
 	}
 	budget := cfg.HistoryCharBudget
 	if budget <= 0 {
-		budget = DefaultHistoryCharBudget
+		budget = defaultSessionPolicy.HistoryCharBudget
 	}
 
 	turns := e.GetHistory()

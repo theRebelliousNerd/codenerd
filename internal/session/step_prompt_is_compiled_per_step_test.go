@@ -66,7 +66,7 @@ func TestPlannedStep_RunsUnderAPromptCompiledForItsOwnFileAndLanguage(t *testing
 	}
 
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
-	_, toolErrs, err := e.runToolLoop(context.Background(), "TURN PROMPT", "add the rule and read it",
+	_, toolErrs, err := e.runToolLoop(context.Background(), "TURN PROMPT", "add the rule in rules/policy.mg and read it in tools/gen.py",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 		&prompt.CompilationContext{ShardID: "probe", Language: "/python"}, result)
 	if err != nil {
@@ -116,12 +116,15 @@ func TestPlannedStep_KeepsTheTurnsPromptWhenItsOwnDoesNotCompile(t *testing.T) {
 	}
 
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
-	if _, _, err := e.runToolLoop(context.Background(), "TURN PROMPT", "write both",
+	if _, _, err := e.runToolLoop(context.Background(), "TURN PROMPT", "write a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result); err != nil {
 		t.Fatalf("runToolLoop: %v", err)
 	}
 	for _, file := range []string{"a.txt", "b.txt"} {
+		if len(client.systems[file]) == 0 {
+			t.Fatalf("step %s never ran: the turn was not planned", file)
+		}
 		for _, system := range client.systems[file] {
 			if !strings.Contains(system, "TURN PROMPT") {
 				t.Errorf("step %s lost the turn's prompt when its own compile failed:\n%s", file, system)
@@ -173,13 +176,15 @@ func TestPlannedStep_FileContextIsSentOncePerRequest(t *testing.T) {
 	}
 
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
-	if _, _, err := e.runToolLoop(context.Background(), "TURN PROMPT", "write both",
+	if _, _, err := e.runToolLoop(context.Background(), "TURN PROMPT", "write a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result); err != nil {
 		t.Fatalf("runToolLoop: %v", err)
 	}
-	if len(client.requests) == 0 {
-		t.Fatal("no request was recorded")
+	for _, file := range []string{"a.txt", "b.txt"} {
+		if len(client.requests[file]) == 0 {
+			t.Fatalf("step %s never ran: the turn was not planned", file)
+		}
 	}
 	for file, requests := range client.requests {
 		for _, request := range requests {

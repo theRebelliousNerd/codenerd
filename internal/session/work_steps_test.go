@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -90,9 +91,23 @@ func (p *stepScriptProvider) CompleteWithToolResults(_ context.Context, _ string
 	return &types.LLMToolResponse{Text: "finished " + file}, nil
 }
 
+// newPlannedStepsExecutor runs on the real policy corpus: whether a turn is
+// planned is turn_needs_step_plan's decision (turn_steps.mg), from the edit
+// sites the brief names. The files the step tests name exist in the
+// workspace, so a brief that names them names them as sites.
 func newPlannedStepsExecutor(t *testing.T, client types.LLMClient) *Executor {
 	t.Helper()
 	e := newWorkingLoopExecutor(t, client)
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	e.kernel = kernel
+	for _, name := range []string{"a.txt", "b.txt", "a.go", "b.go"} {
+		if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// An effectful tool needs the executive gate; without one the executor
 	// refuses every write.
 	e.virtualStore = &testExecutiveStore{}
@@ -126,7 +141,7 @@ func TestParseWorkSteps(t *testing.T) {
 		"STEP ./internal/prompt/... :: run go test on the package\n" +
 		"STEP internal/d.go :: Run the tests named in the task\n" +
 		"not a step line\n"
-	got := parseWorkSteps("", plan)
+	got := parseWorkSteps("", plan, defaultSessionPolicy.StepPlanMaxSteps)
 	if len(got) != 2 {
 		t.Fatalf("steps = %+v, want the two well-formed distinct edit steps (a verification is not a step)", got)
 	}
@@ -137,11 +152,11 @@ func TestParseWorkSteps(t *testing.T) {
 		t.Errorf("step 2 = %+v (the bullet and the backticks must be tolerated)", got[1])
 	}
 	var many strings.Builder
-	for i := 0; i < maxPlannedSteps+5; i++ {
+	for i := 0; i < defaultSessionPolicy.StepPlanMaxSteps+5; i++ {
 		many.WriteString("STEP f" + strings.Repeat("x", i) + ".go :: change\n")
 	}
-	if n := len(parseWorkSteps("", many.String())); n != maxPlannedSteps {
-		t.Errorf("unbounded plan parsed to %d steps, want the cap %d", n, maxPlannedSteps)
+	if n := len(parseWorkSteps("", many.String(), defaultSessionPolicy.StepPlanMaxSteps)); n != defaultSessionPolicy.StepPlanMaxSteps {
+		t.Errorf("unbounded plan parsed to %d steps, want the cap %d", n, defaultSessionPolicy.StepPlanMaxSteps)
 	}
 }
 
@@ -157,7 +172,7 @@ func TestParseWorkSteps_DropsDirectoryTargets(t *testing.T) {
 		"STEP internal/mangle :: B\n" +
 		"STEP internal/mangle/engine.go :: C\n" +
 		"STEP internal/mangle/new_file.go :: D\n"
-	got := parseWorkSteps(dir, plan)
+	got := parseWorkSteps(dir, plan, defaultSessionPolicy.StepPlanMaxSteps)
 	if len(got) != 2 {
 		t.Fatalf("steps = %+v, want only the engine.go and new_file.go steps", got)
 	}
@@ -182,7 +197,7 @@ func TestRunToolLoop_PlannedSteps_RunsEachStepAsItsOwnPass(t *testing.T) {
 	e := newPlannedStepsExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 
-	resp, toolErrs, err := e.runToolLoop(context.Background(), "system", "create both files",
+	resp, toolErrs, err := e.runToolLoop(context.Background(), "system", "create a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if err != nil {
@@ -203,7 +218,7 @@ func TestRunToolLoop_PlannedSteps_RunsEachStepAsItsOwnPass(t *testing.T) {
 	if !anyContains(client.anchors, "Done: [1] a.txt :: create it with the greeting (edited)") || !anyContains(client.anchors, "Step 2 of 2: b.txt") {
 		t.Fatalf("the second pass was not told step 1 had edited; anchors: %q", client.anchors)
 	}
-	if !anyContains(client.anchors, "create both files") {
+	if !anyContains(client.anchors, "create a.txt and b.txt") {
 		t.Fatalf("the task itself must be in every anchor; anchors: %q", client.anchors)
 	}
 }
@@ -226,7 +241,7 @@ func TestRunToolLoop_PlannedSteps_RetriesAStepThatMadeNoEditWithReadingClosed(t 
 	e := newPlannedStepsExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 
-	_, toolErrs, err := e.runToolLoop(context.Background(), "system", "create both files",
+	_, toolErrs, err := e.runToolLoop(context.Background(), "system", "create a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{readTool, writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if err != nil {
@@ -260,7 +275,7 @@ func TestRunToolLoop_PlannedSteps_ReportsAStepThatNeverEdited(t *testing.T) {
 	e := newPlannedStepsExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 
-	_, _, err := e.runToolLoop(context.Background(), "system", "create both files",
+	_, _, err := e.runToolLoop(context.Background(), "system", "create a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if !errors.Is(err, ErrStepsIncomplete) {
@@ -293,7 +308,7 @@ func TestRunToolLoop_PlannedSteps_AStepThatNeedsNoChangeIsReportedNotFailed(t *t
 	e := newPlannedStepsExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 
-	_, toolErrs, err := e.runToolLoop(context.Background(), "system", "create both files",
+	_, toolErrs, err := e.runToolLoop(context.Background(), "system", "create a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if err != nil {
@@ -322,7 +337,7 @@ func TestRunToolLoop_PlannedSteps_NoChangeWithoutEvidenceStillFails(t *testing.T
 	e := newPlannedStepsExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 
-	_, _, err := e.runToolLoop(context.Background(), "system", "create both files",
+	_, _, err := e.runToolLoop(context.Background(), "system", "create a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if !errors.Is(err, ErrStepsIncomplete) {
@@ -376,7 +391,7 @@ func TestRunToolLoop_PlannedSteps_AStepOnAFileAlreadyEditedIsNotAFailure(t *test
 	e := newPlannedStepsExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 
-	_, toolErrs, err := e.runToolLoop(context.Background(), "system", "create both files",
+	_, toolErrs, err := e.runToolLoop(context.Background(), "system", "create a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if err != nil {
@@ -401,7 +416,7 @@ func TestRunToolLoop_PlannedSteps_OneStepIsOnePass(t *testing.T) {
 		client := newStepScriptProvider(plan, nil)
 		e := newPlannedStepsExecutor(t, client)
 		result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
-		_, _, err := e.runToolLoop(context.Background(), "system", "create the file",
+		_, _, err := e.runToolLoop(context.Background(), "system", "create a.txt and b.txt",
 			&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 			&prompt.CompilationContext{ShardID: "probe"}, result)
 		if err != nil {
@@ -410,7 +425,7 @@ func TestRunToolLoop_PlannedSteps_OneStepIsOnePass(t *testing.T) {
 		if result.StepReport != "" {
 			t.Fatalf("plan %q: a single pass wrote a step report: %q", plan, result.StepReport)
 		}
-		if len(client.anchors) == 0 || client.anchors[0] != "create the file" {
+		if len(client.anchors) == 0 || client.anchors[0] != "create a.txt and b.txt" {
 			t.Fatalf("plan %q: the anchor must be the task itself, got %q", plan, client.anchors)
 		}
 	}
@@ -442,7 +457,7 @@ func TestRunToolLoop_PlannedSteps_OnlyForChangeTasksWithAWriteTool(t *testing.T)
 			client := newClient()
 			e := newPlannedStepsExecutor(t, client)
 			result := &ExecutionResult{Intent: perception.Intent{Verb: tc.verb}}
-			if _, _, err := e.runToolLoop(context.Background(), "system", "do it",
+			if _, _, err := e.runToolLoop(context.Background(), "system", "do a.txt and b.txt",
 				&config.EffectiveAgentRuntimeConfig{AllowedTools: tc.tools},
 				&prompt.CompilationContext{ShardID: "probe"}, result); err != nil {
 				t.Fatalf("runToolLoop: %v", err)
@@ -511,7 +526,7 @@ func TestPlanTurnSteps_RetriesOnceThenFallsBack(t *testing.T) {
 
 	retrying := &planRetryClient{MockLLMClient: &MockLLMClient{}, failFirst: 1, plan: plan}
 	e := newPlannedStepsExecutor(t, retrying)
-	steps := e.planTurnSteps(context.Background(), retrying, "change both files", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
+	steps := e.planTurnSteps(context.Background(), retrying, "change a.go and b.go", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
 	if len(steps) != 2 || steps[0].File != "a.go" || steps[1].File != "b.go" {
 		t.Fatalf("steps = %+v, want the two planned steps after one retry", steps)
 	}
@@ -521,7 +536,7 @@ func TestPlanTurnSteps_RetriesOnceThenFallsBack(t *testing.T) {
 
 	failing := &planRetryClient{MockLLMClient: &MockLLMClient{}, failFirst: 2, plan: plan}
 	e2 := newPlannedStepsExecutor(t, failing)
-	steps2 := e2.planTurnSteps(context.Background(), failing, "change both files", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
+	steps2 := e2.planTurnSteps(context.Background(), failing, "change a.go and b.go", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
 	if steps2 != nil {
 		t.Fatalf("steps = %+v, want nil after two planning failures", steps2)
 	}
@@ -544,7 +559,7 @@ func TestPlanTurnSteps_EmptyAnswerIsOnePassNotARetry(t *testing.T) {
 	}
 	e := newPlannedStepsExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
-	if _, _, err := e.runToolLoop(context.Background(), "system", "fix the thing",
+	if _, _, err := e.runToolLoop(context.Background(), "system", "fix a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{readTool, writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result); err != nil {
 		t.Fatalf("runToolLoop: %v", err)
@@ -567,10 +582,10 @@ func TestPlanTurnSteps_PlannerIsToldTheIntentVerb(t *testing.T) {
 	}
 	e := newPlannedStepsExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
-	_, _, _ = e.runToolLoop(context.Background(), "system", "fix the thing",
+	_, _, _ = e.runToolLoop(context.Background(), "system", "fix a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{readTool, writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
-	if !strings.Contains(asked, "fix the thing") || !strings.Contains(asked, "/fix") {
+	if !strings.Contains(asked, "fix a.txt and b.txt") || !strings.Contains(asked, "/fix") {
 		t.Fatalf("planner request lacks the task or the verb: %q", asked)
 	}
 }

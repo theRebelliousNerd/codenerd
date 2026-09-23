@@ -118,7 +118,7 @@ func assertNoSilentCutsInChatTurn(t *testing.T) {
 
 	e := &Executor{}
 	e.SetConfig(ExecutorConfig{
-		HistoryTurnWindow: DefaultHistoryTurnWindow,
+		HistoryTurnWindow: defaultSessionPolicy.HistoryTurnWindow,
 		HistoryCharBudget: 5000,
 	})
 

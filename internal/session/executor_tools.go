@@ -607,7 +607,7 @@ func toolExplorationCutoff(ctx context.Context, configuredReserve time.Duration)
 		return deadline, 0, true
 	}
 	if configuredReserve <= 0 {
-		configuredReserve = defaultFinalAnswerReserve
+		configuredReserve = defaultSessionPolicy.FinalAnswerReserve
 	}
 	reserve := configuredReserve
 	if half := remaining / 2; reserve > half {
@@ -2215,7 +2215,7 @@ func (e *Executor) executeToolBatchPiggyback(
 
 func effectiveToolTimeout(configured time.Duration) time.Duration {
 	if configured <= 0 {
-		return defaultToolTimeout
+		return defaultSessionPolicy.ToolTimeout
 	}
 	return configured
 }
