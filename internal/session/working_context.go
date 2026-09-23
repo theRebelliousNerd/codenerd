@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -116,6 +117,12 @@ func commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDef
 // workingReplyReserve is the part of the input window kept free of working
 // context so the request is never sent at exactly the budget.
 const workingReplyReserve = 256
+
+// ErrInputBudgetExceeded is a working request that does not fit the input
+// budget once every tool result in it has been archived: what is left -- the
+// task, the instructions, the tool catalog -- is never cut, so the request is
+// refused before any model call rather than sent truncated.
+var ErrInputBudgetExceeded = errors.New("working request exceeds the input budget")
 
 func activeWorkingLoop(ctx context.Context) *workingLoop {
 	value, _ := ctx.Value(workingLoopKey{}).(*workingLoop)
@@ -454,7 +461,8 @@ func (e *Executor) workingRequestParts(ctx context.Context, system string, histo
 	for remaining < workingReplyReserve+512 {
 		i, j, size := largestToolResult(messages)
 		if size == 0 {
-			return nil, "", fmt.Errorf("working request exceeds configured input budget; required instructions cannot be discarded")
+			return nil, "", fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (half of context_window.max_tokens after its output reserves), with %d held back for the reply; no tool result is left to archive, and the task, the instructions and the tool catalog are sent whole or not at all",
+				ErrInputBudgetExceeded, window-remaining, window, workingReplyReserve+512)
 		}
 		results := append([]types.ToolResult(nil), messages[i].ToolResults...)
 		result := &results[j]
