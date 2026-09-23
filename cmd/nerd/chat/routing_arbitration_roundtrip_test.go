@@ -251,6 +251,25 @@ func TestDecideRoute_OneLaneAtMost(t *testing.T) {
 	}
 }
 
+// The derived /clarify lane asks once per input. Sent back unchanged after a
+// clarification, the request is not asked about again: no lane derives, and
+// articulation answers. Until 2026-09-23 the lane asked forever.
+func TestDecideRoute_ClarifiesAnInputOnce(t *testing.T) {
+	m := newRoundtripModel(t)
+	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.4}
+	assertRouteIntent(t, m, intent)
+	if route := m.decideRoute("fix it", intent, "coder"); route.Kind != RouteClarify {
+		t.Fatalf("first ask: route = %s, want clarify", route.Kind)
+	}
+	m.lastClarifyInput = "fix it"
+	if route := m.decideRoute("Fix it ", intent, "coder"); route.Kind != RouteNone {
+		t.Errorf("the same input again: route = %s, want none", route.Kind)
+	}
+	if route := m.decideRoute("fix the parser", intent, "coder"); route.Kind != RouteClarify {
+		t.Errorf("a different input: route = %s, want clarify", route.Kind)
+	}
+}
+
 // Turn 1 decomposes (multi_step_signal rows asserted); turn 2 is a one-step
 // fix. If turn 1's signals lingered, turn 2 would decompose too. Only
 // decideRoute's in-method retract protects turn 2.

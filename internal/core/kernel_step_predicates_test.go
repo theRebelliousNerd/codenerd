@@ -460,6 +460,21 @@ func TestRouting_MutationLanes(t *testing.T) {
 	})
 }
 
+// TestRouting_ClarifiesAnInputOnce: the input the last clarification asked
+// about, sent again, is not clarified again.
+func TestRouting_ClarifiesAnInputOnce(t *testing.T) {
+	k := routingKernel(t, 50)
+	assertIntent(t, k, "/mutation", "/fix", "none")
+	mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(40))
+	if !queryDerived(t, k, "route_decision(/clarify, /none)") {
+		t.Fatal("route_decision(/clarify) not derived for a first low-confidence mutation")
+	}
+	mustAssert(t, k, "intent_signal", types.MangleAtom("/clarified_already"))
+	if queryDerived(t, k, "route_decision") {
+		t.Error("a lane derived for an input the last clarification already asked about")
+	}
+}
+
 // TestRouting_OneLaneAtMost: precedence is derived, so a turn that qualifies
 // for several lanes holds one route_decision row -- respond_directly >
 // multi_step > delegate > clarify.

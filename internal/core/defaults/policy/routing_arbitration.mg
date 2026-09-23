@@ -12,6 +12,8 @@
 # EDB inputs (asserted by Go per turn, retract-before-assert):
 #   user_intent(/current_intent, Category, Verb, Target, Constraint)
 #   intent_signal(/is_question)            — perception's is_question signal
+#   intent_signal(/clarified_already)      — the input the last clarification
+#                                            asked about, sent again
 #   delegation_candidate(/current_intent, Shard, Conf)
 #   multi_step_signal(Signal)
 #   config_param(/routing_delegation_min_confidence, Min)  (routing section)
@@ -114,7 +116,12 @@ route_decision(/delegate, Shard) :-
     !multi_step_lane().
 
 # Clarify actionable-but-uncertain mutations: a shard exists for the verb but
-# perception confidence is below the delegation gate.
+# perception confidence is below the delegation gate. Not twice for the same
+# input: a user who sends back the request the last clarification asked
+# about has declined to narrow it, and asking again loops. The Go clarifiers
+# have always stood down on that input; the derived lane did not, and asked
+# forever (TestE2E_TaskRouting_ClarifierLoopGuard_SameInputNoReClarify, red
+# from 2026-09-18 until 2026-09-23).
 route_decision(/clarify, /none) :-
     user_intent(/current_intent, /mutation, _, _, _),
     delegation_candidate(/current_intent, Shard, Conf),
@@ -122,4 +129,5 @@ route_decision(/clarify, /none) :-
     config_param(/routing_delegation_min_confidence, Min),
     Conf < Min,
     !wants_direct_answer(),
-    !multi_step_lane().
+    !multi_step_lane(),
+    !intent_signal(/clarified_already).

@@ -115,12 +115,19 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 			return none
 		}
 	}
+	var signals []string
 	if intent.IsQuestion {
+		signals = append(signals, "/is_question")
+	}
+	if trimmed := strings.TrimSpace(input); trimmed != "" && strings.EqualFold(trimmed, strings.TrimSpace(m.lastClarifyInput)) {
+		signals = append(signals, "/clarified_already")
+	}
+	for _, sig := range signals {
 		if err := m.kernel.Assert(core.Fact{
 			Predicate: "intent_signal",
-			Args:      []any{types.MangleAtom("/is_question")},
+			Args:      []any{types.MangleAtom(sig)},
 		}); err != nil {
-			logging.RoutingError("[decideRoute] assert intent_signal failed: %v", err)
+			logging.RoutingError("[decideRoute] assert intent_signal %s failed: %v", sig, err)
 			return none
 		}
 	}
