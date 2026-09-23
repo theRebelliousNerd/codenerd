@@ -280,12 +280,31 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 	// keeps the policy facts in sync across phases.
 	if o.virtualStore != nil {
 		logging.CampaignDebug("Refreshing world model scope")
-		// Best-effort scope refresh to update code graph facts
-		// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
-		_, _ = o.virtualStore.RouteAction(ctx, core.Fact{
+		// The constitution permits a safe action only as a pending_action
+		// with the exact target and payload it is routed with (the canonical
+		// JSON of the payload; "{}" for none). This routed refresh_scope bare,
+		// so every rolling-wave refresh was denied ("policy DENY
+		// action=refresh_scope", 2026-09-21) and no campaign ever refreshed the
+		// world model between phases: each phase planned against the code as it
+		// was before the phase before it.
+		actionID := fmt.Sprintf("rolling-wave-%d", time.Now().UnixNano())
+		if o.kernel != nil {
+			pending := core.Fact{
+				Predicate: "pending_action",
+				Args:      []any{actionID, core.MangleAtom("/refresh_scope"), o.workspace, "{}", time.Now().Unix()},
+			}
+			if err := o.kernel.Assert(pending); err != nil {
+				logging.CampaignWarn("rolling-wave scope refresh: assert pending_action: %v", err)
+			} else {
+				defer func() { _ = o.kernel.RetractFact(pending) }()
+			}
+		}
+		if _, err := o.virtualStore.RouteAction(ctx, core.Fact{
 			Predicate: "next_action",
-			Args:      []any{fmt.Sprintf("rolling-wave-%d", time.Now().UnixNano()), "/refresh_scope", o.workspace},
-		})
+			Args:      []any{actionID, "/refresh_scope", o.workspace},
+		}); err != nil {
+			logging.CampaignWarn("rolling-wave scope refresh failed: %v", err)
+		}
 	}
 
 	if o.replanner != nil {
@@ -573,18 +592,15 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 	resultSummary := ""
 	if result != nil {
 		if data, err := json.Marshal(result); err == nil {
-			resultSummary = string(data)
-			// Truncate if too long
-			if len(resultSummary) > 1000 {
-				resultSummary = resultSummary[:1000] + "..."
-			}
+			// The kernel keeps the head of the result, and says it is the
+			// head: the whole result is stored for dependents below.
+			resultSummary = types.ClampText(string(data), 1000, "task result")
 		}
 	}
-	// task_result is what the kernel derives task completion, dependency
-	// unblocking and campaign progress from. Dropped, the task looks in-flight
-	// forever to the logic layer while the in-memory campaign counts it done —
-	// which is exactly the split that stalls a campaign with no visible cause.
-	// completeTask has no error to return, so this is logged at Error.
+	// task_result is the kernel's audit record of a completed task. No rule
+	// derives completion from it -- that is campaign_task's status -- but it is
+	// the one place a query can see what a task returned. completeTask has no
+	// error to return, so a rejected assert is logged at Error.
 	if err := o.kernel.Assert(core.Fact{
 		Predicate: "task_result",
 		Args:      []any{task.ID, "/success", resultSummary},

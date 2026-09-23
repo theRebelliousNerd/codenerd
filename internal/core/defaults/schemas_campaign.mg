@@ -347,6 +347,19 @@ Decl campaign_blocked(CampaignID, Reason) bound [/string, /name].
 # /unverified (its checkpoint never passed within its attempts)
 Decl has_unverified_phase(CampaignID) bound [/string].
 
+# task_result(TaskID, Outcome, Summary) - the audit record of a completed task:
+# its outcome and the start of its result, marked where it was cut. It was
+# asserted with no Decl, so it was stored and could never be queried; its
+# producer's comment claimed the kernel derived completion from it, which no
+# rule does (completion is campaign_task's status).
+Decl task_result(TaskID, Outcome, Summary) bound [/string, /name, /string].
+
+# self_correction(Hypothesis, At) - the model's envelope reported a
+# self-correction: its stated hypothesis, and when (unix seconds). Asserted by
+# the session executor for autopoiesis tracking; until 2026-09-21 undeclared,
+# so no rule and no query could see one.
+Decl self_correction(Hypothesis, At) bound [/string, /number].
+
 # -----------------------------------------------------------------------------
 # Acceptance: the campaign's deterministic witness
 # -----------------------------------------------------------------------------

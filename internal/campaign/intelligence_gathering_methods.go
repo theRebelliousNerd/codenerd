@@ -486,8 +486,11 @@ func (g *IntelligenceGatherer) gatherCodePatterns(ctx context.Context, report *I
 	}
 	logging.CampaignDebug("Gathering code patterns for %d paths", len(paths))
 
-	// Query kernel for detected patterns
-	patternPredicates := []string{"design_pattern", "anti_pattern", "architecture_pattern"}
+	// Query kernel for detected patterns. anti_pattern is the only pattern
+	// predicate anything produces; design_pattern and architecture_pattern were
+	// queried here with no Decl and no producer anywhere, which returned nothing
+	// and logged a warning on every campaign.
+	patternPredicates := []string{"anti_pattern"}
 	for _, pred := range patternPredicates {
 		facts, err := g.kernel.Query(pred)
 		if err != nil {

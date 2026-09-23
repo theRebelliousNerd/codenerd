@@ -101,8 +101,12 @@ func (p *ASTParser) parsePython(fsPath, factPath string) ([]types.Fact, error) {
 
 	logging.WorldDebug("Attempting tree-sitter parsing for Python: %s", filepath.Base(fsPath))
 	facts, err := p.tsParser.ParsePython(factPath, content)
-	if err != nil || len(facts) == 0 {
-		return nil, fmt.Errorf("tree-sitter parsing failed or returned empty for Python: %s - %w", filepath.Base(fsPath), err)
+	if err != nil {
+		return nil, fmt.Errorf("tree-sitter parsing failed for Python: %s: %w", filepath.Base(fsPath), err)
+	}
+	if len(facts) == 0 {
+		logging.WorldDebug("Tree-sitter: %s parsed and declares nothing extractable", filepath.Base(fsPath))
+		return nil, nil
 	}
 
 	logging.WorldDebug("Tree-sitter succeeded for Python: %s (%d facts)", filepath.Base(fsPath), len(facts))
@@ -123,8 +127,12 @@ func (p *ASTParser) parseRust(fsPath, factPath string) ([]types.Fact, error) {
 
 	logging.WorldDebug("Attempting tree-sitter parsing for Rust: %s", filepath.Base(fsPath))
 	facts, err := p.tsParser.ParseRust(factPath, content)
-	if err != nil || len(facts) == 0 {
-		return nil, fmt.Errorf("tree-sitter parsing failed or returned empty for Rust: %s - %w", filepath.Base(fsPath), err)
+	if err != nil {
+		return nil, fmt.Errorf("tree-sitter parsing failed for Rust: %s: %w", filepath.Base(fsPath), err)
+	}
+	if len(facts) == 0 {
+		logging.WorldDebug("Tree-sitter: %s parsed and declares nothing extractable", filepath.Base(fsPath))
+		return nil, nil
 	}
 
 	logging.WorldDebug("Tree-sitter succeeded for Rust: %s (%d facts)", filepath.Base(fsPath), len(facts))
@@ -155,8 +163,15 @@ func (p *ASTParser) parseTypeScript(fsPath, factPath string) ([]types.Fact, erro
 		facts, parseErr = p.tsParser.ParseJavaScript(factPath, content)
 	}
 
-	if parseErr != nil || len(facts) == 0 {
-		return nil, fmt.Errorf("tree-sitter parsing failed or returned empty for TS/JS: %s - %w", filepath.Base(fsPath), parseErr)
+	// A file that parses and declares nothing the extractor records (a
+	// constants module, a re-export index) is a result, not a failure. It used
+	// to be logged as an ERROR, wrapping a nil error as "%!w(<nil>)".
+	if parseErr != nil {
+		return nil, fmt.Errorf("tree-sitter parsing failed for TS/JS: %s: %w", filepath.Base(fsPath), parseErr)
+	}
+	if len(facts) == 0 {
+		logging.WorldDebug("Tree-sitter: %s parsed and declares nothing extractable", filepath.Base(fsPath))
+		return nil, nil
 	}
 
 	logging.WorldDebug("Tree-sitter succeeded for TS/JS: %s (%d facts)", filepath.Base(fsPath), len(facts))

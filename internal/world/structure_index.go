@@ -235,6 +235,28 @@ func parseStructFile(fsPath, canonical, fingerprint string) *structFile {
 		sym.Exported = ast.IsExported(sym.name)
 		f.symbols = append(f.symbols, sym)
 	}
+	// collectCalls records every call under node as made by caller, including
+	// the calls inside function literals: a closure's calls belong to the
+	// declaration that holds it.
+	collectCalls := func(node ast.Node, caller string) {
+		ast.Inspect(node, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			switch fun := call.Fun.(type) {
+			case *ast.Ident:
+				f.calls = append(f.calls, StructCall{Caller: caller, File: canonical, Line: line(call.Pos()), Name: fun.Name})
+			case *ast.SelectorExpr:
+				qualifier := ""
+				if x, ok := fun.X.(*ast.Ident); ok {
+					qualifier = x.Name
+				}
+				f.calls = append(f.calls, StructCall{Caller: caller, File: canonical, Line: line(call.Pos()), Qualifier: qualifier, Name: fun.Sel.Name})
+			}
+			return true
+		})
+	}
 
 	for _, decl := range node.Decls {
 		switch d := decl.(type) {
@@ -251,24 +273,7 @@ func parseStructFile(fsPath, canonical, fingerprint string) *structFile {
 			}
 			add(sym)
 			if d.Body != nil {
-				caller := sym.ID
-				ast.Inspect(d.Body, func(n ast.Node) bool {
-					call, ok := n.(*ast.CallExpr)
-					if !ok {
-						return true
-					}
-					switch fun := call.Fun.(type) {
-					case *ast.Ident:
-						f.calls = append(f.calls, StructCall{Caller: caller, File: canonical, Line: line(call.Pos()), Name: fun.Name})
-					case *ast.SelectorExpr:
-						qualifier := ""
-						if x, ok := fun.X.(*ast.Ident); ok {
-							qualifier = x.Name
-						}
-						f.calls = append(f.calls, StructCall{Caller: caller, File: canonical, Line: line(call.Pos()), Qualifier: qualifier, Name: fun.Sel.Name})
-					}
-					return true
-				})
+				collectCalls(d.Body, sym.ID)
 			}
 		case *ast.GenDecl:
 			for _, spec := range d.Specs {
@@ -292,12 +297,29 @@ func parseStructFile(fsPath, canonical, fingerprint string) *structFile {
 					if d.Tok == token.CONST {
 						kind = "const"
 					}
+					caller := ""
 					for _, name := range sp.Names {
 						if name.Name == "_" {
 							continue
 						}
 						add(StructSymbol{name: name.Name, ID: f.pkg + "." + name.Name, Kind: kind,
 							StartLine: line(name.Pos()), EndLine: line(sp.End())})
+						if caller == "" {
+							caller = f.pkg + "." + name.Name
+						}
+					}
+					// Calls in an initializer are calls: every cobra command's
+					// RunE closure lives in a package-level var, as do function
+					// tables and `var x = f()`. They were never walked, so
+					// callers_of answered "tests only" for functions the CLI
+					// calls in production, and unreferenced_symbols called them
+					// dead (2026-09-21: features.ConfigSchemaJSON, called from
+					// cmd/nerd/cmd_features.go:37, reported with 3 test callers).
+					if caller == "" {
+						caller = f.pkg + ".init"
+					}
+					for _, value := range sp.Values {
+						collectCalls(value, caller)
 					}
 				}
 			}

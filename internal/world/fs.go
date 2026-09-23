@@ -202,6 +202,16 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		}
 
 		if err != nil {
+			// An entry listed and then gone before it could be stat'ed was
+			// deleted or replaced mid-walk -- a campaign writing into the tree
+			// while the scan walks it does this every run. It is skipped, not
+			// fatal: returning it aborted the whole workspace scan
+			// (2026-09-21, Docs/architecture/features/00-INDEX.md), and the
+			// campaign planned against no fresh world model at all.
+			if os.IsNotExist(err) && path != root {
+				logging.WorldDebug("Walk: %s vanished during the scan; skipped", path)
+				return nil
+			}
 			logging.Get(logging.CategoryWorld).Warn("Walk error at %s: %v", path, err)
 			return err
 		}

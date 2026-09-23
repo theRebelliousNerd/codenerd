@@ -150,6 +150,67 @@ func TestStructureIndexUnreferencedIsConservative(t *testing.T) {
 	}
 }
 
+// A call inside a package-level var initializer is a call. Every cobra
+// command's RunE closure lives in one; before they were walked, callers_of
+// answered "tests only" for a function the CLI calls in production and
+// unreferenced_symbols called it dead (2026-09-21, features.ConfigSchemaJSON
+// called from cmd/nerd/cmd_features.go:37 reported with 3 test callers).
+func TestStructureIndexSeesCallsInPackageLevelInitializers(t *testing.T) {
+	root := t.TempDir()
+	writeStructFile(t, root, "go.mod", "module fixture\n\ngo 1.24\n")
+	writeStructFile(t, root, "lib/lib.go", `package lib
+
+// Schema is called only from a command's closure.
+func Schema() string { return "{}" }
+
+// Table is called only through a function table.
+func Table() int { return 1 }
+
+// Seed is called only from an initializer expression.
+func Seed() int { return 2 }
+`)
+	writeStructFile(t, root, "cmd/cmd.go", `package cmd
+
+import "fixture/lib"
+
+type Command struct{ RunE func() error }
+
+var featuresCmd = &Command{
+	RunE: func() error {
+		_ = lib.Schema()
+		return nil
+	},
+}
+
+var handlers = map[string]func() int{"t": lib.Table}
+
+var seeded = lib.Seed()
+`)
+	idx := NewStructureIndex(root)
+	ctx := context.Background()
+
+	_, callers, _, err := idx.Callers(ctx, "lib.Schema")
+	if err != nil {
+		t.Fatalf("Callers: %v", err)
+	}
+	if len(callers) != 1 || callers[0].Caller != "cmd.featuresCmd" || callers[0].File != "cmd/cmd.go" || callers[0].Match != "exact" {
+		t.Fatalf("Callers(lib.Schema) = %+v, want the call in featuresCmd's RunE closure", callers)
+	}
+	if _, seed, _, err := idx.Callers(ctx, "lib.Seed"); err != nil || len(seed) != 1 || seed[0].Caller != "cmd.seeded" {
+		t.Fatalf("Callers(lib.Seed) = %+v, err=%v, want the initializer of cmd.seeded", seed, err)
+	}
+
+	unref, _, err := idx.Unreferenced(ctx, "lib")
+	if err != nil {
+		t.Fatalf("Unreferenced: %v", err)
+	}
+	for _, sym := range unref {
+		if sym.ID == "lib.Schema" || sym.ID == "lib.Seed" {
+			t.Errorf("%s is called from a package-level initializer and was reported unreferenced", sym.ID)
+		}
+	}
+}
+
 // TestStructureIndexFollowsEdits pins freshness: an answer after an edit
 // describes the file as it is, and only the edited file is parsed again.
 func TestStructureIndexFollowsEdits(t *testing.T) {

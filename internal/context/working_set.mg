@@ -125,7 +125,15 @@ working_search_open() :-
 working_search_open() :-
     working_structural(_, Misses), working_structural_miss_limit(N), Misses >= N.
 
-working_stop(/repeated_cycle) :- working_control(/yes, _).
+# A repeated trace before anything was written is a stall, and stops the turn.
+# After a write it is the model re-checking work it has already made, and it
+# finalizes instead (working_finalize(/repeat_after_write), below). Stopping it
+# failed the task, and the campaign's task transaction then restored the
+# pre-task snapshot: observed 2026-09-21 on campaign 7b853890, documents were
+# written, read back and recalled until this rule fired, failed, deleted and
+# rewritten from scratch -- 03-GAP-ANALYSIS.md three times -- while the
+# policy's own verify nudge was asking for exactly that reading.
+working_stop(/repeated_cycle) :- working_control(/yes, _), working_progress(_, _, 0, _, _).
 working_stop(/tool_failures) :- working_control(_, Failed), Failed >= 3.
 # A change task that has only read for the whole stall span never started.
 # Observed 2026-09-11: 300 reads in 25 minutes before a one-line edit the
@@ -145,6 +153,12 @@ working_continue() :- working_control(_, _), !working_stopped().
 working_finalize(/verify_after_write) :-
     working_progress(/write, _, Writes, SinceWrite, SinceVerify), Writes > 0,
     working_finalize_rounds(N), SinceWrite >= N, SinceVerify >= N.
+# A turn that has written and then repeats itself is done: the harness collects
+# the conclusion and runs the gates itself, with the write kept. The gates, not
+# the repetition, decide whether the work stands.
+working_finalize(/repeat_after_write) :-
+    working_control(/yes, _),
+    working_progress(_, _, Writes, _, _), Writes > 0.
 
 # Steering, well before the stop and finalize thresholds.
 working_nudge(/implement) :-

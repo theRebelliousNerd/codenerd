@@ -69,6 +69,11 @@ func TestWorkingSetContinuePolicy(t *testing.T) {
 	}{
 		{"a fresh read task continues", WorkingProgress{Rounds: 1, SinceWrite: 1, SinceVerify: 1}, WorkingDecision{Continue: true}},
 		{"a repeated cycle stops", WorkingProgress{Cycle: true, Rounds: 2, SinceWrite: 2, SinceVerify: 2}, WorkingDecision{Stop: "repeated_cycle"}},
+		{"a repeated cycle on a change task that has not written stops", WorkingProgress{WriteIntent: true, Cycle: true, Rounds: 5, SinceWrite: 5, SinceVerify: 5}, WorkingDecision{Stop: "repeated_cycle"}},
+		// Campaign 7b853890, 2026-09-21: a document written, read back until the
+		// repeat detector fired, failed, rolled back and rewritten -- three times.
+		// After a write a repeat finalizes with the write kept; the gates judge it.
+		{"a repeated cycle after a write finalizes and keeps the write", WorkingProgress{WriteIntent: true, Cycle: true, Rounds: 12, Writes: 1, SinceWrite: 4, SinceVerify: 4}, WorkingDecision{Continue: true, Finalize: "repeat_after_write", Nudge: "verify"}},
 		{"three failed rounds stop", WorkingProgress{FailedRounds: 3, Rounds: 3, SinceWrite: 3, SinceVerify: 3}, WorkingDecision{Stop: "tool_failures"}},
 		{"a read task is nudged to conclude at the nudge span", WorkingProgress{Rounds: 8, SinceWrite: 8, SinceVerify: 8}, WorkingDecision{Continue: true, Nudge: "conclude"}},
 		{"a change task is nudged to implement at the nudge span", WorkingProgress{WriteIntent: true, Rounds: 8, SinceWrite: 8, SinceVerify: 8}, WorkingDecision{Continue: true, Nudge: "implement"}},

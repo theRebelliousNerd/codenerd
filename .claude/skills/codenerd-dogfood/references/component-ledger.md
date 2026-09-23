@@ -5684,3 +5684,54 @@ shard timeout and the executor cuts a retrieval query at 4096 runes without sayi
 - Load-only flakes are now seven: add `TestOuroborosLoop_ExecuteTool_Concurrent` (31 s in `./...`,
   0.6 s alone) and `TestClaudeCLI_SchemaMode` (34 s, 3.7 s alone). Which one fails changes run to
   run; every full-suite run this session had exactly one or two of them.
+
+## 2026-09-21 (evening) -- R6 on internal/features: the run stopped, and the six defects it forced
+
+**Run.** Campaign 7b853890, the same nebulous "make them the dream" brief, one package
+(`internal/features`), `--accept python scripts/r6_structcheck.py features` (the first campaign
+started with an acceptance witness, `64e11bb0`). 15:19-17:34, stopped by hand when Steve needed
+the GPU. 31 tasks planned in 6 phases; 18 completed, phases 1-4 whole, phase 5 part-done, phase 6
+not started. The grader went 16 -> 7 problems; what is left is exactly the phase 5-6 slots it never
+reached (`00-INDEX.md`, `03-GAP-ANALYSIS.md`, `TODO.md`, three files without front-matter, one ADR
+without a `**Witness:**` line). The eight new documents (~120 KB) stay uncommitted until the
+campaign resumes and the witness passes: a half-built corpus is the thing R6 exists to stop.
+
+**The defects it forced, all fixed by hand the same evening** (none are safety or permission
+logic except where marked; codeNERD was mid-run and the tree was not its to edit):
+
+- **A write followed by a repeat was a failure, and the failure deleted the write.**
+  `working_stop(/repeated_cycle)` fired on any repeated trace. A documentation task writes, then
+  reads back and recalls what it wrote -- which the policy's own verify nudge asks for -- and the
+  trace repeats. The stop failed the task, and the task transaction restored the pre-task
+  snapshot: `03-GAP-ANALYSIS.md` was written, deleted and rewritten from nothing three times. Now a
+  repeat before any write stops the turn; a repeat after one derives
+  `working_finalize(/repeat_after_write)`, keeping the write and handing the verdict to the gates
+  (`internal/context/working_set.mg`, three table rows).
+- **`callers_of` was blind to package-level initializers** -- my bug, from `5b439060`. Calls in a
+  `var x = ...` initializer (every cobra command's `RunE` closure) were never walked, so the
+  campaign's capability spec called `features.ConfigSchemaJSON` test-only. The campaign's own review
+  task caught the false claim before I did. `parseStructFile` now walks `ValueSpec` values with the
+  same visitor as function bodies, and records the variable as the caller.
+- **Rolling-wave scope refresh was denied on every campaign, ever.** It routed `/refresh_scope`
+  bare; the constitution permits a safe action only as a `pending_action` with its exact target
+  and payload (`policy DENY action=refresh_scope` in the campaign log). Every phase planned
+  against the code as it stood before the previous phase. It now asserts the `pending_action`,
+  routes and retracts, and logs a failed route instead of discarding it. **Permission-adjacent,
+  hand-built:** the rule was not touched, the caller now satisfies it; a real-kernel test pins deny
+  without the fact and permit with it.
+- **One file deleted mid-walk aborted the whole workspace scan** (`00-INDEX.md`, removed by a
+  campaign task while the scan ran). `ScanDirectory` skips an entry that no longer exists, unless
+  it is the root.
+- **A file that parses and declares nothing was logged as an ERROR** wrapping a nil error
+  (`%!w(<nil>)`), for Python, Rust and TS/JS alike. It is now a debug line and an empty result.
+- **Four predicates the kernel could not see:** `task_result` and `self_correction` were asserted
+  with no Decl (stored, unqueryable; closes P2 from the pilot); `design_pattern` and
+  `architecture_pattern` were queried every campaign with no Decl and no producer. Declared, and the
+  phantom queries removed. `task_result`'s producer claimed the kernel derives completion from it;
+  no rule does, and the comment now says so. Undeclared-assert ratchet: -2.
+
+**Observed and still open.** `recall_context` rejects the `obs:sa:` handles the working set itself
+hands out, and file paths; `run_tests` is offered to turns that wrote no Go; the evolution cycle's
+two-minute clock is shorter than one atom-generation call, so it starves; a hardcoded 365-day
+purge and a 49,152-byte artifact injection; token counts drift ~25% from the provider's receipts;
+`.nerd/context/` still grows unpruned.
