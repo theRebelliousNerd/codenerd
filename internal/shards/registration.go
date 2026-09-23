@@ -142,6 +142,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// The edit sites a brief names, beside turn_verb:
 				// turn_needs_step_plan (turn_steps.mg) joins the two.
 				"turn_brief_site",
+				// A repair episode's attempts (repair_episode.mg), with the
+				// turn facts they are cleaned up with.
+				"repair_attempt",
 				"turn_gate",
 				"turn_untested",
 				"turn_uncovered",

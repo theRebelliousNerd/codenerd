@@ -105,6 +105,20 @@ working_regime(/commit) :-
     working_regime_now(/commit),
     working_progress(/write, _, _, _, SinceVerify), SinceVerify > 0.
 
+# A repair attempt (internal/session/repair_loop.go) runs under /repair: its
+# brief is a failure the harness already measured, with the failing output in
+# hand, so one round of reading is the diagnosis and reading then closes for
+# the rest of the attempt (F-REPAIR-1, pinned by
+# TestRepairLoop_ReadThenEditConverges). The attempt ends at its first write,
+# at a working_stop, or when the model stops calling tools -- not at a count of
+# model calls (sweep finding F10: the six-call ceiling it replaces).
+Decl working_repair_read_rounds(N) bound [/number].
+working_repair_read_rounds(1).
+working_regime(/commit) :-
+    working_regime_now(/repair),
+    working_progress(/write, Rounds, 0, _, _),
+    working_repair_read_rounds(N), Rounds >= N.
+
 # Structural-first search. The structure index answers "where is X", "what is
 # in this package", "who calls X" and "what does nothing use" in one call;
 # grep answers them in a call per guess plus a read per hit. Measured

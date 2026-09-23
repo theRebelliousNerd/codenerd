@@ -24,7 +24,10 @@ import (
 const (
 	closureGoMod  = "module closureprobe\n\ngo 1.25\n"
 	closureDouble = "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\nfunc main() {}\n"
-	closureHalf   = "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\nfunc Half(x int) int {\n\treturn x / 2\n}\n\nfunc main() {}\n"
+	// closureDoubleBefore is Double as the workspace had it before a turn
+	// rewrote it as closureDouble: the same function, written otherwise.
+	closureDoubleBefore = "package main\n\nfunc Double(x int) int {\n\treturn x + x\n}\n\nfunc main() {}\n"
+	closureHalf         = "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\nfunc Half(x int) int {\n\treturn x / 2\n}\n\nfunc main() {}\n"
 
 	closureTestDouble = "package main\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n"
 	closureTestBoth   = closureTestDouble + "\nfunc TestDoubleZero(t *testing.T) {\n\tif Double(0) != 0 {\n\t\tt.Fatal(\"Double(0) != 0\")\n\t}\n}\n"
@@ -241,8 +244,11 @@ func TestCriticUplift_ThatBreaksTheTestsIsUndone(t *testing.T) {
 // deleted-test round comes after the critic now, and hands the test back.
 func TestCriticUplift_ADeletedTestIsHandedBack(t *testing.T) {
 	restorePrompt := ""
+	// main.go exists before the turn, as the package its tests test does;
+	// the turn edits it. A turn that created it would owe it a test of its
+	// own first (turn_missing_test), which is not what this test is about.
 	h, _, err := criticTurn(t,
-		map[string]string{"main_test.go": closureTestBoth},
+		map[string]string{"main_test.go": closureTestBoth, "main.go": closureDoubleBefore},
 		map[string]string{"main.go": closureDouble},
 		func(prompt string) map[string]string {
 			switch {

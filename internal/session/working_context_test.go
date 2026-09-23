@@ -410,7 +410,7 @@ func TestCompleteWithWorkingContext_RendersTheRecalledFileUnderTheCommitRegime(t
 	if err := e.recordWorkingResult(ctx, readDefs, "body-of-defs", nil); err != nil {
 		t.Fatal(err)
 	}
-	defer e.enterCommitRegime(ctx)()
+	loop.regime = commitRegime
 	id := loop.observations[readFix.ID]
 	page, err := loop.set.Recall(ctx, id, 0, 0)
 	if err != nil {

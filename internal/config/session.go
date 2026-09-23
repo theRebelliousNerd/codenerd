@@ -207,9 +207,11 @@ func (c SessionConfig) Check(prefix string) []Problem {
 
 // Params are the session knobs the kernel's rules read, as config_param
 // rows. Each key is declared config_param_required(/session, Key) next to
-// the rules that read it.
+// the rules that read it: turn_steps.mg (step_plan_min_sites) and
+// repair_episode.mg (repair_max_attempts).
 func (p SessionPolicy) Params() []Param {
 	return []Param{
 		{Key: "/session_step_plan_min_sites", Value: int64(p.StepPlanMinSites)},
+		{Key: "/session_repair_max_attempts", Value: int64(p.RepairMaxAttempts)},
 	}
 }

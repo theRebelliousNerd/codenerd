@@ -48,6 +48,10 @@ type workingLoop struct {
 // commitRegime is the working_regime under which exploration is closed.
 const commitRegime = "commit"
 
+// repairRegime is the regime a repair attempt's rounds run under: open for
+// its diagnosis, until the policy closes reading (working_set.mg).
+const repairRegime = "repair"
+
 // closedForReading says whether a tool is withheld under the commit regime:
 // every read-effect and external-effect tool except recall_context, which
 // recovers evidence the loop already gathered rather than exploring for more.
@@ -59,18 +63,6 @@ func closedForReading(name string) bool {
 	}
 	effect, err := tools.LookupEffect(name)
 	return err == nil && (effect == tools.EffectRead || effect == tools.EffectExternal)
-}
-
-// enterCommitRegime puts the active working loop under the commit regime and
-// returns the call that restores what it was. A no-op outside a working loop.
-func (e *Executor) enterCommitRegime(ctx context.Context) func() {
-	loop := activeWorkingLoop(ctx)
-	if loop == nil {
-		return func() {}
-	}
-	previous := loop.regime
-	loop.regime = commitRegime
-	return func() { loop.regime = previous }
 }
 
 // structuralFirstDefinitions is the catalog offered while the policy has not

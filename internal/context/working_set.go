@@ -150,7 +150,7 @@ type WorkingProgress struct {
 	Writes       int    // durable writes so far
 	SinceWrite   int    // rounds since the last durable write (Rounds when none)
 	SinceVerify  int    // rounds since the last focused verification (Rounds when none)
-	Regime       string // the regime the round just ran under ("" open, "commit")
+	Regime       string // the regime the round just ran under ("" open, "commit", "repair")
 
 	StructuralAttempts int // structural queries that ran (find_symbol, callers_of, ...)
 	StructuralMisses   int // of those, the ones that errored or returned no rows
@@ -188,8 +188,11 @@ func (w *WorkingSet) Continue(ctx context.Context, p WorkingProgress) (WorkingDe
 		intent = "/write"
 	}
 	regime := "/open"
-	if strings.TrimPrefix(strings.TrimSpace(p.Regime), "/") == "commit" {
+	switch strings.TrimPrefix(strings.TrimSpace(p.Regime), "/") {
+	case "commit":
 		regime = "/commit"
+	case "repair":
+		regime = "/repair"
 	}
 	facts := []mangle.Fact{
 		{Predicate: "working_control", Args: []any{flag, int64(p.FailedRounds)}},

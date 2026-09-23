@@ -13,46 +13,11 @@ import (
 	jitconfig "codenerd/internal/jit/config"
 )
 
-// A repair episode is bounded by its attempts (session.repair_max_attempts,
-// default 3: room to misdiagnose once and still recover; beyond that the loop
-// is burning budget going nowhere and the turn must fail loudly instead).
-//
-// The attempts are the episode's only bound. Each ends in a recheck, so
-// attempts that did not converge are a repeated failure, and that is what
-// stops the loop. There is no wall clock: how long a model thinks is not
-// evidence about whether it is converging (ladder run R1-4d: a 368 s call,
-// cut with nothing returned by a 6.2-minute clock sized for faster models).
-// The turn's own deadline, when the user set one, still applies.
-
-// repairRoundsPerAttempt bounds one attempt's read-diagnose-edit cycle: each
-// attempt is allowed multiple model calls so it can read, then edit, before
-// the loop rechecks. Without it a single-call attempt that spends its only
-// model call reading ends with no edit and the loop cannot converge.
-const repairRoundsPerAttempt = 6
-
 // repairRetainedOutputCap caps each OLDER attempt's retained output in later
 // prompts. The latest failing output always goes back whole (a repair prompt
 // built from truncated errors repairs whatever sorted first); only history
 // older than one round is capped, so context cannot grow without bound.
 const repairRetainedOutputCap = 2000
-
-// RepairBudget is the budget for one repair episode: a bounded number of
-// read→diagnose→edit→verify iterations.
-type RepairBudget struct {
-	MaxAttempts int
-}
-
-// repairBudgetFor resolves the episode budget from executor config with
-// defaults. A non-positive value falls back to the default: repair is always
-// bounded by its attempts; there is no way to configure an unbounded loop.
-func (e *Executor) repairBudgetFor() RepairBudget {
-	cfg := e.configSnapshot()
-	b := RepairBudget{MaxAttempts: defaultSessionPolicy.RepairMaxAttempts}
-	if cfg.RepairMaxAttempts > 0 {
-		b.MaxAttempts = cfg.RepairMaxAttempts
-	}
-	return b
-}
 
 // RepairCost is the episode cost ledger: every attempt, model call, tool
 // call, backtrack, and token the repair consumed.
@@ -207,15 +172,19 @@ func brokeTestsRepairPrompt(testOutput string) string {
 		"existed before this turn."
 }
 
-// repairLoop runs bounded read→diagnose→edit→verify iterations until the
-// recheck passes, the budget exhausts, or the episode is canceled.
+// repairLoop runs read→diagnose→edit→verify attempts until the recheck
+// passes, the policy gives up (repair_episode.mg: the user's attempt cap, or
+// the same failure surviving two edits), or the episode is canceled. There
+// is no wall clock: how long a model thinks is not evidence about whether it
+// is converging (ladder run R1-4d: a 368 s call, cut with nothing returned by
+// a 6.2-minute clock sized for faster models). The turn's own deadline, when
+// the user set one, still applies.
 //
 // Each attempt starts from retained error context — the latest failing output
 // plus compact summaries of prior attempts — appended to history, never
 // rewritten: turns after the first continue from the failure, not from a
-// cleaned-up story. An attempt that reads without editing escalates the next
-// one to the commit regime (reads closed), preserving the old second-round
-// behavior inside the loop.
+// cleaned-up story. Once an attempt reads without editing, every later one
+// runs under the commit regime (reads closed; the policy's repair_closed).
 //
 // It returns the last model response (for the turn's answer), accumulated
 // tool errors, the episode record (always non-nil when a repair ran), and an
@@ -234,8 +203,8 @@ func (e *Executor) repairLoop(
 	seedOutput string,
 	spec repairSpec,
 ) (*types.LLMToolResponse, []string, *RepairRecord, error) {
-	budget := e.repairBudgetFor()
 	rec := &RepairRecord{Kind: spec.kind, InitialFailure: seedOutput}
+	episode := newRepairEpisodeAtom()
 	epCtx, cancelEpisode := repairEpisodeContext(ctx)
 	defer cancelEpisode()
 
@@ -245,8 +214,10 @@ func (e *Executor) repairLoop(
 	// before any repair edit existed to break anything.
 	failure := repairFailure{Output: seedOutput}
 	useCommitRegime := false
+	// Why the episode gave up, for its error: the policy's reason.
+	gaveUp := ""
 
-	for attempt := 1; attempt <= budget.MaxAttempts; attempt++ {
+	for attempt := 1; gaveUp == ""; attempt++ {
 		if err := epCtx.Err(); err != nil {
 			rec.Followups = spec.followups()
 			if err == context.Canceled {
@@ -274,7 +245,7 @@ func (e *Executor) repairLoop(
 			regimeNote = " under the commit regime"
 		}
 		logging.Get(logging.CategorySession).Warn(
-			"Repair attempt %d/%d (%s)%s", attempt, budget.MaxAttempts, spec.kind, regimeNote)
+			"Repair attempt %d (%s)%s", attempt, spec.kind, regimeNote)
 
 		repaired, llmCalls, allCalls, repairErrs, toolResults, wrote, err := e.repairRound(epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime)
 		allErrs = append(allErrs, repairErrs...)
@@ -326,12 +297,16 @@ func (e *Executor) repairLoop(
 		case verdict == VerifyFailed:
 			rec.Cost.Backtracks++
 			failure = rechecked
-			if !wrote {
-				useCommitRegime = true
+			// What comes next is the policy's (repair_episode.mg): another
+			// attempt, under which regime, or giving up.
+			var closed bool
+			gaveUp, closed = e.nextRepairMove(episode, attempt, wrote, rechecked.Output)
+			useCommitRegime = useCommitRegime || closed
+			if gaveUp == "" {
+				logging.Get(logging.CategorySession).Warn(
+					"Repair attempt %d (%s) still failing; backtracking to retained error context",
+					attempt, spec.kind)
 			}
-			logging.Get(logging.CategorySession).Warn(
-				"Repair attempt %d (%s) still failing; backtracking to retained error context",
-				attempt, spec.kind)
 		default: // VerifyIndeterminate, VerifySkipped
 			// No verdict: the failure stands until an affirmative pass clears
 			// it. The turn completes unverified and closeChangeEvidence gets
@@ -346,8 +321,8 @@ func (e *Executor) repairLoop(
 	rec.EditedFiles = editedFilesFor(result)
 	rec.Followups = spec.followups()
 	logging.Get(logging.CategorySession).Warn(
-		"Repair episode (%s) gave up after %d attempts; cost=%s",
-		spec.kind, budget.MaxAttempts, rec.Cost.String())
+		"Repair episode (%s) gave up after %d attempts (%s); cost=%s",
+		spec.kind, rec.Cost.Attempts, gaveUp, rec.Cost.String())
 	// Only the turn's own build and test repair ends here with nothing behind
 	// it. The forcing rounds (vet, coverage, pinning, removed tests) start from
 	// a green suite, hold their own snapshot, and put it back themselves.
@@ -359,8 +334,8 @@ func (e *Executor) repairLoop(
 		restoredNote = " " + restoredNote
 	}
 	return nil, allErrs, rec, fmt.Errorf(
-		"%w: %s and the repair loop did not converge after %d attempts (cost=%s).%s Follow-ups: %s. Last failure:\n%s",
-		ErrVerificationFailed, spec.brokenPhrase, budget.MaxAttempts, rec.Cost.String(), restoredNote,
+		"%w: %s and the repair loop did not converge after %d attempts: %s (cost=%s).%s Follow-ups: %s. Last failure:\n%s",
+		ErrVerificationFailed, spec.brokenPhrase, rec.Cost.Attempts, gaveUp, rec.Cost.String(), restoredNote,
 		strings.Join(rec.Followups, "; "), failure.Output)
 }
 

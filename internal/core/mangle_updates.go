@@ -285,6 +285,10 @@ func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
 		// What the planner is spent on: the sites the host measured in the
 		// brief, and the conclusion drawn from them.
 		"turn_brief_site", "turn_brief_site_count", "turn_needs_step_plan",
+		// What a repair episode does next (repair_episode.mg): a model that
+		// could write repair_attempt could keep its own episode alive.
+		"repair_attempt", "repair_attempt_count", "repair_exhausted", "repair_not_converging",
+		"repair_gives_up", "repair_move", "repair_closed",
 		// The user's thresholds (config_params.mg): a model that could write
 		// config_param could raise its own attempt cap or lower a gate's bar.
 		"config_param", "config_param_required",

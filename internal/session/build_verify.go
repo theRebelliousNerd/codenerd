@@ -516,26 +516,29 @@ func buildRepairPrompt(compilerOutput string) string {
 }
 
 // repairRound sends one repair prompt through the working request path and
-// runs up to repairRoundsPerAttempt model calls for the one attempt, executing
-// each response's batch and appending that round's assistant message and tool
-// results to history so the next round sees them. One attempt is allowed
-// several model calls because an attempt whose single call spends itself
-// reading ends with no edit and the loop cannot converge on even a one-line
-// compile error (F-REPAIR-1): a round that only read is followed by another
-// round carrying that read in its history. The attempt ends early when the
-// model answers with no tool calls, or when a round's batch performed a
-// successful write — the write hands control back to the outer loop, which
-// rechecks before another call is spent. Under commit the read tools are
-// withheld from the catalog and a read asked for anyway is answered with the
-// regime (see working_regime); the first round of an open attempt stays open,
-// so a model that wants one look at the reported lines gets it, and a round
-// that executed tools without writing is followed by a closed one: the
-// attempt enters the commit regime (lasting to the end of the attempt) and
-// appends the failing prompt plus the regime text so the next call carries
-// both. An attempt that already started closed re-appends the same prompt
-// plus regime text when the previous round read without writing, so the
-// model is told again to edit. The deferral covers the whole attempt, across
-// every round.
+// runs the attempt's rounds, executing each response's batch and appending
+// that round's assistant message and tool results to history so the next
+// round sees them. How many rounds an attempt gets is the working policy's
+// (working_set.mg), not a count: the attempt runs under the /repair regime,
+// each round's progress is reported to the policy, and the attempt ends at
+// its first successful write (the write hands control back to repairLoop,
+// which rechecks before another call is spent), when the model answers with
+// no tool calls, or when the policy derives a working_stop or a
+// working_finalize. A six-call ceiling stood here until sweep finding F10.
+//
+// One round of reading is the diagnosis (F-REPAIR-1: an attempt whose only
+// call spends itself reading cannot converge on even a one-line compile
+// error); the policy then closes reading, working_regime(/commit) under
+// /repair, and the failing prompt is re-sent with the regime text so the next
+// call carries both. Under commit the read tools are withheld from the
+// catalog and a read asked for anyway is answered with the regime. Reading
+// stays closed to the end of the attempt: the recheck repairLoop runs after
+// it is the verification that reopens it, not one the model runs itself. An
+// attempt repairLoop starts closed (commit: an earlier attempt of the episode
+// made no edit, repair_closed) runs under /commit from its first round.
+//
+// A repair needs the working policy: outside a working loop it refuses, as
+// the tool loop does, rather than run rounds nothing can end.
 //
 // It returns the last response (its Usage holds the sum across every round, so
 // the attempt's cost counts each call rather than only the last one), the
@@ -554,18 +557,33 @@ func (e *Executor) repairRound(
 	prompt string,
 	commit bool,
 ) (*types.LLMToolResponse, int, [][]types.ToolCall, []string, []types.ToolResult, bool, error) {
-	*history = append(*history, types.Message{Role: "user", Text: prompt})
-	closed := commit
-	if closed {
-		defer e.enterCommitRegime(ctx)()
+	loop := activeWorkingLoop(ctx)
+	if loop == nil {
+		return nil, 0, nil, nil, nil, false, errors.New(
+			"repair requires a working continuation policy and this turn has none " +
+				"(no workspace root, so no working set could be built)")
 	}
+	threshold, err := loop.set.RepeatThreshold(ctx)
+	if err != nil {
+		return nil, 0, nil, nil, nil, false, fmt.Errorf("working continuation policy: %w", err)
+	}
+	meter := newWorkingMeter(threshold)
+	previousRegime := loop.regime
+	defer func() { loop.regime = previousRegime }()
+	loop.regime = repairRegime
+	if commit {
+		loop.regime = commitRegime
+	}
+
+	*history = append(*history, types.Message{Role: "user", Text: prompt})
 	var repairErrs []string
 	var toolResults []types.ToolResult
 	var allCalls [][]types.ToolCall
 	var last *types.LLMToolResponse
 	llmCalls := 0
 	wrote := false
-	for round := 0; round < repairRoundsPerAttempt; round++ {
+	failedRounds := 0
+	for {
 		before := 0
 		if result != nil {
 			before = result.SuccessfulWriteTools
@@ -596,21 +614,52 @@ func (e *Executor) repairRound(
 		results, errs := e.executeToolBatch(ctx, repaired.ToolCalls, cfg, result)
 		repairErrs = append(repairErrs, errs...)
 		toolResults = append(toolResults, results...)
+		meter.observe(repaired.ToolCalls, results)
+		failedRounds++
+		for _, r := range results {
+			if !r.IsError {
+				failedRounds = 0
+				break
+			}
+		}
+		wrote = result != nil && result.SuccessfulWriteTools > before
+		if wrote {
+			*history = append(*history,
+				types.AssistantMessageFrom(repaired),
+				types.Message{Role: "user", ToolResults: results})
+			break
+		}
+
+		// A round that did not write: the policy says whether the attempt
+		// goes on, and under which regime.
+		progress := meter.workingProgress(true, failedRounds)
+		progress.Regime = loop.regime
+		decision, policyErr := loop.set.Continue(ctx, progress)
+		if policyErr != nil {
+			return last, llmCalls, allCalls, repairErrs, toolResults, wrote, fmt.Errorf("working continuation policy: %w", policyErr)
+		}
+		if decision.Nudge != "" {
+			results = appendWorkingNudge(results, workingNudgeText(decision.Nudge, progress))
+		}
 		*history = append(*history,
 			types.AssistantMessageFrom(repaired),
 			types.Message{Role: "user", ToolResults: results})
-		wrote = result != nil && result.SuccessfulWriteTools > before
-		if wrote {
+		if !decision.Continue || decision.Finalize != "" {
+			reason := decision.Stop
+			if reason == "" {
+				reason = decision.Finalize
+			}
+			logging.Get(logging.CategorySession).Warn(
+				"Repair attempt ended by the working policy (%s) after %d model call(s) without an edit", reason, llmCalls)
 			break
 		}
-		if round+1 < repairRoundsPerAttempt {
-			if !closed {
-				defer e.enterCommitRegime(ctx)()
-				closed = true
-			}
-			// Either freshly closed, or already closed where the previous
-			// round executed tools without writing (read without writing):
-			// carry the failing output plus the regime text into the next call.
+		if decision.Regime == commitRegime {
+			loop.regime = commitRegime
+		}
+		if loop.regime == commitRegime {
+			// Freshly closed, or already closed where this round executed
+			// tools without writing: carry the failing output plus the regime
+			// text into the next call.
 			*history = append(*history, types.Message{Role: "user", Text: withRegimePrompt(prompt, commitRegime)})
 		}
 	}

@@ -209,6 +209,12 @@ func TestDouble(t *testing.T) {
 	drive := func(t *testing.T, answer string) (*ExecutionResult, string, []string, error) {
 		t.Helper()
 		h := newRepairHarness(t, nil)
+		// The package exists; the turn adds code to it. A turn that created
+		// main.go would owe it a test first (turn_missing_test), which is not
+		// what the coverage round is about.
+		if err := os.WriteFile(filepath.Join(h.ws, "main.go"), []byte(repairMainGo), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		initial := func() *types.LLMToolResponse {
 			return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
 				h.writeCall("c1", "write_file", filepath.Join(h.ws, "main.go"), code),

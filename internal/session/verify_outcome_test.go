@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/evidence"
 	jitconfig "codenerd/internal/jit/config"
+	"codenerd/internal/prompt"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
@@ -142,6 +143,19 @@ func verifyGateExecutor(t *testing.T) (*Executor, *ExecutionResult) {
 	return e, result
 }
 
+// inTurnWorkingLoop is the context a turn's verification runs in: inside the
+// turn's working loop, whose policy ends a repair attempt's rounds (a repair
+// outside one refuses, as the tool loop does).
+func inTurnWorkingLoop(t *testing.T, e *Executor) context.Context {
+	t.Helper()
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "verify the change", &prompt.CompilationContext{ShardID: "probe"})
+	if err != nil {
+		t.Fatalf("beginWorkingLoop: %v", err)
+	}
+	t.Cleanup(closeLoop)
+	return ctx
+}
+
 func TestVerifyBuild_TimeoutIsIndeterminateNotSilent(t *testing.T) {
 	builds := &scriptVerifyRunner{script: []func(context.Context) ([]byte, error){verifyHang("still compiling...")}}
 	stubVerifySeams(t, 40*time.Millisecond, time.Minute, builds.runWithCtx, verifyPassAsRunner())
@@ -209,7 +223,7 @@ func TestVerifyAndRepairBuild_RecheckTimeoutRetainsOriginalFailure(t *testing.T)
 	trp := &verifyProseRepair{}
 	jitCfg := &jitconfig.EffectiveAgentRuntimeConfig{}
 
-	_, _, err := e.verifyAndRepairBuild(context.Background(), trp, "system", nil, nil, nil, jitCfg, result)
+	_, _, err := e.verifyAndRepairBuild(inTurnWorkingLoop(t, e), trp, "system", nil, nil, nil, jitCfg, result)
 	if err != nil {
 		t.Fatalf("unverified completion must not fail the turn (timeout is not proof of broken code), got: %v", err)
 	}
@@ -240,7 +254,7 @@ func TestVerifyAndRepairTests_RecheckTimeoutRetainsOriginalFailure(t *testing.T)
 	trp := &verifyProseRepair{}
 	jitCfg := &jitconfig.EffectiveAgentRuntimeConfig{}
 
-	_, _, err := e.verifyAndRepairTests(context.Background(), trp, "system", nil, nil, jitCfg, result)
+	_, _, err := e.verifyAndRepairTests(inTurnWorkingLoop(t, e), trp, "system", nil, nil, jitCfg, result)
 	if err != nil {
 		t.Fatalf("unverified completion must not fail the turn, got: %v", err)
 	}
@@ -299,7 +313,7 @@ func TestVerifyAndRepairBuild_TrueRepairClearsFailure(t *testing.T) {
 	jitCfg := &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"create_file"}}
 	toolDefs := e.buildToolDefinitions(jitCfg)
 
-	_, _, err := e.verifyAndRepairBuild(context.Background(), trp, "system", nil, nil, toolDefs, jitCfg, result)
+	_, _, err := e.verifyAndRepairBuild(inTurnWorkingLoop(t, e), trp, "system", nil, nil, toolDefs, jitCfg, result)
 	if err != nil {
 		t.Fatalf("affirmatively repaired build must complete, got: %v", err)
 	}

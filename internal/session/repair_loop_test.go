@@ -108,7 +108,10 @@ func newRepairHarness(t *testing.T, configure func(*Executor)) *repairHarness {
 			return &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "read_file", "edit_file"}}, nil
 		},
 	}
-	h.executor = NewExecutor(&MockKernel{}, &testExecutiveStore{}, mockLLM, &MockJITCompiler{}, mockCfgFactory, mockTransducer)
+	// The real policy corpus: what a failed attempt leads to is
+	// repair_move's decision (repair_episode.mg), and a kernel that derives
+	// nothing gives up after the first attempt.
+	h.executor = NewExecutor(realKernel(t), &testExecutiveStore{}, mockLLM, &MockJITCompiler{}, mockCfgFactory, mockTransducer)
 	h.executor.config.WorkspaceRoot = ws
 	h.executor.config.EnableSafetyGate = false
 	h.executor.EffectiveAgentRuntimeConfig = &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "read_file", "edit_file"}}
@@ -275,14 +278,18 @@ func TestRepairLoop_ReadThenEditConverges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessWithIntent: %v", err)
 	}
-	if turns != 2 {
-		t.Fatalf("repair llm turns=%d, want 2 (read round then write round)", turns)
+	// The episode's own calls are the attempt record's (llm_calls, below);
+	// the real policy then owes this /fix a /pinned round (coder_safety.mg),
+	// which reaches the same scripted model after the episode converged.
+	if turns < 2 {
+		t.Fatalf("repair llm turns=%d, want the read round then the write round", turns)
 	}
 	// F-REPAIR-1: the second round runs closed — a read-without-write round
-	// escalates to the commit regime instead of staying open, so the model
-	// is told again to edit with the failing output attached.
-	if len(repairPrompts) != 2 {
-		t.Fatalf("repair prompts=%d, want 2 rounds", len(repairPrompts))
+	// escalates to the commit regime (the working policy under /repair)
+	// instead of staying open, so the model is told again to edit with the
+	// failing output attached.
+	if strings.Contains(repairPrompts[0], "Reading is closed") {
+		t.Fatalf("the first repair round must be open for its diagnosis; got %q", repairPrompts[0])
 	}
 	if !strings.Contains(repairPrompts[1], "Reading is closed") {
 		t.Fatalf("second repair prompt missing closed-regime text; got %q", repairPrompts[1])
@@ -400,6 +407,11 @@ func TestRepairLoop_RespectsAttemptBudget(t *testing.T) {
 // syntax gate lets it through, the repair loop fixes it.
 func TestRepairLoop_FixesBuildBreak(t *testing.T) {
 	h := newRepairHarness(t, nil)
+	// The package exists; this turn's edit is what breaks it. (A /fix that
+	// created main.go would owe it a test first: turn_missing_test.)
+	if err := os.WriteFile(filepath.Join(h.ws, "main.go"), []byte(repairMainGo), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	h.initial = func() *types.LLMToolResponse {
 		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
 			h.writeCall("c1", "write_file", filepath.Join(h.ws, "main.go"), repairMainTypeBroken),
@@ -451,14 +463,21 @@ func TestRepairLoop_GiveUpRecord(t *testing.T) {
 			}}, nil
 		},
 	}
-	executor := NewExecutor(&MockKernel{}, &testExecutiveStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	executor := NewExecutor(realKernel(t), &testExecutiveStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	executor.config.WorkspaceRoot = ws
 	executor.config.EnableSafetyGate = false
 	executor.config.RepairMaxAttempts = 2
 	result := &ExecutionResult{WrittenPaths: []string{"main_test.go", "main.go"}, SuccessfulWriteTools: 1}
 	history := []types.Message{{Role: "user", Text: "fix the tests"}}
 	allowCfg := &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "read_file", "edit_file"}}
-	_, _, err := executor.verifyAndRepairTests(context.Background(), mockLLM, "", history, nil, allowCfg, result)
+	// A repair runs inside the turn's working loop, as every production
+	// verification does: its rounds are the working policy's to end.
+	ctx, closeLoop, loopErr := executor.beginWorkingLoop(context.Background(), "fix the tests", &prompt.CompilationContext{ShardID: "probe"})
+	if loopErr != nil {
+		t.Fatalf("beginWorkingLoop: %v", loopErr)
+	}
+	t.Cleanup(closeLoop)
+	_, _, err := executor.verifyAndRepairTests(ctx, mockLLM, "", history, nil, allowCfg, result)
 	if err == nil {
 		t.Fatal("expected give-up error, got nil")
 	}

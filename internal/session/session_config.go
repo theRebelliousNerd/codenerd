@@ -53,7 +53,17 @@ func (c ExecutorConfig) sessionParams() []config.Param {
 	if minSites <= 0 {
 		minSites = defaultSessionPolicy.StepPlanMinSites
 	}
-	return config.SessionPolicy{StepPlanMinSites: minSites}.Params()
+	return config.SessionPolicy{StepPlanMinSites: minSites, RepairMaxAttempts: c.sessionRepairMaxAttempts()}.Params()
+}
+
+// sessionRepairMaxAttempts is the attempt cap repair_exhausted reads
+// (session.repair_max_attempts). Repair is always bounded: a zero field takes
+// the section's default, never "unbounded".
+func (c ExecutorConfig) sessionRepairMaxAttempts() int {
+	if c.RepairMaxAttempts > 0 {
+		return c.RepairMaxAttempts
+	}
+	return defaultSessionPolicy.RepairMaxAttempts
 }
 
 // ensureSessionParams puts the executor's thresholds into the kernel as
