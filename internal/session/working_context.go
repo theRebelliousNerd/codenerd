@@ -102,8 +102,9 @@ func offersStructuralSearch(definitions []types.ToolDefinition) bool {
 
 // structuralFirstText answers a call to a withheld search tool.
 const structuralFirstText = "Raw search (grep, glob, list_files, search_code) is not offered yet on this task. " +
-	"The workspace is already parsed: find_symbol locates a declaration by name, package_outline lists what a directory or file declares with line spans, " +
-	"callers_of and callees_of follow the call graph, unreferenced_symbols lists what nothing uses, and get_element returns a declaration's source. " +
+	"The workspace is already parsed: find_symbol locates a declaration by name, find_text finds text in string literals, comments or identifiers and answers with the element holding each hit, " +
+	"package_outline lists what a directory or file declares with line spans, importers_of lists who imports a package, " +
+	"callers_of and callees_of follow the call graph, unreferenced_symbols lists what nothing uses, and get_element returns a declaration's source with its doc comment, line-numbered, and the rev the edit verbs take. " +
 	"read_file still reads any file, including ones that are not Go. Raw search opens once these have been tried and cannot answer."
 
 // searchOpenedText tells the model the policy has opened the raw search tools.
