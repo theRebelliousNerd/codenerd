@@ -19,7 +19,7 @@ import (
 // not others: OrchestratorConfig.TaskExecutor was set at 4 of 5 sites, missing
 // at internal/shards/system/campaign_runner.go.
 func TestCheckpointsFailClosedWithoutTaskExecutor(t *testing.T) {
-	cr := NewCheckpointRunner(nil, nil, t.TempDir())
+	cr := NewCheckpointRunner(nil, nil, t.TempDir(), nil)
 	phase := &Phase{Name: "unverifiable-phase"}
 
 	t.Run("shard validation", func(t *testing.T) {

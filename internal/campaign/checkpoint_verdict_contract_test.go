@@ -1,9 +1,7 @@
 package campaign
 
 import (
-	"codenerd/internal/core"
 	"codenerd/internal/session"
-	"codenerd/internal/types"
 	"context"
 	"os"
 	"strings"
@@ -18,12 +16,15 @@ func TestParseCheckpointVerdictAtom_AcceptsTrailingPeriod(t *testing.T) {
 		`checkpoint_verdict("P", /pass, "ok", 90)`,
 		`checkpoint_verdict("P", /pass, "ok", 90).`,
 	} {
-		phase, verdict, reason, ok := parseCheckpointVerdictAtom(atom)
+		key, verdict, reason, confidence, ok := parseCheckpointVerdictAtom(atom)
 		if !ok {
 			t.Fatalf("parseCheckpointVerdictAtom(%q) = !ok, want ok", atom)
 		}
-		if phase != "P" {
-			t.Errorf("parseCheckpointVerdictAtom(%q) phase = %q, want %q", atom, phase, "P")
+		if key != "P" {
+			t.Errorf("parseCheckpointVerdictAtom(%q) key = %q, want %q", atom, key, "P")
+		}
+		if confidence != 90 {
+			t.Errorf("parseCheckpointVerdictAtom(%q) confidence = %d, want 90", atom, confidence)
 		}
 		if verdict != "pass" {
 			t.Errorf("parseCheckpointVerdictAtom(%q) verdict = %q, want %q", atom, verdict, "pass")
@@ -102,9 +103,10 @@ func TestCheckpointPrompts_VerdictExampleEndsWithPeriod(t *testing.T) {
 // the runner retracts any existing checkpoint_verdict for the phase before
 // spawning the reviewer, so prose-only review must fail closed.
 func TestShardValidationCheckpoint_RetractsStaleVerdictBeforeSpawn(t *testing.T) {
-	kernel := &MockKernel{Facts: []core.Fact{
-		{Predicate: "checkpoint_verdict", Args: []any{"P", types.MangleAtom("/pass"), "stale", int64(99)}},
-	}}
+	kernel := policyKernel(t, nil)
+	if err := kernel.Assert(verdictFact("P", "/pass", "stale", 99)); err != nil {
+		t.Fatal(err)
+	}
 	exec := &MockTaskExecutor{
 		ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
 			return "plain prose, no verdict", nil
@@ -122,7 +124,7 @@ func TestShardValidationCheckpoint_RetractsStaleVerdictBeforeSpawn(t *testing.T)
 	if !strings.Contains(lower, "could not be determined") {
 		t.Errorf("fail-closed details should say verdict could not be determined; got %q", details)
 	}
-	if !strings.Contains(details, "reviewer control packet carried no checkpoint_verdict/4 for this phase") {
+	if !strings.Contains(details, "control packet carried no checkpoint_verdict/4 for this phase") {
 		t.Errorf("fail-closed details should distinguish kernel-never-received; got %q", details)
 	}
 }

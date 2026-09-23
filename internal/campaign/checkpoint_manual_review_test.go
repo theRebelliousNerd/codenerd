@@ -13,7 +13,7 @@ import (
 // indistinguishable from "we checked and it was fine". It now escalates to
 // shard validation, which fails closed when no TaskExecutor is wired.
 func TestManualReviewCheckpoint(t *testing.T) {
-	cr := NewCheckpointRunner(nil, nil, t.TempDir())
+	cr := NewCheckpointRunner(nil, nil, t.TempDir(), nil)
 	phase := &Phase{Name: "unverifiable-phase"}
 
 	t.Run("fail closed without task executor", func(t *testing.T) {
@@ -79,7 +79,7 @@ func TestManualReviewCheckpoint(t *testing.T) {
 }
 
 func TestManualReviewCheckpoint_CancelledContext(t *testing.T) {
-	cr := NewCheckpointRunner(nil, nil, t.TempDir())
+	cr := NewCheckpointRunner(nil, nil, t.TempDir(), nil)
 	phase := &Phase{Name: "cancellable-phase"}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -123,7 +123,7 @@ func TestManualReviewCheckpoint_EscalatesToShardValidation(t *testing.T) {
 			return `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"escalated-phase\", /pass, \"objectives met, all tasks reviewed\", 95)"]}, "surface_response": "done"}`, nil
 		},
 	}
-	cr := NewCheckpointRunner(nil, executor, t.TempDir())
+	cr := NewCheckpointRunner(nil, executor, t.TempDir(), policyKernel(t, nil))
 	phase := &Phase{
 		Name: "escalated-phase",
 		Objectives: []PhaseObjective{

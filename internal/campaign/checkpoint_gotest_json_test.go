@@ -10,7 +10,7 @@ import (
 // text heuristic counted every test name containing "Error" as a failure
 // (campaign 149c512d, 2026-09-04). Interleaved text must be skipped, not fatal.
 func TestParseGoTestJSON_SkipsInterleavedTextAndCountsHonestly(t *testing.T) {
-	cr := NewCheckpointRunner(nil, nil, t.TempDir())
+	cr := NewCheckpointRunner(nil, nil, t.TempDir(), nil)
 	stream := strings.Join([]string{
 		`{"Time":"t","Action":"start","Package":"codenerd/internal/a"}`,
 		`{"Time":"t","Action":"run","Package":"codenerd/internal/a","Test":"TestErrorPathIsFine"}`,
@@ -44,7 +44,7 @@ func TestParseGoTestJSON_SkipsInterleavedTextAndCountsHonestly(t *testing.T) {
 }
 
 func TestParseGoTestJSON_NoJSONFallsBackToHeuristic(t *testing.T) {
-	cr := NewCheckpointRunner(nil, nil, t.TempDir())
+	cr := NewCheckpointRunner(nil, nil, t.TempDir(), nil)
 	passed, failed, duration := cr.parseGoTestJSON("--- PASS: TestA (0.00s)\n--- FAIL: TestB (0.00s)\nFAIL\n")
 	if passed != 1 || failed < 1 || duration != 0 {
 		t.Fatalf("heuristic fallback = (%d, %d, %v), want (1, >=1, 0)", passed, failed, duration)

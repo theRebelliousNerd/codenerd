@@ -50,7 +50,7 @@ func newCheckpointRegressionOrchestrator(t *testing.T, review string) (*Orchestr
 		ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
 			return review, nil
 		},
-	}, orch.workspace)
+	}, orch.workspace, policyKernel(t, nil))
 
 	// Replanning on checkpoint failure would need a live LLM; the invariant
 	// under test is about phase status, not about what replan produces.
@@ -126,7 +126,7 @@ func TestRunPhase_WhenCheckpointFails_ShouldNotCompletePhase(t *testing.T) {
 }
 
 func TestRunPhase_WhenCheckpointPasses_ShouldCompletePhase(t *testing.T) {
-	orch, _ := newCheckpointRegressionOrchestrator(t, `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"verified phase\", /pass, \"everything verified\", 95)"]}, "surface_response": "done"}`)
+	orch, _ := newCheckpointRegressionOrchestrator(t, `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"phase_ckpt_0\", /pass, \"everything verified\", 95)"]}, "surface_response": "done"}`)
 
 	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
 		t.Fatalf("runPhase returned error: %v", err)
@@ -223,9 +223,9 @@ func TestPrepareResume_ReArmsAnUnverifiedPhase(t *testing.T) {
 
 	orch.checkpoint = NewCheckpointRunner(nil, &MockTaskExecutor{
 		ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
-			return `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"verified phase\", /pass, \"fixed\", 95)"]}, "surface_response": "done"}`, nil
+			return `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"phase_ckpt_0\", /pass, \"fixed\", 95)"]}, "surface_response": "done"}`, nil
 		},
-	}, orch.workspace)
+	}, orch.workspace, policyKernel(t, nil))
 	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
 		t.Fatalf("runPhase after resume: %v", err)
 	}

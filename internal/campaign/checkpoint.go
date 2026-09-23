@@ -32,22 +32,15 @@ type CheckpointRunner struct {
 	commandTimeout time.Duration
 }
 
-// NewCheckpointRunner creates a new checkpoint runner.
-// The kernel is optional for backward compatibility: production callers pass
-// o.kernel so structured checkpoint_verdict/4 facts asserted by the session
-// executor (control_packet.mangle_updates) can be read on the live path,
-// where TaskExecutor.Execute returns only the surface_response. Callers that
-// omit it get a runner that falls back to parsing a raw envelope string.
-func NewCheckpointRunner(executor tactile.Executor, taskExecutor session.TaskExecutor, workspace string, kernels ...core.Kernel) *CheckpointRunner {
-	var k core.Kernel
-	if len(kernels) > 0 {
-		k = kernels[0]
-	}
+// NewCheckpointRunner creates a new checkpoint runner. The kernel is where a
+// review checkpoint's verdict is settled (checkpoint_verdict_outcome): a runner
+// without one can run builds and tests, and fails every review closed.
+func NewCheckpointRunner(executor tactile.Executor, taskExecutor session.TaskExecutor, workspace string, kernel core.Kernel) *CheckpointRunner {
 	cr := &CheckpointRunner{
 		executor:     executor,
 		taskExecutor: taskExecutor,
 		workspace:    workspace,
-		kernel:       k,
+		kernel:       kernel,
 	}
 	// The config's default until the orchestrator sets the user's: one source.
 	if def, err := config.DefaultCampaignConfig().Resolve(); err == nil {
@@ -63,15 +56,6 @@ func (cr *CheckpointRunner) SetCommandTimeout(d time.Duration) {
 		return
 	}
 	cr.commandTimeout = d
-}
-
-// SetKernel wires the kernel used for structured verdict lookup after
-// construction. Prefer passing the kernel to NewCheckpointRunner.
-func (cr *CheckpointRunner) SetKernel(k core.Kernel) {
-	if cr == nil {
-		return
-	}
-	cr.kernel = k
 }
 
 // spawnTask is the unified entry point for task execution.
@@ -109,8 +93,13 @@ func (cr *CheckpointRunner) Run(ctx context.Context, phase *Phase, method Verifi
 		logging.CampaignDebug("CheckpointRunner.Run: no verification required for phase=%s", phaseName)
 		return true, "No verification required", nil
 	default:
-		logging.CampaignWarn("CheckpointRunner.Run: unknown verification method=%s, skipping", method)
-		return true, "Unknown verification method, skipping", nil
+		// Fail closed: a method this runner cannot run has not been checked,
+		// and "we did not check" must never read as "passed" (it used to:
+		// "Unknown verification method, skipping"). The policy names such a
+		// phase too: campaign_blocked(C, /unverifiable_objective).
+		logging.CampaignWarn("CheckpointRunner.Run: unknown verification method=%s; the phase cannot be verified", method)
+		return false, fmt.Sprintf("Unknown verification method %s: it cannot be run, so the phase is unverified", method),
+			fmt.Errorf("unknown verification method %q", method)
 	}
 
 	if err != nil {
@@ -308,9 +297,10 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 		}
 	}
 
+	key := verdictKey(phase)
 	reviewPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
-	reviewPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
-	reviewPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", phase.Name))
+	reviewPrompt.WriteString("checkpoint_verdict(\"PhaseKey\", Verdict, \"reason\", Confidence).\n")
+	reviewPrompt.WriteString(fmt.Sprintf("PhaseKey must be exactly %q. ", key))
 	reviewPrompt.WriteString("Verdict must be /pass (objectives met) or /fail (objectives not met). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
 	reviewPrompt.WriteString("The atom must end with a period; it is asserted into the kernel as a fact.\n")
 	reviewPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"all objectives met\\\", 95).\"]}, \"surface_response\": \"...\"}.\n")
@@ -319,8 +309,8 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 	// Retract any pre-existing verdict for this phase before spawning the
 	// reviewer so a task shard cannot pre-approve its own phase. Best effort.
 	if cr != nil && cr.kernel != nil && phase != nil {
-		_ = cr.kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{phase.Name}})
-		logging.CampaignDebug("runShardValidationCheckpoint: retracted stale checkpoint_verdict for phase=%s before spawn", phase.Name)
+		_ = cr.kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{key}})
+		logging.CampaignDebug("runShardValidationCheckpoint: retracted stale checkpoint_verdict for phase=%s before spawn", key)
 	}
 
 	// Spawn reviewer intent
@@ -330,33 +320,20 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 		return false, fmt.Sprintf("Reviewer shard failed: %v", err), err
 	}
 
-	// Structured verdict: the reviewer's control packet reaches the KERNEL
-	// (mangle_updates are asserted by the session executor), not the returned
-	// string. Query the kernel first; fall back to parsing the returned
-	// string as a raw envelope for executors that return it verbatim.
-	// Anything without a well-formed checkpoint_verdict/4 for this phase
-	// fails closed.
-	if passed, reason, ok := cr.lookupKernelVerdict(phase.Name); ok {
-		if passed {
-			logging.Campaign("runShardValidationCheckpoint: reviewer approved phase=%s", phase.Name)
-			return true, fmt.Sprintf("Review passed: %s", reason), nil
-		}
-		logging.CampaignWarn("runShardValidationCheckpoint: reviewer found issues in phase=%s", phase.Name)
-		return false, fmt.Sprintf("Review failed: %s", reason), nil
-	}
-	resultStr := fmt.Sprintf("%v", result)
+	return settledCheckpointResult(cr.kernel, key, fmt.Sprintf("%v", result), "Review")
+}
 
-	passed, reason, ok := parseCheckpointVerdict(resultStr, phase.Name)
+// settledCheckpointResult turns the kernel's derived verdict for key into the
+// checkpoint's result. A missing or malformed checkpoint_verdict/4 fails
+// closed: no derived outcome is not a pass.
+func settledCheckpointResult(kernel core.Kernel, key, raw, label string) (bool, string, error) {
+	verdict, ok := settleCheckpointVerdict(kernel, key, raw)
 	if !ok {
-		logging.CampaignWarn("runShardValidationCheckpoint: reviewer verdict could not be determined for phase=%s; failing closed", phase.Name)
-		return false, fmt.Sprintf("Review verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): reviewer control packet carried no checkpoint_verdict/4 for this phase: %s", phase.Name, truncateForLog(resultStr, 200)), nil
+		logging.CampaignWarn("%s verdict could not be determined for phase=%s; failing closed", label, key)
+		return false, fmt.Sprintf("%s verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): the reviewer's control packet carried no checkpoint_verdict/4 for this phase: %s", label, key, truncateForLog(raw, 200)), nil
 	}
-	if passed {
-		logging.Campaign("runShardValidationCheckpoint: reviewer approved phase=%s", phase.Name)
-		return true, fmt.Sprintf("Review passed: %s", reason), nil
-	}
-	logging.CampaignWarn("runShardValidationCheckpoint: reviewer found issues in phase=%s", phase.Name)
-	return false, fmt.Sprintf("Review failed: %s", reason), nil
+	logging.Campaign("%s verdict for phase=%s: %s", label, key, verdict.outcome)
+	return verdict.passed(), verdict.describe(label), nil
 }
 
 // runNemesisGauntletCheckpoint spawns the Nemesis shard to perform adversarial review.
@@ -377,6 +354,7 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 	if phase != nil {
 		phaseName = phase.Name
 	}
+	key := verdictKey(phase)
 	logging.Campaign("runNemesisGauntletCheckpoint: spawning nemesis shard for phase=%s", phaseName)
 
 	target := cr.workspace
@@ -417,8 +395,8 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 	}
 	nemesisPrompt.WriteString("Attempt to break the implementation: find vulnerabilities, logic errors, and unhandled edge cases.\n")
 	nemesisPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
-	nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
-	nemesisPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", phaseName))
+	nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseKey\", Verdict, \"reason\", Confidence).\n")
+	nemesisPrompt.WriteString(fmt.Sprintf("PhaseKey must be exactly %q. ", key))
 	nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
 	nemesisPrompt.WriteString("The atom must end with a period; it is asserted into the kernel as a fact.\n")
 	nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95).\"]}, \"surface_response\": \"...\"}.\n")
@@ -427,8 +405,8 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 	// Retract any pre-existing verdict for this phase before spawning the
 	// nemesis so a task shard cannot pre-approve its own phase. Best effort.
 	if cr != nil && cr.kernel != nil {
-		_ = cr.kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{phaseName}})
-		logging.CampaignDebug("runNemesisGauntletCheckpoint: retracted stale checkpoint_verdict for phase=%s before spawn", phaseName)
+		_ = cr.kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{key}})
+		logging.CampaignDebug("runNemesisGauntletCheckpoint: retracted stale checkpoint_verdict for phase=%s before spawn", key)
 	}
 
 	logging.CampaignDebug("runNemesisGauntletCheckpoint: target=%s", target)
@@ -438,33 +416,7 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 		return false, fmt.Sprintf("Nemesis shard failed: %v", err), err
 	}
 
-	// Structured verdict: the reviewer's control packet reaches the KERNEL
-	// (mangle_updates are asserted by the session executor), not the returned
-	// string. Query the kernel first; fall back to parsing the returned
-	// string as a raw envelope for executors that return it verbatim.
-	// Anything without a well-formed checkpoint_verdict/4 for this phase
-	// fails closed.
-	if passed, reason, ok := cr.lookupKernelVerdict(phaseName); ok {
-		if passed {
-			logging.Campaign("runNemesisGauntletCheckpoint: phase=%s survived nemesis gauntlet", phaseName)
-			return true, fmt.Sprintf("Nemesis gauntlet passed: %s", reason), nil
-		}
-		logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis found vulnerabilities in phase=%s", phaseName)
-		return false, fmt.Sprintf("Nemesis gauntlet failed: %s", reason), nil
-	}
-	resultStr := fmt.Sprintf("%v", result)
-
-	passed, reason, ok := parseCheckpointVerdict(resultStr, phaseName)
-	if !ok {
-		logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis verdict could not be determined for phase=%s; failing closed", phaseName)
-		return false, fmt.Sprintf("Nemesis verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): reviewer control packet carried no checkpoint_verdict/4 for this phase: %s", phaseName, truncateForLog(resultStr, 200)), nil
-	}
-	if passed {
-		logging.Campaign("runNemesisGauntletCheckpoint: phase=%s survived nemesis gauntlet", phaseName)
-		return true, fmt.Sprintf("Nemesis gauntlet passed: %s", reason), nil
-	}
-	logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis found vulnerabilities in phase=%s", phaseName)
-	return false, fmt.Sprintf("Nemesis gauntlet failed: %s", reason), nil
+	return settledCheckpointResult(cr.kernel, key, fmt.Sprintf("%v", result), "Nemesis gauntlet")
 }
 
 // detectTestCommand delegates to the canonical tools.TestCommandForDir
@@ -635,69 +587,75 @@ type checkpointEnvelope struct {
 	Surface string `json:"surface_response"`
 }
 
-// parseCheckpointVerdict extracts the structured reviewer verdict for the
-// given phase from a JSON control-packet envelope. Only
-// control_packet.mangle_updates entries that are well-formed
-// checkpoint_verdict/4 facts decide; free text, bare atoms outside the
-// envelope, and prose PASS/FAIL are inert.
-//
-// Returns (passed, reason, ok): ok is false when no well-formed verdict for
-// this phase is present, in which case the caller must fail closed.
-func parseCheckpointVerdict(resultStr, phaseName string) (bool, string, bool) {
+// verdictKey is how a checkpoint's reviewer names the phase in its
+// checkpoint_verdict/4: the phase ID without its leading slash. Names are not
+// unique (two phases may both be "Verification"), and a quoted string that
+// starts with a slash never matches the name constant Go asserts for an ID,
+// so the key is the ID the model can write as a plain string. A phase with no
+// ID (hand-built in tests) falls back to its name.
+func verdictKey(phase *Phase) string {
+	if phase == nil {
+		return ""
+	}
+	if id := strings.TrimPrefix(strings.TrimSpace(phase.ID), "/"); id != "" {
+		return id
+	}
+	return phase.Name
+}
+
+// parseCheckpointVerdictFacts extracts the checkpoint_verdict/4 facts for key
+// from a JSON control-packet envelope, for executors that return the envelope
+// verbatim instead of asserting it. Only control_packet.mangle_updates entries
+// that are well-formed checkpoint_verdict/4 atoms count; free text, bare atoms
+// outside the envelope and prose PASS/FAIL are inert. It decides nothing: the
+// facts go into the kernel, which derives the outcome.
+func parseCheckpointVerdictFacts(resultStr, key string) []core.Fact {
 	var env checkpointEnvelope
 	if err := json.Unmarshal([]byte(resultStr), &env); err != nil {
-		return false, "", false
+		return nil
 	}
-
+	var facts []core.Fact
 	for _, update := range env.Control.MangleUpdates {
-		gotPhase, verdict, reason, ok := parseCheckpointVerdictAtom(update)
-		if !ok {
+		gotKey, verdict, reason, confidence, ok := parseCheckpointVerdictAtom(update)
+		if !ok || gotKey != key {
 			continue
 		}
-		if gotPhase != phaseName {
-			continue
-		}
-		switch verdict {
-		case "pass":
-			return true, reason, true
-		case "fail":
-			return false, reason, true
-		default:
-			continue
-		}
+		facts = append(facts, core.Fact{
+			Predicate: "checkpoint_verdict",
+			Args:      []any{gotKey, types.MangleAtom("/" + verdict), reason, confidence},
+		})
 	}
-	return false, "", false
+	return facts
 }
 
 // parseCheckpointVerdictAtom parses a single mangle_updates entry as a
 // structured checkpoint_verdict/4 fact:
 //
-//	checkpoint_verdict("Phase", /pass|/fail, "details", confidence)
+//	checkpoint_verdict("Key", /pass|/fail, "details", confidence)
 //
 // The entry must be exactly the atom (modulo surrounding whitespace); the
 // atom is never searched for inside a larger string. Verdict accepts /pass,
-// "pass" or 'pass' spellings so JSON-quoted atoms still parse. Confidence
-// must be numeric but is otherwise ignored; the verdict atom alone decides.
-// Phase is returned verbatim so the caller can require it to match the
-// checkpoint's phase name.
-func parseCheckpointVerdictAtom(atom string) (phase, verdict, reason string, ok bool) {
+// "pass" or 'pass' spellings so JSON-quoted atoms still parse. Confidence must
+// be an integer percent: the kernel compares integers only, and the policy
+// weighs it (checkpoint_verdict_outcome). The key is returned verbatim so the
+// caller can require it to match the checkpoint's.
+func parseCheckpointVerdictAtom(atom string) (key, verdict, reason string, confidence int64, ok bool) {
 	trimmed := strings.TrimSpace(atom)
 	trimmed = strings.TrimSuffix(trimmed, ".")
 	trimmed = strings.TrimSpace(trimmed)
 	const prefix = "checkpoint_verdict("
 	if !strings.HasPrefix(trimmed, prefix) || !strings.HasSuffix(trimmed, ")") {
-		return "", "", "", false
+		return "", "", "", 0, false
 	}
 	inner := trimmed[len(prefix) : len(trimmed)-1]
 	parts := splitTopLevelCommas(inner)
 	if len(parts) != 4 {
-		return "", "", "", false
+		return "", "", "", 0, false
 	}
 
-	phasePart := strings.TrimSpace(parts[0])
-	phaseUnquoted, err := strconv.Unquote(phasePart)
+	keyUnquoted, err := strconv.Unquote(strings.TrimSpace(parts[0]))
 	if err != nil {
-		return "", "", "", false
+		return "", "", "", 0, false
 	}
 
 	verdictPart := strings.TrimSpace(parts[1])
@@ -706,21 +664,20 @@ func parseCheckpointVerdictAtom(atom string) (phase, verdict, reason string, ok 
 	verdictPart = strings.TrimPrefix(verdictPart, "/")
 	verdictNorm := strings.ToLower(strings.TrimSpace(verdictPart))
 	if verdictNorm != "pass" && verdictNorm != "fail" {
-		return "", "", "", false
+		return "", "", "", 0, false
 	}
 
-	reasonPart := strings.TrimSpace(parts[2])
-	reasonUnquoted, err := strconv.Unquote(reasonPart)
+	reasonUnquoted, err := strconv.Unquote(strings.TrimSpace(parts[2]))
 	if err != nil {
-		return "", "", "", false
+		return "", "", "", 0, false
 	}
 
-	confidencePart := strings.TrimSpace(parts[3])
-	if _, err := strconv.ParseFloat(confidencePart, 64); err != nil {
-		return "", "", "", false
+	conf, err := strconv.ParseInt(strings.TrimSpace(parts[3]), 10, 64)
+	if err != nil {
+		return "", "", "", 0, false
 	}
 
-	return phaseUnquoted, verdictNorm, reasonUnquoted, true
+	return keyUnquoted, verdictNorm, reasonUnquoted, conf, true
 }
 
 // splitTopLevelCommas splits s on commas that are not inside single or
@@ -771,74 +728,105 @@ func truncateForLog(s string, max int) string {
 	return string(runes[:max])
 }
 
-// lookupKernelVerdict returns the structured reviewer verdict for phaseName
-// from the kernel, where the live session executor asserts control-packet
-// mangle_updates (see internal/session/executor.go processMangleUpdatesFromEnvelope).
-// The TaskExecutor.Execute string is only the surface_response, so parsing it
-// can never see the verdict on the live path.
-//
-// Returns (passed, reason, ok): ok is false when no well-formed
-// checkpoint_verdict/4 for this phase exists in the kernel, in which case the
-// caller falls back to parseCheckpointVerdict for raw-envelope executors and
-// otherwise fails closed. A matching fact is retracted after reading so a
-// later phase cannot inherit a stale verdict.
-func (cr *CheckpointRunner) lookupKernelVerdict(phaseName string) (bool, string, bool) {
-	if cr == nil || cr.kernel == nil {
-		return false, "", false
-	}
-	return lookupCheckpointVerdictInKernel(cr.kernel, phaseName)
+// checkpointVerdictOutcome is what the kernel derived from a reviewer's
+// checkpoint_verdict rows (checkpoint_verdict_outcome).
+type checkpointVerdictOutcome struct {
+	outcome string // "/pass", "/fail" or "/inconclusive"; "" when none derived
+	reason  string
 }
 
-// lookupCheckpointVerdictInKernel is the shared kernel lookup used by the
-// CheckpointRunner checkpoints and the assault nemesis stage (which reaches
-// the kernel via o.kernel rather than a runner).
-func lookupCheckpointVerdictInKernel(kernel core.Kernel, phaseName string) (bool, string, bool) {
-	if kernel == nil {
-		return false, "", false
+func (v checkpointVerdictOutcome) passed() bool { return v.outcome == "/pass" }
+
+// describe renders the outcome for the checkpoint record, with prefix naming
+// the checkpoint ("Review", "Nemesis gauntlet").
+func (v checkpointVerdictOutcome) describe(prefix string) string {
+	switch v.outcome {
+	case "/pass":
+		return fmt.Sprintf("%s passed: %s", prefix, v.reason)
+	case "/fail":
+		return fmt.Sprintf("%s failed: %s", prefix, v.reason)
+	default:
+		return fmt.Sprintf("%s inconclusive: the reviewer passed it below campaign.checkpoint_min_confidence, which does not pass: %s", prefix, v.reason)
 	}
+}
+
+// settleCheckpointVerdict reads the verdict the kernel derives for key. The
+// live path's reviewer asserts its checkpoint_verdict/4 through its control
+// packet (the session executor asserts mangle_updates); an executor that
+// returns the envelope verbatim has its facts asserted here from raw. Either
+// way the outcome is derived by the policy -- any /fail fails, a /pass passes
+// only at the configured confidence -- and read here, never decided in Go.
+// The key's rows are retracted after reading so a later checkpoint cannot
+// inherit them. ok is false when no outcome derived: the caller fails closed.
+func settleCheckpointVerdict(kernel core.Kernel, key, raw string) (checkpointVerdictOutcome, bool) {
+	if kernel == nil || key == "" {
+		return checkpointVerdictOutcome{}, false
+	}
+	rows := verdictRows(kernel, key)
+	if len(rows) == 0 {
+		for _, f := range parseCheckpointVerdictFacts(raw, key) {
+			if err := kernel.Assert(f); err != nil {
+				logging.CampaignWarn("checkpoint verdict for %s from the reviewer's envelope was not asserted: %v", key, err)
+			}
+		}
+		rows = verdictRows(kernel, key)
+	}
+	defer func() {
+		_ = kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{key}})
+	}()
+
+	facts, err := kernel.Query("checkpoint_verdict_outcome")
+	if err != nil {
+		logging.CampaignWarn("checkpoint verdict for %s: query checkpoint_verdict_outcome: %v", key, err)
+		return checkpointVerdictOutcome{}, false
+	}
+	var out checkpointVerdictOutcome
+	for _, f := range facts {
+		if len(f.Args) == 2 && types.ExtractString(f.Args[0]) == key {
+			out.outcome = types.ExtractString(f.Args[1])
+		}
+	}
+	if out.outcome == "" {
+		return checkpointVerdictOutcome{}, false
+	}
+	// The reason quoted is one the outcome rests on: a failing row's for
+	// /fail, a passing row's otherwise, with its confidence.
+	want := "/pass"
+	if out.outcome == "/fail" {
+		want = "/fail"
+	}
+	for _, r := range rows {
+		if r.verdict == want {
+			out.reason = fmt.Sprintf("%s (confidence %d)", r.reason, r.confidence)
+			break
+		}
+	}
+	return out, true
+}
+
+type verdictRow struct {
+	verdict    string
+	reason     string
+	confidence int64
+}
+
+// verdictRows lists the checkpoint_verdict rows the kernel holds for key.
+func verdictRows(kernel core.Kernel, key string) []verdictRow {
 	facts, err := kernel.Query("checkpoint_verdict")
 	if err != nil {
-		return false, "", false
+		return nil
 	}
-	matched := false
+	var rows []verdictRow
 	for _, f := range facts {
-		if f.Predicate != "checkpoint_verdict" || len(f.Args) != 4 {
+		if f.Predicate != "checkpoint_verdict" || len(f.Args) != 4 || types.ExtractString(f.Args[0]) != key {
 			continue
 		}
-		if types.ExtractString(f.Args[0]) != phaseName {
-			continue
-		}
-		matched = true
+		conf, _ := f.Args[3].(int64)
+		rows = append(rows, verdictRow{
+			verdict:    types.ExtractString(f.Args[1]),
+			reason:     types.ExtractString(f.Args[2]),
+			confidence: conf,
+		})
 	}
-	if !matched {
-		return false, "", false
-	}
-	// Retract all facts for this phase so a later phase cannot inherit a
-	// stale verdict. Best effort: a retraction failure must not fail the
-	// checkpoint itself. RetractFact matches predicate + first arg, which is
-	// exactly the per-phase scope needed here.
-	_ = kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{phaseName}})
-	for _, f := range facts {
-		if f.Predicate != "checkpoint_verdict" || len(f.Args) != 4 {
-			continue
-		}
-		if types.ExtractString(f.Args[0]) != phaseName {
-			continue
-		}
-		verdictRaw := types.ExtractString(f.Args[1])
-		verdict := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(verdictRaw), "/")))
-		verdict = strings.Trim(verdict, `"'`)
-		verdict = strings.TrimSpace(verdict)
-		if verdict != "pass" && verdict != "fail" {
-			continue
-		}
-		reason := types.ExtractString(f.Args[2])
-		// Confidence (Args[3]) is an integer percent 0-100 per the Decl.
-		// The Decl already enforces /number; the verdict alone decides here.
-		if verdict == "pass" {
-			return true, reason, true
-		}
-		return false, reason, true
-	}
-	return false, "", false
+	return rows
 }

@@ -1,6 +1,11 @@
 package campaign
 
-import "codenerd/internal/config"
+import (
+	"testing"
+
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+)
 
 // testCampaignConfig is the config's default campaign section with edit
 // applied: tests state the knobs they depend on, and everything else is what a
@@ -21,6 +26,21 @@ func testPolicy(edit func(*config.CampaignConfig)) config.CampaignPolicy {
 		panic(err)
 	}
 	return p
+}
+
+// policyKernel is the shipped kernel holding the campaign policy's thresholds
+// as NewOrchestrator publishes them, for tests of a decision the kernel
+// derives without a whole orchestrator around it.
+func policyKernel(t *testing.T, edit func(*config.CampaignConfig)) core.Kernel {
+	t.Helper()
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("the shipped corpus must load: %v", err)
+	}
+	if err := k.LoadFacts(config.ParamFacts(testPolicy(edit).Params())); err != nil {
+		t.Fatalf("publish the campaign policy: %v", err)
+	}
+	return k
 }
 
 // fastRetries is a campaign whose task has attempts failed attempts before it

@@ -96,7 +96,7 @@ func TestCheckpointRunner_Integration(t *testing.T) {
 		workspace := t.TempDir()
 		setupGoProject(t, workspace, true, true)
 
-		runner := campaign.NewCheckpointRunner(executor, nil, workspace)
+		runner := campaign.NewCheckpointRunner(executor, nil, workspace, nil)
 		passed, details, err := runner.Run(ctx, nil, campaign.VerifyBuilds)
 
 		require.NoError(t, err)
@@ -111,7 +111,7 @@ func TestCheckpointRunner_Integration(t *testing.T) {
 		workspace := t.TempDir()
 		setupGoProject(t, workspace, false, true)
 
-		runner := campaign.NewCheckpointRunner(executor, nil, workspace)
+		runner := campaign.NewCheckpointRunner(executor, nil, workspace, nil)
 		passed, details, err := runner.Run(ctx, nil, campaign.VerifyBuilds)
 
 		require.NoError(t, err) // It returns no error, just passed=false
@@ -123,7 +123,7 @@ func TestCheckpointRunner_Integration(t *testing.T) {
 		workspace := t.TempDir()
 		setupGoProject(t, workspace, true, true)
 
-		runner := campaign.NewCheckpointRunner(executor, nil, workspace)
+		runner := campaign.NewCheckpointRunner(executor, nil, workspace, nil)
 		passed, details, err := runner.Run(ctx, nil, campaign.VerifyTestsPass)
 
 		require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestCheckpointRunner_Integration(t *testing.T) {
 		workspace := t.TempDir()
 		setupGoProject(t, workspace, true, false)
 
-		runner := campaign.NewCheckpointRunner(executor, nil, workspace)
+		runner := campaign.NewCheckpointRunner(executor, nil, workspace, nil)
 		passed, details, err := runner.Run(ctx, nil, campaign.VerifyTestsPass)
 
 		require.NoError(t, err)

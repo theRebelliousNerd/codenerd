@@ -253,7 +253,9 @@ Decl turn_cost(SessionID, TurnNum, PromptTokens, CompletionTokens, ToolCalls, Ve
 
 # checkpoint_verdict(Phase, Verdict, Reason, Confidence)
 # Structured reviewer/nemesis verdict for campaign checkpoints.
-# Phase: exact phase name (/string). Verdict: /pass or /fail (/name).
+# Phase: the phase key -- its ID without the leading slash (/string).
+# Verdict: /pass or /fail (/name). The outcome is derived
+# (checkpoint_verdict_outcome, policy/campaign_decisions.mg).
 # Reason: short human-readable justification (/string).
 # Confidence: integer percent 0-100 (/number, int64 in this fork).
 Decl checkpoint_verdict(Phase, Verdict, Reason, Confidence) bound [/string, /name, /string, /number].

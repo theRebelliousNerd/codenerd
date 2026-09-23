@@ -333,20 +333,25 @@ func (o *Orchestrator) runAssaultStage(
 		dir := targetToDir(target)
 		// Structured verdict only: the nemesis speaks through a JSON
 		// control-packet carrying exactly one checkpoint_verdict/4 fact.
-		// Parsing lives in checkpoint.go (parseCheckpointVerdict); no
-		// substring matching here. Missing or malformed verdict fails closed.
-		verdictPhase := target
+		// The kernel derives the outcome (checkpoint_verdict_outcome, settled
+		// in checkpoint.go); no substring matching here. Missing or malformed
+		// verdict fails closed.
+		verdictKey := strings.TrimPrefix(target, "/")
 		var nemesisPrompt strings.Builder
 		nemesisPrompt.WriteString(fmt.Sprintf("review:%s\n\n", filepath.Join(o.workspace, filepath.FromSlash(dir))))
 		nemesisPrompt.WriteString("Attempt to break the implementation: find vulnerabilities, logic errors, and unhandled edge cases.\n")
 		nemesisPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
-		nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
-		nemesisPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", verdictPhase))
+		nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseKey\", Verdict, \"reason\", Confidence).\n")
+		nemesisPrompt.WriteString(fmt.Sprintf("PhaseKey must be exactly %q. ", verdictKey))
 		nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
 		nemesisPrompt.WriteString("The atom must end with a period; it is asserted into the kernel as a fact.\n")
 		nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95).\"]}, \"surface_response\": \"...\"}.\n")
 		nemesisPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
 		taskStr := nemesisPrompt.String()
+		// A stale verdict for this key must not pre-approve the stage.
+		if o.kernel != nil {
+			_ = o.kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{verdictKey}})
+		}
 		result, err := o.spawnTask(ctx, nil, "nemesis", taskStr)
 		content := "nemesis review\n\n" + taskStr + "\n\n" + result
 		if err != nil {
@@ -355,23 +360,12 @@ func (o *Orchestrator) runAssaultStage(
 			return false, stageOutcome{ExitCode: 1, Error: err.Error()}
 		}
 		writeTextFileBestEffort(logPath, content)
-		// Structured verdict: the nemesis control packet reaches the KERNEL
-		// (mangle_updates are asserted by the session executor), not the
-		// returned string. Query the kernel first; fall back to parsing the
-		// returned string as a raw envelope for executors that return it
-		// verbatim. Missing or malformed verdict fails closed.
-		if passed, reason, ok := lookupCheckpointVerdictInKernel(o.kernel, verdictPhase); ok {
-			if !passed {
-				return false, stageOutcome{ExitCode: 1, Error: fmt.Sprintf("nemesis found weaknesses: %s", reason)}
-			}
-			return true, stageOutcome{ExitCode: 0}
-		}
-		passed, reason, ok := parseCheckpointVerdict(result, verdictPhase)
+		verdict, ok := settleCheckpointVerdict(o.kernel, verdictKey, result)
 		if !ok {
-			return false, stageOutcome{ExitCode: 1, Error: fmt.Sprintf("nemesis verdict could not be determined (missing or malformed checkpoint_verdict/4 for %q): %s", verdictPhase, result)}
+			return false, stageOutcome{ExitCode: 1, Error: fmt.Sprintf("nemesis verdict could not be determined (missing or malformed checkpoint_verdict/4 for %q): %s", verdictKey, result)}
 		}
-		if !passed {
-			return false, stageOutcome{ExitCode: 1, Error: fmt.Sprintf("nemesis found weaknesses: %s", reason)}
+		if !verdict.passed() {
+			return false, stageOutcome{ExitCode: 1, Error: verdict.describe("nemesis review")}
 		}
 		return true, stageOutcome{ExitCode: 0}
 
