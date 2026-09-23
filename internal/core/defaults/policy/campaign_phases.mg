@@ -1,47 +1,48 @@
 # Campaign Phases Logic
-# Extracted from campaign.mg
+# Phase eligibility and sequencing, checkpoints, replanning triggers.
 # Stratification: Depends on schemas_campaign.mg
-
-# =============================================================================
-# Campaign State Machine
-# =============================================================================
-
-# Current campaign is the one that's active
-current_campaign(CampaignID) :-
-    campaign(CampaignID, _, _, _, /active).
-
-# Campaign execution strategy activates when a campaign is active
-active_strategy(/campaign_execution) :-
-    current_campaign(_).
+#
+# One definition per head. Until 2026-09-23 campaign_planning.mg carried a
+# second copy of most of this file (and this file one of campaign_core.mg's
+# state machine), the copies differed -- unscoped here, campaign-scoped there
+# -- and what derived was their union (sweep finding F3). The campaign-scoped
+# forms are kept; the state machine and the helpers campaign_core.mg reads
+# live there only.
 
 # =============================================================================
 # Phase Eligibility & Sequencing
 # =============================================================================
 
-# Helper: check if a phase has incomplete hard dependencies
+# Helper: a hard dependency of the phase, in the same campaign, is not
+# completed. A phase closed /unverified is not completed: its dependents wait.
 has_incomplete_hard_dep(PhaseID) :-
     phase_dependency(PhaseID, DepPhaseID, /hard),
-    campaign_phase(DepPhaseID, _, _, _, Status, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    campaign_phase(DepPhaseID, CampaignID, _, _, Status, _),
     /completed != Status.
+
+# Helper: incomplete hard dependency scoped to campaign
+has_incomplete_hard_dep_in_campaign(PhaseID, CampaignID) :-
+    has_incomplete_hard_dep(PhaseID),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
+
+# Helper: phase eligibility scoped to campaign
+phase_eligible_in_campaign(PhaseID, CampaignID) :-
+    campaign_phase(PhaseID, CampaignID, _, _, /pending, _),
+    !has_incomplete_hard_dep_in_campaign(PhaseID, CampaignID),
+    current_campaign(CampaignID).
 
 # A phase is eligible when all hard dependencies are complete
 phase_eligible(PhaseID) :-
-    campaign_phase(PhaseID, CampaignID, _, _, /pending, _),
-    current_campaign(CampaignID),
-    !has_incomplete_hard_dep(PhaseID).
+    phase_eligible_in_campaign(PhaseID, _).
 
-# Helper: check if there's an earlier eligible phase
+# Helper: an eligible phase of the same campaign comes earlier
 has_earlier_phase(PhaseID) :-
-    campaign_phase(PhaseID, _, _, Order, _, _),
-    phase_eligible(OtherPhaseID),
+    campaign_phase(PhaseID, CampaignID, _, Order, _, _),
+    campaign_phase(OtherPhaseID, CampaignID, _, OtherOrder, _, _),
+    phase_eligible_in_campaign(OtherPhaseID, CampaignID),
     OtherPhaseID != PhaseID,
-    campaign_phase(OtherPhaseID, _, _, OtherOrder, _, _),
     OtherOrder < Order.
-
-# Helper: check if any phase is in progress
-has_in_progress_phase() :-
-    campaign_phase(_, CampaignID, _, _, /in_progress, _),
-    current_campaign(CampaignID).
 
 # Current phase: lowest order eligible phase, or the one in progress
 current_phase(PhaseID) :-
@@ -49,7 +50,7 @@ current_phase(PhaseID) :-
     current_campaign(CampaignID).
 
 current_phase(PhaseID) :-
-    phase_eligible(PhaseID),
+    phase_eligible_in_campaign(PhaseID, _),
     !has_earlier_phase(PhaseID),
     !has_in_progress_phase().
 
@@ -63,7 +64,7 @@ phase_blocked(PhaseID, /hard_dependency_incomplete) :-
 # Checkpoint & Verification
 # =============================================================================
 
-# Helper: check if phase has pending checkpoint
+# Helper: a verification method the phase's objectives name has not passed.
 has_pending_checkpoint(PhaseID) :-
     phase_objective(PhaseID, _, _, VerifyMethod),
     /none != VerifyMethod,
@@ -72,20 +73,10 @@ has_pending_checkpoint(PhaseID) :-
 has_passed_checkpoint(PhaseID, CheckType) :-
     phase_checkpoint(PhaseID, CheckType, /true, _, _).
 
-# Helper: check if all phase tasks are complete
-has_incomplete_phase_task(PhaseID) :-
-    campaign_task(_, PhaseID, _, Status, _),
-    /completed != Status,
-    /skipped != Status.
-
 # Phase has pending tasks currently waiting in retry/backoff window
 phase_waiting_for_retry(PhaseID) :-
     current_phase(PhaseID),
     phase_has_backoff_task(PhaseID).
-
-all_phase_tasks_complete(PhaseID) :-
-    campaign_phase(PhaseID, _, _, _, _, _),
-    !has_incomplete_phase_task(PhaseID).
 
 # Block phase completion if checkpoint failed
 phase_blocked(PhaseID, /checkpoint_failed) :-
@@ -110,11 +101,11 @@ campaign_blocked(CampaignID, /phase_unverified) :-
 # Replanning Triggers
 # =============================================================================
 
-# Helper: identify failed tasks (for counting in Go runtime)
+# Helper: identify failed tasks
 failed_campaign_task(CampaignID, TaskID) :-
     current_campaign(CampaignID),
-    campaign_task(TaskID, PhaseID, Desc, /failed, TaskType),
-    campaign_phase(PhaseID, CampaignID, PhaseName, Seq, Status, Profile).
+    campaign_phase(PhaseID, CampaignID, PhaseName, Seq, Status, Profile),
+    campaign_task(TaskID, PhaseID, Desc, /failed, TaskType).
 
 # Trigger replan if user provides new instruction during campaign
 replan_needed(CampaignID, /user_instruction) :-
@@ -124,29 +115,3 @@ replan_needed(CampaignID, /user_instruction) :-
 # Trigger replan if explicit trigger exists
 replan_needed(CampaignID, Reason) :-
     replan_trigger(CampaignID, Reason, _).
-
-# =============================================================================
-# Campaign Helpers & Blocking
-# =============================================================================
-
-# Helper: true if any phase is eligible to start
-has_eligible_phase() :-
-    phase_eligible(_).
-
-# Helper: check if any phase is not complete
-has_incomplete_phase(CampaignID) :-
-    campaign_phase(_, CampaignID, _, _, Status, _),
-    /completed != Status,
-    /skipped != Status.
-
-# campaign_complete is defined once, in campaign_core.mg, with its acceptance
-# premise.
-
-# Campaign blocked if no eligible phases and none in progress
-campaign_blocked(CampaignID, /no_eligible_phases) :-
-    current_campaign(CampaignID),
-    !has_eligible_phase(),
-    !has_in_progress_phase(),
-    has_incomplete_phase(CampaignID),
-    !has_unverified_phase(CampaignID).
-

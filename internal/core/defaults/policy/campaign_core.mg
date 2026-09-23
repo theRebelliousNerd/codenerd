@@ -45,8 +45,7 @@ campaign_acceptance_exhausted(CampaignID) :-
 
 # Every phase is done and the witness has not passed: run it.
 campaign_acceptance_due(CampaignID) :-
-    current_campaign(CampaignID),
-    !has_incomplete_phase(CampaignID),
+    campaign_phases_done(CampaignID),
     campaign_acceptance_unmet(CampaignID),
     !campaign_acceptance_exhausted(CampaignID).
 
@@ -58,8 +57,7 @@ campaign_blocked(CampaignID, /acceptance_failed) :-
 
 # Campaign blocked if no eligible phases and none in progress -- unless a phase
 # closed /unverified explains it, which campaign_phases.mg names instead
-# (/phase_unverified). This rule is duplicated in campaign_phases.mg; both
-# copies carry the exclusion.
+# (/phase_unverified).
 campaign_blocked(CampaignID, /no_eligible_phases) :-
     current_campaign(CampaignID),
     !has_eligible_phase(),
@@ -68,12 +66,15 @@ campaign_blocked(CampaignID, /no_eligible_phases) :-
     !has_unverified_phase(CampaignID).
 
 
-# Campaign blocked if all remaining tasks are blocked
+# Campaign blocked if the current phase has incomplete tasks and none can run:
+# no next task, and none waiting out a retry backoff (a backoff is a wait, not
+# a block).
 campaign_blocked(CampaignID, /all_tasks_blocked) :-
     current_campaign(CampaignID),
-    !has_next_campaign_task(),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
     current_phase(PhaseID),
+    !has_next_campaign_task(),
+    !phase_has_backoff_task(PhaseID),
     has_incomplete_phase_task(PhaseID).
 
 # --- Helpers ---
@@ -81,10 +82,6 @@ campaign_blocked(CampaignID, /all_tasks_blocked) :-
 # Helper: true if any phase is eligible to start
 has_eligible_phase() :-
     phase_eligible_in_campaign(_, _).
-
-# Helper: true if there's a next campaign task available
-has_next_campaign_task() :-
-    next_campaign_task(_).
 
 # Helper: check if any phase is not complete
 has_incomplete_phase(CampaignID) :-

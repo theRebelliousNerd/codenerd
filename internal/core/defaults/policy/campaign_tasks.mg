@@ -104,13 +104,6 @@ has_next_campaign_task() :-
 has_next_campaign_task() :-
     phase_has_backoff_task(_).
 
-# Campaign blocked if all remaining tasks are blocked
-campaign_blocked(CampaignID, /all_tasks_blocked) :-
-    current_campaign(CampaignID),
-    current_phase(PhaseID),
-    !has_next_campaign_task(),
-    !phase_has_backoff_task(PhaseID),
-    has_incomplete_phase_task(PhaseID).
 
 # Derive next_action based on campaign task type
 next_action(/campaign_create_file) :-
@@ -176,21 +169,7 @@ delegate_task(/tester, Description, /pending) :-
 # Context Paging (Phase-Aware Spreading Activation)
 # =============================================================================
 
-# Boost activation for current phase context
-activation(Fact, 150) :-
-    current_phase(PhaseID),
-    phase_context_atom(PhaseID, Fact, _).
-
-# Boost files matching current task's target
-activation(Target, 140) :-
-    next_campaign_task(TaskID),
-    campaign_task(TaskID, _, _, _, _),
-    task_write_path(TaskID, Target).
-
-# Suppress context from completed phases
-activation(Fact, -50) :-
-    context_compression(PhaseID, _, _, _),
-    phase_context_atom(PhaseID, Fact, _).
+# The activation rules for campaign context live in campaign_context.mg.
 
 # =============================================================================
 # Campaign-Aware Tool Permissions
