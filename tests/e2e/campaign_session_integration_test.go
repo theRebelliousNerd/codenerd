@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/campaign"
+	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/jit/config"
@@ -107,18 +108,18 @@ func setupCampaignEnvironment(t *testing.T) (*campaign.Orchestrator, *campaignMo
 	workspace := t.TempDir()
 
 	orchCfg := campaign.OrchestratorConfig{
-		Workspace:        workspace,
-		Kernel:           kernel,
-		LLMClient:        llm,
-		Transducer:       trans,
-		Executor:         tactile.NewDirectExecutor(),
-		VirtualStore:     &core.VirtualStore{},
-		ShardManager:     coreshards.NewShardManager(),
-		TaskExecutor:     taskExec,
-		MaxParallelTasks: 3,
-		MaxRetries:       1,
-		CampaignTimeout:  5 * time.Minute,
-		TaskTimeout:      1 * time.Minute,
+		Workspace:    workspace,
+		Kernel:       kernel,
+		LLMClient:    llm,
+		Transducer:   trans,
+		Executor:     tactile.NewDirectExecutor(),
+		VirtualStore: &core.VirtualStore{},
+		ShardManager: coreshards.NewShardManager(),
+		TaskExecutor: taskExec,
+		// One retry after the first attempt: two attempts.
+		Campaign:        nerdconfig.CampaignConfig{MaxParallelTasks: 3, MaxTaskAttempts: 2},
+		CampaignTimeout: 5 * time.Minute,
+		TaskTimeout:     1 * time.Minute,
 	}
 
 	orch, err := campaign.NewOrchestrator(orchCfg)
