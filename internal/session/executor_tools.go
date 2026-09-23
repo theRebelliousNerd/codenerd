@@ -446,9 +446,16 @@ func (e *Executor) runToolLoopPass(
 
 // verifyCompletedToolTurn is the transport-independent post-edit gate. Native
 // and Piggyback calls differ in how tool results return to the model, but both
-// must compile and test durable Go edits before the turn can report success.
-// A Piggyback client has no native repair channel, so hard-gate failures remain
-// failures with the compiler/test output instead of being silently skipped.
+// must answer for their writes before the turn can report success. A Piggyback
+// client has no native repair channel, so hard-gate failures remain failures
+// with the compiler/test output instead of being silently skipped.
+//
+// Which rounds run, and in what order, is the kernel's (turn_next_round,
+// policy/turn_rounds.mg): this runs the round it names, records
+// turn_round_ran, and asks again until none derives. Until 2026-09-23 the
+// rounds ran in a fixed Go order and six of them decided for themselves from
+// the written paths' extensions whether they applied, a second answer to
+// turn_owes_gate (sweep finding F4).
 func (e *Executor) verifyCompletedToolTurn(
 	ctx context.Context,
 	trp types.ToolResultsProvider,
@@ -463,134 +470,145 @@ func (e *Executor) verifyCompletedToolTurn(
 		return nil, nil, errors.New("cannot verify a nil completed response")
 	}
 
-	before := ""
-	if result != nil && result.SuccessfulWriteTools > 0 && touchedGoFiles(result.WrittenPaths) {
-		before, _ = evidence.Snapshot(ctx, e.workspaceForVerification())
-	}
 	var toolErrs []string
-	repaired, repairErrs, repairErr := e.verifyAndRepairBuild(
-		ctx, trp, systemPrompt, history, current, toolDefs, cfg, result)
-	toolErrs = append(toolErrs, repairErrs...)
-	if repairErr != nil {
-		return current, toolErrs, repairErr
+	if result == nil {
+		return current, toolErrs, nil
 	}
-	if repaired != nil {
-		current = repaired
+	// Each round's driver. The critic's opinion is advisory: an uplift that
+	// breaks the suite is undone inside verifyAndUpliftWithCritic.
+	rounds := map[string]func() (*types.LLMToolResponse, []string, error){
+		"/build": func() (*types.LLMToolResponse, []string, error) {
+			repaired, errs, err := e.verifyAndRepairBuild(ctx, trp, systemPrompt, history, current, toolDefs, cfg, result)
+			if err == nil {
+				e.formatWrittenGo(result, "")
+			}
+			return repaired, errs, err
+		},
+		"/test": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairTests(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		"/critic": func() (*types.LLMToolResponse, []string, error) {
+			errs, err := e.verifyAndUpliftWithCritic(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+			return nil, errs, err
+		},
+		"/coverage": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairCoverage(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		"/pinned": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairPinning(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		"/vet": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairVet(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		"/removed_tests": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairRemovedTests(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		"/test_run": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairTestRun(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
 	}
-	if result != nil && result.SuccessfulWriteTools > 0 && touchedGoFiles(result.WrittenPaths) {
-		if formatted := formatWrittenGoFiles(e.workspaceForVerification(), result.WrittenPaths); len(formatted) > 0 {
-			logging.Get(logging.CategorySession).Info("gofmt: formatted %d written file(s): %s", len(formatted), strings.Join(formatted, ", "))
+
+	before := ""
+	for {
+		next, err := e.nextPostEditRound(result)
+		if err != nil {
+			return current, toolErrs, err
+		}
+		if next == "" {
+			break
+		}
+		run, ok := rounds[next]
+		if !ok {
+			return current, toolErrs, fmt.Errorf("the policy owes the post-edit round %s, which this executor has no driver for", next)
+		}
+		if len(result.roundsRan) == 0 {
+			// What the workspace was before any round edited it: the closure
+			// remeasures when the rounds changed it.
+			before, _ = evidence.Snapshot(ctx, e.workspaceForVerification())
+		}
+		resp, errs, runErr := run()
+		toolErrs = append(toolErrs, errs...)
+		if runErr != nil {
+			return current, toolErrs, runErr
+		}
+		if resp != nil {
+			current = resp
+		}
+		if err := e.markRoundRan(result, next); err != nil {
+			return current, toolErrs, err
 		}
 	}
 
-	// Compile first: test output wrapped around compiler errors is a worse
-	// repair signal than the compiler's direct output.
-	tested, testErrs, testErr := e.verifyAndRepairTests(
-		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-	toolErrs = append(toolErrs, testErrs...)
-	if testErr != nil {
-		return current, toolErrs, testErr
-	}
-	if tested != nil {
-		current = tested
-	}
+	// Any round after the build can write Go (the critic's uplift, coverage
+	// tests, a vet or removed-test repair), so format what the turn wrote
+	// again, last (2026-09-19: a coverage insert left a doubled blank line
+	// and the turn still ended checks_passed). gofmt starts no test process,
+	// so it never resets the run the test_run round asks for, and the closure
+	// remeasures on the workspace as it is now.
+	e.formatWrittenGo(result, " at turn end")
 
-	// The critic reviews the change once it compiles and passes, and before
-	// the forcing rounds: its uplift edits are the turn's code like any other,
-	// so the coverage, vet and deleted-test rounds after it answer for them
-	// too. Its opinion is advisory; an uplift that breaks the suite is undone
-	// inside verifyAndUpliftWithCritic. It used to run after the last forcing
-	// round, so its edits were the only ones no round covered, vetted or
-	// inventoried (external audit F3, 2026-09-19).
-	upliftErrs, upliftErr := e.verifyAndUpliftWithCritic(
-		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-	toolErrs = append(toolErrs, upliftErrs...)
-	if upliftErr != nil {
-		return current, toolErrs, upliftErr
-	}
-
-	// The tests pass. Code the turn changed that no test executes, and go vet
-	// findings in its files, are evidence the verdict reads; the model gets
-	// its rounds to answer them first, the coverage round before vet so the
-	// tests it writes are vetted too.
-	covered, coverageErrs, coverageErr := e.verifyAndRepairCoverage(
-		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-	toolErrs = append(toolErrs, coverageErrs...)
-	if coverageErr != nil {
-		return current, toolErrs, coverageErr
-	}
-	if covered != nil {
-		current = covered
-	}
-	// Executed is not pinned: a change is pinned when a test the turn wrote
-	// fails without it (N22). After coverage, whose tests it counts; before
-	// vet, which vets the tests it asks for.
-	pinned, pinErrs, pinErr := e.verifyAndRepairPinning(
-		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-	toolErrs = append(toolErrs, pinErrs...)
-	if pinErr != nil {
-		return current, toolErrs, pinErr
-	}
-	if pinned != nil {
-		current = pinned
-	}
-	vetted, vetErrs, vetErr := e.verifyAndRepairVet(
-		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-	toolErrs = append(toolErrs, vetErrs...)
-	if vetErr != nil {
-		return current, toolErrs, vetErr
-	}
-	if vetted != nil {
-		current = vetted
-	}
-
-	// A turn that makes the gates green by removing a test has not fixed
-	// anything: a failing test is fixed by fixing the code, not by deleting
-	// the test. Runs after the test gate and the gofmt pass so a passing test
-	// suite that lost a contract is still caught; the turn is handed the
-	// deleted tests to put back, and fails only if it will not.
-	restored, restoreErrs, restoreErr := e.verifyAndRepairRemovedTests(
-		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-	toolErrs = append(toolErrs, restoreErrs...)
-	if restoreErr != nil {
-		return current, toolErrs, restoreErr
-	}
-	if restored != nil {
-		current = restored
-	}
-
-	// Writes the Go gates do not cover owe a test run the model started after
-	// its last write (N01). This round runs last: a write after it would reset
-	// the run it asks for.
-	ran, runErrs, runErr := e.verifyAndRepairTestRun(
-		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-	toolErrs = append(toolErrs, runErrs...)
-	if runErr != nil {
-		return current, toolErrs, runErr
-	}
-	if ran != nil {
-		current = ran
-	}
-
-	// Every round above the early gofmt pass can write Go — the critic's
-	// uplift, the coverage tests, a vet or removed-test repair — so a turn
-	// that ends here can leave Go no round formatted (2026-09-19: a coverage
-	// insert left a doubled blank line and the turn still ended
-	// checks_passed). Format what the turn wrote again, last, so every Go
-	// file the turn wrote is gofmt-clean when the turn ends, whichever round
-	// wrote it. The closure below remeasures the gates on the workspace as
-	// it is now, so this formatting is verified like any other late edit.
-	// It runs after the test_run round because gofmt never starts a test
-	// process and so never resets the run that round asks for.
-	if result != nil && result.SuccessfulWriteTools > 0 && touchedGoFiles(result.WrittenPaths) {
-		if formatted := formatWrittenGoFiles(e.workspaceForVerification(), result.WrittenPaths); len(formatted) > 0 {
-			logging.Get(logging.CategorySession).Info("gofmt: formatted %d written file(s) at turn end: %s", len(formatted), strings.Join(formatted, ", "))
-		}
-	}
-
-	// Every round above can edit; the closure measures what they left, all
-	// gates at one revision, with no model in the loop.
+	// Every round can edit; the closure measures what they left, all gates at
+	// one revision, with no model in the loop.
 	return current, toolErrs, e.closeChangeEvidence(ctx, result, before)
+}
+
+// formatWrittenGo gofmts the Go files the turn wrote; any other path is left
+// alone.
+func (e *Executor) formatWrittenGo(result *ExecutionResult, when string) {
+	if formatted := formatWrittenGoFiles(e.workspaceForVerification(), result.WrittenPaths); len(formatted) > 0 {
+		logging.Get(logging.CategorySession).Info("gofmt: formatted %d written file(s)%s: %s", len(formatted), when, strings.Join(formatted, ", "))
+	}
+}
+
+// nextPostEditRound asserts what the turn has measured so far -- its verb,
+// its written paths, its write-tool count -- and returns the round the
+// kernel derives next (turn_next_round), or "" when none is owed. A turn that
+// wrote nothing owes nothing. With writes, a kernel that cannot be asked is
+// an error: the rounds are what make a write count.
+func (e *Executor) nextPostEditRound(result *ExecutionResult) (string, error) {
+	if result.SuccessfulWriteTools == 0 {
+		return "", nil
+	}
+	if e.kernel == nil {
+		return "", errors.New("no kernel to derive the post-edit rounds this turn's writes owe")
+	}
+	turn := result.turnAtom()
+	e.assertTurnVerb(turn, result.Intent.Verb, result)
+	e.assertTurnWrites(turn, result)
+	if !result.writeToolsAsserted {
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_write_tools", Args: []any{turn, int64(result.SuccessfulWriteTools)}}) {
+			return "", errors.New("assert turn_write_tools")
+		}
+		result.writeToolsAsserted = true
+	}
+	rows, err := e.turnRows("turn_next_round", turn)
+	if err != nil {
+		return "", fmt.Errorf("query turn_next_round: %w", err)
+	}
+	switch len(rows) {
+	case 0:
+		return "", nil
+	case 1:
+		if len(rows[0].Args) < 2 {
+			return "", fmt.Errorf("malformed turn_next_round %v", rows[0].Args)
+		}
+		return types.ExtractString(rows[0].Args[1]), nil
+	default:
+		return "", fmt.Errorf("the kernel derived %d next post-edit rounds (%v); the policy must order them", len(rows), rows)
+	}
+}
+
+// markRoundRan records that round ran: turn_round_ran for the policy, and on
+// the result for the closure.
+func (e *Executor) markRoundRan(result *ExecutionResult, round string) error {
+	if !e.assertTurnFact(types.Fact{Predicate: "turn_round_ran", Args: []any{result.turnAtom(), types.MangleAtom(round)}}) {
+		return fmt.Errorf("record the post-edit round %s", round)
+	}
+	if result.roundsRan == nil {
+		result.roundsRan = map[string]bool{}
+	}
+	result.roundsRan[round] = true
+	return nil
 }
 
 // toolExplorationCutoff divides a deadline-bound turn into exploration and

@@ -757,16 +757,13 @@ func (e *Executor) verifyAndRepairPinning(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) || e.kernel == nil {
+	if result == nil {
 		return nil, nil, nil
 	}
 	if e.sessionContext != nil && e.sessionContext.DreamMode {
 		return nil, nil, nil
 	}
 	if !e.configSnapshot().VerifyTestsAfterEdits || result.TestCheck.Verdict() != VerifyPassed {
-		return nil, nil, nil
-	}
-	if !e.turnOwesGate(result, "/pinned") {
 		return nil, nil, nil
 	}
 	workspace := e.workspaceForVerification()

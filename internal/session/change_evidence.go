@@ -62,7 +62,9 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 	workspace := e.workspaceForVerification()
 	if result.SuccessfulWriteTools > 0 {
 		result.ChangeStage = "artifact_changed"
-		if touchedGoFiles(result.WrittenPaths) {
+		// The build round ran: the gates it and the rounds after it measured
+		// are this turn's evidence, remeasured on what the rounds left.
+		if result.roundsRan["/build"] {
 			after, err := evidence.Snapshot(ctx, workspace)
 			if err != nil || before == "" || after != before {
 				if err := e.remeasureGates(ctx, workspace, result); err != nil {

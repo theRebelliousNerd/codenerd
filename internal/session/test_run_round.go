@@ -39,7 +39,7 @@ func (e *Executor) verifyAndRepairTestRun(
 	if e.sessionContext != nil && e.sessionContext.DreamMode {
 		return nil, nil, nil
 	}
-	if !e.turnOwesGate(result, "/test_run") || result.testRunVerdict() == VerifyPassed {
+	if result.testRunVerdict() == VerifyPassed {
 		return nil, nil, nil
 	}
 	seed := testRunShortfall(result)

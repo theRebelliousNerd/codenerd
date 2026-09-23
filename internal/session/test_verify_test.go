@@ -371,7 +371,9 @@ func TestTestRepairPrompt_BuildFailureBlamesTheTestFile(t *testing.T) {
 }
 
 // Gating: the gate must not fire on turns it has no business running for.
-// A markdown-only turn that pays for `go test` is a tax on every doc edit.
+// Whether a turn owes the test round at all -- no writes, a markdown-only
+// turn -- is the kernel's schedule (post_edit_rounds_test.go); what is left
+// to the gate is its switch and a missing result.
 func TestVerifyAndRepairTests_SkipsWhenNotApplicable(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -380,8 +382,6 @@ func TestVerifyAndRepairTests_SkipsWhenNotApplicable(t *testing.T) {
 	}{
 		{"disabled by config", false, &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}},
 		{"nil result", true, nil},
-		{"no successful writes", true, &ExecutionResult{SuccessfulWriteTools: 0, WrittenPaths: []string{"a.go"}}},
-		{"wrote no Go", true, &ExecutionResult{SuccessfulWriteTools: 2, WrittenPaths: []string{"README.md", "notes.txt"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

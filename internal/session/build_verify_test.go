@@ -12,28 +12,6 @@ import (
 // four compile errors and still assert task_status(/manual_instruction,
 // /complete) with exit 0. These tests pin the gate that stops that.
 
-func TestTouchedGoFiles(t *testing.T) {
-	cases := []struct {
-		name  string
-		paths []string
-		want  bool
-	}{
-		{"nothing written", nil, false},
-		{"markdown only", []string{"Docs/architecture/README.md", ".nerd/notes.txt"}, false},
-		{"one go file", []string{"Docs/x.md", "internal/session/executor.go"}, true},
-		{"uppercase extension", []string{"cmd/nerd/Main.GO"}, true},
-		{"whitespace padded", []string{"  internal/core/kernel.go  "}, true},
-		{"go in the middle of a name", []string{"internal/gopher/notes.md"}, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := touchedGoFiles(tc.paths); got != tc.want {
-				t.Errorf("touchedGoFiles(%v) = %v; want %v", tc.paths, got, tc.want)
-			}
-		})
-	}
-}
-
 // A verification that did not run must never be reported as a pass. This is the
 // distinction that keeps the gate honest: BuildVerification{Ran:false} means
 // "unknown", and callers treat it as such.

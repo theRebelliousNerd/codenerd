@@ -303,8 +303,10 @@ func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
 			return `{"control_packet":{"tool_requests":[{"id":"piggy-write","tool_name":"multi_edit","tool_args":{"path":"broken.go"},"required":true}]},"surface_response":"done"}`, nil
 		},
 	}}
+	// A real kernel: which post-edit rounds a write owes is its schedule
+	// (turn_next_round); MockKernel derives none, so no build would run.
 	executor := &Executor{
-		kernel:       &MockKernel{},
+		kernel:       realKernel(t),
 		virtualStore: &MockVirtualStore{},
 		llmClient:    client,
 		config:       DefaultExecutorConfig(),
@@ -357,8 +359,9 @@ func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
 	client := &forcedFinalVerificationClient{MockLLMClient: &MockLLMClient{}, writeTool: writeTool, readTool: readTool}
 	executor := &Executor{
 		// An effectful tool needs the executive gate; without one the write is
-		// refused and this becomes the read-only stall test instead.
-		kernel: &MockKernel{}, virtualStore: &testExecutiveStore{}, llmClient: client,
+		// refused and this becomes the read-only stall test instead. A real
+		// kernel: the post-edit rounds a write owes are its schedule.
+		kernel: realKernel(t), virtualStore: &testExecutiveStore{}, llmClient: client,
 		config: DefaultExecutorConfig(),
 	}
 	executor.config.EnableSafetyGate = false

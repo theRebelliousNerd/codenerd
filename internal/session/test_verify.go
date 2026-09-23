@@ -118,8 +118,7 @@ func DeduplicatePreservingOrder(in []string) []string {
 // directory packages suitable for `go test` (e.g. "./internal/session").
 //
 // Paths are treated as workspace-relative; leading/trailing whitespace is
-// ignored and the .go suffix check is case-insensitive to mirror
-// touchedGoFiles. Paths like "internal/session/foo.go" become
+// ignored and the .go suffix check is case-insensitive. Paths like "internal/session/foo.go" become
 // "./internal/session"; a file at the module root becomes ".".
 func packagesForPaths(paths []string) []string {
 	var out []string

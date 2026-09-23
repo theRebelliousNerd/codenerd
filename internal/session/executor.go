@@ -762,6 +762,12 @@ type ExecutionResult struct {
 	// (assertTurnVerb).
 	verbAsserted bool
 
+	// writeToolsAsserted is set once turn_write_tools is asserted for this
+	// turn, and roundsRan holds the post-edit rounds that ran
+	// (verifyCompletedToolTurn).
+	writeToolsAsserted bool
+	roundsRan          map[string]bool
+
 	// WrittenPaths records the target of every successful write mutation, so
 	// post-edit build verification can tell a turn that touched Go source from
 	// one that only wrote markdown and skip the compile it does not need.

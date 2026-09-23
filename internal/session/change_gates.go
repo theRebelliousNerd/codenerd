@@ -209,10 +209,7 @@ func (e *Executor) verifyAndRepairVet(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
-		return nil, nil, nil
-	}
-	if !e.configSnapshot().VerifyBuildAfterEdits {
+	if result == nil || !e.configSnapshot().VerifyBuildAfterEdits {
 		return nil, nil, nil
 	}
 	workspace := e.workspaceForVerification()

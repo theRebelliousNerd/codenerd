@@ -146,6 +146,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// turn facts they are cleaned up with.
 				"repair_attempt",
 				"turn_gate",
+				// The post-edit rounds a turn ran, and its write-tool count
+				// (turn_rounds.mg), beside the gates they schedule.
+				"turn_round_ran", "turn_write_tools",
 				"turn_untested",
 				"turn_uncovered",
 			},

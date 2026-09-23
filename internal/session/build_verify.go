@@ -96,18 +96,6 @@ func (v BuildVerification) Verdict() VerifyOutcome {
 	}
 }
 
-// touchedGoFiles reports whether any successful write-mutation touched a .go
-// file. Verification is pointless — and expensive — for a turn that only wrote
-// markdown.
-func touchedGoFiles(paths []string) bool {
-	for _, p := range paths {
-		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(p)), ".go") {
-			return true
-		}
-	}
-	return false
-}
-
 // workspaceForVerification resolves the directory the verification build runs
 // in, falling back to workspace discovery when the config does not carry one.
 //
@@ -215,11 +203,7 @@ func (e *Executor) verifyAndRepairBuild(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if !e.configSnapshot().VerifyBuildAfterEdits {
-		return nil, nil, nil
-	}
-	// Nothing was written, or nothing written was Go: no compile to run.
-	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
+	if !e.configSnapshot().VerifyBuildAfterEdits || result == nil {
 		return nil, nil, nil
 	}
 
@@ -296,10 +280,7 @@ func (e *Executor) verifyAndRepairTests(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if !e.configSnapshot().VerifyTestsAfterEdits {
-		return nil, nil, nil
-	}
-	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
+	if !e.configSnapshot().VerifyTestsAfterEdits || result == nil {
 		return nil, nil, nil
 	}
 
@@ -698,10 +679,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) ([]string, error) {
-	if !e.configSnapshot().CriticReviewAfterEdits {
-		return nil, nil
-	}
-	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
+	if !e.configSnapshot().CriticReviewAfterEdits || result == nil {
 		return nil, nil
 	}
 
