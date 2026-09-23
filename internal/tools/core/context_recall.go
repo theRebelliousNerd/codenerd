@@ -1,32 +1,57 @@
 package core
 
 import (
-	"codenerd/internal/tools"
 	"context"
 	"fmt"
+	"strings"
+
+	"codenerd/internal/tools"
 )
 
 // maxContextSearchRecords is the working store's ceiling on records per
 // search (WorkingStore.Search).
 const maxContextSearchRecords = 50
 
+// retainedHandleRedeemers are the other handle kinds the harness hands the
+// model, each with the read-only verb that redeems it. recall_context accepts
+// them too: a model holding an id reaches for the one recall verb, and it used
+// to be told "no archived observation has id obs:sa:..." for a subagent handle
+// that subagent_expand would have read (observed 2026-09-22, campaign
+// 7b853890). Their offset and limit count lines.
+var retainedHandleRedeemers = map[string]func(context.Context, map[string]any) (string, error){
+	"obs:sa:": executeSubagentExpand,
+	"obs:cs:": executeSearchExpand,
+}
+
 func RecallContextTool() *tools.Tool {
 	return &tools.Tool{
-		Name: "recall_context", Description: "Recover a page of an archived observation by its context record ID. Returns original revision and provenance; historical observations are not current verification.", Category: tools.CategoryGeneral, Priority: 65,
+		Name: "recall_context", Description: "Recover a page of an archived observation by its context record ID, or the retained text behind any handle the harness gave you (a subagent return obs:sa:..., a code search obs:cs:...). Returns original revision and provenance; historical observations are not current verification.", Category: tools.CategoryGeneral, Priority: 65,
 		Schema: tools.ToolSchema{Properties: map[string]tools.Property{
-			"id":     {Type: "string", Description: "Observation ID from working context"},
+			"id":     {Type: "string", Description: "Observation ID from working context, or a retained handle (obs:sa:..., obs:cs:...)"},
 			"query":  {Type: "string", Description: "Literal archive search when the observation ID is unknown; provide query or id"},
-			"offset": {Type: "integer", Description: "Character offset, default zero"},
-			"limit":  {Type: "integer", Description: "With id: page characters; omitted returns the rest of the body from offset. Page only when a whole body was reported as not fitting the request. With query: number of records, at most 50"},
+			"offset": {Type: "integer", Description: "Character offset, default zero (lines, for a retained handle)"},
+			"limit":  {Type: "integer", Description: "With id: page characters; omitted returns the rest of the body from offset. Page only when a whole body was reported as not fitting the request. With query: number of records, at most 50. Lines, for a retained handle"},
 		}}, Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			recall := tools.ContextRecallFrom(ctx)
-			if recall == nil {
-				return "", fmt.Errorf("working context recall unavailable")
-			}
 			id, _ := args["id"].(string)
 			query, _ := args["query"].(string)
 			if (id == "") == (query == "") {
 				return "", fmt.Errorf("provide exactly one of id or query")
+			}
+			for prefix, redeem := range retainedHandleRedeemers {
+				if strings.HasPrefix(strings.TrimSpace(id), prefix) {
+					handleArgs := map[string]any{"handle": strings.TrimSpace(id)}
+					if v, ok := args["offset"]; ok {
+						handleArgs["offset"] = v
+					}
+					if v, ok := args["limit"]; ok {
+						handleArgs["max_lines"] = v
+					}
+					return redeem(ctx, handleArgs)
+				}
+			}
+			recall := tools.ContextRecallFrom(ctx)
+			if recall == nil {
+				return "", fmt.Errorf("working context recall unavailable")
 			}
 			integer := func(key string, fallback int) (int, error) {
 				raw, present := args[key]
