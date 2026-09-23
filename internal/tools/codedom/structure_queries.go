@@ -89,6 +89,9 @@ func executeFindText(ctx context.Context, args map[string]any) (string, error) {
 	}
 	in, _ := args["in"].(string)
 	path, _ := args["path"].(string)
+	if strings.TrimSpace(path) != "" && tools.IsSecretPath(path) {
+		return "", fmt.Errorf("%s is a secret file (execution.secret_paths); its contents are never searched", path)
+	}
 	provider, err := structureProvider()
 	if err != nil {
 		return "", err

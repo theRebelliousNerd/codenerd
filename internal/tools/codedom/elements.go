@@ -417,11 +417,15 @@ func loadFile(ctx context.Context, rawPath string) (*loadedFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	rel := tools.WorkspaceDisplayPath(ctx, abs)
+	if tools.IsSecretPath(rel) {
+		return nil, fmt.Errorf("%s is a secret file (execution.secret_paths); its contents are never read", rel)
+	}
 	data, err := projectdoc.ReadFileForTool(abs)
 	if err != nil {
 		return nil, err
 	}
-	return &loadedFile{abs: abs, rel: tools.WorkspaceDisplayPath(ctx, abs), data: data}, nil
+	return &loadedFile{abs: abs, rel: rel, data: data}, nil
 }
 
 func executeGetElements(ctx context.Context, args map[string]any) (string, error) {

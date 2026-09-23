@@ -56,6 +56,9 @@ func executeCreateFile(ctx context.Context, args map[string]any) (string, error)
 		return "", err
 	}
 	rel := tools.WorkspaceDisplayPath(ctx, abs)
+	if tools.IsSecretPath(rel) {
+		return "", fmt.Errorf("%s is a secret file (execution.secret_paths); it is not written by a model", rel)
+	}
 	if _, err := os.Stat(abs); err == nil {
 		return "", fmt.Errorf("%s already exists; the element verbs (edit_element, replace_element, insert_element) change an existing file", rel)
 	}

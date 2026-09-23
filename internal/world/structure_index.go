@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"codenerd/internal/world/codemodel"
 )
@@ -179,11 +180,17 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 		if codemodel.LanguageOf(name) == "" {
 			return nil
 		}
+		canonical := types.CanonicalPath(s.root, path)
+		// A secret file (execution.secret_paths) is never parsed: its
+		// signatures, doc lines and literals would reach the model through
+		// find_symbol, package_outline and find_text as surely as a read.
+		if tools.IsSecretPath(canonical) {
+			return nil
+		}
 		info, err := d.Info()
 		if err != nil {
 			return nil
 		}
-		canonical := types.CanonicalPath(s.root, path)
 		seen[canonical] = struct{}{}
 		fp := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 		if prev, ok := s.files[canonical]; ok && prev.fingerprint == fp {
