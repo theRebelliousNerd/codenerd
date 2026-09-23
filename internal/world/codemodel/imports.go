@@ -247,6 +247,9 @@ func rewriteImports(src string, remove []Import, add []string, module string) (s
 		default:
 			at := lineEndIncl(src, off(node.Name.End()))
 			block := "\nimport (\n" + specLines(add) + ")\n"
+			if len(add) == 1 {
+				block = "\nimport " + strconv.Quote(add[0]) + "\n"
+			}
 			ins = append(ins, insertion{at, block})
 		}
 	}
@@ -282,7 +285,15 @@ func rewriteImports(src string, remove []Import, add []string, module string) (s
 	if err != nil {
 		return "", err
 	}
-	return formatted + out[hdr.End:], nil
+	// A removed import declaration leaves its blank lines behind; the first
+	// declaration below the header sits one blank line down, as gofmt puts it.
+	rest := out[hdr.End:]
+	if body := strings.TrimLeft(rest, "\n"); body != "" {
+		rest = "\n\n" + body
+	} else {
+		rest = "\n"
+	}
+	return formatted + rest, nil
 }
 
 // lineEndIncl returns the offset just past the newline ending the line that

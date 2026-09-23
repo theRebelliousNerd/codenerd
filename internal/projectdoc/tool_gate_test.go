@@ -542,3 +542,22 @@ func TestTargetPath_CompatibilityWrapper(t *testing.T) {
 		})
 	}
 }
+
+// A multi-file structural edit (repoint, delete_element with replace_with)
+// finds its sites itself, so its declared write set is the only place the
+// gates can learn which files it writes: every entry must come back.
+func TestTargetPaths_ReadsTheDeclaredWriteSet(t *testing.T) {
+	got, err := TargetPaths(map[string]any{"path": "b/b.go", "paths": []any{"c/c.go", "d/d.go", "b/b.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "b/b.go,c/c.go,d/d.go" {
+		t.Fatalf("TargetPaths = %v", got)
+	}
+	if _, err := TargetPaths(map[string]any{"paths": []any{"a.go", 3}}); err == nil {
+		t.Fatal("a non-string entry must be refused, not skipped")
+	}
+	if _, err := TargetPaths(map[string]any{"paths": "a.go"}); err == nil {
+		t.Fatal("paths must be an array")
+	}
+}

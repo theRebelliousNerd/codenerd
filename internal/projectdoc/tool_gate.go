@@ -26,10 +26,14 @@ const MaxNestedEdits = 16
 // TargetPaths extracts all target paths from args in a deterministic,
 // ordered-deduplicated form. It preserves the legacy single-file scalar
 // behavior (first matching PathArgs key) and additionally extracts path
-// fields from an "edits" array of objects. Each edit object is searched
-// with the same PathArgs keys used for the top-level. The extraction is
-// bounded to MaxNestedEdits entries and returns an error on malformed or
-// oversize input rather than silently dropping data.
+// fields from an "edits" array of objects, and every entry of a "paths"
+// array of strings: the declared write set of a multi-file structural edit
+// (repoint, delete_element with replace_with), which finds its sites itself
+// and must still name every file it writes, so each gate can check each one.
+// Each edit object is searched with the same PathArgs keys used for the
+// top-level. The edits extraction is bounded to MaxNestedEdits entries and
+// returns an error on malformed or oversize input rather than silently
+// dropping data.
 func TargetPaths(args map[string]any) ([]string, error) {
 	if args == nil {
 		return nil, nil
@@ -62,6 +66,44 @@ func TargetPaths(args map[string]any) ([]string, error) {
 		for _, p := range nested {
 			add(p)
 		}
+	}
+	if rawPaths, ok := args["paths"]; ok && rawPaths != nil {
+		listed, err := extractPathList(rawPaths)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range listed {
+			add(p)
+		}
+	}
+	return out, nil
+}
+
+// extractPathList validates a "paths" array: every entry a non-empty string.
+func extractPathList(raw any) ([]string, error) {
+	var elems []any
+	switch v := raw.(type) {
+	case []any:
+		elems = v
+	case []string:
+		out := make([]string, 0, len(v))
+		for i, s := range v {
+			if strings.TrimSpace(s) == "" {
+				return nil, fmt.Errorf("paths[%d] is empty", i)
+			}
+			out = append(out, s)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("paths must be an array of strings")
+	}
+	out := make([]string, 0, len(elems))
+	for i, e := range elems {
+		s, ok := e.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			return nil, fmt.Errorf("paths[%d] must be a non-empty string", i)
+		}
+		out = append(out, s)
 	}
 	return out, nil
 }
@@ -151,9 +193,10 @@ func IsWriteMutationTool(name string) bool {
 	case // Registered VirtualStore write actions.
 		"write_file", "edit_file", "delete_file",
 		"edit_lines", "insert_lines", "delete_lines",
-		"edit_element", "apply_edits", "fs_write",
+		"edit_element", "replace_element", "insert_element", "delete_element",
+		"create_file", "repoint", "apply_edits", "fs_write",
 		// Defensive aliases.
-		"apply_patch", "str_replace", "create_file", "replace_in_file", "multi_edit":
+		"apply_patch", "str_replace", "replace_in_file", "multi_edit":
 		return true
 	default:
 		return false

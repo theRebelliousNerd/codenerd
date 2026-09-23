@@ -239,8 +239,8 @@ func TestRegistry_FactSink_ShouldReceiveOneRecordPerExecution(t *testing.T) {
 		success bool
 	}
 	var got []record
-	r.SetFactSink(func(_ context.Context, name string, success bool, _ int64, _ int64) {
-		got = append(got, record{name, success})
+	r.SetFactSink(func(_ context.Context, rec ExecutionRecord) {
+		got = append(got, record{rec.ToolName, rec.Success})
 	})
 
 	if _, err := r.Execute(context.Background(), "recorded", nil); err != nil {
@@ -259,7 +259,7 @@ func TestRegistry_FactSink_ShouldNotFireForRefusedExecution(t *testing.T) {
 	r.SetAllowlist(&Allowlist{Enforced: true})
 
 	fired := false
-	r.SetFactSink(func(context.Context, string, bool, int64, int64) { fired = true })
+	r.SetFactSink(func(context.Context, ExecutionRecord) { fired = true })
 
 	_, _ = r.Execute(context.Background(), "blocked", nil)
 	// A refusal is not an execution: recording it as one would teach the

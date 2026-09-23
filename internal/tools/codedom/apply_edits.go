@@ -8,27 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tools"
 )
-
-// Package-level serialization for commit. The preflight (snapshot + staging) can
-// run concurrently, but the commit phase — optimistic check + writes + rollback —
-// is serialized exactly like the single-file tools' implicit file lock.
-var applyEditsMu sync.Mutex
-
-// applyEditsWriteFile is the write seam for tests. Production uses os.WriteFile.
-// Tests replace it to inject a failure mid-commit and exercise rollback.
-var applyEditsWriteFile = os.WriteFile
-
-// applyEditsBeforeCommitHook is a test seam invoked inside the commit mutex
-// immediately before the optimistic conflict check. Tests use it to mutate a
-// file after the snapshot but before the commit verifies it, proving optimistic
-// conflict detection deterministically without a race.
-var applyEditsBeforeCommitHook func()
 
 // maxAggregateInputBytes is the aggregate size limit for new_content/content
 // across all edits. One transaction should not be a bulk file copy.
@@ -290,7 +274,7 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 			return "", fmt.Errorf("preflight edits[%d] %s on %s failed: %w", i, snaps[i].edit.operation, snaps[i].edit.rawPath, execErr)
 		}
 	}
-	planned := make(map[string][]byte, len(snaps))
+	writes := make([]plannedWrite, 0, len(snaps))
 	for i, sn := range snaps {
 		stagedPath := filepath.Join(stagingRoot, filepath.FromSlash(sn.relPath))
 		data, err := projectdoc.ReadFileForTool(stagedPath)
@@ -300,103 +284,10 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 		if bytes.Equal(data, sn.orig) {
 			return "", fmt.Errorf("edits[%d] %s on %s produces no change", i, sn.edit.operation, sn.relPath)
 		}
-		planned[sn.absPath] = data
+		writes = append(writes, plannedWrite{abs: sn.absPath, rel: sn.relPath, orig: sn.orig, data: data, mode: sn.mode})
 	}
-	if err := ctx.Err(); err != nil {
+	if err := commitFiles(ctx, writes); err != nil {
 		return "", err
-	}
-	applyEditsMu.Lock()
-	defer applyEditsMu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	if applyEditsBeforeCommitHook != nil {
-		applyEditsBeforeCommitHook()
-	}
-	for _, sn := range snaps {
-		cur, err := projectdoc.ReadFileForTool(sn.absPath)
-		if err != nil {
-			return "", fmt.Errorf("optimistic conflict: failed to re-read %s: %w", sn.relPath, err)
-		}
-		if !bytes.Equal(cur, sn.orig) {
-			return "", fmt.Errorf("optimistic conflict: file %s changed since snapshot", sn.relPath)
-		}
-	}
-	type committed struct {
-		absPath string
-		relPath string
-		planned []byte
-		orig    []byte
-		mode    os.FileMode
-	}
-	var succeeded []committed
-	var commitErr error
-	failedIdx := -1
-	for idx, sn := range snaps {
-		if err := ctx.Err(); err != nil {
-			commitErr = err
-			break
-		}
-		cur, err := projectdoc.ReadFileForTool(sn.absPath)
-		if err != nil {
-			commitErr = fmt.Errorf("optimistic conflict: failed to re-read %s immediately before write: %w", sn.relPath, err)
-			break
-		}
-		if !bytes.Equal(cur, sn.orig) {
-			commitErr = fmt.Errorf("optimistic conflict: file %s changed immediately before write", sn.relPath)
-			break
-		}
-		p := planned[sn.absPath]
-		if err := applyEditsWriteFile(sn.absPath, p, sn.mode); err != nil {
-			commitErr = fmt.Errorf("failed to write %s: %w", sn.relPath, err)
-			failedIdx = idx
-			break
-		}
-		succeeded = append(succeeded, committed{
-			absPath: sn.absPath,
-			relPath: sn.relPath,
-			planned: p,
-			orig:    sn.orig,
-			mode:    sn.mode,
-		})
-	}
-	if commitErr != nil {
-		var rollbackConflicts []string
-		if failedIdx >= 0 {
-			fsn := snaps[failedIdx]
-			cur, err := projectdoc.ReadFileForTool(fsn.absPath)
-			if err != nil {
-				rollbackConflicts = append(rollbackConflicts, fsn.relPath+": restore failed: "+err.Error())
-			} else if !bytes.Equal(cur, fsn.orig) {
-				if err := applyEditsWriteFile(fsn.absPath, fsn.orig, fsn.mode); err != nil {
-					rollbackConflicts = append(rollbackConflicts, fsn.relPath+": restore failed: "+err.Error())
-				} else if after, err := projectdoc.ReadFileForTool(fsn.absPath); err != nil {
-					rollbackConflicts = append(rollbackConflicts, fsn.relPath+": restore failed: "+err.Error())
-				} else if !bytes.Equal(after, fsn.orig) {
-					rollbackConflicts = append(rollbackConflicts, fsn.relPath)
-				}
-			}
-		}
-		for j := len(succeeded) - 1; j >= 0; j-- {
-			c := succeeded[j]
-			cur, err := projectdoc.ReadFileForTool(c.absPath)
-			if err != nil {
-				rollbackConflicts = append(rollbackConflicts, c.relPath)
-				continue
-			}
-			if !bytes.Equal(cur, c.planned) {
-				rollbackConflicts = append(rollbackConflicts, c.relPath)
-				continue
-			}
-			if err := applyEditsWriteFile(c.absPath, c.orig, c.mode); err != nil {
-				rollbackConflicts = append(rollbackConflicts, c.relPath+": restore failed: "+err.Error())
-				continue
-			}
-		}
-		if len(rollbackConflicts) > 0 {
-			return "", fmt.Errorf("%w; rollback conflicts on: %s", commitErr, strings.Join(rollbackConflicts, ", "))
-		}
-		return "", commitErr
 	}
 	changed := make([]string, len(snaps))
 	ops := make([]string, len(snaps))

@@ -12,6 +12,7 @@ const StructuralNoRows = "-- 0 rows"
 func IsStructuralQuery(name string) bool {
 	switch name {
 	case "find_symbol", "package_outline", "callers_of", "callees_of", "unreferenced_symbols",
+		"importers_of", "find_text", "predicate_outline",
 		"get_element", "get_elements":
 		return true
 	}

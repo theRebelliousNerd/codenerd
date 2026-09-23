@@ -59,14 +59,41 @@ var interactiveToolActionType = map[string]ActionType{
 	"edit_lines":   ActionEditLines,
 	"insert_lines": ActionInsertLines,
 	"delete_lines": ActionDeleteLines,
-	// codedom element edits share the line tools' destructive posture and
-	// already have CodeDOM/syntax validators and a constitution case wired.
-	"edit_element": ActionEditElement,
+	// codedom element edits (internal/tools/codedom/element_edit.go) share
+	// the line tools' destructive posture and take the CodeDOM and syntax
+	// validators wired for edit_element: each rewrites part of one file.
+	"edit_element":    ActionEditElement,
+	"replace_element": ActionEditElement,
+	"insert_element":  ActionEditElement,
+	"delete_element":  ActionEditElement,
+	// create_file writes a new file, exactly the write_file posture.
+	"create_file": ActionWriteFile,
+	// repoint rewrites uses across the files its paths declare. Like
+	// apply_edits it is gated and validated once per declared file, as an
+	// edit_file of that file.
+	"repoint": ActionEditFile,
 	// apply_edits is the multi-file transactional editor. It has no dedicated
 	// ActionType in VirtualStore routing, but it mutates files exactly like
 	// edit_file, so it takes the same Dreamer preflight and post-write
 	// validators. It was unmapped until 2026-09-04, which skipped both.
 	"apply_edits": ActionEditFile,
+}
+
+// isMultiFileTool reports a call that writes several files: apply_edits and
+// repoint always, and any edit whose args declare a paths write set
+// (delete_element with replace_with). Such a call is preflighted and
+// validated once per file, as an edit_file of that file, so every file it
+// touches gets the same gate a single-file edit would.
+func isMultiFileTool(toolName string, args map[string]any) bool {
+	switch toolName {
+	case "apply_edits", "repoint":
+		return true
+	}
+	if _, ok := args["paths"]; ok && projectdoc.IsWriteMutationTool(toolName) {
+		paths, err := projectdoc.TargetPaths(args)
+		return err == nil && len(paths) > 1
+	}
+	return false
 }
 
 // actionTypeForToolName resolves a modular tool name to its ActionType.
@@ -159,13 +186,13 @@ func (v *VirtualStore) PreflightDestructiveToolCall(ctx context.Context, actionI
 	if v == nil {
 		return &InteractiveGateError{Reason: "dreamer unavailable: VirtualStore is nil"}
 	}
-	if toolName == "apply_edits" {
+	if isMultiFileTool(toolName, args) {
 		paths, err := projectdoc.TargetPaths(args)
 		if err != nil {
 			return err
 		}
 		if len(paths) == 0 {
-			return &InteractiveGateError{Reason: "apply_edits has no targets"}
+			return &InteractiveGateError{Reason: toolName + " has no targets"}
 		}
 		for i, path := range paths {
 			payload := make(map[string]any, len(args)+1)
@@ -226,10 +253,10 @@ func (v *VirtualStore) ValidateInteractiveToolResult(ctx context.Context, action
 	if !success || v.validators == nil {
 		return nil
 	}
-	if toolName == "apply_edits" {
+	if isMultiFileTool(toolName, args) {
 		paths, err := projectdoc.TargetPaths(args)
 		if err != nil || len(paths) == 0 {
-			return &InteractiveGateError{Reason: "invalid apply_edits validation targets"}
+			return &InteractiveGateError{Reason: "invalid " + toolName + " validation targets"}
 		}
 		for i, path := range paths {
 			// apply_edits verifies staged replacements internally. Apply the

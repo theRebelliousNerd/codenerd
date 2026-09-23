@@ -236,6 +236,11 @@ persona_tool_allowed(P, /callers_of) :- persona(P).
 persona_tool_allowed(P, /callees_of) :- persona(P).
 persona_tool_allowed(P, /unreferenced_symbols) :- persona(P).
 persona_tool_allowed(P, /get_element) :- persona(P).
+# Importers, text in literals and comments, and Mangle predicate outlines:
+# read-only structural queries, every persona (R8, 2026-09-22).
+persona_tool_allowed(P, /importers_of) :- persona(P).
+persona_tool_allowed(P, /find_text) :- persona(P).
+persona_tool_allowed(P, /predicate_outline) :- persona(P).
 
 # Coder-specific tools
 persona_tool_allowed(/coder, /write_file).
@@ -248,6 +253,14 @@ persona_tool_allowed(/coder, /git_operation).
 persona_tool_allowed(/coder, /edit_lines).
 persona_tool_allowed(/coder, /insert_lines).
 persona_tool_allowed(/coder, /delete_lines).
+# Element-addressed edits (R8, 2026-09-22): wherever the line tools go.
+persona_tool_allowed(/coder, /edit_element).
+persona_tool_allowed(/coder, /replace_element).
+persona_tool_allowed(/coder, /insert_element).
+persona_tool_allowed(/coder, /delete_element).
+persona_tool_allowed(/coder, /create_file).
+persona_tool_allowed(/coder, /repoint).
+persona_tool_allowed(/coder, /apply_edits).
 
 # Tester-specific tools
 persona_tool_allowed(/tester, /run_tests).
@@ -258,6 +271,13 @@ persona_tool_allowed(/tester, /edit_file).
 persona_tool_allowed(/tester, /edit_lines).
 persona_tool_allowed(/tester, /insert_lines).
 persona_tool_allowed(/tester, /delete_lines).
+persona_tool_allowed(/tester, /edit_element).
+persona_tool_allowed(/tester, /replace_element).
+persona_tool_allowed(/tester, /insert_element).
+persona_tool_allowed(/tester, /delete_element).
+persona_tool_allowed(/tester, /create_file).
+persona_tool_allowed(/tester, /repoint).
+persona_tool_allowed(/tester, /apply_edits).
 persona_tool_allowed(/tester, /get_impacted_tests).
 persona_tool_allowed(/tester, /run_impacted_tests).
 
@@ -325,9 +345,19 @@ modular_tool_allowed(/callers_of, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/callees_of, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/unreferenced_symbols, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/get_element, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/importers_of, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/find_text, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/predicate_outline, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/edit_lines, Intent) :- verb_category(Intent, /code).
 modular_tool_allowed(/insert_lines, Intent) :- verb_category(Intent, /code).
 modular_tool_allowed(/delete_lines, Intent) :- verb_category(Intent, /code).
+# Element-addressed edits: a code mutation, same envelope as edit_lines.
+modular_tool_allowed(/edit_element, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/replace_element, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/insert_element, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/delete_element, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/create_file, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/repoint, Intent) :- verb_category(Intent, /code).
 
 # Test impact analysis tools - available for code and test intents
 modular_tool_allowed(/get_impacted_tests, Intent) :- verb_category(Intent, /code).

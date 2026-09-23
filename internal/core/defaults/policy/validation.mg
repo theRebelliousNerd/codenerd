@@ -64,6 +64,9 @@ interactive_side_effect_type(/run_build).
 interactive_side_effect_type(/edit_lines).
 interactive_side_effect_type(/insert_lines).
 interactive_side_effect_type(/delete_lines).
+# The element verbs (edit/replace/insert/delete_element) map to /edit_element;
+# create_file to /write_file and repoint to /edit_file, already listed.
+interactive_side_effect_type(/edit_element).
 
 # A side-effecting action was ATTEMPTED this session if either a verification or
 # a validation-failure fact exists for it (both prove the tool actually ran).

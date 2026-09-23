@@ -65,11 +65,12 @@ type Allowlist struct {
 }
 
 // FactSink receives one record per completed tool execution so the kernel can
-// learn from it (schemas_tools.mg: tool_execution(ToolName, Success, Timestamp)).
+// learn from it (schemas_tools.mg: tool_execution(ToolName, Success, Timestamp))
+// and see what it changed (element_modified, modified_function).
 //
 // It is injected as a function for the same reason WriteGuard is: internal
 // /tools must not import internal/core, and the kernel lives there.
-type FactSink func(ctx context.Context, toolName string, success bool, durationMs int64, unixSeconds int64)
+type FactSink func(ctx context.Context, rec ExecutionRecord)
 
 // ToolMetrics accumulates outcome counters for one tool.
 type ToolMetrics struct {
@@ -410,6 +411,7 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 
 	// Execute the tool
 	logging.ToolsDebug("Executing tool: %s", tool.Name)
+	ctx, edits := withEditRecorder(ctx)
 	result, err := tool.Execute(ctx, args)
 
 	duration := time.Since(start)
@@ -438,7 +440,11 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 	// repo, so every tool_usage_stats and tool_success_relevance derivation
 	// downstream of it evaluated over an empty relation.
 	if sink != nil {
-		sink(ctx, tool.Name, err == nil, duration.Milliseconds(), start.Unix())
+		sink(ctx, ExecutionRecord{
+			ToolName: tool.Name, Success: err == nil,
+			DurationMs: duration.Milliseconds(), UnixSeconds: start.Unix(),
+			Edits: edits.list(),
+		})
 	}
 
 	return &ToolResult{

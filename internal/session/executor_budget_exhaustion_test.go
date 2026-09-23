@@ -440,7 +440,10 @@ func TestForceFinalAnswer_RefusesUnofferedToolCalls(t *testing.T) {
 }
 
 func TestForceFinalAnswer_ExecutesOfferedWriteThenClearsIt(t *testing.T) {
-	const toolName = "create_file"
+	// A write-mutation name no production tool registers: create_file was
+	// one until it became the real CodeDOM verb (2026-09-22), whose reviewed
+	// write effect overrides a stand-in's and requires the interactive gate.
+	const toolName = "multi_edit"
 	executions := 0
 	registerTestTool(t, &tools.Tool{
 		Effect:   tools.EffectRead,

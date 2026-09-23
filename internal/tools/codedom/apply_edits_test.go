@@ -270,10 +270,10 @@ func TestApplyEdits_OptimisticConflict(t *testing.T) {
 	bBefore := readFile(t, bAbs)
 	ctx := ctxForDir(dir)
 	// Hook mutates a.txt after snapshot but before commit's optimistic check
-	applyEditsBeforeCommitHook = func() {
+	commitBeforeHook = func() {
 		_ = os.WriteFile(aAbs, []byte("tampered\n"), 0o644)
 	}
-	t.Cleanup(func() { applyEditsBeforeCommitHook = nil })
+	t.Cleanup(func() { commitBeforeHook = nil })
 	_, err := executeApplyEdits(ctx, map[string]any{
 		"edits": []any{
 			map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
@@ -307,16 +307,16 @@ func TestApplyEdits_RollbackOnWriteFailure(t *testing.T) {
 	bAbs := writeFixture(t, dir, bRel, "alpha\nbeta\n")
 	aBefore := readFile(t, aAbs)
 	bBefore := readFile(t, bAbs)
-	origWrite := applyEditsWriteFile
+	origWrite := commitWriteFile
 	call := 0
-	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	commitWriteFile = func(path string, data []byte, perm os.FileMode) error {
 		call++
 		if call == 2 {
 			return errors.New("injected write failure")
 		}
 		return os.WriteFile(path, data, perm)
 	}
-	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+	t.Cleanup(func() { commitWriteFile = origWrite })
 	ctx := ctxForDir(dir)
 	_, err := executeApplyEdits(ctx, map[string]any{
 		"edits": []any{
@@ -344,9 +344,9 @@ func TestApplyEdits_RollbackConflictReported(t *testing.T) {
 	bAbs := writeFixture(t, dir, bRel, "alpha\nbeta\n")
 	aBefore := readFile(t, aAbs)
 	bBefore := readFile(t, bAbs)
-	origWrite := applyEditsWriteFile
+	origWrite := commitWriteFile
 	call := 0
-	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	commitWriteFile = func(path string, data []byte, perm os.FileMode) error {
 		call++
 		if call == 1 {
 			// First write succeeds (a)
@@ -363,7 +363,7 @@ func TestApplyEdits_RollbackConflictReported(t *testing.T) {
 		// rollback attempt for a will be call 3, but file is tainted so rollback should detect conflict
 		return os.WriteFile(path, data, perm)
 	}
-	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+	t.Cleanup(func() { commitWriteFile = origWrite })
 	ctx := ctxForDir(dir)
 	_, err := executeApplyEdits(ctx, map[string]any{
 		"edits": []any{
@@ -625,9 +625,9 @@ func TestApplyEdits_InterWriteConflictRollsBackEarlierWrite(t *testing.T) {
 	aBefore := readFile(t, aAbs)
 	const externalB = "external change\n"
 
-	origWrite := applyEditsWriteFile
+	origWrite := commitWriteFile
 	writes := 0
-	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	commitWriteFile = func(path string, data []byte, perm os.FileMode) error {
 		writes++
 		if err := os.WriteFile(path, data, perm); err != nil {
 			return err
@@ -637,7 +637,7 @@ func TestApplyEdits_InterWriteConflictRollsBackEarlierWrite(t *testing.T) {
 		}
 		return nil
 	}
-	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+	t.Cleanup(func() { commitWriteFile = origWrite })
 
 	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
 		map[string]any{"operation": "edit_lines", "path": "a.txt", "start_line": 1, "end_line": 1, "new_content": "ONE"},
@@ -663,9 +663,9 @@ func TestApplyEdits_PartialWriteFailureLeavesNoCorruption(t *testing.T) {
 	aBefore := readFile(t, aAbs)
 	bBefore := readFile(t, bAbs)
 
-	origWrite := applyEditsWriteFile
+	origWrite := commitWriteFile
 	calls := 0
-	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	commitWriteFile = func(path string, data []byte, perm os.FileMode) error {
 		calls++
 		if calls == 2 {
 			half := len(data) / 2
@@ -676,7 +676,7 @@ func TestApplyEdits_PartialWriteFailureLeavesNoCorruption(t *testing.T) {
 		}
 		return os.WriteFile(path, data, perm)
 	}
-	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+	t.Cleanup(func() { commitWriteFile = origWrite })
 
 	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
 		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
@@ -707,9 +707,9 @@ func TestApplyEdits_FailedFileRestoreReadFailsNamesFile(t *testing.T) {
 	bAbs := writeFixture(t, dir, bRel, "alpha\nbeta\ngamma\ndelta\n")
 	aBefore := readFile(t, aAbs)
 
-	origWrite := applyEditsWriteFile
+	origWrite := commitWriteFile
 	bWrites := 0
-	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	commitWriteFile = func(path string, data []byte, perm os.FileMode) error {
 		if path == bAbs {
 			bWrites++
 			if bWrites == 1 {
@@ -726,7 +726,7 @@ func TestApplyEdits_FailedFileRestoreReadFailsNamesFile(t *testing.T) {
 		}
 		return os.WriteFile(path, data, perm)
 	}
-	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+	t.Cleanup(func() { commitWriteFile = origWrite })
 
 	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
 		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
@@ -755,9 +755,9 @@ func TestApplyEdits_FailedFileRestoreWriteFailsNamesFile(t *testing.T) {
 	aBefore := readFile(t, aAbs)
 	bBefore := readFile(t, bAbs)
 
-	origWrite := applyEditsWriteFile
+	origWrite := commitWriteFile
 	bWrites := 0
-	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	commitWriteFile = func(path string, data []byte, perm os.FileMode) error {
 		if path == bAbs {
 			bWrites++
 			if bWrites == 1 {
@@ -773,7 +773,7 @@ func TestApplyEdits_FailedFileRestoreWriteFailsNamesFile(t *testing.T) {
 		}
 		return os.WriteFile(path, data, perm)
 	}
-	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+	t.Cleanup(func() { commitWriteFile = origWrite })
 
 	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
 		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
@@ -807,9 +807,9 @@ func TestApplyEdits_FailedFileRestoreVerifyReadFailsNamesFile(t *testing.T) {
 	bAbs := writeFixture(t, dir, bRel, "alpha\nbeta\ngamma\ndelta\n")
 	aBefore := readFile(t, aAbs)
 
-	origWrite := applyEditsWriteFile
+	origWrite := commitWriteFile
 	bWrites := 0
-	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	commitWriteFile = func(path string, data []byte, perm os.FileMode) error {
 		if path == bAbs {
 			bWrites++
 			if bWrites == 1 {
@@ -832,7 +832,7 @@ func TestApplyEdits_FailedFileRestoreVerifyReadFailsNamesFile(t *testing.T) {
 		}
 		return os.WriteFile(path, data, perm)
 	}
-	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+	t.Cleanup(func() { commitWriteFile = origWrite })
 
 	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
 		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
@@ -861,9 +861,9 @@ func TestApplyEdits_FailedFileRestoreVerifyMismatchNamesFile(t *testing.T) {
 	aBefore := readFile(t, aAbs)
 	bBefore := readFile(t, bAbs)
 
-	origWrite := applyEditsWriteFile
+	origWrite := commitWriteFile
 	bWrites := 0
-	applyEditsWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	commitWriteFile = func(path string, data []byte, perm os.FileMode) error {
 		if path == bAbs {
 			bWrites++
 			if bWrites == 1 {
@@ -883,7 +883,7 @@ func TestApplyEdits_FailedFileRestoreVerifyMismatchNamesFile(t *testing.T) {
 		}
 		return os.WriteFile(path, data, perm)
 	}
-	t.Cleanup(func() { applyEditsWriteFile = origWrite })
+	t.Cleanup(func() { commitWriteFile = origWrite })
 
 	_, err := executeApplyEdits(ctxForDir(dir), map[string]any{"edits": []any{
 		map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},

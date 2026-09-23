@@ -302,11 +302,26 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"callers_of",
 		"callees_of",
 		"unreferenced_symbols",
+		"importers_of",
+		"find_text",
+		"predicate_outline",
 		"get_elements",
 		"get_element",
+		// Element-addressed edits: validated before write, answer with the new
+		// text and rev. They go wherever the line tools go, so removing the
+		// line tools later removes nothing a persona needs.
+		"edit_element",
+		"replace_element",
+		"insert_element",
+		"delete_element",
+		"create_file",
+		"repoint",
 		"edit_lines",
 		"insert_lines",
 		"delete_lines",
+		// apply_edits was registered and taught by the mandatory CodeDOM atom
+		// but absent from every catalog until 2026-09-22.
+		"apply_edits",
 	}
 
 	// Test impact analysis tools
@@ -386,6 +401,9 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"callers_of",
 		"callees_of",
 		"unreferenced_symbols",
+		"importers_of",
+		"find_text",
+		"predicate_outline",
 		"get_elements",
 		"get_element",
 	)

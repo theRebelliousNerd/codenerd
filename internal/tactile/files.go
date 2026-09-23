@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
+	"codenerd/internal/world/codemodel"
 )
 
 // FileOpType defines the types of file operations.
@@ -634,8 +635,16 @@ func (e *FileEditor) DeleteLines(path string, startLine, endLine int) (*FileResu
 	return deleteResult, nil
 }
 
-// ReplaceElement replaces content between start and end lines (1-indexed, inclusive).
-// This is a convenience wrapper for EditLines that takes a string instead of []string.
+// ReplaceElement replaces content between start and end lines (1-indexed,
+// inclusive): the Path-B element replace (VirtualStore.handleEditElement).
+//
+// For a file CodeDOM parses (Go, Mangle) the replacement goes through
+// codemodel.Apply, the engine the model's element verbs run on: the result
+// must parse (or, for a file that already did not, parse no worse), every
+// element the lines do not cover keeps its bytes, and the touched
+// declarations are gofmt'd. One engine for both paths, so a kernel-dispatched
+// edit is held to exactly what a model edit is. Other files are replaced
+// verbatim, as before.
 func (e *FileEditor) ReplaceElement(path string, startLine, endLine int, newContent string) (*FileResult, error) {
 	logging.TactileDebug("ReplaceElement: %s lines %d-%d (%d chars)", path, startLine, endLine, len(newContent))
 	// Split content into lines, preserving empty lines
@@ -643,7 +652,56 @@ func (e *FileEditor) ReplaceElement(path string, startLine, endLine int, newCont
 	if newContent != "" {
 		newLines = strings.Split(strings.TrimSuffix(newContent, "\n"), "\n")
 	}
-	return e.EditLines(path, startLine, endLine, newLines)
+	if codemodel.LanguageOf(path) == "" {
+		return e.EditLines(path, startLine, endLine, newLines)
+	}
+	data, err := os.ReadFile(e.resolvePath(path))
+	if err != nil {
+		return nil, err
+	}
+	model, _ := codemodel.Parse(path, string(data))
+	total := model.LineCount()
+	startLine = max(startLine, 1)
+	endLine = min(endLine, total)
+	if startLine > endLine {
+		return e.EditLines(path, startLine, endLine, newLines)
+	}
+	end := len(model.Source)
+	if endLine < total {
+		end = model.LineStart(endLine+1) - 1
+	}
+	var targeted []string
+	for _, el := range model.Elements {
+		if el.StartLine <= endLine && el.EndLine >= startLine {
+			targeted = append(targeted, el.Key)
+		}
+	}
+	change := codemodel.Change{Start: model.LineStart(startLine), End: end, Text: strings.TrimSuffix(codemodel.Normalize(newContent), "\n")}
+	out, err := codemodel.Apply(model, change, targeted, nil)
+	if err != nil {
+		return nil, fmt.Errorf("replace of %s lines %d-%d refused: %w", path, startLine, endLine, err)
+	}
+	// Write only the lines that differ, through EditLines, so the audit
+	// event and facts are the ones every line edit produces.
+	oldLines := splitSourceLines(model.Source)
+	nextLines := splitSourceLines(out.File.Source)
+	p := 0
+	for p < len(oldLines) && p < len(nextLines) && oldLines[p] == nextLines[p] {
+		p++
+	}
+	s := 0
+	for s < len(oldLines)-p && s < len(nextLines)-p && oldLines[len(oldLines)-1-s] == nextLines[len(nextLines)-1-s] {
+		s++
+	}
+	return e.EditLines(path, p+1, len(oldLines)-s, nextLines[p:len(nextLines)-s])
+}
+
+func splitSourceLines(src string) []string {
+	lines := strings.Split(src, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 // GetFileInfo returns metadata about a file.

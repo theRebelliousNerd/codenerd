@@ -21,13 +21,15 @@ func BuiltinEffect(name string) Effect {
 		"subagent_expand",
 		"get_element", "get_elements",
 		"find_symbol", "package_outline", "callers_of", "callees_of", "unreferenced_symbols",
+		"importers_of", "find_text", "predicate_outline",
 		"get_impacted_tests", "git_diff", "git_log", "research_cache_get",
 		"research_cache_stats", "browser_extract", "browser_observe",
 		"browser_evidence", "browser_specs", "browser_wait",
 		"mcp_map", "mcp_probe", "mcp_expand":
 		return EffectRead
 	case "write_file", "edit_file", "delete_file", "edit_lines", "insert_lines",
-		"delete_lines", "edit_element", "apply_edits", "research_cache_set", "research_cache_clear":
+		"delete_lines", "edit_element", "replace_element", "insert_element", "delete_element",
+		"create_file", "repoint", "apply_edits", "research_cache_set", "research_cache_clear":
 		return EffectWrite
 	case "run_command", "bash", "run_build", "run_tests", "run_impacted_tests", "git_operation":
 		return EffectExecute

@@ -257,9 +257,12 @@ func TestPromotePiggybackToolRequests_NativePrecedence(t *testing.T) {
 }
 
 func TestForceFinalAnswer_PiggybackOfferedWriteExecutes(t *testing.T) {
-	const toolName = "create_file"
+	// A write-mutation name no production tool registers: create_file was
+	// one until it became the real CodeDOM verb (2026-09-22), whose reviewed
+	// write effect overrides a stand-in's and requires the interactive gate.
+	const toolName = "multi_edit"
 	execCount := 0
-	// Ensure create_file is registered; mutate existing if needed to capture execCount.
+	// Ensure the tool is registered; mutate existing if needed to capture execCount.
 	var origExec tools.ExecuteFunc
 	if existing := tools.Global().Get(toolName); existing != nil {
 		origExec = existing.Execute

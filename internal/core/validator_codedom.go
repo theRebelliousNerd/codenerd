@@ -223,9 +223,12 @@ func (v *CodeDOMValidator) extractFilePath(req ActionRequest, result ActionResul
 // This is a simplified check - full verification would use the actual CodeDOM.
 func (v *CodeDOMValidator) verifyElementExists(content []byte, ref string) bool {
 	// Extract element name from ref
-	// Ref format: "lang:path:Element.Name" or "lang:path:Name"
+	// Ref format: "lang:path:Element.Name" or "lang:path:Name". Only that
+	// shape is checked: the model's element verbs pass directory-keyed Go
+	// refs (no colon) and file-scoped Mangle refs (x.mg:rule:p/2@hash), and
+	// a delete legitimately leaves no element behind.
 	parts := strings.Split(ref, ":")
-	if len(parts) < 3 {
+	if len(parts) < 3 || strings.ContainsAny(parts[0], `./\`) {
 		return true // Can't verify, assume OK
 	}
 

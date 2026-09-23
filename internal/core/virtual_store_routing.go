@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -211,6 +212,13 @@ func (v *VirtualStore) requestForValidation(req ActionRequest) ActionRequest {
 		ActionFSRead, ActionFSWrite, ActionEditLines, ActionInsertLines, ActionDeleteLines,
 		ActionCampaignCreateFile, ActionCampaignModifyFile, ActionCampaignWriteTest:
 		req.Target = v.resolvePath(req.Target)
+	case ActionEditElement:
+		// A Path-B edit targets a ref (fn:pkg.Name); the model's element
+		// verbs target the file, which validators must read from the
+		// workspace, not the process's working directory.
+		if filepath.IsAbs(req.Target) || !strings.Contains(req.Target, ":") {
+			req.Target = v.resolvePath(req.Target)
+		}
 	}
 	return req
 }

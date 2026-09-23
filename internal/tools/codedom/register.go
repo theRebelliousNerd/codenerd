@@ -17,6 +17,17 @@ func RegisterAll(registry *tools.Registry) error {
 		CallersOfTool(),
 		CalleesOfTool(),
 		UnreferencedSymbolsTool(),
+		ImportersOfTool(),
+		FindTextTool(),
+		PredicateOutlineTool(),
+
+		// Element-addressed edits, validated before anything is written
+		EditElementTool(),
+		ReplaceElementTool(),
+		InsertElementTool(),
+		DeleteElementTool(),
+		CreateFileTool(),
+		RepointTool(),
 
 		// Line operations
 		EditLinesTool(),
