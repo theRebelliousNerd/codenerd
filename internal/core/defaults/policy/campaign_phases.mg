@@ -87,12 +87,6 @@ all_phase_tasks_complete(PhaseID) :-
     campaign_phase(PhaseID, _, _, _, _, _),
     !has_incomplete_phase_task(PhaseID).
 
-# Trigger checkpoint when all tasks complete but checkpoint pending
-next_action(/run_phase_checkpoint) :-
-    current_phase(PhaseID),
-    all_phase_tasks_complete(PhaseID),
-    has_pending_checkpoint(PhaseID).
-
 # Block phase completion if checkpoint failed
 phase_blocked(PhaseID, /checkpoint_failed) :-
     phase_checkpoint(PhaseID, _, /false, _, _).
@@ -130,10 +124,6 @@ replan_needed(CampaignID, /user_instruction) :-
 # Trigger replan if explicit trigger exists
 replan_needed(CampaignID, Reason) :-
     replan_trigger(CampaignID, Reason, _).
-
-# Pause and replan action
-next_action(/pause_and_replan) :-
-    replan_needed(_, _).
 
 # =============================================================================
 # Campaign Helpers & Blocking

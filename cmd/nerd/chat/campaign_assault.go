@@ -71,6 +71,7 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 			holographic = world.NewHolographicProvider(m.kernel, m.workspace)
 		}
 		intelligenceGatherer := campaign.NewIntelligenceGatherer(
+			m.workspace,
 			m.kernel,
 			m.scanner,
 			holographic,

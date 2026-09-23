@@ -198,6 +198,7 @@ func (m Model) buildRecurseOrchestrator(camp *campaign.Campaign, progressChan ch
 		holographic = world.NewHolographicProvider(m.kernel, m.workspace)
 	}
 	intelligenceGatherer := campaign.NewIntelligenceGatherer(
+		m.workspace,
 		m.kernel,
 		m.scanner,
 		holographic,

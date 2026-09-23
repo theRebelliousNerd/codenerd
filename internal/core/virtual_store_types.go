@@ -91,15 +91,12 @@ const (
 	ActionCampaignDocument    ActionType = "campaign_document"     // Document in campaign
 	ActionCampaignRefactor    ActionType = "campaign_refactor"     // Refactor in campaign
 	ActionCampaignIntegrate   ActionType = "campaign_integrate"    // Integrate in campaign
-	ActionCampaignComplete    ActionType = "campaign_complete"     // Complete campaign
 	ActionCampaignFinalVerify ActionType = "campaign_final_verify" // Final verification
 	ActionCampaignCleanup     ActionType = "campaign_cleanup"      // Cleanup after campaign
 	ActionArchiveCampaign     ActionType = "archive_campaign"      // Archive campaign
 	ActionShowCampaignStatus  ActionType = "show_campaign_status"  // Show campaign status
 	ActionShowCampaignProg    ActionType = "show_campaign_progress"
 	ActionAskCampaignInt      ActionType = "ask_campaign_interrupt" // Ask about campaign interrupt
-	ActionRunPhaseCheckpoint  ActionType = "run_phase_checkpoint"   // Run phase checkpoint
-	ActionPauseAndReplan      ActionType = "pause_and_replan"       // Pause and replan
 
 	// Context Management Actions
 	ActionCompressContext   ActionType = "compress_context"   // Compress context

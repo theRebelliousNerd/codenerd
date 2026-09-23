@@ -1070,11 +1070,10 @@ func (s *SessionPlannerShard) routeControlPacketToKernel(control *articulation.C
 		logging.SystemShardsDebug("[SessionPlanner] Routing %d mangle_updates to kernel", len(control.MangleUpdates))
 		policy := core.MangleUpdatePolicy{
 			AllowedPredicates: map[string]struct{}{
-				"missing_tool_for":   {},
-				"observation":        {},
-				"task_status":        {},
-				"task_completed":     {},
-				"campaign_completed": {},
+				"missing_tool_for": {},
+				"observation":      {},
+				"task_status":      {},
+				"task_completed":   {},
 			},
 			AllowedPrefixes: []string{
 				"campaign_",

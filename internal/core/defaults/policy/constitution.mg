@@ -220,15 +220,12 @@ safe_action(/campaign_refactor).
 safe_action(/campaign_integrate).
 safe_action(/campaign_clarify).
 safe_action(/campaign_cleanup).
-safe_action(/campaign_complete).
 safe_action(/campaign_final_verify).
 safe_action(/archive_campaign).
 safe_action(/ask_campaign_interrupt).
 safe_action(/show_campaign_progress).
 safe_action(/show_campaign_status).
-safe_action(/run_phase_checkpoint).
 safe_action(/investigate_systemic).
-safe_action(/pause_and_replan).
 
 # TDD repair loop operations
 safe_action(/read_error_log).

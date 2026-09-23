@@ -24,9 +24,6 @@ campaign_complete(CampaignID) :-
     campaign_phases_done(CampaignID),
     !campaign_acceptance_unmet(CampaignID).
 
-next_action(/campaign_complete) :-
-    campaign_complete(_).
-
 # --- Acceptance: the campaign's deterministic witness ---
 
 # Failed acceptance rounds a campaign may remediate before it is blocked:

@@ -11,7 +11,7 @@ import (
 
 func TestNewIntelligenceGatherer(t *testing.T) {
 	// Test with nil dependencies (should not panic)
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 	if gatherer == nil {
 		t.Fatal("NewIntelligenceGatherer returned nil")
 	}
@@ -69,7 +69,7 @@ func TestDefaultIntelligenceConfig(t *testing.T) {
 }
 
 func TestIntelligenceGatherer_WithConfig(t *testing.T) {
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 
 	customConfig := IntelligenceConfig{
 		GatherTimeout:    10 * time.Minute,
@@ -95,7 +95,7 @@ func TestIntelligenceGatherer_WithConfig(t *testing.T) {
 
 func TestIntelligenceGatherer_Gather_NilDependencies(t *testing.T) {
 	// Test that Gather handles nil dependencies gracefully
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// Disable all features that require dependencies
 	gatherer.config.EnableWorldModel = false
@@ -134,7 +134,7 @@ func TestIntelligenceGatherer_Gather_WithKernel(t *testing.T) {
 		t.Skipf("Could not create kernel: %v", err)
 	}
 
-	gatherer := NewIntelligenceGatherer(kern, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", kern, nil, nil, nil, nil, nil, nil, nil)
 
 	// Only enable kernel-based features
 	gatherer.config.EnableWorldModel = false
@@ -210,7 +210,7 @@ func TestIntelligenceReport_FormatForContext(t *testing.T) {
 }
 
 func TestChurnHotspot_ChestertonFence(t *testing.T) {
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// Test that high churn files get Chesterton's Fence warning
 	report := &IntelligenceReport{

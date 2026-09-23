@@ -191,7 +191,7 @@ func TestNewOrchestrator_WhenIntelligenceSupplied_ShouldNotOverrideIt(t *testing
 		t.Skipf("real kernel unavailable: %v", err)
 	}
 
-	supplied := NewIntelligenceGatherer(kernel, nil, nil, nil, nil, nil, nil, nil)
+	supplied := NewIntelligenceGatherer("", kernel, nil, nil, nil, nil, nil, nil, nil)
 	orch, err := NewOrchestrator(OrchestratorConfig{
 		Workspace:            t.TempDir(),
 		Kernel:               kernel,

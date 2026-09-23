@@ -246,6 +246,7 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 	)
 	holographic := world.NewHolographicProvider(s.Kernel, workspace)
 	intelligenceGatherer := campaign.NewIntelligenceGatherer(
+		workspace,
 		s.Kernel,
 		worldScanner,
 		holographic,

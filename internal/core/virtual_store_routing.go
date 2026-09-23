@@ -547,8 +547,6 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleCampaignRefactor(ctx, req)
 	case ActionCampaignIntegrate:
 		return v.handleCampaignIntegrate(ctx, req)
-	case ActionCampaignComplete:
-		return v.handleCampaignComplete(ctx, req)
 	case ActionCampaignFinalVerify:
 		return v.handleCampaignFinalVerify(ctx, req)
 	case ActionCampaignCleanup:
@@ -561,10 +559,6 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleShowCampaignProgress(ctx, req)
 	case ActionAskCampaignInt:
 		return v.handleAskCampaignInterrupt(ctx, req)
-	case ActionRunPhaseCheckpoint:
-		return v.handleRunPhaseCheckpoint(ctx, req)
-	case ActionPauseAndReplan:
-		return v.handlePauseAndReplan(ctx, req)
 
 	// Context Management actions
 	case ActionCompressContext:

@@ -936,27 +936,6 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 		t.Errorf("expected canceled error, got: %+v", res)
 	}
 
-	// 11. handleCampaignComplete
-	req = ActionRequest{Target: "c1", Payload: map[string]any{"summary": "done"}}
-	res, err = vs.handleCampaignComplete(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "campaign_completed" {
-		t.Errorf("expected campaign completed facts, got: %v", res.FactsToAdd)
-	}
-
-	res, err = vs.handleCampaignComplete(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
 	// 12. handleCampaignFinalVerify
 	req = ActionRequest{Target: "c1"}
 	res, err = vs.handleCampaignFinalVerify(ctx, req)
@@ -1083,47 +1062,6 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 		t.Errorf("expected canceled error, got: %+v", res)
 	}
 
-	// 18. handleRunPhaseCheckpoint
-	req = ActionRequest{Target: "p1", Payload: map[string]any{"campaign_id": "c1"}}
-	res, err = vs.handleRunPhaseCheckpoint(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "phase_checkpoint" {
-		t.Errorf("expected phase_checkpoint fact, got: %v", res.FactsToAdd)
-	}
-
-	res, err = vs.handleRunPhaseCheckpoint(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
-	// 19. handlePauseAndReplan
-	req = ActionRequest{Target: "c1", Payload: map[string]any{"reason": "unreachable goal"}}
-	res, err = vs.handlePauseAndReplan(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "campaign_paused" {
-		t.Errorf("expected campaign pause facts, got: %v", res.FactsToAdd)
-	}
-
-	res, err = vs.handlePauseAndReplan(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
 }
 
 func TestVirtualStoreWorkflows_ContextManagement(t *testing.T) {

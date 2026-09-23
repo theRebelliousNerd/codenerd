@@ -66,6 +66,10 @@ type IntelligenceGatherer struct {
 	// Core dependencies
 	kernel *core.RealKernel
 
+	// workspace holds the campaigns this workspace has run
+	// (.nerd/campaigns/<id>.json): the previous campaigns planning learns from.
+	workspace string
+
 	// World Model (codebase awareness)
 	worldScanner *world.Scanner
 	holographic  *world.HolographicProvider
@@ -330,6 +334,7 @@ type CodePattern struct {
 
 // NewIntelligenceGatherer creates a new intelligence gatherer.
 func NewIntelligenceGatherer(
+	workspace string,
 	kernel *core.RealKernel,
 	worldScanner *world.Scanner,
 	holographic *world.HolographicProvider,
@@ -340,6 +345,7 @@ func NewIntelligenceGatherer(
 	consultation ConsultationProvider,
 ) *IntelligenceGatherer {
 	return &IntelligenceGatherer{
+		workspace:     workspace,
 		kernel:        kernel,
 		worldScanner:  worldScanner,
 		holographic:   holographic,

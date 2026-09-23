@@ -170,10 +170,6 @@ Decl context_window_state(CampaignID, UsedTokens, TotalBudget, Utilization) boun
 # campaign_progress(CampaignID, CompletedPhases, TotalPhases, CompletedTasks, TotalTasks)
 Decl campaign_progress(CampaignID, CompletedPhases, TotalPhases, CompletedTasks, TotalTasks) bound [/string, /number, /number, /number, /number].
 
-# campaign_completed(CampaignID, Summary)
-# Emitted when a campaign reaches a terminal completed state.
-Decl campaign_completed(CampaignID, Summary) bound [/string, /string].
-
 # campaign_heartbeat(CampaignID, Timestamp) - last heartbeat from orchestrator
 Decl campaign_heartbeat(CampaignID, Timestamp) bound [/string, /number].
 

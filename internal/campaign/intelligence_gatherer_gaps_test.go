@@ -15,7 +15,7 @@ import (
 
 func TestIntelligenceGatherer_EmptyGoal(t *testing.T) {
 	// Verify that an empty or whitespace-only goal does not panic.
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 	gatherer.config.EnableWorldModel = false
 	gatherer.config.EnableGitHistory = false
 	gatherer.config.EnableLearningStore = false
@@ -47,7 +47,7 @@ func TestIntelligenceGatherer_EmptyGoal(t *testing.T) {
 func TestIntelligenceGatherer_EmptyPaths(t *testing.T) {
 	// Verify that empty, whitespace, or invalid target paths don't cause
 	// phantom lookups or panics.
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 	gatherer.config.EnableWorldModel = false
 	gatherer.config.EnableGitHistory = false
 	gatherer.config.EnableLearningStore = false
@@ -81,7 +81,7 @@ func TestIntelligenceGatherer_EmptyPaths(t *testing.T) {
 
 func TestIntelligenceGatherer_EmptyFactArguments(t *testing.T) {
 	// Verify that parse helpers handle empty/nil args gracefully.
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// parseArg with empty string
 	result := gatherer.parseArg("")
@@ -119,7 +119,7 @@ func TestIntelligenceGatherer_EmptyFactArguments(t *testing.T) {
 // =============================================================================
 
 func TestIntelligenceGatherer_ParseIntArg_Overflow(t *testing.T) {
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 
 	tests := []struct {
 		name     string
@@ -146,7 +146,7 @@ func TestIntelligenceGatherer_ParseIntArg_Overflow(t *testing.T) {
 }
 
 func TestIntelligenceGatherer_ParseAtom_UnexpectedTypes(t *testing.T) {
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 
 	tests := []struct {
 		name  string
@@ -173,7 +173,7 @@ func TestIntelligenceGatherer_ParseAtom_UnexpectedTypes(t *testing.T) {
 }
 
 func TestIntelligenceGatherer_ParseFloatArg_StringFallback(t *testing.T) {
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 
 	tests := []struct {
 		name     string
@@ -241,7 +241,7 @@ func TestIntelligenceReport_FormatForContext_MassiveFields(t *testing.T) {
 
 func TestIntelligenceGatherer_ErrorBoundedAccumulation(t *testing.T) {
 	// Verify that error accumulation is bounded at 100 entries.
-	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 	gatherer.config.EnableWorldModel = false
 	gatherer.config.EnableGitHistory = false
 	gatherer.config.EnableLearningStore = false
@@ -283,7 +283,7 @@ func TestIntelligenceGatherer_Concurrency_NoRace(t *testing.T) {
 
 	for range goroutines {
 		wg.Go(func() {
-			gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
+			gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 			gatherer.config.EnableWorldModel = false
 			gatherer.config.EnableGitHistory = false
 			gatherer.config.EnableLearningStore = false

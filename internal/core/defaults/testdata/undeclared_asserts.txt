@@ -26,10 +26,8 @@ campaign_documenting
 campaign_final_verifying
 campaign_integrating
 campaign_interrupt_requested
-campaign_paused
 campaign_progress_requested
 campaign_refactoring
-campaign_replanning
 campaign_status_requested
 campaign_step_verifying
 checkpoint_created

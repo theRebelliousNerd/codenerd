@@ -218,6 +218,7 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 	}
 
 	intelligenceGatherer := campaign.NewIntelligenceGatherer(
+		cwd,
 		realKern,
 		worldScanner,
 		holographic,

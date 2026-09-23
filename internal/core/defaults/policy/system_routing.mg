@@ -50,9 +50,6 @@ has_tool_for_action(ActionType) :-
     tool_allowed(_, ActionType).
 
 # Recovery from routing failures
-next_action(/pause_and_replan) :-
-    routing_failed(_, "rate_limit_exceeded").
-
 next_action(/escalate_to_user) :-
     routing_failed(_, "no_handler").
 

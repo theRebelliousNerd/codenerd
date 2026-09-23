@@ -636,27 +636,6 @@ func (v *VirtualStore) handleCampaignIntegrate(ctx context.Context, req ActionRe
 	}, nil
 }
 
-// handleCampaignComplete marks a campaign as complete.
-func (v *VirtualStore) handleCampaignComplete(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	if err := ctx.Err(); err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
-	}
-
-	campaignID := req.Target
-	summary, _ := req.Payload["summary"].(string)
-
-	logging.VirtualStore("Campaign completed: %s", campaignID)
-
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Campaign %s completed: %s", campaignID, summary),
-		FactsToAdd: []Fact{
-			{Predicate: "campaign_completed", Args: []any{campaignID, summary}},
-			{Predicate: "current_phase", Args: []any{"/complete"}},
-		},
-	}, nil
-}
-
 // handleCampaignFinalVerify performs final verification of a campaign.
 func (v *VirtualStore) handleCampaignFinalVerify(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	if err := ctx.Err(); err != nil {
@@ -771,47 +750,6 @@ func (v *VirtualStore) handleAskCampaignInterrupt(ctx context.Context, req Actio
 		Error:   "CAMPAIGN_INTERRUPT_REQUESTED",
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_interrupt_requested", Args: []any{campaignID, reason}},
-		},
-	}, nil
-}
-
-// handleRunPhaseCheckpoint runs a checkpoint for the current phase.
-func (v *VirtualStore) handleRunPhaseCheckpoint(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	if err := ctx.Err(); err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
-	}
-
-	phaseID := req.Target
-	campaignID, _ := req.Payload["campaign_id"].(string)
-
-	logging.VirtualStoreDebug("Phase checkpoint: %s in campaign %s", phaseID, campaignID)
-
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Checkpoint for phase: %s", phaseID),
-		FactsToAdd: []Fact{
-			{Predicate: "phase_checkpoint", Args: []any{campaignID, phaseID}},
-		},
-	}, nil
-}
-
-// handlePauseAndReplan pauses and replans the current campaign.
-func (v *VirtualStore) handlePauseAndReplan(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	if err := ctx.Err(); err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
-	}
-
-	campaignID := req.Target
-	reason, _ := req.Payload["reason"].(string)
-
-	logging.VirtualStore("Pause and replan: %s - %s", campaignID, reason)
-
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Campaign %s paused for replanning: %s", campaignID, reason),
-		FactsToAdd: []Fact{
-			{Predicate: "campaign_paused", Args: []any{campaignID, reason}},
-			{Predicate: "campaign_replanning", Args: []any{campaignID}},
 		},
 	}, nil
 }

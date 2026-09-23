@@ -2,7 +2,10 @@ package campaign
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -399,6 +402,12 @@ func (g *IntelligenceGatherer) gatherMCPTools(ctx context.Context, report *Intel
 		len(report.MCPToolsAvailable), len(report.MCPServerStatus))
 }
 
+// gatherPreviousCampaigns reports the campaigns this workspace has run to an
+// end, completed or failed, from their durable records (.nerd/campaigns/<id>.json),
+// newest first. It used to query a campaign_completed kernel fact that nothing
+// produced: the kernel does not outlive a process, and the only writer was a
+// Path-B stub (deleted 2026-09-23) that asserted two arguments where this read
+// four. Planning never saw a previous campaign.
 func (g *IntelligenceGatherer) gatherPreviousCampaigns(ctx context.Context, report *IntelligenceReport, goal string, addError func(string)) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherPreviousCampaigns")
 	defer timer.Stop()
@@ -407,31 +416,55 @@ func (g *IntelligenceGatherer) gatherPreviousCampaigns(ctx context.Context, repo
 		addError(fmt.Sprintf("Previous campaign gathering cancelled: %v", err))
 		return
 	}
-	// Logging usage of goal to silence unused warning
 	logging.CampaignDebug("Gathering previous campaigns for goal: %s", goal)
-
-	// Query kernel for campaign artifacts
-	facts, err := g.kernel.Query("campaign_completed")
-	if err != nil {
-		logging.CampaignDebug("No previous campaigns: %v", err)
+	if g.workspace == "" {
+		logging.CampaignDebug("No workspace: no previous campaigns to read")
 		return
 	}
 
-	for _, fact := range facts {
-		if len(fact.Args) >= 4 {
-			artifact := CampaignArtifact{
-				CampaignID:  g.parseArg(fact.Args[0]),
-				Goal:        g.parseArg(fact.Args[1]),
-				TaskCount:   g.parseIntArg(fact.Args[2]),
-				SuccessRate: g.parseFloatArg(fact.Args[3]),
-			}
-			report.PreviousCampaigns = append(report.PreviousCampaigns, artifact)
+	dir := filepath.Join(g.workspace, ".nerd", "campaigns")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			addError(fmt.Sprintf("Previous campaigns: read %s: %v", dir, err))
 		}
+		return
 	}
-
-	// Limit to most recent
-	if len(report.PreviousCampaigns) > g.config.MaxPreviousCampaigns {
-		report.PreviousCampaigns = report.PreviousCampaigns[:g.config.MaxPreviousCampaigns]
+	type ended struct {
+		artifact CampaignArtifact
+		at       time.Time
+	}
+	var found []ended
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var c Campaign
+		if json.Unmarshal(data, &c) != nil || c.ID == "" {
+			continue
+		}
+		if c.Status != StatusCompleted && c.Status != StatusFailed {
+			continue
+		}
+		rate := 0.0
+		if c.TotalTasks > 0 {
+			rate = float64(c.CompletedTasks) / float64(c.TotalTasks)
+		}
+		found = append(found, ended{
+			artifact: CampaignArtifact{CampaignID: c.ID, Goal: c.Goal, TaskCount: c.TotalTasks, SuccessRate: rate, CreatedAt: c.CreatedAt},
+			at:       c.UpdatedAt,
+		})
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].at.After(found[j].at) })
+	for _, f := range found {
+		if len(report.PreviousCampaigns) >= g.config.MaxPreviousCampaigns {
+			break
+		}
+		report.PreviousCampaigns = append(report.PreviousCampaigns, f.artifact)
 	}
 
 	logging.CampaignDebug("Previous campaigns gathered: %d campaigns", len(report.PreviousCampaigns))

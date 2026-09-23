@@ -1053,9 +1053,7 @@ func agenticAndCampaignRoutes() []ToolRoute {
 		{ActionPattern: "campaign_", ToolName: "campaign_tool", Timeout: 120 * time.Second, RequiresSafe: true},
 		{ActionPattern: "archive_campaign", ToolName: "campaign_tool", Timeout: 30 * time.Second, RequiresSafe: true},
 		{ActionPattern: "show_campaign", ToolName: "campaign_tool", Timeout: 10 * time.Second, RequiresSafe: false},
-		{ActionPattern: "run_phase_checkpoint", ToolName: "campaign_tool", Timeout: 60 * time.Second, RequiresSafe: true},
 		{ActionPattern: "investigate_systemic", ToolName: "analysis_tool", Timeout: 120 * time.Second, RequiresSafe: true},
-		{ActionPattern: "pause_and_replan", ToolName: "campaign_tool", Timeout: 30 * time.Second, RequiresSafe: false},
 		{ActionPattern: "ask_campaign_interrupt", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false},
 		// TDD repair loop
 		{ActionPattern: "read_error_log", ToolName: "tdd_tool", Timeout: 10 * time.Second, RequiresSafe: false},

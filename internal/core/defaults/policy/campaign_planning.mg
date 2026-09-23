@@ -51,12 +51,6 @@ phase_blocked(PhaseID, /hard_dependency_incomplete) :-
 
 # --- Checkpoint & Verification ---
 
-# Trigger checkpoint when all tasks complete but checkpoint pending
-next_action(/run_phase_checkpoint) :-
-    current_phase(PhaseID),
-    all_phase_tasks_complete(PhaseID),
-    has_pending_checkpoint(PhaseID).
-
 # Block phase completion if checkpoint failed
 phase_blocked(PhaseID, /checkpoint_failed) :-
     phase_checkpoint(PhaseID, _, /false, _, _).
@@ -80,10 +74,6 @@ replan_needed(CampaignID, /user_instruction) :-
 # Trigger replan if explicit trigger exists
 replan_needed(CampaignID, Reason) :-
     replan_trigger(CampaignID, Reason, _).
-
-# Pause and replan action
-next_action(/pause_and_replan) :-
-    replan_needed(_, _).
 
 # Helper: identify failed tasks (for counting in Go runtime)
 failed_campaign_task(CampaignID, TaskID) :-

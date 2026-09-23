@@ -376,6 +376,7 @@ func defaultWireIntelligence(o *Orchestrator, cfg OrchestratorConfig) {
 		// Consultation stays nil: advisor consultation needs a spawner the
 		// orchestrator does not own, and the gatherer treats it as optional.
 		gatherer := NewIntelligenceGatherer(
+			cfg.Workspace,
 			realKernel,
 			scanner,
 			world.NewHolographicProvider(realKernel, cfg.Workspace),
