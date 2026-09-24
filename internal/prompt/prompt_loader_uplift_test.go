@@ -223,6 +223,8 @@ func TestHasWorldState_CoversKnownWorldStates(t *testing.T) {
 		"reflection_hits":    func(cc *CompilationContext) { cc.HasReflectionHits = true },
 		"no_tool_call_retry": func(cc *CompilationContext) { cc.PreviousAttemptNoToolCall = true },
 		"authoring_mangle":   func(cc *CompilationContext) { cc.DerivedNeeds = []string{"authoring_mangle"} },
+		"authoring_go":       func(cc *CompilationContext) { cc.DerivedNeeds = []string{"authoring_go"} },
+		"authoring_code":     func(cc *CompilationContext) { cc.DerivedNeeds = []string{"authoring_code"} },
 		"envelope_tool_requests": func(cc *CompilationContext) {
 			cc.DerivedNeeds = []string{"envelope_tool_requests"}
 		},

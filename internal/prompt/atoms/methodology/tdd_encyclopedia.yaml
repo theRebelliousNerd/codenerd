@@ -8,6 +8,7 @@
   is_mandatory: true
   shard_types: ["/tester", "/coder"]
   intent_verbs: ["/test", "/fix", "/implement", "/refactor"]
+  world_states: ["authoring_code"]
   content: |
     ## TDD IN THE AI ERA: WHY IT MATTERS MORE NOW
 
@@ -26,11 +27,6 @@
     - **Protection from hallucinations**: Tests catch AI-generated errors immediately
     - **Specification by example**: Tests codify intent better than natural language prompts
 
-    ### Key Statistics
-    - Teams adopting TDD reduce defect density by 40-90%
-    - TDD teams release 32% more frequently (2024 Thoughtworks survey)
-    - By 2025, 46% of teams replaced over half of manual testing with automation
-
     ### Anti-Pattern: Prompting Without Tests
     BAD: "Make a login button" (ambiguous, relies on luck)
     GOOD: Provide a suite of tests defining button behavior (disabled, loading, error states)
@@ -41,7 +37,7 @@
     1. RED: Write failing test
     2. GREEN: Minimal implementation
     3. REFACTOR: Clean up
-    Benefits: 40-90% defect reduction, protection from hallucinations.
+    Benefits: a binary goal, fast feedback, protection from hallucinations.
 
 - id: "methodology/tdd/test_first_vs_after"
   category: "methodology"

@@ -15,6 +15,13 @@
 # coder and tester compiles and nowhere else — not on perception, not on
 # /explain.
 #
+# And only on a compile that writes code: world_states: [authoring_code] is the
+# kernel's need (policy/jit_needs.mg, target_need) for a target in a code
+# language, or one whose language nothing could tell. A turn writing a
+# Markdown document is not handed a test mandate for code it will not write
+# (measured 2026-09-22 on the features-docs campaign, every round of every
+# task).
+#
 # This precision matters because the alternative was verified not to work. The
 # eight existing TDD atom files are gated on operational_modes: ["/tdd_repair"]
 # (a mode the session executor never sets — it hardcodes "/active") or on a
@@ -34,6 +41,7 @@
   priority: 96
   is_mandatory: true
   shard_types: ["/coder", "/tester"]
+  world_states: ["authoring_code"]
   content: |
     ## TEST COVERAGE IS PART OF THE WORK, NOT A FOLLOW-UP
 

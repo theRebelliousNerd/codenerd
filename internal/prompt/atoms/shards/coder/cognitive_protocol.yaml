@@ -8,6 +8,7 @@
   is_mandatory: true
   shard_types: ["/coder"]
   depends_on: ["identity/coder/mission"]
+  world_states: ["authoring_code"]
   content: |
     ## COGNITIVE ARCHITECTURE (The 7-Phase Protocol)
 

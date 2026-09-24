@@ -61,6 +61,7 @@
   is_mandatory: true
   shard_types: ["/coder"]
   languages: ["/go"]
+  world_states: ["authoring_go"]
   content: |
     ## HALLUCINATION PREVENTION: ERROR SUPPRESSION
 
@@ -92,6 +93,7 @@
   priority: 85
   is_mandatory: true
   shard_types: ["/coder"]
+  world_states: ["authoring_code"]
   content: |
     ## HALLUCINATION PREVENTION: IMPORT FABRICATION
 
@@ -121,6 +123,7 @@
   priority: 85
   is_mandatory: true
   shard_types: ["/coder"]
+  world_states: ["authoring_code"]
   content: |
     ## HALLUCINATION PREVENTION: API FABRICATION
 
@@ -152,6 +155,7 @@
   is_mandatory: true
   shard_types: ["/coder"]
   languages: ["/go"]
+  world_states: ["authoring_go"]
   content: |
     ## HALLUCINATION PREVENTION: SCOPE LEAK
 
@@ -220,6 +224,7 @@
   is_mandatory: true
   shard_types: ["/coder"]
   languages: ["/go"]
+  world_states: ["authoring_go"]
   content: |
     ## HALLUCINATION PREVENTION: DEPRECATED PATTERN
 

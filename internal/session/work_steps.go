@@ -419,16 +419,17 @@ func (e *Executor) consumerNeeds(consumer string) []string {
 	if e.kernel == nil || !validMangleVerb(consumer) {
 		return nil
 	}
-	return e.kernelNeeds(fmt.Sprintf("consumer_need(%s, Need)", consumer))
+	facts, err := e.kernel.Query(fmt.Sprintf("consumer_need(%s, Need)", consumer))
+	return needsDerived("consumer_need", consumer, facts, err)
 }
 
-// kernelNeeds runs a needs query -- target_need or consumer_need with its
-// first argument bound -- and returns the needs derived: each row's last
-// argument, without the slash.
-func (e *Executor) kernelNeeds(query string) []string {
-	facts, err := e.kernel.Query(query)
+// needsDerived reads the answer to a needs query -- target_need or
+// consumer_need with its first argument bound: each row's last argument,
+// without the slash. The callers name the predicate in their own Query call,
+// so the conclusions gate sees who reads it.
+func needsDerived(predicate, bound string, facts []types.Fact, err error) []string {
 	if err != nil {
-		logging.Get(logging.CategorySession).Warn("needs query %s failed: %v", query, err)
+		logging.Get(logging.CategorySession).Warn("needs query %s(%s, Need) failed: %v", predicate, bound, err)
 		return nil
 	}
 	var needs []string
@@ -446,13 +447,19 @@ func (e *Executor) kernelNeeds(query string) []string {
 
 // targetNeeds asks the kernel what a compile aimed at a file of this language
 // will need (policy/jit_needs.mg, target_need/2), with the language bound as a
-// constant in the query. The kernel owns the answer; this only carries it into
-// the compilation context, where the atoms gated on those needs are served.
+// constant in the query. A compile whose language nothing measured asks as
+// /undetected: not knowing is a measurement too, and the policy says what such
+// a compile needs. The kernel owns the answer; this only carries it into the
+// compilation context, where the atoms gated on those needs are served.
 func (e *Executor) targetNeeds(language string) []string {
+	if strings.TrimSpace(language) == "" {
+		language = "/undetected"
+	}
 	if e.kernel == nil || !validMangleVerb(language) {
 		return nil
 	}
-	return e.kernelNeeds(fmt.Sprintf("target_need(%s, Need)", language))
+	facts, err := e.kernel.Query(fmt.Sprintf("target_need(%s, Need)", language))
+	return needsDerived("target_need", language, facts, err)
 }
 
 // stepSystemPrompt compiles the system prompt for one planned step: the turn's

@@ -7,6 +7,7 @@
   priority: 90
   is_mandatory: true
   shard_types: ["/coder"]
+  world_states: ["authoring_code"]
   content: |
     ## SELF-CORRECTION PROTOCOL
 
@@ -50,6 +51,7 @@
   priority: 85
   is_mandatory: true
   shard_types: ["/coder"]
+  world_states: ["authoring_code"]
   content: |
     ## MENTAL COMPILE CHECK
 

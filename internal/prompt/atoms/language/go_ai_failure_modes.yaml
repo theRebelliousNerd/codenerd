@@ -8,6 +8,7 @@
   is_mandatory: true
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
   content: |
     ## GO AI FAILURE MODES: CRITICAL PATTERNS
 
@@ -46,6 +47,7 @@
   is_mandatory: true
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
   depends_on: ["language/go/ai_failures/overview"]
   content: |
     ## LOOP VARIABLE CAPTURE BUG
@@ -117,6 +119,7 @@
   is_mandatory: true
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
   depends_on: ["language/go/ai_failures/overview"]
   content: |
     ## NIL INTERFACE CONFUSION
@@ -194,6 +197,7 @@
   is_mandatory: true
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
   depends_on: ["language/go/ai_failures/overview"]
   content: |
     ## DEFER GOTCHAS
@@ -287,6 +291,7 @@
   is_mandatory: true
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
   depends_on: ["language/go/ai_failures/overview"]
   content: |
     ## SLICE APPEND BEHAVIOR
@@ -383,6 +388,7 @@
   is_mandatory: true
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
   depends_on: ["language/go/ai_failures/overview"]
   content: |
     ## MAP SAFETY ISSUES
@@ -483,6 +489,7 @@
   is_mandatory: true
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
   depends_on: ["language/go/ai_failures/overview"]
   content: |
     ## ERROR HANDLING FAILURES
@@ -596,6 +603,7 @@
   is_mandatory: true
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
   depends_on: ["language/go/ai_failures/overview"]
   content: |
     ## GOROUTINE LEAKS
@@ -735,6 +743,7 @@
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
   depends_on: ["language/go/ai_failures/overview"]
   content: |
     ## CONTEXT MISUSE

@@ -299,6 +299,7 @@
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
   languages: ["/go", "/java", "/rust"]
+  world_states: ["authoring_code"]
   content: |
     ## CONCURRENT CODE DEBUGGING
 
@@ -589,6 +590,7 @@
   is_mandatory: true
   shard_types: ["/coder", "/tester", "/reviewer"]
   intent_verbs: ["/fix", "/debug", "/investigate", "/review"]
+  world_states: ["authoring_code"]
   content: |
     ## DEBUGGING AI-GENERATED CODE
 

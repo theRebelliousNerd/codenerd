@@ -627,7 +627,7 @@ func AllContextDimensions() []ContextDimension {
 		{
 			Name:        "world_state",
 			Description: "World model state indicators",
-			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn", "reflection_hits", "no_tool_call_retry", "authoring_mangle", "envelope_tool_requests", "envelope_knowledge_requests"},
+			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn", "reflection_hits", "no_tool_call_retry", "authoring_mangle", "authoring_go", "authoring_code", "envelope_tool_requests", "envelope_knowledge_requests"},
 		},
 	}
 }
