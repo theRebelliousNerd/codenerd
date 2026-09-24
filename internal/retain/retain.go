@@ -164,6 +164,11 @@ func (s *Store) mintLocked(kind string, payload []byte, id string) (string, []st
 
 	now := s.now()
 	if existing, ok := s.entries[id]; ok {
+		// A re-mint hands the id out again, so its lifetime starts again:
+		// Get expires by created, and a handle printed now that expired on
+		// its first recall -- the entry being older than the TTL -- is a
+		// lie told at the moment of printing.
+		existing.created = now
 		existing.lastUsed = now
 		return id, nil, nil
 	}

@@ -14,6 +14,9 @@ func wireStructureProvider(workspace string) {
 		logging.Get(logging.CategoryBoot).Debug("structure provider not registered: no workspace")
 		return
 	}
-	codedom.RegisterStructureProvider(world.NewStructureIndex(workspace).Provider())
+	// The workspace's one index: the campaign's brief preload reads the same
+	// one (world.SharedStructureIndex), where a second instance cost ~73 MB
+	// and parsed every changed file twice.
+	codedom.RegisterStructureProvider(world.SharedStructureIndex(workspace).Provider())
 	logging.Get(logging.CategoryBoot).Debug("structure provider registered for %s", workspace)
 }

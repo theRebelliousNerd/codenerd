@@ -335,3 +335,21 @@ func TestStoreIsSafeUnderConcurrency(t *testing.T) {
 		t.Errorf("byte accounting went negative: %d", st.Bytes)
 	}
 }
+
+// A handle minted again is live for a whole TTL from the second mint. Mint
+// refreshed only lastUsed while Get expires by created, so the same payload
+// minted 59 seconds into a one-minute TTL printed a handle that was dead two
+// seconds later (reported by the campaign lane, which re-minted on a miss to
+// work around it).
+func TestAReMintedHandleLivesATTLFromTheReMint(t *testing.T) {
+	s, clock := testStore(t, Config{TTL: time.Minute})
+	id := s.Mint("k", []byte("payload"))
+	*clock = clock.Add(59 * time.Second)
+	if again := s.Mint("k", []byte("payload")); again != id {
+		t.Fatalf("the same payload minted %q, then %q", id, again)
+	}
+	*clock = clock.Add(2 * time.Second)
+	if _, payload, err := s.Get(id); err != nil || string(payload) != "payload" {
+		t.Fatalf("a handle re-minted 2s ago did not resolve: %q, %v", payload, err)
+	}
+}
