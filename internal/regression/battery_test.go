@@ -35,14 +35,17 @@ tasks:
 }
 
 func TestRunBatterySuccess(t *testing.T) {
+	// On Windows the shell task starts PowerShell, whose cold start alone took
+	// ~5 s here (2026-09-24: 5.06 s idle, a timeout under a full-suite run).
+	// The bound is headroom for that start, not what this test checks.
 	b := &Battery{
 		Version: 1,
 		Tasks: []Task{
-			{ID: "smoke", Type: "shell", Command: "echo ok", TimeoutSec: 5},
+			{ID: "smoke", Type: "shell", Command: "echo ok", TimeoutSec: 60},
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	results, err := RunBattery(ctx, b, "")
