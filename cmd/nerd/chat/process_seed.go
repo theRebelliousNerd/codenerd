@@ -165,4 +165,3 @@ func (m Model) runClarifierShard(ctx context.Context, goal string) (string, erro
 	}
 	return result, nil
 }
-
