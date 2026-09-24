@@ -119,9 +119,10 @@ func commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDef
 	return kept
 }
 
-// workingReplyReserve is the part of the input window kept free of working
-// context so the request is never sent at exactly the budget.
-const workingReplyReserve = 256
+// workingInputReserve is the part of the input window a working request
+// leaves free: never sent at exactly the budget, and room held back for the
+// reply. One rule for the working request and the single-shot request.
+const workingInputReserve = 256 + 512
 
 // ErrInputBudgetExceeded is a working request that does not fit the input
 // budget once every tool result in it has been archived: what is left -- the
@@ -425,7 +426,7 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	if err != nil {
 		return nil, err
 	}
-	for remaining < workingReplyReserve+512 {
+	for remaining < workingInputReserve {
 		i, j, size := largestToolResult(messages)
 		if size == 0 {
 			return nil, inputBudgetExceeded(window, remaining)
@@ -476,7 +477,7 @@ func (e *Executor) workingWindow(definitions []types.ToolDefinition) (window, ca
 // nothing left to archive.
 func inputBudgetExceeded(window, remaining int) error {
 	return fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (half of context_window.max_tokens after its output reserves), with %d held back for the reply; no tool result is left to archive, and the task, the instructions and the tool catalog are sent whole or not at all",
-		ErrInputBudgetExceeded, window-remaining, window, workingReplyReserve+512)
+		ErrInputBudgetExceeded, window-remaining, window, workingInputReserve)
 }
 
 // singleShotRequest is the one call a client with no message channel gets
@@ -501,7 +502,7 @@ func (e *Executor) singleShotRequest(ctx context.Context, system, userInput stri
 	if err != nil {
 		return "", err
 	}
-	if remaining < workingReplyReserve+512 {
+	if remaining < workingInputReserve {
 		return "", inputBudgetExceeded(window, remaining)
 	}
 	return userInput, nil
