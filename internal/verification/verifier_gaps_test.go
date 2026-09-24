@@ -1,6 +1,7 @@
 package verification
 
 import (
+	"codenerd/internal/config"
 	"context"
 	"errors"
 	"strings"
@@ -115,14 +116,14 @@ func TestParseVerificationResponse_WithQualityViolations_ShouldParseAll(t *testi
 // =============================================================================
 
 func TestNewTaskVerifier_WhenAllNil_ShouldNotPanic(t *testing.T) {
-	v := NewTaskVerifier(nil, nil)
+	v := NewTaskVerifier(nil, nil, nil, config.JITConfig{})
 	if v == nil {
 		t.Fatal("NewTaskVerifier should not return nil")
 	}
 }
 
 func TestNewTaskVerifier_ShouldStoreFields(t *testing.T) {
-	v := NewTaskVerifier(nil, nil)
+	v := NewTaskVerifier(nil, nil, nil, config.JITConfig{})
 	if v.client != nil {
 		t.Error("client should be nil")
 	}
@@ -136,7 +137,7 @@ func TestNewTaskVerifier_ShouldStoreFields(t *testing.T) {
 // =============================================================================
 
 func TestSetSessionContext_ShouldStoreValues(t *testing.T) {
-	v := NewTaskVerifier(nil, nil)
+	v := NewTaskVerifier(nil, nil, nil, config.JITConfig{})
 	v.SetSessionContext("session123", 5)
 
 	v.mu.RLock()
@@ -200,7 +201,7 @@ func TestRetryTask_TheJudgesCorrectiveActionIsAdviceNotAnAction(t *testing.T) {
 // =============================================================================
 
 func TestVerifyWithRetry_WhenNoExecutor_ShouldError(t *testing.T) {
-	v := NewTaskVerifier(nil, nil)
+	v := NewTaskVerifier(nil, nil, nil, config.JITConfig{})
 
 	_, _, err := v.VerifyWithRetry(context.Background(), Delegation{Task: "test task", Persona: "coder", MaxAttempts: 1})
 	if err == nil {
@@ -229,7 +230,7 @@ func TestVerifyWithRetry_WhenNoAttemptCap_ShouldRefuse(t *testing.T) {
 // =============================================================================
 
 func TestStoreVerification_WhenNoLocalDB_ShouldNotPanic(t *testing.T) {
-	v := NewTaskVerifier(nil, nil)
+	v := NewTaskVerifier(nil, nil, nil, config.JITConfig{})
 	verification := &VerificationResult{
 		Success:    true,
 		Confidence: 0.9,
@@ -307,7 +308,7 @@ func TestErrMaxRetriesExceeded_ShouldBeDescriptive(t *testing.T) {
 // =============================================================================
 
 func TestVerifyTask_WhenNilClient_ShouldReturnUnavailable(t *testing.T) {
-	v := NewTaskVerifier(nil, nil)
+	v := NewTaskVerifier(nil, nil, nil, config.JITConfig{})
 
 	result, err := v.verifyTask(context.Background(), "task", "result", "/implementation")
 	if err == nil {

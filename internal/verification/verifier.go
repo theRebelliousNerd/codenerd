@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	"codenerd/internal/session"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
@@ -95,6 +96,12 @@ type TaskVerifier struct {
 	taskExecutor session.TaskExecutor // Runs each attempt (ExecuteObserved)
 	kernel       Kernel               // Decides each delegation's attempts
 
+	// The judge's system prompt is compiled from its atoms
+	// (internal/prompt/atoms/eval/delegation_judge.yaml) under the configured
+	// prompt budget (the jit section of config.json).
+	compiler *prompt.JITPromptCompiler
+	jit      config.JITConfig
+
 	// Session context for persistence
 	sessionID string
 	turnCount int
@@ -114,10 +121,42 @@ func (v *TaskVerifier) SetKernel(k Kernel) {
 	v.kernel = k
 }
 
-// NewTaskVerifier creates a verifier: the judge's client and the store its
-// judgments are recorded in. The executor and the kernel are set after boot.
-func NewTaskVerifier(client perception.LLMClient, localDB *store.LocalStore) *TaskVerifier {
-	return &TaskVerifier{client: client, localDB: localDB}
+// NewTaskVerifier creates a verifier: the judge's client, the store its
+// judgments are recorded in, and the compiler and budget its system prompt is
+// compiled with. The executor and the kernel are set after boot.
+func NewTaskVerifier(client perception.LLMClient, localDB *store.LocalStore, compiler *prompt.JITPromptCompiler, jit config.JITConfig) *TaskVerifier {
+	return &TaskVerifier{client: client, localDB: localDB, compiler: compiler, jit: jit}
+}
+
+// judgeSystemPrompt compiles the judge's system prompt from its atoms. The
+// compile's shard type is the rubric the kernel derived
+// (delegation_judge_rubric: /review or /implementation, as /judge_review or
+// /judge_implementation -- regime values, so only the judge's atoms answer to
+// them), and its intent is /judge, which no worker intent atom claims. While
+// live, the judge's atom supersedes the Piggyback output protocol and the tool
+// and methodology atoms: its reply is one bare JSON object and it has no
+// tools. Until 2026-09-23 this was two Go string literals. Without a compiler
+// the judge cannot be asked, and the verdict fails closed.
+func (v *TaskVerifier) judgeSystemPrompt(ctx context.Context, rubric string) (string, error) {
+	if v.compiler == nil {
+		return "", fmt.Errorf("%w: no prompt compiler for the judge", ErrVerificationUnavailable)
+	}
+	cc := prompt.NewCompilationContext()
+	cc.ShardType = "/judge_" + strings.TrimPrefix(rubric, "/")
+	cc.ShardName = "Delegation Judge"
+	cc.OperationalMode = "/active"
+	cc.IntentVerb = "/judge"
+	cc.TokenBudget = v.jit.TokenBudget
+	cc.ReservedTokens = v.jit.ReservedTokens
+	cc.ReservedTokensFallbackRatio = v.jit.ReservedTokensFallbackRatio
+	compiled, err := v.compiler.Compile(ctx, cc)
+	if err != nil {
+		return "", fmt.Errorf("compile the judge's prompt (rubric %s): %w", rubric, err)
+	}
+	if compiled == nil || strings.TrimSpace(compiled.Prompt) == "" {
+		return "", fmt.Errorf("%w: the judge's prompt compiled empty (rubric %s)", ErrVerificationUnavailable, rubric)
+	}
+	return compiled.Prompt, nil
 }
 
 // SetSessionContext sets the current session for persistence.
@@ -337,69 +376,9 @@ func (v *TaskVerifier) verifyTask(ctx context.Context, task, result, rubric stri
 		return nil, ErrVerificationUnavailable
 	}
 
-	var systemPrompt string
-	if rubric == "/review" {
-		// REVIEW TASK: Verify the review output is useful, not the code being reviewed
-		systemPrompt = `You are verifying a CODE REVIEW task. The shard was asked to review/analyze existing code.
-
-## What to Check (Review Quality)
-- Did the review provide useful analysis of the code?
-- Did it identify issues, patterns, or areas for improvement?
-- Is the review output coherent and actionable?
-
-## What NOT to Check
-- DO NOT fail because the CODE BEING REVIEWED is incomplete or has issues
-- The reviewer's job is to REPORT problems, not fix them
-- If the reviewer correctly identifies that code is incomplete, that's SUCCESS
-
-## Quality Violations for Reviews
-- Empty or meaningless review output
-- Review that doesn't actually analyze the code
-- Hallucinated file contents or made-up code snippets
-- Review that contradicts obvious facts about the code
-
-## Response Format (JSON only)
-{
-  "success": true/false,
-  "confidence": 0.0-1.0,
-  "reason": "explanation of review quality",
-  "quality_violations": [],
-  "evidence": [],
-  "suggestions": []
-}
-
-IMPORTANT: A review that correctly reports incomplete code is SUCCESSFUL.
-Only return the JSON object, no other text.`
-	} else {
-		// IMPLEMENTATION TASK: Check for quality violations in generated code
-		systemPrompt = `You are a strict code quality verifier. Your job is to ensure tasks are completed PROPERLY - no shortcuts, no mock code, no corner-cutting.
-
-## Quality Violations to Detect
-- Mock implementations (func Mock..., fake data, // mock, mockImplementation)
-- Placeholder code (TODO, FIXME, stub, placeholder, "not implemented", XXX)
-- Hallucinated APIs (imports/calls to libraries that don't exist)
-- Incomplete implementations (empty functions, panic("not implemented"), pass)
-- Hardcoded magic values instead of real logic
-- Missing error handling where needed
-- Tests that don't actually test anything (empty assertions, always pass)
-
-## Response Format (JSON only, no markdown)
-{
-  "success": true/false,
-  "confidence": 0.0-1.0,
-  "reason": "detailed explanation",
-  "quality_violations": ["mock_code", "placeholder", "incomplete", ...],
-  "evidence": ["line X: TODO implement", "function Y is empty", ...],
-  "suggestions": ["suggestion 1", ...],
-  "corrective_action": {
-    "type": "research|docs|tool|decompose",
-    "query": "what to look up or research",
-    "reason": "why this will help"
-  }
-}
-
-CRITICAL: If you detect ANY quality violations, success MUST be false.
-Only return the JSON object, no other text.`
+	systemPrompt, err := v.judgeSystemPrompt(ctx, rubric)
+	if err != nil {
+		return nil, err
 	}
 
 	userPrompt := fmt.Sprintf(`## Task

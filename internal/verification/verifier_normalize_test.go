@@ -1,9 +1,13 @@
 package verification
 
-import "testing"
+import (
+	"testing"
+
+	"codenerd/internal/config"
+)
 
 func TestSetTaskExecutor(t *testing.T) {
-	v := NewTaskVerifier(nil, nil)
+	v := NewTaskVerifier(nil, nil, nil, config.JITConfig{})
 	// Setting a nil executor must not panic and should store the value.
 	v.SetTaskExecutor(nil)
 	v.mu.Lock()

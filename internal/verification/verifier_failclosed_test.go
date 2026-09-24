@@ -100,7 +100,7 @@ func newDelegationVerifier(t *testing.T, client perception.LLMClient, db *store.
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
 	}
-	v := NewTaskVerifier(client, db)
+	v := NewTaskVerifier(client, db, newJudgeCompiler(t), config.DefaultJITConfig())
 	v.SetTaskExecutor(exec)
 	v.SetKernel(k)
 	return v

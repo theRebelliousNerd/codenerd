@@ -153,7 +153,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	}
 
 	logStep("Initializing task verifier...")
-	taskVerifier := verification.NewTaskVerifier(llmClient, localDB)
+	taskVerifier := verification.NewTaskVerifier(llmClient, localDB, jitCompiler, appCfg.GetEffectiveJITConfig())
 	taskVerifier.SetTaskExecutor(taskExecutor)
 	taskVerifier.SetKernel(kernel)
 
