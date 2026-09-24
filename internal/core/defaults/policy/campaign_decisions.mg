@@ -253,7 +253,9 @@ task_next_move(TaskID, /retry) :-
 #                      closes /unverified, not completed, and its hard
 #                      dependents stay blocked
 #   /replan            below the cap, when campaign.replan_on_checkpoint_failure:
-#                      the replanner is asked, and the phase stays open
+#                      the phase gains one task briefed with the checkpoint's
+#                      findings whole, scoped to what its tasks write
+#                      (appendCheckpointRemediation), and stays open
 #   /recheck           below the cap otherwise: the phase stays open and its
 #                      checkpoint runs again
 #

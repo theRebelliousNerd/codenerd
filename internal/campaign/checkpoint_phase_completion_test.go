@@ -3,7 +3,10 @@ package campaign
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"codenerd/internal/config"
@@ -41,12 +44,32 @@ func newCheckpointPolicyOrchestrator(t *testing.T, review string, edit func(*con
 		t.Fatal(err)
 	}
 	events := make(chan OrchestratorEvent, 64)
+	// The phase's completed task wrote Docs/out.md; the file is there.
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "Docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "Docs", "out.md"), []byte("# out\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: &MockTaskExecutor{},
+		Workspace: workspace,
+		Kernel:    kernel,
+		LLMClient: &MockLLMClient{},
+		// A failed checkpoint appends a remediation task the next attempt
+		// runs; the executor edits the phase's file, as the task asks.
+		TaskExecutor: &MockTaskExecutor{
+			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+				f, err := os.OpenFile(filepath.Join(workspace, "Docs", "out.md"), os.O_APPEND|os.O_WRONLY, 0o644)
+				if err != nil {
+					return "", err
+				}
+				defer f.Close()
+				_, err = f.WriteString("remediated\n")
+				return "remediated", err
+			},
+		},
 		Executor:     tactile.NewDirectExecutor(),
 		VirtualStore: &core.VirtualStore{},
 		EventChan:    events,
@@ -65,10 +88,6 @@ func newCheckpointPolicyOrchestrator(t *testing.T, review string, edit func(*con
 		},
 	}, orch.workspace, policyKernel(t, nil))
 
-	// Replanning on checkpoint failure would need a live LLM; the invariant
-	// under test is about phase status, not about what replan produces.
-	orch.replanner = nil
-
 	orch.campaign = &Campaign{
 		ID:          "/campaign_ckpt",
 		Title:       "checkpoint regression",
@@ -86,10 +105,11 @@ func newCheckpointPolicyOrchestrator(t *testing.T, review string, edit func(*con
 				VerificationMethod: VerifyShardValidate,
 			}},
 			Tasks: []Task{{
-				ID:      "/task_ckpt_0",
-				PhaseID: "/phase_ckpt_0",
-				Status:  TaskCompleted,
-				Type:    TaskTypeFileCreate,
+				ID:       "/task_ckpt_0",
+				PhaseID:  "/phase_ckpt_0",
+				Status:   TaskCompleted,
+				Type:     TaskTypeFileCreate,
+				WriteSet: []string{"Docs/out.md"},
 			}},
 		}},
 	}
@@ -287,21 +307,14 @@ func TestRunPhase_TheCheckpointCapIsTheUsersConfig(t *testing.T) {
 	}
 }
 
-// Whether a failed checkpoint asks the replanner is the user's
-// (campaign.replan_on_checkpoint_failure). Off, the phase stays open for its
-// checkpoint to run again, and no replan is triggered.
+// Whether a failed checkpoint gives the phase remediation work is the user's
+// (campaign.replan_on_checkpoint_failure, read by phase_ckpt_move). Off, the
+// phase stays open for its checkpoint to run again over the same work.
 func TestRunPhase_ReplanOnCheckpointFailureIsTheUsersConfig(t *testing.T) {
-	triggers := func(orch *Orchestrator) int {
-		facts, err := orch.kernel.Query("replan_trigger")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return len(facts)
-	}
 	for _, tc := range []struct {
 		replan bool
 		want   int
-	}{{true, 1}, {false, 0}} {
+	}{{true, 2}, {false, 1}} {
 		orch, _ := newCheckpointPolicyOrchestrator(t, "FAIL: still broken", func(c *config.CampaignConfig) {
 			c.ReplanOnCheckpointFailure = &tc.replan
 		})
@@ -311,8 +324,81 @@ func TestRunPhase_ReplanOnCheckpointFailureIsTheUsersConfig(t *testing.T) {
 		if got := orch.campaign.Phases[0].Status; got != PhaseInProgress {
 			t.Fatalf("replan=%v: one failed checkpoint below the cap left the phase %s, want %s", tc.replan, got, PhaseInProgress)
 		}
-		if got := triggers(orch); got != tc.want {
-			t.Fatalf("replan_on_checkpoint_failure=%v: %d replan trigger(s), want %d", tc.replan, got, tc.want)
+		if got := len(orch.campaign.Phases[0].Tasks); got != tc.want {
+			t.Fatalf("replan_on_checkpoint_failure=%v: the phase has %d task(s), want %d", tc.replan, got, tc.want)
 		}
+	}
+}
+
+// A phase whose tasks declare no file gives a remediation no scope, and a file
+// task without a target is refused before it runs: none is appended, so the
+// phase is not blocked on a task that can never run.
+func TestRunPhase_ACheckpointRemediationNeedsADeclaredTarget(t *testing.T) {
+	orch, events := newCheckpointRegressionOrchestrator(t, "FAIL: still broken")
+	orch.campaign.Phases[0].Tasks[0].WriteSet = nil
+
+	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
+		t.Fatalf("runPhase: %v", err)
+	}
+	if got := len(orch.campaign.Phases[0].Tasks); got != 1 {
+		t.Fatalf("the phase has %d tasks, want no remediation without a declared target", got)
+	}
+	if drainEventTypes(events)[EventReplanFailed] == 0 {
+		t.Fatal("the refused remediation was not announced")
+	}
+}
+
+// A failed checkpoint's findings become the phase's work. The /replan move
+// called the replanner with an empty reason and a bare /checkpoint_failed
+// trigger, so the findings reached no one: on campaign 7b853890 (2026-09-24)
+// the reviewer named the exact defects, nothing was added, the phase
+// re-checked unchanged work and closed unverified after three attempts. Now
+// the phase gains one task briefed with the findings whole -- past the 500
+// characters the summary line keeps -- and its objectives, scoped to what the
+// phase's tasks write, and the phase stays open.
+func TestRunPhase_WhenCheckpointFails_ItsFindingsBecomeThePhasesWork(t *testing.T) {
+	findings := "FAIL: the corpus is not assembled.\n- [CRITICAL] Docs/a.md:22: claims a slot the file does not have\n" +
+		strings.Repeat("- [MINOR] Docs/b.md: a sentence the standard does not allow\n", 12) +
+		"- [CRITICAL] Docs/INTERNALS.md: no front-matter (the last finding)"
+	if len(findings) <= 500 {
+		t.Fatalf("the findings must be longer than the 500-character summary to prove they arrive whole")
+	}
+	orch, _ := newCheckpointRegressionOrchestrator(t, findings)
+	orch.campaign.Phases[0].Tasks[0].WriteSet = []string{"Docs/b.md", "Docs/a.md"}
+
+	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
+		t.Fatalf("runPhase: %v", err)
+	}
+	phase := orch.campaign.Phases[0]
+	if phase.Status == PhaseCompleted || phase.Status == PhaseUnverified {
+		t.Fatalf("phase status %s after one failed checkpoint; it stays open", phase.Status)
+	}
+	if len(phase.Tasks) != 2 {
+		t.Fatalf("the phase has %d tasks after a failed checkpoint, want the remediation task added", len(phase.Tasks))
+	}
+	task := phase.Tasks[1]
+	if task.Status != TaskPending || task.Type != TaskTypeFileModify {
+		t.Fatalf("remediation task %+v: want a pending file modification", task)
+	}
+	for _, want := range []string{"(the last finding)", "Docs/a.md:22", "produce the thing", "Docs/a.md, Docs/b.md"} {
+		if !strings.Contains(task.Description, want) {
+			t.Errorf("the remediation brief lacks %q:\n%s", want, task.Description)
+		}
+	}
+	if !slices.Equal(task.WriteSet, []string{"Docs/a.md", "Docs/b.md"}) {
+		t.Errorf("write set %v, want the phase's own", task.WriteSet)
+	}
+	rows, err := orch.kernel.Query("campaign_task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range rows {
+		if len(f.Args) > 3 && fmt.Sprint(f.Args[0]) == task.ID && strings.Contains(fmt.Sprint(f.Args[3]), "pending") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the kernel holds no pending campaign_task for %s: the scheduler would never run it", task.ID)
 	}
 }

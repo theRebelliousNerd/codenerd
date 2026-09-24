@@ -192,25 +192,12 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 					return nil
 				}
 
-				// /replan. Seed a replan trigger so Replanner has a hard signal.
-				if err := o.kernel.Assert(core.Fact{
-					Predicate: "replan_trigger",
-					Args:      []any{o.campaign.ID, "/checkpoint_failed", time.Now().Unix()},
-				}); err != nil {
-					logging.CampaignWarn("failed to assert replan_trigger: %v", err)
-				}
-
-				if o.replanner != nil {
-					if repErr := o.replanner.Replan(ctx, o.campaign, ""); repErr != nil {
-						logging.Get(logging.CategoryCampaign).Error("Replan after checkpoint failure failed: %v", repErr)
-						o.emitEvent(EventReplanFailed, phase.ID, "", repErr.Error(), nil)
-					} else {
-						o.mu.Lock()
-						if err := o.saveCampaign(); err != nil {
-							logging.CampaignWarn("failed to save campaign after replan: %v", err)
-						}
-						o.mu.Unlock()
-					}
+				// /replan: the phase gains the work its checkpoint found
+				// missing, briefed with the checkpoint's findings whole
+				// (appendCheckpointRemediation), and stays open.
+				if err := o.appendCheckpointRemediation(phase.ID); err != nil {
+					logging.Get(logging.CategoryCampaign).Error("Phase %s: checkpoint remediation not appended: %v", phase.ID, err)
+					o.emitEvent(EventReplanFailed, phase.ID, "", err.Error(), nil)
 				}
 
 				// Return to main loop; policy will keep current phase active.

@@ -349,8 +349,8 @@ Decl shard_failure_count(ShardType, Count) bound [/name, /number].
 # corpus is a closed-vocabulary token (/checkpoint_failed, /build_failed,
 # /no_eligible_phases, /task_failure_cascade), never free text; replan_trigger
 # below is already [/string, /name, /number] and unifies its Reason straight
-# into replan_needed; and the Go producers assert "/checkpoint_failed" /
-# "/new_requirement", which types.Fact.ToAtom coerces to name constants.
+# into replan_needed; and the Go producer asserts "/new_requirement", which
+# types.Fact.ToAtom coerces to a name constant.
 # These three were previously split between /name and /string heads for the
 # SAME token, so campaign_core's /no_eligible_phases and campaign_phases'
 # "no_eligible_phases" were two different values in one relation.

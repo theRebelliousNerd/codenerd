@@ -54,8 +54,9 @@ type CampaignConfig struct {
 	// MaxCheckpointAttempts is how many failed checkpoints close a phase
 	// unverified (policy: phase_ckpt_exhausted).
 	MaxCheckpointAttempts int `json:"max_checkpoint_attempts,omitempty"`
-	// ReplanOnCheckpointFailure asks the replanner after each failed
-	// checkpoint the phase can still retry (policy: phase_move /replan).
+	// ReplanOnCheckpointFailure gives a phase whose checkpoint failed, below
+	// the cap, one task briefed with the checkpoint's findings (policy:
+	// phase_ckpt_move /replan). Off, the checkpoint re-runs over the same work.
 	ReplanOnCheckpointFailure *bool `json:"replan_on_checkpoint_failure,omitempty"`
 	// CheckpointOnTaskFailure runs the phase's checkpoint as soon as one of
 	// its tasks fails for good.

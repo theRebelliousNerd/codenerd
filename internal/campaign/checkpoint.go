@@ -330,7 +330,7 @@ func settledCheckpointResult(kernel core.Kernel, key, raw, label string) (bool, 
 	verdict, ok := settleCheckpointVerdict(kernel, key, raw)
 	if !ok {
 		logging.CampaignWarn("%s verdict could not be determined for phase=%s; failing closed", label, key)
-		return false, fmt.Sprintf("%s verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): the reviewer's control packet carried no checkpoint_verdict/4 for this phase: %s", label, key, truncateForLog(raw, 200)), nil
+		return false, fmt.Sprintf("%s verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): the reviewer's control packet carried no checkpoint_verdict/4 for this phase:\n%s", label, key, raw), nil
 	}
 	logging.Campaign("%s verdict for phase=%s: %s", label, key, verdict.outcome)
 	return verdict.passed(), verdict.describe(label), nil
@@ -712,20 +712,6 @@ func splitTopLevelCommas(s string) []string {
 	}
 	parts = append(parts, cur.String())
 	return parts
-}
-
-// truncateForLog returns the first max runes of s for fail-closed details so
-// the log distinguishes "model ignored the contract" from "kernel never
-// received it" without dumping unbounded surface text.
-func truncateForLog(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max])
 }
 
 // checkpointVerdictOutcome is what the kernel derived from a reviewer's
