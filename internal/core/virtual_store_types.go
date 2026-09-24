@@ -108,11 +108,6 @@ const (
 	ActionInvestigateSystemic ActionType = "investigate_systemic" // Investigate systemic issue
 	ActionUpdateWorldModel    ActionType = "update_world_model"   // Update world model
 
-	// Corrective Actions
-	ActionCorrectiveResearch  ActionType = "corrective_research"  // Research for correction
-	ActionCorrectiveDocs      ActionType = "corrective_docs"      // Documentation correction
-	ActionCorrectiveDecompose ActionType = "corrective_decompose" // Decompose for correction
-
 	// Code DOM Query Actions
 	ActionQueryElements ActionType = "query_elements" // Query code elements (alias)
 

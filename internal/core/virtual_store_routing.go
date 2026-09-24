@@ -576,14 +576,6 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 	case ActionUpdateWorldModel:
 		return v.handleUpdateWorldModel(ctx, req)
 
-	// Corrective actions
-	case ActionCorrectiveResearch:
-		return v.handleCorrectiveResearch(ctx, req)
-	case ActionCorrectiveDocs:
-		return v.handleCorrectiveDocs(ctx, req)
-	case ActionCorrectiveDecompose:
-		return v.handleCorrectiveDecompose(ctx, req)
-
 	// Code DOM Query alias
 	case ActionQueryElements:
 		return v.handleGetElements(ctx, req) // Delegate to existing handler

@@ -1160,7 +1160,7 @@ func TestVirtualStoreWorkflows_ContextManagement(t *testing.T) {
 	}
 }
 
-func TestVirtualStoreWorkflows_InvestigationAndCorrective(t *testing.T) {
+func TestVirtualStoreWorkflows_Investigation(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	ctx := context.Background()
 	cCtx, cancel := context.WithCancel(ctx)
@@ -1236,81 +1236,6 @@ func TestVirtualStoreWorkflows_InvestigationAndCorrective(t *testing.T) {
 	}
 
 	res, err = vs.handleUpdateWorldModel(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
-	// 4. handleCorrectiveResearch
-	// Case 4a: scraper not registered (falls back to not calling handleResearch, returns success=true signal)
-	req = ActionRequest{Target: "how to implement FFI in mangle", Payload: map[string]any{"issue_type": "build_error"}}
-	res, err = vs.handleCorrectiveResearch(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "corrective_researching" {
-		t.Errorf("expected corrective_researching facts, got: %v", res.FactsToAdd)
-	}
-
-	// Case 4b: scraper client registered but modularTools is nil (calls handleResearch which fails on modularTools nil)
-	vs.mcpClients = map[string]IntegrationClient{"scraper": &mockWorkflowIntegrationClient{}}
-	vs.modularTools = nil
-	res, err = vs.handleCorrectiveResearch(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != "modular tools registry not initialized" {
-		t.Errorf("expected modular tools nil failure, got: %+v", res)
-	}
-
-	res, err = vs.handleCorrectiveResearch(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
-	// 5. handleCorrectiveDocs
-	req = ActionRequest{Target: "docs/architecture.md"}
-	res, err = vs.handleCorrectiveDocs(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "corrective_documenting" {
-		t.Errorf("expected corrective documenting facts, got: %v", res.FactsToAdd)
-	}
-
-	res, err = vs.handleCorrectiveDocs(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
-	// 6. handleCorrectiveDecompose
-	req = ActionRequest{Target: "unresolved symbols in build link"}
-	res, err = vs.handleCorrectiveDecompose(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "corrective_decomposing" {
-		t.Errorf("expected corrective decomposing facts, got: %v", res.FactsToAdd)
-	}
-
-	res, err = vs.handleCorrectiveDecompose(cCtx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

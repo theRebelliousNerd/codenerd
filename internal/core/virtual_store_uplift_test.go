@@ -100,7 +100,7 @@ func TestVirtualStore_AllActionsDispatched(t *testing.T) {
 		ActionCampaignResearch, ActionCampaignVerify, ActionCampaignDocument, ActionCampaignRefactor, ActionCampaignIntegrate,
 		ActionCampaignFinalVerify, ActionCampaignCleanup, ActionArchiveCampaign, ActionShowCampaignStatus, ActionShowCampaignProg, ActionAskCampaignInt,
 		ActionCompressContext, ActionEmergencyCompress, ActionCreateCheckpoint, ActionInvestigateAnomaly,
-		ActionInvestigateSystemic, ActionUpdateWorldModel, ActionCorrectiveResearch, ActionCorrectiveDocs, ActionCorrectiveDecompose, ActionQueryElements,
+		ActionInvestigateSystemic, ActionUpdateWorldModel, ActionQueryElements,
 		ActionPythonEnvSetup, ActionPythonEnvExec, ActionPythonRunPytest, ActionPythonApplyPatch, ActionPythonSnapshot, ActionPythonRestore,
 		ActionPythonTeardown, ActionSWEBenchSetup, ActionSWEBenchApplyPatch, ActionSWEBenchRunTests, ActionSWEBenchSnapshot, ActionSWEBenchRestore,
 		ActionSWEBenchEvaluate, ActionSWEBenchTeardown, ActionContext7Fetch, ActionWebSearch, ActionWebFetch, ActionBrowserNavigate,

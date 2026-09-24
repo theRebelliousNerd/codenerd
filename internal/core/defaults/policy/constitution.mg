@@ -260,11 +260,6 @@ safe_action(/open_file).
 safe_action(/query_elements).
 safe_action(/refresh_scope).
 
-# Corrective operations
-safe_action(/corrective_decompose).
-safe_action(/corrective_docs).
-safe_action(/corrective_research).
-
 # Execution operations
 safe_action(/exec_cmd).
 safe_action(/run_command).

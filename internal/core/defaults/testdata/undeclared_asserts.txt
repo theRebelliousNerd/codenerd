@@ -34,10 +34,6 @@ checkpoint_created
 commit_pending
 compression_requested
 context_compressing
-corrective_decomposing
-corrective_documenting
-corrective_phase
-corrective_researching
 delegation_failed
 delegation_result
 deleted_file
