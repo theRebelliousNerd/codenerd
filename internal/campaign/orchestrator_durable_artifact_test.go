@@ -121,25 +121,6 @@ func TestPersistTaskOutputArtifact_ATerseFindingPersists(t *testing.T) {
 	}
 }
 
-func TestIsTrivialResult(t *testing.T) {
-	trivial := []string{"", "   ", "ok", "done", "No output.", strings.Repeat("x", 39)}
-	for _, s := range trivial {
-		if !isTrivialResult(s) {
-			t.Errorf("expected %q to be trivial", s)
-		}
-	}
-	substantial := []string{
-		strings.Repeat("x", 40),
-		substantialFindings,
-		"The scanner owns a worker pool and a FileCache that must be Closed on shutdown.",
-	}
-	for _, s := range substantial {
-		if isTrivialResult(s) {
-			t.Errorf("expected %q (len=%d) to be substantial", s, len(strings.TrimSpace(s)))
-		}
-	}
-}
-
 func TestIsFileProducingType(t *testing.T) {
 	fileTypes := []TaskType{
 		TaskTypeFileCreate, TaskTypeFileModify, TaskTypeTestWrite,

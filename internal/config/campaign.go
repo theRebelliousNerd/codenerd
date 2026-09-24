@@ -104,6 +104,10 @@ type CampaignConfig struct {
 	// policy would inline is sent as its digest instead (its outline and its
 	// path): never cut (policy: task_evidence).
 	UpstreamInlineMaxBytes int `json:"upstream_inline_max_bytes,omitempty"`
+	// VerifyReportMinBytes is the size under which a report a /verify task
+	// checks is hollow when its producer was owed upstream evidence (policy:
+	// verify_report_hollow).
+	VerifyReportMinBytes int `json:"verify_report_min_bytes,omitempty"`
 	// ReplanContextTasks is how many failed or blocked tasks, and triggers,
 	// the replanner's context lists before it says how many it left out.
 	ReplanContextTasks int `json:"replan_context_tasks,omitempty"`
@@ -163,6 +167,7 @@ func DefaultCampaignConfig() CampaignConfig {
 		WriteSetLockRetry:          "500ms",
 		WriteSetLockPoll:           "10ms",
 		UpstreamInlineMaxBytes:     48 * 1024,
+		VerifyReportMinBytes:       1024,
 		ReplanContextTasks:         25,
 		ReplanContextAttempts:      3,
 		ReplanContextTextBytes:     400,
@@ -226,6 +231,7 @@ func (c CampaignConfig) WithDefaults() CampaignConfig {
 	strOr(&c.WriteSetLockRetry, d.WriteSetLockRetry)
 	strOr(&c.WriteSetLockPoll, d.WriteSetLockPoll)
 	intOr(&c.UpstreamInlineMaxBytes, d.UpstreamInlineMaxBytes)
+	intOr(&c.VerifyReportMinBytes, d.VerifyReportMinBytes)
 	intOr(&c.ReplanContextTasks, d.ReplanContextTasks)
 	intOr(&c.ReplanContextAttempts, d.ReplanContextAttempts)
 	intOr(&c.ReplanContextTextBytes, d.ReplanContextTextBytes)
@@ -263,6 +269,7 @@ type CampaignPolicy struct {
 	WriteSetLockRetry          time.Duration
 	WriteSetLockPoll           time.Duration
 	UpstreamInlineMaxBytes     int
+	VerifyReportMinBytes       int
 	ReplanContextTasks         int
 	ReplanContextAttempts      int
 	ReplanContextTextBytes     int
@@ -315,6 +322,7 @@ func (c CampaignConfig) Resolve() (CampaignPolicy, error) {
 		WriteSetLockRetry:          d(c.WriteSetLockRetry),
 		WriteSetLockPoll:           d(c.WriteSetLockPoll),
 		UpstreamInlineMaxBytes:     c.UpstreamInlineMaxBytes,
+		VerifyReportMinBytes:       c.VerifyReportMinBytes,
 		ReplanContextTasks:         c.ReplanContextTasks,
 		ReplanContextAttempts:      c.ReplanContextAttempts,
 		ReplanContextTextBytes:     c.ReplanContextTextBytes,
@@ -348,6 +356,7 @@ func (c CampaignConfig) Check(prefix string) []Problem {
 		{"max_parallel_tasks", c.MaxParallelTasks},
 		{"task_result_cache_limit", c.TaskResultCacheLimit},
 		{"upstream_inline_max_bytes", c.UpstreamInlineMaxBytes},
+		{"verify_report_min_bytes", c.VerifyReportMinBytes},
 		{"replan_context_tasks", c.ReplanContextTasks},
 		{"replan_context_attempts", c.ReplanContextAttempts},
 		{"replan_context_text_bytes", c.ReplanContextTextBytes},
@@ -424,6 +433,7 @@ func (p CampaignPolicy) Params() []Param {
 		{Key: "/campaign_checkpoint_min_confidence", Value: int64(p.CheckpointMinConfidence)},
 		{Key: "/campaign_acceptance_rounds", Value: int64(p.AcceptanceRounds)},
 		{Key: "/campaign_upstream_inline_max_bytes", Value: int64(p.UpstreamInlineMaxBytes)},
+		{Key: "/campaign_verify_report_min_bytes", Value: int64(p.VerifyReportMinBytes)},
 		{Key: "/campaign_degenerate_min_tokens", Value: int64(p.DegenerateMinTokens)},
 		{Key: "/campaign_degenerate_distinct_permille", Value: int64(p.DegenerateDistinctPermille)},
 		{Key: "/campaign_degenerate_long_words", Value: int64(p.DegenerateLongWords)},

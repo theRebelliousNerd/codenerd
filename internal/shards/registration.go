@@ -272,6 +272,12 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"task_write_target",
 				"task_write_ext",
 				"generated_output_vocab",
+				// What the orchestrator measured for task_evidence and
+				// verify_report_hollow (policy/campaign_evidence.mg), joined
+				// with campaign_task, task_dependency and phase_dependency.
+				"task_artifact_on_disk",
+				"task_brief_names",
+				"task_output_path",
 				// Runtime facts campaign rules join against the family above:
 				// shard profiles (delegate_task, specialist preference),
 				// context pressure, milestones, remediation, document

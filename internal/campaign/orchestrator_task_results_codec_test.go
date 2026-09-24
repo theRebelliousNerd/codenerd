@@ -113,7 +113,10 @@ func TestStoreTaskResult_KeepsTheProjectionWhole(t *testing.T) {
 	if !ok || got != stored {
 		t.Fatalf("stored %d bytes, got back %d (ok=%v); the tail was cut", len(stored), len(got), ok)
 	}
-	input := o.buildTaskInput(&Task{ID: "/task_down", Description: "use it", ContextFrom: []string{"/task_up"}})
+	input, err := o.buildTaskInput(&Task{ID: "/task_down", Description: "use it", ContextFrom: []string{"/task_up"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(input, "LAST FINDING and subagent_expand handle=abc") {
 		t.Fatal("the dependent task's input lost the tail of its upstream's result")
 	}

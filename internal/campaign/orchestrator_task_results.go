@@ -161,9 +161,9 @@ func (o *Orchestrator) getTaskResult(taskID string) (string, bool) {
 
 // buildTaskInput constructs the input for a shard by combining the task's
 // ShardInput/Description with context from dependent tasks.
-func (o *Orchestrator) buildTaskInput(task *Task) string {
+func (o *Orchestrator) buildTaskInput(task *Task) (string, error) {
 	if task == nil {
-		return ""
+		return "", nil
 	}
 	// Start with explicit shard input if provided, otherwise use description
 	input := task.ShardInput
@@ -204,19 +204,22 @@ func (o *Orchestrator) buildTaskInput(task *Task) string {
 		}
 	}
 
-	// Holographic context: every shard input carries the durable upstream
-	// findings (phase dependencies + earlier same-phase tasks), bounded so a
-	// long campaign cannot blow the prompt. Prompt-only: persistTaskOutputArtifact
-	// stores the shard's result, never this input, so the section is not
-	// re-persisted as the task's own artifact.
-	if upstream := o.upstreamArtifactContext(task); upstream != "" {
+	// Holographic context: every shard input carries the upstream evidence the
+	// kernel selects for it (task_evidence), whole, digested or by handle.
+	// Prompt-only: persistTaskOutputArtifact stores the shard's result, never
+	// this input, so the section is not re-persisted as the task's own artifact.
+	upstream, err := o.taskEvidenceSection(task)
+	if err != nil {
+		return "", err
+	}
+	if upstream != "" {
 		if input != "" {
 			input += "\n\n"
 		}
 		input += upstream
 	}
 
-	return input
+	return input, nil
 }
 
 // writeSetBriefing tells a file task what it may change and what will

@@ -72,6 +72,11 @@ type Orchestrator struct {
 	cancelFunc context.CancelFunc
 	lastError  error
 
+	// evidenceMu serializes the evidence measurement and the question that
+	// reads it (task_evidence.go): tasks running in parallel must not ask
+	// between another task's retraction and assertion of the same rows.
+	evidenceMu sync.Mutex
+
 	// Task result storage for context injection between tasks
 	taskResults map[string]string
 	resultsMu   sync.RWMutex

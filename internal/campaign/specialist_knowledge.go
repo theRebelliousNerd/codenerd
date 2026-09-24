@@ -157,9 +157,12 @@ func FormatSpecialistKnowledge(atoms []KnowledgeAtom) string {
 }
 
 // buildTaskInputWithSpecialistKnowledge extends buildTaskInput with specialist knowledge injection.
-func (o *Orchestrator) buildTaskInputWithSpecialistKnowledge(ctx context.Context, task *Task, specialist string) string {
+func (o *Orchestrator) buildTaskInputWithSpecialistKnowledge(ctx context.Context, task *Task, specialist string) (string, error) {
 	// Start with base input
-	input := o.buildTaskInput(task)
+	input, err := o.buildTaskInput(task)
+	if err != nil {
+		return "", err
+	}
 
 	// If we have a knowledge provider and a specialist, inject their knowledge
 	if o.specialistKnowledgeProvider != nil && specialist != "" {
@@ -170,5 +173,5 @@ func (o *Orchestrator) buildTaskInputWithSpecialistKnowledge(ctx context.Context
 		}
 	}
 
-	return input
+	return input, nil
 }

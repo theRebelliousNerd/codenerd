@@ -122,6 +122,7 @@ func TestCampaignPolicy_ParamsCarryEveryPolicyKnob(t *testing.T) {
 		"/campaign_checkpoint_min_confidence":    50,
 		"/campaign_acceptance_rounds":            3,
 		"/campaign_upstream_inline_max_bytes":    48 * 1024,
+		"/campaign_verify_report_min_bytes":      1024,
 	} {
 		if got[key] != want {
 			t.Errorf("config_param(%s) = %d, want %d", key, got[key], want)

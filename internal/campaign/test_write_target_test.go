@@ -19,7 +19,10 @@ func TestTestWriteShardTaskTarget(t *testing.T) {
 			t.Fatalf("mkdir pkg: %v", err)
 		}
 		task := &Task{WriteSet: []string{"pkg"}}
-		got := o.testWriteShardTask(task, o.resolveFileTaskTargetPath(task))
+		got, err := o.testWriteShardTask(task, o.resolveFileTaskTargetPath(task))
+		if err != nil {
+			t.Fatal(err)
+		}
 		if !strings.HasPrefix(got, "generate_tests package:pkg ") {
 			t.Fatalf("got %q, want prefix %q", got, "generate_tests package:pkg ")
 		}
@@ -28,7 +31,10 @@ func TestTestWriteShardTaskTarget(t *testing.T) {
 	t.Run("artifact file resolves to file label", func(t *testing.T) {
 		o := newOrchestrator(t)
 		task := &Task{Artifacts: []TaskArtifact{{Path: "pkg/a.go"}}}
-		got := o.testWriteShardTask(task, o.resolveFileTaskTargetPath(task))
+		got, err := o.testWriteShardTask(task, o.resolveFileTaskTargetPath(task))
+		if err != nil {
+			t.Fatal(err)
+		}
 		if !strings.HasPrefix(got, "generate_tests file:pkg/a.go ") {
 			t.Fatalf("got %q, want prefix %q", got, "generate_tests file:pkg/a.go ")
 		}
@@ -37,7 +43,10 @@ func TestTestWriteShardTaskTarget(t *testing.T) {
 	t.Run("empty target has no dangling label", func(t *testing.T) {
 		o := newOrchestrator(t)
 		task := &Task{Description: "cover edge cases"}
-		got := o.testWriteShardTask(task, o.resolveFileTaskTargetPath(task))
+		got, err := o.testWriteShardTask(task, o.resolveFileTaskTargetPath(task))
+		if err != nil {
+			t.Fatal(err)
+		}
 		if !strings.HasPrefix(got, "generate_tests ") {
 			t.Fatalf("got %q, want prefix %q", got, "generate_tests ")
 		}
