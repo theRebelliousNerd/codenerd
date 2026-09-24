@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/tactile"
+	"codenerd/internal/tools"
 	toolscore "codenerd/internal/tools/core"
 )
 
@@ -192,6 +193,57 @@ func TestTaskEvidence_ATasksOwnOutputIsNotItsEvidence(t *testing.T) {
 	if mode, ok := modes[rel]; ok {
 		t.Fatalf("the task's own write target was handed to it as %s evidence", mode)
 	}
+}
+
+// A document the brief names that no task produced is handed over like a
+// needed artifact: whole, or digested over the ceiling. The task's own target,
+// a secret file, and a document a task still at work declares are not.
+func TestTaskEvidence_ADocumentTheBriefNamesArrives(t *testing.T) {
+	tools.SetSecretPathPatterns(append(config.DefaultSecretPaths(), "private.md"))
+	t.Cleanup(func() { tools.SetSecretPathPatterns(config.DefaultSecretPaths()) })
+	ws := t.TempDir()
+	std := writeEvidenceDoc(t, ws, "Docs/journeys/09-standard.md", markedBody("STD-HEAD", "STD-TAIL", 5))
+	bigBody := markedBody("BIGDOC-HEAD", "BIGDOC-TAIL", 400)
+	big := writeEvidenceDoc(t, ws, "Docs/big.md", bigBody)
+	own := writeEvidenceDoc(t, ws, "Docs/README.md", markedBody("OWN-HEAD", "OWN-TAIL", 2))
+	writeEvidenceDoc(t, ws, "Docs/private.md", markedBody("PRIVATE-HEAD", "PRIVATE-TAIL", 2))
+	draft := writeEvidenceDoc(t, ws, "Docs/draft.md", markedBody("DRAFT-HEAD", "DRAFT-TAIL", 2))
+	c := &Campaign{ID: "/campaign_docs", Phases: []Phase{{ID: "/phase_0", Order: 0, Tasks: []Task{
+		{ID: "/task_drafting", PhaseID: "/phase_0", Type: TaskTypeFileCreate, Status: TaskInProgress, Order: 0, Description: "Draft",
+			Artifacts: []TaskArtifact{{Type: "/source_file", Path: draft}}},
+		{ID: "/task_readme", PhaseID: "/phase_0", Type: TaskTypeFileModify, Status: TaskPending, Order: 1,
+			Description: "Rewrite Docs/README.md per Docs/journeys/09-standard.md; cite Docs/big.md, Docs/private.md and Docs/draft.md",
+			WriteSet:    []string{filepath.ToSlash(filepath.Join(ws, "docs", "readme.md"))}},
+	}}}}
+	o := evidenceOrchestrator(t, ws, c, func(cc *config.CampaignConfig) { cc.UpstreamInlineMaxBytes = len(bigBody) - 1 })
+	section, err := o.taskContextSection(context.Background(), &c.Phases[0].Tasks[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	modes, err := o.askTaskEvidence("/task_readme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{std: evidenceInline, big: evidenceDigest}
+	if len(modes) != len(want) {
+		t.Errorf("task_evidence = %v, want %v", modes, want)
+	}
+	for path, mode := range want {
+		if modes[path] != mode {
+			t.Errorf("task_evidence(%s) = %q, want %q (all: %v)", path, modes[path], mode, modes)
+		}
+	}
+	for _, m := range []string{"STD-HEAD", "STD-TAIL", "BIGDOC-HEAD"} {
+		if !strings.Contains(section, m) {
+			t.Errorf("the brief lacks %s:\n%s", m, section)
+		}
+	}
+	for _, m := range []string{"BIGDOC-TAIL", "OWN-HEAD", "PRIVATE-HEAD", "DRAFT-HEAD"} {
+		if strings.Contains(section, m) {
+			t.Errorf("the brief carries %s:\n%s", m, section)
+		}
+	}
+	_ = own
 }
 
 func TestTaskEvidence_ATaskOutsideTheCampaignHasNone(t *testing.T) {

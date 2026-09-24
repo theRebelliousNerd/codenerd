@@ -31,6 +31,8 @@
 #   task_output_path(Task, Path)
 #       the asked task's own declared output (an artifact or write-set entry
 #       that is the same file): what a task writes is not its evidence
+#   task_brief_file(Task, Path, Ext, Bytes)
+#       an existing, non-secret file the asked task's brief names
 # The facts live on the campaign shard (internal/shards/registration.go), next
 # to campaign_task, task_dependency, task_order and phase_dependency.
 
@@ -156,6 +158,41 @@ task_evidence(TaskID, Path, /handle) :-
     !task_evidence_near(TaskID, Path),
     !task_evidence_needed(TaskID, Path),
     !task_output_path(TaskID, Path).
+
+# -----------------------------------------------------------------------------
+# A workspace document the brief names
+# -----------------------------------------------------------------------------
+# "Read Docs/journeys/09-architecture-doc-standard.md", "trace to agents.md":
+# a brief names documents no task of the campaign produced, and the model's
+# first rounds went to reading them. Go measures every existing, non-secret
+# file the brief names (task_brief_file); a document -- by its extension's
+# write class -- that no task declares is handed over like a needed artifact:
+# whole at most campaign.upstream_inline_max_bytes, digested over it. Its size
+# is the asked task's own measurement, never another task's older one.
+Decl task_brief_file(TaskID, Path, Ext, Bytes) bound [/string, /string, /string, /number].
+Decl declared_artifact(Path) bound [/string].
+Decl brief_document(TaskID, Path, Bytes) bound [/string, /string, /number].
+
+declared_artifact(Path) :-
+    task_artifact_on_disk(Producer, Path, ArtType, Ext, Bytes).
+
+brief_document(TaskID, Path, Bytes) :-
+    task_brief_file(TaskID, Path, Ext, Bytes),
+    write_class(Ext, /doc),
+    Bytes > 0,
+    !declared_artifact(Path).
+
+task_evidence(TaskID, Path, /inline) :-
+    brief_document(TaskID, Path, Bytes),
+    !task_output_path(TaskID, Path),
+    config_param(/campaign_upstream_inline_max_bytes, Max),
+    Bytes <= Max.
+
+task_evidence(TaskID, Path, /digest) :-
+    brief_document(TaskID, Path, Bytes),
+    !task_output_path(TaskID, Path),
+    config_param(/campaign_upstream_inline_max_bytes, Max),
+    Bytes > Max.
 
 # -----------------------------------------------------------------------------
 # A /verify task's report is hollow

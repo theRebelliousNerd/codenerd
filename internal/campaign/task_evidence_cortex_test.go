@@ -73,6 +73,12 @@ func TestTaskEvidence_OnTheProductionKernel(t *testing.T) {
 		onDisk("/task_c0", "pkg/widget/util.go", "/source_file", ".go", 120),
 		{Predicate: "code_outline", Args: []any{"pkg/widget/util.go", types.MangleAtom("/file"), int64(1)}},
 		{Predicate: "task_brief_element", Args: []any{"/task_c1", "pkg/widget.Widget.Render", int64(4), "a416de3a8d2e"}},
+		// A document the brief names that no task produced
+		// (brief_document), and one a task declares.
+		{Predicate: "task_brief_file", Args: []any{"/task_c1", "Docs/standard.md", ".md", int64(700)}},
+		{Predicate: "task_brief_file", Args: []any{"/task_c1", "Docs/spec/a2.md", ".md", int64(900)}},
+		onDisk("/task_cv", "Docs/draft.md", "/doc", ".md", 500),
+		{Predicate: "task_brief_file", Args: []any{"/task_c1", "Docs/draft.md", ".md", int64(500)}},
 	}
 	if err := ck.LoadFacts(measured); err != nil {
 		t.Fatal(err)
@@ -93,11 +99,17 @@ func TestTaskEvidence_OnTheProductionKernel(t *testing.T) {
 		"Docs/spec/a2.md":                   "/inline",
 		".nerd/campaigns/x/artifacts/b1.md": "/digest",
 		".nerd/campaigns/x/artifacts/a1.md": "/handle",
+		"Docs/standard.md":                  "/inline",
 	}
 	for path, mode := range want {
 		if got[path] != mode {
 			t.Errorf("task_evidence(/task_c1, %s) = %q on the Cortex, want %q (all: %v)", path, got[path], mode, got)
 		}
+	}
+	// A document a task still at work declares is not a brief document: the
+	// negation holds only where declared_artifact can derive.
+	if mode, ok := got["Docs/draft.md"]; ok {
+		t.Errorf("an unfinished task's declared document was handed over as %s on the Cortex", mode)
 	}
 
 	hollow, err := ck.Query("verify_report_hollow")

@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
+	"codenerd/internal/tools"
 	toolscore "codenerd/internal/tools/core"
 	"codenerd/internal/types"
 	"codenerd/internal/world"
@@ -112,7 +113,7 @@ func measureArtifacts(tasks []evidenceTask, workspace string) []measuredArtifact
 			seen[key] = true
 			full := resolveWorkspacePath(workspace, a.Path)
 			info, err := os.Stat(full)
-			if err != nil || !info.Mode().IsRegular() {
+			if err != nil || !info.Mode().IsRegular() || tools.IsSecretPath(path) {
 				continue
 			}
 			out = append(out, measuredArtifact{
@@ -213,6 +214,28 @@ func evidenceFacts(asked evidenceTask, arts []measuredArtifact, workspace string
 			own = append(own, core.Fact{Predicate: "task_output_path", Args: []any{asked.id, a.path}})
 		}
 	}
+	// Every existing, non-secret file the brief names, for the documents
+	// among them no task declares (brief_document).
+	for _, p := range briefPaths(brief, workspace) {
+		info, err := os.Stat(resolveWorkspacePath(workspace, p))
+		if err != nil || !info.Mode().IsRegular() || tools.IsSecretPath(p) {
+			continue
+		}
+		named = append(named, core.Fact{
+			Predicate: "task_brief_file",
+			Args:      []any{asked.id, p, strings.ToLower(filepath.Ext(p)), info.Size()},
+		})
+		if ownSeen[p] {
+			continue
+		}
+		for _, out := range outputs {
+			if os.SameFile(out, info) {
+				ownSeen[p] = true
+				own = append(own, core.Fact{Predicate: "task_output_path", Args: []any{asked.id, p}})
+				break
+			}
+		}
+	}
 	return onDisk, named, own
 }
 
@@ -220,7 +243,7 @@ func evidenceFacts(asked evidenceTask, arts []measuredArtifact, workspace string
 // by the asked task.
 var (
 	campaignWideMeasurements = []string{"task_artifact_on_disk", "code_outline"}
-	askedTaskMeasurements    = []string{"task_brief_names", "task_output_path", "task_brief_element"}
+	askedTaskMeasurements    = []string{"task_brief_names", "task_output_path", "task_brief_element", "task_brief_file"}
 )
 
 // assertTaskMeasurements replaces what the kernel holds of the campaign's
@@ -362,7 +385,7 @@ func (o *Orchestrator) taskContextSection(ctx context.Context, task *Task) (stri
 	if err != nil {
 		return "", err
 	}
-	evidence, counts := renderEvidence(evidenceRows(modes, m.tasks, m.arts), m.arts)
+	evidence, counts := renderEvidence(evidenceRows(modes, m.tasks, m.arts), m.arts, m.workspace)
 	logging.Campaign("task %s: upstream evidence %d inline, %d digest, %d handle of %d artifacts on disk (%d bytes)",
 		task.ID, counts[evidenceInline], counts[evidenceDigest], counts[evidenceHandle], len(m.arts), len(evidence))
 	var preload string
@@ -444,7 +467,7 @@ func evidenceRows(modes map[string]string, tasks []evidenceTask, arts []measured
 
 // renderEvidence writes the section. A file that vanished between the
 // measurement and now is named as missing, never silently dropped.
-func renderEvidence(rows []evidenceRow, arts []measuredArtifact) (string, map[string]int) {
+func renderEvidence(rows []evidenceRow, arts []measuredArtifact, workspace string) (string, map[string]int) {
 	counts := map[string]int{}
 	if len(rows) == 0 {
 		return "", counts
@@ -460,7 +483,12 @@ func renderEvidence(rows []evidenceRow, arts []measuredArtifact) (string, map[st
 	sb.WriteString("The following are durable outputs from upstream tasks. Use them as the evidence base for this task; do not claim there are no findings without addressing them.\n")
 	handles := 0
 	for _, r := range rows {
-		data, err := os.ReadFile(fullOf[r.path])
+		full, ok := fullOf[r.path]
+		if !ok {
+			// A document the brief names that no task produced.
+			full = resolveWorkspacePath(workspace, r.path)
+		}
+		data, err := os.ReadFile(full)
 		if err != nil {
 			fmt.Fprintf(&sb, "\n### %s\n_Artifact: %s (missing on disk: %v)_\n", producerIDs(r), r.path, err)
 			continue
@@ -521,7 +549,7 @@ func factArg(f core.Fact, i int) string {
 
 func producerIDs(r evidenceRow) string {
 	if len(r.producers) == 0 {
-		return "(no completed producer)"
+		return "named in this task's brief"
 	}
 	ids := make([]string, 0, len(r.producers))
 	for _, p := range r.producers {
