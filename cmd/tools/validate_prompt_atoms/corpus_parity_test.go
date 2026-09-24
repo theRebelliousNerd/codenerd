@@ -65,8 +65,12 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 	// reducer reference teaching fn:CountDistinct and fn:CollectToMap, which the
 	// pinned engine does not have; plus capability/structure_queries
 	// (2026-09-21), which teaches the five structural query tools over the
-	// world model's structure index and says raw search opens only after them.
-	const wantDigest = "2ef64702caa8b82df3da1e589255366d49b7254fe34534750a9031fb8461e71c"
+	// world model's structure index and says raw search opens only after them;
+	// minus campaign/taxonomist/{output_protocol,reasoning_trace} (ca21c7e5,
+	// the planner is not told to answer in a Piggyback envelope); plus
+	// eval/delegation_judge/{implementation,review} (6cf5b177, the delegation
+	// judge's prompt compiled from atoms). The count held; the order did not.
+	const wantDigest = "73445b874f3a90a3efadc6b21f52403a62fe0defd9b2193bcfceebd4f6c4bf1b"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}
