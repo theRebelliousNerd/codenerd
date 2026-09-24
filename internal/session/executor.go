@@ -1017,6 +1017,12 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		}
 		compilationCtx.SemanticQuery = query
 	}
+	// The turn's tool catalog: the persona's envelope minus what the kernel
+	// withholds for this turn (turn_catalog.go, policy/jit_tools.mg). Decided
+	// once, before the compile, so the atoms that teach a tool and the tool
+	// loop's catalog agree, and held for the turn.
+	turnWithheld := e.turnWithheldTools(compilationCtx.Language, input)
+	compilationCtx.AvailableTools = withoutTools(compilationCtx.AvailableTools, turnWithheld)
 
 	// 3. JIT: Compile prompt with persona, skills, context
 	var compileResult *prompt.CompilationResult
@@ -1069,6 +1075,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		// Continue with empty config - LLM can still respond
 		EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{}
 	} else {
+		EffectiveAgentRuntimeConfig = configWithoutTools(EffectiveAgentRuntimeConfig, turnWithheld)
 		logging.Session("Config compiled: %d tools allowed", len(EffectiveAgentRuntimeConfig.AllowedTools))
 	}
 
