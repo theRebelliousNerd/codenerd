@@ -162,7 +162,10 @@ func readJournalEvents(path, campaignID string) ([]campaignJournalEvent, []Journ
 			})
 			break
 		}
-		if campaignID != "" && ev.CampaignID != campaignID {
+		// The event carries the campaign's atom ("/campaign_x"); the caller
+		// names it by its file stem or a trimmed flag ("campaign_x"). Both
+		// are one campaign when their filesystem identities agree.
+		if campaignID != "" && sanitizeCampaignID(ev.CampaignID) != sanitizeCampaignID(campaignID) {
 			problems = append(problems, JournalProblem{
 				Line: lineNo, Seq: ev.Seq, Kind: "wrong_campaign",
 				Detail: fmt.Sprintf("event belongs to %s, not %s", ev.CampaignID, campaignID),

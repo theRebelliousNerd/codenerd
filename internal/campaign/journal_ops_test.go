@@ -51,7 +51,7 @@ func journalOpsCampaign(id string) *Campaign {
 func TestVerifyCampaignJournal_WhenIntact_ShouldReportHealthy(t *testing.T) {
 	ws := t.TempDir()
 	orch := journalOpsOrchestrator(t, ws)
-	c := journalOpsCampaign("campaign_journal_ok")
+	c := journalOpsCampaign("/campaign_journal_ok")
 
 	if err := orch.SetCampaign(c); err != nil {
 		t.Fatalf("SetCampaign: %v", err)
@@ -82,6 +82,56 @@ func TestVerifyCampaignJournal_WhenIntact_ShouldReportHealthy(t *testing.T) {
 	}
 }
 
+// The operator names a campaign the way the CLI can: the journal's file stem
+// (`nerd campaign journal verify` with no flag) or the --campaign flag with its
+// slash trimmed. The events carry the campaign's atom, "/campaign_x", and the
+// verifier compared the two spellings verbatim, so every real journal failed
+// at line 1 with wrong_campaign and "0 valid events" (measured on campaign
+// 7b853890, 2026-09-24). The fixtures used slash-less IDs no campaign has,
+// which is why no test saw it. A journal from another campaign still fails.
+func TestVerifyCampaignJournal_AcceptsTheIDsTheOperatorCanType(t *testing.T) {
+	ws := t.TempDir()
+	orch := journalOpsOrchestrator(t, ws)
+	c := journalOpsCampaign("/campaign_journal_named")
+	if err := orch.SetCampaign(c); err != nil {
+		t.Fatalf("SetCampaign: %v", err)
+	}
+
+	ids, err := ListCampaignJournals(ws)
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("ListCampaignJournals = %v, %v; want the one journal", ids, err)
+	}
+	for _, id := range []string{ids[0], "campaign_journal_named", c.ID} {
+		v, err := VerifyCampaignJournal(ws, id)
+		if err != nil {
+			t.Fatalf("VerifyCampaignJournal(%q): %v", id, err)
+		}
+		if !v.Healthy || v.ValidEvents == 0 || !v.SnapshotMatches {
+			t.Errorf("VerifyCampaignJournal(%q) on an intact journal:\n%s", id, RenderJournalVerification(v))
+		}
+		replay, err := ReplayCampaignJournal(ws, id, 0)
+		if err != nil || replay.FinalState == nil {
+			t.Errorf("ReplayCampaignJournal(%q) = %+v, %v; want the journal's history", id, replay, err)
+		}
+	}
+
+	// Another campaign's journal under this campaign's name is still refused.
+	data, err := os.ReadFile(campaignJournalPath(ws, c.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(campaignJournalPath(ws, "campaign_journal_other"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v, err := VerifyCampaignJournal(ws, "campaign_journal_other")
+	if err != nil {
+		t.Fatalf("VerifyCampaignJournal(other): %v", err)
+	}
+	if v.Healthy || len(v.Problems) == 0 || v.Problems[0].Kind != "wrong_campaign" {
+		t.Errorf("a journal whose events belong to %s verified as another campaign:\n%s", c.ID, RenderJournalVerification(v))
+	}
+}
+
 // Chaos: the process dies between the verified temp write and the rename.
 //
 // This is the one moment where the snapshot protocol can leave inconsistent
@@ -92,7 +142,7 @@ func TestVerifyCampaignJournal_WhenIntact_ShouldReportHealthy(t *testing.T) {
 func TestSaveCampaign_WhenKilledDuringSnapshotRename_ShouldLeavePreviousSnapshotIntact(t *testing.T) {
 	ws := t.TempDir()
 	orch := journalOpsOrchestrator(t, ws)
-	c := journalOpsCampaign("campaign_journal_crash")
+	c := journalOpsCampaign("/campaign_journal_crash")
 
 	if err := orch.SetCampaign(c); err != nil {
 		t.Fatalf("SetCampaign: %v", err)
@@ -171,7 +221,7 @@ func TestSaveCampaign_WhenKilledDuringSnapshotRename_ShouldLeavePreviousSnapshot
 func TestVerifyCampaignJournal_WhenTailCorrupt_ShouldReportChecksumMismatch(t *testing.T) {
 	ws := t.TempDir()
 	orch := journalOpsOrchestrator(t, ws)
-	c := journalOpsCampaign("campaign_journal_corrupt")
+	c := journalOpsCampaign("/campaign_journal_corrupt")
 	if err := orch.SetCampaign(c); err != nil {
 		t.Fatalf("SetCampaign: %v", err)
 	}
@@ -229,7 +279,7 @@ func TestListCampaignJournals_ShouldFindWrittenCampaigns(t *testing.T) {
 func TestVerifyCampaignJournal_WhenSnapshotEditedOutsideOrchestrator_ShouldReportMismatch(t *testing.T) {
 	ws := t.TempDir()
 	orch := journalOpsOrchestrator(t, ws)
-	c := journalOpsCampaign("campaign_journal_edited")
+	c := journalOpsCampaign("/campaign_journal_edited")
 	if err := orch.SetCampaign(c); err != nil {
 		t.Fatalf("SetCampaign: %v", err)
 	}
