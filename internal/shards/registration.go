@@ -279,6 +279,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"task_brief_names",
 				"task_output_path",
 				"task_brief_file",
+				"artifact_cites",
 				// And for task_preload (policy/campaign_preload.mg).
 				"code_outline",
 				"task_brief_element",

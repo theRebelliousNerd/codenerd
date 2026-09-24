@@ -246,6 +246,54 @@ func TestTaskEvidence_ADocumentTheBriefNamesArrives(t *testing.T) {
 	_ = own
 }
 
+// A finding about the code a task changes is needed by it, however far back it
+// was written: an artifact that cites a file the task writes -- or a file in a
+// package directory it writes -- arrives whole, where position alone would
+// have made it a handle.
+func TestTaskEvidence_AnArtifactCitingTheTasksTargetIsNeeded(t *testing.T) {
+	ws := t.TempDir()
+	writeEvidenceDoc(t, ws, "pkg/widget/widget.go", widgetSource)
+	writeEvidenceDoc(t, ws, "pkg/other/other.go", "package other\n")
+	about := writeEvidenceDoc(t, ws, ".nerd/campaigns/cite/artifacts/a1.md", "# CITES-HEAD\n\n[HIGH] pkg/widget/widget.go:11: the name is not escaped\nCITES-TAIL\n")
+	elsewhere := writeEvidenceDoc(t, ws, ".nerd/campaigns/cite/artifacts/a2.md", "# OTHER-HEAD\n\npkg/other/other.go:1 is fine\nOTHER-TAIL\n")
+	near := writeEvidenceDoc(t, ws, ".nerd/campaigns/cite/artifacts/b1.md", markedBody("NEAR-HEAD", "NEAR-TAIL", 20))
+	c := &Campaign{ID: "/campaign_cite", Phases: []Phase{
+		{ID: "/phase_a", Order: 0, Status: PhaseCompleted, Tasks: []Task{
+			{ID: "/task_a1", PhaseID: "/phase_a", Type: TaskTypeResearch, Status: TaskCompleted, Order: 0, Description: "Audit markup", Artifacts: []TaskArtifact{{Type: "/doc", Path: about}}},
+			{ID: "/task_a2", PhaseID: "/phase_a", Type: TaskTypeResearch, Status: TaskCompleted, Order: 1, Description: "Audit other", Artifacts: []TaskArtifact{{Type: "/doc", Path: elsewhere}}},
+		}},
+		{ID: "/phase_b", Order: 1, Status: PhaseCompleted, Dependencies: []PhaseDependency{{DependsOnPhaseID: "/phase_a", Type: DepHard}}, Tasks: []Task{
+			{ID: "/task_b1", PhaseID: "/phase_b", Type: TaskTypeResearch, Status: TaskCompleted, Order: 0, Description: "Plan", Artifacts: []TaskArtifact{{Type: "/doc", Path: near}}},
+		}},
+		{ID: "/phase_c", Order: 2, Dependencies: []PhaseDependency{{DependsOnPhaseID: "/phase_b", Type: DepHard}}, Tasks: []Task{
+			{ID: "/task_file", PhaseID: "/phase_c", Type: TaskTypeFileModify, Status: TaskPending, Order: 0, Description: "Escape the markup",
+				WriteSet: []string{filepath.ToSlash(filepath.Join(ws, "pkg", "widget", "widget.go"))}},
+			{ID: "/task_pkg", PhaseID: "/phase_c", Type: TaskTypeRefactor, Status: TaskPending, Order: 1, Description: "Tidy the package",
+				WriteSet: []string{filepath.ToSlash(filepath.Join(ws, "pkg", "widget"))}},
+		}},
+	}}
+	o := evidenceOrchestrator(t, ws, c, nil)
+	for _, task := range []*Task{&c.Phases[2].Tasks[0], &c.Phases[2].Tasks[1]} {
+		section, err := o.taskContextSection(context.Background(), task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		modes, err := o.askTaskEvidence(task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]string{about: evidenceInline, elsewhere: evidenceHandle, near: evidenceDigest}
+		for path, mode := range want {
+			if modes[path] != mode {
+				t.Errorf("%s: task_evidence(%s) = %q, want %q (all: %v)", task.ID, path, modes[path], mode, modes)
+			}
+		}
+		if !strings.Contains(section, "CITES-TAIL") {
+			t.Errorf("%s: the finding about its target is not whole in the brief:\n%s", task.ID, section)
+		}
+	}
+}
+
 func TestTaskEvidence_ATaskOutsideTheCampaignHasNone(t *testing.T) {
 	ws := t.TempDir()
 	c := &Campaign{ID: "/campaign_solo", Phases: []Phase{{ID: "/phase_0", Order: 0, Tasks: []Task{

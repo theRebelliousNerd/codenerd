@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -163,15 +164,16 @@ func briefNames(brief, path string) bool {
 }
 
 // outputFiles stats the asked task's declared outputs -- its artifacts and its
-// write set -- so a measured artifact that is the same file is known to be the
-// task's own output, whatever spelling the plan used for it.
+// write set, files or package directories -- so a measured artifact, or a path
+// an artifact cites, that is the same file is known to be the task's own
+// output, whatever spelling the plan or the artifact used for it.
 func outputFiles(t evidenceTask, workspace string) []os.FileInfo {
 	var out []os.FileInfo
 	add := func(p string) {
 		if strings.TrimSpace(p) == "" || containsGlobMeta(p) {
 			return
 		}
-		if info, err := os.Stat(resolveWorkspacePath(workspace, p)); err == nil && info.Mode().IsRegular() {
+		if info, err := os.Stat(resolveWorkspacePath(workspace, p)); err == nil {
 			out = append(out, info)
 		}
 	}
@@ -239,10 +241,80 @@ func evidenceFacts(asked evidenceTask, arts []measuredArtifact, workspace string
 	return onDisk, named, own
 }
 
+// citeCacheEntry is one artifact's citations as last read, valid while the
+// file keeps that size and modification time.
+type citeCacheEntry struct {
+	size  int64
+	mod   time.Time
+	cited []string
+}
+
+// artifactCitations are the existing workspace paths an artifact's text names
+// -- each cited file and its directory -- read once per version of the file.
+// The caller holds evidenceMu, which guards the cache.
+func (o *Orchestrator) artifactCitations(a measuredArtifact, workspace string) []string {
+	if e, ok := o.citeCache[a.full]; ok && e.size == a.bytes && e.mod.Equal(a.info.ModTime()) {
+		return e.cited
+	}
+	data, err := os.ReadFile(a.full)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var cited []string
+	add := func(p string) {
+		if p != "" && p != "." && !seen[p] {
+			seen[p] = true
+			cited = append(cited, p)
+		}
+	}
+	for _, p := range briefPaths(string(data), workspace) {
+		add(p)
+		if info, err := os.Stat(resolveWorkspacePath(workspace, p)); err == nil && !info.IsDir() {
+			add(filepath.ToSlash(filepath.Dir(filepath.FromSlash(p))))
+		}
+	}
+	if o.citeCache == nil {
+		o.citeCache = map[string]citeCacheEntry{}
+	}
+	o.citeCache[a.full] = citeCacheEntry{size: a.bytes, mod: a.info.ModTime(), cited: cited}
+	return cited
+}
+
+// citationFacts are what the campaign's artifacts cite (artifact_cites), and
+// which of the cited paths are the asked task's own outputs, under the
+// spelling the artifact used (task_output_path).
+func (o *Orchestrator) citationFacts(asked evidenceTask, arts []measuredArtifact, workspace string) []core.Fact {
+	outputs := outputFiles(asked, workspace)
+	var facts []core.Fact
+	mine := map[string]bool{}
+	for _, a := range arts {
+		for _, c := range o.artifactCitations(a, workspace) {
+			facts = append(facts, core.Fact{Predicate: "artifact_cites", Args: []any{a.path, c}})
+			if _, known := mine[c]; known || len(outputs) == 0 {
+				continue
+			}
+			mine[c] = false
+			info, err := os.Stat(resolveWorkspacePath(workspace, c))
+			if err != nil {
+				continue
+			}
+			for _, out := range outputs {
+				if os.SameFile(out, info) {
+					mine[c] = true
+					facts = append(facts, core.Fact{Predicate: "task_output_path", Args: []any{asked.id, c}})
+					break
+				}
+			}
+		}
+	}
+	return facts
+}
+
 // Measured facts replaced wholesale on every measurement, and the ones keyed
 // by the asked task.
 var (
-	campaignWideMeasurements = []string{"task_artifact_on_disk", "code_outline"}
+	campaignWideMeasurements = []string{"task_artifact_on_disk", "code_outline", "artifact_cites"}
 	askedTaskMeasurements    = []string{"task_brief_names", "task_output_path", "task_brief_element", "task_brief_file"}
 )
 
@@ -330,6 +402,7 @@ func (o *Orchestrator) measureTaskContext(ctx context.Context, task *Task, withP
 	m := &taskMeasure{tasks: tasks, arts: measureArtifacts(tasks, workspace), workspace: workspace}
 	onDisk, named, own := evidenceFacts(*asked, m.arts, workspace)
 	facts := append(append(append([]core.Fact(nil), onDisk...), named...), own...)
+	facts = append(facts, o.citationFacts(*asked, m.arts, workspace)...)
 	if withPreload && workspace != "" {
 		pm, err := measurePreload(ctx, world.SharedStructureIndex(workspace), *asked, m.arts, workspace)
 		if err != nil {

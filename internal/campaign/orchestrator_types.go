@@ -76,6 +76,9 @@ type Orchestrator struct {
 	// reads it (task_evidence.go): tasks running in parallel must not ask
 	// between another task's retraction and assertion of the same rows.
 	evidenceMu sync.Mutex
+	// citeCache holds each artifact's citations by file version (guarded by
+	// evidenceMu).
+	citeCache map[string]citeCacheEntry
 
 	// Task result storage for context injection between tasks
 	taskResults map[string]string

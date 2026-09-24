@@ -78,6 +78,9 @@ func TestTaskEvidence_OnTheProductionKernel(t *testing.T) {
 		{Predicate: "task_brief_file", Args: []any{"/task_c1", "Docs/standard.md", ".md", int64(700)}},
 		{Predicate: "task_brief_file", Args: []any{"/task_c1", "Docs/spec/a2.md", ".md", int64(900)}},
 		onDisk("/task_cv", "Docs/draft.md", "/doc", ".md", 500),
+		// A far artifact that cites the task's target (artifact_cites).
+		onDisk("/task_a1", ".nerd/campaigns/x/artifacts/a3.md", "/doc", ".md", 400),
+		{Predicate: "artifact_cites", Args: []any{".nerd/campaigns/x/artifacts/a3.md", "pkg/widget/widget.go"}},
 		{Predicate: "task_brief_file", Args: []any{"/task_c1", "Docs/draft.md", ".md", int64(500)}},
 	}
 	if err := ck.LoadFacts(measured); err != nil {
@@ -99,6 +102,7 @@ func TestTaskEvidence_OnTheProductionKernel(t *testing.T) {
 		"Docs/spec/a2.md":                   "/inline",
 		".nerd/campaigns/x/artifacts/b1.md": "/digest",
 		".nerd/campaigns/x/artifacts/a1.md": "/handle",
+		".nerd/campaigns/x/artifacts/a3.md": "/inline",
 		"Docs/standard.md":                  "/inline",
 	}
 	for path, mode := range want {

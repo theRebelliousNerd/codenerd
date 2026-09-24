@@ -6,8 +6,8 @@
 #   task_evidence(Task, Path, /inline | /digest | /handle)
 #
 #   /inline  the whole artifact, never cut: the task depends on it (a declared
-#            dependency edge) or its brief names it, and it is at most
-#            campaign.upstream_inline_max_bytes
+#            dependency edge), its brief names it, or it cites a file the task
+#            writes, and it is at most campaign.upstream_inline_max_bytes
 #   /digest  the artifact's outline, findings and citations with a recall
 #            handle for the rest: a needed artifact over that size, or one the
 #            task sits next to (an earlier task of its phase, or a phase its
@@ -33,6 +33,8 @@
 #       that is the same file): what a task writes is not its evidence
 #   task_brief_file(Task, Path, Ext, Bytes)
 #       an existing, non-secret file the asked task's brief names
+#   artifact_cites(Path, Cited)
+#       an existing workspace file or directory an artifact's text names
 # The facts live on the campaign shard (internal/shards/registration.go), next
 # to campaign_task, task_dependency, task_order and phase_dependency.
 
@@ -96,6 +98,20 @@ task_evidence_needed(TaskID, Path) :-
 
 task_evidence_needed(TaskID, Path) :-
     task_brief_names(TaskID, Path),
+    evidence_artifact(Producer, Path, Bytes),
+    Producer != TaskID.
+
+# ...or it is about the task's target: it cites a file (or the directory of a
+# file) the task writes. A finding at internal/world/world.go:88 is what the
+# task that changes world.go has to answer, however many phases back it was
+# written. Go measures artifact_cites(Path, Cited) -- the existing workspace
+# paths an artifact's text names -- and asserts task_output_path under the
+# spelling the artifact used when the cited path is the task's own output.
+Decl artifact_cites(Path, Cited) bound [/string, /string].
+
+task_evidence_needed(TaskID, Path) :-
+    task_output_path(TaskID, Cited),
+    artifact_cites(Path, Cited),
     evidence_artifact(Producer, Path, Bytes),
     Producer != TaskID.
 
