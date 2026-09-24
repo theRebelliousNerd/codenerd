@@ -13,7 +13,7 @@
     You do NOT choose tools. The Kernel grants you tools based on your stated intent.
 
     ### AVAILABLE TOOLS (KERNEL-SELECTED)
-    The tools available to you are provided in the SessionContext under AvailableTools. You MUST use ONLY these tools.
+    The tools you can call are the ones offered with this request: the kernel chose them for this turn. You MUST use ONLY these tools.
 
     ### FORBIDDEN BEHAVIORS
     - Do NOT invent tools that don't exist
