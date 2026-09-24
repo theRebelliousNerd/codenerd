@@ -230,11 +230,15 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 		currentLimit := o.determineConcurrencyLimit(active, phase)
 		logging.CampaignDebug("Concurrency: active=%d, limit=%d", len(active), currentLimit)
 
-		// Schedule eligible tasks up to the concurrency limit
-		if len(active) < currentLimit {
+		// Schedule eligible tasks up to the concurrency limit. waitingForSlot
+		// records eligible work the limit holds back: the limit follows spawn
+		// backpressure, so it can rise without any task finishing.
+		waitingForSlot := len(active) >= currentLimit
+		if !waitingForSlot {
 			runnable = o.getEligibleTasks(phase)
 			for _, task := range runnable {
 				if len(active) >= currentLimit {
+					waitingForSlot = true
 					break
 				}
 				if active[task.ID] || task.Status != TaskPending {
@@ -279,16 +283,45 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 			}
 		}
 
-		// Wait for activity (completion or new eligibility)
+		// Wait for activity: a result, or whatever else can change what runs.
 		select {
 		case <-ctx.Done():
 			drainActive()
 			return ctx.Err()
 		case res := <-results:
 			delete(active, res.taskID)
-		case <-time.After(200 * time.Millisecond):
+		case <-o.eligibilityWake(phase, len(active) > 0 && !waitingForSlot):
 		}
 	}
+}
+
+// eligibilityWake is when the task loop looks again without a result. A quiet
+// loop -- tasks running, none eligible left waiting for a slot -- has nothing
+// a timer can change except a withheld task's retry coming due (a failure's
+// backoff and a write-set lock timeout both set NextRetryAt), so it wakes then,
+// or never (a nil channel) and waits for a result. Any other state polls.
+//
+// Until 2026-09-24 every state polled at 200 ms: while one task ran and the
+// rest waited on it, the loop queried eligible_task and wrote two debug lines
+// five times a second (campaign 7b853890: most of campaign.log's 7,861 lines).
+func (o *Orchestrator) eligibilityWake(phase *Phase, quiet bool) <-chan time.Time {
+	if !quiet {
+		return time.After(200 * time.Millisecond)
+	}
+	now := time.Now()
+	var next time.Time
+	o.mu.RLock()
+	for i := range phase.Tasks {
+		t := &phase.Tasks[i]
+		if t.Status == TaskPending && t.NextRetryAt.After(now) && (next.IsZero() || t.NextRetryAt.Before(next)) {
+			next = t.NextRetryAt
+		}
+	}
+	o.mu.RUnlock()
+	if next.IsZero() {
+		return nil
+	}
+	return time.After(next.Sub(now))
 }
 
 // triggerRollingWave refreshes downstream plans after a phase completes.
