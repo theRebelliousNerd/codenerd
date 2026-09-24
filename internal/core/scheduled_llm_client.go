@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -287,12 +289,7 @@ func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, 
 	// LLM I/O tracing: log the request, including a summary of the tools
 	// offered to the model.
 	model := c.GetModel()
-	toolNames := make([]string, 0, len(tools))
-	for _, t := range tools {
-		toolNames = append(toolNames, t.Name)
-	}
-	toolsNote := fmt.Sprintf("[TOOLS, count=%d, names=%v]", len(tools), toolNames)
-	logging.LogLLMRequest(c.ShardID+"-tools", systemPrompt, userPrompt+"\n"+toolsNote, nil, model, 0)
+	logging.LogLLMRequest(c.ShardID+"-tools", systemPrompt, userPrompt+"\n"+traceToolCatalog(tools), nil, model, 0)
 
 	// Make the actual LLM call with panic recovery
 	var resp *types.LLMToolResponse
@@ -357,7 +354,7 @@ func (c *ScheduledLLMCall) CompleteWithToolResults(ctx context.Context, systemPr
 	// orchestrator's steering reached it, could not be read back from the
 	// trace of a stalled run.
 	logging.LogLLMRequest(c.ShardID+"-tool-results", systemPrompt,
-		fmt.Sprintf("[TOOL_RESULTS history_turns=%d tools=%d]", len(history), len(tools)), traceMessages(history), model, 0)
+		fmt.Sprintf("[TOOL_RESULTS history_turns=%d]\n%s", len(history), traceToolCatalog(tools)), traceMessages(history), model, 0)
 
 	var resp *types.LLMToolResponse
 	var err error
@@ -1037,31 +1034,60 @@ func (c *ScheduledLLMCall) GroundedWebSearch(ctx context.Context, query string) 
 	return result, callErr
 }
 
-// traceMessages renders a tool-loop transcript for the LLM I/O trace: each
-// message's text, then its tool calls with their arguments, then its tool
-// results whole. Whole, because the orchestrator's steering is appended to
-// the end of a round's last result, and a trace that cut results short is
-// exactly the trace that could not show whether the model was ever told.
+// traceToolCatalog renders the tool schemas a request offers, whole, for the
+// LLM I/O trace. The catalog is ~10% of a tool-loop request and is first on
+// the wire; the trace used to log only a count (or the names), so the context
+// a model was given could not be read back from it and had to be
+// reconstructed from broker estimates (context sweep 2026-09-22, CTX-B5). The
+// catalog id is a digest of the schemas: equal ids, equal catalogs.
+func traceToolCatalog(tools []types.ToolDefinition) string {
+	schemas, err := json.Marshal(tools)
+	if err != nil {
+		return fmt.Sprintf("[TOOLS count=%d, schemas unencodable: %v]", len(tools), err)
+	}
+	sum := sha256.Sum256(schemas)
+	return fmt.Sprintf("[TOOLS count=%d catalog=%s]\n%s", len(tools), hex.EncodeToString(sum[:8]), schemas)
+}
+
+// traceMessages renders a tool-loop transcript for the LLM I/O trace, block by
+// block in the order the provider receives them: a turn's replayed reasoning,
+// its text, its tool calls with their arguments, its tool results whole.
+// Whole, because the orchestrator's steering is appended to the end of a
+// round's last result, and a trace that cut results short is exactly the trace
+// that could not show whether the model was ever told. The reasoning is
+// replayed on every round (encrypted on the Meta Responses surface, where the
+// signature is all there is), and it was left out, so ~3% of every request was
+// invisible in the trace.
 func traceMessages(history []types.Message) []logging.LLMMessage {
 	out := make([]logging.LLMMessage, 0, len(history))
 	for _, m := range history {
 		var sb strings.Builder
-		sb.WriteString(m.Text)
-		for _, call := range m.ToolCalls {
-			args, err := json.Marshal(call.Input)
-			if err != nil {
-				args = []byte(fmt.Sprintf("%v", call.Input))
-			}
+		for _, b := range m.Content() {
 			if sb.Len() > 0 {
 				sb.WriteString("\n")
 			}
-			fmt.Fprintf(&sb, "[tool_use id=%s name=%s] %s", call.ID, call.Name, args)
-		}
-		for _, r := range m.ToolResults {
-			if sb.Len() > 0 {
-				sb.WriteString("\n")
+			switch b.Kind {
+			case types.BlockThinking:
+				fmt.Fprintf(&sb, "[reasoning id=%s redacted=%t tokens=%d signature_chars=%d]", b.ID, b.Redacted, b.Tokens, len(b.Signature))
+				if b.Text != "" {
+					sb.WriteString("\n")
+					sb.WriteString(b.Text)
+				}
+				if b.Signature != "" {
+					sb.WriteString("\n[signature] ")
+					sb.WriteString(b.Signature)
+				}
+			case types.BlockToolUse:
+				args, err := json.Marshal(b.Input)
+				if err != nil {
+					args = []byte(fmt.Sprintf("%v", b.Input))
+				}
+				fmt.Fprintf(&sb, "[tool_use id=%s name=%s] %s", b.ID, b.Name, args)
+			case types.BlockToolResult:
+				fmt.Fprintf(&sb, "[tool_result id=%s error=%t]\n%s", b.ToolUseID, b.IsError, b.Text)
+			default:
+				sb.WriteString(b.Text)
 			}
-			fmt.Fprintf(&sb, "[tool_result id=%s error=%t]\n%s", r.ToolUseID, r.IsError, r.Content)
 		}
 		out = append(out, logging.LLMMessage{Role: m.Role, Content: sb.String()})
 	}
