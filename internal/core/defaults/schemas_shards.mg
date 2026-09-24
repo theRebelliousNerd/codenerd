@@ -40,7 +40,8 @@ Decl should_delegate(ShardType) bound [/name].
 # -----------------------------------------------------------------------------
 
 # route_decision(Route, ShardType) - derived: the single routing outcome for
-# the current turn. Route: /respond_directly, /clarify, /multi_step, /delegate.
+# the current turn. Route: /perception_answer, /dream, /assault,
+# /respond_directly, /clarify, /multi_step, /delegate.
 # ShardType carries the target shard for /delegate and is /none otherwise.
 Decl route_decision(Route, ShardType) bound [/name, /name].
 
@@ -105,12 +106,14 @@ Decl conversational_verb(Verb) bound [/name].
 # the request is phrased as a question ("can you review my code?").
 Decl workhorse_verb(Verb) bound [/name].
 
-# The early lanes (routing_arbitration.mg): perception already answered, or a
-# hypothetical to consult on. Both exclude every later lane.
+# The early lanes (routing_arbitration.mg): perception already answered, a
+# hypothetical to consult on, or an adversarial campaign on the workspace.
+# Each excludes every later lane.
 Decl perception_answer_verb(Verb) bound [/name].
 Decl perception_answer_target(Verb, Target) bound [/name, /string].
 Decl perception_answer_lane() bound [].
 Decl dream_lane() bound [].
+Decl assault_lane() bound [].
 Decl early_lane() bound [].
 
 # The clarify lane: needs_clarification says why a turn must ask first

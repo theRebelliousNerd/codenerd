@@ -323,11 +323,13 @@ func (m Model) processInput(input string) tea.Cmd {
 			return m.handleDreamState(ctx, intent, input)
 		}
 
-		// 1.3.3 ASSAULT CAMPAIGN: Auto-start adversarial assault campaigns from natural language.
-		// Example: "run an assault campaign on internal/core"
-		if args, ok := assaultArgsFromNaturalLanguage(m.workspace, input, intent); ok {
+		// 1.3.3 ASSAULT CAMPAIGN: the kernel derived the /assault lane -- an
+		// adversarial campaign on the workspace. Its scope, includes and flags
+		// are read from the request ("run an assault on package internal/core
+		// with -race").
+		if route.Kind == RouteAssault {
 			m.ReportStatus("Assault: starting campaign...")
-			cmd := m.startAssaultCampaign(args)
+			cmd := m.startAssaultCampaign(assaultArgs(m.workspace, input, intent))
 			return cmd()
 		}
 

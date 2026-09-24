@@ -707,39 +707,6 @@ func TestHardWrap(t *testing.T) {
 // campaign_assault.go helper tests
 // ============================================================================
 
-func TestIsAssaultRequest_WithIntent(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		intent   perception.Intent
-		expected bool
-	}{
-		// /assault verb always returns true
-		{"assault verb", "anything", perception.Intent{Verb: "/assault"}, true},
-		{"assault with target", "internal/core", perception.Intent{Verb: "/assault"}, true},
-
-		// /campaign verb requires assault keywords in input
-		{"campaign with assault keyword", "run assault on core", perception.Intent{Verb: "/campaign"}, true},
-		{"campaign with stress test", "stress test the kernel", perception.Intent{Verb: "/campaign"}, true},
-		{"campaign with soak test", "soak test for memory", perception.Intent{Verb: "/campaign"}, true},
-		{"campaign with gauntlet", "run gauntlet tests", perception.Intent{Verb: "/campaign"}, true},
-		{"campaign without keywords", "review my code", perception.Intent{Verb: "/campaign"}, false},
-
-		// Other verbs return false
-		{"review verb", "review my code", perception.Intent{Verb: "/review"}, false},
-		{"empty verb", "stress test", perception.Intent{}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isAssaultRequest(tt.input, tt.intent)
-			if result != tt.expected {
-				t.Errorf("isAssaultRequest(%q, %v) = %v, want %v", tt.input, tt.intent.Verb, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestNormalizeAssaultInclude_WithWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 	tests := []struct {
@@ -800,7 +767,7 @@ func TestIsGenericAssaultTarget(t *testing.T) {
 	}
 }
 
-func TestAssaultArgsFromNaturalLanguage_WithWorkspace(t *testing.T) {
+func TestAssaultArgs_WithWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 	tests := []struct {
 		name  string
@@ -813,11 +780,9 @@ func TestAssaultArgsFromNaturalLanguage_WithWorkspace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, ok := assaultArgsFromNaturalLanguage(workspace, tt.input, perception.Intent{})
-			// Verify it returns valid args
-			if !ok && len(result) == 0 {
+			if result := assaultArgs(workspace, tt.input, perception.Intent{}); len(result) == 0 {
 				// This is acceptable - some inputs may not parse to valid args
-				t.Logf("assaultArgsFromNaturalLanguage returned empty args for %q", tt.input)
+				t.Logf("assaultArgs returned empty args for %q", tt.input)
 			}
 		})
 	}

@@ -32,6 +32,9 @@ const (
 	RoutePerceptionAnswer
 	// RouteDream consults the shards on a hypothetical and executes nothing.
 	RouteDream
+	// RouteAssault starts an adversarial campaign on the workspace
+	// (/campaign assault).
+	RouteAssault
 	// RouteRespondDirectly terminates the turn in prose: no clarifier shards,
 	// no decomposition, no delegation, no autopoiesis analysis.
 	RouteRespondDirectly
@@ -51,6 +54,8 @@ func (k RouteKind) String() string {
 		return "perception_answer"
 	case RouteDream:
 		return "dream"
+	case RouteAssault:
+		return "assault"
 	case RouteRespondDirectly:
 		return "respond_directly"
 	case RouteClarify:
@@ -205,6 +210,8 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 		decision = RouteDecision{Kind: RoutePerceptionAnswer}
 	case "/dream":
 		decision = RouteDecision{Kind: RouteDream}
+	case "/assault":
+		decision = RouteDecision{Kind: RouteAssault}
 	case "/respond_directly":
 		decision = RouteDecision{Kind: RouteRespondDirectly}
 	case "/multi_step":

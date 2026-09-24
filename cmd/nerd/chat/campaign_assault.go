@@ -251,27 +251,10 @@ func splitCSV(s string) []string {
 	return out
 }
 
-func isAssaultRequest(input string, intent perception.Intent) bool {
-	if intent.Verb == "/assault" {
-		return true
-	}
-	if intent.Verb == "/campaign" {
-		lower := strings.ToLower(input)
-		return strings.Contains(lower, "assault") ||
-			strings.Contains(lower, "soak test") ||
-			strings.Contains(lower, "stress test") ||
-			strings.Contains(lower, "torture test") ||
-			strings.Contains(lower, "gauntlet") ||
-			strings.Contains(lower, "adversarial")
-	}
-	return false
-}
-
-func assaultArgsFromNaturalLanguage(workspace, input string, intent perception.Intent) ([]string, bool) {
-	if !isAssaultRequest(input, intent) {
-		return nil, false
-	}
-
+// assaultArgs reads an assault campaign's arguments -- scope, includes and
+// flags -- from the request. Whether the turn is an assault is the kernel's
+// (route_decision(/assault, _), routing_arbitration.mg), not this function's.
+func assaultArgs(workspace, input string, intent perception.Intent) []string {
 	lower := strings.ToLower(input)
 	args := make([]string, 0, 8)
 
@@ -300,7 +283,7 @@ func assaultArgsFromNaturalLanguage(workspace, input string, intent perception.I
 		args = append(args, "--no-nemesis")
 	}
 
-	return args, true
+	return args
 }
 
 func assaultIncludesFromText(workspace, input string, intent perception.Intent) []string {

@@ -408,6 +408,39 @@ func TestDecideRoute_NoContaminationAcrossTurns(t *testing.T) {
 // Verification scoping + signal extraction
 // -----------------------------------------------------------------------------
 
+// An /assault turn takes its own lane before any other, question or not; a
+// /campaign turn does not, whatever its words. Perception names an assault:
+// the /assault taxonomy entry carries the soak, stress and torture phrasings.
+// The Go check that stood here until 2026-09-24 ran before the kernel was
+// asked, and keyword-matched a /campaign turn's raw input for "stress test"
+// or "adversarial".
+func TestDecideRoute_AnAssaultIsItsOwnLane(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		intent  perception.Intent
+		shard   string
+		assault bool
+	}{
+		{"an assault", "run an assault campaign on internal/core",
+			perception.Intent{Category: "/mutation", Verb: "/assault", Target: "internal/core", Confidence: 0.95}, "", true},
+		{"an assault asked as a question", "can you run a soak test on internal/core?",
+			perception.Intent{Category: "/mutation", Verb: "/assault", Target: "internal/core", Confidence: 0.9, IsQuestion: true}, "", true},
+		{"a campaign that mentions stress tests", "start a campaign to add stress test coverage",
+			perception.Intent{Category: "/mutation", Verb: "/campaign", Target: "stress test coverage", Confidence: 0.9}, "coder", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newRoundtripModel(t)
+			assertRouteIntent(t, m, tc.intent)
+			route := m.decideRoute(tc.input, tc.intent, tc.shard)
+			if got := route.Kind == RouteAssault; got != tc.assault {
+				t.Errorf("route = %s, assault lane %v, want %v", route.Kind, got, tc.assault)
+			}
+		})
+	}
+}
+
 // Whether a delegation runs the verification loop is the kernel's
 // (route_verifies): a delegated mutation does, and read-only work does not pay
 // the judged attempts. It was shouldVerifyDelegation, a Go test of the intent

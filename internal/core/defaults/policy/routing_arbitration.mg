@@ -24,14 +24,15 @@
 # Derived outputs (queried by Go):
 #   route_decision(/perception_answer, /none) — perception's reply is the answer
 #   route_decision(/dream, /none)             — hypothetical: consult, act on nothing
+#   route_decision(/assault, /none)           — an adversarial campaign on the workspace
 #   route_decision(/respond_directly, /none)  — answer with prose, no shards
 #   route_decision(/clarify, /none)           — ask before acting
 #   route_decision(/multi_step, /none)        — decompose into steps
 #   route_decision(/delegate, Shard)          — hand to a shard
 #
 # Lane precedence, derived here so that one lane at most holds:
-#   perception_answer > dream > respond_directly > multi_step > clarify > delegate
-# The two early lanes exclude everything after them (!early_lane());
+#   perception_answer > dream > assault > respond_directly > multi_step > clarify > delegate
+# The three early lanes exclude everything after them (!early_lane());
 # respond_directly excludes the rest (!wants_direct_answer()); multi_step
 # excludes clarify and delegate (!multi_step_lane()); clarify excludes delegate
 # (!clarify_lane()) -- asking first is what the Go clarifiers that stood
@@ -142,14 +143,29 @@ dream_lane() :-
     user_intent(/current_intent, _, /dream, _, _),
     !perception_answer_lane().
 
+# An adversarial assault on the workspace -- a soak, stress or torture test
+# campaign -- is a campaign of its own (/campaign assault): a long run with its
+# own artifacts, not one shard's task and not prose, whether or not it is
+# phrased as a question. Perception names it: /assault, whose taxonomy entry
+# carries the soak/stress/torture/gauntlet phrasings. Until 2026-09-24 this was
+# a Go check made before this file was asked, which also keyword-matched the
+# raw input of a /campaign turn for "assault", "stress test", "adversarial"...
+assault_lane() :-
+    user_intent(/current_intent, _, /assault, _, _),
+    !perception_answer_lane().
+
 early_lane() :- perception_answer_lane().
 early_lane() :- dream_lane().
+early_lane() :- assault_lane().
 
 route_decision(/perception_answer, /none) :-
     perception_answer_lane().
 
 route_decision(/dream, /none) :-
     dream_lane().
+
+route_decision(/assault, /none) :-
+    assault_lane().
 
 route_decision(/respond_directly, /none) :-
     wants_direct_answer(),
