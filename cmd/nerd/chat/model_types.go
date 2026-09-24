@@ -560,6 +560,9 @@ type chatKernel interface {
 	EnableProvenance()
 	DisableProvenance()
 	IsProvenanceEnabled() bool
+	// ShadowKernel is what a /shadow what-if copies: one kernel over every
+	// shard's facts (core.ShadowParent).
+	ShadowKernel() (*core.RealKernel, error)
 }
 
 var (

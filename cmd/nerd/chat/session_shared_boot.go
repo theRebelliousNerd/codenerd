@@ -119,11 +119,12 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		sessionExecutor.SetOuroborosRegistry(virtualStore.GetToolRegistry())
 	}
 
-	// Shadow mode clones a RealKernel, and the compressor and the .mg watcher
-	// take one: all three run on the catch-all shard (primary), which holds
-	// only the facts no other shard owns -- and the watcher hot-loads edited
-	// rules into that shard alone.
-	shadowMode := core.NewShadowMode(primary)
+	// A what-if copies one kernel over every shard's facts and commits back
+	// through the Cortex's routing (core.ShadowParent). The compressor still
+	// takes the catch-all shard (primary), which holds only the facts no other
+	// shard owns; the .mg watcher only validates files, through the repair
+	// interceptor the primary carries.
+	shadowMode := core.NewShadowMode(kernel)
 
 	logStep("Initializing context compressor...")
 	ctxCfg := appCfg.GetContextWindowConfig()
@@ -319,8 +320,8 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 // sessionKernels picks the kernels a chat session runs on. The session asks
 // the Cortex, like every other component the factory wired (see chatKernel);
 // the catch-all shard's kernel (primary) serves only the consumers that need
-// a RealKernel's internals -- shadow mode, the context compressor, the .mg
-// watcher.
+// a RealKernel's internals -- the context compressor, and the .mg watcher's
+// repair interceptor.
 func sessionKernels(cortex *nerdsystem.Cortex) (chatKernel, *core.RealKernel, error) {
 	kernel, ok := cortex.Kernel.(chatKernel)
 	if !ok || kernel == nil {

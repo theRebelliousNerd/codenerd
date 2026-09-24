@@ -112,3 +112,38 @@ func TestCortexKernel_ExplainFindsTheProofInItsShard(t *testing.T) {
 		t.Error("DisableProvenance left recording on")
 	}
 }
+
+// A simulation copies one kernel over every shard's facts. ShadowMode used to
+// clone the catch-all shard, which holds only the facts no other shard owns:
+// a what-if was judged without the world, tool and policy facts. On the
+// shadow copy a rule whose premises two shards own derives, as a what-if
+// needs, and a commit writes back through the Cortex's routing.
+func TestShadowKernel_OnTheCortexHoldsEveryShardsFacts(t *testing.T) {
+	c, catchAll, other := twoShardCortex(t)
+	shadow, err := c.ShadowKernel()
+	if err != nil {
+		t.Fatalf("ShadowKernel: %v", err)
+	}
+	for pred, want := range map[string]int{"alpha": 1, "beta": 1, "gamma": 2} {
+		if rows, err := shadow.Query(pred); err != nil || len(rows) != want {
+			t.Errorf("the shadow holds %d %s rows (%v), want %d", len(rows), pred, err, want)
+		}
+	}
+	if rows, _ := catchAll.kernel.Query("beta"); len(rows) != 0 {
+		t.Fatalf("the copy wrote into a shard: the catch-all holds %d beta rows", len(rows))
+	}
+
+	sm := NewShadowMode(c)
+	if err := sm.parentKernel.Assert(Fact{Predicate: "beta", Args: []any{MangleAtom("/c")}}); err != nil {
+		t.Fatalf("assert through the shadow's parent: %v", err)
+	}
+	if rows, _ := other.kernel.Query("beta"); len(rows) != 2 {
+		t.Errorf("a commit's assertion must land in the owner's shard; it holds %d beta rows", len(rows))
+	}
+	if err := sm.parentKernel.RetractExactFactsBatch([]Fact{{Predicate: "beta", Args: []any{MangleAtom("/c")}}}); err != nil {
+		t.Fatalf("retract through the shadow's parent: %v", err)
+	}
+	if rows, _ := other.kernel.Query("beta"); len(rows) != 1 {
+		t.Errorf("a commit's retraction must reach the owner's shard; it holds %d beta rows", len(rows))
+	}
+}

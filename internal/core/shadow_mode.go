@@ -34,7 +34,7 @@ var validSimActionTypes = map[SimActionType]struct{}{
 // It maintains a separate kernel instance to test hypothetical changes.
 type ShadowMode struct {
 	mu           sync.RWMutex
-	parentKernel *RealKernel
+	parentKernel ShadowParent
 	shadowKernel *RealKernel
 	simulations  map[string]*Simulation
 	activeSimID  string
@@ -102,8 +102,22 @@ type ProjectionViolation struct {
 	Blocking      bool
 }
 
+// ShadowParent is the kernel a simulation copies and a commit writes back to.
+// The copy is one kernel over every fact the parent holds: on the sharded
+// Cortex that is every shard's, which no single shard has -- a simulation run
+// on the catch-all shard judged an action without the world, tool or policy
+// facts the other shards own.
+type ShadowParent interface {
+	ShadowKernel() (*RealKernel, error)
+	Assert(fact Fact) error
+	RetractExactFactsBatch(facts []Fact) error
+}
+
+// ShadowKernel is a simulation's copy of this kernel: its clone.
+func (k *RealKernel) ShadowKernel() (*RealKernel, error) { return k.Clone(), nil }
+
 // NewShadowMode creates a new Shadow Mode engine attached to a parent kernel.
-func NewShadowMode(parent *RealKernel) *ShadowMode {
+func NewShadowMode(parent ShadowParent) *ShadowMode {
 	return &ShadowMode{
 		parentKernel: parent,
 		simulations:  make(map[string]*Simulation),
@@ -124,11 +138,12 @@ func (sm *ShadowMode) StartSimulation(ctx context.Context, description string) (
 	// Create unique simulation ID
 	simID := fmt.Sprintf("sim_%d", time.Now().UnixNano())
 
-	// Create shadow kernel as a deep copy of parent state.
-	// Clone() properly copies facts, cachedAtoms, factIndex, programInfo,
-	// strata, and predToStratum — all of which are required for the shadow
-	// kernel to function correctly.
-	shadowKernel := sm.parentKernel.Clone()
+	// Create shadow kernel as a deep copy of parent state: the parent's
+	// program over every fact it holds (ShadowParent).
+	shadowKernel, err := sm.parentKernel.ShadowKernel()
+	if err != nil {
+		return nil, fmt.Errorf("shadow simulation: copy the kernel: %w", err)
+	}
 
 	sm.shadowKernel = shadowKernel
 
@@ -549,7 +564,7 @@ func (sm *ShadowMode) CommitSimulation(ctx context.Context) error {
 		if effect.IsPositive {
 			err = sm.parentKernel.Assert(fact)
 		} else {
-			err = sm.parentKernel.RetractExactFact(fact)
+			err = sm.parentKernel.RetractExactFactsBatch([]Fact{fact})
 		}
 		if err != nil {
 			applyErrs = append(applyErrs, fmt.Errorf("%s: %w", effect.Predicate, err))

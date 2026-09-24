@@ -134,3 +134,35 @@ func (c *CortexKernel) shardList() []*KernelShard {
 	}
 	return shards
 }
+
+// ShadowKernel is one kernel over every shard's facts: the primary's program
+// -- every shard evaluates the same program -- with the base facts of every
+// shard, a shared predicate's rows once. It is what a simulation copies
+// (ShadowParent): a rule whose premises different shards own never derives in
+// production, but it does here, which is what a what-if is asked for. A clone
+// of the catch-all shard alone held only the facts no other shard owns.
+func (c *CortexKernel) ShadowKernel() (*RealKernel, error) {
+	primary := c.GetPrimaryRealKernel()
+	if primary == nil {
+		return nil, fmt.Errorf("cortex has no primary shard to copy")
+	}
+	shadow := primary.Clone()
+	var rest []Fact
+	for _, shard := range c.shardList() {
+		shard.mu.RLock()
+		k := shard.kernel
+		shard.mu.RUnlock()
+		if k == nil || k == primary {
+			continue
+		}
+		for f := range k.GetFactsSnapshotSeq() {
+			rest = append(rest, f)
+		}
+	}
+	if len(rest) > 0 {
+		if err := shadow.AssertBatch(rest); err != nil {
+			return nil, fmt.Errorf("copy the shards' facts into the shadow kernel: %w", err)
+		}
+	}
+	return shadow, nil
+}
