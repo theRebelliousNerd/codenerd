@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/core"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
 	toolscore "codenerd/internal/tools/core"
+	"codenerd/internal/types"
 )
 
 func writeEvidenceDoc(t *testing.T, ws, rel, body string) string {
@@ -134,6 +136,42 @@ func TestTaskEvidence_DerivedByDependencyNameAndDistance(t *testing.T) {
 	iInline, iDigest, iHandle := strings.Index(section, "C0-HEAD"), strings.Index(section, "B1-HEAD"), strings.Index(section, paths["a1"])
 	if iInline < 0 || iDigest < iInline || iHandle < iDigest {
 		t.Errorf("sections out of order (inline %d, digest %d, handle %d): %q", iInline, iDigest, iHandle, section)
+	}
+}
+
+// noTxKernel forwards a kernel without its transactions, as a forwarding
+// adapter does.
+type noTxKernel struct{ core.Kernel }
+
+// On a kernel without transactions the measurements are replaced one
+// operation at a time, and a re-measurement leaves no stale row behind.
+func TestTaskEvidence_AKernelWithoutTransactionsMeasuresTheSame(t *testing.T) {
+	o, task, paths := evidenceChainFixture(t)
+	o.kernel = noTxKernel{o.kernel}
+	if _, ok := o.kernel.(types.KernelTransactor); ok {
+		t.Fatal("the adapter still offers transactions")
+	}
+	for round := 0; round < 2; round++ {
+		if _, err := o.taskContextSection(context.Background(), task); err != nil {
+			t.Fatal(err)
+		}
+		// The artifact grows between rounds; the kernel must hold its new
+		// size only.
+		writeEvidenceDoc(t, o.workspace, paths["b1"], markedBody("B1-HEAD", "B1-TAIL", 40+round))
+	}
+	modes, err := o.askTaskEvidence(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if modes[paths["c0"]] != evidenceInline || modes[paths["b1"]] != evidenceDigest || modes[paths["a1"]] != evidenceHandle {
+		t.Fatalf("modes on a kernel without transactions: %v", modes)
+	}
+	rows, err := o.kernel.Query("task_artifact_on_disk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != len(paths) {
+		t.Fatalf("want one task_artifact_on_disk row per artifact after re-measuring, got %d: %v", len(rows), rows)
 	}
 }
 

@@ -333,28 +333,10 @@ func (o *Orchestrator) assertTaskMeasurements(askedID string, facts []core.Fact)
 		tx.LoadFacts(facts)
 		return tx.Commit()
 	}
-	o.mu.RLock()
-	var ids []string
-	if o.campaign != nil {
-		for i := range o.campaign.Phases {
-			for j := range o.campaign.Phases[i].Tasks {
-				ids = append(ids, o.campaign.Phases[i].Tasks[j].ID)
-			}
-		}
-	}
-	o.mu.RUnlock()
-	for _, id := range ids {
-		if err := o.kernel.RetractFact(core.Fact{Predicate: "task_artifact_on_disk", Args: []any{id}}); err != nil {
-			return err
-		}
-	}
-	// code_outline is keyed by path: retract every row the kernel holds.
-	held, err := o.kernel.Query("code_outline")
-	if err != nil {
-		return fmt.Errorf("query code_outline: %w", err)
-	}
-	for _, f := range held {
-		if err := o.kernel.RetractFact(core.Fact{Predicate: "code_outline", Args: []any{factArg(f, 0)}}); err != nil {
+	// A kernel without transactions (a forwarding adapter): the same
+	// operations, one at a time.
+	for _, pred := range campaignWideMeasurements {
+		if err := o.kernel.Retract(pred); err != nil {
 			return err
 		}
 	}
