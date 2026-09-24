@@ -271,35 +271,40 @@ func (mw *MangleWatcher) validateAndRepair(ctx context.Context, path string) {
 		return
 	}
 
-	// Use the repair interceptor to validate each rule
+	// Use the repair interceptor to validate each rule. A rule it repairs or
+	// rejects is replaced where it stands; everything else in the file -- its
+	// comments, its Decls' layout, the rules it accepts -- stays as the author
+	// wrote it. The file used to be rebuilt from the extracted rules alone,
+	// joined by blank lines, so one repaired rule deleted every comment in it.
+	text := strings.ReplaceAll(string(content), "\r\n", "\n")
 	needsRewrite := false
-	repairedRules := make([]string, 0, len(rules))
-
 	for _, rule := range rules {
-		repairedRule, err := interceptor.InterceptLearnedRule(ctx, rule)
-		if err != nil {
+		rule = strings.ReplaceAll(rule, "\r", "")
+		replacement, err := interceptor.InterceptLearnedRule(ctx, rule)
+		switch {
+		case err != nil:
 			logging.Get(logging.CategoryKernel).Warn("MangleWatcher: rule validation failed: %v", err)
-			// Comment out the invalid rule
-			repairedRules = append(repairedRules, "# INVALID (MangleWatcher): "+rule)
-			needsRewrite = true
-			mw.mu.Lock()
-			mw.stats.RepairsTriggered++
-			mw.mu.Unlock()
-		} else if repairedRule != rule {
+			// Every line of the rule, not the first: a rule that spans lines
+			// commented only on its first stayed live, and invalid, below it.
+			replacement = "# INVALID (MangleWatcher): " + strings.ReplaceAll(rule, "\n", "\n# ")
+		case replacement != rule:
 			logging.Kernel("MangleWatcher: rule was repaired: %s", filepath.Base(path))
-			repairedRules = append(repairedRules, repairedRule)
-			needsRewrite = true
-			mw.mu.Lock()
-			mw.stats.RepairsTriggered++
-			mw.mu.Unlock()
-		} else {
-			repairedRules = append(repairedRules, rule)
+		default:
+			continue
 		}
+		if !strings.Contains(text, rule) {
+			continue
+		}
+		text = strings.Replace(text, rule, replacement, 1)
+		needsRewrite = true
+		mw.mu.Lock()
+		mw.stats.RepairsTriggered++
+		mw.mu.Unlock()
 	}
 
 	// Rewrite file if any rules were repaired
 	if needsRewrite {
-		newContent := normalizeLineEnding(strings.Join(repairedRules, "\n\n"), detectLineEnding(content))
+		newContent := normalizeLineEnding(text, detectLineEnding(content))
 		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
 			logging.Get(logging.CategoryKernel).Error("MangleWatcher: failed to write repaired file: %v", err)
 			mw.mu.Lock()

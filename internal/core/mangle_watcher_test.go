@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -313,3 +314,84 @@ func TestMangleWatcher_ValidateAndRepair_FailedRead(t *testing.T) {
 // TODO: Test User request Extremes (e.g. 10,000 rapid fsnotify events to test debounce scale)
 // TODO: Test State Conflicts (e.g. read-while-writing race condition on identical file)
 // TODO: Test Extreme Length campaigns (e.g. 500MB massive .mg file triggering OOM)
+
+// scriptedInterceptor repairs and rejects rules by their text.
+type scriptedInterceptor struct {
+	repair map[string]string
+	reject map[string]bool
+}
+
+func (s scriptedInterceptor) InterceptLearnedRule(_ context.Context, rule string) (string, error) {
+	if s.reject[rule] {
+		return "", os.ErrInvalid
+	}
+	if repaired, ok := s.repair[rule]; ok {
+		return repaired, nil
+	}
+	return rule, nil
+}
+
+// A repaired or rejected rule is replaced where it stands, and nothing else in
+// the file changes. The watcher used to rebuild the file from the extracted
+// rules alone, so one repair deleted every comment in a user's .mg file; and a
+// rejected rule was commented only on its first line, leaving the rest of it
+// live below.
+func TestMangleWatcher_ValidateAndRepair_KeepsTheRestOfTheFile(t *testing.T) {
+	k := setupMockKernel(t)
+	defer k.Clear()
+	k.SetRepairInterceptor(scriptedInterceptor{
+		repair: map[string]string{"fixable(X) :- fact(X)": "fixable(X) :- fact(X)."},
+		reject: map[string]bool{"broken(X) :-\n    fact(X),\n    nonsense(X": true},
+	})
+	mw, err := NewMangleWatcher(t.TempDir(), k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mw.watcher.Close()
+
+	for _, ending := range []string{"\n", "\r\n"} {
+		original := strings.Join([]string{
+			"# Learned rules. Keep this header.",
+			"",
+			"good(X) :- fact(X).",
+			"",
+			"# The next rule is missing its period.",
+			"fixable(X) :- fact(X)",
+			"",
+			"broken(X) :-",
+			"    fact(X),",
+			"    nonsense(X",
+			"",
+		}, "\n")
+		path := filepath.Join(t.TempDir(), "learned.mg")
+		if err := os.WriteFile(path, []byte(strings.ReplaceAll(original, "\n", ending)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mw.validateAndRepair(context.Background(), path)
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := string(data)
+		if ending == "\n" && strings.Contains(got, "\r\n") || ending == "\r\n" && strings.Count(got, "\r\n") != strings.Count(got, "\n") {
+			t.Fatalf("line endings changed (%q file): %q", ending, got)
+		}
+		want := strings.ReplaceAll(strings.Join([]string{
+			"# Learned rules. Keep this header.",
+			"",
+			"good(X) :- fact(X).",
+			"",
+			"# The next rule is missing its period.",
+			"fixable(X) :- fact(X).",
+			"",
+			"# INVALID (MangleWatcher): broken(X) :-",
+			"#     fact(X),",
+			"#     nonsense(X",
+			"",
+		}, "\n"), "\n", ending)
+		if got != want {
+			t.Fatalf("%q file rewritten as:\n%s\nwant:\n%s", ending, got, want)
+		}
+	}
+}
