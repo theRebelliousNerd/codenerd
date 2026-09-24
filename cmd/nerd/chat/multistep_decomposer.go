@@ -632,64 +632,110 @@ func decomposeGeneric(input string, captures []string, pattern *MultiStepPattern
 // HELPER FUNCTIONS
 // =============================================================================
 
-// parseVerbAndTarget extracts verb and target from a task description
+// parseVerbAndTarget reads a clause's verb and target against the verb
+// corpus. The verb is the longest synonym the clause leads with, over the
+// whole corpus; failing that, the synonym that appears first as whole words
+// (the longest at that position). A first word that is not a corpus verb is
+// not made one: the clause is an /explain of itself.
+//
+// It used to take the first corpus entry with a synonym anywhere in the
+// clause, as a substring: "hi" inside "this" made "update this file",
+// "make this faster" and "change this behaviour" /greet steps with the
+// target "s file", "write docs for this" a /research step, and a first word
+// such as "the" the verb /the. A step no shard runs makes the plan unrouted,
+// and the kernel then delegates the whole request instead of decomposing it
+// (multi_step_plan_unrouted).
 func parseVerbAndTarget(text string) (verb string, target string) {
 	lower := strings.ToLower(text)
+	corpus := perception.GetVerbCorpus()
 
-	// Try to match against known verbs from corpus
-	for _, entry := range perception.GetVerbCorpus() {
+	// 1. The synonym the clause leads with.
+	lead := 0
+	for _, entry := range corpus {
 		for _, synonym := range entry.Synonyms {
-			if strings.HasPrefix(lower, synonym+" ") || strings.HasPrefix(lower, synonym+":") {
-				verb = entry.Verb
-				target = strings.TrimSpace(text[len(synonym):])
-				target = strings.TrimPrefix(target, ":")
-				target = strings.TrimSpace(target)
-				if target == "" {
-					target = "codebase"
-				}
-				return
+			synonym = strings.ToLower(synonym)
+			if len(synonym) <= lead {
+				continue
 			}
-			// Check for synonym anywhere in the text
-			if strings.Contains(lower, synonym) {
-				verb = entry.Verb
-				// Try to extract target after the verb
-				idx := strings.Index(lower, synonym)
-				if idx >= 0 {
-					remaining := text[idx+len(synonym):]
-					target = strings.TrimSpace(remaining)
-					// Clean up target
-					target = strings.TrimPrefix(target, "the ")
-					target = strings.TrimPrefix(target, "a ")
-					target = strings.TrimPrefix(target, "an ")
-					if target == "" {
-						target = "codebase"
-					}
-				}
-				return
+			if lower == synonym || strings.HasPrefix(lower, synonym+" ") || strings.HasPrefix(lower, synonym+":") {
+				verb, lead = entry.Verb, len(synonym)
 			}
 		}
 	}
+	if verb != "" {
+		target = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text[lead:]), ":"))
+		if target == "" {
+			target = "codebase"
+		}
+		return verb, target
+	}
 
-	// Fallback: try to parse as "verb target" directly
-	words := strings.Fields(text)
-	if len(words) >= 1 {
-		potentialVerb := "/" + strings.ToLower(words[0])
-		potentialVerb = normalizeVerb(potentialVerb)
-		if potentialVerb != "" && potentialVerb != "/" {
-			verb = potentialVerb
+	// 2. The first synonym found as whole words.
+	at, length := -1, 0
+	for _, entry := range corpus {
+		for _, synonym := range entry.Synonyms {
+			synonym = strings.ToLower(synonym)
+			idx := wholeWordIndex(lower, synonym)
+			if idx < 0 {
+				continue
+			}
+			if at < 0 || idx < at || idx == at && len(synonym) > length {
+				verb, at, length = entry.Verb, idx, len(synonym)
+			}
+		}
+	}
+	if verb != "" {
+		target = strings.TrimSpace(text[at+length:])
+		target = strings.TrimPrefix(target, "the ")
+		target = strings.TrimPrefix(target, "a ")
+		target = strings.TrimPrefix(target, "an ")
+		if target == "" {
+			target = "codebase"
+		}
+		return verb, target
+	}
+
+	// 3. A first word that is a corpus verb, in an inflected form or not.
+	if words := strings.Fields(text); len(words) >= 1 {
+		candidate := normalizeVerb("/" + strings.ToLower(words[0]))
+		for _, entry := range corpus {
+			if entry.Verb != candidate {
+				continue
+			}
+			target = "codebase"
 			if len(words) > 1 {
 				target = strings.Join(words[1:], " ")
-			} else {
-				target = "codebase"
 			}
-			return
+			return candidate, target
 		}
 	}
 
-	// Ultimate fallback
-	verb = "/explain"
-	target = text
-	return
+	return "/explain", text
+}
+
+// wholeWordIndex is the first index of word in text where it stands as whole
+// words -- no letter or digit on either side -- or -1.
+func wholeWordIndex(text, word string) int {
+	if word == "" {
+		return -1
+	}
+	for from := 0; from <= len(text)-len(word); {
+		i := strings.Index(text[from:], word)
+		if i < 0 {
+			return -1
+		}
+		i += from
+		end := i + len(word)
+		if (i == 0 || !isWordByte(text[i-1])) && (end == len(text) || !isWordByte(text[end])) {
+			return i
+		}
+		from = i + 1
+	}
+	return -1
+}
+
+func isWordByte(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // normalizeVerb converts common verb forms to canonical verbs
