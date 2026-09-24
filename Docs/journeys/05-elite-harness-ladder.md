@@ -230,9 +230,20 @@ is the finding.
 | R5 Fifty files | one landing of a fifty-file change from a single prompt: an optimisation quest or a sweep that clears a whole class of gate findings | long-horizon work without drift | **PASSED 2026-09-20** (`540e15a5`, 189 files, 189/189 correct) |
 | R6 The architecture docs | codeNERD rewrites every document in `Docs/architecture` from the code (never from the old docs), every claim citing a path and symbol that exist, links and symbols verified by a checker, and the reviewer, reading a sample of each package's docs against the code, finds nothing false and nothing important missing | the harness can hold a whole codebase in view and write the truth about it |
 | R7 Recursion | `nerd campaign recurse` (or its successor) runs unattended for N cycles: measures the gates, picks the next failing item, fixes it, proves it, and each cycle leaves the gates strictly better and nothing worse | it improves itself |
+| R8 CodeDOM only | every model-facing way of reading, searching or editing source as raw text (`read_file`, `grep`, `glob`, `edit_lines`, `write_file` on a file CodeDOM parses) is gone from the model's tool surface, a repository test keeps it gone, and a fixed replay set of briefs that already landed (at least R1-3, R1-7, R3-3, R4-1, R5-5) lands as often as before with no more tool calls or input tokens | the harness knows the code structurally and never has to grep around; the structure is the only view of code, not the preferred one |
+| R9 Disciplined specs | a codeNERD-native successor to `/arch-propose`: an idea goes through ideation (competing candidates, including ones that challenge the premise), selection and interrogation, and ends as spec atoms in a Mangle DAG (requirement -> decision -> work item, each work item with a witness command). The DAG lives in the store, not in a conversation: killed at any point it resumes at the last committed node with nothing lost or done twice; another agent or terminal editing a file in a node's write set is detected before that node writes, and the node re-plans instead of overwriting; and codeNERD then builds one feature from its own DAG until every witness passes | codeNERD shines by being disciplined when its users, teams or neighbouring agents are not (Steve, 2026-09-22) |
 
 Rungs are climbed in order; a later rung's run may happen earlier as a probe, but it does not
-count until the rungs below it are passed.
+count until the rungs below it are passed. R8 and R9 were added on 2026-09-22.
+
+`nerd campaign recurse` as it stands is not R7's instrument: its waves are planned in Go from a
+fixed subsystem table (`internal/campaign/recurse_plan.go`, with the task wording in Go strings), it
+never measures a gate, and its stall fuse counts tasks the model reported complete -- which P8 showed
+can be all of them over failing checks. R7 needs the gates measured before and after each cycle, the
+findings asserted as facts the policy picks from, each fix carrying its finding's check as the
+acceptance witness (`internal/campaign/orchestrator_acceptance.go` already runs a command into
+facts), and a cycle kept only when no gate got worse. The R6 grader is a gitignored script, so a
+harness gate built on it would be untracked; it has to become a tracked command first.
 
 ## Choosing rung material (2026-09-20)
 
@@ -452,7 +463,11 @@ it is run both ways and the ledger records which landed and at what cost.
 1. Pick a real problem from a gate's backlog or from the study's seams, sized to the rung.
 2. Write the brief: the symptom, the evidence, what should hold. Save it as a file.
 3. Rebuild `nerd.exe` from `main` (the prompt atoms are embedded: a corpus fix only reaches the
-   agent after a rebuild). Nothing else edits the tree while the run is in flight.
+   agent after a rebuild). Nothing else edits the tree while the run is in flight. Launch it from
+   the environment the gates were measured in: codeNERD's test tool inherits the launching shell's
+   PATH, and on Windows three `internal/tactile` tests need `sh`, `head` and `tr`
+   (`C:\Program Files\Git\usr\bin`). Launched from PowerShell on 2026-09-22, a campaign's test run
+   reported three failures R0 never sees, and a task waited on them (E5 in the ledger).
 4. Run the entry point for the rung and log it (minutes, tool calls, model calls and tokens from
    `.nerd/logs`; for a campaign, `nerd campaign journal` and `status`). While it runs, follow
    every WARN and ERROR in every log category, not the one file the run's headline lives in:

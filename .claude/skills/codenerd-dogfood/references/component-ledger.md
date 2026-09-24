@@ -5730,6 +5730,40 @@ logic except where marked; codeNERD was mid-run and the tree was not its to edit
   phantom queries removed. `task_result`'s producer claimed the kernel derives completion from it;
   no rule does, and the comment now says so. Undeclared-assert ratchet: -2.
 
+**Resumed 2026-09-22, and what the resume found.** The binary with the six fixes (`6d698452`)
+resumed the campaign at 22:17. Within two minutes the second RX 9070 XT went to `Error`
+(ConfigManagerErrorCode 31, FAILED_ADD -- the fault that preceded the 20:13 crash the same evening)
+and Ollama's runner dropped codeNERD's embedding connection. Stopped, models unloaded; Steve chose
+to run on the healthy card; Ollama restarted so it re-discovered one GPU; resumed 22:23. What that
+turned up, each briefed symptom-only under `.nerd/dogfood/r1/` and `r3/`:
+
+- **P12, the repro guard** (`orchestrator_failure.go`): two "logic" failures of a Markdown task --
+  both the working policy's stop, fixed in `6d698452` -- inserted a `/test_run` "[diagnostic-repro]"
+  ahead of it and made it depend on it. It ran `go test ./...` (6 m 56 s), failed on three tests
+  that have nothing to do with documentation, and retried; the document and the two tasks behind it
+  waited. A Go decision the kernel should derive, with hardcoded thresholds, and an attempt with an
+  empty error is classified `/logic`. Also logged: `Tests failed: <nil>`.
+- **E4, the suite loads a model the user does not use.** That `go test ./...` reached the live Ollama
+  with a hardcoded `embeddinggemma` (`internal/embedding/ollama_test.go:38`, `internal/init/init_test.go:66`,
+  `cmd/nerd/cli_test.go:30`): `/api/pull` 500 at 22:19:09, then the model loaded next to qwen3 on the
+  card that faulted, its first load crashing (`0xe06d...`). **I twice told Steve this was another
+  program on the machine**: I had searched only codeNERD's own logs, and a child test process writes
+  none. The timing gave it away -- each load came 60-90 s after a campaign start.
+- **E2, the embedding context is not configured.** codeNERD sends no context size, so Ollama infers
+  it from total VRAM: `predicted_num_ctx=32768` with two GPUs, `n_ctx_slot = 2048` after the
+  restart with one. Every campaign task's recall then failed on a 46,942-character query (E1: the
+  query is the whole turn input). `embedding.dimensions` is required config; the context length is
+  not. Steve, the same hour: "everything is configurable, not hard coded.. all from config.json".
+- **E3, a new user's config gets models nobody chose**: `NewConfigWizard()` pre-selects
+  `embeddinggemma:300m` and `gemini-embedding-001`; `nerd init --help` recommends the former. The
+  no-hardcoded-models gate passes because I exempted the whole wizard file in `b8f1faad`.
+- **E5, three tactile tests need POSIX tools on PATH** and fail with the wrong reason without them
+  (`expected Killed=true`). R0 was measured from Git Bash; I launched this campaign's `nerd.exe`
+  from PowerShell, so its test runs saw three failures R0 never sees. Relaunched at 22:32 with Git's
+  `usr/bin` on PATH. The launching environment is now part of the run protocol.
+- The R6 grader, the campaign's acceptance witness, is a gitignored script; briefed as a tracked
+  `nerd` command (`r3/g11_docs_check_command_brief.txt`), the first prerequisite of R7.
+
 **Observed and still open.** `recall_context` rejects the `obs:sa:` handles the working set itself
 hands out, and file paths; `run_tests` is offered to turns that wrote no Go; the evolution cycle's
 two-minute clock is shorter than one atom-generation call, so it starves; a hardcoded 365-day
