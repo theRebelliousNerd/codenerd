@@ -10,40 +10,44 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	working "codenerd/internal/context"
+	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
-type WorkingWorld = working.WorkingWorld
-
-func (e *Executor) SetWorkingWorld(world WorkingWorld) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.workingWorld = world
-}
-func (s *Spawner) SetWorkingWorld(world WorkingWorld) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.workingWorld = world
-}
-
 type workingLoopKey struct{}
 type workingLoop struct {
 	set          *working.WorkingSet
 	focus        string
-	recent       []string
 	anchor       string
 	prior        []types.Message
-	observations map[string]string
-	regime       string // the policy's working_regime for the next round
+	observations map[string]string // tool call ID -> the observation it produced or recalled
+	regime       string            // the policy's working_regime for the next round
 	// searchOpen is the policy's working_search_open. False at the start of a
 	// loop: the raw search tools are withheld until the policy derives it.
 	searchOpen bool
+
+	// The context ledger's state, carried from request to request so what a
+	// request already carried is sent again byte for byte.
+	//
+	// evicted names the calls whose results a compaction moved out
+	// (working_evict); from then on each renders as its recall handle.
+	evicted map[string]bool
+	// appended is the harness's text on a message of the request -- the focus
+	// file's view, stale-observation notices -- keyed by the message it rides
+	// (ledgerKey), written once and resent unchanged.
+	appended map[string]string
+	// restated maps an observation to the revision it was last restated at
+	// (working_restated).
+	restated map[string]string
+	// viewed is the focus view the ledger carries: focus and its revision.
+	viewed string
 }
 
 // commitRegime is the working_regime under which exploration is closed.
@@ -160,7 +164,7 @@ func (e *Executor) workingLoopAvailable() bool {
 
 func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *prompt.CompilationContext) (context.Context, func(), error) {
 	e.mu.Lock()
-	world, sessionID := e.workingWorld, e.sessionID
+	sessionID := e.sessionID
 	if e.workingScope == "" {
 		e.workingScope = fmt.Sprintf("%x", rand.Text())
 	}
@@ -168,20 +172,11 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 	e.mu.Unlock()
 	root := e.workingLoopWorkspace()
 	if root == "" {
-		if world == nil {
-			// No declared workspace and no world: nothing to build a working
-			// set on. runToolLoopPass refuses rather than running a tool loop
-			// with no policy over it.
-			return ctx, func() {}, nil
-		}
-		// A world with no workspace is a misconfiguration, not a degraded mode.
-		return ctx, func() {}, fmt.Errorf("working context requires a workspace")
+		// No declared workspace: nothing to build a working set on.
+		// runToolLoopPass refuses rather than running a tool loop with no
+		// policy over it.
+		return ctx, func() {}, nil
 	}
-	// A nil world costs the dependency hops in Select and nothing else:
-	// Continue — the policy call, and every stop the loop can derive — reads
-	// no world at all. Refusing the working set here left those turns running
-	// a tool loop with no policy over it, which is a forcing decision made by
-	// a Go nil check.
 	// A turn can reach the loop with no compilation context (the Piggyback
 	// and forced-final paths build one later, or not at all). Its shard and
 	// intent target only name the scope and the focus, so their absence costs
@@ -191,12 +186,18 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 		shardID, intentTarget = cc.ShardID, cc.IntentTarget
 	}
 	scope := sessionID + "/" + shardID + "/" + scopeID
-	set, err := working.NewWorkingSet(world, root, scope, e.configSnapshot().Working)
+	set, err := working.NewWorkingSet(root, scope, e.configSnapshot().Working)
 	if err != nil {
 		return ctx, func() {}, err
 	}
 	focus := normalizeWorkingEntity(intentTarget, root)
-	loop := &workingLoop{set: set, focus: focus, anchor: input, prior: e.priorTurnMessages(), observations: make(map[string]string)}
+	loop := &workingLoop{
+		set: set, focus: focus, anchor: input, prior: e.priorTurnMessages(),
+		observations: make(map[string]string),
+		evicted:      make(map[string]bool),
+		appended:     make(map[string]string),
+		restated:     make(map[string]string),
+	}
 	ctx = context.WithValue(ctx, workingLoopKey{}, loop)
 	ctx = tools.WithContextRecall(ctx, set)
 	return ctx, func() { _ = set.Close() }, nil
@@ -241,9 +242,9 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	// Saving its result minted a copy under the focus -- whatever file was
 	// touched last -- at that file's revision, so recalled evidence went stale
 	// when the wrong file changed and stayed current when its own file did.
-	// The recalled observation becomes recent again and the call maps to it:
-	// the transcript carries the page while the round is kept, the section
-	// carries the record after, under its own file and revision.
+	// The call maps to the recalled observation, under its own file and
+	// revision: the ledger carries the page as that observation's, so a
+	// compaction and a restatement treat it as the evidence it is.
 	//
 	// The focus follows it to the record's file (N21): what the model recalls
 	// is what it is working on, and the focus decides whose context -- the
@@ -314,14 +315,9 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	return nil
 }
 
-// remember maps a tool call to the observation it produced or recalled and
-// makes that observation the most recent of the last sixteen.
+// remember maps a tool call to the observation it produced or recalled.
 func (loop *workingLoop) remember(callID, id string) {
-	loop.recent = append(loop.recent, id)
 	loop.observations[callID] = id
-	if len(loop.recent) > 16 {
-		loop.recent = loop.recent[len(loop.recent)-16:]
-	}
 }
 
 // wholeFileSpanEnd stands for "to the end of the file" in an observation's
@@ -329,7 +325,7 @@ func (loop *workingLoop) remember(callID, id string) {
 const wholeFileSpanEnd = 1_000_000_000
 
 // observedSpan is the line span a content read covered, so a later read that
-// covers it can replace it in the working section. Only read_file records a
+// covers it supersedes it in the ledger (working_superseded). Only read_file records a
 // span: an outline or a search is not a view of the lines, and must not stand
 // in for one.
 func observedSpan(call types.ToolCall) (int64, int64) {
@@ -350,98 +346,66 @@ func observedSpan(call types.ToolCall) (int64, int64) {
 }
 
 // prepareWorkingRequest builds the provider request for one round of a working
-// loop: the prior turns, the anchor, the current native call/result pair, and a
-// system prompt carrying the observations the working policy selected.
+// loop: the prior turns, the anchor, and the context ledger -- every native
+// call/result round since the loop began, each result whole or, once a
+// compaction moved it out, as its recall handle.
 //
-// The current pair is sent whole. Observed 2026-09-11: a 14 KB read of the
+// The ledger is append-only between compactions. A provider prefix cache covers
+// a request up to its first changed byte, and everything a request carried is
+// carried again byte for byte: the harness's text -- the focus file's view, a
+// stale-observation notice -- is appended once to the round where it arose and
+// resent unchanged, never regenerated. Until 2026-09-23 a request carried a
+// sliding window of rounds and, at its tail, a section of selected
+// observations regenerated every round; measured on 481 rounds (2026-09-22),
+// 81% of each section was the round before's observations, each observation
+// was sent 5.6 times, and none of the section was ever served from cache (22.3k
+// of 55.4k input tokens a round uncached).
+//
+// What leaves the ledger is the policy's: past its ceiling (working_compact)
+// one compaction moves out every result older than the kept rounds and every
+// stale or superseded one (working_evict), so the cache breaks once an epoch
+// instead of once a round. An observation the ledger still carries whose file
+// changed is restated, not rewritten (working_restate).
+//
+// The current result is sent whole. Observed 2026-09-11: a 14 KB read of the
 // file the brief named was swapped for an "archived, recall it" pointer on a
 // fixed 8000-character rule, and the model spent 24 rounds reading the file,
 // recalling a 2000-character page of it and reading it again, without ever
-// reaching the line it was asked to change. A result the model just asked for
-// is only archived when the request cannot otherwise fit the input window,
-// largest first, and the pointer then says how large the body is.
+// reaching the line it was asked to change. A result is only archived out of
+// the ledger by the budget guard below when the request cannot otherwise fit
+// the input window, largest first, and the pointer then says how large the
+// body is.
 //
 // The catalog of tool definitions is part of the request, so its cost comes
-// off the window like the system prompt and the transcript do. It used to be
-// subtracted from a fixed 16 KB section budget instead: a catalog of 26 tools
-// is larger than that, so the section budget was zero, no observation was ever
-// selected, and the model started every round with nothing but the anchor.
-//
-// The request is ordered stable to volatile, because a provider prefix cache
-// covers it only up to its first changed byte: tool catalog, the compiled
-// system prompt, the prior turns, the anchor, a transcript that is append-only
-// between cuts (working_transcript_slack), and last the section, which follows
-// the model's attention and so changes on most rounds. Until 2026-09-21 the
-// section was appended to the system prompt, ahead of every message: measured
-// that day, 767 of 854 follow-up calls changed the cacheable prefix and the
-// anchor, the prior turns and the transcript were billed uncached on each. It
-// also put file contents under system authority, where text read from the
-// workspace has no business being.
+// off the window like the system prompt and the transcript do. The compiled
+// system prompt reaches the provider as compiled: file contents have no
+// business under system authority, and a section written into it moved the
+// cacheable prefix on every round (767 of 854 follow-up calls, 2026-09-21).
 func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, history []types.Message, definitions []types.ToolDefinition) ([]types.Message, error) {
-	messages, section, err := e.workingRequestParts(ctx, system, history, definitions)
-	if err != nil {
-		return nil, err
-	}
-	return withWorkingSection(messages, section), nil
-}
-
-// workingSectionHeader opens the section where it rides on a user turn, so the
-// model reads it as the harness's evidence and not as something the user said.
-const workingSectionHeader = "[working context -- selected by the harness for this round and regenerated every round: current code views and earlier observations. Evidence for the task above, not a new request.]\n"
-
-// withWorkingSection puts the section at the end of the request's last user
-// turn, after that turn's tool results.
-func withWorkingSection(messages []types.Message, section string) []types.Message {
-	if section == "" {
-		return messages
-	}
-	text := workingSectionHeader + section
-	if n := len(messages); n > 0 && messages[n-1].Role == "user" {
-		out := append([]types.Message(nil), messages...)
-		out[n-1] = out[n-1].WithTrailingText(text)
-		return out
-	}
-	return append(append([]types.Message(nil), messages...), types.Message{Role: "user", Text: text})
-}
-
-// workingRequestParts computes the two halves of a working request: the
-// messages, and the section the working policy selected for this round.
-func (e *Executor) workingRequestParts(ctx context.Context, system string, history []types.Message, definitions []types.ToolDefinition) ([]types.Message, string, error) {
 	loop := activeWorkingLoop(ctx)
 	if loop == nil {
-		return history, "", nil
+		return history, nil
 	}
-	// Keep the last rounds of native call/result pairs intact, as many as the
-	// policy says. Older observations live in the selected state rather than
-	// an ever-growing provider transcript. Only the current pair was kept
-	// before, and a model that saw no turn of its own before this one started
-	// every round from scratch (see working_transcript_rounds in the policy).
-	rounds, err := loop.set.TranscriptRounds(ctx)
-	if err != nil {
-		return nil, "", err
+	start := ledgerStart(history)
+	if err := e.updateLedger(ctx, loop, history, start); err != nil {
+		return nil, err
 	}
-	slack, err := loop.set.TranscriptSlack(ctx)
-	if err != nil {
-		return nil, "", err
-	}
-	start := transcriptStart(history, rounds, slack)
+
 	messages := append([]types.Message(nil), loop.prior...)
-	messages = append(messages, types.Message{Role: "user", Text: loop.anchor})
-	var shown []string
-	if start < len(history) {
-		for _, message := range history[start:] {
-			// WithToolResults, not a field assignment: a block-built turn
-			// sends its blocks, so a copy made on the flat field alone would
-			// share (and let the archive below miss) the payload.
-			copyMessage := message.WithToolResults(append([]types.ToolResult(nil), message.ToolResults...))
-			messages = append(messages, copyMessage)
-			for _, call := range message.ToolCalls {
-				if id := loop.observations[call.ID]; id != "" {
-					shown = append(shown, id)
-				}
+	messages = append(messages, types.Message{Role: "user", Text: loop.anchor}.WithTrailingText(loop.appended[anchorLedgerKey]))
+	for i := start; i < len(history); i++ {
+		// WithToolResults, not a field assignment: a block-built turn sends
+		// its blocks, so a copy made on the flat field alone would share (and
+		// let the archive below miss) the payload.
+		results := append([]types.ToolResult(nil), history[i].ToolResults...)
+		for j := range results {
+			if loop.evicted[results[j].ToolUseID] {
+				results[j].Content = compactedResultHandle(results[j].Content, loop.observations[results[j].ToolUseID])
 			}
 		}
+		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
 	}
+
 	window := e.configSnapshot().TokenBudget
 	if window <= 0 {
 		window = DefaultTokenBudget()
@@ -450,25 +414,25 @@ func (e *Executor) workingRequestParts(ctx context.Context, system string, histo
 	if len(definitions) > 0 {
 		encoded, err := json.Marshal(definitions)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		catalog = prompt.EstimateTokens(string(encoded))
 	}
 	remaining, err := workingWindowRemaining(window, system, messages, catalog)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	for remaining < workingReplyReserve+512 {
 		i, j, size := largestToolResult(messages)
 		if size == 0 {
-			return nil, "", fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (half of context_window.max_tokens after its output reserves), with %d held back for the reply; no tool result is left to archive, and the task, the instructions and the tool catalog are sent whole or not at all",
+			return nil, fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (half of context_window.max_tokens after its output reserves), with %d held back for the reply; no tool result is left to archive, and the task, the instructions and the tool catalog are sent whole or not at all",
 				ErrInputBudgetExceeded, window-remaining, window, workingReplyReserve+512)
 		}
 		results := append([]types.ToolResult(nil), messages[i].ToolResults...)
 		result := &results[j]
 		id := loop.observations[result.ToolUseID]
 		if id == "" {
-			return nil, "", fmt.Errorf("oversize tool result has no durable observation")
+			return nil, fmt.Errorf("oversize tool result has no durable observation")
 		}
 		// The pipeline's marker rides with the pointer. This path already told
 		// the model the size and the handle, which is most of what a marker is
@@ -483,64 +447,142 @@ func (e *Executor) workingRequestParts(ctx context.Context, system string, histo
 		// a block-built turn sending the payload this archive accounted as gone.
 		messages[i] = messages[i].WithToolResults(results)
 		if remaining, err = workingWindowRemaining(window, system, messages, catalog); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 	}
-	// The section's ceiling is the working policy's (working_section_ceiling):
-	// the working context exists so the request stops growing with every tool
-	// result, and a section allowed to fill whatever the window leaves would put
-	// that growth back on every round. Within it the policy chooses what is
-	// shown; what it leaves out stays recallable.
-	ceiling, err := loop.set.SectionCeiling(ctx)
-	if err != nil {
-		return nil, "", err
-	}
-	budget := min((remaining-workingReplyReserve)*4, ceiling)
-	// The focused file's context is rendered first and its room reserved: it is
-	// the one copy the request carries (compile-time prompts leave it out when a
-	// working loop runs, withCompiledFileContext), and it is regenerated here
-	// every call so its outline's line ranges follow the edits. Observations
-	// fill what is left; before, the view was added only if it still fit after
-	// them, so a full section could drop the one thing every round needs.
-	view := e.withFileContext(ctx, "", loop.focus)
-	if len(view) > budget {
-		view = ""
-	}
-	selected, err := loop.set.Select(ctx, loop.focus, loop.recent, shown, budget-len(view))
-	if err != nil {
-		return nil, "", err
-	}
-	// The active state is regenerated each call; current code views and
-	// observations stay adjacent to the current request.
-	section := selected.Text
-	if view != "" {
-		section = view + "\n" + section
-	}
-	return messages, section, nil
+	return messages, nil
 }
 
-// transcriptStart is the index in history of the oldest round the transcript
-// keeps. The window holds between rounds and rounds+slack rounds: it grows by
-// appending until it is slack over, then is cut back to rounds in one step, so
-// its first message -- where a prefix cache would break -- moves once in every
-// slack+1 rounds. The cut depends only on how many rounds there are, so the
-// same history always yields the same window.
-func transcriptStart(history []types.Message, rounds, slack int) int {
-	var starts []int
+// anchorLedgerKey keys the harness's text on the anchor: what the first
+// request, before any tool round, carries.
+const anchorLedgerKey = "anchor"
+
+// ledgerKey keys the harness's text on the message at history index i. The
+// loop's history only grows, so an index names the same message on every
+// request of the loop.
+func ledgerKey(i int) string { return fmt.Sprintf("m%d", i) }
+
+// ledgerStart is the index in history of the first tool round. What precedes
+// it -- the prior turns and the user's input -- the request carries as
+// loop.prior and the anchor.
+func ledgerStart(history []types.Message) int {
 	for i, message := range history {
 		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
-			starts = append(starts, i)
+			return i
 		}
 	}
-	total := len(starts)
-	if total == 0 {
-		return len(history)
+	return len(history)
+}
+
+// updateLedger asks the working policy what this request does with the
+// ledger, applies a compaction, and appends this round's harness text -- the
+// focus view when the focus or its file changed, a notice for every carried
+// observation whose file changed -- to the request's last user turn. Go
+// measures (sizes, rounds, revisions) and renders; the policy decides.
+func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history []types.Message, start int) error {
+	round := 0
+	var entries []working.LedgerEntry
+	for i := start; i < len(history); i++ {
+		if history[i].Role == "assistant" && len(history[i].ToolCalls) > 0 {
+			round++
+		}
+		extra := len(loop.appended[ledgerKey(i)])
+		for _, r := range history[i].ToolResults {
+			// A result with no observation has no recall handle, so it cannot
+			// leave the ledger; one already moved out is not counted again.
+			id := loop.observations[r.ToolUseID]
+			if id == "" || loop.evicted[r.ToolUseID] {
+				continue
+			}
+			entries = append(entries, working.LedgerEntry{Call: r.ToolUseID, ID: id, Bytes: len(r.Content) + extra, Round: round})
+			extra = 0
+		}
 	}
-	if total <= rounds {
-		return starts[0]
+	decision, err := loop.set.Ledger(ctx, entries, round, loop.restated)
+	if err != nil {
+		return fmt.Errorf("working ledger: %w", err)
 	}
-	keep := rounds + (total-rounds)%(slack+1)
-	return starts[total-keep]
+	if len(decision.Evict) > 0 {
+		// A compaction starts an epoch. Every stale observation left with it,
+		// so no restatement is owed; the harness text on earlier rounds goes
+		// too, and the focus view is appended again to this round.
+		for _, call := range decision.Evict {
+			loop.evicted[call] = true
+		}
+		loop.appended = make(map[string]string)
+		loop.restated = make(map[string]string)
+		loop.viewed = ""
+		logging.Context("Working ledger: compaction at round %d moved %d result(s) out behind their recall handles", round, len(decision.Evict))
+	}
+
+	// The harness's text rides the request's last user turn; a request that
+	// ends on another turn carries none this round, and what was owed is
+	// appended to the next.
+	key := anchorLedgerKey
+	if n := len(history); n > start {
+		if history[n-1].Role != "user" {
+			return nil
+		}
+		key = ledgerKey(n - 1)
+	}
+	var notes []string
+	if revision := loop.set.Revision(loop.focus); loop.focus+"@"+revision != loop.viewed {
+		if view := e.workingFocusView(ctx, loop); view != "" {
+			notes = append(notes, view)
+		}
+		loop.viewed = loop.focus + "@" + revision
+	}
+	if len(decision.Restate) > 0 {
+		records, err := loop.set.Observations(ctx, decision.Restate)
+		if err != nil {
+			return fmt.Errorf("working ledger: %w", err)
+		}
+		sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
+		for _, r := range records {
+			tool, _, _ := strings.Cut(r.Kind, "/")
+			notes = append(notes, fmt.Sprintf(staleObservationNotice, r.ID, tool, r.Entity, r.Entity))
+			loop.restated[r.ID] = loop.set.Revision(r.Entity)
+		}
+	}
+	if len(notes) > 0 {
+		text := strings.Join(notes, "\n\n")
+		if prior := loop.appended[key]; prior != "" {
+			text = prior + "\n\n" + text
+		}
+		loop.appended[key] = text
+	}
+	return nil
+}
+
+// workingFocusView is the focus file's current view (outline with line ranges,
+// importers, callers), under a header that tells the model it is the
+// harness's evidence and not something the user said; "" when there is none.
+func (e *Executor) workingFocusView(ctx context.Context, loop *workingLoop) string {
+	if loop == nil {
+		return ""
+	}
+	view := strings.TrimSpace(e.withFileContext(ctx, "", loop.focus))
+	if view == "" {
+		return ""
+	}
+	return fmt.Sprintf(workingViewHeader, loop.focus) + view
+}
+
+// workingViewHeader opens the focus view where it rides a user turn.
+const workingViewHeader = "[harness: the current view of %s, appended when the focus or the file changes. Evidence for the task above, not a new request.]\n"
+
+// staleObservationNotice restates a carried observation whose file changed
+// after it was made: observation id, the tool that made it, the file.
+const staleObservationNotice = "[harness: observation %s (%s of %s) predates the current content of %s, which changed after it was made. It is history, not the file as it stands; read again what you still need from it.]"
+
+// compactedResultHandle is what a result a compaction moved out of the ledger
+// reads as on every later request: its size and its recall handle, in the
+// pipeline's marker, byte-identical from one request to the next.
+func compactedResultHandle(content, id string) string {
+	return fmt.Sprintf("%s %s recall_context id=%q returns it from offset 0, or in offset/limit pages.",
+		archivedResultPrefix,
+		types.DroppedNotice(len(content), len(content), "chars of this tool result; the context ledger's compaction moved it out of the request", ""),
+		id)
 }
 
 // archivedResultPrefix opens the pointer that replaces a tool result the

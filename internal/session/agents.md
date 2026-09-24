@@ -53,19 +53,24 @@
   path. The first round is open; a round that read without editing is
   followed by one more under the commit regime with the compiler or test
   output again. Two rounds at most; the regime is restored afterwards.
-- A working request carries the current call/result pair whole. A result is
-  archived to a `recall_context` pointer (which states the body's size) only
-  when the request cannot otherwise fit the configured input window, largest
-  result first. The tool catalog is charged to the window, never to the
-  observation section; that section's ceiling is the transcript bound it
-  replaces (`maxToolLoopHistoryBytes`). Recall returns a whole body unless the
-  caller pages. No fixed character thresholds on this path. The transcript
-  keeps the last `working_transcript_rounds` (policy fact) native rounds so
-  the model sees its own recent turns; those observations are excluded from
-  the section, so nothing is sent twice. A `read_file` observation records
-  its line span; a later read of the same file at the same revision that
-  covers an earlier read's span replaces it (`working_span`), as a repeated
-  body does (`working_digest`).
+- A working request is a context ledger: the prior turns, the anchor, and
+  every native call/result round since the loop began, each result whole.
+  It is append-only between compactions -- what one request carried the next
+  carries byte for byte -- so a provider prefix cache covers all of it but the
+  newest round. The harness's own text (the focus file's view, a notice that a
+  carried observation's file changed) is appended once to the round where it
+  arose and resent unchanged, never regenerated. What leaves the ledger is the
+  policy's (`internal/context/working_set.mg`): past `working.ledger_ceiling_bytes`
+  one compaction (`working_compact`) moves every result older than
+  `working.ledger_keep_rounds` and every stale or superseded one
+  (`working_evict`) out behind its `recall_context` handle, which states the
+  body's size. A carried observation whose file changed is restated once per
+  revision (`working_restate`), not rewritten. A `read_file` observation
+  records its line span; a later read of the same file at the same revision
+  that covers it supersedes it (`working_span`), as a repeated body does
+  (`working_digest`). Separately, a result is archived only when the request
+  cannot otherwise fit the input window, largest first; the tool catalog is
+  charged to the window. Recall returns a whole body unless the caller pages.
 - New LLM-facing behavior is a prompt atom first. `AvailableTools` describes the
   effective envelope; it is not authority.
 - Pass bounded task text into JIT retrieval even when delegation supplies only

@@ -55,8 +55,7 @@ type Spawner struct {
 	// When set, every spawned subagent receives it via
 	// Executor.SetFileContextProvider so withFileContext can append the rendered
 	// context to the compiled system prompt.
-	fileContext  FileContextProvider
-	workingWorld WorkingWorld
+	fileContext FileContextProvider
 
 	// codeElements parses the file a turn is looking at into the CodeDOM fact
 	// layer. It MUST be forwarded to every spawned subagent: `nerd fix`
@@ -405,9 +404,6 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	if src := s.currentCodeElements(); src != nil {
 		agent.executor.SetCodeElementSource(src)
 	}
-	s.mu.RLock()
-	agent.executor.SetWorkingWorld(s.workingWorld)
-	s.mu.RUnlock()
 	// Forward the parent session's executor config — the workspace the shard
 	// works in, its wall-clock constraints, its gates. Guard on whether one
 	// was actually supplied: a zero ExecutorConfig would clear the workspace

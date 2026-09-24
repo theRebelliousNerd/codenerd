@@ -77,24 +77,17 @@ func oneWorkingRound(t *testing.T, window int) (*Executor, context.Context, []ty
 	return e, ctx, history, body
 }
 
-// splitSentRequest separates what a request carried into the transcript (every
-// turn's prose and tool results) and the working section, which rides as the
-// trailing text of the last user turn behind workingSectionHeader.
-func splitSentRequest(messages []types.Message) (transcript, section string) {
+// requestText is everything a request carried, in order: each turn's text,
+// its tool results, and the harness's text appended to it.
+func requestText(messages []types.Message) string {
 	var b strings.Builder
-	for i, m := range messages {
-		text := m.Text
-		if i == len(messages)-1 {
-			if at := strings.Index(text, workingSectionHeader); at >= 0 {
-				text, section = text[:at], text[at+len(workingSectionHeader):]
-			}
-		}
-		b.WriteString(text)
-		for _, r := range m.ToolResults {
-			b.WriteString(r.Content)
+	for _, m := range messages {
+		for _, block := range m.Content() {
+			b.WriteString(block.Text)
+			b.WriteByte('\n')
 		}
 	}
-	return b.String(), section
+	return b.String()
 }
 
 func lastToolResult(t *testing.T, history []types.Message) string {
@@ -123,10 +116,9 @@ func TestPrepareWorkingRequest_CarriesTheCurrentResultWholeUnderAProductionCatal
 		t.Fatalf("catalog is %d bytes; the regression needs one larger than the old 16384-character section budget", len(encoded))
 	}
 
-	// Six more rounds push the first read out of the transcript window (three
-	// rounds, cut back once it has grown three over), so it has to come back
-	// through the selected section, which is where the zeroed budget used to
-	// lose it.
+	// Six more rounds. The first read and every later one stay in the ledger
+	// whole: together they are under its ceiling, and nothing a request
+	// carried is taken out of the next.
 	for round := 2; round <= 7; round++ {
 		call := types.ToolCall{ID: fmt.Sprintf("call-%d", round), Name: "read_file", Input: map[string]any{"path": "target.go", "start_line": round}}
 		later := fmt.Sprintf("round-%d-body", round)
@@ -145,15 +137,17 @@ func TestPrepareWorkingRequest_CarriesTheCurrentResultWholeUnderAProductionCatal
 	if got := lastToolResult(t, provider.history); got != "round-7-body" {
 		t.Fatalf("the current result was not sent whole; the model saw:\n%s", got)
 	}
+	carried := false
 	for _, m := range provider.history {
 		for _, r := range m.ToolResults {
-			if r.Content == body {
-				t.Fatal("the first read is outside the transcript window and must not be in the transcript")
-			}
+			carried = carried || r.Content == body
 		}
 	}
-	if _, section := splitSentRequest(provider.history); !strings.Contains(section, "[observation id=") || !strings.Contains(section, "needle-line-437") {
-		t.Fatalf("the first read was not selected into the working section under a %d-tool catalog; section tail:\n%s", len(defs), section[max(0, len(section)-600):])
+	if !carried {
+		t.Fatalf("the first read must be carried whole under a %d-tool catalog", len(defs))
+	}
+	if n := strings.Count(requestText(provider.history), "needle-line-437"); n != 1 {
+		t.Fatalf("the first read must be carried once, not also restated or selected; it appears %d times", n)
 	}
 	// The compiled prompt reaches the provider as it was compiled: a section
 	// written into it moved the cacheable prefix on every round.
@@ -183,8 +177,8 @@ func TestPrepareWorkingRequest_ArchivesOnlyWhatTheWindowCannotCarry(t *testing.T
 		!strings.Contains(got, fmt.Sprintf("%d chars", len(body))) || !strings.Contains(got, "recall_context id=") {
 		t.Fatalf("archived pointer must name the size and the record; got:\n%s", got)
 	}
-	if strings.Contains(provider.system, "needle-line-437") {
-		t.Fatal("a result the transcript points at must not also be sent in the section")
+	if strings.Contains(provider.system, "needle-line-437") || strings.Count(requestText(provider.history), "needle-line-437") != 0 {
+		t.Fatal("a result the request points at must not also be sent some other way")
 	}
 }
 
@@ -204,12 +198,13 @@ func TestNormalizeWorkingEntity_PhraseTargetIsTheWorkspaceRoot(t *testing.T) {
 	}
 }
 
-// The request keeps the policy's span of native rounds so the model sees its
-// own recent turns; older rounds move to the section, and no observation is
-// sent both ways. Three runs on 2026-09-11 stalled with only the current
-// pair kept: each round the model, seeing no earlier turn of its own,
-// re-read the same region to "locate the insertion point" and never wrote.
-func TestPrepareWorkingRequest_KeepsRecentRoundsInTheTranscript(t *testing.T) {
+// The request carries every round of the loop whole until the ledger outgrows
+// its ceiling, so the model sees all of its own turns. Three runs on
+// 2026-09-11 stalled with only the current pair kept: each round the model,
+// seeing no earlier turn of its own, re-read the same region to "locate the
+// insertion point" and never wrote; a sliding window of three rounds after
+// that still dropped a turn's early reads.
+func TestPrepareWorkingRequest_CarriesEveryRoundUntilTheCeiling(t *testing.T) {
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
 	if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, "target.go"), []byte("package target\n"), 0o600); err != nil {
@@ -222,8 +217,6 @@ func TestPrepareWorkingRequest_KeepsRecentRoundsInTheTranscript(t *testing.T) {
 	t.Cleanup(closeLoop)
 
 	history := []types.Message{{Role: "user", Text: "fix target.go"}}
-	// Seven rounds: the window keeps three and may grow three over before it is
-	// cut back, so at seven it has just been cut to rounds 5, 6 and 7.
 	for round := 1; round <= 7; round++ {
 		call := types.ToolCall{ID: fmt.Sprintf("call-%d", round), Name: "read_file", Input: map[string]any{"path": "target.go", "start_line": round}}
 		body := fmt.Sprintf("round-%d-body", round)
@@ -239,32 +232,25 @@ func TestPrepareWorkingRequest_KeepsRecentRoundsInTheTranscript(t *testing.T) {
 	if _, err := e.completeWithWorkingContext(ctx, provider, "system", history, nil); err != nil {
 		t.Fatalf("completeWithWorkingContext: %v", err)
 	}
-	transcript, section := splitSentRequest(provider.history)
-	for round := 5; round <= 7; round++ {
-		if !strings.Contains(transcript, fmt.Sprintf("round-%d-body", round)) {
-			t.Fatalf("round %d must stay in the transcript (policy keeps 3 rounds); transcript: %q", round, transcript)
+	text := requestText(provider.history)
+	for round := 1; round <= 7; round++ {
+		if n := strings.Count(text, fmt.Sprintf("round-%d-body", round)); n != 1 {
+			t.Fatalf("round %d's result must be carried once, whole; it appears %d times in %q", round, n, text)
 		}
-		if strings.Contains(section, fmt.Sprintf("round-%d-body", round)) {
-			t.Fatalf("round %d is in the transcript and must not also be in the section", round)
-		}
-	}
-	for round := 1; round <= 4; round++ {
-		if strings.Contains(transcript, fmt.Sprintf("round-%d-body", round)) {
-			t.Fatalf("round %d is outside the kept span and must leave the transcript", round)
-		}
-		if !strings.Contains(section, fmt.Sprintf("round-%d-body", round)) {
-			t.Fatalf("round %d left the transcript and must be in the section; section tail: %q", round, section[max(0, len(section)-400):])
+		if !strings.Contains(text, fmt.Sprintf("round %d", round)) {
+			t.Fatalf("round %d's own turn must be carried", round)
 		}
 	}
 }
 
 // A change whose evidence spans files needs them in view together. The focus
 // follows the file touched last, and the observations of the files touched
-// before it left the window with the transcript rounds that carried them:
-// selection only reached the focus's import neighbourhood, which a
+// before it used to leave the window with the transcript rounds that carried
+// them: selection only reached the focus's import neighbourhood, which a
 // same-package test never belongs to. Observed 2026-09-19: a flake fix read
 // the test four times, one source file four times and the other three times,
-// and stopped at the read-only stall with nothing written.
+// and stopped at the read-only stall with nothing written. The ledger carries
+// every file's reads whole until its ceiling, whatever the focus.
 func TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves(t *testing.T) {
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
@@ -280,9 +266,7 @@ func TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves(t *test
 	t.Cleanup(closeLoop)
 
 	// Seven rounds: the test, then the two files it exercises, then four more
-	// reads of the last one. The policy keeps three rounds in the transcript and
-	// cuts back to them at seven, so the test and loop.go are carried only if
-	// the section carries them.
+	// reads of the last one.
 	reads := []struct{ path, body string }{
 		{"loop_test.go", "body-of-the-test"},
 		{"loop.go", "body-of-loop"},
@@ -307,15 +291,10 @@ func TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves(t *test
 	if _, err := e.completeWithWorkingContext(ctx, provider, "system", history, nil); err != nil {
 		t.Fatalf("completeWithWorkingContext: %v", err)
 	}
-	_, section := splitSentRequest(provider.history)
+	text := requestText(provider.history)
 	for _, body := range []string{"body-of-the-test", "body-of-loop"} {
-		if !strings.Contains(section, body) {
-			t.Fatalf("%s left the transcript and must be in the section; the focus moving to context.go does not end what the turn is working with", body)
-		}
-	}
-	for _, body := range []string{"body-of-the-test", "body-of-loop"} {
-		if strings.Count(section, body) != 1 {
-			t.Fatalf("%s must appear once in the section, got %d", body, strings.Count(section, body))
+		if n := strings.Count(text, body); n != 1 {
+			t.Fatalf("%s must be carried once, whole; the focus moving to context.go does not end what the turn is working with (it appears %d times)", body, n)
 		}
 	}
 }
@@ -361,9 +340,6 @@ func TestRecordWorkingResult_RecallRestoresTheOriginalObservation(t *testing.T) 
 
 	if got := loop.observations[recall.ID]; got != original {
 		t.Fatalf("the recall call must map to the observation it recalled, %q; got %q", original, got)
-	}
-	if got := loop.recent[len(loop.recent)-1]; got != original {
-		t.Fatalf("the recalled observation must be the most recent again, %q; got %q", original, got)
 	}
 	hits, err := loop.set.Search(ctx, "recall_context/", 0, 50)
 	if err != nil {

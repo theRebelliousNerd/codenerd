@@ -4,8 +4,8 @@ import "fmt"
 
 // WorkingConfig is the `working` section of .nerd/config.json: the spans the
 // working policy (internal/context/working_set.mg) decides a tool loop's
-// regime, steering, stop and finalize with, and the bounds of the context it
-// selects. Steve's rule, as for every section: "everything is configurable,
+// regime, steering, stop and finalize with, and the bounds of its context
+// ledger. Steve's rule, as for every section: "everything is configurable,
 // not hard coded.. all from config.json" (sweep finding F8).
 //
 // They are stall thresholds, not run ceilings: a loop that makes progress runs
@@ -15,17 +15,14 @@ import "fmt"
 // 2026-09-18 so nobody could tune it into a count ceiling; it is here again
 // with a floor that keeps it a repeat detector (at least 2 identical cycles).
 type WorkingConfig struct {
-	// TranscriptRounds is how many of the last native call/result rounds a
-	// request keeps in the provider transcript (working_transcript_rounds).
-	TranscriptRounds int `json:"transcript_rounds,omitempty"`
-	// TranscriptSlack is how many rounds past TranscriptRounds the kept span
-	// may grow before it is cut back, so the cached prefix holds between cuts
-	// (working_transcript_slack). Zero is a value -- the every-round slide --
-	// so absence is nil, not 0.
-	TranscriptSlack *int `json:"transcript_slack,omitempty"`
-	// SectionCeilingBytes bounds the selected-context section of one request
-	// (working_section_ceiling); a read that falls out is one recall away.
-	SectionCeilingBytes int `json:"section_ceiling_bytes,omitempty"`
+	// LedgerCeilingBytes is the size at which the policy compacts the context
+	// ledger -- the tool results a working request carries whole since the
+	// last compaction (working_ledger_ceiling). It is a trigger, not a cut:
+	// compaction moves old results out behind recall handles, in one step.
+	LedgerCeilingBytes int `json:"ledger_ceiling_bytes,omitempty"`
+	// LedgerKeepRounds is how many of the latest rounds a compaction keeps
+	// whole (working_ledger_keep_rounds).
+	LedgerKeepRounds int `json:"ledger_keep_rounds,omitempty"`
 	// NudgeRounds is the span after which a read task is nudged to conclude,
 	// a change task to implement or verify (working_nudge_rounds).
 	NudgeRounds int `json:"nudge_rounds,omitempty"`
@@ -53,14 +50,14 @@ type WorkingConfig struct {
 	StructuralMissLimit int `json:"structural_miss_limit,omitempty"`
 }
 
-// DefaultWorkingConfig is the working section with every field written down:
-// the values the policy carried as literals until 2026-09-23.
+// DefaultWorkingConfig is the working section with every field written down.
+// The ledger ceiling is the context-economics study's 16k-token point
+// (2026-09-22, simulated on 481 measured rounds: uncached input -68%, total
+// -10%; a 64k-token ceiling bought nothing more).
 func DefaultWorkingConfig() WorkingConfig {
-	slack := 3
 	return WorkingConfig{
-		TranscriptRounds:    3,
-		TranscriptSlack:     &slack,
-		SectionCeilingBytes: 131072,
+		LedgerCeilingBytes:  65536,
+		LedgerKeepRounds:    2,
 		NudgeRounds:         8,
 		CommitRounds:        16,
 		FinalizeRounds:      16,
@@ -85,8 +82,8 @@ func (c *UserConfig) GetWorkingConfig() WorkingConfig {
 func (c WorkingConfig) WithDefaults() WorkingConfig {
 	d := DefaultWorkingConfig()
 	for _, f := range []struct{ v, def *int }{
-		{&c.TranscriptRounds, &d.TranscriptRounds},
-		{&c.SectionCeilingBytes, &d.SectionCeilingBytes},
+		{&c.LedgerCeilingBytes, &d.LedgerCeilingBytes},
+		{&c.LedgerKeepRounds, &d.LedgerKeepRounds},
 		{&c.NudgeRounds, &d.NudgeRounds},
 		{&c.CommitRounds, &d.CommitRounds},
 		{&c.FinalizeRounds, &d.FinalizeRounds},
@@ -99,9 +96,6 @@ func (c WorkingConfig) WithDefaults() WorkingConfig {
 		if *f.v == 0 {
 			*f.v = *f.def
 		}
-	}
-	if c.TranscriptSlack == nil {
-		c.TranscriptSlack = d.TranscriptSlack
 	}
 	return c
 }
@@ -121,9 +115,8 @@ func (c WorkingConfig) Check(prefix string) []Problem {
 			})
 		}
 	}
-	atLeast("transcript_rounds", c.TranscriptRounds, 1, "a request must keep the round it answers")
-	atLeast("transcript_slack", *c.TranscriptSlack, 0, "slack is a count of rounds")
-	atLeast("section_ceiling_bytes", c.SectionCeilingBytes, 4096, "the working set refuses a smaller section (WorkingSet.SectionCeiling)")
+	atLeast("ledger_ceiling_bytes", c.LedgerCeilingBytes, 4096, "below one large read, every round would compact and nothing would stay cached")
+	atLeast("ledger_keep_rounds", c.LedgerKeepRounds, 1, "a compaction keeps at least the round the request answers")
 	atLeast("nudge_rounds", c.NudgeRounds, 1, "a span is a count of rounds")
 	atLeast("commit_rounds", c.CommitRounds, 1, "a span is a count of rounds")
 	atLeast("finalize_rounds", c.FinalizeRounds, 1, "a span is a count of rounds")
@@ -148,9 +141,8 @@ func (c WorkingConfig) Check(prefix string) []Problem {
 func (c WorkingConfig) Params() []Param {
 	c = c.WithDefaults()
 	return []Param{
-		{Key: "/working_transcript_rounds", Value: int64(c.TranscriptRounds)},
-		{Key: "/working_transcript_slack", Value: int64(*c.TranscriptSlack)},
-		{Key: "/working_section_ceiling", Value: int64(c.SectionCeilingBytes)},
+		{Key: "/working_ledger_ceiling", Value: int64(c.LedgerCeilingBytes)},
+		{Key: "/working_ledger_keep_rounds", Value: int64(c.LedgerKeepRounds)},
 		{Key: "/working_nudge_rounds", Value: int64(c.NudgeRounds)},
 		{Key: "/working_commit_rounds", Value: int64(c.CommitRounds)},
 		{Key: "/working_finalize_rounds", Value: int64(c.FinalizeRounds)},

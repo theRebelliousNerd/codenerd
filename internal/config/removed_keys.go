@@ -53,6 +53,15 @@ var (
 		"ouroboros_timeout":           "tool generation runs to completion, each model request bounded by per_call_timeout; delete the key",
 	}
 
+	// removedWorkingKeys: `working`. The sliding transcript window and the
+	// per-round observations section gave way to the context ledger on
+	// 2026-09-23 (working_compact / working_evict in working_set.mg).
+	removedWorkingKeys = map[string]string{
+		"transcript_rounds":     "a request carries every round since the last compaction; the ledger's kept rounds are working.ledger_keep_rounds; delete the key",
+		"transcript_slack":      "the ledger only grows between compactions, so there is no window to slide; delete the key",
+		"section_ceiling_bytes": "there is no per-round observations section; the ledger compacts past working.ledger_ceiling_bytes; delete the key",
+	}
+
 	// removedShardProfileKeys: every profile under `shard_profiles`, and
 	// `default_shard`. Removed 2026-09-19.
 	removedShardProfileKeys = map[string]string{
@@ -73,6 +82,7 @@ func rejectRemovedKeys(data []byte) error {
 		ShardProfiles map[string]map[string]json.RawMessage `json:"shard_profiles"`
 		DefaultShard  map[string]json.RawMessage            `json:"default_shard"`
 		Features      map[string]json.RawMessage            `json:"features"`
+		Working       map[string]json.RawMessage            `json:"working"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return nil
@@ -91,6 +101,7 @@ func rejectRemovedKeys(data []byte) error {
 	}
 	reasons = append(reasons, removedIn("default_shard", envelope.DefaultShard, removedShardProfileKeys)...)
 	reasons = append(reasons, removedIn("features", envelope.Features, removedFeatureKeys)...)
+	reasons = append(reasons, removedIn("working", envelope.Working, removedWorkingKeys)...)
 	if len(reasons) == 0 {
 		return nil
 	}

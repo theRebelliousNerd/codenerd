@@ -11,35 +11,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Eviction is not deletion: a result a compaction moved out of the ledger is
+// recalled whole from the archive, and only by its own scope.
 func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "b.go"), []byte("package b"), 0600))
-	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
+	w, err := NewWorkingSet(root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
+	var entries []LedgerEntry
 	for i := 0; i < 120; i++ {
 		entity := "b.go"
 		if i == 0 {
 			entity = "a.go"
 		}
-		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: fmt.Sprint(i), Entity: entity, Revision: w.Revision(entity), Kind: fmt.Sprint(i), Step: int64(i), Body: strings.Repeat("payload ", 80) + fmt.Sprintf(" fact-%d", i)}))
+		body := strings.Repeat("payload ", 80) + fmt.Sprintf(" fact-%d", i)
+		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: fmt.Sprint(i), Entity: entity, Revision: w.Revision(entity), Kind: fmt.Sprint(i), Step: int64(i), Body: body}))
+		entries = append(entries, LedgerEntry{Call: fmt.Sprintf("call-%d", i), ID: fmt.Sprint(i), Bytes: len(body), Round: i + 1})
 	}
-	selected, err := w.Select(t.Context(), "b.go", nil, nil, 1800)
+	decision, err := w.Ledger(t.Context(), entries, 120, nil)
 	require.NoError(t, err)
-	require.NotContains(t, selected.Text, "fact-0")
-	require.LessOrEqual(t, len(selected.Text), 1800)
-	recalled, err := w.Select(t.Context(), "a.go", nil, nil, 1800)
-	require.NoError(t, err)
-	require.Contains(t, recalled.Text, "fact-0", "early fact must return after many intervening observations")
-	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package changed"), 0600))
-	stale, err := w.Select(t.Context(), "a.go", nil, nil, 1800)
-	require.NoError(t, err)
-	require.NotContains(t, stale.Text, "fact-0", "changed source invalidates old evidence")
+	require.Contains(t, decision.Evict, "call-0", "the first round's result leaves a ledger far over its ceiling")
 	page, err := w.Recall(t.Context(), "0", 0, 1000)
 	require.NoError(t, err)
 	require.Contains(t, page, "fact-0", "eviction is not deletion")
-	other, err := NewWorkingSet(nil, root, "sibling", config.DefaultWorkingConfig())
+	other, err := NewWorkingSet(root, "sibling", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	defer other.Close()
 	_, err = other.Recall(t.Context(), "0", 0, 1000)
@@ -58,7 +55,7 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 // and line, then read on for the rest of a 30-minute ceiling without running
 // the test the task named.
 func TestWorkingSetContinuePolicy(t *testing.T) {
-	w, err := NewWorkingSet(nil, t.TempDir(), "policy", config.DefaultWorkingConfig())
+	w, err := NewWorkingSet(t.TempDir(), "policy", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	ctx := t.Context()
@@ -104,38 +101,13 @@ func TestWorkingSetContinuePolicy(t *testing.T) {
 	}
 }
 
-// A selected observation is shown whole when the budget allows, whatever its
-// length. Select used to read at most a 16000-character page of each body and
-// then treat a longer body as unshowable, so a 20 KB read the policy had
-// selected was replaced by a pointer however much budget the request had.
-func TestWorkingSetSelectShowsALongObservationWithinBudget(t *testing.T) {
-	root := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = w.Close() })
-	body := strings.Repeat("payload line\n", 3000) + "tail-marker"
-	require.Greater(t, len(body), 16000)
-	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "long", Entity: "a.go", Revision: w.Revision("a.go"), Kind: "read", Step: 1, Body: body}))
-
-	shown, err := w.Select(t.Context(), "a.go", []string{"long"}, nil, 2*len(body))
-	require.NoError(t, err)
-	require.Contains(t, shown.Text, "tail-marker", "a body that fits the budget is shown whole")
-	require.Equal(t, []string{"long"}, shown.Selected)
-
-	pointed, err := w.Select(t.Context(), "a.go", []string{"long"}, nil, len(body)/2)
-	require.NoError(t, err)
-	require.NotContains(t, pointed.Text, "tail-marker")
-	require.Contains(t, pointed.Text, "recover with recall_context", "a body outside the budget is pointed at, not dropped")
-}
-
 // Recall returns the rest of a body from the offset unless the caller pages,
 // and reports where the next page would start. The default page was 2000
 // characters, which handed a 14 KB read back seven calls at a time.
 func TestWorkingSetRecallReturnsTheWholeBodyUnlessPaged(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
+	w, err := NewWorkingSet(root, "task", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	body := strings.Repeat("0123456789", 2500) + "tail-marker"
@@ -153,121 +125,6 @@ func TestWorkingSetRecallReturnsTheWholeBodyUnlessPaged(t *testing.T) {
 	require.Contains(t, page, `"next_offset":110`)
 }
 
-// After an edit, the observations made at the new revision are the working
-// set; the ones from before it are stale. Every round's runtime facts must
-// replace the previous round's: with them accumulating, the file's old
-// revision stayed asserted, every post-edit observation derived working_stale
-// against it, and from the first edit on nothing about the edited file was
-// ever selected again.
-func TestWorkingSetSelectFollowsTheFileAcrossAnEdit(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "a.go")
-	require.NoError(t, os.WriteFile(path, []byte("package a\n// v1\n"), 0600))
-	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = w.Close() })
-
-	before := w.Revision("a.go")
-	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "read-before", Entity: "a.go", Revision: before, Kind: "read_file/x", Step: 1, Body: "body before"}))
-	first, err := w.Select(t.Context(), "a.go", []string{"read-before"}, nil, 100000)
-	require.NoError(t, err)
-	require.Equal(t, []string{"read-before"}, first.Selected)
-
-	require.NoError(t, os.WriteFile(path, []byte("package a\n// v2\n"), 0600))
-	after := w.Revision("a.go")
-	require.NotEqual(t, before, after)
-	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "edit", Entity: "a.go", Revision: after, Kind: "edit_lines/y", Step: 2, Body: "body edit"}))
-	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "read-after", Entity: "a.go", Revision: after, Kind: "read_file/x", Step: 3, Body: "body after"}))
-
-	second, err := w.Select(t.Context(), "a.go", []string{"read-before", "edit", "read-after"}, nil, 100000)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"edit", "read-after"}, second.Selected, "the post-edit observations are the working set")
-	require.Equal(t, []string{"read-before"}, second.Omitted, "the pre-edit read is stale")
-	require.Contains(t, second.Text, "body after")
-	require.NotContains(t, second.Text, "body before")
-}
-
-// Two requests that differ in their arguments but returned the same body are
-// one observation; only the latest is shown. Supersession used to key on the
-// request alone, so a read whose range snapped to the same projection five
-// times filled the section with five copies of it.
-func TestWorkingSetSelectCollapsesRepeatedBodies(t *testing.T) {
-	root := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = w.Close() })
-	rev := w.Revision("a.go")
-	body := "a.go: lines 10-40 of 90\nsame projection"
-	for i, kind := range []string{"read_file/range-8-40", "read_file/range-10-40", "read_file/range-12-40"} {
-		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: fmt.Sprintf("r%d", i), Entity: "a.go", Revision: rev, Kind: kind, Step: int64(i + 1), Body: body}))
-	}
-	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "other", Entity: "a.go", Revision: rev, Kind: "read_file/range-50-60", Step: 4, Body: "a.go: lines 50-60 of 90\ndifferent projection"}))
-
-	sel, err := w.Select(t.Context(), "a.go", []string{"r0", "r1", "r2", "other"}, nil, 100000)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"r2", "other"}, sel.Selected, "the latest copy of a repeated body and the distinct body")
-	require.Equal(t, 1, strings.Count(sel.Text, "same projection"))
-}
-
-// A later read of the same file at the same revision that covers an earlier
-// read's span replaces it; a read of a disjoint span does not. Observed
-// 2026-09-11: one region read five times with slightly different ranges was
-// five observations, and the section ran to 146 KB a round.
-func TestWorkingSetSelectCollapsesCoveredSpans(t *testing.T) {
-	root := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = w.Close() })
-	rev := w.Revision("a.go")
-	save := func(id string, step, start, end int64, body string) {
-		t.Helper()
-		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: id, Entity: "a.go", Revision: rev, Kind: "read_file/" + id, Step: step, Start: start, End: end, Body: body}))
-	}
-	save("narrow", 1, 760, 830, "a.go: lines 760-830\nnarrow view")
-	save("wide", 2, 700, 850, "a.go: lines 700-850\nwide view")
-	save("apart", 3, 1, 50, "a.go: lines 1-50\nhead view")
-	save("outline", 4, 0, 0, "a.go: outline\nsymbols")
-
-	sel, err := w.Select(t.Context(), "a.go", []string{"narrow", "wide", "apart", "outline"}, nil, 100000)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"wide", "apart", "outline"}, sel.Selected, "the covering read replaces the narrow one; a disjoint read and a span-less record stay")
-	require.NotContains(t, sel.Text, "narrow view")
-
-	save("whole", 5, 1, wholeSpanEnd, "a.go: whole file\nall of it")
-	sel, err = w.Select(t.Context(), "a.go", []string{"narrow", "wide", "apart", "outline", "whole"}, nil, 100000)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"whole", "outline"}, sel.Selected, "a whole-file read replaces every ranged read at the same revision")
-}
-
-// wholeSpanEnd mirrors the session recorder's "to the end of the file" span.
-const wholeSpanEnd = 1_000_000_000
-
-// An observation whose call/result pair the request already carries in the
-// transcript is neither selected into the section nor reported omitted, so
-// nothing is sent twice; the span of such rounds is the policy's.
-func TestWorkingSetSelectSkipsObservationsShownInTheTranscript(t *testing.T) {
-	root := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
-	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = w.Close() })
-	rounds, err := w.TranscriptRounds(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, 3, rounds, "the policy's working_transcript_rounds")
-	rev := w.Revision("a.go")
-	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "older", Entity: "a.go", Revision: rev, Kind: "read_file/1", Step: 1, Body: "older body"}))
-	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "current", Entity: "a.go", Revision: rev, Kind: "read_file/2", Step: 2, Body: "current body"}))
-
-	sel, err := w.Select(t.Context(), "a.go", []string{"older", "current"}, []string{"current"}, 100000)
-	require.NoError(t, err)
-	require.Equal(t, []string{"older"}, sel.Selected)
-	require.Empty(t, sel.Omitted, "a shown observation is not an omission")
-	require.Contains(t, sel.Text, "older body")
-	require.NotContains(t, sel.Text, "current body")
-}
-
 // Search discovers handles, not bodies: every hit reports body_chars and the
 // envelope says how to read the body. Observed 2026-09-17: Search serialized
 // full WorkingRecords, so every hit carried "body":"" — including several
@@ -276,7 +133,7 @@ func TestWorkingSetSelectSkipsObservationsShownInTheTranscript(t *testing.T) {
 func TestWorkingSetSearchReportsBodyCharsNotAnEmptyBody(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "executor_tools.go"), []byte("package session"), 0600))
-	w, err := NewWorkingSet(nil, root, "search", config.DefaultWorkingConfig())
+	w, err := NewWorkingSet(root, "search", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 
@@ -293,41 +150,4 @@ func TestWorkingSetSearchReportsBodyCharsNotAnEmptyBody(t *testing.T) {
 	page, err := w.Recall(t.Context(), "hit-1", 0, 0)
 	require.NoError(t, err)
 	require.Contains(t, page, `"total_chars":5000`, "the id must round-trip into a full-body read")
-}
-
-// The loop's recent observations are its working memory, whatever file they
-// came from: working_recent gives them the top priority. Selection used to draw
-// candidates only from the focus's dependency slice -- the file touched last
-// and its import links -- so an observation of any other file was never a
-// candidate and the promise could not be kept. A same-package test and the
-// code it tests have no import link. Observed 2026-09-19: a fix whose evidence
-// lay in a test and two source files read them 4, 4 and 3 times, never holding
-// all three in view, until the read-only stall ended the turn.
-func TestWorkingSetSelectKeepsRecentObservationsOfOtherFiles(t *testing.T) {
-	root := t.TempDir()
-	files := []string{"a_test.go", "b.go", "c.go"}
-	for _, name := range files {
-		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte("package a // "+name), 0600))
-	}
-	w, err := NewWorkingSet(nil, root, "task", config.DefaultWorkingConfig())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = w.Close() })
-	for i, name := range files {
-		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: name, Entity: name, Revision: w.Revision(name), Kind: "read_file/" + name, Step: int64(i + 1), Body: "body of " + name}))
-	}
-
-	sel, err := w.Select(t.Context(), "c.go", files, []string{"c.go"}, 100000)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"a_test.go", "b.go"}, sel.Selected, "every recent observation the transcript does not already carry")
-	require.Contains(t, sel.Text, "body of a_test.go")
-	require.Contains(t, sel.Text, "body of b.go")
-
-	// Recency is not a way around staleness: an edit to the other file makes
-	// its observation stale, focus or no focus.
-	require.NoError(t, os.WriteFile(filepath.Join(root, "a_test.go"), []byte("package a // edited"), 0600))
-	sel, err = w.Select(t.Context(), "c.go", files, []string{"c.go"}, 100000)
-	require.NoError(t, err)
-	require.Equal(t, []string{"b.go"}, sel.Selected)
-	require.Equal(t, []string{"a_test.go"}, sel.Omitted, "the stale observation stays recallable, not shown")
-	require.NotContains(t, sel.Text, "body of a_test.go")
 }

@@ -9,45 +9,8 @@ Decl working_revision(Entity, Revision) bound [/string, /string].
 Decl working_digest(ID, Digest) bound [/string, /string].
 # The line span a content read covered; only reads with a span assert one.
 Decl working_span(ID, Start, End) bound [/string, /number, /number].
-Decl working_recent(ID) bound [/string].
-# Observations whose native call/result pair is in the provider transcript
-# this round. They are the model's own recent turns and are not repeated in
-# the selected state.
-Decl working_in_transcript(ID) bound [/string].
-# Rounds of native call/result pairs kept in the provider transcript. The
-# current round is always kept. Observed 2026-09-11: with only the current
-# pair kept, every earlier read lived in the system prompt as an observation
-# block and the model, seeing no turn of its own before this one, "located
-# the insertion point" afresh on every round of a three-fact insertion and
-# never wrote; three runs stalled at the read-only ceiling.
-Decl working_transcript_rounds(N) bound [/number].
-working_transcript_rounds(N) :- config_param(/working_transcript_rounds, N).
-config_param_required(/working, /working_transcript_rounds).
-# How many rounds beyond working_transcript_rounds the transcript may grow
-# before it is cut back to that count. A provider prefix cache covers a request
-# only up to its first changed byte, and a window that drops its oldest round
-# every round changes the first byte after the anchor every round, so no round
-# of the transcript was ever served from cache: measured 2026-09-21, 767 of 854
-# follow-up calls changed the prefix and 47% of their input was cached, against
-# 83% where it held. With slack S the transcript is append-only for S rounds in
-# every S+1 and the cut happens once. Zero restores the every-round slide.
-Decl working_transcript_slack(N) bound [/number].
-working_transcript_slack(N) :- config_param(/working_transcript_slack, N).
-config_param_required(/working, /working_transcript_slack).
-# The most the observations section of one working request may carry, in
-# bytes. Within it working_selected/2 chooses what is shown; everything it
-# leaves out stays recallable by id. It was a Go constant equal to the old
-# transcript cap (256 KiB, ~64k tokens) until 2026-09-18, when one nerd fix run
-# was measured sending 32k tokens on its first call and 80-103k by its last:
-# the growth was this section filling with every file the turn had read. The
-# window is not a bucket; half of that is room for a one-file change and the
-# files around it, and a read that falls out is one recall away.
-Decl working_section_ceiling(Bytes) bound [/number].
-working_section_ceiling(N) :- config_param(/working_section_ceiling, N).
-config_param_required(/working, /working_section_ceiling).
 Decl working_stale(ID) bound [/string].
 Decl working_superseded(ID) bound [/string].
-Decl working_selected(ID, Priority) bound [/string, /name].
 Decl working_control(Cycle, FailedRounds) bound [/name, /number].
 # The loop's report at each round boundary. Intent is /write for a
 # write-oriented verb and /read otherwise; Rounds counts completed rounds;
@@ -241,11 +204,65 @@ working_superseded(ID) :-
     working_observation(Other, Entity, Revision, _, Later), working_span(Other, OtherStart, OtherEnd),
     Step < Later, OtherStart <= Start, OtherEnd >= End.
 
-working_selected(ID, Priority) :-
-    working_observation(ID, Entity, _, _, _),
-    should_include_context(Entity, Priority),
-    !working_stale(ID), !working_superseded(ID), !working_in_transcript(ID).
+# The context ledger. A working request carries every round of native
+# call/result pairs since the last compaction, whole and byte-identical from one
+# round to the next, so a provider's prefix cache covers all of it but the
+# newest round. Until 2026-09-23 a request carried a sliding window of rounds
+# and, at its tail, a section of selected observations regenerated every round;
+# measured on 481 rounds (2026-09-22): 81% of each section was the round
+# before's observations, each observation was sent 5.6 times, and none of the
+# section was ever served from cache (22.3k of 55.4k input tokens a round
+# uncached).
+#
+# working_ledger(Call, ID, Bytes, Round): a tool result the ledger carries whole
+# -- the call it answers, the observation it holds, its size with any harness
+# text appended to it, and the round it entered. working_round_now(N): the
+# latest round in the ledger.
+Decl working_ledger(Call, ID, Bytes, Round) bound [/string, /string, /number, /number].
+Decl working_round_now(N) bound [/number].
+Decl working_ledger_ceiling(Bytes) bound [/number].
+working_ledger_ceiling(N) :- config_param(/working_ledger_ceiling, N).
+config_param_required(/working, /working_ledger_ceiling).
+Decl working_ledger_keep_rounds(N) bound [/number].
+working_ledger_keep_rounds(N) :- config_param(/working_ledger_keep_rounds, N).
+config_param_required(/working, /working_ledger_keep_rounds).
 
-working_selected(ID, /p100) :-
-    working_observation(ID, _, _, _, _), working_recent(ID),
-    !working_stale(ID), !working_superseded(ID), !working_in_transcript(ID).
+Decl working_ledger_bytes(Total) bound [/number].
+working_ledger_bytes(Total) :-
+    working_ledger(_, _, Bytes, _)
+    |> do fn:group_by(), let Total = fn:sum(Bytes).
+
+# Compaction is one step that moves results out behind their recall handles, so
+# the cache breaks once an epoch instead of once a round.
+Decl working_compact() descr [doc("The ledger outgrew its ceiling: this request moves results out behind recall handles.")].
+working_compact() :-
+    working_ledger_bytes(Total), working_ledger_ceiling(Ceiling), Total > Ceiling.
+
+# What a compaction moves out: every result older than the kept rounds, and any
+# stale or superseded observation -- stale evidence does not stand as current,
+# and a covered read is carried by the read that covers it.
+Decl working_evict(Call) bound [/string].
+working_evict(Call) :-
+    working_compact(), working_ledger(Call, _, _, Round),
+    working_round_now(Now), working_ledger_keep_rounds(Keep),
+    Cut = fn:minus(Now, Keep), Round <= Cut.
+working_evict(Call) :-
+    working_compact(), working_ledger(Call, ID, _, _), working_stale(ID).
+working_evict(Call) :-
+    working_compact(), working_ledger(Call, ID, _, _), working_superseded(ID).
+
+# Restatement. An observation still in the ledger whose file changed after it
+# was made is not rewritten -- that would break the cache from its round on --
+# and is not left standing as current either: the harness appends the current
+# text once, at the round the change is seen, and again only at a later
+# revision. working_restated(ID, Revision) is what the harness has appended.
+Decl working_restated(ID, Revision) bound [/string, /string].
+Decl working_restated_now(ID) bound [/string].
+working_restated_now(ID) :-
+    working_restated(ID, Revision),
+    working_observation(ID, Entity, _, _, _), working_revision(Entity, Revision).
+Decl working_kept(ID) bound [/string].
+working_kept(ID) :- working_ledger(Call, ID, _, _), !working_evict(Call).
+Decl working_restate(ID) bound [/string].
+working_restate(ID) :-
+    working_kept(ID), working_stale(ID), !working_restated_now(ID).

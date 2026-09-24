@@ -74,7 +74,6 @@ func TestJourney_PlannedSteps_WritesBothFilesAndLedgers(t *testing.T) {
 	// whole requirement for.
 	cfg.WorkspaceRoot = root
 	executor.SetConfig(cfg)
-	executor.workingWorld = &MockKernel{}
 	executor.SetSessionID("journey-planned-steps")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

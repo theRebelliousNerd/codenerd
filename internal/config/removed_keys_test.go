@@ -109,3 +109,30 @@ func TestLoadUserConfig_RejectsRemovedRunClocks(t *testing.T) {
 		}
 	})
 }
+
+// The sliding transcript window and the per-round observations section gave
+// way to the context ledger (2026-09-23). A config still setting one of their
+// keys must fail naming it and the ledger knob that replaced it, and the
+// ledger's own keys load.
+func TestLoadUserConfig_RejectsTheWindowKeysTheLedgerReplaced(t *testing.T) {
+	for _, key := range []string{"transcript_rounds", "transcript_slack", "section_ceiling_bytes"} {
+		t.Run(key, func(t *testing.T) {
+			_, err := LoadUserConfig(writeCoreLimitsTestConfig(t, `{"working": {"nudge_rounds": 8, "`+key+`": 3}}`))
+			if err == nil {
+				t.Fatalf("working.%s still loads", key)
+			}
+			for _, want := range []string{"working." + key, "no longer a supported key", "delete the key"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error does not contain %q: %v", want, err)
+				}
+			}
+		})
+	}
+	cfg, err := LoadUserConfig(writeCoreLimitsTestConfig(t, `{"working": {"ledger_ceiling_bytes": 32768, "ledger_keep_rounds": 3}}`))
+	if err != nil {
+		t.Fatalf("the ledger's keys were refused: %v", err)
+	}
+	if got := cfg.GetWorkingConfig(); got.LedgerCeilingBytes != 32768 || got.LedgerKeepRounds != 3 {
+		t.Fatalf("the ledger's keys did not load: %+v", got)
+	}
+}

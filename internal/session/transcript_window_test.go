@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -12,12 +13,13 @@ import (
 	"codenerd/internal/types"
 )
 
-// The transcript a request carries is the working policy's window, measured
-// through the production loop rather than by handing prepareWorkingRequest a
-// synthetic history. A Go cut in the loop used to keep the last three messages,
-// so no request ever carried a third round whatever the policy said, and the
-// slack that makes the transcript append-only (and so cacheable) never ran.
-func TestToolLoop_RequestsCarryThePolicysTranscriptWindow(t *testing.T) {
+// Through the production loop, every request carries every round so far and
+// is a byte-for-byte prefix of the next: the ledger only grows at its end
+// between compactions, which is what a provider prefix cache needs. A Go cut
+// in the loop once kept the last three messages, and a sliding window after
+// it moved the first carried round every round; measured 2026-09-21, the
+// prefix changed on 767 of 854 follow-up calls.
+func TestToolLoop_RequestsCarryTheWholeLedgerAppendOnly(t *testing.T) {
 	const toolName = "transcript_window_probe"
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
@@ -26,22 +28,6 @@ func TestToolLoop_RequestsCarryThePolicysTranscriptWindow(t *testing.T) {
 	const rounds = 9
 	client := &roundScriptProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName, rounds: rounds}
 	e := newWorkingLoopExecutor(t, client)
-
-	// The window's size is the policy's, read the way the loop reads it.
-	probeCtx, closeProbe, err := e.beginWorkingLoop(context.Background(), "probe", &prompt.CompilationContext{ShardID: "probe"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	loop := activeWorkingLoop(probeCtx)
-	keepRounds, err := loop.set.TranscriptRounds(probeCtx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	slack, err := loop.set.TranscriptSlack(probeCtx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	closeProbe()
 
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/explain"}}
 	if _, _, err := e.runToolLoop(context.Background(), "system", "probe it",
@@ -52,33 +38,21 @@ func TestToolLoop_RequestsCarryThePolicysTranscriptWindow(t *testing.T) {
 	if len(client.histories) != rounds+1 {
 		t.Fatalf("%d requests, want %d", len(client.histories), rounds+1)
 	}
-
-	most := 0
 	for n, history := range client.histories {
-		done := n // request n+1 is sent after n completed rounds
-		want := done
-		if done > keepRounds {
-			want = keepRounds + (done-keepRounds)%(slack+1)
+		if got := carriedRounds(history); got != n {
+			t.Errorf("request %d (after %d rounds) carried %d rounds, want all %d", n+1, n, got, n)
 		}
-		got := carriedRounds(history)
-		if got != want {
-			t.Errorf("request %d (after %d rounds) carried %d rounds, want the policy's %d (rounds=%d slack=%d)",
-				n+1, done, got, want, keepRounds, slack)
+		if n == 0 {
+			continue
 		}
-		most = max(most, got)
-	}
-	if most < 3 {
-		t.Errorf("no request carried more than %d rounds; the policy keeps %d", most, keepRounds)
-	}
-
-	// Between cuts the transcript only grows at its end, so its first round is
-	// the same call from request to request: that is what a prefix cache needs.
-	if slack > 0 {
-		first := firstCarriedCall(client.histories[keepRounds])
-		for n := keepRounds + 1; n <= keepRounds+slack && n < len(client.histories); n++ {
-			if got := firstCarriedCall(client.histories[n]); got != first {
-				t.Errorf("request %d starts its transcript at %q, request %d at %q: it moved between cuts",
-					n+1, got, keepRounds+1, first)
+		previous := client.histories[n-1]
+		if len(previous) > len(history) {
+			t.Fatalf("request %d is shorter than request %d", n+1, n)
+		}
+		for i := range previous {
+			if fmt.Sprintf("%+v", previous[i]) != fmt.Sprintf("%+v", history[i]) {
+				t.Fatalf("request %d changed turn %d of request %d: the ledger must only grow at its end\nbefore: %s\nafter:  %s",
+					n+1, i, n, truncateForFailure(fmt.Sprintf("%+v", previous[i])), truncateForFailure(fmt.Sprintf("%+v", history[i])))
 			}
 		}
 	}
@@ -128,13 +102,4 @@ func carriedRounds(history []types.Message) int {
 		}
 	}
 	return n
-}
-
-func firstCarriedCall(history []types.Message) string {
-	for _, m := range history {
-		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-			return m.ToolCalls[0].ID
-		}
-	}
-	return ""
 }

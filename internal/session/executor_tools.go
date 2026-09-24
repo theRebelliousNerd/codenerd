@@ -391,9 +391,9 @@ func (e *Executor) runToolLoopPass(
 		// signature lost here is lost while the reasoning it belongs to is
 		// still live.
 		//
-		// history stays whole. Which rounds a request carries is the working
-		// policy's decision (working_transcript_rounds, working_transcript_slack),
-		// taken in workingRequestParts. Until 2026-09-22 a cut here kept the last
+		// history stays whole. What a request carries of it is the context
+		// ledger's (working_compact, working_evict), rendered in
+		// prepareWorkingRequest. Until 2026-09-22 a cut here kept the last
 		// three messages, so the policy only ever saw two rounds: measured over
 		// 481 rounds, no request carried a third, the slack never ran, and no
 		// transcript byte was ever served from the provider cache.
@@ -1231,18 +1231,16 @@ func (e *Executor) SetFileContextProvider(p FileContextProvider) {
 // prompt. Mirrors withProjectInstructions: returns systemPrompt unchanged when
 // the provider is nil, the target is empty, or the rendered section is empty.
 // withCompiledFileContext adds the target's file context to a compiled system
-// prompt only when no working loop will render it. A working loop renders the
-// focused file's context into every request itself (prepareWorkingRequest),
-// fresh each round so its line ranges follow the edits; adding it at compile
-// time as well sent the same section twice on every call. Observed 2026-09-18
-// on planned steps and the no-tool retry, which appended it unconditionally
-// while the turn-level compile already skipped it: with the target's outline
-// in the section, mean input per call rose from 37.5k to 44.7k tokens.
+// prompt only when no working loop will render it. A working loop appends the
+// focused file's view to its context ledger itself (prepareWorkingRequest),
+// again whenever the focus or the file changes so its line ranges follow the
+// edits; adding it at compile time as well sent the same section twice on
+// every call. Observed 2026-09-18 on planned steps and the no-tool retry,
+// which appended it unconditionally while the turn-level compile already
+// skipped it: with the target's outline in the section, mean input per call
+// rose from 37.5k to 44.7k tokens.
 func (e *Executor) withCompiledFileContext(ctx context.Context, systemPrompt, target string) string {
-	e.mu.RLock()
-	hasWorkingWorld := e.workingWorld != nil
-	e.mu.RUnlock()
-	if hasWorkingWorld {
+	if e.workingLoopAvailable() {
 		return systemPrompt
 	}
 	return e.withFileContext(ctx, systemPrompt, target)

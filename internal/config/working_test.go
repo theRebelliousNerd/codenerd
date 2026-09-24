@@ -14,10 +14,9 @@ func TestWorkingConfig_TheDefaultsCheckClean(t *testing.T) {
 }
 
 // A key the user writes reaches the policy; every key they leave out is the
-// default. transcript_slack 0 is a value (the every-round slide), not
-// "absent".
+// default.
 func TestWorkingConfig_AKeyInTheFileReachesThePolicy(t *testing.T) {
-	path := writeCampaignConfig(t, `{"working": {"nudge_rounds": 5, "transcript_slack": 0}}`)
+	path := writeCampaignConfig(t, `{"working": {"nudge_rounds": 5, "ledger_ceiling_bytes": 32768}}`)
 	cfg, err := LoadUserConfig(path)
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -26,18 +25,18 @@ func TestWorkingConfig_AKeyInTheFileReachesThePolicy(t *testing.T) {
 	if spans.NudgeRounds != 5 {
 		t.Errorf("nudge_rounds = %d, want the file's 5", spans.NudgeRounds)
 	}
-	if spans.TranscriptSlack == nil || *spans.TranscriptSlack != 0 {
-		t.Errorf("transcript_slack = %v, want the file's 0", spans.TranscriptSlack)
+	if spans.LedgerCeilingBytes != 32768 {
+		t.Errorf("ledger_ceiling_bytes = %d, want the file's 32768", spans.LedgerCeilingBytes)
 	}
 	def := DefaultWorkingConfig()
-	if spans.CommitRounds != def.CommitRounds || spans.RepeatThreshold != def.RepeatThreshold || spans.SectionCeilingBytes != def.SectionCeilingBytes {
+	if spans.CommitRounds != def.CommitRounds || spans.RepeatThreshold != def.RepeatThreshold || spans.LedgerKeepRounds != def.LedgerKeepRounds {
 		t.Errorf("absent keys did not take the defaults: %+v", spans)
 	}
 	params := map[string]int64{}
 	for _, p := range spans.Params() {
 		params[p.Key] = p.Value
 	}
-	if params["/working_nudge_rounds"] != 5 || params["/working_transcript_slack"] != 0 {
+	if params["/working_nudge_rounds"] != 5 || params["/working_ledger_ceiling"] != 32768 {
 		t.Errorf("params = %v, want the file's values under the policy's keys", params)
 	}
 }
@@ -53,7 +52,7 @@ func TestWorkingConfig_AnUnknownKeyIsRefused(t *testing.T) {
 // at its first round), and a stall span below the commit span stops a change
 // task before its reading closes. The loader refuses both.
 func TestWorkingConfig_CheckNamesEachContradiction(t *testing.T) {
-	bad := WorkingConfig{RepeatThreshold: 1, CommitRounds: 20, StallRounds: 10, SectionCeilingBytes: 100}
+	bad := WorkingConfig{RepeatThreshold: 1, CommitRounds: 20, StallRounds: 10, LedgerCeilingBytes: 100}
 	var paths []string
 	for _, p := range bad.Check("working") {
 		if p.Severity != SeverityError {
@@ -62,7 +61,7 @@ func TestWorkingConfig_CheckNamesEachContradiction(t *testing.T) {
 		paths = append(paths, p.Path)
 	}
 	joined := strings.Join(paths, " ")
-	for _, want := range []string{"working.repeat_threshold", "working.stall_rounds", "working.section_ceiling_bytes"} {
+	for _, want := range []string{"working.repeat_threshold", "working.stall_rounds", "working.ledger_ceiling_bytes"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("Check did not name %s; it found %v", want, paths)
 		}

@@ -148,36 +148,8 @@ func (s *WorkingStore) Save(ctx context.Context, r WorkingRecord) error {
 	return err
 }
 
-// Candidates returns metadata for the current dependency slice, with no body IO.
-func (s *WorkingStore) Candidates(ctx context.Context, entities []string, limit int) ([]WorkingRecord, error) {
-	if len(entities) == 0 {
-		return nil, nil
-	}
-	// SQLite treats LIMIT -1 as "no limit", so a non-positive limit would
-	// silently unbind a slice documented as bounded. The only caller passes
-	// 256; anything else is a bug at the call site, not a request for all.
-	if limit <= 0 {
-		return nil, fmt.Errorf("invalid candidates limit %d", limit)
-	}
-	args := []any{s.scope}
-	marks := make([]string, len(entities))
-	for i, e := range entities {
-		marks[i] = "?"
-		args = append(args, e)
-	}
-	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, `SELECT id,entity,revision,kind,step,failed,digest,span_start,span_end FROM working_records
-		WHERE scope=? AND entity IN (`+strings.Join(marks, ",")+`) ORDER BY step DESC,id LIMIT ?`, args...)
-	if err != nil {
-		return nil, err
-	}
-	return scanWorkingMetadata(rows)
-}
-
-// Records returns metadata for the named observations, with no body IO.
-// Selection loads the loop's recent observations by id: they are its working
-// memory whatever file they came from, and the dependency slice Candidates
-// serves never reaches a file with no import link to the focus.
+// Records returns metadata for the named observations, with no body IO: the
+// ledger's rows, whatever file they came from.
 func (s *WorkingStore) Records(ctx context.Context, ids []string) ([]WorkingRecord, error) {
 	if len(ids) == 0 {
 		return nil, nil

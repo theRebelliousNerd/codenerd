@@ -198,7 +198,6 @@ type Executor struct {
 	// to render file-targeted context into the prompt. Narrow interface so no
 	// import of internal/world is needed and no import cycle is possible.
 	fileContext  FileContextProvider
-	workingWorld WorkingWorld
 	workingScope string
 
 	// codeElements parses the file a turn is looking at into the CodeDOM fact
@@ -568,10 +567,6 @@ func (e *Executor) CloneForTask() *Executor {
 	// prompt, so its verdict on that prompt is exactly as informative as a
 	// chat turn's.
 	clone.contextFeedbackRecorder = e.contextFeedbackRecorder
-	// The working world is the kernel view the per-task working set selects
-	// context from; a delegated task acts on the same workspace, so it reads
-	// the same world.
-	clone.workingWorld = e.workingWorld
 	// Same workspace, same CodeDOM fact layer. This clone is the executor a
 	// `nerd fix` turn actually runs on (task_executor.go: executeObserved
 	// calls CloneForTask), so a provider missing here is missing from every
@@ -1467,14 +1462,11 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 			return e.completeWithWorkingContext(ctx, provider, systemPrompt, []types.Message{{Role: "user", Text: userInput}}, toolDefs)
 		}
 		// A client with no message channel sends one system prompt and one
-		// user string, once: there is no later round for a cache to serve, and
-		// the system prompt is the only place the section can ride.
-		_, section, prepareErr := e.workingRequestParts(ctx, systemPrompt, nil, nil)
-		if prepareErr != nil {
-			return nil, prepareErr
-		}
-		if section != "" {
-			systemPrompt += "\n\n" + section
+		// user string, once: there is no ledger to carry, and the focus file's
+		// view rides the user input, not the system prompt -- file contents
+		// have no business under system authority.
+		if view := e.workingFocusView(ctx, activeWorkingLoop(ctx)); view != "" {
+			userInput += "\n\n" + view
 		}
 	}
 
@@ -1921,13 +1913,14 @@ const (
 )
 
 // boundedTranscript bounds the loop's history when nothing else does. Inside a
-// working loop every request is already bounded, without loss: the policy's
-// window picks the rounds (working_transcript_rounds, working_transcript_slack)
-// and workingRequestParts archives any result the window cannot fit behind a
-// recall_context pointer. Blanking payloads here as well cut results the window
-// still shows, clamped the newest one, and told the model to re-run a tool
-// whose output was one recall away (2026-09-22 sweep, alarm 9; it mattered
-// once the loop stopped cutting history to three messages). Without a working
+// working loop every request is already bounded, without loss: the context
+// ledger's compaction moves old results out behind their recall handles
+// (working_compact, working_evict) and prepareWorkingRequest archives any
+// result the window cannot fit behind a recall_context pointer. Blanking
+// payloads here as well cut results the request still carried, clamped the
+// newest one, and told the model to re-run a tool whose output was one recall
+// away (2026-09-22 sweep, alarm 9; it mattered once the loop stopped cutting
+// history to three messages). Without a working
 // loop there is no archive, and the byte bound with its re-run notice is true.
 func boundedTranscript(ctx context.Context, history []types.Message) []types.Message {
 	if activeWorkingLoop(ctx) != nil {

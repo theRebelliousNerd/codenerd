@@ -98,7 +98,7 @@ func TestCountFact_MangleAtomScalesWithText(t *testing.T) {
 }
 
 func TestWorkingStore_SaveRejectsEmptyID(t *testing.T) {
-	w, err := NewWorkingSet(nil, t.TempDir(), "ids", config.DefaultWorkingConfig())
+	w, err := NewWorkingSet(t.TempDir(), "ids", config.DefaultWorkingConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,27 +108,10 @@ func TestWorkingStore_SaveRejectsEmptyID(t *testing.T) {
 	}
 }
 
-func TestWorkingStore_CandidatesRejectsBadLimit(t *testing.T) {
-	w, err := NewWorkingSet(nil, t.TempDir(), "limits", config.DefaultWorkingConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = w.Close() })
-	if _, err := w.store.Candidates(t.Context(), []string{"a.go"}, 0); err == nil {
-		t.Error("Candidates limit 0: expected an error, got nil")
-	}
-	if _, err := w.store.Candidates(t.Context(), []string{"a.go"}, -1); err == nil {
-		t.Error("Candidates limit -1: expected an error, got nil (SQLite reads that as unlimited)")
-	}
-	if got, err := w.store.Candidates(t.Context(), nil, 10); err != nil || got != nil {
-		t.Errorf("Candidates with no entities = %v, %v; want nil, nil", got, err)
-	}
-}
-
 // Two stop reasons derived at once must resolve to the same decision every
 // time: the harness reports the reason, and a flapping reason is a lying one.
 func TestWorkingSetContinue_MultiStopIsDeterministic(t *testing.T) {
-	w, err := NewWorkingSet(nil, t.TempDir(), "stops", config.DefaultWorkingConfig())
+	w, err := NewWorkingSet(t.TempDir(), "stops", config.DefaultWorkingConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,39 +137,5 @@ func TestWorkingSetContinue_MultiStopIsDeterministic(t *testing.T) {
 	case "repeated_cycle", "tool_failures", "read_only_stall":
 	default:
 		t.Errorf("stop = %q, want one of the derived reasons", first.Stop)
-	}
-}
-
-// stubWorld feeds the working scope a fixed dependency neighbourhood so Select
-// exercises the canonical C1/C4 path: user_intent + focus_resolution +
-// dependency_link derive should_include_context, which resolves world facts
-// into the annotation section.
-type stubWorld struct{ facts map[string][]core.Fact }
-
-func (s stubWorld) Query(q string) ([]core.Fact, error) {
-	for prefix, facts := range s.facts {
-		if strings.HasPrefix(q, prefix) {
-			return facts, nil
-		}
-	}
-	return nil, nil
-}
-
-func TestWorkingSetSelect_WorldFactsAnnotate(t *testing.T) {
-	world := stubWorld{facts: map[string][]core.Fact{
-		"dependency_link": {{Predicate: "dependency_link", Args: []any{"a.go", "b.go", "import"}}},
-		"code_defines":    {{Predicate: "code_defines", Args: []any{"a.go", "Main", "/func", int64(1), int64(10)}}},
-	}}
-	w, err := NewWorkingSet(world, t.TempDir(), "world", config.DefaultWorkingConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = w.Close() })
-	sel, err := w.Select(t.Context(), "a.go", nil, nil, 8000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(sel.Text, "code_defines") || !strings.Contains(sel.Text, "Main") {
-		t.Errorf("annotation section missing the world fact; text:\n%s", sel.Text)
 	}
 }

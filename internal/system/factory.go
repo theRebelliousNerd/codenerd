@@ -2121,11 +2121,6 @@ func initFinalExecutors(bctx *bootContext) error {
 	// loadProjectDoc, so a construction site that forgets this line loses the
 	// prose, not the guarantee.
 	bctx.sessionExecutor.SetProjectDoc(bctx.projectDoc)
-	// The working world is what the per-task working set (internal/context)
-	// queries for dependency_link/code_defines/code_element when it selects
-	// observations for a request. It is the full Cortex so the world shard's
-	// facts are reachable; the working set never writes to it.
-	bctx.sessionExecutor.SetWorkingWorld(bctx.kernel)
 	var fileContextProvider session.FileContextProvider
 	if ck, ok := bctx.kernel.(*core.CortexKernel); ok {
 		if rk := ck.GetPrimaryRealKernel(); rk != nil {
@@ -2164,7 +2159,6 @@ func initFinalExecutors(bctx *bootContext) error {
 		session.DefaultSpawnerConfig(),
 	)
 	bctx.sessionSpawner.SetProjectDoc(bctx.projectDoc)
-	bctx.sessionSpawner.SetWorkingWorld(bctx.kernel)
 	if fileContextProvider != nil {
 		bctx.sessionSpawner.SetFileContextProvider(fileContextProvider)
 	}

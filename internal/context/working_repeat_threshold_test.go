@@ -20,7 +20,7 @@ func TestRepeatThreshold_IsTheWorkingSectionsKey(t *testing.T) {
 	for _, want := range []int{2, 3} {
 		spans := config.DefaultWorkingConfig()
 		spans.RepeatThreshold = want
-		w, err := NewWorkingSet(nil, t.TempDir(), "threshold", spans)
+		w, err := NewWorkingSet(t.TempDir(), "threshold", spans)
 		require.NoError(t, err)
 		got, err := w.RepeatThreshold(t.Context())
 		_ = w.Close()
@@ -54,7 +54,7 @@ func TestWorkingSection_SuppliesEveryRequiredSpan(t *testing.T) {
 func TestWorkingSection_ThePolicyReadsTheConfiguredSpans(t *testing.T) {
 	spans := config.DefaultWorkingConfig()
 	spans.NudgeRounds = 3
-	w, err := NewWorkingSet(nil, t.TempDir(), "spans", spans)
+	w, err := NewWorkingSet(t.TempDir(), "spans", spans)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 
