@@ -1469,11 +1469,10 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 			return e.completeWithWorkingContext(ctx, provider, systemPrompt, []types.Message{{Role: "user", Text: userInput}}, toolDefs)
 		}
 		// A client with no message channel sends one system prompt and one
-		// user string, once: there is no ledger to carry, and the focus file's
-		// view rides the user input, not the system prompt -- file contents
-		// have no business under system authority.
-		if view := e.workingFocusView(ctx, activeWorkingLoop(ctx)); view != "" {
-			userInput += "\n\n" + view
+		// user string, once: there is no ledger to carry (singleShotRequest).
+		var err error
+		if userInput, err = e.singleShotRequest(ctx, systemPrompt, userInput, toolDefs); err != nil {
+			return nil, err
 		}
 	}
 

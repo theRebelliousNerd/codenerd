@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -220,15 +221,26 @@ func TestWorkingLedger_AnEditToOneFunctionRestatesOnlyWhatWasReadOfIt(t *testing
 }
 
 // A client with no message channel gets one call: the focus view rides the
-// user input, never the system prompt.
-func TestWorkingFocusView_RidesTheUserInputOnASingleShotClient(t *testing.T) {
+// user input, never the system prompt, and a request that does not fit the
+// window is refused whole -- it has no tool result to archive. The ledger
+// commit dropped that refusal (e2e LargePayload_RefusedWhole and two
+// orchestrator payload tests went green on a request they must refuse).
+func TestSingleShotRequest_CarriesTheViewAndRefusesWhatCannotFit(t *testing.T) {
 	l := newLedgerLoop(t, 1<<20, 2)
-	view := l.e.workingFocusView(l.ctx, activeWorkingLoop(l.ctx))
-	if !strings.HasPrefix(view, fmt.Sprintf(workingViewHeader, "target.go")) || !strings.Contains(view, "VIEW-OF-TARGET") {
-		t.Fatalf("focus view = %q", view)
+	input, err := l.e.singleShotRequest(l.ctx, "SYSTEM", "fix target.go", nil)
+	if err != nil {
+		t.Fatalf("singleShotRequest: %v", err)
+	}
+	if !strings.HasPrefix(input, "fix target.go") || !strings.Contains(input, fmt.Sprintf(workingViewHeader, "target.go")) || !strings.Contains(input, "VIEW-OF-TARGET") {
+		t.Fatalf("the focus view must ride the user input; got %q", input)
 	}
 	if got := l.e.workingFocusView(l.ctx, nil); got != "" {
 		t.Fatalf("no loop, no view; got %q", got)
+	}
+
+	l.e.config.TokenBudget = 3000
+	if _, err := l.e.singleShotRequest(l.ctx, "SYSTEM", strings.Repeat("a massive task ", 5000), nil); !errors.Is(err, ErrInputBudgetExceeded) {
+		t.Fatalf("a task larger than the window: err = %v, want ErrInputBudgetExceeded", err)
 	}
 }
 

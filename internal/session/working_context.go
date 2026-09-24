@@ -417,17 +417,9 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
 	}
 
-	window := e.configSnapshot().TokenBudget
-	if window <= 0 {
-		window = DefaultTokenBudget()
-	}
-	catalog := 0
-	if len(definitions) > 0 {
-		encoded, err := json.Marshal(definitions)
-		if err != nil {
-			return nil, err
-		}
-		catalog = prompt.EstimateTokens(string(encoded))
+	window, catalog, err := e.workingWindow(definitions)
+	if err != nil {
+		return nil, err
 	}
 	remaining, err := workingWindowRemaining(window, system, messages, catalog)
 	if err != nil {
@@ -436,8 +428,7 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	for remaining < workingReplyReserve+512 {
 		i, j, size := largestToolResult(messages)
 		if size == 0 {
-			return nil, fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (half of context_window.max_tokens after its output reserves), with %d held back for the reply; no tool result is left to archive, and the task, the instructions and the tool catalog are sent whole or not at all",
-				ErrInputBudgetExceeded, window-remaining, window, workingReplyReserve+512)
+			return nil, inputBudgetExceeded(window, remaining)
 		}
 		results := append([]types.ToolResult(nil), messages[i].ToolResults...)
 		result := &results[j]
@@ -462,6 +453,58 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		}
 	}
 	return messages, nil
+}
+
+// workingWindow is the input budget a working request is measured against,
+// in tokens, and the tool catalog's share of it.
+func (e *Executor) workingWindow(definitions []types.ToolDefinition) (window, catalog int, err error) {
+	window = e.configSnapshot().TokenBudget
+	if window <= 0 {
+		window = DefaultTokenBudget()
+	}
+	if len(definitions) > 0 {
+		encoded, err := json.Marshal(definitions)
+		if err != nil {
+			return 0, 0, err
+		}
+		catalog = prompt.EstimateTokens(string(encoded))
+	}
+	return window, catalog, nil
+}
+
+// inputBudgetExceeded refuses a request that does not fit its window with
+// nothing left to archive.
+func inputBudgetExceeded(window, remaining int) error {
+	return fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (half of context_window.max_tokens after its output reserves), with %d held back for the reply; no tool result is left to archive, and the task, the instructions and the tool catalog are sent whole or not at all",
+		ErrInputBudgetExceeded, window-remaining, window, workingReplyReserve+512)
+}
+
+// singleShotRequest is the one call a client with no message channel gets
+// inside a working loop: the prior turns and the task, with the focus file's
+// view riding the user input -- not the system prompt, where file contents
+// have no business. It has no tool result to archive, so a request that does
+// not fit the window is refused whole, as a working request is.
+func (e *Executor) singleShotRequest(ctx context.Context, system, userInput string, definitions []types.ToolDefinition) (string, error) {
+	loop := activeWorkingLoop(ctx)
+	if loop == nil {
+		return userInput, nil
+	}
+	if view := e.workingFocusView(ctx, loop); view != "" {
+		userInput += "\n\n" + view
+	}
+	window, catalog, err := e.workingWindow(definitions)
+	if err != nil {
+		return "", err
+	}
+	messages := append(append([]types.Message(nil), loop.prior...), types.Message{Role: "user", Text: userInput})
+	remaining, err := workingWindowRemaining(window, system, messages, catalog)
+	if err != nil {
+		return "", err
+	}
+	if remaining < workingReplyReserve+512 {
+		return "", inputBudgetExceeded(window, remaining)
+	}
+	return userInput, nil
 }
 
 // anchorLedgerKey keys the harness's text on the anchor: what the first
