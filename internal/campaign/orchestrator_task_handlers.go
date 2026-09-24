@@ -46,6 +46,9 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 	}
 	if task != nil {
 		ctx = session.WithWriteGuard(ctx, o.writeGuard(task))
+		// The input is the brief plus the evidence the task is handed; memory
+		// is recalled by the brief.
+		ctx = session.WithRecallQuery(ctx, task.Description)
 	}
 	ret, err := observed.ExecuteObserved(ctx, req)
 	o.recordAttemptWrites(task, ret.Writes)

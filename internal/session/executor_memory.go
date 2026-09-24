@@ -31,9 +31,34 @@ type MemoryHydrator interface {
 	HydrateSessionContext(ctx context.Context, sessionID, query string, shardTypes []string) (int, error)
 }
 
+type recallQueryKey struct{}
+
+// WithRecallQuery names what a turn's memory recall searches for when the
+// turn's input is more than what the turn is about. A campaign task's input
+// is its brief plus the whole evidence it is handed; embedding all of it as
+// the query asked the embedder for more than its context and recall failed
+// (campaign 7b853890, 2026-09-24: inputs of 23,735-33,751 characters against
+// qwen3-embedding:4b, three task turns hydrated without similar content). The
+// brief is what the task is; its evidence is not what it is about. An empty
+// query leaves ctx as it is.
+func WithRecallQuery(ctx context.Context, query string) context.Context {
+	if strings.TrimSpace(query) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, recallQueryKey{}, query)
+}
+
+// RecallQueryFromContext returns the query WithRecallQuery set, or "".
+func RecallQueryFromContext(ctx context.Context) string {
+	query, _ := ctx.Value(recallQueryKey{}).(string)
+	return query
+}
+
 // hydrateMemory reads memory back into the kernel before prompt compilation:
 // learned facts once per executor lifetime (first Process call) and session
-// context once per turn. Errors are logged at Warn and never fail the turn.
+// context once per turn, recalled by the turn's recall query when the caller
+// set one and by its input otherwise. Errors are logged at Warn and never fail
+// the turn.
 func (e *Executor) hydrateMemory(ctx context.Context, input string) {
 	if e == nil || e.virtualStore == nil {
 		return
@@ -50,7 +75,11 @@ func (e *Executor) hydrateMemory(ctx context.Context, input string) {
 	e.mu.RLock()
 	sessionID := e.sessionID
 	e.mu.RUnlock()
-	if _, err := hydrator.HydrateSessionContext(ctx, sessionID, input, nil); err != nil {
+	query := RecallQueryFromContext(ctx)
+	if query == "" {
+		query = input
+	}
+	if _, err := hydrator.HydrateSessionContext(ctx, sessionID, query, nil); err != nil {
 		logging.Get(logging.CategorySession).Warn("HydrateSessionContext failed for session %q: %v", sessionID, err)
 	}
 }

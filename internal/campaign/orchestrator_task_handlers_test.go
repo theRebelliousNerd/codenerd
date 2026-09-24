@@ -268,6 +268,30 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 	})
 }
 
+// A task's input is its brief plus the evidence it is handed; the turn's
+// memory recall is keyed on the brief (session.WithRecallQuery), so the
+// embedder is not asked to embed the evidence (campaign 7b853890).
+func TestSpawnTask_RecallsMemoryByTheTasksBrief(t *testing.T) {
+	var got string
+	o := &Orchestrator{
+		workspace: t.TempDir(),
+		taskExecutor: &MockTaskExecutor{
+			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+				got = session.RecallQueryFromContext(ctx)
+				return "done", nil
+			},
+		},
+	}
+	task := &Task{ID: "/task_x_0_0", Description: "Write Docs/a.md", Type: TaskTypeFileCreate, WriteSet: []string{"Docs/a.md"}}
+	input := task.Description + "\n\nEvidence:\n" + strings.Repeat("x", 30000)
+	if _, err := o.spawnTask(context.Background(), task, "/create", input); err != nil {
+		t.Fatalf("spawnTask: %v", err)
+	}
+	if got != task.Description {
+		t.Fatalf("recall query = %d characters, want the brief %q", len(got), task.Description)
+	}
+}
+
 func TestExecuteCampaignRefTask_MissingSubCampaignID(t *testing.T) {
 	o := &Orchestrator{
 		kernel: &MockKernel{},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -169,6 +170,34 @@ func TestExecutorHydration_LearningsOnceContextPerTurn(t *testing.T) {
 		if call.query != inputs[i] {
 			t.Errorf("turn %d query = %q, want input %q", i, call.query, inputs[i])
 		}
+	}
+}
+
+// A turn whose input carries more than the task -- a campaign task's brief
+// plus its evidence -- is recalled by the query its caller names, not by the
+// whole input; a turn without one is recalled by its input.
+func TestExecutorHydration_RecallsByTheCallersQuery(t *testing.T) {
+	store := &memoryHydrationFakeStore{}
+	executor, _ := newMemoryTestExecutor(store, &MockJITCompiler{})
+	brief := "Write Docs/architecture/features/00-INDEX.md"
+	input := brief + "\n\nEvidence:\n" + strings.Repeat("a line of a file the task was handed\n", 1000)
+
+	if _, err := executor.Process(WithRecallQuery(context.Background(), brief), input); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if _, err := executor.Process(WithRecallQuery(context.Background(), "  "), "plain question"); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.sessionCalls) != 2 {
+		t.Fatalf("HydrateSessionContext calls = %d, want 2", len(store.sessionCalls))
+	}
+	if got := store.sessionCalls[0].query; got != brief {
+		t.Errorf("recall query = %d characters, want the brief (%d)", len(got), len(brief))
+	}
+	if got := store.sessionCalls[1].query; got != "plain question" {
+		t.Errorf("recall query with a blank caller query = %q, want the input", got)
 	}
 }
 
