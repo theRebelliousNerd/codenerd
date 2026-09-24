@@ -365,7 +365,7 @@ func formatLearningHit(hit store.LearningRecallHit, score float64) string {
 	)
 }
 
-func assertReflectionFacts(kernel *core.RealKernel, traceHits []rankedTrace, learningHits []rankedLearning) {
+func assertReflectionFacts(kernel core.Kernel, traceHits []rankedTrace, learningHits []rankedLearning) {
 	for _, r := range traceHits {
 		outcome := normalizeOutcome(r.hit.Outcome)
 		summary := strings.TrimSpace(r.hit.Summary)

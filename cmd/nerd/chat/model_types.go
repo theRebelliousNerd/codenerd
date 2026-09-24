@@ -33,6 +33,7 @@ import (
 	"codenerd/internal/world"
 
 	"charm.land/glamour/v2"
+	"codeberg.org/TauCeti/mangle-go/provenance"
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -302,7 +303,7 @@ type Model struct {
 
 	// Backend
 	client              perception.LLMClient
-	kernel              *core.RealKernel
+	kernel              chatKernel
 	shardMgr            *coreshards.ShardManager // For shard management (profiles, monitoring, lifecycle). Use taskExecutor for task execution.
 	taskExecutor        session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
 	shadowMode          *core.ShadowMode
@@ -540,9 +541,35 @@ type Session struct {
 	Suspended    bool   `json:"suspended"`
 }
 
+// chatKernel is the kernel a chat session asks. In production it is the
+// Cortex (nerdsystem.Cortex.Kernel): a fact asserted here lands in the shard
+// that owns its predicate, and a shared per-turn fact (user_intent,
+// delegation_candidate, multi_step_signal, ...) in every shard, so rules in
+// every domain see the turn and every lane reads what the rest of the system
+// wrote. Until 2026-09-23 the session ran on the catch-all shard's kernel
+// (Cortex.RealKernel): chat's facts reached one shard of seven, and a fact
+// another component asserted into its owner's shard was invisible to chat.
+// Tests use a bare RealKernel, which is the whole store.
+type chatKernel interface {
+	core.Kernel
+	Evaluate() error
+	LoadFactsFromFile(path string) error
+	AssertString(fact string) error
+	TraceQuery(ctx context.Context, query string) (*mangle.DerivationTrace, error)
+	Explain(goal string, opts core.ExplainOptions) ([]*provenance.ProofNode, error)
+	EnableProvenance()
+	DisableProvenance()
+	IsProvenanceEnabled() bool
+}
+
+var (
+	_ chatKernel = (*core.CortexKernel)(nil)
+	_ chatKernel = (*core.RealKernel)(nil)
+)
+
 // SystemComponents holds the initialized backend services
 type SystemComponents struct {
-	Kernel           *core.RealKernel
+	Kernel           chatKernel
 	ShardMgr         *coreshards.ShardManager // For shard management (profiles, monitoring). Use TaskExecutor for task execution.
 	TaskExecutor     session.TaskExecutor     // For task execution (replaces direct ShardMgr.Spawn calls)
 	VirtualStore     *core.VirtualStore

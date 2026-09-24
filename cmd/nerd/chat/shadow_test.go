@@ -255,9 +255,10 @@ func TestShadow_RunShadowSimulation_WithShadowMode(t *testing.T) {
 	m, perf := SetupLiveModel(t)
 	defer perf.Report(t)
 
-	// Create shadow mode
-	if m.kernel != nil {
-		m.shadowMode = core.NewShadowMode(m.kernel)
+	// Create shadow mode. It clones a RealKernel; the live test model's
+	// kernel is one (production hands shadow mode the catch-all shard's).
+	if rk, ok := m.kernel.(*core.RealKernel); ok {
+		m.shadowMode = core.NewShadowMode(rk)
 	}
 
 	if m.shadowMode == nil {
@@ -311,9 +312,10 @@ func TestShadow_RunWhatIfQuery_WithShadowMode(t *testing.T) {
 	m, perf := SetupLiveModel(t)
 	defer perf.Report(t)
 
-	// Create shadow mode
-	if m.kernel != nil {
-		m.shadowMode = core.NewShadowMode(m.kernel)
+	// Create shadow mode. It clones a RealKernel; the live test model's
+	// kernel is one (production hands shadow mode the catch-all shard's).
+	if rk, ok := m.kernel.(*core.RealKernel); ok {
+		m.shadowMode = core.NewShadowMode(rk)
 	}
 
 	if m.shadowMode == nil {
@@ -396,8 +398,8 @@ func TestShadow_EmptyAction(t *testing.T) {
 	m, perf := SetupLiveModel(t)
 	defer perf.Report(t)
 
-	if m.kernel != nil {
-		m.shadowMode = core.NewShadowMode(m.kernel)
+	if rk, ok := m.kernel.(*core.RealKernel); ok {
+		m.shadowMode = core.NewShadowMode(rk)
 	}
 
 	if m.shadowMode == nil {
@@ -419,8 +421,8 @@ func TestShadow_LongAction(t *testing.T) {
 	m, perf := SetupLiveModel(t)
 	defer perf.Report(t)
 
-	if m.kernel != nil {
-		m.shadowMode = core.NewShadowMode(m.kernel)
+	if rk, ok := m.kernel.(*core.RealKernel); ok {
+		m.shadowMode = core.NewShadowMode(rk)
 	}
 
 	if m.shadowMode == nil {
@@ -443,8 +445,8 @@ func TestShadow_SpecialCharactersInAction(t *testing.T) {
 	m, perf := SetupLiveModel(t)
 	defer perf.Report(t)
 
-	if m.kernel != nil {
-		m.shadowMode = core.NewShadowMode(m.kernel)
+	if rk, ok := m.kernel.(*core.RealKernel); ok {
+		m.shadowMode = core.NewShadowMode(rk)
 	}
 
 	if m.shadowMode == nil {
@@ -557,8 +559,8 @@ func TestShadow_SimulationResultFormat(t *testing.T) {
 	m, perf := SetupLiveModel(t)
 	defer perf.Report(t)
 
-	if m.kernel != nil {
-		m.shadowMode = core.NewShadowMode(m.kernel)
+	if rk, ok := m.kernel.(*core.RealKernel); ok {
+		m.shadowMode = core.NewShadowMode(rk)
 	}
 
 	if m.shadowMode == nil {
@@ -596,8 +598,8 @@ func TestShadow_WhatIfResultFormat(t *testing.T) {
 	m, perf := SetupLiveModel(t)
 	defer perf.Report(t)
 
-	if m.kernel != nil {
-		m.shadowMode = core.NewShadowMode(m.kernel)
+	if rk, ok := m.kernel.(*core.RealKernel); ok {
+		m.shadowMode = core.NewShadowMode(rk)
 	}
 
 	if m.shadowMode == nil {

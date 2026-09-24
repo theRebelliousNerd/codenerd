@@ -582,36 +582,43 @@ func (c *CortexKernel) RemoveFactsByPredicateSet(predicates map[string]struct{})
 	return nil
 }
 
-// Query routes a query to the owning shard. When the predicate has no registered
-// owner, it fans out to every shard and concatenates the results, matching
-// QueryAll's merging strategy. When the predicate does have an owner, the
-// original single-shard routing is preserved exactly.
-func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
-	barePred := predicate
-	if idx := strings.Index(predicate, "("); idx > 0 {
-		barePred = strings.TrimSpace(predicate[:idx])
-	}
+// readRoute is how a read consults the shards readShards returns.
+type readRoute int
+
+const (
+	// readOwner: the owning shard answers (through the shard, which may
+	// route under per-shard facts).
+	readOwner readRoute = iota
+	// readReplica: a shared predicate; every replica is identical, so the
+	// catch-all answers from its own store.
+	readReplica
+	// readFanOut: an unowned predicate; each shard may hold some of it.
+	readFanOut
+)
+
+// readShards returns the shards a read of predicate consults and how. An
+// owned predicate is read at its owner; a shared one at the catch-all; an
+// unowned one at every shard the derivation map names (unknown predicates:
+// every shard), where a derived predicate whose rule fires in several shards
+// (its inputs are shared or program-level) is found in each. Query,
+// TraceQuery and Explain all read through it, so an inspection reads where a
+// query does. It errors only when the Cortex has no shard to read.
+func (c *CortexKernel) readShards(predicate string) ([]*KernelShard, readRoute, error) {
+	barePred := barePredicate(predicate)
 	c.mu.RLock()
 	_, owned := c.predicateOwner[barePred]
 	_, shared := c.sharedPredicates[barePred]
 	if owned || shared {
 		c.mu.RUnlock()
-		// Owned: the authoritative shard. Shared: every replica is identical,
-		// so the catch-all answers for all of them.
 		shard := c.routeToShard(predicate)
 		if shard == nil {
-			return nil, fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
+			return nil, readOwner, fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
 		}
 		if shared {
-			return shard.queryLocal(predicate)
+			return []*KernelShard{shard}, readReplica, nil
 		}
-		return shard.Query(predicate)
+		return []*KernelShard{shard}, readOwner, nil
 	}
-	// Unowned predicate: fan out to the shards where the derivation map says
-	// the predicate's facts may exist. Unknown predicates (absent from the
-	// map) still fan out everywhere. A derived predicate whose rule fires
-	// in more than one shard (its inputs are shared or program-level) comes
-	// back once per shard, so dedupe.
 	dm := c.derivationMap
 	allDomains := make([]string, 0, len(c.shards))
 	byDomain := make(map[string]*KernelShard, len(c.shards))
@@ -629,7 +636,24 @@ func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
 	}
 	c.mu.RUnlock()
 	if len(byDomain) == 0 {
-		return nil, fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
+		return nil, readFanOut, fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
+	}
+	return shards, readFanOut, nil
+}
+
+// Query routes a query to the owning shard. When the predicate has no registered
+// owner, it fans out to the shards readShards names and merges the results,
+// deduplicated.
+func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
+	shards, route, err := c.readShards(predicate)
+	if err != nil {
+		return nil, err
+	}
+	switch route {
+	case readReplica:
+		return shards[0].queryLocal(predicate)
+	case readOwner:
+		return shards[0].Query(predicate)
 	}
 	if len(shards) == 0 {
 		return nil, nil

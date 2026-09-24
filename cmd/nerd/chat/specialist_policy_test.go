@@ -21,7 +21,7 @@ func specialistTestMatches() []shards.SpecialistMatch {
 	}
 }
 
-func derivedPairs(t *testing.T, k *core.RealKernel, predicate string) map[string]string {
+func derivedPairs(t *testing.T, k core.Kernel, predicate string) map[string]string {
 	t.Helper()
 	facts, err := k.Query(predicate)
 	if err != nil {

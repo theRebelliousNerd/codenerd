@@ -77,9 +77,9 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		return bootCompleteMsg{err: fmt.Errorf("shared bootstrap failed: %w", err)}
 	}
 
-	kernel := cortex.RealKernel
-	if kernel == nil {
-		return bootCompleteMsg{err: fmt.Errorf("shared bootstrap did not return a real kernel")}
+	kernel, primary, err := sessionKernels(cortex)
+	if err != nil {
+		return bootCompleteMsg{err: err}
 	}
 
 	shardMgr := cortex.ShardManager
@@ -119,19 +119,23 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		sessionExecutor.SetOuroborosRegistry(virtualStore.GetToolRegistry())
 	}
 
-	shadowMode := core.NewShadowMode(kernel)
+	// Shadow mode clones a RealKernel, and the compressor and the .mg watcher
+	// take one: all three run on the catch-all shard (primary), which holds
+	// only the facts no other shard owns -- and the watcher hot-loads edited
+	// rules into that shard alone.
+	shadowMode := core.NewShadowMode(primary)
 
 	logStep("Initializing context compressor...")
 	ctxCfg := appCfg.GetContextWindowConfig()
 	compressor := ctxcompress.NewCompressorWithParams(
-		kernel, localDB, llmClient,
+		primary, localDB, llmClient,
 		ctxCfg.MaxTokens,
 		ctxCfg.CoreReservePercent, ctxCfg.AtomReservePercent,
 		ctxCfg.HistoryReservePercent, ctxCfg.WorkingReservePercent,
 		ctxCfg.RecentTurnWindow,
 		ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
 	)
-	if corpus := kernel.GetPredicateCorpus(); corpus != nil {
+	if corpus := primary.GetPredicateCorpus(); corpus != nil {
 		if err := compressor.LoadPrioritiesFromCorpus(corpus); err != nil {
 			logging.Get(logging.CategoryContext).Warn("Failed to load corpus priorities: %v", err)
 		}
@@ -239,7 +243,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 
 	logStep("Starting Mangle watcher...")
 	var mangleWatcher *core.MangleWatcher
-	if mw, err := core.NewMangleWatcher(workspace, kernel); err == nil {
+	if mw, err := core.NewMangleWatcher(workspace, primary); err == nil {
 		mangleWatcher = mw
 		if err := mangleWatcher.Start(context.Background()); err != nil {
 			logging.Get(logging.CategoryKernel).Warn("Failed to start Mangle watcher: %v", err)
@@ -310,4 +314,20 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 			DreamToolQ:       cortex.OuroborosQueue,
 		},
 	}
+}
+
+// sessionKernels picks the kernels a chat session runs on. The session asks
+// the Cortex, like every other component the factory wired (see chatKernel);
+// the catch-all shard's kernel (primary) serves only the consumers that need
+// a RealKernel's internals -- shadow mode, the context compressor, the .mg
+// watcher.
+func sessionKernels(cortex *nerdsystem.Cortex) (chatKernel, *core.RealKernel, error) {
+	kernel, ok := cortex.Kernel.(chatKernel)
+	if !ok || kernel == nil {
+		return nil, nil, fmt.Errorf("shared bootstrap returned no kernel a chat session can ask (%T)", cortex.Kernel)
+	}
+	if cortex.RealKernel == nil {
+		return nil, nil, fmt.Errorf("shared bootstrap did not return the catch-all shard's kernel")
+	}
+	return kernel, cortex.RealKernel, nil
 }

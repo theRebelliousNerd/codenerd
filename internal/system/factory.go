@@ -1149,54 +1149,67 @@ func initStorageLayer(bctx *bootContext) error {
 	return nil
 }
 
+// NewDomainCortex builds the production kernel: the domain shards of
+// defaultKernelShardConfigs, the shared per-turn predicates, and the
+// derivation map, evaluated once. initKernel boots it; a test that must see
+// what production sees (split joins, facts in their owners' shards) builds
+// it too, instead of a single-store RealKernel.
+func NewDomainCortex(workspace string) (*core.CortexKernel, error) {
+	cortex := core.NewCortexKernel("cortex")
+
+	// Always the domain manifests. per_shard_facts=false was honored for
+	// one build on 2026-09-04 (a single catch-all shard) and measured live:
+	// every kernel evaluation went from ~0.25 s to 33–40 s and hydrating
+	// the 9.4K learned facts from 1.2 s to 70 s, because one store puts
+	// every large fact family under every rule that joins it. The domain
+	// split is what keeps evaluation fast, so it stays on regardless of the
+	// flag; the flag is logged, not honored, until single-store evaluation
+	// is made affordable. Correctness under the split is guaranteed by the
+	// manifests owning every predicate their rules join (see
+	// internal/shards/registration.go and the campaign contract test).
+	shardConfigs := defaultKernelShardConfigs(workspace)
+	if err := cortex.SetSharedPredicates(shards.SharedPredicates()); err != nil {
+		return nil, fmt.Errorf("configure shared kernel predicates: %w", err)
+	}
+
+	for _, scfg := range shardConfigs {
+		shard, err := core.NewKernelShard(scfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create shard %s: %w", scfg.Domain, err)
+		}
+		if err := cortex.RegisterShard(shard); err != nil {
+			return nil, fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
+		}
+	}
+
+	logging.Boot("kernel: %d domain shards (per_shard_facts=%v recorded, not honored: single-store evaluation measured 35 s/eval vs 0.25 s)",
+		len(shardConfigs), features.IsPerShardFactsEnabled())
+
+	// The static derivation map narrows shared replication to the shards
+	// whose rules read each per-turn fact and fan-out queries to the
+	// shards that can derive the predicate (item 56: without it every
+	// intent change dirtied all seven shards and every fan-out query
+	// evaluated all of them). A build failure is logged and leaves the
+	// kernel on the replicate-everywhere path, which is correct but slow.
+	if dm, err := buildKernelDerivationMap(shardConfigs); err != nil {
+		logging.Get(logging.CategoryBoot).Warn("kernel: derivation map unavailable, replicating shared facts everywhere: %v", err)
+	} else {
+		cortex.SetDerivationMap(dm)
+	}
+
+	if err := cortex.Evaluate(); err != nil {
+		return nil, fmt.Errorf("failed to boot cortex kernel: %w", err)
+	}
+	return cortex, nil
+}
+
 func initKernel(bctx *bootContext) error {
 	if bctx.cfg.KernelOverride != nil {
 		bctx.kernel = bctx.cfg.KernelOverride
 	} else {
-		cortex := core.NewCortexKernel("cortex")
-
-		// Always the domain manifests. per_shard_facts=false was honored for
-		// one build on 2026-09-04 (a single catch-all shard) and measured live:
-		// every kernel evaluation went from ~0.25 s to 33–40 s and hydrating
-		// the 9.4K learned facts from 1.2 s to 70 s, because one store puts
-		// every large fact family under every rule that joins it. The domain
-		// split is what keeps evaluation fast, so it stays on regardless of the
-		// flag; the flag is logged, not honored, until single-store evaluation
-		// is made affordable. Correctness under the split is guaranteed by the
-		// manifests owning every predicate their rules join (see
-		// internal/shards/registration.go and the campaign contract test).
-		shardConfigs := defaultKernelShardConfigs(bctx.workspace)
-		if err := cortex.SetSharedPredicates(shards.SharedPredicates()); err != nil {
-			return fmt.Errorf("configure shared kernel predicates: %w", err)
-		}
-
-		for _, scfg := range shardConfigs {
-			shard, err := core.NewKernelShard(scfg)
-			if err != nil {
-				return fmt.Errorf("failed to create shard %s: %w", scfg.Domain, err)
-			}
-			if err := cortex.RegisterShard(shard); err != nil {
-				return fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
-			}
-		}
-
-		logging.Boot("kernel: %d domain shards (per_shard_facts=%v recorded, not honored: single-store evaluation measured 35 s/eval vs 0.25 s)",
-			len(shardConfigs), features.IsPerShardFactsEnabled())
-
-		// The static derivation map narrows shared replication to the shards
-		// whose rules read each per-turn fact and fan-out queries to the
-		// shards that can derive the predicate (item 56: without it every
-		// intent change dirtied all seven shards and every fan-out query
-		// evaluated all of them). A build failure is logged and leaves the
-		// kernel on the replicate-everywhere path, which is correct but slow.
-		if dm, err := buildKernelDerivationMap(shardConfigs); err != nil {
-			logging.Get(logging.CategoryBoot).Warn("kernel: derivation map unavailable, replicating shared facts everywhere: %v", err)
-		} else {
-			cortex.SetDerivationMap(dm)
-		}
-
-		if err := cortex.Evaluate(); err != nil {
-			return fmt.Errorf("failed to boot cortex kernel: %w", err)
+		cortex, err := NewDomainCortex(bctx.workspace)
+		if err != nil {
+			return err
 		}
 		bctx.kernel = cortex
 	}

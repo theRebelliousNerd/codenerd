@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
@@ -90,7 +89,7 @@ func (a *northstarHandlerAdapter) HandleEvent(ctx context.Context, event shards.
 	}, nil
 }
 
-func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *coreshards.ShardManager, initialMessages *[]Message) (*Session, *Preferences) {
+func hydrateNerdState(workspace string, kernel chatKernel, shardMgr *coreshards.ShardManager, initialMessages *[]Message) (*Session, *Preferences) {
 	nerdDir := filepath.Join(workspace, ".nerd")
 
 	// Load profile facts

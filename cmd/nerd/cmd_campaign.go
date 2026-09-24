@@ -181,14 +181,10 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 		worldScanner = world.NewScanner()
 	}
 
-	var realKern *core.RealKernel
-	if cortex.RealKernel != nil {
-		realKern = cortex.RealKernel
-	} else if cortex.Kernel != nil {
-		if rk, ok := any(cortex.Kernel).(*core.RealKernel); ok {
-			realKern = rk
-		}
-	}
+	// Every component reads the Cortex: a fact lives in the shard that owns
+	// it, and the catch-all shard's kernel (cortex.RealKernel) holds only what
+	// no other shard owns. Until 2026-09-23 these took the catch-all.
+	kern := cortex.Kernel
 
 	// Keep the store import live and make the persistence wiring explicit:
 	// the gatherer reads historical patterns (learning) and the knowledge
@@ -204,22 +200,11 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 		consultationProvider = newCampaignConsultationProvider(consultationMgr)
 	}
 
-	var holographic *world.HolographicProvider
-	if realKern != nil {
-		holographic = world.NewHolographicProvider(realKern, cwd)
-	} else if cortex.Kernel != nil {
-		if q, ok := any(cortex.Kernel).(world.FactQuerier); ok {
-			holographic = world.NewHolographicProvider(q, cwd)
-		} else {
-			holographic = world.NewHolographicProvider(nil, cwd)
-		}
-	} else {
-		holographic = world.NewHolographicProvider(nil, cwd)
-	}
+	holographic := world.NewHolographicProvider(kern, cwd)
 
 	intelligenceGatherer := campaign.NewIntelligenceGatherer(
 		cwd,
-		realKern,
+		kern,
 		worldScanner,
 		holographic,
 		learningStore,
@@ -233,7 +218,7 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 
 	northstarObserver := campaignNorthstarObserver(cortex, cwd)
 
-	edgeCaseDetector := campaign.NewEdgeCaseDetector(realKern, worldScanner)
+	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
 
 	// Always constructed: its methods are nil-safe per tool_pregenerator.go,
 	// so a nil Ouroboros loop degrades to gap detection instead of a nil
@@ -253,22 +238,9 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 	var promptProvider campaign.PromptProvider
 	if cortex.PromptAssembler != nil {
 		promptProvider = chat.NewCampaignJITProvider(cortex.PromptAssembler)
-	} else if cortex.JITCompiler != nil {
-		var querier articulation.KernelQuerier
-		if realKern != nil {
-			if q, ok := any(realKern).(articulation.KernelQuerier); ok {
-				querier = q
-			}
-		}
-		if querier == nil && cortex.Kernel != nil {
-			if q, ok := any(cortex.Kernel).(articulation.KernelQuerier); ok {
-				querier = q
-			}
-		}
-		if querier != nil {
-			if pa, err := articulation.NewPromptAssemblerWithJIT(querier, cortex.JITCompiler); err == nil && pa != nil {
-				promptProvider = chat.NewCampaignJITProvider(pa)
-			}
+	} else if cortex.JITCompiler != nil && kern != nil {
+		if pa, err := articulation.NewPromptAssemblerWithJIT(kern, cortex.JITCompiler); err == nil && pa != nil {
+			promptProvider = chat.NewCampaignJITProvider(pa)
 		}
 	}
 
@@ -283,23 +255,11 @@ func campaignNorthstarObserver(cortex *coresys.Cortex, cwd string) *northstar.Ca
 	if cortex == nil {
 		return nil
 	}
-	var realKern *core.RealKernel
-	if cortex.RealKernel != nil {
-		realKern = cortex.RealKernel
-	} else if cortex.Kernel != nil {
-		if rk, ok := any(cortex.Kernel).(*core.RealKernel); ok {
-			realKern = rk
-		}
+	var kern northstar.KernelClient
+	if cortex.Kernel != nil {
+		kern = cortex.Kernel
 	}
-	var kernForNorthstar types.Kernel
-	if realKern != nil {
-		kernForNorthstar = realKern
-	} else if cortex.Kernel != nil {
-		if tk, ok := any(cortex.Kernel).(types.Kernel); ok {
-			kernForNorthstar = tk
-		}
-	}
-	return northstar.BuildCampaignObserver(cwd, cortex.LLMClient, kernForNorthstar)
+	return northstar.BuildCampaignObserver(cwd, cortex.LLMClient, kern)
 }
 
 // runCampaignStart starts a new campaign

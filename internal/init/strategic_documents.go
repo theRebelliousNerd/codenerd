@@ -74,7 +74,7 @@ type DocProcessingEntry struct {
 
 // assertDocFact asserts a document tracking fact to the kernel.
 // Pattern: doc_<status>(path, hash, timestamp)
-func (i *Initializer) assertDocFact(kernel *core.RealKernel, status DocProcessingStatus, path, hash string) {
+func (i *Initializer) assertDocFact(kernel core.Kernel, status DocProcessingStatus, path, hash string) {
 	if kernel == nil {
 		return
 	}
@@ -129,7 +129,7 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 	ctx context.Context,
 	docs []DocumentInfo,
 	db *store.LocalStore,
-	kernel *core.RealKernel,
+	kernel core.Kernel,
 ) (*DocIngestionState, error) {
 	// Load or create ingestion state
 	state := i.loadIngestionState()

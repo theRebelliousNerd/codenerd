@@ -96,7 +96,7 @@ type SplitSuggestion struct {
 
 // EdgeCaseDetector analyzes files to determine appropriate actions.
 type EdgeCaseDetector struct {
-	kernel  *core.RealKernel
+	kernel  core.Kernel
 	scanner *world.Scanner
 
 	// Configuration
@@ -141,7 +141,7 @@ func DefaultEdgeCaseConfig() EdgeCaseConfig {
 }
 
 // NewEdgeCaseDetector creates a new edge case detector.
-func NewEdgeCaseDetector(kernel *core.RealKernel, scanner *world.Scanner) *EdgeCaseDetector {
+func NewEdgeCaseDetector(kernel core.Kernel, scanner *world.Scanner) *EdgeCaseDetector {
 	return &EdgeCaseDetector{
 		kernel:  kernel,
 		scanner: scanner,

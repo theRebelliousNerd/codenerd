@@ -185,7 +185,7 @@ func (m Model) buildDerivationTrace(fact string) string {
 }
 
 // getRuleForPredicate returns the rule that derives a predicate
-func getRuleForPredicate(k *core.RealKernel, predicate string) string {
+func getRuleForPredicate(k core.Kernel, predicate string) string {
 	// Query the rule_description table
 	descriptions, err := k.Query("rule_description")
 	if err != nil {
@@ -204,7 +204,7 @@ func getRuleForPredicate(k *core.RealKernel, predicate string) string {
 }
 
 // getChildNodes returns the child facts (premises) for a derived fact
-func getChildNodes(kernel *core.RealKernel, fact core.Fact) []core.Fact {
+func getChildNodes(kernel core.Kernel, fact core.Fact) []core.Fact {
 	children := []core.Fact{}
 
 	// Query for related facts based on the predicate
