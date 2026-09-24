@@ -86,6 +86,14 @@ Decl delegation_move(Root, Attempt, Move) bound [/string, /number, /name].
 # route_decision holds for one lane at most.
 Decl multi_step_lane() bound [].
 
+# multi_step_plan_ready() - derived: the decomposition (multi_step_plan_step)
+# has two steps or more and each names a shard. multi_step_lane requires it.
+Decl multi_step_plan_ready() bound [].
+
+# multi_step_plan_unrouted() - derived: a step of the decomposition names no
+# shard.
+Decl multi_step_plan_unrouted() bound [].
+
 # conversational_verb(Verb) - vocabulary: verbs whose outcome is always prose.
 Decl conversational_verb(Verb) bound [/name].
 

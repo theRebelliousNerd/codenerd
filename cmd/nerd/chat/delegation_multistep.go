@@ -66,8 +66,8 @@ func stripQuotedSubstrings(s string) string {
 // signal is collected so the kernel can reason over the full set.
 //
 // Signals (atom form): /campaign_verb, /keyword_match, /verb_count_high,
-// /compound_pattern. The combination DECISION (which signals => multi-step) is
-// the kernel's job — see is_multi_step in delegation.mg.
+// /compound_pattern, /corpus_pattern. The combination DECISION (which signals
+// => multi-step) is the kernel's job — see is_multi_step in delegation.mg.
 func multiStepSignals(input string, intent perception.Intent) []string {
 	// Operate on the quote-stripped form so verbs inside literal
 	// content (file content, error messages, quoted examples) don't
@@ -136,6 +136,15 @@ func multiStepSignals(input string, intent perception.Intent) []string {
 		}
 	}
 
+	// The decomposition corpus's clause patterns (multistep_corpus.go): "review
+	// X and fix any issues", "first X, then Y", "analyze X and optimize". They
+	// also fit single requests ("explain what happens next in this function"),
+	// so the kernel weighs this one with the others. A keyword-only corpus
+	// match is not a signal.
+	if _, _, byClause := MatchMultiStepPattern(lower); byClause {
+		signals = append(signals, "/corpus_pattern")
+	}
+
 	return signals
 }
 
@@ -143,7 +152,7 @@ func multiStepSignals(input string, intent perception.Intent) []string {
 // This function uses the multi-step pattern corpus for comprehensive decomposition.
 func decomposeTask(input string, intent perception.Intent, workspace string) []TaskStep {
 	// Try to match against the encyclopedic multi-step corpus first
-	pattern, captures := MatchMultiStepPattern(input)
+	pattern, captures, _ := MatchMultiStepPattern(input)
 
 	if pattern != nil {
 		// Use the corpus-based decomposition strategy

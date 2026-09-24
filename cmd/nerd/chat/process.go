@@ -392,14 +392,14 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1.5 MULTI-STEP: autonomous multi-step execution without campaigns,
-		// when the kernel derived the /multi_step lane.
+		// when the kernel derived the /multi_step lane -- which it does only
+		// for a plan of two steps or more, each with a shard. Until 2026-09-23
+		// the lane derived without the plan, a plan of one step fell through
+		// here, and the turn was neither decomposed nor delegated.
 		if route.Kind == RouteMultiStep {
-			m.ReportStatus("Multi-step: decomposing task...")
-			steps := decomposeTask(input, intent, m.workspace)
-			if len(steps) > 1 {
-				cmd := m.executeMultiStepTask(ctx, intent, input, steps)
-				return cmd()
-			}
+			m.ReportStatus(fmt.Sprintf("Multi-step: %d steps...", len(route.Steps)))
+			cmd := m.executeMultiStepTask(ctx, intent, input, route.Steps)
+			return cmd()
 		}
 
 		// 1.6 DELEGATION: the kernel's /delegate lane names the shard, and

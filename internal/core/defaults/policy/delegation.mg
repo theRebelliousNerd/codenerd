@@ -450,6 +450,15 @@ is_multi_step() :-
     multi_step_signal(/keyword_match),
     multi_step_signal(/verb_count_high).
 
+# The decomposition corpus's clause patterns ("review X and fix any issues",
+# "analyze X and optimize") -- a signal only since 2026-09-23; until then only
+# the decomposer read the corpus, after this rule had decided. The patterns
+# also fit single requests ("explain what happens next in this function"), so
+# a match counts when the request carries several action verbs too.
+is_multi_step() :-
+    multi_step_signal(/corpus_pattern),
+    multi_step_signal(/verb_count_high).
+
 # Derive next_action from intent and mapping
 # Guard: Only derive if intent hasn't been processed by executive (prevents infinite loop)
 next_action(Action) :-

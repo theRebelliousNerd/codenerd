@@ -68,6 +68,10 @@ func (k RouteKind) String() string {
 type RouteDecision struct {
 	Kind  RouteKind
 	Shard string // bare shard name for RouteDelegate ("coder"), "" otherwise
+	// Steps is the decomposition the kernel judged, for RouteMultiStep: the
+	// lane derives only for a plan the policy found runnable, so the caller
+	// runs these steps and does not decompose again.
+	Steps []TaskStep
 }
 
 // decideRoute asserts this turn's routing EDB (delegation candidate,
@@ -107,6 +111,7 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	// previous turn can never influence this decision.
 	_ = m.kernel.Retract("delegation_candidate")
 	_ = m.kernel.Retract("multi_step_signal")
+	_ = m.kernel.Retract("multi_step_plan_step")
 	_ = m.kernel.Retract("intent_signal")
 
 	if err := m.kernel.Assert(core.Fact{
@@ -122,6 +127,23 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 			Args:      []any{types.MangleAtom(sig)},
 		}); err != nil {
 			logging.RoutingError("[decideRoute] assert multi_step_signal failed: %v", err)
+			return none
+		}
+	}
+	// The plan a /multi_step lane would run, one row per step with the shard
+	// that runs it (/none: no shard, and the multi-step executor skips the
+	// step). The policy decides whether it is a plan (multi_step_plan_ready).
+	steps := decomposeTask(input, intent, m.workspace)
+	for i, step := range steps {
+		shard := "/none"
+		if s := normalizeShardType(step.ShardType); s != "" {
+			shard = "/" + s
+		}
+		if err := m.kernel.Assert(core.Fact{
+			Predicate: "multi_step_plan_step",
+			Args:      []any{int64(i), types.MangleAtom(shard)},
+		}); err != nil {
+			logging.RoutingError("[decideRoute] assert multi_step_plan_step failed: %v", err)
 			return none
 		}
 	}
@@ -183,7 +205,7 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	case "/respond_directly":
 		decision = RouteDecision{Kind: RouteRespondDirectly}
 	case "/multi_step":
-		decision = RouteDecision{Kind: RouteMultiStep}
+		decision = RouteDecision{Kind: RouteMultiStep, Steps: steps}
 	case "/delegate":
 		decision = RouteDecision{Kind: RouteDelegate, Shard: shard}
 	case "/clarify":

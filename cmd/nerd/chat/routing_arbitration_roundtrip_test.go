@@ -8,6 +8,13 @@ import (
 	"codenerd/internal/perception"
 )
 
+// kernelDerives reports whether the zero-arity predicate holds in the model's
+// kernel.
+func (m Model) kernelDerives(pred string) bool {
+	rows, err := m.kernel.Query(pred)
+	return err == nil && len(rows) > 0
+}
+
 // newRoundtripModel is a test model on a real kernel loaded with the embedded
 // policy corpus.
 func newRoundtripModel(t *testing.T) Model {
@@ -270,6 +277,73 @@ func TestDecideRoute_ClarifiesAnInputOnce(t *testing.T) {
 	}
 }
 
+// A compound the decomposition corpus knows ("review X and fix any issues")
+// decomposes into the plan the kernel judged. Until 2026-09-23 the corpus was
+// read only after the route was decided, the kernel never heard of it, and
+// the request went whole to one shard: the fix never ran.
+func TestDecideRoute_ACorpusCompoundDecomposes(t *testing.T) {
+	m := newRoundtripModel(t)
+	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "internal/session/executor.go", Confidence: 0.95}
+	assertRouteIntent(t, m, intent)
+	route := m.decideRoute("review internal/session/executor.go and fix any issues", intent, "coder")
+	if route.Kind != RouteMultiStep {
+		t.Fatalf("route = %s, want multi_step", route.Kind)
+	}
+	var shards []string
+	for _, step := range route.Steps {
+		shards = append(shards, normalizeShardType(step.ShardType))
+	}
+	if len(shards) != 2 || shards[0] != "reviewer" || shards[1] != "coder" {
+		t.Errorf("plan shards = %v, want the judged plan [reviewer coder]", shards)
+	}
+}
+
+// A request the decomposition cannot split is delegated whole. Until
+// 2026-09-23 the lane derived on the signals alone; the caller then found a
+// one-step plan, fell through, and the turn was neither decomposed nor
+// delegated.
+func TestDecideRoute_AOneStepPlanIsDelegatedWhole(t *testing.T) {
+	m := newRoundtripModel(t)
+	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "oauth", Confidence: 0.95}
+	assertRouteIntent(t, m, intent)
+	input := "research how to implement OAuth and then add it"
+	if steps := decomposeTask(input, intent, m.workspace); len(steps) != 1 {
+		t.Fatalf("the fixture needs a one-step plan; decomposeTask gave %d", len(steps))
+	}
+	if route := m.decideRoute(input, intent, "coder"); route.Kind != RouteDelegate || route.Shard != "coder" {
+		t.Errorf("route = %s/%q, want delegate/coder", route.Kind, route.Shard)
+	}
+	if !m.kernelDerives("is_multi_step") {
+		t.Error("the fixture needs is_multi_step to hold: the plan, not the signals, kept it whole")
+	}
+}
+
+// A plan with a step that names no shard is not a plan: the executor skips
+// such a step, so the request would run in part. The decomposer's clause
+// parsing makes "/the" and "/greet" (the synonym "hi" inside "this") out of a
+// single request; the request is delegated whole.
+func TestDecideRoute_APlanWithAnUnroutedStepIsDelegatedWhole(t *testing.T) {
+	m := newRoundtripModel(t)
+	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "the diff", Confidence: 0.95}
+	assertRouteIntent(t, m, intent)
+	input := "review the diff and tell me what you think"
+	unrouted := false
+	for _, step := range decomposeTask(input, intent, m.workspace) {
+		if step.ShardType == "" {
+			unrouted = true
+		}
+	}
+	if !unrouted {
+		t.Fatal("the fixture needs a plan with a step that names no shard")
+	}
+	if route := m.decideRoute(input, intent, "coder"); route.Kind != RouteDelegate {
+		t.Errorf("route = %s, want delegate", route.Kind)
+	}
+	if !m.kernelDerives("is_multi_step") {
+		t.Error("the fixture needs is_multi_step to hold: the plan, not the signals, kept it whole")
+	}
+}
+
 // Turn 1 decomposes (multi_step_signal rows asserted); turn 2 is a one-step
 // fix. If turn 1's signals lingered, turn 2 would decompose too. Only
 // decideRoute's in-method retract protects turn 2.
@@ -343,6 +417,29 @@ func TestShouldVerifyDelegation_MutationsOnly(t *testing.T) {
 	}
 	if shouldVerifyDelegation(perception.Intent{Category: "/instruction", Verb: "/configure"}) {
 		t.Error("instructions must not pay the verification retry loop")
+	}
+}
+
+// A clause pattern of the decomposition corpus is a signal; a keyword-only
+// corpus match ("first", "next", "each") is not.
+func TestMultiStepSignals_TheCorpusClausePatternIsASignal(t *testing.T) {
+	intent := perception.Intent{Verb: "/fix"}
+	has := func(input string) bool {
+		for _, sig := range multiStepSignals(input, intent) {
+			if sig == "/corpus_pattern" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("review internal/session/executor.go and fix any issues") {
+		t.Error("a review-then-fix clause produced no /corpus_pattern")
+	}
+	if _, _, byClause := MatchMultiStepPattern("what does the first function in main.go do?"); byClause {
+		t.Fatal("the fixture needs a keyword-only corpus match")
+	}
+	if has("what does the first function in main.go do?") {
+		t.Error("a keyword-only corpus match produced /corpus_pattern")
 	}
 }
 

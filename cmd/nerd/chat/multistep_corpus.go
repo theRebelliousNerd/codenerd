@@ -693,12 +693,16 @@ func GetPatternCategories() []string {
 	return categories
 }
 
-// MatchMultiStepPattern finds the best matching pattern for input
-func MatchMultiStepPattern(input string) (*MultiStepPattern, []string) {
+// MatchMultiStepPattern finds the best matching pattern for input. byClause
+// reports that the best match was one of the pattern's clause regexes, not
+// only a keyword: a clause match is a sequencing or compound shape, a keyword
+// ("next", "each", "1.") is often filler in ordinary prose.
+func MatchMultiStepPattern(input string) (pattern *MultiStepPattern, captures []string, byClause bool) {
 	lower := strings.ToLower(input)
 
 	var bestMatch *MultiStepPattern
 	var bestCaptures []string
+	bestByClause := false
 	bestPriority := -1
 
 	for i := range MultiStepCorpus {
@@ -711,6 +715,7 @@ func MatchMultiStepPattern(input string) (*MultiStepPattern, []string) {
 				if p.Priority > bestPriority {
 					bestMatch = p
 					bestCaptures = matches[1:] // Skip full match
+					bestByClause = true
 					bestPriority = p.Priority
 				}
 				break
@@ -724,6 +729,7 @@ func MatchMultiStepPattern(input string) (*MultiStepPattern, []string) {
 					if p.Priority > bestPriority {
 						bestMatch = p
 						bestCaptures = nil // Keywords don't capture
+						bestByClause = false
 						bestPriority = p.Priority
 					}
 					break
@@ -732,7 +738,7 @@ func MatchMultiStepPattern(input string) (*MultiStepPattern, []string) {
 		}
 	}
 
-	return bestMatch, bestCaptures
+	return bestMatch, bestCaptures, bestByClause
 }
 
 // GetVerbPairsForPattern returns common verb combinations for a pattern

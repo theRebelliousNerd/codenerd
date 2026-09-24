@@ -17,6 +17,8 @@
 #   intent_signal(/has_surface_response)   — perception already wrote a reply
 #   delegation_candidate(/current_intent, Shard, Conf)
 #   multi_step_signal(Signal)
+#   multi_step_plan_step(Index, Shard)     — the decomposition /multi_step
+#                                            would run, one row per step
 #   config_param(/routing_delegation_min_confidence, Min)  (routing section)
 #
 # Derived outputs (queried by Go):
@@ -154,12 +156,30 @@ route_decision(/respond_directly, /none) :-
     !early_lane().
 
 # Decompose multi-step MUTATIONS only. Questions are never decomposed — a
-# multi-part question is still answered in one prose pass.
+# multi-part question is still answered in one prose pass. And only into a
+# plan: a request the decomposition cannot split is delegated whole.
 multi_step_lane() :-
     is_multi_step(),
+    multi_step_plan_ready(),
     user_intent(/current_intent, /mutation, _, _, _),
     !wants_direct_answer(),
     !early_lane().
+
+# A plan is two steps or more, and every step names the shard that runs it:
+# the multi-step executor skips a step without one, so the request would run
+# in part. The decomposer's clause parsing also yields steps like "/the" or
+# "/greet" (a synonym found inside "this") from a single request; they name
+# no shard. Until 2026-09-23 Go checked only the step count, after the lane had
+# derived: a one-step plan fell through, and the turn was neither decomposed
+# nor delegated.
+multi_step_plan_unrouted() :-
+    multi_step_plan_step(_, /none).
+
+multi_step_plan_ready() :-
+    multi_step_plan_step(I, _),
+    multi_step_plan_step(J, _),
+    I < J,
+    !multi_step_plan_unrouted().
 
 route_decision(/multi_step, /none) :-
     multi_step_lane().

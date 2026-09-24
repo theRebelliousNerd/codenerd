@@ -359,10 +359,12 @@ func SharedPredicates() []string {
 		"executive_processed_intent",
 		"intent_signal",
 		"delegation_candidate",
-		// multi_step_signal feeds is_multi_step and so multi_step_lane(),
-		// which the delegate and clarify lanes negate (routing_arbitration.mg):
-		// a negation is only sound where the negated side can derive.
+		// multi_step_signal feeds is_multi_step and multi_step_plan_step
+		// feeds multi_step_plan_ready, and both feed multi_step_lane(), which
+		// the delegate and clarify lanes negate (routing_arbitration.mg): a
+		// negation is only sound where the negated side can derive.
 		"multi_step_signal",
+		"multi_step_plan_step",
 		"is_multi_step",
 		"focus_needs_resolution",
 		"active_goal",

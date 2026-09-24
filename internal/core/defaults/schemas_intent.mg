@@ -29,17 +29,23 @@
 Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/name, /name, /name, /string, /string].
 
 # multi_step_signal(Signal) - EDB asserted by Go.
-# Step 5: the multi-step CLASSIFICATION decision moves to policy, while the
-# regex/keyword/verb-count EXTRACTION stays in Go (cmd/nerd/chat/delegation.go:
-# detectMultiStepTask, and the decompose corpus in schema/intent_multi_step.mg).
-# Go computes each signal from the (quote-stripped) input and asserts one fact
-# per detected signal; Mangle ORs them into is_multi_step.
-# Signal: /campaign_verb, /keyword_match, /verb_count_high, /compound_pattern
+# The multi-step CLASSIFICATION is policy (is_multi_step, delegation.mg); the
+# regex/keyword/verb-count EXTRACTION stays in Go (cmd/nerd/chat/
+# delegation_multistep.go: multiStepSignals, over the decomposition corpus in
+# multistep_corpus.go). Go computes each signal from the quote-stripped input
+# and asserts one fact per detected signal.
+# Signal: /campaign_verb, /keyword_match, /verb_count_high, /compound_pattern,
+# /corpus_pattern
 Decl multi_step_signal(Signal) bound [/name].
 
+# multi_step_plan_step(Index, Shard) - EDB asserted by Go: the decomposition a
+# /multi_step lane would run (decomposeTask), one row per step from 0, with the
+# shard that runs it or /none. Read by multi_step_plan_ready.
+Decl multi_step_plan_step(Index, Shard) bound [/number, /name].
+
 # is_multi_step() - derived: the current request should be decomposed into
-# multiple steps. Queried by Go, which falls back to the legacy Go boolean if the
-# kernel is unavailable or returns nothing.
+# multiple steps. Read by multi_step_lane (routing_arbitration.mg); with no
+# derivation nothing is decomposed.
 Decl is_multi_step() bound [].
 
 # yolo_mode() - EDB asserted by Go. Present when the operator enabled yolo

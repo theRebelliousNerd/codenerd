@@ -152,6 +152,8 @@ func TestStep5_IsMultiStep_SignalCombination(t *testing.T) {
 		{"weak_keyword_alone_not_derived", []string{"/keyword_match"}, false},
 		{"verb_count_alone_not_derived", []string{"/verb_count_high"}, false},
 		{"keyword_plus_verb_count_derives", []string{"/keyword_match", "/verb_count_high"}, true},
+		{"corpus_pattern_alone_not_derived", []string{"/corpus_pattern"}, false},
+		{"corpus_pattern_plus_verb_count_derives", []string{"/corpus_pattern", "/verb_count_high"}, true},
 		{"all_signals_derive", []string{"/campaign_verb", "/verb_count_high", "/compound_pattern", "/keyword_match"}, true},
 	}
 
@@ -440,11 +442,30 @@ func TestRouting_MutationLanes(t *testing.T) {
 		k := routingKernel(t, 50)
 		assertIntent(t, k, "/mutation", "/create", "auth middleware")
 		mustAssert(t, k, "multi_step_signal", types.MangleAtom("/compound_pattern"))
+		assertPlan(t, k, "/coder", "/tester")
 		mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(95))
 		if !queryDerived(t, k, "route_decision(/multi_step, /none)") {
 			t.Error("route_decision(/multi_step) not derived for compound mutation")
 		}
 	})
+
+	// The signals say multi-step, but the decomposition is one step, or has
+	// a step no shard runs: the request is delegated whole.
+	for _, plan := range [][]string{{"/coder"}, {"/reviewer", "/none"}} {
+		t.Run("multi_step_without_a_plan_delegates", func(t *testing.T) {
+			k := routingKernel(t, 50)
+			assertIntent(t, k, "/mutation", "/create", "auth middleware")
+			mustAssert(t, k, "multi_step_signal", types.MangleAtom("/compound_pattern"))
+			assertPlan(t, k, plan...)
+			mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(95))
+			if queryDerived(t, k, "route_decision(/multi_step, /none)") {
+				t.Errorf("multi_step derived for the plan %v", plan)
+			}
+			if !queryDerived(t, k, "route_decision(/delegate, /coder)") {
+				t.Errorf("the request was not delegated whole for the plan %v", plan)
+			}
+		})
+	}
 
 	t.Run("multi_step_question_does_not_decompose", func(t *testing.T) {
 		k := routingKernel(t, 50)
@@ -491,6 +512,7 @@ func TestRouting_OneLaneAtMost(t *testing.T) {
 			k := routingKernel(t, 50)
 			assertIntent(t, k, "/mutation", "/create", "auth middleware")
 			mustAssert(t, k, "multi_step_signal", types.MangleAtom("/compound_pattern"))
+			assertPlan(t, k, "/coder", "/tester")
 			mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), tc.conf)
 			rows, err := k.Query("route_decision")
 			if err != nil {
@@ -503,6 +525,15 @@ func TestRouting_OneLaneAtMost(t *testing.T) {
 				t.Errorf("%s not derived: %v", tc.want, rows)
 			}
 		})
+	}
+}
+
+// assertPlan asserts a decomposition as decideRoute does: one
+// multi_step_plan_step(Index, Shard) row per step.
+func assertPlan(t *testing.T, k *RealKernel, shards ...string) {
+	t.Helper()
+	for i, shard := range shards {
+		mustAssert(t, k, "multi_step_plan_step", int64(i), types.MangleAtom(shard))
 	}
 }
 
