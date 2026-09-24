@@ -1,6 +1,7 @@
 package prompt_evolution
 
 import (
+	nerdconfig "codenerd/internal/config"
 	"sync"
 	"testing"
 	"time"
@@ -10,7 +11,7 @@ import (
 
 func TestSetOnAtomPromoted_FiresOnPromotion(t *testing.T) {
 	tempDir := t.TempDir()
-	pe, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil)
+	pe, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil, nil, nerdconfig.JITConfig{})
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -64,7 +65,7 @@ func TestSetOnAtomPromoted_FiresOnPromotion(t *testing.T) {
 
 func TestPromoteAtom_NilCallbackIsSilent(t *testing.T) {
 	tempDir := t.TempDir()
-	pe, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil)
+	pe, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil, nil, nerdconfig.JITConfig{})
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -109,7 +110,7 @@ func TestPromoteAtom_NilCallbackIsSilent(t *testing.T) {
 
 func TestAtomPromotedCallback_RunsWithoutEvolverLock(t *testing.T) {
 	tempDir := t.TempDir()
-	pe, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil)
+	pe, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil, nil, nerdconfig.JITConfig{})
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -183,7 +184,7 @@ func TestAtomPromotedCallback_RunsWithoutEvolverLock(t *testing.T) {
 
 func TestPromoteAtom_UnknownAtomDoesNotFireCallback(t *testing.T) {
 	tempDir := t.TempDir()
-	pe, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil)
+	pe, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil, nil, nerdconfig.JITConfig{})
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}

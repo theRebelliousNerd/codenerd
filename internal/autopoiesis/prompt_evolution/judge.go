@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
 )
 
 // LLMClient is the interface for LLM interactions.
@@ -22,10 +24,23 @@ type LLMClient interface {
 type TaskJudge struct {
 	llmClient LLMClient
 	modelName string // For attribution
+
+	// The judge's system prompt is compiled from its atom
+	// (eval/judge/task_evaluator) under the configured prompt budget.
+	compiler PromptCompiler
+	jit      nerdconfig.JITConfig
 }
 
-// NewTaskJudge creates a new task judge.
-func NewTaskJudge(llmClient LLMClient, modelName string) *TaskJudge {
+// PromptCompiler compiles a system prompt from the atom corpus; the booted
+// session's *prompt.JITPromptCompiler is the one production passes.
+type PromptCompiler interface {
+	Compile(ctx context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error)
+}
+
+// NewTaskJudge creates a new task judge: its client, the model it names in
+// its verdicts, and the compiler and budget its system prompt is compiled
+// with.
+func NewTaskJudge(llmClient LLMClient, modelName string, compiler PromptCompiler, jit nerdconfig.JITConfig) *TaskJudge {
 	if modelName == "" {
 		modelName = "unknown"
 	}
@@ -33,6 +48,8 @@ func NewTaskJudge(llmClient LLMClient, modelName string) *TaskJudge {
 	return &TaskJudge{
 		llmClient: llmClient,
 		modelName: modelName,
+		compiler:  compiler,
+		jit:       jit,
 	}
 }
 
@@ -55,7 +72,12 @@ func (tj *TaskJudge) Evaluate(ctx context.Context, exec *ExecutionRecord) (*Judg
 
 	// Call LLM
 	llmTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMJudgeCall")
-	response, err := tj.llmClient.CompleteWithSystem(ctx, judgeSystemPrompt, userPrompt)
+	systemPrompt, err := tj.systemPrompt(ctx)
+	if err != nil {
+		llmTimer.Stop()
+		return nil, err
+	}
+	response, err := tj.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	llmTimer.Stop()
 
 	if err != nil {
@@ -77,6 +99,35 @@ func (tj *TaskJudge) Evaluate(ctx context.Context, exec *ExecutionRecord) (*Judg
 		exec.TaskID, verdict.Verdict, verdict.Category, verdict.Confidence)
 
 	return verdict, nil
+}
+
+// systemPrompt compiles the judge's system prompt from its atom
+// (internal/prompt/atoms/eval/judge_explanation.yaml, eval/judge/task_evaluator):
+// shard type /prompt_judge (a regime value, so only the evaluator's atoms answer
+// to it) and intent /judge (no worker intent atom claims it). The atom
+// supersedes the Piggyback output protocol and the tool and methodology atoms:
+// the reply is one JSON verdict. Until 2026-09-23 the judge ran on a Go copy of
+// that atom that had drifted from it; nothing compiled the atom.
+func (tj *TaskJudge) systemPrompt(ctx context.Context) (string, error) {
+	if tj.compiler == nil {
+		return "", fmt.Errorf("task judge has no prompt compiler configured")
+	}
+	cc := prompt.NewCompilationContext()
+	cc.ShardType = "/prompt_judge"
+	cc.ShardName = "Prompt Evolution Judge"
+	cc.OperationalMode = "/active"
+	cc.IntentVerb = "/judge"
+	cc.TokenBudget = tj.jit.TokenBudget
+	cc.ReservedTokens = tj.jit.ReservedTokens
+	cc.ReservedTokensFallbackRatio = tj.jit.ReservedTokensFallbackRatio
+	compiled, err := tj.compiler.Compile(ctx, cc)
+	if err != nil {
+		return "", fmt.Errorf("compile the task judge's prompt: %w", err)
+	}
+	if compiled == nil || strings.TrimSpace(compiled.Prompt) == "" {
+		return "", fmt.Errorf("the task judge's prompt compiled empty")
+	}
+	return compiled.Prompt, nil
 }
 
 // EvaluateBatch evaluates multiple execution records efficiently.
@@ -381,45 +432,3 @@ func truncateString(s string, maxLen int) string {
 	}
 	return s[:maxLen-3] + "..."
 }
-
-// judgeSystemPrompt is the system prompt for the LLM judge.
-var judgeSystemPrompt = `You are an expert evaluator for an AI coding agent. Your job is to assess whether the agent successfully completed its task.
-
-You MUST provide structured evaluation with:
-1. A clear PASS or FAIL verdict
-2. A specific explanation of what succeeded or failed
-3. An error category classification
-4. An improvement rule for failed tasks
-
-Be objective and precise. Focus on:
-- Did the agent accomplish the stated goal?
-- Were there any errors, bugs, or incomplete work?
-- Did the agent follow the user's instructions?
-- Was the approach appropriate for the problem?
-
-Error Categories:
-- LOGIC_ERROR: Wrong approach or algorithm
-- SYNTAX_ERROR: Code syntax issues
-- API_MISUSE: Wrong API or library usage
-- EDGE_CASE: Missing edge case handling
-- CONTEXT_MISS: Missed relevant context from the codebase
-- INSTRUCTION_MISS: Didn't follow user instructions
-- HALLUCINATION: Made up information (files, APIs, etc.)
-- CORRECT: Task completed correctly (use with PASS verdict)
-
-Output your evaluation as JSON:
-{
-  "verdict": "PASS" or "FAIL",
-  "explanation": "2-3 sentences explaining the verdict",
-  "category": "ERROR_CATEGORY",
-  "improvement_rule": "When [situation], always [action]"
-}
-
-For improvement_rule:
-- Only include for FAIL verdicts
-- Make it specific and actionable
-- Format: "When [situation], always [action]"
-- Examples:
-  - "When working with Go channels, always check if they are nil before sending"
-  - "When the user mentions a specific file, always read it before making changes"
-  - "When implementing API calls, always handle rate limiting and retries"`

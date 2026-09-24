@@ -102,7 +102,7 @@ func initLearningLoop(bctx *bootContext) error {
 	}
 
 	nerdDir := filepath.Join(bctx.workspace, ".nerd")
-	evolver, err := pe.NewPromptEvolver(nerdDir, judge, pe.DefaultEvolverConfig())
+	evolver, err := pe.NewPromptEvolver(nerdDir, judge, pe.DefaultEvolverConfig(), bctx.jitCompiler, bctx.appCfg.GetEffectiveJITConfig())
 	if err != nil {
 		logging.Get(logging.CategoryBoot).Warn(
 			"Prompt evolution unavailable in %s: %v; this session will not learn from its turns", nerdDir, err)

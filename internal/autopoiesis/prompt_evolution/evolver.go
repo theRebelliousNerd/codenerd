@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 
@@ -173,6 +174,8 @@ func NewPromptEvolver(
 	nerdDir string,
 	llmClient LLMClient,
 	config *EvolverConfig,
+	judgeCompiler PromptCompiler,
+	jit nerdconfig.JITConfig,
 ) (*PromptEvolver, error) {
 	if config == nil {
 		config = DefaultEvolverConfig()
@@ -221,7 +224,7 @@ func NewPromptEvolver(
 			judgeModel = strings.TrimSpace(named.GetModel())
 		}
 	}
-	judge := NewTaskJudge(llmClient, judgeModel)
+	judge := NewTaskJudge(llmClient, judgeModel, judgeCompiler, jit)
 	atomGenerator := NewAtomGeneratorWithPinScope(llmClient, strategyStore, config.AtomPinScope)
 	classifier := NewProblemClassifier()
 

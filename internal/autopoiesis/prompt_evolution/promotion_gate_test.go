@@ -1,6 +1,7 @@
 package prompt_evolution
 
 import (
+	nerdconfig "codenerd/internal/config"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func TestRecordAtomUsage_WhenAutoPromoteDisabled_ShouldLeaveAtomPendingUntilOper
 	cfg.AutoPromote = false
 	cfg.ConfidenceThreshold = 0.1 // trivially satisfiable, so only the gate can hold it back
 
-	pe, err := NewPromptEvolver(t.TempDir(), &mockLLMClient{}, cfg)
+	pe, err := NewPromptEvolver(t.TempDir(), &mockLLMClient{}, cfg, nil, nerdconfig.JITConfig{})
 	if err != nil {
 		t.Fatalf("NewPromptEvolver: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestRecordAtomUsage_WhenAutoPromoteEnabled_ShouldPromoteAtThreshold(t *test
 	cfg.AutoPromote = true
 	cfg.ConfidenceThreshold = 0.5
 
-	pe, err := NewPromptEvolver(t.TempDir(), &mockLLMClient{}, cfg)
+	pe, err := NewPromptEvolver(t.TempDir(), &mockLLMClient{}, cfg, nil, nerdconfig.JITConfig{})
 	if err != nil {
 		t.Fatalf("NewPromptEvolver: %v", err)
 	}

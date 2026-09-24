@@ -1,6 +1,7 @@
 package prompt_evolution
 
 import (
+	nerdconfig "codenerd/internal/config"
 	"strings"
 	"testing"
 
@@ -177,7 +178,7 @@ func newTestStrategyStore(t *testing.T) *StrategyStore {
 // configuration state. Now that the cycle runs unattended on the maintenance
 // schedule, a nil-deref there would take the process down mid-session.
 func TestJudge_NilClientIsAnErrorNotAPanic(t *testing.T) {
-	judge := NewTaskJudge(nil, "test-model")
+	judge := NewTaskJudge(nil, "test-model", nil, nerdconfig.JITConfig{})
 
 	verdict, err := judge.Evaluate(t.Context(), &ExecutionRecord{TaskID: "t1"})
 	if err == nil {

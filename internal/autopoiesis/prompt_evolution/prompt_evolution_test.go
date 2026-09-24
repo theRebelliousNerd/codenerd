@@ -1,6 +1,7 @@
 package prompt_evolution
 
 import (
+	nerdconfig "codenerd/internal/config"
 	"context"
 	"os"
 	"path/filepath"
@@ -790,7 +791,7 @@ func TestPromptEvolver_Lifecycle(t *testing.T) {
 	config.MinFailuresForEvolution = 1 // Lower threshold for testing
 	config.EnableStrategies = true
 
-	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, config)
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, config, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -847,7 +848,7 @@ func TestPromptEvolver_GetEvolvedAtoms(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil)
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -881,7 +882,7 @@ func TestPromptEvolver_SelectStrategies(t *testing.T) {
 	config := DefaultEvolverConfig()
 	config.EnableStrategies = true
 
-	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, config)
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, config, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -906,7 +907,7 @@ func TestPromptEvolver_WriteFailure(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil)
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -992,7 +993,7 @@ func TestPromptEvolver_InvalidConfig(t *testing.T) {
 
 			cfg := *base
 			tc.mutate(&cfg)
-			evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, &cfg)
+			evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, &cfg, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 			if err == nil {
 				if evolver != nil {
 					_ = evolver.Close()
@@ -1007,7 +1008,7 @@ func TestPromptEvolver_InvalidConfig(t *testing.T) {
 	t.Run("empty judge model takes the judging client's model", func(t *testing.T) {
 		cfg := *base
 		cfg.JudgeModel = ""
-		evolver, err := NewPromptEvolver(t.TempDir(), &namedMockLLMClient{model: "configured-model"}, &cfg)
+		evolver, err := NewPromptEvolver(t.TempDir(), &namedMockLLMClient{model: "configured-model"}, &cfg, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 		if err != nil {
 			t.Fatalf("unexpected error for empty judge model: %v", err)
 		}
@@ -1021,7 +1022,7 @@ func TestPromptEvolver_InvalidConfig(t *testing.T) {
 	t.Run("a client that names no model is labelled unknown, never a guess", func(t *testing.T) {
 		cfg := *base
 		cfg.JudgeModel = ""
-		evolver, err := NewPromptEvolver(t.TempDir(), &mockLLMClient{}, &cfg)
+		evolver, err := NewPromptEvolver(t.TempDir(), &mockLLMClient{}, &cfg, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 		if err != nil {
 			t.Fatalf("unexpected error for empty judge model: %v", err)
 		}
@@ -1051,7 +1052,7 @@ func TestPromptEvolver_ConcurrentAccess(t *testing.T) {
 	config := DefaultEvolverConfig()
 	config.MinFailuresForEvolution = 1
 
-	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, config)
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, config, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -1122,7 +1123,7 @@ func TestPromptEvolver_RecordExecutionTracksAtomUsageAndPromotion(t *testing.T) 
 	cfg.AutoPromote = true
 	cfg.EnableStrategies = false
 
-	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, cfg)
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, cfg, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -1185,7 +1186,7 @@ func TestPromptEvolver_RunEvolutionCycleAppliesUsageFromJudgedExecution(t *testi
 	cfg.AutoPromote = false
 	cfg.EnableStrategies = false
 
-	evolver, err := NewPromptEvolver(tempDir, &evolutionJudgeLLMClient{}, cfg)
+	evolver, err := NewPromptEvolver(tempDir, &evolutionJudgeLLMClient{}, cfg, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -1240,7 +1241,7 @@ func TestPromptEvolver_RunEvolutionCycleAppliesUsageFromJudgedExecution(t *testi
 }
 
 func TestTaskJudge_EvaluateBatchPreservesOrdering(t *testing.T) {
-	judge := NewTaskJudge(&partialBatchJudgeLLMClient{}, "test")
+	judge := NewTaskJudge(&partialBatchJudgeLLMClient{}, "test", newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 
 	execs := []*ExecutionRecord{
 		{
@@ -1401,7 +1402,7 @@ func TestFullEvolutionCycle(t *testing.T) {
 	config.MinFailuresForEvolution = 1
 	config.AutoPromote = false // Don't auto-promote for testing
 
-	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, config)
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, config, newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	if err != nil {
 		t.Fatalf("NewPromptEvolver failed: %v", err)
 	}
@@ -1469,14 +1470,14 @@ func (m *blockingJudgeLLMClient) CompleteWithSystem(ctx context.Context, system,
 }
 
 func TestTaskJudge_NilExecution(t *testing.T) {
-	judge := NewTaskJudge(&mockLLMClient{}, "test")
+	judge := NewTaskJudge(&mockLLMClient{}, "test", newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	if _, err := judge.Evaluate(context.Background(), nil); err == nil {
 		t.Fatal("expected error for nil execution")
 	}
 }
 
 func TestTaskJudge_ContextCancellation(t *testing.T) {
-	judge := NewTaskJudge(&blockingJudgeLLMClient{}, "test")
+	judge := NewTaskJudge(&blockingJudgeLLMClient{}, "test", newTestJudgeCompiler(t), nerdconfig.DefaultJITConfig())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -1494,4 +1495,29 @@ func TestTaskJudge_ContextCancellation(t *testing.T) {
 	if _, err := judge.Evaluate(ctx, exec); err == nil {
 		t.Fatal("expected context cancellation error")
 	}
+}
+
+// newTestJudgeCompiler serves the judge's atom as the binary ships it, standing
+// in for the JIT compiler in tests about verdicts: these tests cannot build a
+// kernel-backed compiler (the kernel adapter lives in internal/system, which
+// imports this package). judge_prompt_test.go checks the real compile.
+func newTestJudgeCompiler(t *testing.T) PromptCompiler {
+	t.Helper()
+	embedded, err := prompt.LoadEmbeddedCorpus()
+	if err != nil {
+		t.Fatalf("LoadEmbeddedCorpus: %v", err)
+	}
+	for _, atom := range embedded.All() {
+		if atom != nil && atom.ID == "eval/judge/task_evaluator" {
+			return shippedAtomCompiler{content: atom.Content}
+		}
+	}
+	t.Fatal("the embedded corpus has no eval/judge/task_evaluator atom")
+	return nil
+}
+
+type shippedAtomCompiler struct{ content string }
+
+func (c shippedAtomCompiler) Compile(context.Context, *prompt.CompilationContext) (*prompt.CompilationResult, error) {
+	return &prompt.CompilationResult{Prompt: c.content}, nil
 }

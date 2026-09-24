@@ -7,6 +7,18 @@
   priority: 100
   is_mandatory: true
   shard_types: ["/prompt_judge"]
+  # The reply is one JSON verdict and the judge has no tools: while live,
+  # supersede the Piggyback output protocol and the tool and methodology
+  # atoms (jit_compiler.mg mandatory_superseded).
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/thought_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/reasoning/requirements"
+    - "protocol/reasoning/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
   description: "System prompt for evaluating AI coding agent task executions"
   content: |
     You are an expert evaluator for an AI coding agent. Your job is to assess whether the agent successfully completed its task.
