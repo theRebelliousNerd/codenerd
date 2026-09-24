@@ -741,10 +741,10 @@ Decl shard_startup(ShardName, Mode) bound [/name, /name].
 # Autopoiesis derived predicates
 Decl unhandled_case_count(ShardName, Count) bound [/string, /number].
 Decl unhandled_cases(ShardName, Cases) bound [/string, /string].
-# ShardName here is a policy-module / shard identity name constant. The only
-# live producer is propose_new_rule(/verification_policy) in policy/verification.mg;
-# the system_autopoiesis.mg rule that would bind it from a variable is inert
-# because nothing (Go or .mg) ever asserts system_shard/2.
+# ShardName here is a policy-module / shard identity name constant. Nothing
+# derives it: the system_autopoiesis.mg rule binds it from system_shard/2,
+# which nothing (Go or .mg) asserts, and the policy/verification.mg rule
+# (deleted 2026-09-23) read quality violations nothing asserted either.
 Decl propose_new_rule(ShardName) bound [/name].
 Decl proposed_rule(RuleID, ShardName, MangleCode, Confidence) bound [/string, /string, /string, /number].
 Decl rule_needs_approval(RuleID) bound [/string].
@@ -752,8 +752,6 @@ Decl auto_apply_rule(RuleID) bound [/string].
 Decl rule_applied(RuleID) bound [/string].
 Decl applied_rule(RuleID, Timestamp) bound [/string, /number].
 Decl learning_signal(SignalType, RuleID) bound [/name, /string].
-# 1-arg variant renamed to avoid arity conflict (Mangle doesn't support overloading)
-Decl quality_signal(SignalType) bound [/name].
 Decl rule_outcome(RuleID, Outcome, Details) bound [/string, /name, /string].
 
 # OODA loop derived predicates

@@ -233,7 +233,6 @@ var ruleGlossary = map[string]string{
 	// Learning / memory
 	"promote_to_long_term": "long-term memory promotion",
 	"learning_signal":      "learning signal extraction",
-	"quality_signal":       "quality signal extraction",
 }
 
 // explainRule provides a human-readable explanation for a rule name.

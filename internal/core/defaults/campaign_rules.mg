@@ -534,6 +534,13 @@ escalation_required(TaskID, "high_priority_failed") :-
     task_priority(TaskID, /high),
     task_blocks_others(TaskID).
 
+# An escalation is put to the user. Until 2026-09-23 this rule sat in
+# policy/verification.mg, whose own verification-loop rules never fired
+# (nothing asserted their inputs); it is the one rule of that file a live
+# input reached, and moved here with the escalations it serves.
+next_action(/escalate_to_user) :-
+    escalation_required(_, _).
+
 # Auto-skip suggestion for non-blocking failed tasks
 suggest_skip_task(TaskID) :-
     task_can_skip(TaskID),

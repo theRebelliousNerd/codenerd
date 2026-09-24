@@ -6,103 +6,25 @@
 # Sections: 35, 36, 51
 
 # =============================================================================
-# SECTION 35: VERIFICATION LOOP (Post-Execution Quality Enforcement)
+# SECTION 35: TASK QUALITY
 # =============================================================================
-# Tracks task verification attempts, quality violations, and corrective actions.
-# Enables the agent to retry with context enrichment until success or escalation.
-
-# -----------------------------------------------------------------------------
-# 35.1 Verification State Tracking
-# -----------------------------------------------------------------------------
-
-# verification_attempt(TaskID, AttemptNum, Success)
-# Tracks each verification attempt for a task
-# Success: /success, /failure
-Decl verification_attempt(TaskID, AttemptNum, Success) bound [/string, /number, /name].
+# The verification loop's own predicates (verification_attempt, corrective_*,
+# ...) and its policy (policy/verification.mg) were deleted 2026-09-23: nothing
+# asserted them. A chat delegation's attempts are decided by delegation_move
+# (policy/delegation.mg); the judge's violations reach the retry prompt.
 
 # current_task(TaskID) - the task currently being executed
 Decl current_task(TaskID) bound [/string].
 
-# verification_result(TaskID, AttemptNum, Confidence, Reason)
-# Detailed verification result per attempt
-Decl verification_result(TaskID, AttemptNum, Confidence, Reason) bound [/string, /number, /number, /string].
-
-# -----------------------------------------------------------------------------
-# 35.2 Quality Violation Detection
-# -----------------------------------------------------------------------------
-
-# quality_violation(TaskID, ViolationType)
+# quality_violation(TaskID, ViolationType) - read by campaign_rules.mg
+# (quality_violation_detected); nothing asserts it yet.
 # ViolationType: /mock_code, /placeholder, /hallucinated_api, /incomplete,
 #                /hardcoded, /empty_function, /missing_errors, /fake_tests
 Decl quality_violation(TaskID, ViolationType) bound [/string, /name].
 
-# quality_violation_evidence(TaskID, ViolationType, Evidence)
-# Specific evidence of the violation (e.g., line number, code snippet)
-Decl quality_violation_evidence(TaskID, ViolationType, Evidence) bound [/string, /name, /string].
-
-# quality_score(TaskID, AttemptNum, Score)
-# Overall quality score (0.0-1.0) for the attempt
-Decl quality_score(TaskID, AttemptNum, Score) bound [/string, /number, /number].
-
-# -----------------------------------------------------------------------------
-# 35.3 Corrective Action Tracking
-# -----------------------------------------------------------------------------
-
-# corrective_action_taken(TaskID, ActionType)
-# ActionType: /research, /docs, /tool, /decompose
-Decl corrective_action_taken(TaskID, ActionType) bound [/string, /name].
-
-# corrective_context(TaskID, AttemptNum, ContextType, Context)
-# Additional context gathered through corrective action
-# ContextType: /research_result, /documentation, /tool_output, /decomposition
-Decl corrective_context(TaskID, AttemptNum, ContextType, Context) bound [/string, /number, /name, /string].
-
-# corrective_query(TaskID, AttemptNum, Query)
-# The query used for corrective action (e.g., research query)
-Decl corrective_query(TaskID, AttemptNum, Query) bound [/string, /number, /string].
-
-# -----------------------------------------------------------------------------
-# 35.4 Shard Selection Tracking
-# -----------------------------------------------------------------------------
-
-# shard_selected(TaskID, AttemptNum, ShardType, SelectionReason)
-# Tracks which shard was selected for each attempt
-Decl shard_selected(TaskID, AttemptNum, ShardType, SelectionReason) bound [/string, /number, /name, /string].
-
-# shard_selection_confidence(TaskID, AttemptNum, ShardType, Confidence)
-# Confidence score for shard selection
-Decl shard_selection_confidence(TaskID, AttemptNum, ShardType, Confidence) bound [/string, /number, /name, /number].
-
-# -----------------------------------------------------------------------------
-# 35.5 Verification Derived Predicates
-# -----------------------------------------------------------------------------
-
-# verification_blocked(TaskID) - derived: max retries reached
-Decl verification_blocked(TaskID) bound [/string].
-
-# verification_succeeded(TaskID) - derived: task passed verification
-Decl verification_succeeded(TaskID) bound [/string].
-
-# has_quality_violation(TaskID) - derived: task has any quality violation
-Decl has_quality_violation(TaskID) bound [/string].
-
-# needs_corrective_action(TaskID) - derived: task needs correction
-Decl needs_corrective_action(TaskID) bound [/string].
-
-# escalation_required(TaskID, Reason) - derived: must escalate to user
+# escalation_required(TaskID, Reason) - derived (campaign_rules.mg): must
+# escalate to user
 Decl escalation_required(TaskID, Reason) bound [/string, /string].
-
-# first_attempt_success(TaskID) - derived: task succeeded on first verification attempt
-Decl first_attempt_success(TaskID) bound [/string].
-
-# required_retry(TaskID) - derived: task required retries before passing
-Decl required_retry(TaskID) bound [/string].
-
-# violation_type_count_high(ViolationType) - derived: violation type occurs frequently (5+)
-Decl violation_type_count_high(ViolationType) bound [/name].
-
-# corrective_action_effective(TaskID, ActionType) - derived: corrective action improved result
-Decl corrective_action_effective(TaskID, ActionType) bound [/string, /name].
 
 # =============================================================================
 # SECTION 36: REASONING TRACES (Shard LLM Interaction History)

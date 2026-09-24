@@ -308,12 +308,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"intelligence_file_topology",
 				"context_pressure_level",
 				"knowledge_ingested",
-				// Traces and verification attempts are scored against the
-				// campaign task that produced them (trace_logic.mg,
-				// campaign_autopoiesis.mg).
+				// Traces are scored against the campaign task that produced
+				// them (trace_logic.mg, campaign_autopoiesis.mg).
 				"reasoning_trace", "trace_quality", "trace_task_type",
-				"verification_attempt", "campaign_shard",
-				"corrective_action_taken", "session_state", "shard_error",
+				"campaign_shard",
+				"session_state", "shard_error",
 				"trace_error", "trace_pattern",
 			},
 		},
@@ -398,7 +397,6 @@ func SharedPredicates() []string {
 		"state_unchanged_count",
 		"tdd_retry_count",
 		"max_retries",
-		"corrective_query",
 		"focus_clarification",
 		"awaiting_user_input",
 		"awaiting_clarification",

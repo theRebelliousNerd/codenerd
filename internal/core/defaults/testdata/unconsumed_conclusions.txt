@@ -122,7 +122,6 @@ unconsumed concurrency_pattern
 unconsumed connector_type
 unconsumed constraint_violation
 unconsumed context_priority
-unconsumed corrective_action_effective
 unconsumed coverage_below_goal
 unconsumed coverage_gap
 unconsumed coverage_warning
@@ -164,7 +163,6 @@ unconsumed element_edit_blocked
 unconsumed escalate_to_user
 unconsumed excessive_appeal_denials
 unconsumed exclude_from_context
-unconsumed executive_blocked
 unconsumed explicit_tool_request
 unconsumed failed_campaign_task
 unconsumed failed_edit
@@ -178,7 +176,6 @@ unconsumed file_reachable
 unconsumed final_atom
 unconsumed final_context_include
 unconsumed final_shard_for_task
-unconsumed first_attempt_success
 unconsumed focus_needs_resolution
 unconsumed fragile
 unconsumed function_in_scope
@@ -424,7 +421,6 @@ unconsumed project_write_protected
 unconsumed propose_new_rule
 unconsumed propose_safety_rule
 unconsumed pytest_repair_priority
-unconsumed quality_signal
 unconsumed quality_violation_detected
 unconsumed raw_finding
 unconsumed recent_armory_success
@@ -453,7 +449,6 @@ unconsumed repair_not_converging
 unconsumed repeated_violation_pattern
 unconsumed replan_needed
 unconsumed require_tests
-unconsumed required_retry
 unconsumed requires_campaign
 unconsumed requires_contract_check
 unconsumed requires_error_handling
@@ -589,9 +584,6 @@ unconsumed validation_meets_threshold
 unconsumed validation_syntax_error
 unconsumed verb_category
 unconsumed verb_pair_relation
-unconsumed verification_succeeded
 unconsumed violation
-unconsumed violation_type_count_high
-unconsumed violation_type_occurrence_count
 unconsumed warning_suppressed
 unconsumed zombie_test
