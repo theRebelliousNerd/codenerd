@@ -72,6 +72,9 @@ type RouteDecision struct {
 	// lane derives only for a plan the policy found runnable, so the caller
 	// runs these steps and does not decompose again.
 	Steps []TaskStep
+	// Verify is the kernel's route_verifies, for RouteDelegate: the
+	// delegation runs the verification loop rather than one plain run.
+	Verify bool
 }
 
 // decideRoute asserts this turn's routing EDB (delegation candidate,
@@ -207,7 +210,12 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	case "/multi_step":
 		decision = RouteDecision{Kind: RouteMultiStep, Steps: steps}
 	case "/delegate":
-		decision = RouteDecision{Kind: RouteDelegate, Shard: shard}
+		verifies, err := m.kernel.Query("route_verifies")
+		if err != nil {
+			logging.RoutingError("[decideRoute] query route_verifies failed: %v", err)
+			return none
+		}
+		decision = RouteDecision{Kind: RouteDelegate, Shard: shard, Verify: len(verifies) > 0}
 	case "/clarify":
 		decision = RouteDecision{Kind: RouteClarify}
 	default:
@@ -218,15 +226,6 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	logging.Routing("[decideRoute] kernel decision: %s shard=%q (verb=%s question=%v)",
 		decision.Kind, decision.Shard, intent.Verb, intent.IsQuestion)
 	return decision
-}
-
-// shouldVerifyDelegation scopes the quality-verification retry loop to
-// mutations. Verification re-runs the shard up to 3 times with an extra LLM
-// verification call per attempt — worth it when code was written, pure
-// overhead (and a major latency amplifier) for read-only query work like
-// reviews and analyses.
-func shouldVerifyDelegation(intent perception.Intent) bool {
-	return intent.Category == "/mutation"
 }
 
 // resolveShardTypeForIntent picks a concrete shard for delegation.

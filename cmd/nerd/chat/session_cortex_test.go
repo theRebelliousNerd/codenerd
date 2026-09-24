@@ -79,7 +79,7 @@ func TestDecideRoute_OnTheProductionKernel(t *testing.T) {
 	}
 	fix := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.93}
 	assertRouteIntent(t, m, fix)
-	if route := m.decideRoute("fix the typo in README.md", fix, "coder"); route.Kind != RouteDelegate || route.Shard != "coder" {
-		t.Errorf("route = %s/%q, want delegate/coder", route.Kind, route.Shard)
+	if route := m.decideRoute("fix the typo in README.md", fix, "coder"); route.Kind != RouteDelegate || route.Shard != "coder" || !route.Verify {
+		t.Errorf("route = %s/%q verify=%v, want delegate/coder, verified: route_verifies must derive on the sharded kernel", route.Kind, route.Shard, route.Verify)
 	}
 }

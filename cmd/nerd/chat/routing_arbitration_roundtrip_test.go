@@ -408,15 +408,35 @@ func TestDecideRoute_NoContaminationAcrossTurns(t *testing.T) {
 // Verification scoping + signal extraction
 // -----------------------------------------------------------------------------
 
-func TestShouldVerifyDelegation_MutationsOnly(t *testing.T) {
-	if !shouldVerifyDelegation(perception.Intent{Category: "/mutation", Verb: "/fix"}) {
-		t.Error("mutations must be verified")
+// Whether a delegation runs the verification loop is the kernel's
+// (route_verifies): a delegated mutation does, and read-only work does not pay
+// the judged attempts. It was shouldVerifyDelegation, a Go test of the intent
+// category, until 2026-09-24.
+func TestDecideRoute_ADelegatedMutationVerifies(t *testing.T) {
+	cases := []struct {
+		name   string
+		input  string
+		intent perception.Intent
+		shard  string
+		want   bool
+	}{
+		{"a fix verifies", "fix the typo in README.md",
+			perception.Intent{Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.93}, "coder", true},
+		{"a review does not", "can you review internal/core/kernel.go?",
+			perception.Intent{Category: "/query", Verb: "/review", Target: "internal/core/kernel.go", Confidence: 0.88, IsQuestion: true}, "reviewer", false},
 	}
-	if shouldVerifyDelegation(perception.Intent{Category: "/query", Verb: "/review"}) {
-		t.Error("read-only query work must not pay the verification retry loop")
-	}
-	if shouldVerifyDelegation(perception.Intent{Category: "/instruction", Verb: "/configure"}) {
-		t.Error("instructions must not pay the verification retry loop")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newRoundtripModel(t)
+			assertRouteIntent(t, m, tc.intent)
+			route := m.decideRoute(tc.input, tc.intent, tc.shard)
+			if route.Kind != RouteDelegate {
+				t.Fatalf("route = %s, want delegate", route.Kind)
+			}
+			if route.Verify != tc.want {
+				t.Errorf("verify = %v, want %v", route.Verify, tc.want)
+			}
+		})
 	}
 }
 

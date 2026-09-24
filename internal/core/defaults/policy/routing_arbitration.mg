@@ -194,6 +194,15 @@ route_decision(/delegate, Shard) :-
     !clarify_lane(),
     !early_lane().
 
+# A delegated mutation runs the verification loop: the persona's attempts,
+# each judged (delegation_move, delegation.mg). Read-only work -- a review, an
+# analysis -- has nothing written to verify, and each attempt's extra judge
+# call would only be latency. Was shouldVerifyDelegation, in Go, until
+# 2026-09-24.
+route_verifies() :-
+    route_decision(/delegate, _),
+    user_intent(/current_intent, /mutation, _, _, _).
+
 # Clarify before acting, and not twice for the same input: a user who sends
 # back the request the last clarification asked about has declined to narrow
 # it, and asking again loops. The Go clarifiers always stood down on that

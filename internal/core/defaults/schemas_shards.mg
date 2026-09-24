@@ -44,6 +44,10 @@ Decl should_delegate(ShardType) bound [/name].
 # ShardType carries the target shard for /delegate and is /none otherwise.
 Decl route_decision(Route, ShardType) bound [/name, /name].
 
+# route_verifies() - derived: the /delegate lane runs the verification loop
+# (the persona's attempts, each judged) rather than one plain run.
+Decl route_verifies() bound [].
+
 # wants_direct_answer() - derived: the user is asking for an answer (question or
 # conversation), so the turn must terminate in prose, not shard work.
 Decl wants_direct_answer() bound [].

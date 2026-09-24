@@ -448,12 +448,9 @@ func (m Model) processInput(input string) tea.Cmd {
 			// Build session context for shard injection (Blackboard Pattern)
 			sessionCtx := m.buildSessionContext(ctx)
 
-			// Use verification loop if available (quality-enforcing retry).
-			// Scoped to MUTATIONS: each verification attempt re-runs the shard
-			// plus an extra LLM verification call (up to 3x), which is worth it
-			// when code was written but a pure latency amplifier for read-only
-			// query work (reviews, analyses, benchmarks).
-			if m.verifier != nil && shouldVerifyDelegation(intent) {
+			// The verification loop (the persona's attempts, each judged) when
+			// the kernel derived route_verifies: a delegated mutation.
+			if m.verifier != nil && route.Verify {
 				// Set session context for verification persistence
 				m.verifier.SetSessionContext(m.sessionID, m.turnCount)
 
