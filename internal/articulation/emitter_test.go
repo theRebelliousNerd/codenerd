@@ -342,11 +342,9 @@ func TestResponseProcessor_Process_MassiveReasoningTrace(t *testing.T) {
 		t.Fatalf("Process() error = %v", err)
 	}
 
-	if len(res.Control.ReasoningTrace) > 60000 {
-		t.Fatalf("ReasoningTrace was not truncated: len=%d", len(res.Control.ReasoningTrace))
-	}
-	if !strings.HasSuffix(res.Control.ReasoningTrace, "[TRUNCATED]") {
-		t.Fatalf("ReasoningTrace did not end with [TRUNCATED]")
+	// The model's own output is never cut: the whole trace survives parsing.
+	if res.Control.ReasoningTrace != massiveTrace {
+		t.Fatalf("ReasoningTrace was altered: len=%d, want %d", len(res.Control.ReasoningTrace), len(massiveTrace))
 	}
 }
 

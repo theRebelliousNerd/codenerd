@@ -155,23 +155,14 @@ func TestResponseProcessor_Boundary_MassiveReasoningTrace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Process() failed with massive trace: %v", err)
 	}
-	// ReasoningTrace should be capped to avoid runaway memory usage.
-	const maxReasoningTrace = 50_000
-	if len(res.Control.ReasoningTrace) <= 0 {
-		t.Fatalf("Expected non-empty ReasoningTrace after parsing")
+	// The model's own output is never cut: the trace survives parsing whole.
+	if res.Control.ReasoningTrace != massiveTrace {
+		t.Fatalf("ReasoningTrace was altered: got %d bytes, want %d", len(res.Control.ReasoningTrace), len(massiveTrace))
 	}
-	if len(res.Control.ReasoningTrace) > maxReasoningTrace+len("\n[TRUNCATED]") {
-		t.Fatalf("ReasoningTrace was not capped: got %d bytes", len(res.Control.ReasoningTrace))
-	}
-	foundWarning := false
 	for _, w := range res.Warnings {
-		if strings.Contains(w, "Reasoning trace truncated") {
-			foundWarning = true
-			break
+		if strings.Contains(w, "truncated") && strings.Contains(w, "easoning") {
+			t.Fatalf("a whole trace was reported truncated: %v", res.Warnings)
 		}
-	}
-	if !foundWarning {
-		t.Fatalf("Expected warning about reasoning trace truncation, got %v", res.Warnings)
 	}
 }
 

@@ -70,17 +70,3 @@ func TestProcessLLMResponse(t *testing.T) {
 		t.Error("Expected nil control packet for fallback")
 	}
 }
-
-func TestAppendReasoningDirective(t *testing.T) {
-	base := "You are a bot."
-
-	full := AppendReasoningDirective(base, true)
-	if !strings.Contains(full, "REASONING TRACE (MANDATORY)") {
-		t.Error("Expected full directive")
-	}
-
-	short := AppendReasoningDirective(base, false)
-	if !strings.Contains(short, "REASONING OUTPUT") {
-		t.Error("Expected short directive")
-	}
-}
