@@ -87,7 +87,7 @@ func evidenceChainFixture(t *testing.T) (*Orchestrator, *Task, map[string]string
 
 func TestTaskEvidence_DerivedByDependencyNameAndDistance(t *testing.T) {
 	o, task, paths := evidenceChainFixture(t)
-	section, err := o.taskEvidenceSection(task)
+	section, err := o.taskContextSection(context.Background(), task)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestTaskEvidence_OverTheInlineCeilingIsADigestTheModelCanRecall(t *testing.
 		{ID: "/task_down", PhaseID: "/phase_0", Type: TaskTypeDocument, Status: TaskPending, Order: 1, DependsOn: []string{"/task_up"}, Description: "Report"},
 	}}}}
 	o := evidenceOrchestrator(t, ws, c, func(cc *config.CampaignConfig) { cc.UpstreamInlineMaxBytes = len(big) - 1 })
-	section, err := o.taskEvidenceSection(&c.Phases[0].Tasks[1])
+	section, err := o.taskContextSection(context.Background(), &c.Phases[0].Tasks[1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestTaskEvidence_ATasksOwnOutputIsNotItsEvidence(t *testing.T) {
 	}}}}
 	o := evidenceOrchestrator(t, ws, c, nil)
 	modes, err := func() (map[string]string, error) {
-		if _, err := o.taskEvidenceSection(&c.Phases[0].Tasks[1]); err != nil {
+		if _, err := o.taskContextSection(context.Background(), &c.Phases[0].Tasks[1]); err != nil {
 			return nil, err
 		}
 		return o.askTaskEvidence("/task_again")
@@ -201,7 +201,7 @@ func TestTaskEvidence_ATaskOutsideTheCampaignHasNone(t *testing.T) {
 	}}}}
 	o := evidenceOrchestrator(t, ws, c, nil)
 	for _, task := range []*Task{&c.Phases[0].Tasks[0], {ID: "/task_elsewhere", Description: "not planned"}} {
-		got, err := o.taskEvidenceSection(task)
+		got, err := o.taskContextSection(context.Background(), task)
 		if err != nil || got != "" {
 			t.Fatalf("%s: want no section, got %q (err %v)", task.ID, got, err)
 		}
@@ -224,7 +224,7 @@ func TestTaskEvidence_CyclicPhasesTerminateWithoutSelfEvidence(t *testing.T) {
 	o := evidenceOrchestrator(t, ws, c, nil)
 	done := make(chan error, 1)
 	go func() {
-		_, err := o.taskEvidenceSection(&c.Phases[1].Tasks[1])
+		_, err := o.taskContextSection(context.Background(), &c.Phases[1].Tasks[1])
 		done <- err
 	}()
 	select {

@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,7 @@ func TestTestWriteShardTaskTarget(t *testing.T) {
 			t.Fatalf("mkdir pkg: %v", err)
 		}
 		task := &Task{WriteSet: []string{"pkg"}}
-		got, err := o.testWriteShardTask(task, o.resolveFileTaskTargetPath(task))
+		got, err := o.testWriteShardTask(context.Background(), task, o.resolveFileTaskTargetPath(task))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -31,7 +32,7 @@ func TestTestWriteShardTaskTarget(t *testing.T) {
 	t.Run("artifact file resolves to file label", func(t *testing.T) {
 		o := newOrchestrator(t)
 		task := &Task{Artifacts: []TaskArtifact{{Path: "pkg/a.go"}}}
-		got, err := o.testWriteShardTask(task, o.resolveFileTaskTargetPath(task))
+		got, err := o.testWriteShardTask(context.Background(), task, o.resolveFileTaskTargetPath(task))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -43,7 +44,7 @@ func TestTestWriteShardTaskTarget(t *testing.T) {
 	t.Run("empty target has no dangling label", func(t *testing.T) {
 		o := newOrchestrator(t)
 		task := &Task{Description: "cover edge cases"}
-		got, err := o.testWriteShardTask(task, o.resolveFileTaskTargetPath(task))
+		got, err := o.testWriteShardTask(context.Background(), task, o.resolveFileTaskTargetPath(task))
 		if err != nil {
 			t.Fatal(err)
 		}

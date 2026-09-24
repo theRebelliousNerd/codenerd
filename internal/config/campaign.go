@@ -108,6 +108,14 @@ type CampaignConfig struct {
 	// checks is hollow when its producer was owed upstream evidence (policy:
 	// verify_report_hollow).
 	VerifyReportMinBytes int `json:"verify_report_min_bytes,omitempty"`
+	// PreloadOutlineMaxRows is how many declarations a file or package the
+	// brief names may have for its outline to be preloaded into the brief;
+	// a larger one is named with its count (policy: task_preload).
+	PreloadOutlineMaxRows int `json:"preload_outline_max_rows,omitempty"`
+	// PreloadElementMaxLines is how many lines an element the brief names may
+	// span for its source to be preloaded; a longer one is preloaded as its
+	// outline row (policy: task_preload).
+	PreloadElementMaxLines int `json:"preload_element_max_lines,omitempty"`
 	// ReplanContextTasks is how many failed or blocked tasks, and triggers,
 	// the replanner's context lists before it says how many it left out.
 	ReplanContextTasks int `json:"replan_context_tasks,omitempty"`
@@ -168,6 +176,8 @@ func DefaultCampaignConfig() CampaignConfig {
 		WriteSetLockPoll:           "10ms",
 		UpstreamInlineMaxBytes:     48 * 1024,
 		VerifyReportMinBytes:       1024,
+		PreloadOutlineMaxRows:      150,
+		PreloadElementMaxLines:     400,
 		ReplanContextTasks:         25,
 		ReplanContextAttempts:      3,
 		ReplanContextTextBytes:     400,
@@ -232,6 +242,8 @@ func (c CampaignConfig) WithDefaults() CampaignConfig {
 	strOr(&c.WriteSetLockPoll, d.WriteSetLockPoll)
 	intOr(&c.UpstreamInlineMaxBytes, d.UpstreamInlineMaxBytes)
 	intOr(&c.VerifyReportMinBytes, d.VerifyReportMinBytes)
+	intOr(&c.PreloadOutlineMaxRows, d.PreloadOutlineMaxRows)
+	intOr(&c.PreloadElementMaxLines, d.PreloadElementMaxLines)
 	intOr(&c.ReplanContextTasks, d.ReplanContextTasks)
 	intOr(&c.ReplanContextAttempts, d.ReplanContextAttempts)
 	intOr(&c.ReplanContextTextBytes, d.ReplanContextTextBytes)
@@ -270,6 +282,8 @@ type CampaignPolicy struct {
 	WriteSetLockPoll           time.Duration
 	UpstreamInlineMaxBytes     int
 	VerifyReportMinBytes       int
+	PreloadOutlineMaxRows      int
+	PreloadElementMaxLines     int
 	ReplanContextTasks         int
 	ReplanContextAttempts      int
 	ReplanContextTextBytes     int
@@ -323,6 +337,8 @@ func (c CampaignConfig) Resolve() (CampaignPolicy, error) {
 		WriteSetLockPoll:           d(c.WriteSetLockPoll),
 		UpstreamInlineMaxBytes:     c.UpstreamInlineMaxBytes,
 		VerifyReportMinBytes:       c.VerifyReportMinBytes,
+		PreloadOutlineMaxRows:      c.PreloadOutlineMaxRows,
+		PreloadElementMaxLines:     c.PreloadElementMaxLines,
 		ReplanContextTasks:         c.ReplanContextTasks,
 		ReplanContextAttempts:      c.ReplanContextAttempts,
 		ReplanContextTextBytes:     c.ReplanContextTextBytes,
@@ -357,6 +373,8 @@ func (c CampaignConfig) Check(prefix string) []Problem {
 		{"task_result_cache_limit", c.TaskResultCacheLimit},
 		{"upstream_inline_max_bytes", c.UpstreamInlineMaxBytes},
 		{"verify_report_min_bytes", c.VerifyReportMinBytes},
+		{"preload_outline_max_rows", c.PreloadOutlineMaxRows},
+		{"preload_element_max_lines", c.PreloadElementMaxLines},
 		{"replan_context_tasks", c.ReplanContextTasks},
 		{"replan_context_attempts", c.ReplanContextAttempts},
 		{"replan_context_text_bytes", c.ReplanContextTextBytes},
@@ -434,6 +452,8 @@ func (p CampaignPolicy) Params() []Param {
 		{Key: "/campaign_acceptance_rounds", Value: int64(p.AcceptanceRounds)},
 		{Key: "/campaign_upstream_inline_max_bytes", Value: int64(p.UpstreamInlineMaxBytes)},
 		{Key: "/campaign_verify_report_min_bytes", Value: int64(p.VerifyReportMinBytes)},
+		{Key: "/campaign_preload_outline_max_rows", Value: int64(p.PreloadOutlineMaxRows)},
+		{Key: "/campaign_preload_element_max_lines", Value: int64(p.PreloadElementMaxLines)},
 		{Key: "/campaign_degenerate_min_tokens", Value: int64(p.DegenerateMinTokens)},
 		{Key: "/campaign_degenerate_distinct_permille", Value: int64(p.DegenerateDistinctPermille)},
 		{Key: "/campaign_degenerate_long_words", Value: int64(p.DegenerateLongWords)},

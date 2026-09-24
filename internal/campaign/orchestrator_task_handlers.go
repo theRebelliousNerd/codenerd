@@ -303,7 +303,7 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 		return nil, err
 	}
 	logging.CampaignDebug("Spawning %s for task %s", verb, task.ID)
-	input, err := o.buildTaskInput(task)
+	input, err := o.buildTaskInput(ctx, task)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +494,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	if isDirectoryTarget {
 		targetLabel = "package:"
 	}
-	input, err := o.buildTaskInput(task)
+	input, err := o.buildTaskInput(ctx, task)
 	if err != nil {
 		return nil, err
 	}
@@ -670,7 +670,7 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 	// document still sees what to write from. Prompt-only; the written file is
 	// the shard result, never this input section.
 	taskBlock := task.Description
-	upstream, err := o.taskEvidenceSection(task)
+	upstream, err := o.taskContextSection(ctx, task)
 	if err != nil {
 		return nil, fail(fmt.Errorf("derive the upstream evidence of %s: %w", task.ID, err))
 	}
@@ -771,7 +771,7 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 	logging.CampaignDebug("Executing test write task %s: target=%s", task.ID, targetPath)
 
 	// Build task string for tester shard
-	shardTask, err := o.testWriteShardTask(task, targetPath)
+	shardTask, err := o.testWriteShardTask(ctx, task, targetPath)
 	if err != nil {
 		return nil, err
 	}
@@ -802,8 +802,8 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 // what the target is: an existing directory is a package target, any other
 // non-empty target is a file target, and an empty target carries no dangling
 // "file:" label. The full path resolves the same way executeFileTask does.
-func (o *Orchestrator) testWriteShardTask(task *Task, targetPath string) (string, error) {
-	input, err := o.buildTaskInput(task)
+func (o *Orchestrator) testWriteShardTask(ctx context.Context, task *Task, targetPath string) (string, error) {
+	input, err := o.buildTaskInput(ctx, task)
 	if err != nil {
 		return "", err
 	}
@@ -1039,7 +1039,7 @@ func (o *Orchestrator) executeShardSpawnTask(ctx context.Context, task *Task) (a
 	}
 	logging.CampaignDebug("Executing shard spawn task %s: intent=%s", task.ID, intent)
 	// Holographic context: shard-spawn inputs carry upstream durable findings.
-	input, err := o.buildTaskInput(task)
+	input, err := o.buildTaskInput(ctx, task)
 	if err != nil {
 		return nil, err
 	}
@@ -1064,7 +1064,7 @@ func (o *Orchestrator) executeRefactorTask(ctx context.Context, task *Task) (any
 
 	// Build task string for coder shard. Holographic context: the instruction
 	// carries upstream durable findings via buildTaskInput.
-	input, err := o.buildTaskInput(task)
+	input, err := o.buildTaskInput(ctx, task)
 	if err != nil {
 		return nil, err
 	}
@@ -1348,7 +1348,7 @@ func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any,
 	}
 	logging.CampaignDebug("Executing generic task %s as %s", task.ID, verb)
 	// Holographic context: generic inputs carry upstream durable findings.
-	input, err := o.buildTaskInput(task)
+	input, err := o.buildTaskInput(ctx, task)
 	if err != nil {
 		return nil, err
 	}

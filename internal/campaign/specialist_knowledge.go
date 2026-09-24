@@ -159,7 +159,7 @@ func FormatSpecialistKnowledge(atoms []KnowledgeAtom) string {
 // buildTaskInputWithSpecialistKnowledge extends buildTaskInput with specialist knowledge injection.
 func (o *Orchestrator) buildTaskInputWithSpecialistKnowledge(ctx context.Context, task *Task, specialist string) (string, error) {
 	// Start with base input
-	input, err := o.buildTaskInput(task)
+	input, err := o.buildTaskInput(ctx, task)
 	if err != nil {
 		return "", err
 	}

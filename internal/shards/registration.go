@@ -278,6 +278,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"task_artifact_on_disk",
 				"task_brief_names",
 				"task_output_path",
+				// And for task_preload (policy/campaign_preload.mg).
+				"code_outline",
+				"task_brief_element",
 				// Runtime facts campaign rules join against the family above:
 				// shard profiles (delegate_task, specialist preference),
 				// context pressure, milestones, remediation, document

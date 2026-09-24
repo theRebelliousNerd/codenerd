@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -161,7 +162,7 @@ func (o *Orchestrator) getTaskResult(taskID string) (string, bool) {
 
 // buildTaskInput constructs the input for a shard by combining the task's
 // ShardInput/Description with context from dependent tasks.
-func (o *Orchestrator) buildTaskInput(task *Task) (string, error) {
+func (o *Orchestrator) buildTaskInput(ctx context.Context, task *Task) (string, error) {
 	if task == nil {
 		return "", nil
 	}
@@ -205,10 +206,11 @@ func (o *Orchestrator) buildTaskInput(task *Task) (string, error) {
 	}
 
 	// Holographic context: every shard input carries the upstream evidence the
-	// kernel selects for it (task_evidence), whole, digested or by handle.
+	// kernel selects for it (task_evidence), whole, digested or by handle, and
+	// the code its brief names (task_preload).
 	// Prompt-only: persistTaskOutputArtifact stores the shard's result, never
 	// this input, so the section is not re-persisted as the task's own artifact.
-	upstream, err := o.taskEvidenceSection(task)
+	upstream, err := o.taskContextSection(ctx, task)
 	if err != nil {
 		return "", err
 	}

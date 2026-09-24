@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -113,7 +114,7 @@ func TestStoreTaskResult_KeepsTheProjectionWhole(t *testing.T) {
 	if !ok || got != stored {
 		t.Fatalf("stored %d bytes, got back %d (ok=%v); the tail was cut", len(stored), len(got), ok)
 	}
-	input, err := o.buildTaskInput(&Task{ID: "/task_down", Description: "use it", ContextFrom: []string{"/task_up"}})
+	input, err := o.buildTaskInput(context.Background(), &Task{ID: "/task_down", Description: "use it", ContextFrom: []string{"/task_up"}})
 	if err != nil {
 		t.Fatal(err)
 	}

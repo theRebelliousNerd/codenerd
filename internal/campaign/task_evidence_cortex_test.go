@@ -63,6 +63,16 @@ func TestTaskEvidence_OnTheProductionKernel(t *testing.T) {
 		onDisk("/task_b1", ".nerd/campaigns/x/artifacts/b1.md", "/doc", ".md", 900),
 		onDisk("/task_c0", "docs/report.md", "/doc", ".md", 300),
 		{Predicate: "task_brief_names", Args: []any{"/task_c1", "Docs/spec/a2.md"}},
+		// The preload's measurements (policy/campaign_preload.mg): the code
+		// the task writes, a package its brief names, the code its dependency
+		// wrote, and an element its brief names.
+		{Predicate: "code_outline", Args: []any{"pkg/widget/widget.go", types.MangleAtom("/file"), int64(3)}},
+		{Predicate: "task_output_path", Args: []any{"/task_c1", "pkg/widget/widget.go"}},
+		{Predicate: "code_outline", Args: []any{"pkg/big", types.MangleAtom("/package"), int64(900)}},
+		{Predicate: "task_brief_names", Args: []any{"/task_c1", "pkg/big"}},
+		onDisk("/task_c0", "pkg/widget/util.go", "/source_file", ".go", 120),
+		{Predicate: "code_outline", Args: []any{"pkg/widget/util.go", types.MangleAtom("/file"), int64(1)}},
+		{Predicate: "task_brief_element", Args: []any{"/task_c1", "pkg/widget.Widget.Render", int64(4), "a416de3a8d2e"}},
 	}
 	if err := ck.LoadFacts(measured); err != nil {
 		t.Fatal(err)
@@ -102,5 +112,26 @@ func TestTaskEvidence_OnTheProductionKernel(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("verify_report_hollow did not derive for /task_cv's 300-byte report on the Cortex: %v", hollow)
+	}
+
+	preload, err := ck.Query("task_preload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forms := map[string]string{}
+	for _, f := range preload {
+		if types.ExtractString(f.Args[0]) == "/task_c1" {
+			forms[types.ExtractString(f.Args[1])] = types.ExtractString(f.Args[2])
+		}
+	}
+	for target, form := range map[string]string{
+		"pkg/widget/widget.go":     "/outline", // its own target
+		"pkg/big":                  "/count",   // named, over preload_outline_max_rows
+		"pkg/widget/util.go":       "/outline", // its dependency wrote it
+		"pkg/widget.Widget.Render": "/element", // named element
+	} {
+		if forms[target] != form {
+			t.Errorf("task_preload(/task_c1, %s) = %q on the Cortex, want %q (all: %v)", target, forms[target], form, forms)
+		}
 	}
 }

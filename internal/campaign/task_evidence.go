@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"codenerd/internal/observation"
 	toolscore "codenerd/internal/tools/core"
 	"codenerd/internal/types"
+	"codenerd/internal/world"
 )
 
 // A task's upstream evidence: what the work before it produced, handed to it
@@ -37,6 +39,7 @@ type evidenceTask struct {
 	status                               TaskStatus
 	artifacts                            []TaskArtifact
 	writeSet                             []string
+	dependsOn                            []string
 }
 
 // measuredArtifact is a declared artifact found on disk as a regular file.
@@ -75,6 +78,7 @@ func (o *Orchestrator) snapshotEvidenceTasks() ([]evidenceTask, string) {
 				order: t.Order, phaseOrder: ph.Order, status: t.Status,
 				artifacts: append([]TaskArtifact(nil), t.Artifacts...),
 				writeSet:  append([]string(nil), t.WriteSet...),
+				dependsOn: append([]string(nil), t.DependsOn...),
 			})
 		}
 	}
@@ -212,17 +216,26 @@ func evidenceFacts(asked evidenceTask, arts []measuredArtifact, workspace string
 	return onDisk, named, own
 }
 
-// assertEvidenceMeasurements replaces what the kernel holds of the campaign's
-// artifacts on disk, and of what the asked task's brief names and writes.
-func (o *Orchestrator) assertEvidenceMeasurements(askedID string, onDisk, named, own []core.Fact) error {
+// Measured facts replaced wholesale on every measurement, and the ones keyed
+// by the asked task.
+var (
+	campaignWideMeasurements = []string{"task_artifact_on_disk", "code_outline"}
+	askedTaskMeasurements    = []string{"task_brief_names", "task_output_path", "task_brief_element"}
+)
+
+// assertTaskMeasurements replaces what the kernel holds of the campaign's
+// artifacts on disk and of the code the asked task's candidates name, and of
+// what the asked task's brief names and writes.
+func (o *Orchestrator) assertTaskMeasurements(askedID string, facts []core.Fact) error {
 	if _, ok := o.kernel.(types.KernelTransactor); ok {
 		tx := types.NewKernelTx(o.kernel)
-		tx.Retract("task_artifact_on_disk")
-		tx.RetractFact(core.Fact{Predicate: "task_brief_names", Args: []any{askedID}})
-		tx.RetractFact(core.Fact{Predicate: "task_output_path", Args: []any{askedID}})
-		tx.LoadFacts(onDisk)
-		tx.LoadFacts(named)
-		tx.LoadFacts(own)
+		for _, pred := range campaignWideMeasurements {
+			tx.Retract(pred)
+		}
+		for _, pred := range askedTaskMeasurements {
+			tx.RetractFact(core.Fact{Predicate: pred, Args: []any{askedID}})
+		}
+		tx.LoadFacts(facts)
 		return tx.Commit()
 	}
 	o.mu.RLock()
@@ -240,19 +253,39 @@ func (o *Orchestrator) assertEvidenceMeasurements(askedID string, onDisk, named,
 			return err
 		}
 	}
-	for _, pred := range []string{"task_brief_names", "task_output_path"} {
+	// code_outline is keyed by path: retract every row the kernel holds.
+	held, err := o.kernel.Query("code_outline")
+	if err != nil {
+		return fmt.Errorf("query code_outline: %w", err)
+	}
+	for _, f := range held {
+		if err := o.kernel.RetractFact(core.Fact{Predicate: "code_outline", Args: []any{factArg(f, 0)}}); err != nil {
+			return err
+		}
+	}
+	for _, pred := range askedTaskMeasurements {
 		if err := o.kernel.RetractFact(core.Fact{Predicate: pred, Args: []any{askedID}}); err != nil {
 			return err
 		}
 	}
-	return o.kernel.LoadFacts(append(append(append([]core.Fact(nil), onDisk...), named...), own...))
+	return o.kernel.LoadFacts(facts)
 }
 
-// measureTaskEvidence asserts what the evidence policy decides from, for the
-// asked task. It holds evidenceMu so concurrent tasks never ask between another
-// task's retraction and assertion. The returned tasks and artifacts are the
-// snapshot the measurement was taken from.
-func (o *Orchestrator) measureTaskEvidence(task *Task) ([]evidenceTask, []measuredArtifact, bool, error) {
+// taskMeasure is one measurement of the campaign for the asked task: the
+// snapshot it was taken from, and the structure index answers its preload
+// rendering reads back (nil when the preload was not measured).
+type taskMeasure struct {
+	tasks     []evidenceTask
+	arts      []measuredArtifact
+	workspace string
+	preload   *preloadMeasure
+}
+
+// measureTaskContext asserts what the evidence policy -- and, withPreload,
+// the preload policy -- decides from, for the asked task. The caller holds
+// evidenceMu, so concurrent tasks never ask between another task's retraction
+// and assertion. Nil when the task is not one of the campaign's.
+func (o *Orchestrator) measureTaskContext(ctx context.Context, task *Task, withPreload bool) (*taskMeasure, error) {
 	tasks, workspace := o.snapshotEvidenceTasks()
 	var asked *evidenceTask
 	for i := range tasks {
@@ -263,20 +296,29 @@ func (o *Orchestrator) measureTaskEvidence(task *Task) ([]evidenceTask, []measur
 	}
 	if asked == nil {
 		// Not a task of this campaign (or no campaign): nothing came before it.
-		return nil, nil, false, nil
+		return nil, nil
 	}
 	if o.kernel == nil {
-		return nil, nil, false, fmt.Errorf("no kernel to derive the upstream evidence of %s", task.ID)
+		return nil, fmt.Errorf("no kernel to derive the upstream evidence of %s", task.ID)
 	}
 	if err := o.ensureTaskRows(task); err != nil {
-		return nil, nil, false, err
+		return nil, err
 	}
-	arts := measureArtifacts(tasks, workspace)
-	onDisk, named, own := evidenceFacts(*asked, arts, workspace)
-	if err := o.assertEvidenceMeasurements(asked.id, onDisk, named, own); err != nil {
-		return nil, nil, false, fmt.Errorf("assert the evidence measurements of %s: %w", task.ID, err)
+	m := &taskMeasure{tasks: tasks, arts: measureArtifacts(tasks, workspace), workspace: workspace}
+	onDisk, named, own := evidenceFacts(*asked, m.arts, workspace)
+	facts := append(append(append([]core.Fact(nil), onDisk...), named...), own...)
+	if withPreload && workspace != "" {
+		pm, err := measurePreload(ctx, world.SharedStructureIndex(workspace), *asked, m.arts, workspace)
+		if err != nil {
+			return nil, fmt.Errorf("measure the code the brief of %s names: %w", task.ID, err)
+		}
+		m.preload = &pm
+		facts = append(facts, pm.facts...)
 	}
-	return tasks, arts, true, nil
+	if err := o.assertTaskMeasurements(asked.id, facts); err != nil {
+		return nil, fmt.Errorf("assert the measurements of %s: %w", task.ID, err)
+	}
+	return m, nil
 }
 
 // askTaskEvidence returns the kernel's task_evidence rows for the task.
@@ -302,28 +344,45 @@ func (o *Orchestrator) askTaskEvidence(taskID string) (map[string]string, error)
 	return modes, nil
 }
 
-// taskEvidenceSection is the brief's upstream evidence for the task: the
-// artifacts the kernel selected, inline whole, digested with a recall handle,
-// or as a handle alone. Empty when nothing came before the task.
-func (o *Orchestrator) taskEvidenceSection(task *Task) (string, error) {
+// taskContextSection is what the brief carries from the campaign for the
+// task: the upstream evidence the kernel selected (inline whole, digested with
+// a recall handle, or a handle alone), then the code its brief names, as the
+// kernel selected it for preloading. Empty when there is neither.
+func (o *Orchestrator) taskContextSection(ctx context.Context, task *Task) (string, error) {
 	if o == nil || task == nil {
 		return "", nil
 	}
 	o.evidenceMu.Lock()
 	defer o.evidenceMu.Unlock()
-	tasks, arts, ok, err := o.measureTaskEvidence(task)
-	if err != nil || !ok {
+	m, err := o.measureTaskContext(ctx, task, true)
+	if err != nil || m == nil {
 		return "", err
 	}
 	modes, err := o.askTaskEvidence(task.ID)
 	if err != nil {
 		return "", err
 	}
-	rows := evidenceRows(modes, tasks, arts)
-	section, counts := renderEvidence(rows, arts)
+	evidence, counts := renderEvidence(evidenceRows(modes, m.tasks, m.arts), m.arts)
 	logging.Campaign("task %s: upstream evidence %d inline, %d digest, %d handle of %d artifacts on disk (%d bytes)",
-		task.ID, counts[evidenceInline], counts[evidenceDigest], counts[evidenceHandle], len(arts), len(section))
-	return section, nil
+		task.ID, counts[evidenceInline], counts[evidenceDigest], counts[evidenceHandle], len(m.arts), len(evidence))
+	var preload string
+	if m.preload != nil {
+		forms, err := o.askTaskPreload(task.ID)
+		if err != nil {
+			return "", err
+		}
+		var pc map[string]int
+		preload, pc = renderPreload(forms, *m.preload, m.workspace)
+		logging.Campaign("task %s: preloaded %d outlines, %d elements, %d by count, %d by signature (%d bytes)",
+			task.ID, pc[preloadOutline], pc[preloadElement], pc[preloadCount], pc[preloadSignature], len(preload))
+	}
+	switch {
+	case evidence == "":
+		return preload, nil
+	case preload == "":
+		return evidence, nil
+	}
+	return evidence + "\n" + preload, nil
 }
 
 // evidenceRows joins the kernel's answer with the completed tasks that
@@ -490,7 +549,7 @@ func (o *Orchestrator) checkVerifyHollowReport(task *Task) error {
 	}
 	o.evidenceMu.Lock()
 	defer o.evidenceMu.Unlock()
-	if _, _, ok, err := o.measureTaskEvidence(task); err != nil || !ok {
+	if m, err := o.measureTaskContext(context.Background(), task, false); err != nil || m == nil {
 		return err
 	}
 	facts, err := o.kernel.Query("verify_report_hollow")
