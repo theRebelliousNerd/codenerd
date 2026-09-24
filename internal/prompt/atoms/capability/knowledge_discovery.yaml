@@ -8,6 +8,10 @@
   priority: 90
   is_mandatory: true
   shard_types: []  # Applies to main agent
+  # Served where envelope knowledge_requests are consulted: the chat turn's
+  # articulation (consumer_need, policy/jit_needs.mg). Elsewhere "ask a
+  # specialist" asks nobody.
+  world_states: ["envelope_knowledge_requests"]
   content: |
     ## Knowledge Discovery Capabilities
 
@@ -49,6 +53,7 @@
   priority: 85
   is_mandatory: true
   depends_on: ["capability/knowledge_discovery"]
+  world_states: ["envelope_knowledge_requests"]
   content: |
     ## Knowledge Request Protocol
 

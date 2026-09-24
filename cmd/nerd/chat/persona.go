@@ -387,7 +387,36 @@ func (m Model) buildChatCompilationContext() *prompt.CompilationContext {
 		}
 	}
 
+	// What reads this answer: the chat turn's articulation, which consults
+	// envelope knowledge_requests (process.go). The kernel says what that
+	// consumer needs served (consumer_need, policy/jit_needs.mg).
+	cc.DerivedNeeds = m.consumerNeeds("/chat_articulation")
+
 	return cc
+}
+
+// consumerNeeds asks the kernel what a compile whose answer this consumer
+// reads will need (consumer_need/2), with the consumer bound as a constant.
+func (m Model) consumerNeeds(consumer string) []string {
+	if m.kernel == nil {
+		return nil
+	}
+	facts, err := m.kernel.Query("consumer_need(" + consumer + ", Need)")
+	if err != nil {
+		logging.Get(logging.CategoryJIT).Warn("consumer_need query for %s failed: %v", consumer, err)
+		return nil
+	}
+	var needs []string
+	for _, f := range facts {
+		if len(f.Args) == 0 {
+			continue
+		}
+		// The need is the row's last argument.
+		if need := strings.TrimPrefix(types.ExtractString(f.Args[len(f.Args)-1]), "/"); need != "" {
+			needs = append(needs, need)
+		}
+	}
+	return needs
 }
 
 // lastUserUtterance returns this turn's user input, read back off the history

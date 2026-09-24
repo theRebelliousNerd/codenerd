@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -395,4 +396,41 @@ func firstN(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// The chat turn's articulation consults envelope knowledge_requests and runs no
+// envelope tool_requests, so its compile carries the kernel's need for the one
+// (consumer_need(/chat_articulation, ...)) and serves the knowledge atoms, and
+// is not taught the tool-request protocol. Until 2026-09-23 all three atoms
+// were unscoped: every compile carried both protocols.
+func TestChatSkeleton_ServesTheProtocolsItsReaderConsults(t *testing.T) {
+	m := newChatModelWithCompiler(t, "how do I paginate a bubbletea table", "/explain")
+	m.Config = &config.UserConfig{
+		ContextWindow: &config.ContextWindowConfig{MaxTokens: 1048576},
+		JIT:           &config.JITConfig{TokenBudget: 200000, ReservedTokens: 8000},
+	}
+	cc := m.buildChatCompilationContext()
+	if cc == nil {
+		t.Fatal("buildChatCompilationContext returned nil")
+	}
+	if !slices.Contains(cc.DerivedNeeds, "envelope_knowledge_requests") ||
+		slices.Contains(cc.DerivedNeeds, "envelope_tool_requests") {
+		t.Fatalf("chat compile needs = %v, want envelope_knowledge_requests only", cc.DerivedNeeds)
+	}
+	result, err := m.jitCompiler.Compile(context.Background(), cc)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	included := make(map[string]bool, len(result.IncludedAtoms))
+	for _, atom := range result.IncludedAtoms {
+		included[atom.ID] = true
+	}
+	for _, id := range []string{"capability/knowledge_discovery", "capability/knowledge_protocol"} {
+		if !included[id] {
+			t.Errorf("%s is not in the chat skeleton, whose reader consults knowledge_requests", id)
+		}
+	}
+	if included["capability/tool_request_protocol"] {
+		t.Error("the chat skeleton teaches envelope tool_requests, which nothing on the chat path runs")
+	}
 }

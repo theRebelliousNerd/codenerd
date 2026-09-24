@@ -140,6 +140,15 @@ regime_dimension(/ouroboros_stage).
 regime_dimension(/provider).
 regime_dimension(/model).
 
+# /state -- a world state (atom_tag(A, /state, S) from `world_states:`). A gate
+# on a state serves the atom exactly when that state holds, measured by the
+# executor or derived as a need (policy/jit_needs.mg); a compile that carries
+# no state at all holds none of them. Go's pre-filter
+# (atomMatchesActiveWorldState) already drops such atoms before this program
+# sees them; until 2026-09-23 this program alone read /state as situational and
+# would have admitted them.
+regime_dimension(/state).
+
 blocked_by_context(Atom) :-
     regime_dimension(Dim),
     has_constraint(Atom, Dim),

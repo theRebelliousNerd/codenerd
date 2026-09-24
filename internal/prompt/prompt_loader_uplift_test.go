@@ -223,6 +223,12 @@ func TestHasWorldState_CoversKnownWorldStates(t *testing.T) {
 		"reflection_hits":    func(cc *CompilationContext) { cc.HasReflectionHits = true },
 		"no_tool_call_retry": func(cc *CompilationContext) { cc.PreviousAttemptNoToolCall = true },
 		"authoring_mangle":   func(cc *CompilationContext) { cc.DerivedNeeds = []string{"authoring_mangle"} },
+		"envelope_tool_requests": func(cc *CompilationContext) {
+			cc.DerivedNeeds = []string{"envelope_tool_requests"}
+		},
+		"envelope_knowledge_requests": func(cc *CompilationContext) {
+			cc.DerivedNeeds = []string{"envelope_knowledge_requests"}
+		},
 	}
 	known := KnownWorldStates()
 	require.NotEmpty(t, known)

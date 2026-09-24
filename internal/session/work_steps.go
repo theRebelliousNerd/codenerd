@@ -386,6 +386,64 @@ func (e *Executor) languageOfFile(path string) string {
 	return ""
 }
 
+// compileNeeds is every need the kernel derives for a compile: the target's
+// (targetNeeds) and those of what will read the answer (consumerNeeds for the
+// channel this verb's client answers on). Both compile boundaries -- the turn
+// and each planned step -- ask the same way.
+func (e *Executor) compileNeeds(language, verb string) []string {
+	needs := e.targetNeeds(language)
+	for _, need := range e.consumerNeeds(e.servingConsumer(verb)) {
+		if !slices.Contains(needs, need) {
+			needs = append(needs, need)
+		}
+	}
+	return needs
+}
+
+// servingConsumer names the path that will read this verb's answer, for the
+// kernel's consumer_need (policy/jit_needs.mg): the text channel runs envelope
+// tool_requests (generateResponseWithPiggybackTools), the native channel runs
+// native tool calls. It asks the client the turn will call (llmForVerb) the
+// question generateResponse asks it, so the compile and the channel cannot
+// disagree.
+func (e *Executor) servingConsumer(verb string) string {
+	if usesPiggybackTools(e.llmForVerb(verb)) {
+		return "/executor_text_channel"
+	}
+	return "/executor_native_channel"
+}
+
+// consumerNeeds asks the kernel what a compile whose answer this consumer
+// reads will need (consumer_need/2), with the consumer bound as a constant.
+func (e *Executor) consumerNeeds(consumer string) []string {
+	if e.kernel == nil || !validMangleVerb(consumer) {
+		return nil
+	}
+	return e.kernelNeeds(fmt.Sprintf("consumer_need(%s, Need)", consumer))
+}
+
+// kernelNeeds runs a needs query -- target_need or consumer_need with its
+// first argument bound -- and returns the needs derived: each row's last
+// argument, without the slash.
+func (e *Executor) kernelNeeds(query string) []string {
+	facts, err := e.kernel.Query(query)
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("needs query %s failed: %v", query, err)
+		return nil
+	}
+	var needs []string
+	for _, f := range facts {
+		if len(f.Args) == 0 {
+			continue
+		}
+		need := strings.TrimPrefix(types.ExtractString(f.Args[len(f.Args)-1]), "/")
+		if need != "" && !slices.Contains(needs, need) {
+			needs = append(needs, need)
+		}
+	}
+	return needs
+}
+
 // targetNeeds asks the kernel what a compile aimed at a file of this language
 // will need (policy/jit_needs.mg, target_need/2), with the language bound as a
 // constant in the query. The kernel owns the answer; this only carries it into
@@ -394,22 +452,7 @@ func (e *Executor) targetNeeds(language string) []string {
 	if e.kernel == nil || !validMangleVerb(language) {
 		return nil
 	}
-	facts, err := e.kernel.Query(fmt.Sprintf("target_need(%s, Need)", language))
-	if err != nil {
-		logging.Get(logging.CategorySession).Warn("target_need query for %s failed: %v", language, err)
-		return nil
-	}
-	var needs []string
-	for _, f := range facts {
-		if len(f.Args) < 2 {
-			continue
-		}
-		need := strings.TrimPrefix(types.ExtractString(f.Args[1]), "/")
-		if need != "" && !slices.Contains(needs, need) {
-			needs = append(needs, need)
-		}
-	}
-	return needs
+	return e.kernelNeeds(fmt.Sprintf("target_need(%s, Need)", language))
 }
 
 // stepSystemPrompt compiles the system prompt for one planned step: the turn's
@@ -435,7 +478,7 @@ func (e *Executor) stepSystemPrompt(
 	if lang := e.languageOfFile(stepCtx.IntentTarget); lang != "" {
 		stepCtx.Language = lang
 	}
-	stepCtx.DerivedNeeds = e.targetNeeds(stepCtx.Language)
+	stepCtx.DerivedNeeds = e.compileNeeds(stepCtx.Language, stepCtx.IntentVerb)
 	if cfg != nil && len(cfg.AllowedTools) > 0 && len(stepCtx.AvailableTools) == 0 {
 		stepCtx.AvailableTools = slices.Clone(cfg.AllowedTools)
 	}

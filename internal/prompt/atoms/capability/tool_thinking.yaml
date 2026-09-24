@@ -54,6 +54,9 @@
   priority: 80
   is_mandatory: true
   depends_on: ["capability/tool_thinking"]
+  # Served where envelope tool_requests are run: the executor's text channel
+  # (consumer_need, policy/jit_needs.mg). A native channel calls tools natively.
+  world_states: ["envelope_tool_requests"]
   content: |
     ## Tool Request Protocol
 

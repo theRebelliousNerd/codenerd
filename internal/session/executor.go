@@ -1236,7 +1236,7 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 	if lang := e.languageOfFile(intent.Target); lang != "" {
 		cc.Language = lang
 	}
-	cc.DerivedNeeds = e.targetNeeds(cc.Language)
+	cc.DerivedNeeds = e.compileNeeds(cc.Language, intent.Verb)
 
 	// Drive vector atom selection.
 	//
@@ -1437,6 +1437,15 @@ func (e *Executor) generateAgentConfigSafely(ctx context.Context, result *prompt
 // client is the turn's resolved LLM (see llmForVerb) and is passed explicitly
 // rather than read from the struct so that every call in one tool loop provably
 // hits the same model.
+// usesPiggybackTools reports whether a client carries tool calls inside the
+// Piggyback envelope instead of native function calling (e.g. Gemini with
+// grounding on). generateResponse takes the text channel on it, and the
+// compile asks it too (servingConsumer), so the two cannot disagree.
+func usesPiggybackTools(client types.LLMClient) bool {
+	ptp, ok := client.(types.PiggybackToolProvider)
+	return ok && ptp.ShouldUsePiggybackTools()
+}
+
 func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient, systemPrompt, userInput string, cfg *config.EffectiveAgentRuntimeConfig) (*types.LLMToolResponse, error) {
 	// A missing model client fails closed as an error, never as a nil-pointer
 	// panic on the completion call below.
@@ -1444,7 +1453,7 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 		return nil, fmt.Errorf("cannot generate response: no LLM client configured")
 	}
 	// Check if client should use Piggyback for tools (e.g., Gemini with grounding enabled)
-	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
+	if usesPiggybackTools(client) {
 		return e.generateResponseWithPiggybackTools(ctx, client, systemPrompt, userInput, cfg)
 	}
 

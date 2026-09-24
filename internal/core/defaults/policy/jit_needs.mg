@@ -26,3 +26,24 @@ Decl target_need(Language, Need) bound [/name, /name].
 # Writing Mangle: serve the language core and the verified engine truths
 # (language/mangle/core, language/mangle/engine_truths_pinned).
 target_need(/mangle, /authoring_mangle).
+
+# What reads the answer. A protocol atom that teaches a Piggyback envelope field
+# is gated on the need for it, so a compile gets it only when the code that will
+# read the answer acts on that field. Go names the consumer -- a constant: the
+# path that will read this compile's answer -- and asks consumer_need(Consumer,
+# Need); this file decides.
+#
+# Measured 2026-09-23 (CTX-B7): the tool and knowledge request protocols, and
+# the knowledge-discovery atom that says "do not say you don't know -- ask a
+# specialist", were mandatory with no selector, so every compile carried them.
+# Envelope tool_requests run only on the session executor's text channel
+# (generateResponseWithPiggybackTools, for a client that answers
+# ShouldUsePiggybackTools; the native channel's promotePiggybackToolRequests is
+# a safety net, not a protocol to teach). Envelope knowledge_requests run only
+# in the chat turn's articulation (cmd/nerd/chat/process.go). A delegated shard
+# on a native channel was taught both, and told to ask specialists nothing
+# would ever consult.
+Decl consumer_need(Consumer, Need) bound [/name, /name].
+
+consumer_need(/executor_text_channel, /envelope_tool_requests).
+consumer_need(/chat_articulation, /envelope_knowledge_requests).

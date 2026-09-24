@@ -80,10 +80,7 @@ func TestAtomCorpus_UnscopedMandatoryAtomsAreTheSharedSubstrate(t *testing.T) {
 		"protocol/reasoning/requirements":       true,
 		"protocol/reasoning/format":             true,
 		"methodology/ooda/core":                 true,
-		"capability/knowledge_discovery":        true,
-		"capability/knowledge_protocol":         true,
 		"capability/tool_thinking":              true,
-		"capability/tool_request_protocol":      true,
 		"capability/codedom_safety":             true,
 	}
 

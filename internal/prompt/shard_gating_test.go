@@ -184,6 +184,8 @@ func TestShardGating_RegimeDimensionsMatchKernelPolicy(t *testing.T) {
 		// and the Go tests would keep passing because they cover the fallback
 		// path only.
 		"/provider", "/model",
+		// World states: a gate on a state that does not hold serves nothing.
+		"/state",
 	} {
 		if !strings.Contains(string(src), "regime_dimension("+dim+").") {
 			t.Errorf("jit_compiler.mg no longer declares regime_dimension(%s); that dimension "+
