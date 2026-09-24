@@ -43,6 +43,8 @@ package perception
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -479,12 +481,28 @@ func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaR
 // default and this.
 const metaPromptCacheRetention = "24h"
 
-// promptCacheKey groups requests that share a cacheable prefix. The prefix is
-// determined by the model and the output ceiling, and by nothing per-turn --
-// deliberately, because a key that varied per session or per request would
-// partition the cache and defeat its own purpose.
-func (c *OpenAICompatClient) promptCacheKey() string {
-	return fmt.Sprintf("codenerd:%s:%d", c.model, c.maxOutputTokens)
+// promptCacheKey groups requests that share a cacheable prefix: the model and
+// the tool catalog, which is the first thing on the wire. The provider routes
+// on the key together with the prompt's first tokens, and more than ~15
+// requests a minute on one route overflow to machines that do not hold the
+// prefix.
+//
+// It was one key for every request (codenerd:<model>:<maxOutput>), so every
+// slot, persona and parallel shard competed for one route whenever their
+// catalogs began alike, and measured 2026-09-22 7% of later tool-loop rounds
+// lost their whole stable prefix for no reason visible in the request. The
+// output ceiling never shaped the prefix. The system prompt is left out on
+// purpose: its skeleton is shared across turns (the assembler puts it first)
+// while its tail is per turn, so hashing it would give every turn its own
+// route and forfeit the skeleton a new turn's first round reuses. A key that
+// varied per session or per request would partition the cache the same way.
+func promptCacheKey(model string, tools []metaResponsesTool) string {
+	catalog, err := json.Marshal(tools)
+	if err != nil {
+		return "codenerd:" + model
+	}
+	sum := sha256.Sum256(catalog)
+	return "codenerd:" + model + ":" + hex.EncodeToString(sum[:8])
 }
 
 // newResponsesRequest builds a request with this client's configured reasoning
@@ -504,7 +522,6 @@ func (c *OpenAICompatClient) newResponsesRequest(ctx context.Context, input []an
 		// case extended retention exists for; the in-memory default was being
 		// evicted mid-conversation.
 		PromptCacheRetention: metaPromptCacheRetention,
-		PromptCacheKey:       c.promptCacheKey(),
 	}
 
 	if c.maxOutputTokens > 0 {
@@ -569,6 +586,7 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	if len(req.Tools) > 0 {
 		req.ToolChoice = "auto"
 	}
+	req.PromptCacheKey = promptCacheKey(req.Model, req.Tools)
 
 	reply, err := c.executeResponses(ctx, req)
 	if err != nil {

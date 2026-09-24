@@ -1098,6 +1098,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		id := "kernel/context/" + HashContent(content)[:8]
 		pa := NewPromptAtom(id, CategoryContext, content)
 		pa.IsMandatory = true
+		pa.KernelInjected = true
 		pa.Priority = 95
 		pa.ShardTypes = []string{cc.ShardID}
 		dynamic = append(dynamic, pa)
@@ -1147,6 +1148,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			id := "kernel/knowledge/" + HashContent(content)[:8]
 			pa := NewPromptAtom(id, CategoryKnowledge, content)
 			pa.IsMandatory = true
+			pa.KernelInjected = true
 			pa.Priority = 90
 			pa.ShardTypes = []string{cc.ShardID}
 			dynamic = append(dynamic, pa)

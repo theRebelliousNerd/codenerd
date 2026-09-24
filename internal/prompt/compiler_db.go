@@ -435,8 +435,12 @@ func collectExpertKnowledgeAtoms(ctx context.Context, cc *CompilationContext, sh
 // knowledgeAtomToPromptAtom retains source identity and stored confidence in
 // the actual context, so a tentative advisory is not rendered as an unqualified
 // fact. Confidence describes the stored claim, not behavioral verification.
+// It is rendered to two decimals: a retrieval score carries sixteen
+// significant digits that differ on every lookup (measured 2026-09-22:
+// confidence=0.751871803998947), which changed the prompt bytes -- and so the
+// cacheable prefix -- for a distinction no reader acts on.
 func knowledgeAtomToPromptAtom(atom store.KnowledgeAtom, shardID, source string) *PromptAtom {
-	content := fmt.Sprintf("[knowledge source=%q concept=%q confidence=%g]\n%s", source, atom.Concept, atom.Confidence, atom.Content)
+	content := fmt.Sprintf("[knowledge source=%q concept=%q confidence=%.2f]\n%s", source, atom.Concept, atom.Confidence, atom.Content)
 	atomID := "knowledge/" + HashContent(content)[:8]
 	pa := NewPromptAtom(atomID, CategoryKnowledge, content)
 	pa.RetrievedContext = true
@@ -526,7 +530,8 @@ func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *Compil
 			logging.Get(logging.CategoryJIT).Debug("Learning content unavailable: %v", err)
 			continue
 		}
-		content := fmt.Sprintf("[learning shard=%q source_campaign=%q learned_at=%q confidence=%g]\n%s: %s",
+		// Confidence to two decimals, as knowledgeAtomToPromptAtom renders it.
+		content := fmt.Sprintf("[learning shard=%q source_campaign=%q learned_at=%q confidence=%.2f]\n%s: %s",
 			hit.ShardType, hit.SourceCampaign, hit.LearnedAt.Format(time.RFC3339), hit.Confidence, hit.Predicate, body)
 		atomID := "learning/" + HashContent(content)[:8]
 		pa := NewPromptAtom(atomID, CategoryKnowledge, content)

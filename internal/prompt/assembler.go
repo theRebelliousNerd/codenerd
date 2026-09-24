@@ -94,6 +94,55 @@ func defaultCategoryOrder() []AtomCategory {
 	}
 }
 
+// assemblyTier places an atom in the prompt by what its presence and bytes
+// depend on, most stable first, so the longest prefix two compiles share is as
+// long as the atoms they share. Category order applies within a tier.
+//
+// Measured 2026-09-22 (context sweep, C6): two turns of one campaign whose
+// compiled prompts were 94.5% identical shared only their first 53%. A turn's
+// vector hits sat among the skeleton atoms of their category, and retrieved
+// knowledge (with per-turn 16-digit confidences) sat at "Level 1" of the
+// category order, mid-prompt -- so a new turn's first round reused ~17k cached
+// tokens instead of ~29k.
+//
+// The tiers read only what is on the atom:
+//   - tierPersona: mandatory, gated on nothing a turn changes -- persona,
+//     operational mode, the serving provider and model.
+//   - tierTurn: mandatory, gated on what the turn is -- verb, language,
+//     frameworks, world states and derived needs, tool catalog, a phase.
+//   - tierRelevance: admitted by a vector hit on this turn's query (flesh).
+//   - tierInjected: rendered from the kernel's facts for this compile
+//     (injectable_context, specialist_knowledge).
+//   - tierRetrieved: this turn's knowledge and learning lookups.
+type assemblyTier int
+
+const (
+	tierPersona assemblyTier = iota
+	tierTurn
+	tierRelevance
+	tierInjected
+	tierRetrieved
+	tierCount
+)
+
+func atomAssemblyTier(a *PromptAtom) assemblyTier {
+	switch {
+	case a.RetrievedContext:
+		return tierRetrieved
+	case a.KernelInjected:
+		return tierInjected
+	case !a.IsMandatory:
+		return tierRelevance
+	case len(a.IntentVerbs) > 0 || len(a.Languages) > 0 || len(a.Frameworks) > 0 ||
+		len(a.WorldStates) > 0 || len(a.RequiresTools) > 0 || len(a.CampaignPhases) > 0 ||
+		len(a.BuildLayers) > 0 || len(a.InitPhases) > 0 || len(a.NorthstarPhases) > 0 ||
+		len(a.OuroborosStages) > 0:
+		return tierTurn
+	default:
+		return tierPersona
+	}
+}
+
 // SetCategoryOrder sets a custom category ordering.
 func (a *FinalAssembler) SetCategoryOrder(order []AtomCategory) {
 	a.mu.Lock()
@@ -155,21 +204,27 @@ func (a *FinalAssembler) assembleWithConfig(
 		}
 	}
 
-	// Group atoms by category
-	byCategory := make(map[AtomCategory][]*OrderedAtom)
+	// Group atoms by assembly tier, then by category within the tier.
+	byTier := make([]map[AtomCategory][]*OrderedAtom, tierCount)
+	for i := range byTier {
+		byTier[i] = make(map[AtomCategory][]*OrderedAtom)
+	}
 	for _, oa := range atoms {
 		if oa == nil || oa.Atom == nil {
 			continue
 		}
+		tier := atomAssemblyTier(oa.Atom)
 		cat := oa.Atom.Category
-		byCategory[cat] = append(byCategory[cat], oa)
+		byTier[tier][cat] = append(byTier[tier][cat], oa)
 	}
 
 	// Sort atoms within each category by order index (preserved from resolver)
-	for cat := range byCategory {
-		sort.Slice(byCategory[cat], func(i, j int) bool {
-			return byCategory[cat][i].Order < byCategory[cat][j].Order
-		})
+	for _, byCategory := range byTier {
+		for cat := range byCategory {
+			sort.Slice(byCategory[cat], func(i, j int) bool {
+				return byCategory[cat][i].Order < byCategory[cat][j].Order
+			})
+		}
 	}
 
 	// Build a set for fast category membership check
@@ -178,44 +233,33 @@ func (a *FinalAssembler) assembleWithConfig(
 		catOrderSet[c] = struct{}{}
 	}
 
-	// Build the prompt in category order
+	// Build the prompt tier by tier, each tier in category order. Categories
+	// not in the standard order follow their tier's known ones, sorted for
+	// determinism: map iteration would shuffle these sections run to run and
+	// churn the prefix cache.
 	var sections []string
-	for _, cat := range categoryOrder {
-		atomsInCat, exists := byCategory[cat]
-		if !exists || len(atomsInCat) == 0 {
-			continue
+	for _, byCategory := range byTier {
+		cats := make([]AtomCategory, 0, len(byCategory))
+		for _, cat := range categoryOrder {
+			if len(byCategory[cat]) > 0 {
+				cats = append(cats, cat)
+			}
 		}
-
-		section, err := a.assembleSectionWith(cat, atomsInCat, cc, addSectionHeaders, atomSeparator)
-		if err != nil {
-			return "", fmt.Errorf("failed to assemble section %s: %w", cat, err)
+		unknownCats := make([]AtomCategory, 0)
+		for cat := range byCategory {
+			if _, inOrder := catOrderSet[cat]; !inOrder {
+				unknownCats = append(unknownCats, cat)
+			}
 		}
-
-		if section != "" {
-			sections = append(sections, section)
-		}
-	}
-
-	// Handle any categories not in the standard order, sorted for
-	// determinism: map iteration would shuffle these sections run to run
-	// and churn the prefix cache.
-	unknownCats := make([]AtomCategory, 0)
-	for cat := range byCategory {
-		if _, inOrder := catOrderSet[cat]; !inOrder {
-			unknownCats = append(unknownCats, cat)
-		}
-	}
-	slices.Sort(unknownCats)
-	for _, cat := range unknownCats {
-		atomsInCat := byCategory[cat]
-
-		section, err := a.assembleSectionWith(cat, atomsInCat, cc, addSectionHeaders, atomSeparator)
-		if err != nil {
-			return "", fmt.Errorf("failed to assemble section %s: %w", cat, err)
-		}
-
-		if section != "" {
-			sections = append(sections, section)
+		slices.Sort(unknownCats)
+		for _, cat := range append(cats, unknownCats...) {
+			section, err := a.assembleSectionWith(cat, byCategory[cat], cc, addSectionHeaders, atomSeparator)
+			if err != nil {
+				return "", fmt.Errorf("failed to assemble section %s: %w", cat, err)
+			}
+			if section != "" {
+				sections = append(sections, section)
+			}
 		}
 	}
 

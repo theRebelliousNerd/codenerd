@@ -247,6 +247,12 @@ type PromptAtom struct {
 	// through YAML and is not a vector similarity or mandatory-safety override.
 	RetrievedContext bool `json:"-"`
 
+	// KernelInjected marks an atom the compiler rendered from the kernel's
+	// facts for this compile (injectable_context, specialist_knowledge). Its
+	// bytes change with the facts, so the assembler places it after the
+	// skeleton (atomAssemblyTier). Not authorable through YAML.
+	KernelInjected bool `json:"-"`
+
 	// Concise version for tight token budgets
 	ContentConcise string `json:"content_concise,omitempty"`
 
