@@ -100,8 +100,9 @@ var rootCmd = &cobra.Command{
 	Short: "codeNERD - Logic-First CLI Agent (Cortex 1.5.0)",
 	Long: `codeNERD is a high-assurance, neuro-symbolic CLI agent.
 
-It uses Google Mangle (Datalog) as the logic kernel for deterministic reasoning,
-with LLMs serving only as perception transducers (not decision makers).
+The model is the creative center: problem solving, synthesis and insight. A
+Mangle kernel -- a deductive database language -- is the executive: planning,
+memory, orchestration and safety are derived from facts, not left to the model.
 
 Architecture: Logic determines Reality; the Model merely describes it.
 

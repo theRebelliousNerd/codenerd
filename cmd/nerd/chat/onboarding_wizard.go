@@ -229,7 +229,7 @@ func (m Model) showWowMoment(levelName string) (tea.Model, tea.Cmd) {
 	wowMsg := intro + `
 ## What Makes codeNERD Different
 
-**Logic Kernel** - A Mangle (Datalog) engine tracks facts about your code:
+**Logic Kernel** - A Mangle engine (a deductive database) tracks facts about your code:
 ` + "```" + `
 /query file_topology  # See all files
 /query symbol_graph   # See functions/classes

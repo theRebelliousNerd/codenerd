@@ -1,4 +1,5 @@
-// Package mangle provides a production-grade Google Mangle engine wrapper.
+// Package mangle provides a production-grade Mangle engine wrapper
+// (codeberg.org/TauCeti/mangle-go).
 // Adapted from code-graph-mcp-server for the Cortex 1.5.0 Neuro-Symbolic Architecture.
 package mangle
 
@@ -57,7 +58,7 @@ var ErrDerivedFactsLimitExceeded = fmt.Errorf("derived facts limit exceeded (inf
 // errNoSchemas is the sentinel error for operations attempted before schema loading.
 var errNoSchemas = fmt.Errorf("no schemas loaded; call LoadSchema first")
 
-// Engine wraps the production-grade Google Mangle engine.
+// Engine wraps the production-grade Mangle engine.
 // Implements the Hollow Kernel pattern from Cortex 1.5.0 Section 2.1.
 type Engine struct {
 	config Config
