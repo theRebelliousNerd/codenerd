@@ -160,8 +160,8 @@ func (o *Orchestrator) getTaskResult(taskID string) (string, bool) {
 	return result, ok
 }
 
-// buildTaskInput constructs the input for a shard by combining the task's
-// ShardInput/Description with context from dependent tasks.
+// buildTaskInput constructs the input for a shard: the task's
+// ShardInput/Description, then what the campaign hands it (taskContextSection).
 func (o *Orchestrator) buildTaskInput(ctx context.Context, task *Task) (string, error) {
 	if task == nil {
 		return "", nil
@@ -172,41 +172,9 @@ func (o *Orchestrator) buildTaskInput(ctx context.Context, task *Task) (string, 
 		input = task.Description
 	}
 
-	// Inject context from dependent tasks specified in ContextFrom
-	if len(task.ContextFrom) > 0 {
-		type contextData struct {
-			depID  string
-			result string
-		}
-
-		contexts := make([]contextData, 0, len(task.ContextFrom))
-		var totalLen int = len(input)
-
-		for _, depID := range task.ContextFrom {
-			if result, ok := o.getTaskResult(depID); ok && result != "" {
-				contexts = append(contexts, contextData{depID, result})
-				totalLen += 29 + len(depID) + len(result) // length of "\n\n=== CONTEXT FROM TASK  ===\n" is 29
-				logging.CampaignDebug("Injected context from task %s (%d bytes)", depID, len(result))
-			}
-		}
-
-		if len(contexts) > 0 {
-			var builder strings.Builder
-			builder.Grow(totalLen)
-			builder.WriteString(input)
-
-			for _, ctx := range contexts {
-				builder.WriteString("\n\n=== CONTEXT FROM TASK ")
-				builder.WriteString(ctx.depID)
-				builder.WriteString(" ===\n")
-				builder.WriteString(ctx.result)
-			}
-			input = builder.String()
-		}
-	}
-
-	// Holographic context: every shard input carries the upstream evidence the
-	// kernel selects for it (task_evidence), whole, digested or by handle, and
+	// Holographic context: every shard input carries the returns of its
+	// context edges the kernel keeps (task_context_projection), the upstream
+	// evidence it selects (task_evidence), whole, digested or by handle, and
 	// the code its brief names (task_preload).
 	// Prompt-only: persistTaskOutputArtifact stores the shard's result, never
 	// this input, so the section is not re-persisted as the task's own artifact.
@@ -222,6 +190,21 @@ func (o *Orchestrator) buildTaskInput(ctx context.Context, task *Task) (string, 
 	}
 
 	return input, nil
+}
+
+// renderContextFrom writes the stored return of each named task, in order: a
+// task with no stored return (not run, or pruned) contributes nothing.
+func (o *Orchestrator) renderContextFrom(ids []string) string {
+	var parts []string
+	for _, depID := range ids {
+		result, ok := o.getTaskResult(depID)
+		if !ok || result == "" {
+			continue
+		}
+		parts = append(parts, "=== CONTEXT FROM TASK "+depID+" ===\n"+result)
+		logging.CampaignDebug("Injected context from task %s (%d bytes)", depID, len(result))
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // writeSetBriefing tells a file task what it may change and what will

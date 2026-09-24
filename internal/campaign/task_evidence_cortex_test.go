@@ -46,7 +46,7 @@ func TestTaskEvidence_OnTheProductionKernel(t *testing.T) {
 				Dependencies: []campaign.PhaseDependency{{DependsOnPhaseID: "/phase_b", Type: campaign.DepHard}},
 				Tasks: []campaign.Task{
 					{ID: "/task_c0", PhaseID: "/phase_c", Type: campaign.TaskTypeDocument, Status: campaign.TaskCompleted, Order: 0, Description: "Write the report"},
-					{ID: "/task_c1", PhaseID: "/phase_c", Type: campaign.TaskTypeDocument, Status: campaign.TaskPending, Order: 1, DependsOn: []string{"/task_c0"}, Description: "Write using a2.md"},
+					{ID: "/task_c1", PhaseID: "/phase_c", Type: campaign.TaskTypeDocument, Status: campaign.TaskPending, Order: 1, DependsOn: []string{"/task_c0"}, ContextFrom: []string{"/task_c0", "/task_b1"}, Description: "Write using a2.md"},
 					{ID: "/task_cv", PhaseID: "/phase_c", Type: campaign.TaskTypeVerify, Status: campaign.TaskPending, Order: 2, DependsOn: []string{"/task_c0"}, Description: "Verify the report"},
 				}},
 		},
@@ -128,6 +128,22 @@ func TestTaskEvidence_OnTheProductionKernel(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("verify_report_hollow did not derive for /task_cv's 300-byte report on the Cortex: %v", hollow)
+	}
+
+	// Context edges: c0's /doc report is inline, so its return is not pasted
+	// again; b1's is only a digest, so its return stays.
+	projections, err := ck.Query("task_context_projection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, f := range projections {
+		if types.ExtractString(f.Args[0]) == "/task_c1" {
+			kept = append(kept, types.ExtractString(f.Args[1]))
+		}
+	}
+	if len(kept) != 1 || kept[0] != "/task_b1" {
+		t.Errorf("task_context_projection(/task_c1, _) = %v on the Cortex, want [/task_b1]", kept)
 	}
 
 	preload, err := ck.Query("task_preload")

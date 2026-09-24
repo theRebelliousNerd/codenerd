@@ -211,6 +211,30 @@ task_evidence(TaskID, Path, /digest) :-
     Bytes > Max.
 
 # -----------------------------------------------------------------------------
+# A context edge's projection
+# -----------------------------------------------------------------------------
+# A task's ContextFrom edges (task_context_from, from Task.ToFacts) paste the
+# projection of the named task's return into its input: its findings, what it
+# changed, what was verified, and a handle on the transcript. When that task's
+# durable /doc output is already whole in the brief (task_evidence /inline),
+# the projection is the same findings a second time, so it is left out. A task
+# with no /doc output -- a file task, whose return is what it changed and
+# checked -- keeps its projection. Until 2026-09-23 Go pasted every edge's
+# projection beside the inlined artifact.
+Decl task_context_from(TaskID, FromID) bound [/string, /string].
+Decl task_from_inlined(TaskID, FromID) bound [/string, /string].
+Decl task_context_projection(TaskID, FromID) bound [/string, /string].
+
+task_from_inlined(TaskID, FromID) :-
+    task_context_from(TaskID, FromID),
+    task_artifact_on_disk(FromID, Path, /doc, Ext, Bytes),
+    task_evidence(TaskID, Path, /inline).
+
+task_context_projection(TaskID, FromID) :-
+    task_context_from(TaskID, FromID),
+    !task_from_inlined(TaskID, FromID).
+
+# -----------------------------------------------------------------------------
 # A /verify task's report is hollow
 # -----------------------------------------------------------------------------
 # A /verify task checks the deliverables of the tasks it depends on: the prose a

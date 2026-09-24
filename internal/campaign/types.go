@@ -706,6 +706,16 @@ func (t *Task) ToFacts() []core.Fact {
 		})
 	}
 
+	// Context edges: the tasks whose returns this task's input carries, when
+	// the policy says their return is not already in the brief
+	// (task_context_projection, policy/campaign_evidence.mg).
+	for _, fromID := range t.ContextFrom {
+		facts = append(facts, core.Fact{
+			Predicate: "task_context_from",
+			Args:      []any{t.ID, fromID},
+		})
+	}
+
 	// Soft dependencies
 	for _, depID := range t.SoftDeps {
 		facts = append(facts, core.Fact{

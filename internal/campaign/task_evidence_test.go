@@ -332,6 +332,36 @@ func TestTaskEvidence_AnArtifactCitingTheTasksTargetIsNeeded(t *testing.T) {
 	}
 }
 
+// A context edge's return is pasted only when the brief does not already
+// carry the same task's /doc output whole (task_context_projection): the
+// research task's findings arrive once, the file task's return -- what it
+// changed and checked, with no /doc behind it -- still arrives.
+func TestTaskEvidence_AContextEdgesReturnIsNotRepeated(t *testing.T) {
+	ws := t.TempDir()
+	r := writeEvidenceDoc(t, ws, ".nerd/campaigns/cf/artifacts/r.md", markedBody("R-DOC-HEAD", "R-DOC-TAIL", 5))
+	f := writeEvidenceDoc(t, ws, "out/data.json", "{}\n")
+	c := &Campaign{ID: "/campaign_cf", Phases: []Phase{{ID: "/phase_0", Order: 0, Tasks: []Task{
+		{ID: "/task_r", PhaseID: "/phase_0", Type: TaskTypeResearch, Status: TaskCompleted, Order: 0, Description: "Research", Artifacts: []TaskArtifact{{Type: "/doc", Path: r}}},
+		{ID: "/task_f", PhaseID: "/phase_0", Type: TaskTypeFileCreate, Status: TaskCompleted, Order: 1, Description: "Write data", Artifacts: []TaskArtifact{{Type: "/file", Path: f}}},
+		{ID: "/task_c", PhaseID: "/phase_0", Type: TaskTypeDocument, Status: TaskPending, Order: 2, Description: "Report",
+			DependsOn: []string{"/task_r", "/task_f"}, ContextFrom: []string{"/task_r", "/task_f"}},
+	}}}}
+	o := evidenceOrchestrator(t, ws, c, nil)
+	o.taskResults = map[string]string{"/task_r": "RETURN-OF-R", "/task_f": "RETURN-OF-F"}
+	section, err := o.taskContextSection(context.Background(), &c.Phases[0].Tasks[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"R-DOC-TAIL", "=== CONTEXT FROM TASK /task_f ===\nRETURN-OF-F"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, section)
+		}
+	}
+	if strings.Contains(section, "RETURN-OF-R") {
+		t.Errorf("the research task's return repeats its inlined findings:\n%s", section)
+	}
+}
+
 func TestTaskEvidence_ATaskOutsideTheCampaignHasNone(t *testing.T) {
 	ws := t.TempDir()
 	c := &Campaign{ID: "/campaign_solo", Phases: []Phase{{ID: "/phase_0", Order: 0, Tasks: []Task{

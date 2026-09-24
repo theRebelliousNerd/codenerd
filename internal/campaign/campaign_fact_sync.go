@@ -17,6 +17,7 @@ var taskFactPredicates = []string{
 	"task_order",
 	"task_dependency",
 	"task_soft_dependency",
+	"task_context_from",
 	"requires_resource",
 	"task_sub_campaign",
 	"task_artifact",

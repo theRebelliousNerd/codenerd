@@ -31,6 +31,7 @@ func TestCampaignShardManifestContract(t *testing.T) {
 		"campaign_phase", "phase_category", "phase_objective", "phase_dependency",
 		"phase_estimate", "context_compression",
 		"campaign_task", "task_priority", "task_order", "task_dependency",
+		"task_context_from",
 		"task_soft_dependency", "requires_resource", "task_sub_campaign",
 		"task_artifact", "task_inference", "task_attempt", "task_retry_at",
 		"task_error", "task_write_target", "task_write_ext",

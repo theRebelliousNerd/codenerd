@@ -15,6 +15,7 @@ requires_resource/2 atom,string
 source_document/4 atom,string,atom,number
 task_artifact/4 atom,atom,string,string
 task_attempt/4 atom,number,atom,number
+task_context_from/2 atom,atom
 task_dependency/2 atom,atom
 task_error/3 atom,atom,string
 task_inference/4 atom,atom,number,string

@@ -423,9 +423,10 @@ func (o *Orchestrator) askTaskEvidence(taskID string) (map[string]string, error)
 }
 
 // taskContextSection is what the brief carries from the campaign for the
-// task: the upstream evidence the kernel selected (inline whole, digested with
-// a recall handle, or a handle alone), then the code its brief names, as the
-// kernel selected it for preloading. Empty when there is neither.
+// task: the returns of its context edges the kernel keeps, the upstream
+// evidence it selected (inline whole, digested with a recall handle, or a
+// handle alone), then the code its brief names, as it selected it for
+// preloading. Empty when there is none of these.
 func (o *Orchestrator) taskContextSection(ctx context.Context, task *Task) (string, error) {
 	if o == nil || task == nil {
 		return "", nil
@@ -433,9 +434,19 @@ func (o *Orchestrator) taskContextSection(ctx context.Context, task *Task) (stri
 	o.evidenceMu.Lock()
 	defer o.evidenceMu.Unlock()
 	m, err := o.measureTaskContext(ctx, task, true)
-	if err != nil || m == nil {
+	if err != nil {
 		return "", err
 	}
+	if m == nil {
+		// Not a task of the campaign: no evidence is measured, so nothing in
+		// the brief repeats a context edge's return.
+		return o.renderContextFrom(task.ContextFrom), nil
+	}
+	projected, err := o.askContextProjections(task)
+	if err != nil {
+		return "", err
+	}
+	contextFrom := o.renderContextFrom(projected)
 	modes, err := o.askTaskEvidence(task.ID)
 	if err != nil {
 		return "", err
@@ -454,13 +465,38 @@ func (o *Orchestrator) taskContextSection(ctx context.Context, task *Task) (stri
 		logging.Campaign("task %s: preloaded %d outlines, %d elements, %d by count, %d by signature (%d bytes)",
 			task.ID, pc[preloadOutline], pc[preloadElement], pc[preloadCount], pc[preloadSignature], len(preload))
 	}
-	switch {
-	case evidence == "":
-		return preload, nil
-	case preload == "":
-		return evidence, nil
+	var parts []string
+	for _, p := range []string{contextFrom, evidence, preload} {
+		if p != "" {
+			parts = append(parts, strings.TrimRight(p, "\n"))
+		}
 	}
-	return evidence + "\n" + preload, nil
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return strings.Join(parts, "\n\n") + "\n", nil
+}
+
+// askContextProjections are the task's context edges whose returns the
+// kernel keeps in its input (task_context_projection), in ContextFrom order.
+func (o *Orchestrator) askContextProjections(task *Task) ([]string, error) {
+	facts, err := o.kernel.Query("task_context_projection")
+	if err != nil {
+		return nil, fmt.Errorf("query task_context_projection: %w", err)
+	}
+	keep := map[string]bool{}
+	for _, f := range facts {
+		if factArg(f, 0) == task.ID {
+			keep[factArg(f, 1)] = true
+		}
+	}
+	var out []string
+	for _, id := range task.ContextFrom {
+		if keep[id] {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 
 // evidenceRows joins the kernel's answer with the completed tasks that

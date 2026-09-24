@@ -260,6 +260,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// phase_ckpt_move (campaign_decisions.mg) is read beside.
 				"phase_checkpoint_failure",
 				"task_dependency",
+				"task_context_from",
 				"task_error",
 				"task_inference",
 				"task_order",
