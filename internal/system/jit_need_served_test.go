@@ -64,8 +64,10 @@ func TestJITServesTheMangleCorpusWhenTheKernelDerivesTheNeed(t *testing.T) {
 	}
 	served := []string{"language/mangle/core", "language/mangle/engine_truths_pinned"}
 
-	if got := needs("/mangle"); !slices.Equal(got, []string{"authoring_mangle"}) {
-		t.Fatalf("the kernel derived %v for a /mangle target, want [authoring_mangle]", got)
+	// A .mg file is code: it also gets the code-authoring need (c1193a40).
+	// What this test holds is that the Mangle corpus follows a Mangle target.
+	if got := needs("/mangle"); !slices.Contains(got, "authoring_mangle") {
+		t.Fatalf("the kernel derived %v for a /mangle target, want authoring_mangle among them", got)
 	}
 	mangleIDs, mangleTokens := compile("/mangle")
 	for _, id := range served {
@@ -74,8 +76,8 @@ func TestJITServesTheMangleCorpusWhenTheKernelDerivesTheNeed(t *testing.T) {
 		}
 	}
 
-	if got := needs("/go"); len(got) != 0 {
-		t.Fatalf("the kernel derived %v for a /go target, want nothing", got)
+	if got := needs("/go"); slices.Contains(got, "authoring_mangle") {
+		t.Fatalf("the kernel derived %v for a /go target: the Mangle corpus is not a Go turn's", got)
 	}
 	goIDs, goTokens := compile("/go")
 	for _, id := range served {
