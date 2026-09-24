@@ -18,6 +18,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/tools"
+	"codenerd/internal/tools/codedom"
 	"codenerd/internal/types"
 )
 
@@ -258,7 +259,7 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 		if id, _ := call.Input["id"].(string); id != "" {
 			loop.remember(call.ID, id)
 			if entity, err := loop.set.Entity(ctx, id); err == nil && entity != "" {
-				loop.focus = entity
+				loop.focus = working.EntityFile(entity)
 			}
 			return nil
 		}
@@ -270,11 +271,18 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 			break
 		}
 	}
-	if entity == "" {
-		if ref, ok := call.Input["ref"].(string); ok {
-			if i := strings.LastIndex(ref, ":"); i > 1 {
-				entity = ref[:i]
-			}
+	// An element the call names is what it observed, and its own bytes date
+	// the observation (R8-3): editing one function leaves what was read of
+	// another in the same file current. The ref is resolved after the call,
+	// so an edit's observation is the element as the edit left it; a ref
+	// that no longer resolves -- a deleted or renamed element, a failed
+	// call -- leaves the observation on its file.
+	observed := ""
+	if ref, _ := call.Input["ref"].(string); strings.TrimSpace(ref) != "" && toolErr == nil {
+		root := e.workspaceForVerification()
+		if file, key, err := codedom.ElementAt(tools.WithWorkspaceRoot(ctx, root), ref, entity); err == nil {
+			entity = file
+			observed = working.ElementEntity(normalizeWorkingEntity(file, root), key)
 		}
 	}
 	if entity != "" {
@@ -302,12 +310,15 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	if toolErr != nil {
 		body += "\nERROR: " + toolErr.Error()
 	}
-	revision := loop.set.Revision(loop.focus)
+	if observed == "" {
+		observed = loop.focus
+	}
+	revision := loop.set.Revision(observed)
 	step := time.Now().UnixNano()
 	idSum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d", call.ID, kind, body, revision, step)))
 	id := hex.EncodeToString(idSum[:])
 	start, end := observedSpan(call)
-	record := working.WorkingRecord{ID: id, Entity: loop.focus, Revision: revision, Kind: kind, Step: step, Body: body, Start: start, End: end, Failed: toolErr != nil}
+	record := working.WorkingRecord{ID: id, Entity: observed, Revision: revision, Kind: kind, Step: step, Body: body, Start: start, End: end, Failed: toolErr != nil}
 	if err := loop.set.Save(ctx, record); err != nil {
 		return fmt.Errorf("persist working observation: %w", err)
 	}

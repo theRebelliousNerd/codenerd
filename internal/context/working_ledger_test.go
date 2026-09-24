@@ -143,3 +143,39 @@ func TestWorkingLedger_ReadsTheConfiguredKnobs(t *testing.T) {
 	require.Contains(t, workingSetPolicy, "working_ledger_ceiling(N) :- config_param(/working_ledger_ceiling, N).")
 	require.Contains(t, workingSetPolicy, "working_ledger_keep_rounds(N) :- config_param(/working_ledger_keep_rounds, N).")
 }
+
+// An observation of an element is dated by the element's own bytes (R8-3):
+// editing one function restates what was read of it and of the whole file,
+// and leaves what was read of another function in the same file current.
+// With whole-file revisions every edit staled every observation of every
+// function in the file.
+func TestWorkingLedger_AnEditToOneElementLeavesTheOthersCurrent(t *testing.T) {
+	w, root := ledgerSet(t, 1<<20, 2)
+	path := filepath.Join(root, "a.go")
+	write := func(aBody string) {
+		t.Helper()
+		src := "package a\n\n// A does a.\nfunc A() int { " + aBody + " }\n\n// B does b.\nfunc B() int { return 2 }\n"
+		require.NoError(t, os.WriteFile(path, []byte(src), 0600))
+	}
+	write("return 1")
+	a, b := ElementEntity("a.go", "A"), ElementEntity("a.go", "B")
+	require.NotContains(t, []string{"absent", "unavailable"}, w.Revision(a), "the element resolves")
+	entries := []LedgerEntry{
+		observe(t, w, "read-a", a, "get_element/a", 1, 100, 0, 0),
+		observe(t, w, "read-b", b, "get_element/b", 2, 100, 0, 0),
+		observe(t, w, "read-file", "a.go", "read_file/x", 3, 100, 0, 0),
+	}
+	decision, err := w.Ledger(t.Context(), entries, 3, nil)
+	require.NoError(t, err)
+	require.Empty(t, decision.Restate)
+
+	write("return 3")
+	decision, err = w.Ledger(t.Context(), entries, 3, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"read-a", "read-file"}, decision.Restate, "the edited element and the whole file changed; B did not")
+
+	require.NoError(t, os.WriteFile(path, []byte("package a\n\n// A does a.\nfunc A() int { return 3 }\n"), 0600))
+	require.Equal(t, "absent", w.Revision(b), "a deleted element is absent, so what was read of it is stale")
+	require.Equal(t, "a.go", EntityFile(b))
+	require.Equal(t, "a.go", EntityFile("a.go"))
+}

@@ -46,8 +46,13 @@ func newLedgerLoop(t *testing.T, ceiling, keep int) *ledgerLoop {
 // the round to the history and sends the next request.
 func (l *ledgerLoop) round(name, body string) []types.Message {
 	l.t.Helper()
-	n := len(l.sent) + 1
-	call := types.ToolCall{ID: fmt.Sprintf("call-%d", n), Name: name, Input: map[string]any{"path": "target.go", "start_line": n}}
+	return l.roundCall(name, map[string]any{"path": "target.go", "start_line": len(l.sent) + 1}, body)
+}
+
+// roundCall is round with the call's input given.
+func (l *ledgerLoop) roundCall(name string, input map[string]any, body string) []types.Message {
+	l.t.Helper()
+	call := types.ToolCall{ID: fmt.Sprintf("call-%d", len(l.sent)+1), Name: name, Input: input}
 	if err := l.e.recordWorkingResult(l.ctx, call, body, nil); err != nil {
 		l.t.Fatalf("recordWorkingResult: %v", err)
 	}
@@ -158,6 +163,59 @@ func TestWorkingLedger_AnEditRestatesTheStaleReadOnce(t *testing.T) {
 	}
 	if n := strings.Count(text, "VIEW-OF-TARGET"); n != 2 {
 		t.Fatalf("the focus view is appended again at the new revision and only then; it appears %d times", n)
+	}
+}
+
+// R8-3: what a call read of one element is dated by that element's bytes.
+// Editing function A restates the read of A and leaves the read of B -- in the
+// same file -- standing, where a whole-file revision staled both and the model
+// re-read what had not changed (one file 34 times in one campaign).
+func TestWorkingLedger_AnEditToOneFunctionRestatesOnlyWhatWasReadOfIt(t *testing.T) {
+	l := newLedgerLoop(t, 1<<20, 2)
+	path := filepath.Join(l.e.config.WorkspaceRoot, "target.go")
+	write := func(aBody string) {
+		t.Helper()
+		src := "package target\n\n// A does a.\nfunc A() int { " + aBody + " }\n\n// B does b.\nfunc B() int { return 2 }\n"
+		if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("return 1")
+	l.roundCall("get_element", map[string]any{"path": "target.go", "ref": "A"}, "func A() int { return 1 }")
+	l.roundCall("get_element", map[string]any{"path": "target.go", "ref": "B"}, "func B() int { return 2 }")
+
+	loop := activeWorkingLoop(l.ctx)
+	for call, want := range map[string]string{"call-1": "target.go::A", "call-2": "target.go::B"} {
+		if got, err := loop.set.Entity(l.ctx, loop.observations[call]); err != nil || got != want {
+			t.Fatalf("%s is filed under %q (%v), want the element %q", call, got, err, want)
+		}
+	}
+	if loop.focus != "target.go" {
+		t.Fatalf("the focus is a file, not an element: %q", loop.focus)
+	}
+
+	write("return 3")
+	third := l.roundCall("edit_element", map[string]any{"path": "target.go", "ref": "A"}, "func A() int { return 3 }")
+	text := requestText(third)
+	if n := strings.Count(text, "predates the current content of target.go::A"); n != 1 {
+		t.Fatalf("the read of A must be restated once after A changed; the notice appears %d times in:\n%s", n, text)
+	}
+	if strings.Contains(text, "predates the current content of target.go::B") {
+		t.Fatal("B did not change: what was read of it stands")
+	}
+	if got, err := loop.set.Entity(l.ctx, loop.observations["call-3"]); err != nil || got != "target.go::A" {
+		t.Fatalf("the edit's observation is the element as the edit left it; filed under %q (%v)", got, err)
+	}
+
+	// A recall of an element's observation moves the focus to its file: the
+	// focus names whose view is rendered, and an element is not a file.
+	loop.focus = "."
+	recall := types.ToolCall{ID: "recall-b", Name: "recall_context", Input: map[string]any{"id": loop.observations["call-2"]}}
+	if err := l.e.recordWorkingResult(l.ctx, recall, "page", nil); err != nil {
+		t.Fatal(err)
+	}
+	if loop.focus != "target.go" {
+		t.Fatalf("after recalling B's observation the focus is %q, want its file target.go", loop.focus)
 	}
 }
 

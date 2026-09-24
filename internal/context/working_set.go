@@ -18,6 +18,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/mangle"
 	"codenerd/internal/tools"
+	"codenerd/internal/world/codemodel"
 )
 
 //go:embed working_set.mg
@@ -131,14 +132,55 @@ func (w *WorkingSet) Entity(ctx context.Context, id string) (string, error) {
 	return records[0].Entity, nil
 }
 
+// elementSeparator joins a file and an element key in an element entity. A key
+// may hold "#" ("init#2") and ":" ("rule:pred/2@3fa2c1"); a workspace-relative
+// path holds neither "::" nor a key.
+const elementSeparator = "::"
+
+// ElementEntity is the working-set entity of one element of a file: its
+// observations are dated by the element's own bytes, not the file's.
+func ElementEntity(file, key string) string { return file + elementSeparator + key }
+
+// EntityFile is the file an entity is in: the entity itself for a file, the
+// file part of an element entity.
+func EntityFile(entity string) string {
+	file, _, _ := strings.Cut(entity, elementSeparator)
+	return file
+}
+
 // Revision is content identity, not HEAD: uncommitted edits invalidate views.
+//
+// A file entity is the hash of the whole file. An element entity
+// (ElementEntity) is the element's own revision -- its bytes, doc comment
+// included (codemodel.Revision) -- so an edit elsewhere in the file leaves the
+// observations of the element current; "absent" once the file no longer has
+// it. With whole-file revisions every edit staled every observation of every
+// function in the file: measured on one campaign (2026-09-22), one file read
+// 34 times and 21 of 45 Go reads re-reads.
 func (w *WorkingSet) Revision(entity string) string {
 	if entity == "" {
 		return "nonfile"
 	}
-	path, err := tools.ResolveWorkspacePath(context.Background(), w.root, entity)
+	file, key, element := strings.Cut(entity, elementSeparator)
+	path, err := tools.ResolveWorkspacePath(context.Background(), w.root, file)
 	if err != nil {
 		return "unavailable"
+	}
+	if element {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "unavailable"
+		}
+		model, ok := codemodel.Parse(file, string(data))
+		if !ok {
+			return "unavailable"
+		}
+		for i := range model.Elements {
+			if model.Elements[i].Key == key {
+				return model.Elements[i].Revision
+			}
+		}
+		return "absent"
 	}
 	f, err := os.Open(path)
 	if err != nil {

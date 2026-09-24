@@ -64,8 +64,12 @@
   one compaction (`working_compact`) moves every result older than
   `working.ledger_keep_rounds` and every stale or superseded one
   (`working_evict`) out behind its `recall_context` handle, which states the
-  body's size. A carried observation whose file changed is restated once per
-  revision (`working_restate`), not rewritten. A `read_file` observation
+  body's size. A carried observation whose source changed is restated once per
+  revision (`working_restate`), not rewritten. An observation of an element (a
+  call naming a `ref` that resolves after it) is filed under `file::key` and
+  dated by the element's own bytes, so an edit to one function leaves what was
+  read of another in the same file current; everything else is dated by the
+  whole file. A `read_file` observation
   records its line span; a later read of the same file at the same revision
   that covers it supersedes it (`working_span`), as a repeated body does
   (`working_digest`). Separately, a result is archived only when the request
