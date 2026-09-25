@@ -567,15 +567,6 @@ func (cr *CheckpointRunner) RunQuick(ctx context.Context) (bool, string, error) 
 	return cr.runBuildCheckpoint(ctx)
 }
 
-// fileExists checks if a file exists in the workspace.
-func fileExists(workspace, file string) bool {
-	path := filepath.Join(workspace, file)
-	if _, err := os.Stat(path); err == nil {
-		return true
-	}
-	return false
-}
-
 // checkpointEnvelope is the minimal subset of the reviewer control-packet
 // needed here: the mangle_updates list that carries checkpoint_verdict/4.
 // A local struct avoids importing articulation (and any import cycle) for
