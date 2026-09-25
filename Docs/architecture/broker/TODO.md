@@ -643,3 +643,23 @@ something.
 Until that exists, the three starved predicates above are recorded where a
 reader hits them — in `test_impact.mg`'s header and at the `TransactionManager`
 type — rather than in a baseline file nobody trusts.
+
+## Wave 2 reconciliation (2026-09-25, verified against the code)
+
+- **Built:** the broker now forwards `ShouldUsePiggybackTools` (commit 799c5a3,
+  see `WIRING-AND-NOT-BUILT.md`). The Phase 3 notes above say "the Piggyback
+  structured-output path runs a single iteration by design, so epochs are 1
+  there whatever else is true"; that stopped being true the same day. The
+  Piggyback path now runs the same multi-round tool loop through
+  `piggybackChannel`, with the catalog in the system prompt and the
+  conversation in the user prompt, so its cacheable head is the system prompt
+  plus catalog and the by-shape epoch analysis applies to it as to the native
+  loop.
+- **Still a recorded decision, not a gap:** `ActivatedFacts` stays unpopulated
+  for the two reasons recorded above (no fact-to-atom relation; it is in the
+  prompt cache key).
+- **Declined for this wave:** Phase 2 (the typed graph), Phase 4 and Phase 5
+  are gated on the preconditions this file lists.
+- **Out of lane:** the Mangle half of the dark-field gate is a
+  `nerd kernel starved` readout over a session's fact log, a `cmd/nerd`
+  surface (lane B).
