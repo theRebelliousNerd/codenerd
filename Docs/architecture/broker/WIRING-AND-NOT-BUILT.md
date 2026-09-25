@@ -52,6 +52,18 @@ marking via the unexported `brokered` interface so outsiders cannot
 claim metering without it (wrap.go:121-135). `baseClient`
 demonstrably satisfies `types.GroundingController` (wrap.go:214-222).
 
+One control-flow answer rides the forwarders rather than the eight shapes:
+`ShouldUsePiggybackTools` (`passthrough.go`). It selects the session's tool
+channel, but it is an answer, not a method whose presence is the capability,
+so forwarding it with a false default reproduces the unwrapped probe exactly.
+Until 2026-09-25 the broker did not forward it, and since every client is
+metered, no client in the process was ever treated as Piggyback: the CLI
+engines took the native tool path and failed their first continuation
+(`TestWrapAnswersThePiggybackQuestionForTheUnderlyingClient`; the whole
+session chain is held by
+`TestSessionAdapterReportsAnEnvelopeOnlyEngineThroughTheProductionChain` in
+`internal/system`).
+
 Forwarding is deliberately dumb: `SetModel` keeps the broker's model
 in step for receipts while passing through (broker.go:51-63),
 `SetCachedContent` passes through (broker.go:65-70), and
@@ -98,3 +110,14 @@ never re-enable structured output the client switched off
 - **`Segment`/`Histogram` have no in-package caller on the request
   path.** They are pure analysis functions over receipt slices;
   whatever reads them lives outside `internal/broker`.
+
+## Wave 2 reconciliation (2026-09-25, verified against the code)
+
+| Item above | Classification | Evidence |
+|---|---|---|
+| No cache-rebuild controller | declined (gated) | Phase 4 in `TODO.md`: preconditions are session data (Gate A) and a prompt-ordering decision that wants an eval. |
+| Exact counting is single-provider | open, by construction | Only Anthropic exposes a count endpoint the counter uses (`counter_anthropic.go`); other providers estimate and self-calibrate. Nothing to wire without a provider API. |
+| Reconciliation never blocks | declined | Drift past 10% warns once per model (`reconcile.go`). Blocking on estimator error would stop work on a measurement defect, not on the task's state. |
+| Retention is lossy by design | declined | Bounded ring and rotating JSONL are the design; long-horizon readers consume the log (`nerd meter`). |
+| Window enforcement assumes configuration | declined, documented | An unconfigured window admits with zero headroom and every receipt says so (`ledger.go`, `default.go`); refusing would stop every run whose config names no window. Boot configures the window from `GetContextWindowConfig().MaxTokens` (`internal/system/broker_meter.go`) and configures none, silently, when that is zero. |
+| `Segment`/`Histogram` have no in-package caller | already wired | `cmd/nerd/cmd_meter.go` (`nerd meter epochs`) calls `broker.Histogram(broker.Segment(receipts))`. |

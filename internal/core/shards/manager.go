@@ -36,7 +36,11 @@ type ShardManager struct {
 	profiles  map[string]types.ShardConfig
 	factories map[string]types.ShardFactory
 	disabled  map[string]struct{}
-	mu        sync.RWMutex
+	// detached names the spawns whose result nobody will ask for (system
+	// shard boot, on-demand activation); recordResult does not retain those
+	// (spawnDetached).
+	detached map[string]struct{}
+	mu       sync.RWMutex
 
 	// spawnCounter ensures shard IDs are unique even when time resolution is coarse.
 	spawnCounter int64

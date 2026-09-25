@@ -67,9 +67,15 @@ func (m *pbMockLLMClient) Complete(ctx context.Context, prompt string) (string, 
 	return "unused", nil
 }
 
+// CompleteWithSystem answers the adversarial envelope first. The Piggyback
+// channel continues the conversation once the requested tools have run (until
+// 2026-09-25 it ran one batch and returned), so every later call is the model
+// concluding: an envelope with no tool_requests.
 func (m *pbMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userInput string) (string, error) {
-	atomic.AddInt64(&m.completeWithSystemCalls, 1)
-	return m.piggybackResponse, nil
+	if atomic.AddInt64(&m.completeWithSystemCalls, 1) == 1 {
+		return m.piggybackResponse, nil
+	}
+	return `{"control_packet":{"tool_requests":[]},"surface_response":"I updated the state and requested tools."}`, nil
 }
 
 func (m *pbMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userInput string, toolDefs []types.ToolDefinition) (*types.LLMToolResponse, error) {

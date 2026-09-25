@@ -93,8 +93,10 @@ absent.
 | terminal results | router/VirtualStore | session/policy/operators | `routing_result/4`, `execution_result/6` |
 
 Production `defaultKernelShardConfigs` places the exact permission envelope in
-one policy domain. The shards package's exported manifest does not currently
-drive this wiring and is missing three members of that envelope.
+one policy domain, built from the shards package's exported manifest
+(`internal/system/factory.go` calls `shards.DefaultShardPredicateManifests`).
+(Corrected 2026-09-25: this said the manifest did not drive the wiring and was
+missing three envelope members; `shards/TODO.md` records the fix.)
 
 ## Lifecycle and teardown
 
@@ -130,6 +132,6 @@ and a later Start owns a fresh run context.
 | exported predicate manifest | production authority; uniqueness and exact envelope verified | preserve parity as descriptor expands |
 | per-shard facts feature surface | manifest now feeds production configs | broader end-to-end ownership routing, cross-domain join, rollback |
 | permissive unmapped router | both modes consume once and emit terminal failure | preserve regression on new branches |
-| observer restart | fresh generation verified under race | add overflow/drop counter and snapshot ownership |
+| observer restart | fresh generation verified under race; drops counted, assessments returned as copies (2026-09-25) | render the drop counter in operator diagnostics |
 | direct session tool calls | bypass tactile router, but should not bypass VirtualStore permission | constitutional negative integration test |
 | scanner empty-context factories | structural registration only | fail-visible spawn dependency tests |

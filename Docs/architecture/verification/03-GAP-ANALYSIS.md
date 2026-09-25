@@ -1,6 +1,6 @@
 # verification — Gap Analysis
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-07-13**. Superseded in part by the 2026-09-23 rework; see the wave-2 reconciliation table in [TODO.md](TODO.md) for each item's current state (2026-09-25).
 
 ## Spec vs reality matrix
 
