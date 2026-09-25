@@ -1,7 +1,23 @@
 # retrieval — TODO
 
-> Last verified: **2026-08-16**  
+> Last verified: **2026-09-25** (lane B wave 2, against the code)
 > Priority: P0 must ship for north-star integration; P1 quality; P2 scale/polish.
+
+> **Status, 2026-09-25.** Every item below is resolved. The checked items were
+> re-verified against the code; the open follow-ups, and the unwired rows of
+> `08-WIRING-AND-INTEGRATION.md` §7, are closed or decided here.
+>
+> | Item | Resolution | Evidence |
+> |---|---|---|
+> | Retrieval decided in Go, `nerd fix` never retrieved (08 §7 "session clean-loop executor hooks", "Mangle rules over candidate_file/keyword_hit") | closed `216b818` | `issue_retrieval_wanted` and `retrieval_brief_file` are kernel decisions (`internal/core/defaults/policy/retrieval.mg`, Decls in `schemas_knowledge.mg` 52.5); `retrieval.TaskRetriever` (`internal/retrieval/decisions.go`) runs one scoped pass per task turn and retracts it; `Executor.retrieveForTurn` (`internal/session/issue_retrieval.go`) hands the brief to the working loop's anchor; the factory wires it into the executor, its task clones and the spawner. Tests: `TestProcessWithIntent_FixTaskIsHandedTheKernelsRetrievalBrief`, `TestTaskRetriever_BriefFollowsTheKernelsFloor`, `TestRetrievalDecisions_DeriveInTheDomainCortex`, `TestBoot_WiresIssueRetrieverIntoSessionExecutor` |
+> | Chat gate was a Go verb switch; chat issues accumulated turn over turn | closed `216b818` | `seedIssueFacts` asks `retrieval.Wanted(kernel, "/current_intent")` and seeds one live issue (`/chat_issue`) after `SupersedeIssue`; `TestSeedIssueFacts_KernelGatesAndOneIssueStaysLive` |
+> | Follow-up: `SetProcessBus` never called, process bus nil | already done (stale) | `transparency.NewGlassBoxEventBus` calls `adoptProcessBus` (first writer wins, `internal/transparency/event_bus.go`), so the first bus a boot builds is the process bus; the `SeedRequest.GlassBox` comment was corrected in `216b818` |
+> | Follow-up: Tier 3 TS/Rust | closed `25ec827` | `internal/retrieval/polyglot_imports.go`; `TestImportNeighbors_TypeScriptRelativeSpecifiers`, `TestImportNeighbors_RustModulesAndUsePaths`, `TestBuildContext_TypeScriptIssueFillsTheImportTier` |
+> | 08 §7 "Embedding engine into T4: nothing constructs one" | already done (stale) | `SeedRequest.EmbeddingEngine` builds `NewEmbeddingSemanticSearcher` (`internal/retrieval/facts.go`); chat passes `m.embeddingEngine`, the factory passes `bctx.embeddingEngine` to the TaskRetriever |
+> | 08 §7 "Campaign assault automatic sparse pass" | closed by `216b818` | campaign tasks run through `session.TaskExecutor` → `CloneForTask` → `ProcessWithIntent` (`internal/session/task_executor.go`), which now runs the kernel-gated pass; the clone inherits the retriever |
+> | 08 §7 "VirtualStore action search_code" | declined | retrieval sits on the Observe/Orient edge; the model's search surface is the typed tool catalog (`find_symbol`, `find_text`, `search_code`, gated by `working_search_open`), and the kernel now hands the retrieved files over itself |
+> | 08 §7 "Prompt atoms calling retrieval" | declined | a per-task file list is evidence, not instructions: it rides the anchor under a `[harness: ...]` header like the focus view, not a JIT atom |
+> | 03 §2 P2.8 per-workDir inverted index | declined | the LRU keyword cache plus kernel-driven invalidation (`InvalidateFromKernel`) serve repeat passes; nothing measures the walk as the constraint. Reopen with a measurement |
 
 ## P0 — Wiring *(landed 2026-08-15)*
 
@@ -60,11 +76,9 @@
 
 ## Open follow-ups
 
-- `transparency.SetProcessBus` is never called in production, so
-  `transparency.ProcessBus()` is nil in a real session. `SeedRequest.GlassBox`
-  works around it for this path; `ReportDeny`'s glass-box mirror is still dark.
-- Tier 3 import expansion covers Go and Python. TypeScript/Rust module
-  resolution is unimplemented.
+None. The two listed here were resolved 2026-09-25: the process bus was
+already adopted by `NewGlassBoxEventBus` (the claim was stale), and Tier 3
+follows TS/JS and Rust imports (`25ec827`). See the status table above.
 
 ## Done (historical anchors)
 

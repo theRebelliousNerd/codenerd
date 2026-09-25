@@ -1,5 +1,20 @@
 # cli wiring — and what is NOT built here
 
+> **Status, 2026-09-25 (lane B wave 2).** Every entry below is resolved; the
+> sections are kept as written on 2026-09-20 and this table is current.
+>
+> | Entry | Resolution | Evidence |
+> |---|---|---|
+> | `fix --acceptance` consumer | already wired | `validateFixArgs` and `runDirectAction` load the contract and put it on the context (`cmd/nerd/cmd_direct_actions.go`); `acceptance_args_test.go` |
+> | `--yolo` and `--api-key` read outside `main.go` | closed `eac600f` (bare `nerd`) | the root RunE built `chat.Config` from `--disable-system-shard` alone, so `nerd --yolo` opened a chat that asked every question and `nerd --api-key K` dropped K. `chatLaunchConfig` carries both; `--yolo` is session autonomy (`yoloEnabled`, `syncYoloFact`, never persisted, ended by `/yolo off`); `--api-key` reaches `BootConfig.APIKey` (`sharedBootConfig`). `TestChatLaunchConfig_CarriesRootFlags`, `TestInitChat_YoloFlagIsSessionAutonomy`, `TestSharedBootConfig_CarriesLaunchFlags`. The one-shot verbs already read `--api-key` (`resolveAPIKey`) and have no clarification path for `--yolo` to silence |
+> | `--yolo` "never overrides safety denials" | standing rule `c92cd25` | `TestYoloMode_OnlySilencesQuestions`: every corpus clause reading `yolo_mode` reads it negated and concludes a clarification, never a verdict; `TestYoloMode_CheckerCatchesAWideningRule` is its negative control |
+> | `--timeout` enforcement | already wired | `operationContext` (`cmd/nerd/operation_context.go`, `operation_context_test.go`) |
+> | `timeout`, `campaignRetryFailed`, `campaignResumeID` | traced: wired | read by the one-shot verbs through `operationContext` and by `campaign resume` |
+> | `domCmd` / `embeddingCmd` naming | documented | defined in `dom_cmd.go` / `embedding_cmd.go`; `embedding reembed` is the store's dim-change procedure |
+> | journal / assault / recurse / mcp select / test-context "no AddCommand" | already wired (stale) | each registers itself in its own `init()`: `campaignCmd.AddCommand(campaignJournalCmd, campaignReportCmd)`, `campaignCmd.AddCommand(campaignAssaultCmd)`, `campaignRecurseCmd` in `main.go`, `mcpCmd.AddCommand(mcpSelectCmd, mcpMetricsCmd)`, `rootCmd.AddCommand(testContextCmd)` |
+> | Flight recorder, `SilenceUsage` | documented | contracts of `internal/observability` and of each command's error text; nothing to wire in `main.go` |
+> | `nerd memory` printed every table's sum as "Vector (Embeddings)" | closed `2acad15` | `renderStoreStats` prints the vectors count there, every table by name and the store's gauges |
+
 Verified 2026-09-20 against `main` (working tree up to date with
 `origin/main`). Pin notes as in `README.md`. Every path below was
 read this pass (`cmd/nerd/main.go` lines 1-400; `Use` lines and

@@ -1,7 +1,17 @@
 # retrieval — Gap Analysis
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-07-13**
 > Method: vision (§01) × current state (§02) × wiring evidence
+
+> **Status, 2026-09-25.** This matrix predates the wiring. Every row is closed
+> or decided: search runs in the chat seed and, since `216b818`, on every
+> session-executor turn the kernel wants it for; ranked candidates and all four
+> tiers reach the EDB; T1 mentions resolve under the workspace; T3 covers Go,
+> Python, TS/JS and Rust (`25ec827`); T4 takes the embedding engine; binary and
+> large files are skipped; the ripgrep backend and metrics exist; the dead T2
+> call is gone; `SparseRetriever.mu` guards the invalidation cursor;
+> `issue_context` is asserted. The per-workDir inverted index (P2.8) is
+> declined without a measurement. See `TODO.md` for the per-item evidence.
 
 ## 1. Spec vs reality matrix
 
