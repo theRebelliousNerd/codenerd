@@ -362,6 +362,8 @@ func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sess
 	// SetSessionContext and appended every delegated task to the session's
 	// conversation history, contaminating later turns.
 	exec := j.executor.CloneForTask()
+	// The clone runs this one task; its working archives die with it.
+	defer exec.RetireWorkingScopes()
 	if sessionCtx != nil {
 		exec.SetSessionContext(sessionCtx)
 	}

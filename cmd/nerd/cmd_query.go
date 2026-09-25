@@ -141,6 +141,7 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("✓ Workspace: %s\n", cwd)
+	fmt.Print(renderWorkspaceState(cwd))
 
 	// Initialize kernel and show stats
 	kern, err := core.NewRealKernel()

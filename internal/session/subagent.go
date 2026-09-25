@@ -271,6 +271,9 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 
 		// Run the task
 		result, err := s.execute(ctx, task)
+		// A subagent runs one task (Run starts only from idle), so its
+		// executor's working archives cannot be redeemed after this.
+		s.executor.RetireWorkingScopes()
 
 		// Store results
 		s.mu.Lock()
