@@ -30,11 +30,6 @@ const maxBatchSize = 100
 // callers and provoke 429s.
 const batchParallelism = 6
 
-//go:fix inline
-func int32Ptr(i int32) *int32 {
-	return new(i)
-}
-
 // GenAIEngine generates embeddings using Google's Gemini API.
 type GenAIEngine struct {
 	client   *genai.Client

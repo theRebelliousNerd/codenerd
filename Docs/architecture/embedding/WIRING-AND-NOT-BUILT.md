@@ -63,12 +63,19 @@ now carries its decision.
   without a Gemini key. The synchronous `EmbedBatch` (parallel 100-text
   chunks, now retried) covers every caller today. Keep as a library entry
   point; wiring it is a maintainer decision.
-- `FindTopK` (`internal/embedding/engine.go:152`): still test-only.
-  **Declined, not wired.** The production rankers break ties
-  deterministically (`internal/retrieval/semantic.go` sorts by score, then
-  path) and apply their own filters; `FindTopK` is a partial selection sort
-  with no tie-break, so routing them through it would make results
-  order-unstable.
+- `FindTopK`: **removed 2026-09-25 (lane B wave 3).** It was test-only.
+  The production rankers break ties deterministically
+  (`internal/retrieval/semantic.go` sorts by score, then path) and apply their
+  own filters; `FindTopK` was a partial selection sort with no tie-break, so
+  routing them through it would have made results order-unstable. With that
+  decision made there was nothing left for it to serve, and a ranker that
+  must not be used is cruft. `SimilarityResult` went with it, and so did
+  `int32Ptr` in `genai.go`, a `//go:fix inline` shim for `new(v)` with no
+  caller.
+- `DefaultConfig` (`internal/embedding/engine.go:83`): **wired 2026-09-25.**
+  `config.DefaultEmbeddingConfig` (`internal/config/memory.go`) was a second
+  hand-written copy of the same defaults; it now derives from this one, pinned
+  by `TestDefaultEmbeddingConfig_ShouldBeTheEmbeddingPackageDefaults`.
 - `DetectContentType` (`internal/embedding/task_selector.go:124`): its entry
   point is `GetOptimalTaskType` (`:230`) by design; no direct caller is
   needed.

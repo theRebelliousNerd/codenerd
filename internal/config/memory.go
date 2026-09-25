@@ -163,13 +163,22 @@ func (c *EmbeddingConfig) MissingModel() string {
 }
 
 // DefaultEmbeddingConfig returns an EmbeddingConfig with sensible defaults.
+//
+// The defaults are the embedding package's own (embedding.DefaultConfig). This
+// used to be a second hand-written copy of them, the mirror image of
+// EngineConfig below: two literals for one set of values, where a default
+// changed in the package that owns the engines would silently not reach the
+// config every workspace starts from.
 func DefaultEmbeddingConfig() *EmbeddingConfig {
+	d := embedding.DefaultConfig()
 	return &EmbeddingConfig{
-		Provider:       "ollama",
-		OllamaEndpoint: "http://localhost:11434",
-		// No embedding model: the workspace names one in .nerd/config.json.
-		GenAIAPIKey: "",
-		TaskType:    "SEMANTIC_SIMILARITY",
+		Provider:       d.Provider,
+		OllamaEndpoint: d.OllamaEndpoint,
+		OllamaModel:    d.OllamaModel,
+		Dimensions:     d.Dimensions,
+		GenAIAPIKey:    d.GenAIAPIKey,
+		GenAIModel:     d.GenAIModel,
+		TaskType:       d.TaskType,
 	}
 }
 
