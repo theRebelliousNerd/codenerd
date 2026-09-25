@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/build"
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 )
@@ -436,10 +437,14 @@ func runGoTests(ctx context.Context, projectRoot string, packages []string, time
 	args = append(args, "-timeout", timeoutDuration.String())
 	args = append(args, relPackages...)
 
+	// The build env and the workspace's go_flags, the same ones the session's
+	// verification gate runs under (internal/build GoInvocation).
+	env, args := build.GoInvocation(projectRoot, projectRoot, args)
 	logging.WorldDebug("Running: go %s", strings.Join(args, " "))
 
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = projectRoot
+	cmd.Env = env
 
 	output, err := cmd.CombinedOutput()
 	// The only place this tool runs a test: a dry run, an empty selection

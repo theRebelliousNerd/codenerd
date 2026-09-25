@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/build"
 	"codenerd/internal/processutil"
 	"codenerd/internal/tools"
 )
@@ -67,6 +68,10 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 		}
 		count = n
 	}
+	// goEnv is the environment a go runner executes under; nil (inherit the
+	// process environment) for the other runners, whose toolchains the build
+	// env's allowlist does not describe.
+	var goEnv []string
 	if argv[0] == "go" {
 		isBuild := !tests && len(argv) > 1 && argv[1] == "build"
 		argv = argv[:2]
@@ -120,6 +125,14 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 				return "", err
 			}
 		}
+		// The same environment and configured go_flags the session's own
+		// verification gate compiles under, so the model and the gate cannot
+		// disagree about one build -- and the process's API keys stay out of
+		// a test binary that is project code.
+		root, _ := tools.WorkspaceRoot(ctx)
+		var goArgs []string
+		goEnv, goArgs = build.GoInvocation(root, dir, argv[1:])
+		argv = append([]string{argv[0]}, goArgs...)
 		if isBuild {
 			// A build checks that the code compiles and changes nothing on
 			// disk. Output goes into a per-invocation temp directory that is
@@ -144,6 +157,7 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 				defer cancel()
 				cmd := newCommand(runCtx, buildArgv[0], buildArgv[1:]...)
 				cmd.Dir = dir
+				cmd.Env = goEnv
 				out, runErr := processutil.CombinedOutput(cmd)
 				code := 0
 				if cmd.ProcessState != nil {
@@ -201,6 +215,9 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	defer cancel()
 	cmd := newCommand(runCtx, argv[0], argv[1:]...)
 	cmd.Dir = dir
+	if goEnv != nil {
+		cmd.Env = goEnv
+	}
 	out, runErr := processutil.CombinedOutput(cmd)
 	code := 0
 	if cmd.ProcessState != nil {

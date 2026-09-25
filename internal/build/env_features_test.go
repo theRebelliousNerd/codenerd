@@ -101,7 +101,7 @@ func TestDetectionRootFor_WhenNestedModule_ShouldFindMonorepoHeaders(t *testing.
 
 	// And the resulting env must carry the repo-root headers, which is the
 	// whole point: cmd.Dir stays the submodule, CGO_CFLAGS comes from the repo.
-	env := GetBuildEnvForModule(nil, module)
+	env, _ := GoInvocation(repo, module, []string{"build", "./..."})
 	if got := envValue(env, "CGO_CFLAGS"); !strings.Contains(got, filepath.Join(repo, "sqlite_headers")) {
 		t.Errorf("CGO_CFLAGS = %q, want the repo-root sqlite_headers", got)
 	}
