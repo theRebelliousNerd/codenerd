@@ -2,108 +2,102 @@
 doc-class: shipped
 subsystem: context
 implementation-status: shipped
-last-verified: 2026-09-21
-verified-against: ea90cc63
+last-verified: 2026-09-25
+verified-against: 76afac9
 supersedes: []
 ---
 
 # context: wiring and what is NOT built
 
-> Re-verified 2026-09-21 (caller index + body reads; full line table in
-> `.nerd/campaigns/aab9612b/artifacts/task_aab9612b_2_0.md`).
-> Supersedes the 2026-09-20 pass against `456e521`.
+> Re-verified 2026-09-25 against `76afac9` by reading the code and running
+> the tests named below. This supersedes the 2026-09-21 pass, which
+> described `WorkingSet.Select` (removed; the context ledger replaced it)
+> and called `ProcessTurn` and `GetContextString` uncalled (both have chat
+> callers). Line anchors are to the tree at `76afac9`.
 
 ## Wired and reachable
 
-- Selection path: `WorkingSet.Select`
-  (`internal/context/working_set.go:308-512`, previously cited as `:297`
-  — wrong) funnels retrieval through control facts (`:323-324`), two-hop
-  `dependency_link` traversal capped at 64 entities (cap check `:346`),
-  per-entity `working_revision` (`:361`), `code_defines` /
-  `code_element` queries (`:365-371`), `Candidates(ctx,entities,256)`
-  (`:373-376`), missing-recents fetch (`:390-407`),
-  `working_observation` / `digest` / `span` asserts (`:408-414`),
-  `ReplaceControlFacts` (`:430`), and `should_include_context`
-  decisions (`:455-462`) via `buildKernelDerivedContext` (`:473`).
-  Whole-body reads go through `Read(ctx,r.ID,0,0)` (`:491`) against the
-  `WorkingRecord` store opened by `OpenWorkingStore`
-  (`internal/context/working_store.go:52-84`; structs `:27-38`).
-- Tool-reachable retrieval: `RecallContextTool`
-  (`internal/tools/core/context_recall.go:13-80`) dispatches Search
-  (`:75`) and Recall (`:77`) and is registered in `core.RegisterAll`
-  (`internal/tools/core/register.go:12`). This wires
-  `WorkingSet.Search` (`working_set.go:82-84`) and `WorkingSet.Recall`
-  (`:88-103`) into the production tool path.
-- Context build: `Compressor.BuildContext`
-  (`internal/context/compressor.go:645-742`) queries
-  `should_include_context` (`:688`) with Go-activation fallback
-  (`:707-712`), always includes safety facts via `getCoreFacts`
-  (`:719-720`; safety list `permitted, dangerous_action,
-  admin_override, security_violation, block_commit` at `:759`, query
-  failures Warn+continue at `:752-765`, never silent), and renders via
-  `builder.Build` (`:725-731`). Production caller:
-  `retrieval.SeedIssueFacts` (`internal/retrieval/facts.go:227`).
-- Package import edges (NOT re-traced this pass, carried from 09-20):
-  `internal/session/working_context.go` and
-  `internal/session/working_meter.go` import it as `working`;
-  `cmd/nerd/chat/*` import it as `ctxcompress`;
-  `cmd/nerd/cmd_context_stats.go` reads the feedback store.
+- **Session compressor, built at boot.** `newSessionCompressor`
+  (`cmd/nerd/chat/session_shared_boot.go:325`, called at `:131`) builds the
+  `Compressor` on the domain Cortex's catch-all shard (`primary`), where the
+  facts it asserts itself land, and sets the Cortex as its `KernelReader`
+  (`SetKernelReader`, `internal/context/compressor.go:99`), so the
+  retention and relevance decisions read the session's whole kernel. The
+  context feedback store is attached at `session_shared_boot.go:146`.
+- **Turn path.** `ProcessTurn` (`internal/context/compressor_turns.go:30`)
+  is driven from chat (`cmd/nerd/chat/process.go:956`). It asserts the
+  control packet's atoms, runs memory operations
+  (`processMemoryOperation`, `:233`: `promote_to_long_term`, `forget`,
+  `store_vector`, and `note` → `recordSessionNote`, `:287`), recalculates
+  the token budget, compresses when `TokenBudget.ShouldCompress` holds, and
+  persists (`persistTurnLocked`, `:185`), warning on and counting a failed
+  write (`GetMetrics` `persist_failures`).
+- **Context build.** `BuildContext` (`internal/context/compressor.go:706`),
+  reached through `GetContextString` from `cmd/nerd/chat/process.go:783`
+  and `cmd/nerd/chat/model_session_context.go:92`:
+  - asks `should_include_context` through the reader; a kernel answer that
+    resolves to facts is selected within `AtomReserve` without the Go
+    threshold (`buildKernelDerivedContext`,
+    `internal/context/compressor_metrics.go:553`, budget at `:663`);
+    otherwise the Go activation engine selects, with the reason recorded
+    in `SelectionStats`;
+  - retains every fact of every predicate `context_must_retain` names
+    (`getCoreFacts`, `compressor.go:859`, deciding with
+    `retainedPredicates`, `:824`), falling back to `constitutionalFloor`
+    (`:817`) only when the kernel derives none — warned once, counted as
+    `RetentionFloorUsed`;
+  - renders one line under ACTIVE CONTEXT saying whose order the block is:
+    `selected and ordered by the kernel` or `heuristic_ordered: … (reason)`
+    (`internal/context/serializer.go:279-281`).
+- **Kernel policy for the window** (`internal/core/defaults/policy/context_compilation.mg`,
+  Decls in `internal/core/defaults/schemas_context.mg`): relevance
+  (`context_relevant` → `should_include_context`, including
+  `context_relevant(Key, /p90) :- session_note(Key, _)`), retention
+  (`context_must_retain`, `:85`), and observation masking
+  (`should_mask_observation` / `should_preserve_reasoning`, obeyed by
+  `maskedObservationTurns`, `compressor_metrics.go:722`).
+- **Learned usefulness.** `process.go:859` stores the model's context
+  feedback; the activation engine reads it in `computeFeedbackScore`
+  (`internal/context/activation_scoring.go:462-467`). It affects the Go
+  activation path only; the kernel path does not read it.
+- **Per-task working set.** `working_set.mg` is embedded
+  (`internal/context/working_set.go:24`) and loaded into the working set's
+  private engine (`:62`). The tool loop calls `Continue` (`:325`, from
+  `internal/session/executor_tools.go:297`, `build_verify.go:618`),
+  `RepeatThreshold` (`:405`, from `executor_tools.go:209`,
+  `build_verify.go:547`) and `Ledger` (`:222`, from
+  `internal/session/working_context.go:556`). Eviction moves results behind
+  recall handles; `RecallContextTool` recalls them (`WorkingSet.Recall`,
+  `:108`).
 
-## Exists but uncalled or test-only
+## Exists but uncalled
 
-- `Compressor.ProcessTurn` (`internal/context/compressor_turns.go:30-184`):
-  the 2026-09-20 pass listed it as the wired turn path. The 2026-09-21
-  caller index (16 rows) shows every caller is a `*_test.go` file; there
-  are zero production callers. Marked `exists-but-uncalled`, not the turn
-  path, until a production driver is traced.
-- `Compressor.GetContextString` (`compressor.go:774-784`): only caller
-  is `TestBuildContext` (`internal/context/compressor_test.go:164`).
-  Test-only; production builds context via `BuildContext` directly.
-- `WorkingSet.Select` (`working_set.go:308-512`): the caller index shows
-  tests plus same-name methods on other types — the `browser` hit at
-  `internal/browser/progressive_action.go:352` is rod `element.Select`,
-  and `prompt.PredicateSelector.SelectFor*` are predicate selection. No
-  production driver tied by package; the session-loop driver is untraced
-  in this pass. Do not cite `Select` as the live path without tracing it.
-- `WorkingSet.Continue` (`working_set.go:175-243`, per package outline;
-  body not re-read): only callers are two tests
-  (`working_set_test.go:131,136`). Dormant loop-control helper, same as
-  the 09-20 finding. (`TranscriptRounds :254-266`, `SectionCeiling
-  :271-283`, `RepeatThreshold :291-303` — outline only, consumers
-  untraced.)
-- `WorkingStore.Search` (`internal/context/working_store.go:106-134`):
-  reachable via the recall tool (above), but `Select` itself uses only
-  `Candidates`/`Records`/`Read`.
-- `working_set.mg` (182 lines: `working_observation`,
-  `working_revision`, `working_digest`, `working_span`,
-  `working_recent`, `working_selected`, ...) EXISTS under
-  `internal/context/` — the 09-20 claim that "no `.mg` files live under
-  `internal/context/`" is wrong. Whether the engine loads it in the
-  compilation scope is unverified in this pass.
+- `ActivationEngine.ScoreFactsWithKernelOverride`
+  (`internal/context/activation_scoring.go:653`): test-only, and not to be
+  wired as it stands — it scores kernel priorities (≤100) and Go scores
+  (100–250) on one scale, mixing derived and heuristic order silently.
+  `BuildContext` takes one path per build and says which.
+- `Compressor.GetSelectionStats` has no production reader; the same counts
+  reach `GetMetrics`, and the chosen path is now rendered in the block.
 
 ## Assumed by the design, not done by the code
 
-- Far context is dropped silently: past two hops or 64 entities,
-  `Select` just `continue`s (`internal/context/working_set.go:325-359`)
-  with no overflow signal.
-- Kernel-derived facts bypass budget selection:
-  `buildKernelDerivedContext` "never filters or reorders"
-  (`internal/context/compressor_metrics.go:549-551`), so a large kernel
-  answer is bounded only by the one-eighth share, not by selection.
-- Persistence is assumed durable but coded best-effort: both
-  `StoreCompressedState` and `LogActivation` errors are discarded
-  (`internal/context/compressor_turns.go:168-181`).
-- `UnmarshalCompressedState` validates nothing beyond JSON shape — no
-  version or migration check
-  (`internal/context/serializer.go:599-605`).
-- Counts are broker estimates, not measurements; `Confidence()` and
-  `Ratio()` (`internal/context/tokens.go:58-60,63`) let a caller check
-  calibration, but no caller in this package does.
-- The feedback loop is half-wired: `SetFeedbackStore`
-  (`internal/context/compressor.go:543`) and `computeFeedbackScore`
-  (`internal/context/activation_scoring.go:454`) both exist, but the
-  end-to-end path from stored feedback into a selection decision was not
-  traced in this pass — flagged, not asserted.
-- The rules behind `working_selected` / `should_include_context`
-  (`internal/context/working_set.go:433-462`) are decided where
-  `working_set.mg` is loaded; that load site was not verified here.
+- **The Cortex answers `should_include_context` from the catch-all shard
+  only** (open, `internal/core`). The world shard derives the
+  modified-file row (`context_relevant(File, /p85) :- modified(File)`), and
+  `core.BuildDerivationMap`'s `queryTargets` routes the predicate to the
+  catch-all because its body's presence is `All` — a union of rules, not
+  identical facts in every shard. So a modified file does not enter the
+  window through the kernel path even with the reader wired. Retention is
+  not affected: `block_commit` fans out correctly
+  (`TestSessionCompressor_RetainsFactsOtherShardsDerive`).
+- **Entity resolution sees the catch-all's facts only.**
+  `buildKernelDerivedContext` resolves a kernel-named entity against the
+  compressor's own kernel's fact snapshot, so a fact another shard owns is
+  not pulled in by name.
+- **`UnmarshalCompressedState`** (`internal/context/serializer.go:609`)
+  validates JSON shape only; there is no state version to check.
+- **Token counts are broker estimates**; `Confidence()` / `Ratio()` let a
+  caller check calibration, and none in this package does.
+- **Section order** (core → atoms → history → recent) is fixed in Go; the
+  kernel orders facts within the active block only (TODO-CTX-06B).

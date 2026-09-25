@@ -1,6 +1,9 @@
 # logging wiring — and what is NOT built
 
-> Verified 2026-09-21 against commit `3463477`. Callers below are files that
+> Re-verified 2026-09-25 against `77a5027` (lane B build-out): the "Exists
+> but nothing calls" section was wrong about the audit read/export API and is
+> corrected; sampling and the stale pointer are fixed. First verified
+> 2026-09-21 against commit `3463477`. Callers below are files that
 > contain the call today, with one line cited each; the grep over `*.go` was
 > capped at 50 hits, so the list is representative, not exhaustive.
 
@@ -26,21 +29,20 @@
   write/read/roundtrip/perf (5), redaction (1), LLM trace (1), call-site
   attribution (1), and the convenience wrappers (1).
 
-## Exists but nothing calls
+## Exists but nothing calls — corrected 2026-09-25
 
-- `ExportAuditFacts` (`audit_facts.go:37`) has no production caller: the
-  audit→Mangle replay path is implemented, tested
-  (`audit_facts_test.go`, `audit_roundtrip_test.go`), and unreachable outside
-  tests. Same for the read API — `ReadRecentAuditEvents`
-  (`audit_reader.go:69`), `CountAuditEventTypes` (`audit_reader.go:140`), and
-  `LatestAuditLogPath` (`audit_reader.go:45`) are exercised by
-  `audit_reader_test.go` but no `*.go` caller outside the package was found.
+- The audit export and read API **are** called; the 2026-09-21 claim was
+  wrong. `ExportAuditFacts` backs `nerd audit facts`
+  (`cmd/nerd/cmd_audit.go:74`); `LatestAuditLogPath` is called at
+  `cmd/nerd/cmd_audit.go:45` and `cmd/nerd/cmd_transparency.go:83,204`;
+  `CountAuditEventTypes` at `cmd/nerd/cmd_transparency.go:170,221`;
+  `ReadRecentAuditEvents` at `cmd/nerd/cmd_transparency.go:265`.
 - `ClearInjectedConfig` (`logger.go:299`) and `resetLLMIOLogger`
-  (`llm_io_logger.go:96`) are test seams with no production callers.
-- `ContextLogger` (`WithContext`, `logger.go:718`) and `RequestLogger`
-  (`WithRequestID`, `logger.go:838`) are exported scoped variants with no
-  callers in the sampled `cmd/nerd/chat` traffic, which uses bare wrappers
-  and direct `Get` instead.
+  (`llm_io_logger.go:96`) are test seams by design.
+- `ContextLogger` (`WithContext`) and `RequestLogger` (`WithRequestID`) are
+  exported scoped variants with no production callers. Decided, not a wiring
+  gap: adopting a request ID for correlation is the maintainer's call
+  (`Docs/architecture/logging/TODO.md`, "Decided, not built").
 
 ## Assumed by the design, not done by the code
 
@@ -49,24 +51,27 @@
   `Docs/architecture/transparency/TODO.md:31`. The single non-file egress is
   `ExportAuditFacts` writing to a caller-supplied `io.Writer`
   (`audit_facts.go:37`) — a hook nobody has implemented.
-- **Sampling drops data silently.** Performance events pass through
-  `performanceSamplingRate` (`logger.go:933`); unsampled slow operations leave
-  no trace, and no symbol in the package counts or reports dropped events.
+- **Sampling drops data — no longer silently (2026-09-25, `77a5027`).** Only
+  non-slow timings are ever sampled; a slow one always logs. The dropped ones
+  are now counted (`logger.go:1023`) and reported in one `performance.sampling`
+  line as the sinks close (`reportPerformanceSampling`, `logger.go:953`);
+  `PerformanceSamplingStats` exposes the counts.
 - **Fresh-run cleanup destroys.** `clearOrdinaryLogs` (`fresh_run.go:277`)
   deletes other runs' top-level `*.log` files; only the symlink refusal
   (`fresh_run.go:116`) and the substantive-audit-log guard (`fresh_run.go:203`)
   hold it back. A crashed run's ordinary logs are gone on next boot by design.
-- **The core write path has no dedicated unit test.** There is no
-  `logger_test.go`: `Initialize`/`Get`/emit are covered only indirectly
-  (integration drains via `CloseAll`, attribution via
-  `logger_safety_callsite_test.go`).
+- **The core write path's tests** — the 2026-09-21 claim that there is no
+  `logger_test.go` was wrong: `internal/logging/logger_test.go` exists
+  (`TestAllCategoriesLog` and siblings drive `Initialize`, `Get` and the
+  category sinks directly).
 - **Two spellings for every write.** The ~190 convenience wrappers duplicate
   `Get` exactly (3-line bodies, e.g. `Boot` at `logger_convenience.go:9-11`);
   nothing states which spelling new code should prefer.
 
-## Known stale pointer (not fixable here — no Go changes in this rewrite)
+## Stale pointer — fixed 2026-09-25 (`77a5027`)
 
-- `cmd/nerd/cmd_audit.go:168` names `IMPLEMENTED_SPEC` and
-  `09-SAFETY-AND-INVARIANTS.md`, which this rewrite deletes. Its owner should
-  repoint it at `Docs/architecture/logging/` (`README.md`,
-  `WIRING-AND-NOT-BUILT.md`).
+- `cmd/nerd/cmd_audit.go:168` named `IMPLEMENTED_SPEC` and
+  `09-SAFETY-AND-INVARIANTS.md`, which the corpus rewrite deleted. It now
+  names `README`, `INTERNALS` and `WIRING-AND-NOT-BUILT`, and
+  `TestAuditPlaybook_TheCorpusPagesItNamesExist` (`cmd/nerd/cmd_audit_test.go`)
+  fails if a page it names disappears.

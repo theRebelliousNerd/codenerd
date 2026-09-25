@@ -2,114 +2,88 @@
 doc-class: shipped
 subsystem: diff
 implementation-status: shipped
-last-verified: 2026-09-21
-verified-against: 231cfa7
+last-verified: 2026-09-25
+verified-against: c91c6b3
 supersedes: []
 ---
 
 # diff: wiring and what is NOT built
 
-Verified 2026-09-20 against commit `231cfa7` (`main`). Read from
-`internal/diff/diff.go`, `internal/diff/cache.go`,
-`internal/session/turn_diff.go`, and `cmd/nerd/ui/diffview.go`.
+Verified 2026-09-25 against `c91c6b3` by reading `internal/diff/diff.go`,
+`internal/diff/cache.go`, `internal/session/turn_diff.go`,
+`internal/session/session_config.go`, `internal/config/session.go` and
+`cmd/nerd/ui/diffview.go`, and by running the tests named below. The
+2026-09-21 version of this page described `turn_diff.go` before it was
+rewritten; its anchors into that file are gone.
 
 ## Wired and reachable
 
-- Turn prompt entry: `turnDiffSection` (`internal/session/turn_diff.go:24-52`)
-  renders the turn's edits file by file, returning `""` when nothing was
-  written or no preimage was recorded.
-- Turn prompt per file: `renderFileDiff` (`internal/session/turn_diff.go:55-76`)
-  short-circuits identical content (`internal/session/turn_diff.go:59-61`),
-  calls `diff.ComputeDiff` (`internal/session/turn_diff.go:62`), returns `""`
-  on nil/zero-hunk (`internal/session/turn_diff.go:63-64`), composes
-  `@@ -%d,%d +%d,%d @@` itself (`internal/session/turn_diff.go:69`) with
-  `diffMarker` (`internal/session/turn_diff.go:71`, defined at
-  `internal/session/turn_diff.go:85-94`), and appends `newFileNote`
-  (`internal/session/turn_diff.go:78-83`, marks only `IsNew`).
-- TUI engine: `var uiDiffEngine` (`cmd/nerd/ui/diffview.go:907`, rationale
-  `cmd/nerd/ui/diffview.go:900-906`) is the one package engine; view struct
-  `DiffApprovalView` (`cmd/nerd/ui/diffview.go:132-151`) holds it as field
-  `diffEngine` (`cmd/nerd/ui/diffview.go:146`) wired in `NewDiffApprovalView`
-  (`cmd/nerd/ui/diffview.go:164-212`) at `cmd/nerd/ui/diffview.go:181`.
-- TUI calls: `CreateDiffFromStrings` (`cmd/nerd/ui/diffview.go:910-912`)
-  calls `uiDiffEngine.ComputeDiff` (`cmd/nerd/ui/diffview.go:911`);
-  `DiffEngineStats` (`cmd/nerd/ui/diffview.go:915-917`) calls
-  `uiDiffEngine.Stats()` (`cmd/nerd/ui/diffview.go:916`); side-by-side word
-  path calls `d.diffEngine.ComputeWordLevelDiff`
-  (`cmd/nerd/ui/diffview.go:970`), pinned by
-  `TestCreateDiffFromStrings_ShouldUseTheSameEngineAsTheView`
-  (`cmd/nerd/ui/word_highlight_test.go:141-162`, `Computes` routing check
-  `cmd/nerd/ui/word_highlight_test.go:154-156`).
-- `LineHeader` contract: `LineContext/LineAdded/LineRemoved/LineHeader`
-  (`internal/diff/diff.go:41-56`, never-emit comment
-  `internal/diff/diff.go:48-56`); framing lives in `Hunk`
-  (`internal/diff/diff.go:89-95`), rendering in the callers above.
+- **Repair-prompt diff.** `turnDiffSection`
+  (`internal/session/turn_diff.go:79`) renders the turn's edits for the
+  build and test repair prompts (`internal/session/build_verify.go:239,341`)
+  within `ExecutorConfig.repairDiffBudget()`
+  (`internal/session/session_config.go:74`), which is the session
+  section's `repair_diff_file_bytes` (default 8192) and
+  `repair_diff_turn_bytes` (default 24576)
+  (`internal/config/session.go:54,57`). Per file, `renderFileDiff`
+  (`:223`) calls `diff.ComputeDiff` and renders:
+  - hunks as a ```` ```diff ```` block;
+  - a binary edit as `<path> (binary: N bytes before, M after; diff not
+    shown)` — it used to render nothing (`TestRenderFileDiff_BinaryMarker`);
+  - a created or deleted file with `(created by this turn)` /
+    `(deleted by this turn)`, from the preimage and the disk, not from
+    `FileDiff.IsNew/IsDelete`, which only mean one side is empty
+    (`fileNote`, `:263`; `TestRenderFileDiff_DeleteNote`). A deleted file
+    used to be skipped because it could not be read back.
+  `assembleTurnDiff` (`:129`) cuts a section over its budget at a line
+  boundary with a `[diff truncated: N of M lines … read_file for the
+  rest]` marker (`truncateSection`, `:203`), and names files past the turn
+  budget in one closing line, so none goes unmentioned
+  (`TestTurnDiffSection_Budget`).
+- **Saved attempt patch.** `leaveBuildableTree` saves the turn's whole
+  attempt with `turnDiffPatch` (`internal/session/turn_diff.go:85`,
+  called at `internal/session/buildable_tree.go:51`), which is unbounded:
+  it is the record a person restores from, not a prompt.
+- **TUI engine.** `var uiDiffEngine` (`cmd/nerd/ui/diffview.go:907`) is the
+  one package engine; `DiffApprovalView.diffEngine` (`:146`) is set to it
+  in `NewDiffApprovalView` (`:181`). `CreateDiffFromStrings` computes on it
+  (`:911`), and the side-by-side word path uses it (`:696`, `:970`), pinned
+  by `TestCreateDiffFromStrings_ShouldUseTheSameEngineAsTheView`
+  (`cmd/nerd/ui/word_highlight_test.go:141`).
+- **Display-only importers, enforced.** `TestDiffImporters_AreDisplayOnly`
+  (`internal/diff/importers_test.go`) walks the module and requires every
+  production importer of `internal/diff` to be a known display-only
+  consumer (today `cmd/nerd/ui` and `internal/session`). See the cache-key
+  decision below.
 
-## Exists but nothing in production calls
+## Exists, and stays test-only by decision
 
-- `Options` non-defaults (`internal/diff/diff.go:162-191`: `ContextLines:166`,
-  `DisableCache:170`, `MaxCacheEntries:173`, `MaxCacheBytes:177`, `Timeout:181`,
-  `VerifyCacheContent:190`) via `NewEngineWith`
-  (`internal/diff/diff.go:220-230`): production builds engines only as
-  `DefaultEngine` (`internal/diff/diff.go:238`, via `diff.ComputeDiff`
-  `internal/diff/diff.go:310-312` called at `internal/session/turn_diff.go:62`)
-  and `diff.NewEngine()` (`cmd/nerd/ui/diffview.go:907`, which is
-  `NewEngineWith(Options{})` per `internal/diff/diff.go:214-216`) — both
-  zero-`Options`, so non-default tuning has no witnessed production caller.
-  Test-only caller lines were not re-opened this turn and are not cited per
-  Rule 1a.
-- `(*Engine).ClearCache` (`internal/diff/diff.go:518-520`): existence
-  witnessed; no caller witnessed at either production seam
-  (`internal/session/turn_diff.go:62`,
-  `cmd/nerd/ui/diffview.go:911/916/970`). Test caller lines were not
-  re-opened this turn and are not cited per Rule 1a.
-- `DiffEngineStats` (`cmd/nerd/ui/diffview.go:915-917`,
-  `uiDiffEngine.Stats()` at `cmd/nerd/ui/diffview.go:916`): the witnessed
-  production callers on that engine are `CreateDiffFromStrings`
-  (`cmd/nerd/ui/diffview.go:910-912` via `:911`) and the word path
-  (`cmd/nerd/ui/diffview.go:970`); the only witnessed `DiffEngineStats`
-  caller is the single-engine pinning test
-  (`cmd/nerd/ui/word_highlight_test.go:141-162`, before/call/after at
-  `:150/:151/:152`, `Computes` routing check `:154-156`).
-- `Stats.Collisions` (`internal/diff/cache.go:42`, struct `Stats`
-  `internal/diff/cache.go:28-43`): counted on the verified `get` path
-  (`internal/diff/cache.go:96-121`); production engines run with
-  `VerifyCacheContent` off (`internal/diff/diff.go:183-190`, both prod
-  engines zero-`Options` per above), so no production writer witnessed.
+- `Options` non-defaults via `NewEngineWith`
+  (`internal/diff/diff.go:162,220`): both production engines are
+  zero-`Options` (`DefaultEngine` via `diff.ComputeDiff`,
+  `internal/diff/diff.go:310`; `diff.NewEngine()`,
+  `cmd/nerd/ui/diffview.go:907`). Neither seam has shown a need for
+  different tuning; reopen with a measurement (TODO-DIFF-05).
+- `(*Engine).ClearCache` (`internal/diff/diff.go:518`): the cache is a
+  bounded LRU (512 entries / 32 MiB, `internal/diff/cache.go:18,23`), so no
+  lifecycle event needs to clear it. Concurrency is pinned by
+  `TestClearCache_ConcurrentWithComputeDiff_ShouldNotRace`
+  (`internal/diff/cache_test.go:167`) (TODO-DIFF-06b).
+- `DiffEngineStats` (`cmd/nerd/ui/diffview.go:915`): the counter worth
+  alerting on, `Stats.Collisions` (`internal/diff/cache.go:42`), is always
+  zero with verification off, which both production engines are
+  (TODO-DIFF-07b).
 
-## Assumed by the design, not done by the code
+## Assumed by the design, and the decision behind it
 
-- Cache keys are trusted, not proven, by default: `struct cacheKey`
-  (`internal/diff/diff.go:114-129`, two hashes + both lens + contextLines)
-  built by `fingerprint` (`internal/diff/diff.go:141-157`, dual FNV-1a);
-  exact verification runs only on the `diffCache.get` path
-  (`internal/diff/cache.go:96-121`, verify `internal/diff/cache.go:109-116`,
-  counts `Collisions` at `internal/diff/cache.go:110`) when
-  `Options.VerifyCacheContent` (`internal/diff/diff.go:183-190`,
-  off-by-default, doubles memory) is on — and both production engines run
-  zero-`Options` (`internal/diff/diff.go:238` via
-  `internal/diff/diff.go:310-312` at `internal/session/turn_diff.go:62`;
-  `cmd/nerd/ui/diffview.go:907` via `internal/diff/diff.go:214-216`), so a
-  collision would serve one file's hunks as another's with no error.
-- Binary input yields zero hunks and is silently absent from the repair
-  prompt: NUL sentinel `containsNullByte` (`internal/diff/diff.go:24-26`) →
-  `IsBinary=true`, `markBinary()` (`internal/diff/cache.go:205-209`,
-  `Stats.Binary` at `internal/diff/cache.go:32`), empty hunk list
-  (`internal/diff/diff.go:261-265`, flags `struct FileDiff`
-  `internal/diff/diff.go:98-105`) → `renderFileDiff` nil/zero-hunk guard
-  (`internal/session/turn_diff.go:63-64`) returns `""`. No binary branch was
-  witnessed in `turnDiffSection` (`internal/session/turn_diff.go:24-51`) or
-  `renderFileDiff` (`internal/session/turn_diff.go:55-61` identical
-  short-circuit) beyond that guard.
-- `newFileNote` marks only `IsNew` (`internal/session/turn_diff.go:78-83`);
-  `IsDelete` exists (`struct FileDiff` `internal/diff/diff.go:98-105`, set at
-  `internal/diff/diff.go:250-255`) but has no witnessed note branch, so a
-  turn that deletes a file gets no note.
-- The repair prompt assumes the diff fits: `Engine.ComputeDiff`
-  (`internal/diff/diff.go:243-307`) has no truncation symbol; `renderFileDiff`
-  (`internal/session/turn_diff.go:55-76`) composes `@@ -%d,%d +%d,%d @@`
-  itself (`internal/session/turn_diff.go:69`) with `diffMarker`
-  (`internal/session/turn_diff.go:85-94`) and no budget check; `turnDiffSection`
-  (`internal/session/turn_diff.go:24-52`) concatenates per-file sections with
-  no budget check — absence witnessed by full-range reads of those ranges,
-  not by a symbol, so this stays a design gap until a budget or test pins it.
+- **Cache keys are trusted, not proven, by default.** `fingerprint`
+  (`internal/diff/diff.go:141`, dual FNV-1a plus lengths) keys the cache;
+  exact verification runs on `diffCache.get`
+  (`internal/diff/cache.go:96`) only with `Options.VerifyCacheContent`
+  (`internal/diff/diff.go:190`). The collision path is proven by
+  `TestCache_WhenVerifyEnabledAndKeyCollides_ShouldRecomputeRatherThanServeWrongDiff`
+  (`internal/diff/word_span_test.go:94`). A collision in production would
+  show one file's hunks for another's: a display fault, because nothing
+  applies these diffs. That premise is enforced by
+  `TestDiffImporters_AreDisplayOnly`; a consumer that applies diffs must
+  turn verification on (TODO-DIFF-01b).
