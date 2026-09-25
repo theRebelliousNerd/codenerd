@@ -740,6 +740,24 @@ func NewAuditedExecutor(executor Executor, logger *AuditLogger) *AuditedExecutor
 	}
 }
 
+// NewFactAuditedExecutor wraps executor so every command's lifecycle and
+// analyzer facts (the ones VirtualStore's audited composite emits) are handed
+// to assert. It is the audit sink for the registered direct-executor bypasses
+// (DirectBypassRegistry) that run commands outside VirtualStore; without it
+// their executions never reached the kernel. A failed assert is logged, never
+// retried, and never re-executes the command.
+func NewFactAuditedExecutor(executor Executor, assert func(Fact) error) *AuditedExecutorWrapper {
+	logger := NewAuditLogger()
+	if assert != nil {
+		logger.SetFactCallback(func(fact Fact) {
+			if err := assert(fact); err != nil {
+				logging.TactileWarn("audited executor: fact %s not asserted: %v", fact.Predicate, err)
+			}
+		})
+	}
+	return NewAuditedExecutor(executor, logger)
+}
+
 // Execute runs a command and logs the execution.
 func (w *AuditedExecutorWrapper) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
 	if w.callbackWired || w.logger == nil {

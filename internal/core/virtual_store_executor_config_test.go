@@ -50,6 +50,36 @@ func TestVirtualStoreModernExecutorInheritsCallerExecutorConfig(t *testing.T) {
 	}
 }
 
+// Cortex.Executor (what chat campaigns and `nerd campaign` run commands on)
+// is VirtualStore.AuditedExecutor. It used to be the bare injected
+// DirectExecutor, whose commands never reached the kernel.
+func TestVirtualStoreAuditedExecutorEmitsExecutionFacts(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	direct := tactile.NewDirectExecutorWithConfig(tactile.DefaultExecutorConfig())
+	vsCfg := DefaultVirtualStoreConfig()
+	vsCfg.WorkingDir = t.TempDir()
+	vs := NewVirtualStoreWithConfig(direct, vsCfg)
+	vs.SetKernel(kernel)
+
+	audited := vs.AuditedExecutor()
+	if audited == tactile.Executor(direct) {
+		t.Fatal("AuditedExecutor returned the bare injected executor")
+	}
+	if _, err := audited.Execute(context.Background(), tactile.Command{Binary: "go", Arguments: []string{"version"}}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	facts, err := kernel.Query("execution_completed")
+	if err != nil {
+		t.Fatalf("query execution_completed: %v", err)
+	}
+	if len(facts) == 0 {
+		t.Fatal("a command on VirtualStore.AuditedExecutor left no execution_completed fact")
+	}
+}
+
 // Config hands out a copy: mutating it cannot reach the executor.
 func TestDirectExecutorConfigIsACopy(t *testing.T) {
 	cfg := tactile.DefaultExecutorConfig()

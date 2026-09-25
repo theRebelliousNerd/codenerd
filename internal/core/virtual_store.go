@@ -383,6 +383,21 @@ func (v *VirtualStore) injectTactileFact(tf tactile.Fact) error {
 	return kernel.Assert(coreFact)
 }
 
+// AuditedExecutor returns the executor VirtualStore's own commands run
+// through: the composite with the audit logger attached, whose lifecycle and
+// analyzer facts land in this store's kernel and whose configuration is the
+// caller's. Components that execute outside RouteAction (campaigns,
+// checkpoints) use it so their commands are not invisible to the kernel. It
+// falls back to the injected executor only when no composite exists.
+func (v *VirtualStore) AuditedExecutor() tactile.Executor {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.modernExecutor != nil {
+		return v.modernExecutor
+	}
+	return v.executor
+}
+
 // EnableModernExecutor switches to the modern tactile executor.
 func (v *VirtualStore) EnableModernExecutor() {
 	v.mu.Lock()
