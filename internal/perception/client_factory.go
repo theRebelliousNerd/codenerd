@@ -252,6 +252,49 @@ func NewClientFromEnv() (LLMClient, error) {
 	return NewClientFromConfig(config)
 }
 
+// newCompatClassificationClient builds the classification client for any
+// vendor in openAICompatVendorDefaults, so a vendor added to that table is
+// dispatched here without a second list to keep in step.
+func newCompatClassificationClient(cfg *ProviderConfig, model string) (LLMClient, error) {
+	// Classification runs on every interactive turn, so reasoning is turned
+	// off here regardless of the tier's normal setting — a thinking trace in
+	// front of every prompt is pure latency for a labelling task.
+	// Meta ignores EnableThinking: it is controlled by reasoning_effort, so
+	// the classification client defaults to "minimal" unless the caller set
+	// an explicit override. Probed live 2026-09-03: minimal keeps the same
+	// label at ~1/3 of the wall time (6.1s vs 19.3s default).
+	compatCfg := DefaultOpenAICompatConfig(cfg.Provider, cfg.APIKey)
+	compatCfg.EnableThinking = false
+	// A classification reply is a short label, so a small ceiling is right —
+	// and a ceiling is a cap, not a spend, so keeping it tight costs nothing
+	// either way. It must still clear the vendor's reasoning floor: below
+	// that, a reasoning model burns the whole budget thinking and returns an
+	// EMPTY body with finish_reason "stop". A flat 2048 sat under Meta's
+	// 4096 floor, so every boot logged a clamp warning twice and the value
+	// never applied as written.
+	compatCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
+	compatCfg.Model = classificationModel(cfg)
+	if cfg.BaseURL != "" {
+		compatCfg.BaseURL = cfg.BaseURL
+	}
+	if cfg.Provider == ProviderMeta {
+		if strings.TrimSpace(cfg.ReasoningEffort) != "" {
+			compatCfg.ReasoningEffort = cfg.ReasoningEffort
+		} else {
+			compatCfg.ReasoningEffort = "minimal"
+		}
+	}
+	client, err := NewOpenAICompatClient(compatCfg)
+	if err != nil {
+		// Classification is optional: fall back to the main client rather
+		// than failing boot.
+		logging.Get(logging.CategoryPerception).Warn("Classification client unavailable for %s: %v", cfg.Provider, err)
+		return nil, nil
+	}
+	logging.Get(logging.CategoryPerception).Debug("Classification client: provider=%s model=%s reasoning_effort=%s (configured=%v)", cfg.Provider, compatCfg.Model, compatCfg.ReasoningEffort, model != "")
+	return client, nil
+}
+
 // NERD-EVOLVE-START: P1P2-model-tiering
 // NewClassificationClientFromConfig creates an LLM client for intent
 // classification (P2 model tiering). The model is classification_model when
@@ -282,6 +325,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		return nil, nil
 	}
 
+	if IsOpenAICompatProvider(cfg.Provider) {
+		return newCompatClassificationClient(cfg, model)
+	}
 	switch cfg.Provider {
 	case ProviderAnthropic:
 		haikuCfg := DefaultAnthropicConfig(cfg.APIKey)
@@ -355,45 +401,6 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openrouter model=%s (configured=%v)", classificationModel(cfg), model != "")
 		return client, nil
 
-	case ProviderDashScope, ProviderMeta, ProviderMoonshot:
-		// Classification runs on every interactive turn, so reasoning is turned
-		// off here regardless of the tier's normal setting — a thinking trace in
-		// front of every prompt is pure latency for a labelling task.
-		// Meta ignores EnableThinking: it is controlled by reasoning_effort, so
-		// the classification client defaults to "minimal" unless the caller set
-		// an explicit override. Probed live 2026-09-03: minimal keeps the same
-		// label at ~1/3 of the wall time (6.1s vs 19.3s default).
-		compatCfg := DefaultOpenAICompatConfig(cfg.Provider, cfg.APIKey)
-		compatCfg.EnableThinking = false
-		// A classification reply is a short label, so a small ceiling is right —
-		// and a ceiling is a cap, not a spend, so keeping it tight costs nothing
-		// either way. It must still clear the vendor's reasoning floor: below
-		// that, a reasoning model burns the whole budget thinking and returns an
-		// EMPTY body with finish_reason "stop". A flat 2048 sat under Meta's
-		// 4096 floor, so every boot logged a clamp warning twice and the value
-		// never applied as written.
-		compatCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
-		compatCfg.Model = classificationModel(cfg)
-		if cfg.BaseURL != "" {
-			compatCfg.BaseURL = cfg.BaseURL
-		}
-		if cfg.Provider == ProviderMeta {
-			if strings.TrimSpace(cfg.ReasoningEffort) != "" {
-				compatCfg.ReasoningEffort = cfg.ReasoningEffort
-			} else {
-				compatCfg.ReasoningEffort = "minimal"
-			}
-		}
-		client, err := NewOpenAICompatClient(compatCfg)
-		if err != nil {
-			// Classification is optional: fall back to the main client rather
-			// than failing boot.
-			logging.Get(logging.CategoryPerception).Warn("Classification client unavailable for %s: %v", cfg.Provider, err)
-			return nil, nil
-		}
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=%s model=%s reasoning_effort=%s (configured=%v)", cfg.Provider, compatCfg.Model, compatCfg.ReasoningEffort, model != "")
-		return client, nil
-
 	default:
 		return nil, nil
 	}
@@ -465,6 +472,31 @@ func resolveXAIAPIKey(pc *ProviderConfig) string {
 	return ""
 }
 
+// newCompatClient builds the main client for any vendor in
+// openAICompatVendorDefaults (the one list of OpenAI-compatible vendors).
+func newCompatClient(config *ProviderConfig) (LLMClient, error) {
+	compatCfg := DefaultOpenAICompatConfig(config.Provider, config.APIKey)
+	if config.Model != "" {
+		compatCfg.Model = config.Model
+	}
+	if config.BaseURL != "" {
+		compatCfg.BaseURL = config.BaseURL
+	}
+	if config.MaxOutputTokens > 0 {
+		compatCfg.MaxOutputTokens = config.MaxOutputTokens
+	}
+	if config.Provider == ProviderMeta && config.ReasoningEffort != "" {
+		compatCfg.ReasoningEffort = config.ReasoningEffort
+	}
+	client, err := NewOpenAICompatClient(compatCfg)
+	if err != nil {
+		// Return a nil interface, not a typed nil *OpenAICompatClient that
+		// would compare non-nil at the caller.
+		return nil, err
+	}
+	return client, nil
+}
+
 // NewClientFromConfig creates an LLM client from a provider config.
 // Subscription engines (claude-cli, codex-cli, xai-oauth) take precedence over API providers.
 func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
@@ -495,6 +527,9 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 	}
 
 	// API-based provider selection
+	if IsOpenAICompatProvider(config.Provider) {
+		return newCompatClient(config)
+	}
 	switch config.Provider {
 	case ProviderAnthropic:
 		cfg := DefaultAnthropicConfig(config.APIKey)
@@ -564,22 +599,6 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 			client.SetModel(config.Model)
 		}
 		return client, nil
-
-	case ProviderDashScope, ProviderMeta, ProviderMoonshot:
-		compatCfg := DefaultOpenAICompatConfig(config.Provider, config.APIKey)
-		if config.Model != "" {
-			compatCfg.Model = config.Model
-		}
-		if config.BaseURL != "" {
-			compatCfg.BaseURL = config.BaseURL
-		}
-		if config.MaxOutputTokens > 0 {
-			compatCfg.MaxOutputTokens = config.MaxOutputTokens
-		}
-		if config.Provider == ProviderMeta && config.ReasoningEffort != "" {
-			compatCfg.ReasoningEffort = config.ReasoningEffort
-		}
-		return NewOpenAICompatClient(compatCfg)
 
 	case ProviderOllama:
 		ollamaCfg := DefaultOllamaLLMConfig()
@@ -796,8 +815,11 @@ func classificationModel(cfg *ProviderConfig) string {
 // The model requirement applies only to those; an unknown provider is still
 // reported as unknown.
 func isAPIProvider(p Provider) bool {
+	if IsOpenAICompatProvider(p) {
+		return true
+	}
 	switch p {
-	case ProviderAnthropic, ProviderDashScope, ProviderGemini, ProviderMeta, ProviderMoonshot, ProviderOllama, ProviderOpenAI, ProviderOpenRouter, ProviderXAI, ProviderZAI:
+	case ProviderAnthropic, ProviderGemini, ProviderOllama, ProviderOpenAI, ProviderOpenRouter, ProviderXAI, ProviderZAI:
 		return true
 	}
 	return false
