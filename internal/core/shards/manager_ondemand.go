@@ -79,7 +79,7 @@ func (sm *ShardManager) EnsureOnDemandShards(ctx context.Context) []string {
 			continue
 		}
 
-		if _, err := sm.SpawnAsync(ctx, name, "on_demand_activation"); err != nil {
+		if _, err := sm.spawnDetached(ctx, name, "on_demand_activation"); err != nil {
 			logging.Get(logging.CategoryShards).Error("EnsureOnDemandShards: failed to start on-demand shard %s: %v", name, err)
 			continue
 		}

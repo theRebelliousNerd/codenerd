@@ -504,6 +504,12 @@ func (sm *ShardManager) recordResult(id string, result string, err error) {
 	if err != nil {
 		outcome = types.MangleAtom("/failed")
 	}
+	if _, detached := sm.detached[id]; detached {
+		// Nobody will GetResult a detached spawn: its outcome is already in the
+		// audit log, the Glass Box and the transparency record above.
+		delete(sm.detached, id)
+		return
+	}
 	sm.results[id] = types.ShardResult{
 		ShardID:   id,
 		Result:    result,
@@ -511,6 +517,38 @@ func (sm *ShardManager) recordResult(id string, result string, err error) {
 		Timestamp: time.Now(),
 		Outcome:   outcome,
 	}
+}
+
+// spawnDetached starts a shard whose result nobody will read: a system shard
+// at boot, an on-demand shard the kernel activated. SpawnAsync records every
+// finished shard's result for a GetResult that, for these, never comes, so
+// each run added an entry to a map nothing drained -- one per on-demand
+// activation for the life of the process. The outcome is not lost by skipping
+// it: the spawn path audits it, emits it to the Glass Box and records it with
+// the transparency manager.
+func (sm *ShardManager) spawnDetached(ctx context.Context, typeName, task string) (string, error) {
+	id, err := sm.SpawnAsync(ctx, typeName, task)
+	if err != nil {
+		return id, err
+	}
+	sm.detach(id)
+	return id, nil
+}
+
+// detach marks a running spawn as one whose result will not be read, so
+// recordResult does not retain it; a spawn that already finished has its
+// retained result dropped now.
+func (sm *ShardManager) detach(id string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if _, finished := sm.results[id]; finished {
+		delete(sm.results, id)
+		return
+	}
+	if sm.detached == nil {
+		sm.detached = make(map[string]struct{})
+	}
+	sm.detached[id] = struct{}{}
 }
 
 func (sm *ShardManager) GetResult(id string) (types.ShardResult, bool) {
@@ -606,7 +644,7 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 	}
 
 	for _, name := range toStart {
-		_, err := sm.SpawnAsync(ctx, name, "system_start")
+		_, err := sm.spawnDetached(ctx, name, "system_start")
 		if err != nil {
 			logging.Get(logging.CategoryShards).Error("StartSystemShards: failed to start system shard %s: %v", name, err)
 		}
