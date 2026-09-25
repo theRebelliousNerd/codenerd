@@ -178,3 +178,40 @@ Decl pytest_root_cause(TestName, FilePath, Line, Function) bound [/string, /stri
 # test_framework(FrameworkAtom)
 # Framework: /gotest, /pytest, /jest, /junit, /xunit, etc.
 Decl test_framework(FrameworkAtom) bound [/name].
+
+# =============================================================================
+# SECTION 53: CONTAINERIZED PYTHON ENVIRONMENTS
+# =============================================================================
+# Asserted by the VirtualStore python_* handlers (internal/core/
+# virtual_store_python.go) from a python.Environment running in a persistent
+# container. Every fact records work that was done: the handlers fail instead
+# of asserting when no environment or container runtime exists.
+
+# python_environment(Project, ContainerID, State, Timestamp)
+# State: /ready, /patched, /error, /terminated
+Decl python_environment(Project, ContainerID, State, Timestamp) bound [/string, /string, /name, /number].
+
+# python_project_source(Project, GitURL, Commit, Branch)
+Decl python_project_source(Project, GitURL, Commit, Branch) bound [/string, /string, /string, /string].
+
+# python_command_executed(Project, Command, ExitCode, Timestamp)
+Decl python_command_executed(Project, Command, ExitCode, Timestamp) bound [/string, /string, /number, /number].
+
+# pytest_execution(Project, ArgCount, Timestamp)
+Decl pytest_execution(Project, ArgCount, Timestamp) bound [/string, /number, /number].
+
+# python_pytest_result(Project, Passed, ExitCode, Timestamp)
+# Passed: /true or /false
+Decl python_pytest_result(Project, Passed, ExitCode, Timestamp) bound [/string, /name, /number, /number].
+
+# python_patch_applied(Project, PatchSize, Timestamp)
+Decl python_patch_applied(Project, PatchSize, Timestamp) bound [/string, /number, /number].
+
+# python_snapshot(Project, SnapshotName, Timestamp)
+Decl python_snapshot(Project, SnapshotName, Timestamp) bound [/string, /string, /number].
+
+# python_restored(Project, SnapshotName, Timestamp)
+Decl python_restored(Project, SnapshotName, Timestamp) bound [/string, /string, /number].
+
+# python_teardown_complete(Project, Timestamp)
+Decl python_teardown_complete(Project, Timestamp) bound [/string, /number].

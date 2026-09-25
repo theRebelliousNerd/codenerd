@@ -58,6 +58,13 @@ type VirtualStore struct {
 	modernExecutor tactile.Executor
 	auditLogger    *tactile.AuditLogger
 
+	// Python/SWE-bench workbench: the container runtime and the live
+	// environments the python_* and swebench_* actions drive. Created on the
+	// first such action (virtual_store_python.go); containerRuntime may be
+	// injected with SetContainerRuntime before then.
+	pythonBench      *pythonWorkbench
+	containerRuntime tactile.ContainerRuntime
+
 	// MCP integration clients - dynamic map supports arbitrary servers
 	// Key is server ID (e.g., "code_graph", "browser", "my_custom_server")
 	mcpClients map[string]IntegrationClient
@@ -257,6 +264,9 @@ func (v *VirtualStore) Close() error {
 			closer.Close()
 		}
 	}
+
+	// Tear down Python/SWE-bench containers this store created.
+	v.closePythonBench()
 
 	// Clean up Modern Executor
 	if v.modernExecutor != nil {

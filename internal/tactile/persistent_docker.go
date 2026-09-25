@@ -270,14 +270,46 @@ func (e *PersistentDockerExecutor) performHealthChecks() {
 	e.mu.RUnlock()
 
 	for _, id := range containerIDs {
+		if e.reapIfIdle(id, time.Now()) {
+			continue
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		healthy, _ := e.HealthCheck(ctx, id)
 		cancel()
 
 		if !healthy {
-			logging.TactileWarn("Container %s failed health check", id[:12])
+			logging.TactileWarn("Container %s failed health check", getLogID(id))
 		}
 	}
+}
+
+// reapIfIdle removes a managed container whose last exec (or creation, if it
+// never ran one) is older than the configured IdleTimeout, so an abandoned
+// environment does not hold a container forever. It reports whether it
+// removed the container. A zero IdleTimeout disables reaping.
+func (e *PersistentDockerExecutor) reapIfIdle(id string, now time.Time) bool {
+	e.mu.RLock()
+	container, ok := e.containers[id]
+	idleTimeout := e.config.IdleTimeout
+	var last time.Time
+	if ok {
+		last = container.LastExecAt
+		if last.IsZero() {
+			last = container.CreatedAt
+		}
+	}
+	e.mu.RUnlock()
+	if !ok || idleTimeout <= 0 || last.IsZero() || now.Sub(last) < idleTimeout {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := e.RemoveContainer(ctx, id, true); err != nil {
+		logging.TactileWarn("Idle container %s (idle %s) could not be reaped: %v", getLogID(id), now.Sub(last).Round(time.Second), err)
+		return false
+	}
+	logging.Tactile("Reaped idle container %s (idle %s > %s)", getLogID(id), now.Sub(last).Round(time.Second), idleTimeout)
+	return true
 }
 
 // =============================================================================
