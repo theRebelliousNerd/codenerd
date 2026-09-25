@@ -108,7 +108,7 @@ func TestRecurse_MessagesStreamAndFinish(t *testing.T) {
 	if done.recurse != nil {
 		t.Fatal("a finished loop is cleared")
 	}
-	if got := lastContent(done); !strings.Contains(got, "1 kept, 1 reverted") || strings.Contains(got, "error") {
+	if got := lastContent(done); !strings.Contains(got, "1 kept") || !strings.Contains(got, "1 reverted") || strings.Contains(got, "error") {
 		t.Fatalf("finish summary = %q", got)
 	}
 }

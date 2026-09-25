@@ -121,7 +121,9 @@ func detect(root string) []Gate {
 		out = append(out,
 			Gate{ID: "go:build", Kind: Build, Argv: []string{"go", "build", "./..."}, Scope: ScopeAll, Language: "go", Source: "detected: go.mod"},
 			Gate{ID: "go:vet", Kind: Lint, Argv: []string{"go", "vet", PkgToken}, Scope: ScopeNode, Language: "go", Source: "detected: go.mod"},
-			Gate{ID: "go:test", Kind: Test, Argv: []string{"go", "test", "-count=1", PkgToken}, Scope: ScopeNode, Language: "go", Source: "detected: go.mod"},
+			// -cover: the node's coverage is a metric recurse's harden angle
+			// moves and no improvement may lower.
+			Gate{ID: "go:test", Kind: Test, Argv: []string{"go", "test", "-count=1", "-cover", PkgToken}, Scope: ScopeNode, Language: "go", Source: "detected: go.mod"},
 		)
 	}
 	if marker := pythonMarker(root); marker != "" {

@@ -26,6 +26,8 @@ const (
 	stepVisitDone = "visit_done"
 	stepPassEnd   = "pass_end"
 	stepStopped   = "stopped"
+	// stepImproveSkipped: the pass's angle had nothing to measure at a node.
+	stepImproveSkipped = "improve_skipped"
 )
 
 // recurseRecord is one journal line.
@@ -35,8 +37,12 @@ type recurseRecord struct {
 	Pass  int       `json:"pass"`
 	Cycle int       `json:"cycle,omitempty"`
 	Node  string    `json:"node,omitempty"`
-	// Finding is the target of an attempt.
+	// Finding is the target of a fix attempt.
 	Finding string `json:"finding,omitempty"`
+	// Angle is an improvement attempt's angle.
+	Angle string `json:"angle,omitempty"`
+	// Metrics are the numbers around an attempt: "tests 10->12, lines 300->280".
+	Metrics string `json:"metrics,omitempty"`
 	// Outcome is a ratchet's result: kept, reverted, refused, unverified.
 	Outcome   string `json:"outcome,omitempty"`
 	Signature string `json:"signature,omitempty"`

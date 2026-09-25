@@ -19,7 +19,7 @@ gates:
     scope: node
   - id: go-test
     kind: test
-    run: go test -count=1 {pkg}
+    run: go test -count=1 -cover {pkg}
     scope: node
   # The audits CI enforces (.github/workflows/ci.yml), so the loop holds
   # every change to the bar a PR is held to.

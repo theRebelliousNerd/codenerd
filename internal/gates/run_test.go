@@ -28,7 +28,7 @@ func TestRun_GoTestVerdictAndFindings(t *testing.T) {
 		"bad/bad.go":        "package bad\n\nfunc Two() int { return 3 }\n",
 		"bad/bad_test.go":   "package bad\n\nimport \"testing\"\n\nfunc TestTwo(t *testing.T) { if got := Two(); got != 2 { t.Fatalf(\"Two() = %d\", got) } }\n",
 	})
-	g := Gate{ID: "go:test", Kind: Test, Argv: []string{"go", "test", "-count=1", PkgToken}, Scope: ScopeNode}
+	g := Gate{ID: "go:test", Kind: Test, Argv: []string{"go", "test", "-count=1", "-cover", PkgToken}, Scope: ScopeNode}
 
 	good := Run(context.Background(), root, g, "good")
 	if !good.Passed || good.Unverified() || good.ExitCode != 0 {
@@ -36,6 +36,9 @@ func TestRun_GoTestVerdictAndFindings(t *testing.T) {
 	}
 	if fs := Findings(root, good); len(fs) != 0 {
 		t.Fatalf("a pass has no findings: %+v", fs)
+	}
+	if cov, ok := Coverage(good.Output); !ok || cov != 10000 {
+		t.Fatalf("a -cover run reports the node's coverage: %d, %v\n%s", cov, ok, good.Output)
 	}
 
 	bad := Run(context.Background(), root, g, "bad")

@@ -13,8 +13,22 @@ import (
 // recursePolicy is the loop's side of policy/recurse.mg: it asserts what the
 // gates measured and reads back what the kernel decided. It decides nothing
 // itself.
+//
+// It also bounds what a forever run leaves in the kernel. The stall rule
+// compares two failed attempts with one signature and no kept change to the
+// node since the first; so per finding and signature only the first and the
+// latest attempt since the node last changed can matter, and a kept change
+// retires every attempt on its node before it. Nothing else is kept.
 type recursePolicy struct {
 	k core.Kernel
+
+	pairs  map[string]*attemptPair    // finding + signature -> its first and latest attempt
+	byNode map[string]map[string]bool // node -> the pair keys on it
+	kept   map[string]core.Fact       // node -> its latest recurse_node_kept
+}
+
+type attemptPair struct {
+	first, latest *core.Fact
 }
 
 // Ratchet verdicts (recurse_ratchet/2).
@@ -42,18 +56,18 @@ const (
 func kindAtom(k gates.Kind) string { return "/" + string(k) }
 
 // beginVisit starts a node's visit: nothing has been attempted in it yet.
-func (p recursePolicy) beginVisit() error {
+func (p *recursePolicy) beginVisit() error {
 	return p.k.Retract("recurse_visit_attempted")
 }
 
 // attempted marks a finding as attempted in the current visit.
-func (p recursePolicy) attempted(id string) error {
+func (p *recursePolicy) attempted(id string) error {
 	return p.k.Assert(core.Fact{Predicate: "recurse_visit_attempted", Args: []interface{}{id}})
 }
 
 // visit replaces the visit and the open findings with a fresh measurement.
 // regressions are the IDs that were not open when the pass began.
-func (p recursePolicy) visit(node string, open []gates.Finding, regressions map[string]bool) error {
+func (p *recursePolicy) visit(node string, open []gates.Finding, regressions map[string]bool) error {
 	if err := p.k.RemoveFactsByPredicateSet(map[string]struct{}{
 		"recurse_visit": {}, "recurse_finding": {}, "recurse_regression": {},
 	}); err != nil {
@@ -77,7 +91,7 @@ func (p recursePolicy) visit(node string, open []gates.Finding, regressions map[
 // next returns the finding the kernel picks for the visit, or "" when it
 // derives none. Several at the best rank resolve to the lowest ID, so the pick
 // is reproducible.
-func (p recursePolicy) next() (string, error) {
+func (p *recursePolicy) next() (string, error) {
 	ids, err := p.derivedColumn("recurse_next", 0)
 	if err != nil || len(ids) == 0 {
 		return "", err
@@ -85,14 +99,113 @@ func (p recursePolicy) next() (string, error) {
 	return ids[0], nil
 }
 
-// attempt records one finished attempt. A kept attempt also marks its node as
-// changed, which lifts stalls on the node's other findings.
-func (p recursePolicy) attempt(findingID, node string, cycle int, outcome, signature string) error {
-	facts := []core.Fact{{Predicate: "recurse_attempt", Args: []interface{}{findingID, node, cycle, outcome, signature}}}
+// attempt records one finished attempt on a finding. A kept attempt also
+// marks its node as changed, which lifts stalls on the node's other findings.
+func (p *recursePolicy) attempt(findingID, node string, cycle int, outcome, signature string) error {
 	if outcome == outcomeKept {
-		facts = append(facts, core.Fact{Predicate: "recurse_node_kept", Args: []interface{}{node, cycle}})
+		return p.nodeKept(node, cycle)
 	}
-	return p.k.AssertBatch(facts)
+	f := core.Fact{Predicate: "recurse_attempt", Args: []interface{}{findingID, node, cycle, outcome, signature}}
+	if outcome == outcomeRefused {
+		// A refusal is the owner's to lift; no kept change retires it.
+		return p.k.AssertBatch([]core.Fact{f})
+	}
+	if p.pairs == nil {
+		p.pairs, p.byNode = map[string]*attemptPair{}, map[string]map[string]bool{}
+	}
+	key := findingID + "\x00" + signature
+	pair := p.pairs[key]
+	var retract []core.Fact
+	switch {
+	case pair == nil:
+		p.pairs[key] = &attemptPair{first: &f}
+		if p.byNode[node] == nil {
+			p.byNode[node] = map[string]bool{}
+		}
+		p.byNode[node][key] = true
+	case pair.latest == nil:
+		pair.latest = &f
+	default:
+		retract = append(retract, *pair.latest)
+		pair.latest = &f
+	}
+	if len(retract) > 0 {
+		if err := p.k.RetractExactFactsBatch(retract); err != nil {
+			return fmt.Errorf("recurse: retire attempt: %w", err)
+		}
+	}
+	return p.k.AssertBatch([]core.Fact{f})
+}
+
+// nodeKept records a kept change to node, retiring the node's earlier
+// attempts: none of them can stall a finding any more.
+func (p *recursePolicy) nodeKept(node string, cycle int) error {
+	if p.kept == nil {
+		p.kept = map[string]core.Fact{}
+	}
+	var retract []core.Fact
+	if prev, ok := p.kept[node]; ok {
+		retract = append(retract, prev)
+	}
+	for key := range p.byNode[node] {
+		if pair := p.pairs[key]; pair != nil {
+			retract = append(retract, *pair.first)
+			if pair.latest != nil {
+				retract = append(retract, *pair.latest)
+			}
+			delete(p.pairs, key)
+		}
+	}
+	delete(p.byNode, node)
+	if len(retract) > 0 {
+		if err := p.k.RetractExactFactsBatch(retract); err != nil {
+			return fmt.Errorf("recurse: retire attempts: %w", err)
+		}
+	}
+	f := core.Fact{Predicate: "recurse_node_kept", Args: []interface{}{node, cycle}}
+	p.kept[node] = f
+	return p.k.AssertBatch([]core.Fact{f})
+}
+
+// improveAngle returns the angle the kernel aims node's improvement step at
+// this pass, given the metrics measurable there, or "" when none applies.
+func (p *recursePolicy) improveAngle(node string, pass int, measurable map[string]int) (string, error) {
+	if err := p.k.RemoveFactsByPredicateSet(map[string]struct{}{
+		"recurse_current_pass": {}, "recurse_node_measures": {},
+	}); err != nil {
+		return "", fmt.Errorf("recurse: clear improvement facts: %w", err)
+	}
+	facts := []core.Fact{{Predicate: "recurse_current_pass", Args: []interface{}{pass}}}
+	for _, m := range sortedMetricNames(measurable) {
+		facts = append(facts, core.Fact{Predicate: "recurse_node_measures", Args: []interface{}{node, "/" + m}})
+	}
+	if err := p.k.AssertBatch(facts); err != nil {
+		return "", fmt.Errorf("recurse: assert improvement facts: %w", err)
+	}
+	rows, err := p.k.Query("recurse_improve_angle")
+	if err != nil {
+		return "", fmt.Errorf("recurse: query recurse_improve_angle: %w", err)
+	}
+	var angles []string
+	for _, f := range rows {
+		if len(f.Args) > 1 && types.ExtractString(f.Args[0]) == node {
+			angles = append(angles, strings.TrimPrefix(types.ExtractString(f.Args[1]), "/"))
+		}
+	}
+	sort.Strings(angles)
+	if len(angles) == 0 {
+		return "", nil
+	}
+	return angles[0], nil
+}
+
+func sortedMetricNames(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ratchetGate is one gate's before and after for an attempt.
@@ -104,18 +217,23 @@ type ratchetGate struct {
 
 // ratchetInput is what re-measuring an attempt found.
 type ratchetInput struct {
-	Cycle     int
-	Gates     []ratchetGate
-	TargetID  string
-	TargetOK  bool // the target finding is no longer open
-	Changed   bool // the attempt changed the tree at all
-	Forbidden []string
+	Cycle int
+	Gates []ratchetGate
+	// TargetID is a fix's finding; "" for an improvement.
+	TargetID string
+	TargetOK bool // the target finding is no longer open
+	// Improve is an improvement's angle; "" for a fix.
+	Improve string
+	// Before and After are the metrics measured around the attempt.
+	Before, After map[string]int
+	Changed       bool // the attempt changed the tree at all
+	Forbidden     []string
 }
 
 // ratchet asserts the re-measurement and returns the kernel's verdict. Exactly
 // one verdict is derived for a cycle; anything else is a policy fault and is
 // returned as an error, never guessed at.
-func (p recursePolicy) ratchet(in ratchetInput) (string, error) {
+func (p *recursePolicy) ratchet(in ratchetInput) (string, error) {
 	changed := "/no"
 	if in.Changed {
 		changed = "/yes"
@@ -126,7 +244,17 @@ func (p recursePolicy) ratchet(in ratchetInput) (string, error) {
 	}
 	facts := []core.Fact{
 		{Predicate: "recurse_ratchet_changed", Args: []interface{}{in.Cycle, changed}},
-		{Predicate: "recurse_ratchet_target", Args: []interface{}{in.Cycle, in.TargetID, target}},
+	}
+	if in.TargetID != "" {
+		facts = append(facts, core.Fact{Predicate: "recurse_ratchet_target", Args: []interface{}{in.Cycle, in.TargetID, target}})
+	}
+	if in.Improve != "" {
+		facts = append(facts, core.Fact{Predicate: "recurse_improve", Args: []interface{}{in.Cycle, "/" + in.Improve}})
+	}
+	for _, m := range sortedMetricNames(in.Before) {
+		if after, ok := in.After[m]; ok {
+			facts = append(facts, core.Fact{Predicate: "recurse_metric", Args: []interface{}{in.Cycle, "/" + m, in.Before[m], after}})
+		}
 	}
 	for _, g := range in.Gates {
 		facts = append(facts, core.Fact{Predicate: "recurse_ratchet_gate", Args: []interface{}{
@@ -156,7 +284,7 @@ func (p recursePolicy) ratchet(in ratchetInput) (string, error) {
 }
 
 // worseGates returns the gates the kernel judged worse after cycle's attempt.
-func (p recursePolicy) worseGates(cycle int) ([]string, error) {
+func (p *recursePolicy) worseGates(cycle int) ([]string, error) {
 	rows, err := p.k.Query("recurse_gate_worse")
 	if err != nil {
 		return nil, fmt.Errorf("recurse: query recurse_gate_worse: %w", err)
@@ -173,7 +301,7 @@ func (p recursePolicy) worseGates(cycle int) ([]string, error) {
 
 // ratchetKinds returns the workspace-wide gate kinds every attempt is
 // re-measured against.
-func (p recursePolicy) ratchetKinds() (map[gates.Kind]bool, error) {
+func (p *recursePolicy) ratchetKinds() (map[gates.Kind]bool, error) {
 	names, err := p.derivedColumn("recurse_ratchet_kind", 0)
 	if err != nil {
 		return nil, err
@@ -186,12 +314,12 @@ func (p recursePolicy) ratchetKinds() (map[gates.Kind]bool, error) {
 }
 
 // stalled and refused list the findings the loop has stopped attempting.
-func (p recursePolicy) stalled() ([]string, error) { return p.derivedColumn("finding_stalled", 0) }
-func (p recursePolicy) refused() ([]string, error) { return p.derivedColumn("finding_refused", 0) }
+func (p *recursePolicy) stalled() ([]string, error) { return p.derivedColumn("finding_stalled", 0) }
+func (p *recursePolicy) refused() ([]string, error) { return p.derivedColumn("finding_refused", 0) }
 
 // derivedColumn returns the distinct values of one argument of a derived predicate,
 // sorted.
-func (p recursePolicy) derivedColumn(predicate string, i int) ([]string, error) {
+func (p *recursePolicy) derivedColumn(predicate string, i int) ([]string, error) {
 	rows, err := p.k.Query(predicate)
 	if err != nil {
 		return nil, fmt.Errorf("recurse: query %s: %w", predicate, err)

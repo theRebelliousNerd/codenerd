@@ -56,14 +56,14 @@ func TestRunRecurseCycles_StopRequestEndsAfterTheAttemptIsJudged(t *testing.T) {
 		"lib/lib_test.go": "package lib\n\nimport \"testing\"\n\nfunc TestL(t *testing.T) {\n\tif L() != 0 {\n\t\tt.Fatal(\"L() != 0\")\n\t}\n}\n",
 	})
 	var nodes []string
-	res, err := runRecurse(t, context.Background(), root, 0, func(ctx context.Context, a RecurseAttempt) error {
+	res, err := runRecurse(t, context.Background(), root, 0, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		nodes = append(nodes, a.Node.ID)
 		if err := RequestRecurseStop(root); err != nil {
 			t.Fatal(err)
 		}
 		write(t, root, "lib/lib.go", "package lib\n\nfunc L() int { return 0 }\n")
 		return nil
-	})
+	}))
 	if !errors.Is(err, ErrRecurseStopped) {
 		t.Fatalf("err = %v, want ErrRecurseStopped", err)
 	}
@@ -78,7 +78,7 @@ func TestRunRecurseCycles_StopRequestEndsAfterTheAttemptIsJudged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Running || st.Kept != 1 || len(st.ThisPass) != 1 || st.ThisPass[0].Node != "lib" {
+	if st.Running || st.Kept != 1 || len(st.ThisPass) != 1 || st.ThisPass[0].Node != "lib" || st.ThisPass[0].Angle != "" {
 		t.Fatalf("status = %+v", st)
 	}
 	if !strings.Contains(st.String(), "not running") || !strings.Contains(st.String(), "1 kept") {
@@ -87,11 +87,11 @@ func TestRunRecurseCycles_StopRequestEndsAfterTheAttemptIsJudged(t *testing.T) {
 
 	// The next run resumes the pass: store is still red and gets its turn.
 	nodes = nil
-	if _, err := runRecurse(t, context.Background(), root, 1, func(ctx context.Context, a RecurseAttempt) error {
+	if _, err := runRecurse(t, context.Background(), root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		nodes = append(nodes, a.Node.ID)
 		write(t, root, "store/store.go", fixedStore)
 		return nil
-	}); err != nil {
+	})); err != nil {
 		t.Fatal(err)
 	}
 	if len(nodes) != 1 || nodes[0] != "store" {

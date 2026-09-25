@@ -10,13 +10,13 @@ import (
 
 // newRecursePolicy is policy/recurse.mg over the shipped kernel: the decisions
 // under test are rules, so a mock kernel would only test the mock.
-func newRecursePolicy(t *testing.T) recursePolicy {
+func newRecursePolicy(t *testing.T) *recursePolicy {
 	t.Helper()
 	k, err := core.NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return recursePolicy{k: k}
+	return &recursePolicy{k: k}
 }
 
 func finding(id, node string, kind gates.Kind) gates.Finding {
@@ -146,5 +146,116 @@ func TestRecursePolicy_RatchetKinds(t *testing.T) {
 	}
 	if !kinds[gates.Build] || !kinds[gates.Lint] || kinds[gates.Test] || kinds[gates.Audit] {
 		t.Fatalf("every attempt re-runs workspace build and lint; tests and audits run per pass: %v", kinds)
+	}
+}
+
+// Each pass leads with one angle, in rotation, on nodes where its metric can
+// be measured.
+func TestRecursePolicy_ImprovementAngleRotatesByPass(t *testing.T) {
+	p := newRecursePolicy(t)
+	measurable := map[string]int{gates.MetricTests: 10, gates.MetricLines: 300}
+	var got []string
+	for pass := range 5 {
+		angle, err := p.improveAngle("store", pass, measurable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, angle)
+	}
+	if want := []string{"stabilize", "harden", "simplify", "extend", "stabilize"}; !slices.Equal(got, want) {
+		t.Fatalf("angles by pass = %v, want %v", got, want)
+	}
+	// simplify needs the node's lines; a node where they cannot be measured
+	// gets no improvement step that pass.
+	if angle, err := p.improveAngle("store", 2, map[string]int{gates.MetricTests: 10}); err != nil || angle != "" {
+		t.Fatalf("simplify without a lines metric = %q, %v; want none", angle, err)
+	}
+}
+
+// An improvement is kept only if its angle's metric moved the right way and
+// no guard metric moved the wrong way; a fix that deletes tests is reverted
+// even though its finding is gone.
+func TestRecursePolicy_ImprovementKeptOnlyOnAMeasuredMove(t *testing.T) {
+	p := newRecursePolicy(t)
+	m := func(kv ...int) map[string]int {
+		return map[string]int{gates.MetricTests: kv[0], gates.MetricLines: kv[1], gates.MetricCoverage: kv[2]}
+	}
+	pass := []ratchetGate{{Gate: "test", Before: verdictPass, After: verdictPass}}
+	cases := []struct {
+		name string
+		in   ratchetInput
+		want string
+	}{
+		{"stabilize adds tests", ratchetInput{Improve: "stabilize", Changed: true, Gates: pass, Before: m(10, 300, 5000), After: m(12, 300, 5200)}, ratchetKeep},
+		{"stabilize moves nothing", ratchetInput{Improve: "stabilize", Changed: true, Gates: pass, Before: m(10, 300, 5000), After: m(10, 310, 5000)}, ratchetRevert},
+		{"stabilize adds tests but drops coverage", ratchetInput{Improve: "stabilize", Changed: true, Gates: pass, Before: m(10, 300, 5000), After: m(11, 300, 4900)}, ratchetRevert},
+		{"harden raises coverage", ratchetInput{Improve: "harden", Changed: true, Gates: pass, Before: m(10, 300, 5000), After: m(10, 305, 5400)}, ratchetKeep},
+		{"simplify drops lines", ratchetInput{Improve: "simplify", Changed: true, Gates: pass, Before: m(10, 300, 5000), After: m(10, 250, 5000)}, ratchetKeep},
+		{"simplify drops lines by deleting tests", ratchetInput{Improve: "simplify", Changed: true, Gates: pass, Before: m(10, 300, 5000), After: m(8, 250, 5000)}, ratchetRevert},
+		{"extend adds a tested capability", ratchetInput{Improve: "extend", Changed: true, Gates: pass, Before: m(10, 300, 5000), After: m(11, 340, 5000)}, ratchetKeep},
+		{"extend that breaks a gate", ratchetInput{Improve: "extend", Changed: true, Gates: []ratchetGate{{Gate: "build", Before: verdictPass, After: verdictFail, AfterCount: 1}}, Before: m(10, 300, 5000), After: m(11, 340, 5000)}, ratchetRevert},
+		{"a fix that deletes the failing test", ratchetInput{TargetID: "t", TargetOK: true, Changed: true, Gates: pass, Before: m(10, 300, 5000), After: m(9, 300, 5000)}, ratchetRevert},
+		{"a fix that keeps the tests", ratchetInput{TargetID: "t", TargetOK: true, Changed: true, Gates: pass, Before: m(10, 300, 5000), After: m(10, 301, 4900)}, ratchetKeep},
+	}
+	for i, tc := range cases {
+		tc.in.Cycle = 200 + i
+		got, err := p.ratchet(tc.in)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: verdict %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A forever run leaves a bounded number of attempt facts: per finding and
+// signature the first and the latest, and none from before the node's last
+// kept change. Refusals stay.
+func TestRecursePolicy_AttemptMemoryIsBounded(t *testing.T) {
+	p := newRecursePolicy(t)
+	count := func() int {
+		rows, err := p.k.Query("recurse_attempt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(rows)
+	}
+	for c := 1; c <= 200; c++ {
+		if err := p.attempt("f", "store", c, outcomeReverted, "same failure"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := count(); got != 2 {
+		t.Fatalf("200 identical failures leave %d attempt facts, want 2", got)
+	}
+	if stalled, _ := p.stalled(); !slices.Contains(stalled, "f") {
+		t.Fatalf("pruning must not lose the stall: %v", stalled)
+	}
+	if err := p.attempt("r", "store", 201, outcomeRefused, "forbidden"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.attempt("x", "store", 202, outcomeKept, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got != 1 {
+		t.Fatalf("a kept change retires the node's attempts but not its refusal: %d facts", got)
+	}
+	if refused, _ := p.refused(); !slices.Contains(refused, "r") {
+		t.Fatalf("refusal lost: %v", refused)
+	}
+	kept, err := p.k.Query("recurse_node_kept")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.attempt("y", "store", 203, outcomeKept, ""); err != nil {
+		t.Fatal(err)
+	}
+	kept2, err := p.k.Query("recurse_node_kept")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(kept) != 1 || len(kept2) != 1 {
+		t.Fatalf("only a node's latest kept change is kept: %d then %d", len(kept), len(kept2))
 	}
 }

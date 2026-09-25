@@ -32,12 +32,21 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 		scope = "the whole tree"
 	}
 	title := fmt.Sprintf("Recurse cycle %d: %s: %s", a.Cycle, a.Node.ID, oneLine(a.Finding.Message))
+	goal := fmt.Sprintf("Fix %s in %s so that `%s` passes, without making any other gate worse.", a.Finding.Target, a.Node.Title, strings.Join(a.Check, " "))
+	objective := fmt.Sprintf("Fix %s (%s)", a.Finding.Target, a.Finding.Gate)
+	task := recurseAttemptTask(a, scope)
+	if a.Angle != "" {
+		title = fmt.Sprintf("Recurse cycle %d: %s: %s", a.Cycle, a.Node.ID, a.Angle)
+		goal = fmt.Sprintf("%s %s, moving a measured metric without making any gate or other metric worse.", strings.ToUpper(a.Angle[:1])+a.Angle[1:], a.Node.Title)
+		objective = fmt.Sprintf("%s %s", a.Angle, a.Node.ID)
+		task = recurseImproveTask(a, scope)
+	}
 
 	c := &Campaign{
 		ID:              campaignID,
 		Type:            CampaignTypeRecurse,
 		Title:           title,
-		Goal:            fmt.Sprintf("Fix %s in %s so that `%s` passes, without making any other gate worse.", a.Finding.Target, a.Node.Title, strings.Join(a.Check, " ")),
+		Goal:            goal,
 		SourceMaterial:  []string{},
 		KnowledgeBase:   filepath.Join(workspace, ".nerd", "campaigns", slug, "knowledge.db"),
 		Status:          StatusActive,
@@ -59,7 +68,7 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 		ContextProfile: c.ContextProfiles[0].ID,
 		Objectives: []PhaseObjective{{
 			Type:               ObjectiveModify,
-			Description:        fmt.Sprintf("Fix %s (%s)", a.Finding.Target, a.Finding.Gate),
+			Description:        objective,
 			VerificationMethod: VerifyNone,
 		}},
 		EstimatedTasks:      1,
@@ -67,7 +76,7 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 		Tasks: []Task{{
 			ID:          fmt.Sprintf("/task_%s_0_0", campaignID[10:]),
 			PhaseID:     phaseID,
-			Description: recurseAttemptTask(a, scope),
+			Description: task,
 			Status:      TaskPending,
 			Type:        TaskTypeFileModify,
 			PlannedType: TaskTypeFileModify,
@@ -96,6 +105,41 @@ func recurseAttemptTask(a RecurseAttempt, scope string) string {
 	b.WriteString("Fix the cause with the smallest change that does it. Do not weaken, skip or delete a test or a check to make it pass.\n")
 	if evidence != "" {
 		fmt.Fprintf(&b, "\nGate output:\n```\n%s\n```\n", strings.TrimRight(evidence, "\n"))
+	}
+	return b.String()
+}
+
+// recurseImproveTask is an improvement attempt's task: the angle, what it must
+// move, where the numbers stand, and how the change will be judged.
+func recurseImproveTask(a RecurseAttempt, scope string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s (recurse pass %d, cycle %d) %s (%s).\n\n", strings.ToUpper(a.Angle), a.Pass, a.Cycle, a.Node.Title, scope)
+	switch a.Angle {
+	case "stabilize":
+		b.WriteString("Find behaviour in this node that no test pins yet and add tests that pin it; fix any flaky test you find. Kept only if the workspace's test count rises.\n")
+	case "harden":
+		b.WriteString("Find error paths, edge cases and unvalidated inputs in this node that no test exercises. Add tests for them and fix what they expose, so failures fail closed with honest errors. Kept only if the node's coverage or the workspace's test count rises.\n")
+	case "simplify":
+		b.WriteString("Remove dead code, duplication and needless complexity in this node without changing its behaviour. Kept only if the node's source lines drop while every test still passes.\n")
+	case "extend":
+		b.WriteString("Add one capability this node is missing -- one its own docs, its TODOs or the north star below ask for -- with a test that proves it. Kept only if the workspace's test count rises.\n")
+	default:
+		fmt.Fprintf(&b, "Improve this node from the %s angle.\n", a.Angle)
+	}
+	b.WriteString("Every gate must stay at least as green, no test may be removed, and the node's coverage may not drop; a change that moves no metric, or makes anything worse, is reverted in full.\n")
+	if len(a.Metrics) > 0 {
+		b.WriteString("\nWhere the numbers stand now:\n")
+		for _, name := range sortedMetricNames(a.Metrics) {
+			v := a.Metrics[name]
+			if name == "coverage" {
+				fmt.Fprintf(&b, "  %s: %d.%02d%%\n", name, v/100, v%100)
+				continue
+			}
+			fmt.Fprintf(&b, "  %s: %d\n", name, v)
+		}
+	}
+	if a.NorthStar != "" && a.Angle == "extend" {
+		fmt.Fprintf(&b, "\nNorth star:\n%s\n", a.NorthStar)
 	}
 	return b.String()
 }

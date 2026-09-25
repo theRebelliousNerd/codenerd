@@ -54,12 +54,19 @@ func TestRecurseCycles_OnTheProductionKernel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDomainCortex: %v", err)
 	}
-	// store is fixable; lib's attempts do nothing, so its finding must stall
-	// on the second pass and be left alone on the third.
+	// store is fixable and its stabilize improvement adds a test; lib's
+	// attempts do nothing, so its finding must stall on the second pass and be
+	// left alone on the third.
 	attempts := map[string]int{}
 	res, err := campaign.RunRecurseCycles(context.Background(), campaign.RecurseCycleConfig{
 		Workspace: root, Kernel: ck, Passes: 3,
 		Execute: func(ctx context.Context, a campaign.RecurseAttempt) error {
+			if a.Angle == "stabilize" && a.Node.ID == "store" {
+				return os.WriteFile(filepath.Join(root, "store", "more_test.go"), []byte("package store\n\nimport \"testing\"\n\nfunc TestGetIsStable(t *testing.T) {\n\tif Get() != Get() {\n\t\tt.Fatal(\"unstable\")\n\t}\n}\n"), 0o644)
+			}
+			if a.Angle != "" {
+				return nil // other improvements change nothing here and revert
+			}
 			attempts[a.Node.ID]++
 			if a.Node.ID == "store" {
 				return os.WriteFile(filepath.Join(root, "store", "store.go"), []byte("package store\n\nfunc Get() int { return 2 }\n"), 0o644)
@@ -70,8 +77,8 @@ func TestRecurseCycles_OnTheProductionKernel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunRecurseCycles: %v", err)
 	}
-	if res.Kept != 1 || attempts["store"] != 1 {
-		t.Fatalf("the store fix is picked and kept on the production kernel: attempts %v, result %+v", attempts, res)
+	if res.Kept != 2 || res.Improved != 1 || attempts["store"] != 1 {
+		t.Fatalf("the store fix and its improvement are kept on the production kernel: attempts %v, result %+v", attempts, res)
 	}
 	if attempts["lib"] != 2 || len(res.Stalled) != 1 {
 		t.Fatalf("lib's no-op attempts stall after two passes: attempts %v, result %+v", attempts, res)

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/gates"
 )
 
 // The fixture every end-to-end recurse test starts from: a Go module in a git
@@ -65,14 +66,37 @@ func journalOf(t *testing.T, root string) []recurseRecord {
 	return recs
 }
 
+// ratchets are the fix attempts' verdicts; improvement verdicts are
+// improvements(recs).
 func ratchets(recs []recurseRecord) []recurseRecord {
 	var out []recurseRecord
 	for _, r := range recs {
-		if r.Step == stepRatchet {
+		if r.Step == stepRatchet && r.Angle == "" {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+func improvements(recs []recurseRecord) []recurseRecord {
+	var out []recurseRecord
+	for _, r := range recs {
+		if r.Step == stepRatchet && r.Angle != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// onlyFixes runs fn for fix attempts and leaves improvement attempts
+// untouched, so they revert as changing nothing.
+func onlyFixes(fn RecurseExecutor) RecurseExecutor {
+	return func(ctx context.Context, a RecurseAttempt) error {
+		if a.Angle != "" {
+			return nil
+		}
+		return fn(ctx, a)
+	}
 }
 
 func write(t *testing.T, root, rel, body string) {
@@ -96,11 +120,11 @@ func headSubject(t *testing.T, root string) string {
 func TestRecurseCycles_AFixIsKeptAndCommitted(t *testing.T) {
 	root := recurseFixture(t, nil)
 	var attempts []RecurseAttempt
-	res, err := runRecurse(t, context.Background(), root, 1, func(ctx context.Context, a RecurseAttempt) error {
+	res, err := runRecurse(t, context.Background(), root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		attempts = append(attempts, a)
 		write(t, root, "store/store.go", fixedStore)
 		return nil
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +135,7 @@ func TestRecurseCycles_AFixIsKeptAndCommitted(t *testing.T) {
 	if !strings.Contains(a.Evidence, "Get() != 2") || !slices.Contains(a.Check, "./store") {
 		t.Fatalf("the attempt carries the failing output and the check that witnesses the fix: %+v", a)
 	}
-	if res.Kept != 1 || res.Cycles != 1 || res.Passes != 1 {
+	if res.Kept != 1 || res.Improved != 0 || res.Passes != 1 {
 		t.Fatalf("result = %+v", res)
 	}
 	if got := gitOut(t, recurseGit{root: root}, "rev-parse", "--abbrev-ref", "HEAD"); got != DefaultRecurseBranch {
@@ -130,15 +154,15 @@ func TestRecurseCycles_AFixIsKeptAndCommitted(t *testing.T) {
 // whole attempt is reverted, the other node's file included.
 func TestRecurseCycles_AFixThatBreaksAnotherGateIsReverted(t *testing.T) {
 	root := recurseFixture(t, nil)
-	res, err := runRecurse(t, context.Background(), root, 1, func(ctx context.Context, a RecurseAttempt) error {
+	res, err := runRecurse(t, context.Background(), root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		write(t, root, "store/store.go", fixedStore)
 		write(t, root, "web/web.go", "package web\n\nfunc Page() int { return undefinedThing }\n")
 		return nil
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Kept != 0 || res.Reverted != 1 {
+	if res.Kept != 0 || len(ratchets(journalOf(t, root))) != 1 {
 		t.Fatalf("result = %+v", res)
 	}
 	if mustRead(t, root, "store/store.go") != recurseModule["store/store.go"] || mustRead(t, root, "web/web.go") != recurseModule["web/web.go"] {
@@ -155,14 +179,14 @@ func TestRecurseCycles_AFixThatBreaksAnotherGateIsReverted(t *testing.T) {
 func TestRecurseCycles_ANoOpAttemptStallsItsFinding(t *testing.T) {
 	root := recurseFixture(t, nil)
 	calls := 0
-	res, err := runRecurse(t, context.Background(), root, 3, func(ctx context.Context, a RecurseAttempt) error {
+	res, err := runRecurse(t, context.Background(), root, 3, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		calls++
 		return nil
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || res.Cycles != 2 || res.Reverted != 2 || res.Passes != 3 {
+	if calls != 2 || len(ratchets(journalOf(t, root))) != 2 || res.Passes != 3 {
 		t.Fatalf("calls = %d, result = %+v", calls, res)
 	}
 	if len(res.Stalled) != 1 {
@@ -177,12 +201,12 @@ func TestRecurseCycles_AForbiddenWriteIsRefused(t *testing.T) {
 		"nerd.md": "---\nschema: nerd/v1\nforbid:\n  - match: web/web.go\n    reason: the loop must not edit it\n---\n",
 	})
 	calls := 0
-	res, err := runRecurse(t, context.Background(), root, 2, func(ctx context.Context, a RecurseAttempt) error {
+	res, err := runRecurse(t, context.Background(), root, 2, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		calls++
 		write(t, root, "store/store.go", fixedStore)
 		write(t, root, "web/web.go", recurseModule["web/web.go"]+"\n// touched\n")
 		return nil
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,12 +227,12 @@ func TestRecurseCycles_StoppedMidAttemptRevertsBeforeReturning(t *testing.T) {
 	root := recurseFixture(t, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_, err := runRecurse(t, ctx, root, 0, func(ctx context.Context, a RecurseAttempt) error {
+	_, err := runRecurse(t, ctx, root, 0, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		write(t, root, "store/store.go", fixedStore)
 		write(t, root, "store/half_written.go", "package store\n")
 		cancel()
 		return ctx.Err()
-	})
+	}))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -258,11 +282,11 @@ func TestRecurseCycles_ResumeSettlesAKilledAttempt(t *testing.T) {
 	write(t, root, "web/scratch.go", "package web\n")
 
 	var cycles []int
-	res, err := runRecurse(t, context.Background(), root, 1, func(ctx context.Context, a RecurseAttempt) error {
+	res, err := runRecurse(t, context.Background(), root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		cycles = append(cycles, a.Cycle)
 		write(t, root, "store/store.go", fixedStore)
 		return nil
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,10 +326,10 @@ func TestRecurseCycles_ResumeFindsAKeptCommitTheJournalMissed(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := 0
-	if _, err := runRecurse(t, ctx, root, 1, func(ctx context.Context, a RecurseAttempt) error {
+	if _, err := runRecurse(t, ctx, root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		calls++
 		return nil
-	}); err != nil {
+	})); err != nil {
 		t.Fatal(err)
 	}
 	if mustRead(t, root, "store/store.go") != fixedStore {
@@ -339,11 +363,11 @@ func TestRecurseCycles_ANonGoWorkspaceUsesItsDeclaredGates(t *testing.T) {
 	})
 	root := g.root
 	var targets []string
-	res, err := runRecurse(t, context.Background(), root, 1, func(ctx context.Context, a RecurseAttempt) error {
+	res, err := runRecurse(t, context.Background(), root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		targets = append(targets, a.Node.ID+" "+a.Finding.Target)
 		write(t, root, "svc/version.txt", "2\n")
 		return nil
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,5 +407,94 @@ func TestInFlight_RoundTrips(t *testing.T) {
 	}
 	if got.Cycle != 3 || got.Node != "n" || !slices.Equal(got.UntrackedBefore, want.UntrackedBefore) {
 		t.Fatalf("round trip = %+v", got)
+	}
+}
+
+// Every visit, red or green, ends with an improvement attempt from the pass's
+// angle. One that adds a passing test is kept; one that moves nothing is
+// reverted. Cross-cutting nodes have no metrics of their own and are skipped.
+func TestRecurseCycles_EveryVisitImprovesAndKeepsOnlyMeasuredGains(t *testing.T) {
+	root := recurseFixture(t, nil)
+	var seen []string
+	res, err := runRecurse(t, context.Background(), root, 1, func(ctx context.Context, a RecurseAttempt) error {
+		if a.Angle == "" {
+			write(t, root, "store/store.go", fixedStore)
+			return nil
+		}
+		seen = append(seen, a.Node.ID+":"+a.Angle)
+		if a.Metrics[gates.MetricTests] < 1 || a.Metrics[gates.MetricLines] < 1 {
+			t.Errorf("an improvement is handed the numbers it must move: %v", a.Metrics)
+		}
+		switch a.Node.ID {
+		case "store":
+			write(t, root, "store/more_test.go", "package store\n\nimport \"testing\"\n\nfunc TestGetIsStable(t *testing.T) {\n\tif Get() != Get() {\n\t\tt.Fatal(\"unstable\")\n\t}\n}\n")
+		case "web":
+			write(t, root, "web/web.go", recurseModule["web/web.go"]+"\n// a comment moves no metric\n")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"store:stabilize", "web:stabilize"}; !slices.Equal(seen, want) {
+		t.Fatalf("improvement attempts = %v, want %v", seen, want)
+	}
+	if res.Kept != 2 || res.Improved != 1 {
+		t.Fatalf("the fix and the store improvement are kept: %+v", res)
+	}
+	imp := improvements(journalOf(t, root))
+	if len(imp) != 2 || imp[0].Outcome != outcomeKept || !strings.Contains(imp[0].Metrics, "tests 1->2") || imp[1].Outcome != outcomeReverted {
+		t.Fatalf("improvement verdicts = %+v", imp)
+	}
+	if mustRead(t, root, "web/web.go") != recurseModule["web/web.go"] {
+		t.Fatal("an improvement that moved nothing is reverted")
+	}
+	if subj := headSubject(t, root); !strings.Contains(subj, "recurse: store: stabilize") || !strings.Contains(subj, recurseFindingTrailer+": improve:stabilize") {
+		t.Fatalf("head commit = %q", subj)
+	}
+}
+
+// The simplify pass keeps a change that drops a node's lines at equal
+// behaviour, and reverts one that gets there by deleting tests.
+func TestRecurseCycles_SimplifyKeepsFewerLinesButNeverFewerTests(t *testing.T) {
+	root := recurseFixture(t, map[string]string{
+		"store/store.go":  "package store\n\nfunc Get() int { return 2 }\n\nfunc unused() int {\n\treturn 3\n}\n",
+		"web/web_test.go": "package web\n\nimport \"testing\"\n\nfunc TestPage(t *testing.T) {\n\tif Page() != 2 {\n\t\tt.Fatal(\"Page\")\n\t}\n}\n",
+	})
+	res, err := runRecurse(t, context.Background(), root, 3, func(ctx context.Context, a RecurseAttempt) error {
+		if a.Angle != "simplify" {
+			return nil
+		}
+		switch a.Node.ID {
+		case "store":
+			write(t, root, "store/store.go", fixedStore)
+		case "web":
+			write(t, root, "web/web.go", "package web\n\nfunc Page() int { return 2 }\n")
+			if err := os.Remove(filepath.Join(root, "web", "web_test.go")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Improved != 1 {
+		t.Fatalf("only the store simplification is kept: %+v", res)
+	}
+	if mustRead(t, root, "store/store.go") != fixedStore {
+		t.Fatal("the dead code is gone")
+	}
+	if _, ok := readFile(t, root, "web/web_test.go"); !ok {
+		t.Fatal("a simplification that deletes a test is reverted, test and all")
+	}
+	var simplify []recurseRecord
+	for _, r := range improvements(journalOf(t, root)) {
+		if r.Angle == "simplify" {
+			simplify = append(simplify, r)
+		}
+	}
+	if len(simplify) != 2 || simplify[0].Outcome != outcomeKept || simplify[1].Outcome != outcomeReverted || !strings.Contains(simplify[1].Metrics, "tests 2->1") {
+		t.Fatalf("simplify verdicts = %+v", simplify)
 	}
 }

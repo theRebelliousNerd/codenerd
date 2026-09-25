@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -44,6 +45,15 @@ type RecurseAttempt struct {
 	Evidence string
 	// Check is that gate's command; the attempt is done when it passes.
 	Check []string
+	// Angle is an improvement attempt's angle ("stabilize", "harden",
+	// "simplify", "extend"); "" for a fix. An improvement has no Finding.
+	Angle string
+	// Metrics are the numbers the improvement must move, measured before the
+	// attempt (gates.MetricTests, MetricLines, MetricCoverage).
+	Metrics map[string]int
+	// NorthStar is the node's (else the workspace's) north star from nerd.md,
+	// which the extend angle draws on. Empty when none is declared.
+	NorthStar string
 }
 
 // RecurseExecutor runs one attempt to completion: a model turn or a one-task
@@ -76,6 +86,8 @@ type RecurseCycleResult struct {
 	Reverted   int
 	Refused    int
 	Unverified int
+	// Improved counts kept improvement attempts (included in Kept).
+	Improved int
 	// Stalled and Refusals are the findings the loop stopped attempting.
 	Stalled  []string
 	Refusals []string
@@ -90,8 +102,8 @@ func (r *RecurseCycleResult) Summary() string {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Recurse: %d passes, %d attempts: %d kept, %d reverted, %d refused, %d unverified.",
-		r.Passes, r.Cycles, r.Kept, r.Reverted, r.Refused, r.Unverified)
+	fmt.Fprintf(&b, "Recurse: %d passes, %d attempts: %d kept (%d improvements), %d reverted, %d refused, %d unverified.",
+		r.Passes, r.Cycles, r.Kept, r.Improved, r.Reverted, r.Refused, r.Unverified)
 	if len(r.Stalled) > 0 {
 		fmt.Fprintf(&b, "\n  stalled (failed the same way twice; retried once their node changes): %d", len(r.Stalled))
 	}
@@ -474,6 +486,7 @@ func (r *recurseRun) visit(ctx context.Context, pass int, node SubsystemNode, no
 		r.state[gateKey(g.ID, node.ID)] = r.measure(ctx, g, node.ID, nodes)
 	}
 	open := r.open(node, own, set)
+	scope := visitScope{pass: pass, node: node, nodes: nodes, set: set, own: own, ratchetKinds: ratchetKinds}
 	if err := r.journal.append(recurseRecord{Step: stepVisit, Pass: pass, Node: node.ID, Open: len(open)}); err != nil {
 		return err
 	}
@@ -494,7 +507,7 @@ func (r *recurseRun) visit(ctx context.Context, pass int, node SubsystemNode, no
 		if id == "" {
 			break
 		}
-		if err := r.attempt(ctx, pass, node, nodes, set, own, ratchetKinds, id, open); err != nil {
+		if err := r.attempt(ctx, scope, id, open); err != nil {
 			return err
 		}
 		open = r.open(node, own, set)
@@ -502,6 +515,15 @@ func (r *recurseRun) visit(ctx context.Context, pass int, node SubsystemNode, no
 			return err
 		}
 	}
+	// Fixing what is red is the floor; every visit, red or green, ends with
+	// one measured improvement attempt.
+	if err := r.boundary(ctx, pass); err != nil {
+		return err
+	}
+	if err := r.improve(ctx, scope); err != nil {
+		return err
+	}
+	open = r.open(node, own, set)
 	return r.journal.append(recurseRecord{Step: stepVisitDone, Pass: pass, Node: node.ID, Open: len(open)})
 }
 
@@ -512,6 +534,7 @@ type inFlight struct {
 	Pass            int      `json:"pass"`
 	Node            string   `json:"node"`
 	Finding         string   `json:"finding"`
+	Angle           string   `json:"angle,omitempty"`
 	UntrackedBefore []string `json:"untracked_before"`
 }
 
@@ -519,7 +542,29 @@ func inFlightPath(root string) string {
 	return filepath.Join(root, ".nerd", "recurse", "inflight.json")
 }
 
-func (r *recurseRun) attempt(ctx context.Context, pass int, node SubsystemNode, nodes []SubsystemNode, set gates.Set, own []gates.Gate, ratchetKinds map[gates.Kind]bool, id string, open []gates.Finding) error {
+// visitScope is what one visit's attempts share.
+type visitScope struct {
+	pass         int
+	node         SubsystemNode
+	nodes        []SubsystemNode
+	set          gates.Set
+	own          []gates.Gate
+	ratchetKinds map[gates.Kind]bool
+}
+
+// attemptSpec is one attempt: a fix of a finding, or an improvement.
+type attemptSpec struct {
+	finding   *gates.Finding
+	evidence  string
+	check     []string
+	targetKey string
+	angle     string
+	describe  string
+	subject   string
+}
+
+// attempt tries to fix the finding the kernel picked.
+func (r *recurseRun) attempt(ctx context.Context, v visitScope, id string, open []gates.Finding) error {
 	var target gates.Finding
 	for _, f := range open {
 		if f.ID == id {
@@ -527,32 +572,78 @@ func (r *recurseRun) attempt(ctx context.Context, pass int, node SubsystemNode, 
 		}
 	}
 	if target.ID == "" {
-		return fmt.Errorf("recurse: the kernel picked %s, which is not open on %s", id, node.ID)
+		return fmt.Errorf("recurse: the kernel picked %s, which is not open on %s", id, v.node.ID)
 	}
 	if err := r.policy.attempted(id); err != nil {
 		return err
 	}
-	source := r.sourceOf(target, node)
+	source := r.sourceOf(target, v.node)
+	return r.run(ctx, v, attemptSpec{
+		finding:   &target,
+		evidence:  source.result.Output,
+		check:     source.result.Argv,
+		targetKey: gateKey(target.Gate, sourceNode(target, v.node, v.set)),
+		describe:  fmt.Sprintf("%s (%s)", target.Message, target.Gate),
+		subject:   fmt.Sprintf("recurse: %s: %s", v.node.ID, oneLine(target.Message)),
+	})
+}
+
+// improve runs the visit's improvement step from the angle the kernel aims it
+// at. A node where the pass's angle has nothing to measure is skipped, and the
+// journal says so.
+func (r *recurseRun) improve(ctx context.Context, v visitScope) error {
+	if v.node.CrossCutting {
+		return nil
+	}
+	measurable := r.metrics(v.node, v.own, r.state)
+	angle, err := r.policy.improveAngle(v.node.ID, v.pass, measurable)
+	if err != nil {
+		return err
+	}
+	if angle == "" {
+		r.logf("recurse: %s: no improvement this pass (its angle has nothing to measure here)", v.node.ID)
+		return r.journal.append(recurseRecord{Step: stepImproveSkipped, Pass: v.pass, Node: v.node.ID, Detail: "the pass's angle has no measurable metric on this node"})
+	}
+	return r.run(ctx, v, attemptSpec{
+		angle:    angle,
+		describe: "improve: " + angle,
+		subject:  fmt.Sprintf("recurse: %s: %s", v.node.ID, angle),
+	})
+}
+
+// run is one attempt from start to verdict: record it in flight, hand it to
+// the executor, re-measure, let the kernel judge, keep or revert.
+func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) error {
+	node := v.node
 	r.cycle++
 	cycle := r.cycle
 	r.result.Cycles++
+	findingID := ""
+	if spec.finding != nil {
+		findingID = spec.finding.ID
+	}
+	before := r.metrics(node, v.own, r.state)
 
 	untracked, err := r.git.untracked(ctx)
 	if err != nil {
 		return err
 	}
-	if err := writeInFlight(r.root, inFlight{Cycle: cycle, Pass: pass, Node: node.ID, Finding: id, UntrackedBefore: sortedSet(untracked)}); err != nil {
+	if err := writeInFlight(r.root, inFlight{Cycle: cycle, Pass: v.pass, Node: node.ID, Finding: findingID, Angle: spec.angle, UntrackedBefore: sortedSet(untracked)}); err != nil {
 		return err
 	}
-	if err := r.journal.append(recurseRecord{Step: stepAttempt, Pass: pass, Cycle: cycle, Node: node.ID, Finding: id, Detail: target.Message}); err != nil {
+	if err := r.journal.append(recurseRecord{Step: stepAttempt, Pass: v.pass, Cycle: cycle, Node: node.ID, Finding: findingID, Angle: spec.angle, Detail: spec.describe}); err != nil {
 		return err
 	}
-	r.logf("recurse cycle %d: %s: %s (%s)", cycle, node.ID, target.Message, target.Gate)
+	r.logf("recurse cycle %d: %s: %s", cycle, node.ID, spec.describe)
 
-	execErr := r.cfg.Execute(ctx, RecurseAttempt{
-		Pass: pass, Cycle: cycle, Node: node, Finding: target,
-		Evidence: source.result.Output, Check: source.result.Argv,
-	})
+	a := RecurseAttempt{
+		Pass: v.pass, Cycle: cycle, Node: node, Evidence: spec.evidence, Check: spec.check,
+		Angle: spec.angle, Metrics: before, NorthStar: r.northStar(node),
+	}
+	if spec.finding != nil {
+		a.Finding = *spec.finding
+	}
+	execErr := r.cfg.Execute(ctx, a)
 	if ctx.Err() != nil {
 		// Stopped mid-attempt: put the tree back now rather than leave it for
 		// the next start. The in-flight record stays until that succeeds.
@@ -569,24 +660,37 @@ func (r *recurseRun) attempt(ctx context.Context, pass int, node SubsystemNode, 
 		return err
 	}
 	after := map[string]gateRun{}
+	afterMetrics := before
 	if len(changed) > 0 {
-		for _, g := range own {
-			after[gateKey(g.ID, node.ID)] = r.measure(ctx, g, node.ID, nodes)
+		for _, g := range v.own {
+			after[gateKey(g.ID, node.ID)] = r.measure(ctx, g, node.ID, v.nodes)
 		}
-		for _, g := range set.Gates {
-			if g.Scope == gates.ScopeAll && (ratchetKinds[g.Kind] || g.ID == target.Gate) {
-				after[gateKey(g.ID, "")] = r.measure(ctx, g, "", nodes)
+		for _, g := range v.set.Gates {
+			isTarget := spec.finding != nil && g.ID == spec.finding.Gate
+			if g.Scope == gates.ScopeAll && (v.ratchetKinds[g.Kind] || isTarget) {
+				after[gateKey(g.ID, "")] = r.measure(ctx, g, "", v.nodes)
 			}
 		}
+		merged := make(map[string]gateRun, len(r.state)+len(after))
+		for k, run := range r.state {
+			merged[k] = run
+		}
+		for k, run := range after {
+			merged[k] = run
+		}
+		afterMetrics = r.metrics(node, v.own, merged)
 	}
 
-	in := ratchetInput{Cycle: cycle, TargetID: id, Changed: len(changed) > 0, Forbidden: r.forbidden(changed)}
+	in := ratchetInput{
+		Cycle: cycle, TargetID: findingID, Improve: spec.angle,
+		Before: before, After: afterMetrics,
+		Changed: len(changed) > 0, Forbidden: r.forbidden(changed),
+	}
 	keys := make([]string, 0, len(after))
 	for k := range after {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	targetKey := gateKey(target.Gate, sourceNode(target, node, set))
 	targetUnverified := false
 	for _, k := range keys {
 		b, a := r.state[k], after[k]
@@ -594,9 +698,9 @@ func (r *recurseRun) attempt(ctx context.Context, pass int, node SubsystemNode, 
 			Gate: k, Before: b.verdict(), After: a.verdict(),
 			BeforeCount: len(b.findings), AfterCount: len(a.findings),
 		})
-		if k == targetKey {
+		if spec.finding != nil && k == spec.targetKey {
 			targetUnverified = a.result.Unverified()
-			in.TargetOK = !targetUnverified && !hasFinding(a.findings, id)
+			in.TargetOK = !targetUnverified && !hasFinding(a.findings, findingID)
 		}
 	}
 	verdict, err := r.policy.ratchet(in)
@@ -604,21 +708,28 @@ func (r *recurseRun) attempt(ctx context.Context, pass int, node SubsystemNode, 
 		return err
 	}
 
-	rec := recurseRecord{Step: stepRatchet, Pass: pass, Cycle: cycle, Node: node.ID, Finding: id}
+	rec := recurseRecord{Step: stepRatchet, Pass: v.pass, Cycle: cycle, Node: node.ID, Finding: findingID, Angle: spec.angle, Metrics: metricsDelta(before, afterMetrics)}
 	if execErr != nil {
 		rec.Detail = "executor: " + execErr.Error()
 	}
 	switch verdict {
 	case ratchetKeep:
-		hash, err := r.git.commit(ctx, changed, fmt.Sprintf("recurse: %s: %s", node.ID, oneLine(target.Message)), cycle, id)
+		trailer := findingID
+		if trailer == "" {
+			trailer = "improve:" + spec.angle
+		}
+		hash, err := r.git.commit(ctx, changed, spec.subject, cycle, trailer)
 		if err != nil {
 			return err
 		}
-		for k, v := range after {
-			r.state[k] = v
+		for k, run := range after {
+			r.state[k] = run
 		}
 		rec.Outcome, rec.Commit = outcomeKept, hash
 		r.result.Kept++
+		if spec.angle != "" {
+			r.result.Improved++
+		}
 	case ratchetRefuse, ratchetRevert:
 		if err := r.git.revert(ctx, changed); err != nil {
 			return err
@@ -635,18 +746,94 @@ func (r *recurseRun) attempt(ctx context.Context, pass int, node SubsystemNode, 
 		default:
 			r.result.Reverted++
 		}
-		rec.Signature = r.failureSignature(cycle, target, after[targetKey], len(changed) > 0)
+		if spec.finding != nil {
+			rec.Signature = r.failureSignature(cycle, *spec.finding, after[spec.targetKey], len(changed) > 0)
+		}
 	default:
 		return fmt.Errorf("recurse: unknown ratchet verdict %q", verdict)
 	}
-	if err := r.policy.attempt(id, node.ID, cycle, rec.Outcome, rec.Signature); err != nil {
+	switch {
+	case spec.finding != nil:
+		err = r.policy.attempt(findingID, node.ID, cycle, rec.Outcome, rec.Signature)
+	case rec.Outcome == outcomeKept:
+		err = r.policy.nodeKept(node.ID, cycle)
+	}
+	if err != nil {
 		return err
 	}
 	if err := r.journal.append(rec); err != nil {
 		return err
 	}
-	r.logf("recurse cycle %d: %s", cycle, strings.TrimPrefix(rec.Outcome, "/"))
+	r.logf("recurse cycle %d: %s %s", cycle, strings.TrimPrefix(rec.Outcome, "/"), rec.Metrics)
 	return os.Remove(inFlightPath(r.root))
+}
+
+// metrics measures the numbers an attempt is judged by, reading coverage
+// from the node's test runs in runs.
+func (r *recurseRun) metrics(node SubsystemNode, own []gates.Gate, runs map[string]gateRun) map[string]int {
+	m := map[string]int{}
+	if n, err := gates.CountTests(r.root); err == nil {
+		m[gates.MetricTests] = n
+	}
+	if !node.CrossCutting && len(node.Paths) > 0 {
+		if n, err := gates.SourceLines(r.root, node.Paths, slices.Contains(node.Languages, "rust")); err == nil {
+			m[gates.MetricLines] = n
+		}
+	}
+	for _, g := range own {
+		if g.Kind != gates.Test {
+			continue
+		}
+		if cov, ok := gates.Coverage(runs[gateKey(g.ID, node.ID)].result.Output); ok {
+			m[gates.MetricCoverage] = cov
+			break
+		}
+	}
+	return m
+}
+
+// metricsDelta renders before and after for the journal: "tests 10->12".
+func metricsDelta(before, after map[string]int) string {
+	var parts []string
+	for _, name := range sortedMetricNames(before) {
+		if a, ok := after[name]; ok {
+			parts = append(parts, fmt.Sprintf("%s %d->%d", name, before[name], a))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// northStar is the north star nerd.md declares for node -- a nerd.md in the
+// node's own directory first, else the workspace's.
+func (r *recurseRun) northStar(node SubsystemNode) string {
+	docs, err := projectdoc.LoadAll(r.root)
+	if err != nil {
+		return ""
+	}
+	var own, root *projectdoc.Document
+	for _, d := range docs {
+		dir := filepath.ToSlash(filepath.Dir(d.Path))
+		if dir == "." {
+			root = d
+		} else if slices.Contains(node.Paths, dir) {
+			own = d
+		}
+	}
+	for _, d := range []*projectdoc.Document{own, root} {
+		if d == nil || d.Spec.Northstar == nil {
+			continue
+		}
+		ns := d.Spec.Northstar
+		var b strings.Builder
+		b.WriteString(strings.TrimSpace(ns.Purpose))
+		for _, req := range ns.Requirements {
+			fmt.Fprintf(&b, "\n- %s: %s", req.ID, strings.TrimSpace(req.Statement))
+		}
+		if text := strings.TrimSpace(b.String()); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 // changedByAttempt is what the attempt changed, less the loop's own ledger
@@ -787,7 +974,7 @@ func (r *recurseRun) settleInFlight(ctx context.Context, history []recurseRecord
 	if err != nil {
 		return err
 	}
-	rec := recurseRecord{Step: stepRatchet, Pass: f.Pass, Cycle: f.Cycle, Node: f.Node, Finding: f.Finding}
+	rec := recurseRecord{Step: stepRatchet, Pass: f.Pass, Cycle: f.Cycle, Node: f.Node, Finding: f.Finding, Angle: f.Angle}
 	if hash, ok := kept[f.Cycle]; ok {
 		rec.Outcome, rec.Commit, rec.Detail = outcomeKept, hash, "settled on restart: the commit landed"
 	} else {
@@ -833,7 +1020,14 @@ func (r *recurseRun) resume(history []recurseRecord) (int, map[string]bool, erro
 				ended = true
 			}
 		case stepRatchet:
-			if err := r.policy.attempt(h.Finding, h.Node, h.Cycle, h.Outcome, h.Signature); err != nil {
+			var err error
+			switch {
+			case h.Finding != "":
+				err = r.policy.attempt(h.Finding, h.Node, h.Cycle, h.Outcome, h.Signature)
+			case h.Outcome == outcomeKept:
+				err = r.policy.nodeKept(h.Node, h.Cycle)
+			}
+			if err != nil {
 				return 0, nil, err
 			}
 		}

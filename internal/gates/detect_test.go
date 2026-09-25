@@ -79,7 +79,7 @@ func TestDetect_GoModuleGetsBuildVetTest(t *testing.T) {
 	if got, want := ids(s.Gates), []string{"go:build", "go:test", "go:vet"}; !slices.Equal(got, want) {
 		t.Fatalf("gates = %v, want %v", got, want)
 	}
-	if got := find(t, s, "go:test").ForNode("internal/store"); !slices.Equal(got, []string{"go", "test", "-count=1", "./internal/store"}) {
+	if got := find(t, s, "go:test").ForNode("internal/store"); !slices.Equal(got, []string{"go", "test", "-count=1", "-cover", "./internal/store"}) {
 		t.Fatalf("go:test for a node = %v", got)
 	}
 	if got := find(t, s, "go:vet").ForNode("."); !slices.Equal(got, []string{"go", "vet", "."}) {
