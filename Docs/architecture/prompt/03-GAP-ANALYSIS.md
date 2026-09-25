@@ -98,7 +98,12 @@ Receipt: `go run ./cmd/tools/validate_prompt_atoms -root internal/prompt/atoms
   selector path (runSelection replaced it; tests migrated to `SelectAtoms`),
   `SyncEmbeddedToSQLite` and `HydrateAtomContextTags` (third writers of the
   embedding/tag tables), `AnalyzePrompt`, `AssembleWithOptions`.
-- G4, G7, G8, G10: open; see the sections below. G10 (task-integrity coupling)
+- G7 (verification residuals): PARTIAL. The strict atom parser now has a fuzz
+  gate (`atom_schema_fuzz_test.go#FuzzParsePromptAtomYAML`: no panic, accepted
+  atoms have unique non-empty IDs and a category; seeds run under `go test`, a
+  20s fuzz run found nothing). The external-adapter scope conformance gate is
+  still open.
+- G4, G8, G10: open; see the sections below. G10 (task-integrity coupling)
   lives in session/world shell-effect tracking, outside the prompt package.
 
 ### Gap G4: manifest is not an end-to-end decision receipt
