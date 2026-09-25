@@ -17,10 +17,10 @@
 AmbientContext.CursorLine	internal/types/types.go:426	(dead file)
 AmbientContext.SelectedText	internal/types/types.go:427	(dead file)
 AuditReportInput.Discovery	internal/browser/contract_audit_report.go:16	(dead file)
-BindMount.ReadOnly	internal/tactile/platform_unix.go:79	(dead file)
-BootConfig.KernelOverride	internal/system/factory.go:80	(dead file)
-CompilationStats.FallbackUsed	internal/prompt/compiler.go:183
-CompilerConfig.VectorSearchTimeout	internal/prompt/compiler.go:452
+BindMount.ReadOnly	internal/tactile/platform_unix.go:39	(dead file)
+BootConfig.KernelOverride	internal/system/factory.go:81	(dead file)
+CompilationStats.FallbackUsed	internal/prompt/compiler.go:182
+CompilerConfig.VectorSearchTimeout	internal/prompt/compiler.go:445
 DecomposeRequest.UserHints	internal/campaign/decomposer.go:215
 DependencyError.ConflictID	internal/prompt/resolver.go:340
 DependencyError.CycleIDs	internal/prompt/resolver.go:341
@@ -39,7 +39,6 @@ MeterConfig.HTTPClient	internal/broker/default.go:58	(dead file)
 MeterConfig.PrimaryModel	internal/broker/default.go:63	(dead file)
 MeterConfig.ReceiptBuffer	internal/broker/default.go:54	(dead file)
 MeterConfig.SeedRatio	internal/broker/default.go:56	(dead file)
-NamespaceConfig.NewUser	internal/tactile/platform_darwin.go:42
 OpenRouterConfig.SiteURL	internal/perception/client_types.go:165
 Options.ContextLines	internal/diff/diff.go:166	(dead file)
 Options.DisableCache	internal/diff/diff.go:170	(dead file)
