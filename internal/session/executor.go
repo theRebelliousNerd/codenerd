@@ -69,9 +69,11 @@ type SessionPersister interface {
 // modular tools directly via tools.Global(), bypassing RouteAction, so without
 // this seam those executive layers never fire on a live coding turn.
 //
-// The executor type-asserts e.virtualStore against this interface; when the
-// store does not implement it (e.g. a nil store or a stub adapter), the gate is
-// simply skipped and behavior is identical to before — a graceful fallback.
+// The executor type-asserts e.virtualStore against this interface. When the
+// store does not implement it (a nil store, a stub adapter), read-effect tools
+// still run and every other effect is refused before execution
+// ("mandatory executive gate unavailable", executeToolCall): the gate is
+// mandatory, not a graceful fallback.
 //
 // Implemented by *core.VirtualStore (see virtual_store_interactive_gate.go).
 type InteractiveExecutiveGate interface {
@@ -85,11 +87,11 @@ type InteractiveExecutiveGate interface {
 	ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error
 }
 
-// warnInteractiveGateUnavailable logs the missing-gate fallback exactly once
-// per executor lifetime. The flag gates the log, not the behavior: ungated
-// calls still proceed unsimulated (fail-open), but the single warning makes
-// the bypass visible instead of silent. Returns true when this call emitted
-// the warning.
+// warnInteractiveGateUnavailable logs the missing gate exactly once per
+// executor lifetime. The flag gates the log, not the behavior: every
+// non-read effect is refused without the gate (fail-closed, executeToolCall),
+// and the single warning says why. Returns true when this call emitted the
+// warning.
 func (e *Executor) warnInteractiveGateUnavailable() bool {
 	if e == nil {
 		return false
@@ -102,7 +104,7 @@ func (e *Executor) warnInteractiveGateUnavailable() bool {
 }
 
 // interactiveGate returns the VirtualStore's executive gate when available.
-// On the fail-open fallback (store nil or adapter without the interface) it
+// With no gate (store nil or adapter without the interface) it
 // logs the one-time warning and reports unavailable. Both the pre-execution
 // Dreamer preflight and the post-execution validation seams go through here
 // so the warning fires once no matter which seam is hit first.
