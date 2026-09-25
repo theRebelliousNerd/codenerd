@@ -277,8 +277,17 @@ func (v *VirtualStore) Close() error {
 func (v *VirtualStore) initModernExecutor() {
 	logging.VirtualStoreDebug("Initializing modern executor with audit logging")
 
-	// Create executor config
+	// Create executor config. Every production command runs through this
+	// composite, not through the executor the caller handed in, so the
+	// caller's configuration (execution.default_timeout, the project build
+	// environment in BaseEnvironment, output and limit defaults) must carry
+	// over. It used to start from DefaultExecutorConfig and drop all of it:
+	// boot built a DirectExecutor with the build env and the configured
+	// timeout, and every command then ran with neither.
 	execConfig := tactile.DefaultExecutorConfig()
+	if configured, ok := v.executor.(tactile.ConfiguredExecutor); ok {
+		execConfig = configured.Config()
+	}
 	execConfig.DefaultWorkingDir = v.workingDir
 	execConfig.AllowedEnvironment = v.allowedEnvVars
 
