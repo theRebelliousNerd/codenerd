@@ -641,56 +641,6 @@ func TestSafetyViolationType_String_WhenAllTypes_ShouldReturnName(t *testing.T) 
 }
 
 // =============================================================================
-// ExplainSafetyAction
-// =============================================================================
-
-func TestExplainSafetyAction_WhenDestructive_ShouldShowRisks(t *testing.T) {
-	t.Parallel()
-	result := ExplainSafetyAction("rm -rf /tmp")
-	if !strings.Contains(result, "Destructive") {
-		t.Error("expected destructive risk")
-	}
-	if !strings.Contains(result, "Potential Risks") {
-		t.Error("expected risks section")
-	}
-}
-
-func TestExplainSafetyAction_WhenForce_ShouldShowForceRisk(t *testing.T) {
-	t.Parallel()
-	result := ExplainSafetyAction("git push -f")
-	if !strings.Contains(result, "Force flag") {
-		t.Error("expected force flag risk")
-	}
-}
-
-func TestExplainSafetyAction_WhenSudo_ShouldShowElevatedRisk(t *testing.T) {
-	t.Parallel()
-	result := ExplainSafetyAction("sudo apt install")
-	if !strings.Contains(result, "Elevated privileges") {
-		t.Error("expected elevated privileges risk")
-	}
-}
-
-func TestExplainSafetyAction_WhenSafe_ShouldShowLowRisk(t *testing.T) {
-	t.Parallel()
-	result := ExplainSafetyAction("echo hello")
-	if !strings.Contains(result, "Low") {
-		t.Error("expected low risk level")
-	}
-	if !strings.Contains(result, "appears safe") {
-		t.Error("expected safe assessment")
-	}
-}
-
-func TestExplainSafetyAction_WhenMultipleRisks_ShouldShowHighRisk(t *testing.T) {
-	t.Parallel()
-	result := ExplainSafetyAction("sudo rm -rf -f /secret")
-	if !strings.Contains(result, "High") {
-		t.Error("expected high risk level for multiple risks")
-	}
-}
-
-// =============================================================================
 // TransparencyManager - Extended tests
 // =============================================================================
 

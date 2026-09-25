@@ -324,6 +324,21 @@ func (tm *TransparencyManager) GetStatus() string {
 	return sb.String()
 }
 
+// ExplainError is the error an operator surface should show for err. With
+// transparency on and VerboseErrors set it is err classified (a
+// *ClassifiedError: category prefix, summary, remediation steps, and Unwrap
+// back to err so errors.Is/As still reach the cause); otherwise err itself.
+// Nil-safe on both the manager and err.
+//
+// VerboseErrors used to be a flag /transparency status reported and no error
+// surface read: the classifier and its recovery guides reached nobody.
+func (tm *TransparencyManager) ExplainError(err error) error {
+	if err == nil || !tm.IsEnabled() || tm.config == nil || !tm.config.VerboseErrors {
+		return err
+	}
+	return ClassifyError(err)
+}
+
 // FormatError formats an error with transparency context if enabled.
 func (tm *TransparencyManager) FormatError(err error) string {
 	if err == nil {

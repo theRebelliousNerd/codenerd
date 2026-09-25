@@ -36,6 +36,7 @@ type TransparencyManager struct { /* unexported fields */ }
 | `ReportSafetyViolation(action, target, rule string) *SafetyViolation` | Gated; may nil |
 | `GetStatus() string` | Markdown status |
 | `FormatError(err error) string` | Classifies; verbosity gated |
+| `ExplainError(err error) error` | The error an operator surface shows: classified (`*ClassifiedError`, unwraps to `err`) when enabled + `VerboseErrors`, else `err`. Consumer: the chat error panel (`Model.presentError`). |
 
 ## 3. Shard observation
 
@@ -76,11 +77,9 @@ type TransparencyManager struct { /* unexported fields */ }
 
 Methods: `Enable`/`Disable`, `ReportViolation`, `GetRecentViolations`, `GetViolation`, `FormatViolation`, `ClearHistory`.
 
-Free function:
-
-| Func | Purpose |
-|------|---------|
-| `ExplainSafetyAction(action string) string` | Hypothetical risk markdown |
+`ExplainSafetyAction` (a substring heuristic presented as a safety analysis)
+was removed 2026-09-25: a safety verdict comes from the constitution
+(`/shadow`, `/why permitted`), not from keyword matching in Go.
 
 Violation types: `ViolationDestructiveAction`, `ViolationProtectedPath`, `ViolationSecretExposure`, `ViolationResourceLimit`, `ViolationPolicyRule`, `ViolationUnauthorized`, `ViolationUnknown`.
 
@@ -102,12 +101,16 @@ Categories: Safety, Config, API, Kernel, Shard, Filesystem, Network, Timeout, Un
 
 | Method / Func | Purpose |
 |---------------|---------|
-| `SetMaxDepth` / `SetShowDetails` | Config |
-| `ExplainTrace(*mangle.DerivationTrace) string` | Full tree markdown |
-| `ExplainFact(trace, predicate) string` | Filter by predicate |
-| `ExplainDecision(action, trace) string` | Narrative; prefers next_action |
-| `QuickExplain(predicate string, args []any) string` | One-liner |
+| `ExplainTrace(*mangle.DerivationTrace) string` | Full tree markdown (consumer: `/why`) |
 | `FormatOperationSummary(*OperationSummary) string` | Post-op markdown |
+
+Removed 2026-09-25, none had a caller: `SetMaxDepth` / `SetShowDetails`
+(depth 5 and details on are fixed by `NewExplainer`), `ExplainFact` (the same
+answer `/why <predicate>` gets by tracing the predicate), `ExplainDecision` /
+`buildNarrative` (a shallower rendering of the tree `ExplainTrace` already
+renders for `/why next_action`, without the rule glossary), `QuickExplain`
+(its `user_intent` branch read the wrong argument positions of the 5-ary
+predicate).
 
 ```go
 type OperationSummary struct {

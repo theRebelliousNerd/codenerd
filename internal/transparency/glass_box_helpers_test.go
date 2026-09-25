@@ -47,17 +47,3 @@ func TestEventBusEnableVerbose(t *testing.T) {
 		t.Error("SetVerbose(false) should disable verbose mode")
 	}
 }
-
-func TestExplainerSetters(t *testing.T) {
-	e := NewExplainer()
-	// Setters mutate configuration without panicking; verified indirectly via
-	// the constructor defaults differing from the values we set.
-	e.SetMaxDepth(12)
-	e.SetShowDetails(false)
-	if e.maxDepth != 12 {
-		t.Errorf("SetMaxDepth not applied: %d", e.maxDepth)
-	}
-	if e.showDetails {
-		t.Error("SetShowDetails(false) not applied")
-	}
-}
