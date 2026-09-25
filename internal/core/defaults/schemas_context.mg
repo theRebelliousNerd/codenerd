@@ -26,6 +26,26 @@ Decl context_relevant(Fact, Priority) bound [/string, /name].
 Decl should_include_context(Fact, Priority) bound [/string, /name].
 
 # =============================================================================
+# CC.2: Retention
+# =============================================================================
+
+# context_must_retain(Predicate) - every fact of Predicate is carried in the
+# window's constitutional section on every build, whatever relevance derived.
+# Predicate: the predicate's name as a name atom (/permitted).
+# Consumed by Compressor.getCoreFacts (internal/context/compressor.go), which
+# retains a constitutional floor of its own only when this derives no row, and
+# warns when it does.
+Decl context_must_retain(Predicate) bound [/name].
+
+# session_note(Key, Value) - a short-term observation the model recorded for
+# this session with the piggyback memory operation "note"
+# (protocol/piggyback/memory_ops), e.g. session_note("current_focus",
+# "refactoring auth module"). One note per key: a later note replaces it, and
+# the memory operation "forget" drops it. Asserted by
+# Compressor.recordSessionNote (internal/context/compressor_turns.go).
+Decl session_note(Key, Value) bound [/string, /string].
+
+# =============================================================================
 # CC.4: Dependency Reachability (C4)
 # =============================================================================
 

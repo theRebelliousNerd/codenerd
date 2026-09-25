@@ -45,6 +45,11 @@ func (c *Compressor) GetMetrics() map[string]any {
 		"last_selection_mode":    string(c.selection.LastMode),
 		"last_selection_reason":  c.selection.LastReason,
 		"unresolved_kernel_ents": c.selection.UnresolvedKernelFacts,
+		// Retention decisions the kernel did not make (context_must_retain
+		// absent where the compressor asks).
+		"retention_floor_used": c.selection.RetentionFloorUsed,
+		// Writes of compressed state or activation analytics that failed.
+		"persist_failures": c.persistFailures,
 	}
 }
 
