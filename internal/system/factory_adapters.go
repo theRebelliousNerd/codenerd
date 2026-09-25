@@ -3,6 +3,7 @@ package system
 import (
 	"codeberg.org/TauCeti/mangle-go/analysis"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	manglepkg "codenerd/internal/mangle"
@@ -18,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for project corpus
@@ -557,16 +559,59 @@ func (a *sessionLLMAdapter) meteredContext(ctx context.Context) context.Context 
 	return usage.NewContext(ctx, a.tracker)
 }
 
+// auditLLMCall records one call the session executor made in the audit trail
+// (llm_response events; `nerd audit facts` exports them). Every model call a
+// session makes passes through this adapter, which is why the record is made
+// here: the audit trail carried turns, intents, tools, files and safety checks
+// but no model call, so a forensic replay could see what the agent did and not
+// what it asked. tokens is 0 for the text-only methods, whose clients do not
+// return a count.
+func (a *sessionLLMAdapter) auditLLMCall(start time.Time, tokens int, err error) {
+	model := "unknown"
+	if identifier, ok := broker.Base(a.client).(types.ModelIdentifier); ok {
+		if provider, name := identifier.ModelIdentity(); name != "" {
+			model = name
+			if provider != "" {
+				model = provider + "/" + name
+			}
+		}
+	}
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	logging.Audit().LLMCall(model, tokens, time.Since(start).Milliseconds(), err == nil, errMsg)
+}
+
+func responseTokens(resp *types.LLMToolResponse) int {
+	if resp == nil {
+		return 0
+	}
+	if resp.Usage.TotalTokens > 0 {
+		return resp.Usage.TotalTokens
+	}
+	return resp.Usage.InputTokens + resp.Usage.OutputTokens
+}
+
 func (a *sessionLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {
-	return a.client.Complete(a.meteredContext(ctx), prompt)
+	start := time.Now()
+	out, err := a.client.Complete(a.meteredContext(ctx), prompt)
+	a.auditLLMCall(start, 0, err)
+	return out, err
 }
 
 func (a *sessionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	return a.client.CompleteWithSystem(a.meteredContext(ctx), systemPrompt, userPrompt)
+	start := time.Now()
+	out, err := a.client.CompleteWithSystem(a.meteredContext(ctx), systemPrompt, userPrompt)
+	a.auditLLMCall(start, 0, err)
+	return out, err
 }
 
 func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return a.client.CompleteWithTools(a.meteredContext(ctx), systemPrompt, userPrompt, tools)
+	start := time.Now()
+	resp, err := a.client.CompleteWithTools(a.meteredContext(ctx), systemPrompt, userPrompt, tools)
+	a.auditLLMCall(start, responseTokens(resp), err)
+	return resp, err
 }
 
 // CompleteWithToolResults forwards multi-turn tool results when the underlying
@@ -576,14 +621,20 @@ func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt,
 func (a *sessionLLMAdapter) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	ctx = a.meteredContext(ctx)
 	if trp, ok := a.client.(types.ToolResultsProvider); ok {
-		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		start := time.Now()
+		resp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		a.auditLLMCall(start, responseTokens(resp), err)
+		return resp, err
 	}
 	// perception clients may implement the interface with perception-local aliases
 	type perceptionTRP interface {
 		CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
 	}
 	if trp, ok := a.client.(perceptionTRP); ok {
-		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		start := time.Now()
+		resp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		a.auditLLMCall(start, responseTokens(resp), err)
+		return resp, err
 	}
 	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", a.client)
 }
@@ -601,7 +652,9 @@ func (a *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPro
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
+		start := time.Now()
 		res, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		a.auditLLMCall(start, 0, err)
 		if err != nil {
 			errorChan <- err
 			return

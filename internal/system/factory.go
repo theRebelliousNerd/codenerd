@@ -2347,7 +2347,7 @@ func initFactoryOuroborosWiring(bctx *bootContext) {
 					Purpose:  need.Description,
 					Priority: need.Priority,
 				}
-				poiesis.ExecuteOuroborosLoop(ctx, autoNeed)
+				recordToolGeneration(need.Name, poiesis.ExecuteOuroborosLoop(ctx, autoNeed))
 				timeoutCancel()
 			}
 		}
