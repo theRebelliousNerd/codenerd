@@ -441,17 +441,19 @@ func nodeGates(set gates.Set, node SubsystemNode) []gates.Gate {
 }
 
 // open is what the visit can attempt: the node's own gates' findings, and the
-// workspace gates' findings attributed to it for kinds its own gates do not
-// measure (a workspace `go vet ./...` repeats what the node's `go vet` said).
+// workspace gates' findings attributed to it -- except a workspace gate that a
+// per-node gate of its kind and language already measures (`go test ./...`
+// beside `go test {pkg}`). Its failures are the per-node gate's, read with the
+// package that failed; attempting them again from the whole-tree run would be
+// the same failure twice, and its test failures name no package to put them
+// in. Such a gate still runs at every pass boundary and in the ratchet.
 func (r *recurseRun) open(node SubsystemNode, own []gates.Gate, set gates.Set) []gates.Finding {
-	ownKinds := map[gates.Kind]bool{}
 	var out []gates.Finding
 	for _, g := range own {
-		ownKinds[g.Kind] = true
 		out = append(out, r.state[gateKey(g.ID, node.ID)].findings...)
 	}
 	for _, g := range set.Gates {
-		if g.Scope != gates.ScopeAll || ownKinds[g.Kind] {
+		if g.Scope != gates.ScopeAll || measuredPerNode(set, g) {
 			continue
 		}
 		for _, f := range r.state[gateKey(g.ID, "")].findings {
@@ -462,6 +464,17 @@ func (r *recurseRun) open(node SubsystemNode, own []gates.Gate, set gates.Set) [
 	}
 	gates.SortFindings(out)
 	return out
+}
+
+// measuredPerNode reports whether a node-scoped gate of g's kind and language
+// exists in set.
+func measuredPerNode(set gates.Set, g gates.Gate) bool {
+	for _, other := range set.Gates {
+		if other.Scope == gates.ScopeNode && other.Kind == g.Kind && other.Language == g.Language {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *recurseRun) regressions(open []gates.Finding) map[string]bool {

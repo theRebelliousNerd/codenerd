@@ -498,3 +498,30 @@ func TestRecurseCycles_SimplifyKeepsFewerLinesButNeverFewerTests(t *testing.T) {
 		t.Fatalf("simplify verdicts = %+v", simplify)
 	}
 }
+
+// A whole-tree gate that a per-node gate of its kind and language already
+// measures is not attempted again from the whole-tree run; one of another
+// language, or a kind no node gate measures, still is.
+func TestRecurseOpen_SkipsWholeTreeRepeatsOfPerNodeGates(t *testing.T) {
+	set := gates.Set{Gates: []gates.Gate{
+		{ID: "go-test", Kind: gates.Test, Scope: gates.ScopeNode, Language: "go"},
+		{ID: "test-all", Kind: gates.Test, Scope: gates.ScopeAll, Language: "go"},
+		{ID: "js-test", Kind: gates.Test, Scope: gates.ScopeAll, Language: "js/ts"},
+		{ID: "deadcode", Kind: gates.Audit, Scope: gates.ScopeAll},
+	}}
+	f := func(id, gate string) gates.Finding {
+		return gates.Finding{ID: id, Gate: gate, Node: RecurseWiringNodeID}
+	}
+	r := &recurseRun{state: map[string]gateRun{
+		gateKey("test-all", ""): {findings: []gates.Finding{f("dup", "test-all")}},
+		gateKey("js-test", ""):  {findings: []gates.Finding{f("js", "js-test")}},
+		gateKey("deadcode", ""): {findings: []gates.Finding{f("dead", "deadcode")}},
+	}}
+	var got []string
+	for _, fd := range r.open(SubsystemNode{ID: RecurseWiringNodeID, CrossCutting: true}, nil, set) {
+		got = append(got, fd.ID)
+	}
+	if want := []string{"dead", "js"}; !slices.Equal(got, want) {
+		t.Fatalf("open = %v, want %v", got, want)
+	}
+}
