@@ -69,17 +69,6 @@ func TestEmbeddedCorpusHasSystemAtoms(t *testing.T) {
 	}
 }
 
-func TestMustLoadEmbeddedCorpus(t *testing.T) {
-	// Should not panic
-	corpus := MustLoadEmbeddedCorpus()
-	if corpus == nil {
-		t.Error("MustLoadEmbeddedCorpus returned nil")
-	}
-	if corpus.Count() == 0 {
-		t.Error("MustLoadEmbeddedCorpus returned empty corpus")
-	}
-}
-
 func TestEmbeddedCorpusLoadsMangleDocAtoms(t *testing.T) {
 	corpus, err := LoadEmbeddedCorpus()
 	if err != nil {

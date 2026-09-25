@@ -325,16 +325,6 @@ func NewCompilationContext() *CompilationContext {
 	}
 }
 
-// NewCompilationContextWithBudget creates a new CompilationContext with a specific token budget.
-// Use this when creating compilation context with config.ContextWindow.MaxTokens.
-func NewCompilationContextWithBudget(tokenBudget int) *CompilationContext {
-	cc := NewCompilationContext()
-	if tokenBudget > 0 {
-		cc.TokenBudget = tokenBudget
-	}
-	return cc
-}
-
 // WorldStates returns the world state strings for atom matching.
 // These are derived from the boolean/numeric world model fields.
 func (cc *CompilationContext) WorldStates() []string {

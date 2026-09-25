@@ -48,31 +48,6 @@ func TestGroundedWebSearch_ConfigVisibility(t *testing.T) {
 		}
 	}
 
-	// Researcher via SimpleRegistry also includes grounded_web_search
-	registry := NewSimpleRegistry()
-	RegisterDefaultConfigAtoms(registry)
-	if atom, ok := registry.GetAtom("/researcher"); ok {
-		if !slices.Contains(atom.Tools, "grounded_web_search") {
-			t.Errorf("/researcher SimpleRegistry missing grounded_web_search tools=%v", atom.Tools)
-		}
-		if !slices.Contains(atom.Tools, "web_search") {
-			t.Errorf("/researcher SimpleRegistry missing web_search")
-		}
-		// verify grounded after web_search for deterministic ordering
-		idxGrounded := slices.Index(atom.Tools, "grounded_web_search")
-		idxWebSearch := slices.Index(atom.Tools, "web_search")
-		if idxGrounded < idxWebSearch {
-			t.Errorf("grounded_web_search should appear after web_search for deterministic ordering, got %d vs %d", idxGrounded, idxWebSearch)
-		}
-	} else {
-		t.Fatalf("SimpleRegistry missing /researcher")
-	}
-	if atom, ok := registry.GetAtom("/research"); ok {
-		if !slices.Contains(atom.Tools, "grounded_web_search") {
-			t.Errorf("/research SimpleRegistry missing grounded_web_search")
-		}
-	}
-
 	// Factory Generate also respects same visibility
 	factory := NewConfigFactory(provider)
 	ctx := context.Background()

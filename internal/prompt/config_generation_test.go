@@ -6,16 +6,18 @@ import (
 	"testing"
 )
 
+// The production provider (NewDefaultConfigAtomProvider, the one system boot
+// hands to NewConfigFactory) is the single authority for intent -> tools and
+// policies. These assertions used to run against a second, hand-maintained
+// SimpleRegistry catalog that no production path consulted and that had
+// drifted (it still granted run_shell_command); they now pin the live one.
 func TestConfigGeneration_StandardIntents(t *testing.T) {
-	registry := NewSimpleRegistry()
-	RegisterDefaultConfigAtoms(registry)
-	factory := NewConfigFactory(registry)
+	factory := NewConfigFactory(NewDefaultConfigAtomProvider())
 
 	ctx := context.Background()
 	result := &CompilationResult{Prompt: "Test Prompt"}
 
-	// Test Coder
-	coderCfg, err := factory.Generate(ctx, result, "/coder")
+	coderCfg, err := factory.Generate(ctx, result, "/fix")
 	if err != nil {
 		t.Fatalf("Failed to generate coder config: %v", err)
 	}
@@ -41,22 +43,19 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 	}
 	assertContainsAll(t, coderCfg.Policies, expectedCoderPolicies, "Coder")
 
-	// Test Tester
-	testerCfg, err := factory.Generate(ctx, result, "/tester")
+	testerCfg, err := factory.Generate(ctx, result, "/test")
 	if err != nil {
 		t.Fatalf("Failed to generate tester config: %v", err)
 	}
 	assertContainsAll(t, testerCfg.Policies, []string{"policy/constitution.mg", "policy/validation.mg", "tester.mg"}, "Tester")
 
-	// Test Reviewer
-	reviewerCfg, err := factory.Generate(ctx, result, "/reviewer")
+	reviewerCfg, err := factory.Generate(ctx, result, "/review")
 	if err != nil {
 		t.Fatalf("Failed to generate reviewer config: %v", err)
 	}
 	assertContainsAll(t, reviewerCfg.Policies, []string{"policy/constitution.mg", "policy/validation.mg", "reviewer.mg"}, "Reviewer")
 
-	// Researcher progressive browser loop.
-	researchCfg, err := factory.Generate(ctx, result, "/researcher")
+	researchCfg, err := factory.Generate(ctx, result, "/research")
 	if err != nil {
 		t.Fatalf("Failed to generate researcher config: %v", err)
 	}
@@ -75,12 +74,19 @@ func TestDefaultConfigAtomProvider_ProgressiveBrowserToolsReachResearchAndVerify
 }
 
 func TestConfigGeneration_HybridIntents(t *testing.T) {
-	registry := NewSimpleRegistry()
-	RegisterDefaultConfigAtoms(registry)
-	factory := NewConfigFactory(registry)
+	factory := NewConfigFactory(NewDefaultConfigAtomProvider())
 
 	ctx := context.Background()
 	result := &CompilationResult{Prompt: "Test Prompt"}
+
+	fixCfg, err := factory.Generate(ctx, result, "/fix")
+	if err != nil {
+		t.Fatalf("Failed to generate /fix config: %v", err)
+	}
+	testCfg, err := factory.Generate(ctx, result, "/test")
+	if err != nil {
+		t.Fatalf("Failed to generate /test config: %v", err)
+	}
 
 	// Hybrid: /fix (coder) + /test (tester)
 	hybridCfg, err := factory.Generate(ctx, result, "/fix", "/test")
@@ -88,7 +94,7 @@ func TestConfigGeneration_HybridIntents(t *testing.T) {
 		t.Fatalf("Failed to generate hybrid config: %v", err)
 	}
 
-	// Should have both policies
+	// Should have both policy sets
 	assertContainsAll(t, hybridCfg.Policies, []string{
 		"policy/constitution.mg",
 		"policy/validation.mg",
@@ -96,9 +102,13 @@ func TestConfigGeneration_HybridIntents(t *testing.T) {
 		"tester.mg",
 	}, "Hybrid")
 
-	// Should have union of tools
-	if !contains(hybridCfg.AllowedTools, "write_file") || !contains(hybridCfg.AllowedTools, "run_shell_command") {
-		t.Errorf("Hybrid config missing tools: %v", hybridCfg.AllowedTools)
+	// Should have the union of both intents' tools
+	assertContainsAll(t, hybridCfg.AllowedTools, fixCfg.AllowedTools, "Hybrid/fix")
+	assertContainsAll(t, hybridCfg.AllowedTools, testCfg.AllowedTools, "Hybrid/test")
+	// The production catalog grants no free-form shell; a hybrid must not
+	// manufacture one either.
+	if contains(hybridCfg.AllowedTools, "run_shell_command") {
+		t.Errorf("Hybrid config grants free-form shell: %v", hybridCfg.AllowedTools)
 	}
 }
 
