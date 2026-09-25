@@ -15,9 +15,13 @@ func setupTestDreamer(t *testing.T) (*Dreamer, *RealKernel) {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	d := NewDreamer(k)
+	d := NewDreamer(k, testCriticalPaths...)
 	return d, k
 }
+
+// testCriticalPaths is what a workspace like codeNERD declares in nerd.md
+// critical:; the Dreamer adds .git and .nerd itself.
+var testCriticalPaths = []string{"internal/mangle", "internal/core", "cmd/nerd"}
 
 // REMEDIATED: Performance/OOM - see TestDreamerGap_PerformanceFullTableScan in dreamer_gaps_test.go
 

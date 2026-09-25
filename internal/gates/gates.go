@@ -93,6 +93,20 @@ func (g Gate) Passed(exitCode int) bool {
 	return false
 }
 
+// AppliesTo reports whether a node-scoped gate runs on a node whose files
+// are in langs. A gate with no language runs on every node.
+func (g Gate) AppliesTo(langs []string) bool {
+	if g.Language == "" {
+		return true
+	}
+	for _, l := range langs {
+		if l == g.Language {
+			return true
+		}
+	}
+	return false
+}
+
 // ForNode returns the gate's argv for node (a workspace-relative slash
 // directory, "." for the root). A workspace-scoped gate's argv comes back
 // unchanged.

@@ -14,13 +14,14 @@ command. It is the R7 instrument of the ladder (`05-elite-harness-ladder.md`)
 made general, plus the unattended-hardening bar
 (`06-unattended-hardening.md`).
 
-## What recurse is today, and what changes
+## What recurse was, and what changed
 
-`nerd campaign recurse` plans its waves in Go from a fixed table of codeNERD's
-own packages (`internal/campaign/recurse_dag.go:37`), never measures a gate, and
-its stall fuse counts tasks the model *said* it completed. Pointed at any other
-repository, it plans work on paths that do not exist. The same codeNERD-shaped
-Go constants sit under three other decisions:
+Before this program, `nerd campaign recurse` planned its waves in Go from a
+fixed table of codeNERD's own packages, never measured a gate, and its stall
+fuse counted tasks the model *said* it completed. Pointed at any other
+repository, it planned work on paths that do not exist. The same codeNERD-shaped
+Go constants sat under three other decisions; each row is now what the right
+column says:
 
 | Where | Constant | Becomes |
 |---|---|---|
@@ -136,19 +137,26 @@ now, and are owed only for /go writes, as today.
   its identity.
 * `finding_attempt(ID, Cycle, Outcome, Signature)`, where Outcome ∈ {/kept,
   /reverted, /refused, /unverified}.
-* Policy `recurse.mg` (the policy recurse already reads, extended):
-  * `recurse_candidate(ID, Priority)`, ordered as red build > red test >
-    regression introduced this pass > lint/audit. The improvement step runs
-    after these on every visit, whatever the queue held.
-  * `recurse_angle(Pass, Angle)` and `recurse_metric_for(Angle, Metric)` decide
-    the step's target. `recurse_improvement_kept(Cycle)` is derived from the metric
-    before and after, plus no regression.
-  * `finding_stalled(ID)`, derived when two attempts ended with the same failure
-    signature and nothing in the finding's target changed in between. That is a
+* Policy `policy/recurse.mg`:
+  * `recurse_candidate(ID, Rank)`, ordered as red build > red test >
+    regression introduced this pass > lint/audit, each finding attempted once
+    per visit. The improvement step runs after these on every visit, whatever
+    the queue held.
+  * `recurse_pass_angle(Angle)` rotates by pass; `recurse_angle_metric(Angle,
+    Metric, Direction)` says what it must move; `recurse_improve_angle(Node,
+    Angle)` is the step's target where that metric is measurable;
+    `recurse_improved(Cycle)` is derived from the metric before and after.
+  * `recurse_metric_regressed(Cycle)`: the test count fell (any attempt) or
+    coverage fell (an improvement). Either reverts the attempt.
+  * `finding_stalled(ID)`, derived when a finding's last two attempts ended with
+    the same failure signature and no kept change to its node since. That is a
     repeated failure, not a counter.
   * `recurse_next(ID)`, the best non-stalled candidate on the current node.
-  * `recurse_forbidden(Path)`, from `nerd.md` `forbid:` and the constitution's
-    own files. The loop never edits its own safety or permission logic.
+  * `recurse_ratchet(Cycle, /keep | /revert | /refuse)`: kept only if its target
+    is gone (a fix) or its metric moved (an improvement), no gate got worse, no
+    guard metric regressed, and nothing it wrote is forbidden -- by `nerd.md`
+    `forbid:`, or under `.git` or `.nerd`. The loop never edits its own safety
+    or permission logic: codeNERD's nerd.md forbids it.
 
 ## Durability and bounds
 
@@ -158,9 +166,11 @@ now, and are owed only for /go writes, as today.
 * Commits go to a dedicated branch, `nerd/recurse` by default. There is no push
   unless configured, and never a force-push. Each commit names its finding and
   cycle.
-* Bounded growth: journal compaction per pass; outputs retained per finding
-  under a byte budget from config; the working-set databases already pruned
-  (wave 4 item C).
+* Bounded growth: the journal rotates under its byte cap (one generation);
+  the kernel keeps a finding's last two attempts and a node's latest kept
+  change, and retires each cycle's inputs once it is judged; each attempt's
+  campaign (facts and `.nerd/campaigns` files) is released after it runs;
+  gate output is kept head and tail under a byte bound.
 * `nerd campaign recurse status` shows the ledger: pass, node, what was measured,
   picked, kept, reverted and stalled, with the gate trend.
 
@@ -170,48 +180,43 @@ now, and are owed only for /go writes, as today.
   the same. `--waves N` stays as an opt-in bound for a short run. The loop
   needs no `--yolo`: its stops are derived.
 * `nerd campaign recurse --plan` is a dry run. It prints the derived DAG order,
-  the detected gates and the first measurement. No model is involved, so the
-  owner can inspect it before running for real.
+  the detected gates and the gates that cannot run here. No model is involved,
+  so the owner can inspect it before running for real.
 * `nerd campaign recurse status` shows the ledger, and
   `nerd campaign recurse stop` stops the loop.
-* The existing flags keep working. `--subsystem` narrows the derived DAG
-  instead of the Go table. `--angles` picks the pass's angles from the
-  improvement table.
-
-## Ready to hand over
-
-The loop runs on the owner's machine only when all of these hold. Each one is a
-test or a recorded run, not an opinion.
-
-1. **Generality.** `--plan` on three fixture workspaces (Go, Python, TS) derives
-   the right DAG order and the right gates. On codeNERD itself it derives an
-   order the owner recognises.
-2. **Ratchet.** End to end with a scripted fake model:
-   * a fixing turn is kept and committed;
-   * a turn that fixes its target but breaks another gate is reverted;
-   * a turn that does nothing is reverted and its finding eventually stalls;
-   * an improvement that moves its metric is kept;
-   * one that moves nothing, or regresses another metric, is reverted;
-   * a green node still gets its improvement step every visit.
-3. **Resume.** A run killed mid-fix resumes without losing or repeating a kept
-   change (the journal test kills the process at every state boundary).
-4. **Safety.** A fake model that tries to edit a forbidden path or the
-   constitution is refused, and the finding is marked /refused, not stalled
-   silently.
-5. **Bounds.** A 1,000-cycle fake run leaves journal, logs and databases under
-   their budgets.
-6. **Gates honest.** A workspace whose test gate cannot run reports
-   `/unverified`, never a pass.
-7. **CI green,** including the Windows path-alias step.
-
-Then the owner starts `nerd campaign recurse` locally, and the first hours are monitored
-live.
+* `--subsystem` narrows the derived DAG to named nodes and what they depend
+  on. The pass's angle rotates; it is not a flag.
 
 ## Status
 
 | Phase | What | State |
 |---|---|---|
-| 1 | Derived DAG (`campaign.DeriveWorkspaceDAG`: Go via `go list`, Python and JS/TS imports, Rust crates; cycles collapse); per-language gates (`internal/gates`); `nerd.md` `gates:` and `critical:`; `nerd campaign recurse --plan` | done |
-| 2 | Measure → findings as facts, `recurse.mg` pick/stall, ratchet keep/revert, commits on `nerd/recurse`, journal, fake-model end-to-end tests | next |
-| 3 | Forever by default, `status`/`stop`, measured improvement angles, `workspace_critical_path` replacing the three Go constants | |
-| 4 | Session forcing gates run the workspace's gates for non-Go writes; `/unverified` when a gate cannot run | |
+| 1 | Derived DAG (`campaign.DeriveWorkspaceDAG`: Go via `go list`, Python and JS/TS imports, Rust crates; cycles collapse); per-language gates (`internal/gates`); `nerd.md` `gates:` and `critical:`; `nerd campaign recurse --plan` | done (#1109) |
+| 2 | Measure → findings as facts (`gates.Run`, `gates.Findings`); `policy/recurse.mg` pick, stall and ratchet; a git ratchet that keeps (commits on `nerd/recurse`) or reverts exactly the attempt's paths; the journal and the in-flight settle on restart; the CLI and chat both on `RunRecurseCycles`; wave planner and runner deleted | done |
+| 3 | Forever by default; one loop per workspace (an OS lock); `status` and `stop`; a measured improvement on every visit (stabilize, harden, simplify, extend, rotating by pass; kept only when `tests`, `coverage` or `lines` moved, with tests and coverage guarded on every attempt); `critical:` replacing the three Go constants; bounded kernel memory, cycle facts retired, attempt campaigns released | done |
+| 4 | A non-Go write's `/test_run` gate is settled by the workspace's own test gates over the directories written, when the workspace has one for the language; otherwise the model's run, as before, and no run leaves the turn `/unverified` | done |
+
+What is not built: benchmarks as a metric (the optimize angle), the wire and
+document angles, and per-node attribution of `go test ./...` failures. Each
+comes back only with a metric that measures it.
+
+### Ready to hand over
+
+| # | Check | Evidence |
+|---|---|---|
+| 1 | Generality | `--plan` and end-to-end tests on Go, Python, TS and Rust fixtures (`recurse_workspace_test.go`, `recurse_cycle_test.go`); on codeNERD, 98 nodes derived in 2 s |
+| 2 | Ratchet | a fix kept and committed; a fix breaking another gate reverted; a no-op reverted and stalled; an improvement moving its metric kept; one moving nothing reverted; one deleting a test reverted; every green node visited for improvement |
+| 3 | Resume | a killed attempt settled on restart (reverted, the owner's files untouched); a commit the journal missed recovered as kept; a stop mid-pass resumed at the node it was on |
+| 4 | Safety | a write to a nerd.md-forbidden path refused and never retried; a dirty checkout refused; a second loop on the workspace refused |
+| 5 | Bounds | 1,000 cycles against a fake model that never lets the workspace go green: bounded kernel state, no cycle facts outliving their cycle, ~470 journal bytes a cycle under the journal's cap (`CODENERD_RECURSE_SOAK=1000`) |
+| 6 | Gates honest | a gate that cannot start, or is stopped, is unverified -- no findings, never a pass; a missing toolchain is listed as unavailable with its reason |
+| 7 | CI green | the PR that lands phases 2-4 |
+
+Then the owner runs, from the workspace:
+
+```
+nerd campaign recurse --plan     # the order and the gates, no model
+nerd campaign recurse            # the loop, until stopped
+nerd campaign recurse status     # the ledger, from another shell
+nerd campaign recurse stop       # ends after the attempt in flight is judged
+```

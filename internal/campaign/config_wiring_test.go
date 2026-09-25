@@ -32,7 +32,7 @@ func TestConfigWiring(t *testing.T) {
 			TypeName:  "OrchestratorConfig",
 			FieldName: "NorthstarObserver",
 			MinSites:  3, // start and resume share one builder since 2026-09-04 (cmd/nerd/cmd_campaign.go); resume path literal deleted in run 47
-			Why:       "campaigns on protected roots refused when NorthstarObserver is nil (protectedCampaignRiskRoots in risk_scoring.go) - one campaign was refused 850 times in a day",
+			Why:       "campaigns on protected roots refused when NorthstarObserver is nil (the workspace nerd.md critical: list, riskCriticalPaths in risk_scoring.go) - one campaign was refused 850 times in a day",
 		},
 		{
 			TypeName:  "OrchestratorConfig",

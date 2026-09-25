@@ -2,6 +2,7 @@ package core
 
 import (
 	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/types"
 	"context"
 	"fmt"
@@ -27,16 +28,20 @@ type Dreamer struct {
 	mu                 sync.RWMutex
 	kernel             *RealKernel
 	criticalPathsReady bool                    // every critical_path_prefix fact landed in kernel; SimulateAction refuses to run blind without them
+	critical           []string                // alwaysCritical plus the workspace's nerd.md critical: list
 	router             *DreamRouter            // Routes confirmed learnings to persistence stores
 	planManager        *DreamPlanManager       // Manages dream plan lifecycle and execution state
 	learningCollector  *DreamLearningCollector // Extracts learnings from dream consultations
 }
 
-// NewDreamer creates a Dreamer backed by the provided kernel.
-func NewDreamer(kernel *RealKernel) *Dreamer {
+// NewDreamer creates a Dreamer backed by the provided kernel. critical are the
+// workspace's own catastrophic paths (nerd.md critical:, see
+// projectdoc.CriticalPaths); .git and .nerd are always among them.
+func NewDreamer(kernel *RealKernel, critical ...string) *Dreamer {
 	logging.Dream("Creating new Dreamer instance")
 	d := &Dreamer{
 		kernel:            kernel,
+		critical:          append(append([]string(nil), alwaysCritical...), critical...),
 		learningCollector: NewDreamLearningCollector(),
 	}
 	d.assertCriticalPathFacts()
@@ -108,16 +113,13 @@ func (d *Dreamer) SetKernel(kernel *RealKernel) {
 	d.assertCriticalPathFactsLocked()
 }
 
-// criticalPathPrefixes are the paths the Dreamer treats as catastrophic to delete.
-// These are the source-of-truth for both the Go criticalPrefix() function and
-// the Mangle critical_path_prefix() facts.
-var criticalPathPrefixes = []string{
-	".git",
-	".nerd",
-	"internal/mangle",
-	"internal/core",
-	"cmd/nerd",
-}
+// alwaysCritical are catastrophic to delete in every workspace: its history
+// and the agent's own state. Everything else a workspace deems critical it
+// declares in nerd.md (critical:) -- this list used to name codeNERD's own
+// packages, which in any other workspace protected paths that do not exist.
+// A Dreamer's list is the source of truth for both criticalPrefix and the
+// Mangle critical_path_prefix facts.
+var alwaysCritical = []string{".git", ".nerd"}
 
 // assertCriticalPathFacts populates the Mangle critical_path_prefix(Prefix) schema
 // from the Go hardcoded constants, giving policy rules visibility into critical paths.
@@ -140,7 +142,7 @@ func (d *Dreamer) assertCriticalPathFactsLocked() {
 	if d.kernel == nil {
 		return
 	}
-	for _, prefix := range criticalPathPrefixes {
+	for _, prefix := range d.critical {
 		if err := d.kernel.AssertWithoutEval(Fact{
 			Predicate: "critical_path_prefix",
 			Args:      []any{prefix},
@@ -153,7 +155,7 @@ func (d *Dreamer) assertCriticalPathFactsLocked() {
 	}
 	d.kernel.Evaluate()
 	d.criticalPathsReady = true
-	logging.DreamDebug("Dreamer: asserted %d critical_path_prefix facts", len(criticalPathPrefixes))
+	logging.DreamDebug("Dreamer: asserted %d critical_path_prefix facts", len(d.critical))
 }
 
 func (d *Dreamer) getKernel() *RealKernel {
@@ -395,7 +397,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 				path,
 			},
 		})
-		if prefix := criticalPrefix(path); prefix != "" {
+		if prefix := d.criticalPrefix(path); prefix != "" {
 			logging.DreamDebug("projectEffects: critical path detected: %s", prefix)
 			projected = append(projected, Fact{
 				Predicate: "projected_fact",
@@ -436,7 +438,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 		// file under internal/core or cmd/nerd is ordinary work — codeNERD must
 		// be able to modify its own kernel and CLI — so a modification only
 		// projects a critical hit for the repository's own metadata.
-		if prefix := criticalPrefix(path); prefix != "" && criticalForModification(prefix) {
+		if prefix := d.criticalPrefix(path); prefix != "" && criticalForModification(prefix) {
 			logging.DreamDebug("projectEffects: critical path detected: %s", prefix)
 			projected = append(projected, Fact{
 				Predicate: "projected_fact",
@@ -683,17 +685,16 @@ func isDangerousCommand(cmd string) bool {
 	return false
 }
 
-// criticalPrefix returns a critical prefix if the path falls under it. The
+// criticalPrefix returns the critical entry path falls under, or "". The
 // match is segment-aware: "internal/core/kernel.go" and
-// "C:/repo/internal/core/kernel.go" hit, "internal/corex/a.go" does not.
-func criticalPrefix(path string) string {
-	normalizedPath := "/" + strings.Trim(filepath.ToSlash(filepath.Clean(path)), "/") + "/"
-	for _, p := range criticalPathPrefixes {
-		if strings.Contains(normalizedPath, "/"+p+"/") {
-			return p
-		}
+// "C:/repo/internal/core/kernel.go" hit "internal/core", "internal/corex/a.go"
+// does not; a glob entry ("*.mg") matches by name.
+func (d *Dreamer) criticalPrefix(path string) string {
+	if d == nil {
+		return ""
 	}
-	return ""
+	prefix, _ := projectdoc.MatchCritical(d.critical, path)
+	return prefix
 }
 
 // criticalForModification reports whether writing or editing under a critical

@@ -296,7 +296,9 @@ func TestDreamerGap_PathTraversalBypass(t *testing.T) {
 		{"double slash", "internal//core/kernel.go", true},
 		{".git direct", ".git/config", true},
 		{"unicode safe", "internalⓐcore/kernel.go", false}, // not a real path
-		{"case variant", "Internal/Core/kernel.go", false}, // case-sensitive
+		// Paths are case-insensitive on Windows and macOS; a safety list a
+		// capitalisation walks past is not one.
+		{"case variant", "Internal/Core/kernel.go", true},
 		{"absolute path", "C:/repo/internal/core/kernel.go", true},
 		{"sibling directory", "internal/corex/kernel.go", false},
 		{"suffix directory", "pkg/internal/mangle_old/x.go", false},
@@ -305,7 +307,7 @@ func TestDreamerGap_PathTraversalBypass(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := criticalPrefix(tt.path)
+			got := NewDreamer(nil, testCriticalPaths...).criticalPrefix(tt.path)
 			gotHit := got != ""
 			if gotHit != tt.wantHit {
 				t.Errorf("criticalPrefix(%q) = %q, wantHit=%v, gotHit=%v",

@@ -8,6 +8,8 @@
 package northstar
 
 import (
+	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -410,6 +412,20 @@ type GuardianConfig struct {
 	AlignmentModel string `json:"alignment_model"` // LLM model for checks
 }
 
+// GuardianConfigFor is DefaultGuardianConfig for workspace: its high-impact
+// paths are the workspace's nerd.md critical: list. A nerd.md that does not
+// parse watches no paths, and the log says why.
+func GuardianConfigFor(workspace string) GuardianConfig {
+	cfg := DefaultGuardianConfig()
+	critical, err := projectdoc.CriticalPaths(workspace)
+	if err != nil {
+		logging.Get(logging.CategoryNorthstar).Warn("northstar: nerd.md critical: list unreadable, no high-impact paths: %v", err)
+		return cfg
+	}
+	cfg.HighImpactPaths = critical
+	return cfg
+}
+
 // DefaultGuardianConfig returns sensible defaults.
 func DefaultGuardianConfig() GuardianConfig {
 	return GuardianConfig{
@@ -417,13 +433,9 @@ func DefaultGuardianConfig() GuardianConfig {
 		EnablePhaseGates:      true,
 		EnablePeriodicCheck:   true,
 		EnableHighImpact:      true,
-		HighImpactPaths: []string{
-			"internal/core/",
-			"internal/session/",
-			"internal/perception/",
-			"cmd/nerd/",
-			"*.mg",
-		},
+		// HighImpactPaths are the workspace's own: GuardianConfigFor fills
+		// them from nerd.md critical:. They used to be codeNERD's packages,
+		// which in any other workspace watched paths that do not exist.
 		WarningThreshold: 0.7,
 		FailureThreshold: 0.5,
 		BlockThreshold:   0.3,

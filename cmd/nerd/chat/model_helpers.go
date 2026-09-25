@@ -369,7 +369,7 @@ func (m *Model) runAlignmentCheck(subject string) tea.Cmd {
 		// per /alignment invocation. Each ephemeral guardian used to cache its
 		// own GuardianState, so the checks it recorded left the boot guardian's
 		// TasksSinceCheck and drift count stale.
-		guardian, err := northstar.AcquireGuardian(nerdDir, northstar.DefaultGuardianConfig())
+		guardian, err := northstar.AcquireGuardian(nerdDir, northstar.GuardianConfigFor(m.workspace))
 		if err != nil {
 			return alignmentCheckMsg{
 				Subject: subject,

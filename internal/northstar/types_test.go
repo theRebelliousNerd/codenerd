@@ -2,6 +2,8 @@ package northstar
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -483,8 +485,8 @@ func TestDefaultGuardianConfig(t *testing.T) {
 	if !cfg.EnableHighImpact {
 		t.Error("EnableHighImpact should be true by default")
 	}
-	if len(cfg.HighImpactPaths) == 0 {
-		t.Error("HighImpactPaths should not be empty")
+	if len(cfg.HighImpactPaths) != 0 {
+		t.Errorf("the default watches no paths; a workspace declares its own (GuardianConfigFor): %v", cfg.HighImpactPaths)
 	}
 	if cfg.WarningThreshold != 0.7 {
 		t.Errorf("WarningThreshold: got %f, want 0.7", cfg.WarningThreshold)
@@ -619,5 +621,36 @@ func TestRequirement_JSONRoundTrip(t *testing.T) {
 	}
 	if decoded.Priority != req.Priority {
 		t.Errorf("Priority mismatch: got %q, want %q", decoded.Priority, req.Priority)
+	}
+}
+
+// High-impact paths are the workspace's nerd.md critical: list, matched on
+// whole path segments.
+func TestGuardianConfigFor_WatchesTheWorkspacesCriticalPaths(t *testing.T) {
+	ws := t.TempDir()
+	if got := GuardianConfigFor(ws).HighImpactPaths; len(got) != 0 {
+		t.Fatalf("no nerd.md, no high-impact paths: %v", got)
+	}
+	body := "---\nschema: nerd/v1\ncritical:\n  - internal/core\n  - \"*.mg\"\n---\n"
+	if err := os.WriteFile(filepath.Join(ws, "nerd.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := GuardianConfigFor(ws)
+	if len(cfg.HighImpactPaths) != 2 {
+		t.Fatalf("HighImpactPaths = %v", cfg.HighImpactPaths)
+	}
+	for p, want := range map[string]bool{
+		"internal/core/kernel.go": true,
+		"policy/rules.mg":         true,
+		"internal/corex/a.go":     false,
+		"internal/session/s.go":   false,
+	} {
+		got := false
+		for _, pattern := range cfg.HighImpactPaths {
+			got = got || matchesHighImpactPath(pattern, p)
+		}
+		if got != want {
+			t.Errorf("%s high-impact = %v, want %v", p, got, want)
+		}
 	}
 }

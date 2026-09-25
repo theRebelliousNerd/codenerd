@@ -79,7 +79,7 @@ func TestDetect_GoModuleGetsBuildVetTest(t *testing.T) {
 	if got, want := ids(s.Gates), []string{"go:build", "go:test", "go:vet"}; !slices.Equal(got, want) {
 		t.Fatalf("gates = %v, want %v", got, want)
 	}
-	if got := find(t, s, "go:test").ForNode("internal/store"); !slices.Equal(got, []string{"go", "test", "-count=1", "./internal/store"}) {
+	if got := find(t, s, "go:test").ForNode("internal/store"); !slices.Equal(got, []string{"go", "test", "-count=1", "-cover", "./internal/store"}) {
 		t.Fatalf("go:test for a node = %v", got)
 	}
 	if got := find(t, s, "go:vet").ForNode("."); !slices.Equal(got, []string{"go", "vet", "."}) {
@@ -238,5 +238,22 @@ func TestDetect_EmptyWorkspaceHasNoGates(t *testing.T) {
 	s := mustDetect(t, t.TempDir())
 	if len(s.Gates) != 0 || len(s.Unavailable) != 0 {
 		t.Fatalf("an empty workspace has no gates: %+v", s)
+	}
+}
+
+func TestLanguageOf(t *testing.T) {
+	for argv, want := range map[string]string{
+		"go vet {pkg}":                "go",
+		"go run ./tools/check {node}": "",
+		"python3 -m pytest {node}":    "python",
+		"pnpm run lint":               "js/ts",
+		"cargo clippy":                "rust",
+		"make test":                   "",
+		"./scripts/check.sh":          "",
+		"C:/Go/bin/go.exe test {pkg}": "go",
+	} {
+		if got := languageOf(strings.Fields(argv)); got != want {
+			t.Errorf("languageOf(%q) = %q, want %q", argv, got, want)
+		}
 	}
 }

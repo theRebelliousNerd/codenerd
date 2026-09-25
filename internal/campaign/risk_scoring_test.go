@@ -3,6 +3,8 @@ package campaign
 import (
 	"context"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -196,7 +198,8 @@ func TestRunRiskPreflight_EmitsAuditEvents(t *testing.T) {
 func TestRunRiskPreflight_ProtectedCampaignBlocksWhenAdvisoryMissing(t *testing.T) {
 	eventCh := make(chan OrchestratorEvent, 16)
 	orch := &Orchestrator{
-		campaign: testRiskCampaign(),
+		workspace: criticalWorkspace(t),
+		campaign:  testRiskCampaign(),
 		config: OrchestratorConfig{
 			EnableRiskAutoWiring: true,
 			GlobalRiskGate:       true,
@@ -229,7 +232,8 @@ func TestRunRiskPreflight_ProtectedCampaignBlocksWhenAdvisoryMissing(t *testing.
 func TestRunRiskPreflight_ProtectedCampaignBlocksWhenNorthstarMissing(t *testing.T) {
 	eventCh := make(chan OrchestratorEvent, 16)
 	orch := &Orchestrator{
-		campaign: testRiskCampaign(),
+		workspace: criticalWorkspace(t),
+		campaign:  testRiskCampaign(),
 		config: OrchestratorConfig{
 			EnableRiskAutoWiring: true,
 			GlobalRiskGate:       true,
@@ -434,7 +438,7 @@ func TestRiskScoring_CriticalityNorm_EmptyPaths(t *testing.T) {
 		nil,
 	}
 	for _, p := range paths {
-		score := criticalityNorm(p)
+		score := criticalityNorm(testRiskCritical, p)
 		if score != 10 {
 			t.Errorf("expected baseline criticality 10 for empty/nil paths, got %d", score)
 		}
@@ -492,7 +496,7 @@ func TestRiskScoring_PathMatchesRiskRoot_DirectoryTraversal(t *testing.T) {
 	}
 	for _, p := range paths {
 		matched := false
-		for _, root := range protectedCampaignRiskRoots {
+		for _, root := range testRiskCritical {
 			if pathMatchesRiskRoot(p, root) {
 				matched = true
 				break
@@ -608,4 +612,36 @@ func TestComputeCampaignRiskDecision_ConcurrentCampaignMutation(t *testing.T) {
 	}
 
 	<-done
+}
+
+// testRiskCritical is the critical: list a workspace like codeNERD declares
+// in nerd.md; the risk scorer protects whatever the workspace declares.
+var testRiskCritical = []string{"internal/core", "internal/mangle", "internal/campaign", "internal/perception", "internal/articulation"}
+
+// criticalWorkspace is a workspace whose nerd.md declares testRiskCritical.
+func criticalWorkspace(t *testing.T) string {
+	t.Helper()
+	ws := t.TempDir()
+	body := "---\nschema: nerd/v1\ncritical:\n"
+	for _, c := range testRiskCritical {
+		body += "  - " + c + "\n"
+	}
+	body += "---\n"
+	if err := os.WriteFile(filepath.Join(ws, "nerd.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
+// A workspace protects what its nerd.md declares, and nothing it does not:
+// codeNERD's packages are not critical in someone else's workspace.
+func TestDetectProtectedCampaignRoots_AreTheWorkspaces(t *testing.T) {
+	paths := []string{"internal/core/kernel.go", "policy/rules.mg"}
+	if got := detectProtectedCampaignRoots(riskCriticalPaths(t.TempDir()), paths); len(got) != 0 {
+		t.Fatalf("a workspace without critical: protects nothing: %v", got)
+	}
+	got := detectProtectedCampaignRoots(append(append([]string(nil), testRiskCritical...), "*.mg"), paths)
+	if len(got) != 2 {
+		t.Fatalf("directory and glob entries both protect: %v", got)
+	}
 }

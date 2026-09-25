@@ -286,8 +286,8 @@ var CommandRegistry = []CommandInfo{
 	},
 	{
 		Name:        "/recurse",
-		Description: "Self-improvement sweep over the subsystem DAG, wave after wave",
-		Usage:       "/recurse [--waves N] [--angles a,b] [subsystems...]",
+		Description: "Improve the workspace node by node, bottom to top, pass after pass",
+		Usage:       "/recurse [--waves N] [subsystems...] | /recurse status | /recurse stop",
 		Category:    CategoryAdvanced,
 		ShowInHelp:  true,
 	},

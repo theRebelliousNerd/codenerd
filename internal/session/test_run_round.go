@@ -39,10 +39,20 @@ func (e *Executor) verifyAndRepairTestRun(
 	if e.sessionContext != nil && e.sessionContext.DreamMode {
 		return nil, nil, nil
 	}
+	// When the workspace says how it tests what was written, the executor
+	// runs that instead of waiting on a run the model chooses.
+	byWorkspace := false
+	var gateOutput string
+	if result.TestRunSinceLastWrite == nil {
+		byWorkspace, gateOutput = e.workspaceTestRun(ctx, result)
+	}
 	if result.testRunVerdict() == VerifyPassed {
 		return nil, nil, nil
 	}
 	seed := testRunShortfall(result)
+	if byWorkspace {
+		seed += "\n\n" + gateOutput
+	}
 	logging.Get(logging.CategorySession).Warn("this turn's writes owe a test run: %s; giving the model rounds to run one", seed)
 	spec := repairSpec{
 		kind:         "test_run",
@@ -50,7 +60,14 @@ func (e *Executor) verifyAndRepairTestRun(
 		promptFor: func(shortfall string) string {
 			return testRunPrompt(result.WrittenPaths, shortfall)
 		},
-		recheck: func(context.Context) (bool, repairFailure, VerifyOutcome) {
+		recheck: func(ctx context.Context) (bool, repairFailure, VerifyOutcome) {
+			if byWorkspace {
+				// The workspace's gates decide, not a run the model picked
+				// after its repair: re-run them on what the repair left.
+				if _, out := e.workspaceTestRun(ctx, result); result.testRunVerdict() != VerifyPassed {
+					return false, repairFailure{Output: testRunShortfall(result) + "\n\n" + out}, VerifyFailed
+				}
+			}
 			if result.testRunVerdict() == VerifyPassed {
 				return true, repairFailure{}, VerifyPassed
 			}
