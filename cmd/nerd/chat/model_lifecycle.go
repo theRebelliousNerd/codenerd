@@ -20,6 +20,10 @@ import (
 // MUST be called before tea.Quit to prevent goroutine leaks.
 func (m *Model) Shutdown() {
 	m.shutdownOnce.Do(func() {
+		// Persist the session's UX counts and close it in the audit trail
+		// before anything below tears down what those writes need.
+		m.closeSessionRecord()
+
 		// Cancel all background operations via root context
 		if m.shutdownCancel != nil {
 			m.shutdownCancel()

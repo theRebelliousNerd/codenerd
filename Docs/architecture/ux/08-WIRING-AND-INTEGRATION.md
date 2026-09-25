@@ -98,7 +98,7 @@ Documented on `internal/features/features.go` as serving chat first-run wizard /
 
 | API | Expected integration point | Status |
 |-----|----------------------------|--------|
-| `RecordSessionStart` | Chat open / session ID create | Absent |
+| `RecordSessionStart` | Chat open / session ID create | `PreferencesManager.RecordSessionStart` from `cmd/nerd/chat/ux_journey.go` `openSessionRecord` (2026-09-25) |
 | `CheckJourneyTransition` | End of turn / session | Absent |
 | `IncrementMetric("commands_executed")` | After command | Absent |
 | `IncrementMetric("successful_tasks")` | Executor success | Absent |

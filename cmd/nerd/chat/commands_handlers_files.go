@@ -196,7 +196,12 @@ func (m Model) handleCmdHelp(input string, parts []string) (tea.Model, tea.Cmd) 
 	if len(parts) > 1 {
 		arg = strings.Join(parts[1:], " ")
 	}
-	renderer := NewHelpRenderer(m.workspace)
+	m.recordUXMetric("help_requests")
+	guidance := config.GuidanceNormal
+	if m.Config != nil && m.Config.Guidance != nil && m.Config.Guidance.Level != "" {
+		guidance = m.Config.Guidance.Level
+	}
+	renderer := NewHelpRenderer(m.workspace).WithGuidance(guidance)
 	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: renderer.RenderHelp(arg),

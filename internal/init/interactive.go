@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	// researcher removed - JIT clean loop handles research
 )
@@ -508,5 +509,7 @@ func SaveAgentPreferences(workspace string, agentPrefs *AgentSelectionPreference
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	// Atomic: a torn write here wedges every later reader of the shared file
+	// (init refuses a preferences.json that does not parse).
+	return atomicfile.WriteFile(path, data, 0644)
 }

@@ -1,7 +1,32 @@
 # ux — TODO
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-09-25** (lane B wave 3; status table below, original backlog kept for reference)  
 > Prioritized backlog for package + wiring (docs-only tracking; not an implementation commitment).
+
+## Status 2026-09-25
+
+| # | Status | Evidence |
+|---|--------|----------|
+| 1 | Closed | `PreferencesManager.Save` (`internal/ux/preferences.go`) read-modify-writes: its own keys are replaced, every key `nerd init` and `SaveAgentPreferences` wrote is kept. In-process there is one writer: chat routes metrics and the onboarding wizard through the boot-loaded `m.preferencesMgr` (`cmd/nerd/chat/ux_journey.go` `uxPrefs`). `TestSave_WhenOtherWritersOwnKeys_ShouldKeepThem` |
+| 2 | Closed | `Save` and `init.SaveAgentPreferences` write through `internal/atomicfile`; a file that does not parse is moved to `preferences.json.corrupt`, not discarded (`TestSave_WhenExistingFileIsCorrupt_ShouldMoveItAside`) |
+| 3 | Closed | `openSessionRecord` runs once per chat session, after the migration, and calls `PreferencesManager.RecordSessionStart` |
+| 4 | Closed | `recordUXMetric`: every submitted input (`commands_executed`), every completed turn (`successful_tasks`), every error panel (`errors_encountered`), every clarification (`clarifications_needed`) |
+| 5 | Closed | `closeSessionRecord` (called first in `Model.Shutdown`) saves the counts and runs `PreferencesManager.CheckJourneyTransition`. `TestUXJourney_WhenASessionEarnsIt_ShouldMoveTheUserOn` |
+| 6 | Closed | `/help` counts `help_requests`. `TestUXJourney_WhenHelpIsSubmitted_ShouldCountACommandAndAHelpRequest` |
+| 7 | Open | which of the UX journey and config `OnboardingState` is authoritative is a product decision; untouched |
+| 8 | Open | there is no intent-correction flow in chat to connect `RecordCorrection` to |
+| 9 | Open | depends on 8 |
+| 10 | Closed | `ux.ExperienceLevelForState` / `GetExperienceLevelFromPreferences` / `GetUserJourneyState`; `help_renderer.go` and `tips.go` no longer carry the switch |
+| 11 | Closed | `HelpRenderer.WithGuidance` renders at `ux.GetDisclosureLevel(journey, guidance)`, so guidance "none" collapses help; the footer names the level (`DisclosureLevel.String`). `TestHelpRenderer_WhenGuidanceIsNone_ShouldShowTheMinimalReference` |
+| 12 | Closed | `Get` returns a shallow copy |
+| 13 | Closed | `migrateFromOldVersion` carries `learned_patterns` and `metrics` over. `TestMigratePreferences_WhenOldSchemaHasHistory_ShouldPreserveIt` |
+| 14 | Closed | `openSessionRecord` logs the `MigrationResult` (or the migration error) |
+| 15 | Already done | `migration_test.go`, `migration_extra_test.go`, `preferences_test.go` |
+| 16-20 | Open | not started this pass |
+
+The package-level `RecordSessionStart(workspace)` and `CheckJourneyTransition(workspace)`
+became `PreferencesManager` methods: each loaded its own manager, and a second
+in-process manager saving over the session's would lose one side's counts.
 
 ## P0 — Correctness
 

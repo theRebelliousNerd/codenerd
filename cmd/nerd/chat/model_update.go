@@ -129,6 +129,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentStream = ""
 		m.currentThought = ""
 		m.turnCount++
+		m.recordUXMetric("successful_tasks")
 
 		// Apply any state updates carried by the message
 		if msg.ClarifyUpdate != nil {
@@ -151,6 +152,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		m.isLoading = false
 		m.turnCount++
+		m.recordUXMetric("successful_tasks")
 		m = m.pushAssistantMsg(string(msg))
 		// Persist session after each response (off the UI event loop).
 		persistCmd = m.saveSessionStateCmd()
@@ -192,6 +194,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clarificationMsg:
 		// Enter clarification mode (Pause)
 		m.isLoading = false
+		m.recordUXMetric("clarifications_needed")
 		m.inputMode = InputModeClarification
 		m.clarificationState = &ClarificationState{
 			Question:      msg.Question,
@@ -236,6 +239,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshErrorViewport()
 		m.errorVP.GotoTop()
 		logging.Get(logging.CategorySession).Error("TUI error: %v", msg)
+		m.recordUXMetric("errors_encountered")
+		logging.AuditWithSession(m.sessionID).Error("chat", msg, false)
 		// Trigger resize so the error panel reserves space immediately.
 		return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }
 
@@ -585,10 +590,12 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		// Handle first-run detection result
 		if msg.IsFirstRun {
 			// Start onboarding wizard for new users
+			m = m.openSessionRecord(nil, nil)
 			return m.startOnboarding()
 		}
-		// Existing user - run migration silently
-		_, _ = ux.MigratePreferences(msg.Workspace)
+		// Existing user - run migration silently, then open the session on
+		// the migrated preferences.
+		m = m.openSessionRecord(ux.MigratePreferences(msg.Workspace))
 		return m, nil
 
 	case onboardingCompleteMsg:

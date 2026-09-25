@@ -396,8 +396,12 @@ type Model struct {
 	// Consultation Manager - cross-specialist consultation protocol
 	consultationMgr *shards.ConsultationManager
 
-	// User Preferences Manager
+	// User Preferences Manager: the one in-process writer of the UX
+	// journey metrics (ux_journey.go).
 	preferencesMgr *ux.PreferencesManager
+	// sessionOpenedAt is when openSessionRecord ran; zero until the session
+	// opens, which is what keeps a failed boot from recording a session end.
+	sessionOpenedAt time.Time
 
 	// Verification Loop (Quality-Enforcing)
 	verifier *verification.TaskVerifier
