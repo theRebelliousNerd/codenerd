@@ -67,6 +67,33 @@ Compare vision ([01-VISION.md](01-VISION.md)) and north star to living code. Dis
 - `AuditedExecutorWrapper` now supplies lifecycle events for executors that do
   not implement `SetAuditCallback`.
 
+### Closed in the 2026-09-25 wave-3 pass
+
+- G-P0-1 (bare direct executors outside permission): governed by
+  `tactile.DirectBypassRegistry` and its static gate; bypasses audit into the
+  kernel (`NewFactAuditedExecutor`).
+- G-P0-2 (chat boot on Direct): VirtualStore always runs commands on its
+  audited composite, which now inherits the caller's config; `Cortex.Executor`
+  is `VirtualStore.AuditedExecutor`.
+- G-P1-1 (namespace/firejail never registered): `registerPlatformIsolation`
+  registers probed backends; the namespace executor uses a user namespace
+  when unprivileged.
+- G-P1-3 (Windows `GetPlatformExecutor`): `GetPlatformExecutor` and the
+  `ExecutorFactory` that was its only caller were removed on all platforms.
+- G-P1-4 (RetryExecutor busy-wait): `RetryExecutor` had no consumer and was
+  removed (open question 5 answered by removal).
+- G-P2-3 (idle timeout unused): `PersistentDockerExecutor.reapIfIdle` enforces
+  `IdleTimeout` in the health pass.
+- G-P2-4 (SWE-bench not a CLI surface): `nerd swebench evaluate` routes setup
+  and evaluate through the kernel and prints the verdict the kernel derives.
+- Python/SWE-bench handlers returned Success for work nothing did; they now
+  drive `python.Environment`/`swebench.Harness` in persistent containers and
+  fail honestly. `ExecInContainer`'s argv (three `--`) could never have worked
+  and is fixed.
+- Still open: G-P2-1 (consumer rules for execution facts -- add only where an
+  executive decision needs one), G-P2-2 (docker stats), G-P3-1..3 (intentional
+  or cosmetic).
+
 ### P3 — polish
 
 | ID | Gap |

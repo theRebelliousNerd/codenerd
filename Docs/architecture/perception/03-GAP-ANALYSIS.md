@@ -55,6 +55,20 @@
 | Metrics export beyond process map | Hook observability package |
 | Multi-workspace SharedTaxonomy isolation | Tests vs concurrent workspaces |
 
+## Wave-3 closures (2026-09-25)
+
+- P0 "all durable 5xx paths wrap ErrLLMUnavailable": superseded by the shared
+  provider-failure contract (`provider_failure.go`), which classifies every
+  HTTP adapter's failures; the degraded turn reads the class.
+- P2 "remove or re-enable `validate()`": removed from Go; the vocabulary check
+  is a kernel derivation (`perception_routing.mg` `understanding_vocab_miss`),
+  consumed by `RealKernelRouter.VocabularyMisses` onto `Routing.VocabularyMisses`.
+- P2 "when is the corpus path still called?": `matchVerbFromCorpus` is reached
+  only by `DebugTaxonomy` (cmd/tools/verify_taxonomy); the regex NLU helpers,
+  `DualPayloadTransducer`, the pull-style `ShardTraceStore` and the second
+  `MangleRoutingKernel` adapter were removed as superseded.
+- Factory: OpenAI-compatible vendors dispatch from the vendor table alone.
+
 ## Explicit non-gaps
 
 - “No code exists” — **false**; large mature package.  
