@@ -133,6 +133,9 @@ type UserConfig struct {
 	// Theme for the TUI ("light" or "dark")
 	Theme string `json:"theme,omitempty"`
 
+	// UI is the chat TUI's layout (ux.go).
+	UI *UIConfig `json:"ui,omitempty"`
+
 	// ContinuationMode controls multi-step task execution behavior
 	// 0 = Auto (fully automatic), 1 = Confirm (pause after each step), 2 = Breakpoint (pause before mutations)
 	ContinuationMode int `json:"continuation_mode,omitempty"`
@@ -200,6 +203,10 @@ type UserConfig struct {
 	// Routing is the thresholds the kernel's routing arbitration decides an
 	// interactive turn's lane with (routing.go).
 	Routing *RoutingConfig `json:"routing,omitempty"`
+
+	// Retrieval is the thresholds the kernel decides an issue-driven sparse
+	// retrieval pass's hand-off to the model with (retrieval.go).
+	Retrieval *RetrievalConfig `json:"retrieval,omitempty"`
 
 	// Delegation is the thresholds the kernel decides a chat delegation's
 	// attempts with (delegation.go).
@@ -1522,12 +1529,15 @@ func DefaultUserConfig() *UserConfig {
 	campaign := DefaultCampaignConfig()
 	sessionCfg := DefaultSessionConfig()
 	routingCfg := DefaultRoutingConfig()
+	retrievalCfg := DefaultRetrievalConfig()
+	uiCfg := DefaultUIConfig()
 	delegationCfg := DefaultDelegationConfig()
 	workingCfg := DefaultWorkingConfig()
 
 	return &UserConfig{
 		Engine:                       "api",
 		Theme:                        "light",
+		UI:                           &uiCfg,
 		ContinuationMode:             1,
 		Gemini:                       DefaultGeminiProviderConfig(),
 		ClaudeCLI:                    DefaultClaudeCLIConfig(),
@@ -1547,6 +1557,7 @@ func DefaultUserConfig() *UserConfig {
 		Campaign:                     &campaign,
 		Session:                      &sessionCfg,
 		Routing:                      &routingCfg,
+		Retrieval:                    &retrievalCfg,
 		Delegation:                   &delegationCfg,
 		Working:                      &workingCfg,
 		Logging:                      DefaultLoggingConfig(),

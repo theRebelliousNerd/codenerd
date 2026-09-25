@@ -1,24 +1,23 @@
 # retrieval — Wiring and Integration
 
-> Last verified: **2026-08-15**  
+> Last verified: **2026-09-25** (§2a, §7 and §8 rewritten against the code)    
 > Focus: how (and how not) retrieval joins the live agent loop
 
 ## 1. Boot wiring
 
-### Legacy path — `cmd/nerd/chat/session_boot.go`
+### Factory — `internal/system/factory.go` (since `216b818`)
 
-```
-logStep("Initializing sparse retriever...")
-retrieverCfg := retrieval.DefaultSparseRetrieverConfig(workspace)
-retriever := retrieval.NewSparseRetriever(retrieverCfg)
-...
-// SystemComponents assembly:
-Retriever: retriever,
-```
+`initFinalExecutors` builds the process's one `SparseRetriever`
+(`bctx.retriever`, exposed as `Cortex.Retriever`) and a
+`retrieval.TaskRetriever` over the session kernel, which it hands to the
+session executor and the spawner (§2a). Every entry path boots through here.
 
-### Shared path — `cmd/nerd/chat/session_shared_boot.go`
+### Chat — `cmd/nerd/chat/session_shared_boot.go`
 
-Same construction, same `SystemComponents.Retriever` assignment.
+Takes `cortex.Retriever` (building its own only if the Cortex has none) into
+`SystemComponents.Retriever`, so the chat seed and the executor's task passes
+share one keyword cache. The `session_boot.go` legacy path this section used
+to describe no longer exists.
 
 **Historical finding (fixed 2026-08-15):** the corpus recorded this as
 "`Model.Retriever` is retained idle". It was worse than that — `Model` had no
@@ -60,6 +59,38 @@ keyword-extraction facts are still asserted. Losing the whole seed to a slow
 filesystem is worse than losing its disk-ranked half. `SeedReport.TimedOut`
 records which happened.
 
+## 2a. Task-turn retrieval (live since `216b818`)
+
+Every turn the session executor runs -- `nerd fix` and the other one-shot
+verbs, chat delegations, spawned subagents, campaign tasks -- asks the
+kernel after asserting its intent:
+
+1. `Executor.retrieveForTurn` (`internal/session/issue_retrieval.go`) calls the
+   attached `IssueRetriever`, which is `retrieval.TaskRetriever`
+   (`internal/retrieval/decisions.go`), wired by
+   `internal/system/factory.go` into the executor, `CloneForTask` and the
+   spawner. One `SparseRetriever` per process (`Cortex.Retriever`) is shared
+   with the chat.
+2. `Wanted` reads `issue_retrieval_wanted(Intent)`
+   (`internal/core/defaults/policy/retrieval.mg`): the intent's verb is in
+   `issue_retrieval_verb` (/fix /debug /review /security).
+3. `config.EnsureParams` asserts `retrieval.brief_min_relevance` as
+   `config_param(/retrieval_brief_min_relevance, N)`.
+4. `SeedIssueFacts` runs with `IssueScopedOnly`: only issue-keyed facts
+   (issue_text, issue_keyword, file_mentioned, tiered_context_file,
+   issue_context) under a fresh `/task_issue_*` ID, so parallel subagents
+   never share or retract each other's rows.
+5. `Brief` reads `retrieval_brief_file(Issue, File, Tier, Relevance)` -- every
+   named file, and searched files at or above the floor -- and `RenderBrief`
+   renders it under a `[harness: ...]` header.
+6. The brief rides the turn context into the working loop's anchor
+   (`beginWorkingLoop`, and `singleShotRequest` for clients without a message
+   channel); the release retracts the pass's facts when the turn ends.
+
+The chat seed (§2) now asks `Wanted(kernel, "/current_intent")` instead of a
+Go verb switch and seeds one live chat issue (`/chat_issue`) after
+`SupersedeIssue` retracts the previous one, unscoped half included.
+
 ## 3. Schema wiring (kernel)
 
 `internal/core/defaults/schemas_knowledge.mg` §52 declares the EDB surface. The
@@ -98,23 +129,25 @@ write path cannot forget to invalidate.
 the facts into a real kernel, and reads them back for display. Flags: `--facts`,
 `--stats`, `--ripgrep`, `--workspace`, `--timeout`, `--max-files`.
 
-## 7. What is still **not** wired
+## 7. What was **not** wired (resolved 2026-09-25)
 
 | Integration | Status |
 |-------------|--------|
-| VirtualStore action `search_code` / similar | absent |
-| Session clean-loop executor hooks | absent |
-| Prompt atoms calling retrieval | absent (facts only) |
-| Campaign assault automatic sparse pass | not via this package import |
-| Embedding engine into T4 | injection point exists (`SemanticSearcher`); nothing constructs one |
-| Mangle rules over `candidate_file` / `keyword_hit` | Decls exist, no rules yet |
+| VirtualStore action `search_code` / similar | declined: the typed search tools are the model's surface; the kernel now hands retrieved files over itself (§2a) |
+| Session clean-loop executor hooks | live (`216b818`, §2a) |
+| Prompt atoms calling retrieval | declined: a file list is evidence, carried in the anchor, not an instruction atom |
+| Campaign assault automatic sparse pass | live through the session executor: campaign tasks run `ProcessWithIntent` on a `CloneForTask` clone |
+| Embedding engine into T4 | live (was stale): `SeedRequest.EmbeddingEngine` → `NewEmbeddingSemanticSearcher`; chat and TaskRetriever both pass the boot engine |
+| Mangle rules over the section-52 surface | live: `issue_retrieval_wanted`, `retrieval_brief_file` (`policy/retrieval.mg`). `candidate_file`, `keyword_hit` and `context_tier` stay chat-only activation inputs (`internal/context/activation_scoring.go`) |
 
 ## 8. Fact-flow placement
 
 ```
 user input
   → perception Intent (verb)
-  → seedIssueFacts  [RETRIEVAL TOUCHPOINT — live]
+  → issue_retrieval_wanted(Intent)?  [KERNEL DECISION]
+  → seedIssueFacts / TaskRetriever  [RETRIEVAL TOUCHPOINTS — live]
+  → retrieval_brief_file → working-loop anchor  [KERNEL DECISION → model]
   → kernel EDB
   → (orient) context activation / JIT
   → decide next_action

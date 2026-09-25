@@ -426,11 +426,19 @@ func (b *TieredContextBuilder) expandImportGraph(ctx context.Context, existingFi
 }
 
 // importNeighbors resolves one file's imports to workspace files, dispatching on
-// language. Tier 3 handled Python only, so on a Go repository — this one — the
-// whole import tier was empty and the builder's 20% import budget went unused.
+// language: Go (go_imports.go), TypeScript/JavaScript and Rust
+// (polyglot_imports.go), and Python below. Tier 3 handled Python only, so on a
+// Go repository — this one — the whole import tier was empty and the builder's
+// 20% import budget went unused.
 func (b *TieredContextBuilder) importNeighbors(filePath string) []string {
 	if strings.EqualFold(filepath.Ext(filePath), ".go") {
 		return b.goImportNeighbors(filePath)
+	}
+	if isJSLike(filePath) {
+		return b.jsImportNeighbors(filePath)
+	}
+	if strings.EqualFold(filepath.Ext(filePath), ".rs") {
+		return b.rustImportNeighbors(filePath)
 	}
 
 	var out []string

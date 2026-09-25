@@ -54,3 +54,24 @@ func TestFlags_DumpKernelSnapshotIsInert(t *testing.T) {
 		t.Fatalf("nil kernel: got %q, want empty", got)
 	}
 }
+
+// The bare `nerd` launches the chat with every root flag the chat can honour:
+// --yolo and --api-key were persistent root flags the chat never received.
+func TestChatLaunchConfig_CarriesRootFlags(t *testing.T) {
+	savedYolo, savedKey, savedShards := yoloMode, apiKey, disableSystemShards
+	t.Cleanup(func() { yoloMode, apiKey, disableSystemShards = savedYolo, savedKey, savedShards })
+
+	if err := rootCmd.ParseFlags([]string{"--yolo", "--api-key", "flag-key", "--disable-system-shard", "legislator"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := chatLaunchConfig()
+	if !cfg.Yolo {
+		t.Error("--yolo did not reach the chat")
+	}
+	if cfg.APIKey != "flag-key" {
+		t.Errorf("--api-key reached the chat as %q", cfg.APIKey)
+	}
+	if len(cfg.DisableSystemShards) != 1 || cfg.DisableSystemShards[0] != "legislator" {
+		t.Errorf("--disable-system-shard reached the chat as %v", cfg.DisableSystemShards)
+	}
+}

@@ -369,6 +369,9 @@ type KnowledgeBaseStats struct {
 	ExistingAtoms int
 	SkippedAtoms  int
 	TotalAtoms    int
+	// SkippedTopics is how many of the agent's topics an upgrade did not
+	// research again because its KB already covers them.
+	SkippedTopics int
 
 	// Legacy names retained for registry compatibility. These are atom-count
 	// population metrics, not semantic quality measurements.

@@ -189,7 +189,7 @@ func (m Model) Init() tea.Cmd {
 		tea.EnableBracketedPaste, // Allow multi-line paste without sending early
 		m.waitForStatus(),        // Start status listener
 		m.tickMemory(),           // Start memory sampler
-		performSystemBoot(m.Config, m.DisableSystemShards, m.workspace), // Start heavy system initialization
+		performSystemBoot(m.Config, m.DisableSystemShards, m.apiKeyFlag, m.workspace), // Start heavy system initialization
 	)
 }
 

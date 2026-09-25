@@ -1,5 +1,22 @@
 # config wiring — and what is NOT built
 
+> **Status, 2026-09-25 (lane B wave 2).** Every entry below is resolved; the
+> sections are kept as written at `b63e848` and this table is current.
+>
+> | Entry | Resolution | Evidence |
+> |---|---|---|
+> | §2 `MangleConfig` / `DefaultDerivedFactLimit` | deleted `adc30df` | zero references; its one live meaning is `core_limits.max_derived_facts_limit` (5,000,000). Wiring it would have added a second, contradicting gas knob (500,000) |
+> | §2 `UIConfig` / `DefaultUIConfig` | closed `adc30df` | `ui.split_pane_ratio` is a UserConfig section (`GetUIConfig`, `Check`, in `DefaultUserConfig`); the chat builds its split pane from it (`newSplitPane` → `ui.NewSplitPaneViewWithRatio`). `LogicPaneWidth` removed: the split pane never supported it and no file could carry it. `TestSections_UIAndRetrievalLoadFromConfigJSON`, `TestNewSplitPane_UsesTheConfiguredRatio` |
+> | §2 Integrations methods | traced | `ToMCPServerConfigs` has its caller (MCP boot); `GetServer` only feeds `IsServerEnabled`, which nothing calls -- redundant with the enabled filter `ToMCPServerConfigs` already applies. Declined: no consumer to wire |
+> | §2 `GetActiveProvider`, `APIKeyForProvider`, `SetAPIKeyForProvider` | traced: wired | 10, 2 and 1 callers outside the package |
+> | §2 timeout profiles, `baseProfile`, `applyDuration` | already wired (stale) | `llm_timeouts_config.go` resolves `llm_timeouts.profile` through `baseProfile` → `FastLLMTimeouts`/`AggressiveLLMTimeouts` |
+> | §2 `IsCategoryEnabled`, `CLIModelLabel`, `AutoDetectContext7APIKey` | traced: wired | 2, 10 and 2 callers outside the package |
+> | §2 `GetClaudeCLICommand` | stale | no longer exists |
+> | §4 `internal/config/agents.md` tool-budget bullet | closed `adc30df` | the bullet describes `rejectRemovedKeys` now; `TestAgentsGuide_TeachesNoRemovedKey` fails if the guide names a removed key (it fails on the old text) |
+> | §5 wall-clock runs, per-shard kernels | decided | removed deliberately (2026-09-18/19); §3 is the record |
+> | §5 image providers beyond gemini, CLI model defaulting | decided | maintainer design choices (`GetImageLLMConfig` is Gemini-only by construction; `DefaultClaudeCLIConfig` names no model so the CLI's own default stands) |
+> | New: `retrieval` section | added `216b818` | `retrieval.brief_min_relevance`, asserted as `config_param(/retrieval_brief_min_relevance, N)` for `retrieval_brief_file` |
+
 Question answered here: what is wired and reachable, what exists but has no
 caller traced, and what the design assumes that the code does not do?
 

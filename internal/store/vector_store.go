@@ -606,6 +606,109 @@ func (s *LocalStore) insertVecIndexRow(id int64, embeddingVec []float32, content
 	return err
 }
 
+// vecIndexMissingWhere selects the embedded vectors rows ANN search cannot
+// find: an embedding of the index's dimension and no vec_index row. The
+// dimension filter matters -- a row embedded by an earlier model has a
+// different length and belongs to a re-embed, not to the index.
+const vecIndexMissingWhere = `embedding IS NOT NULL
+	AND json_valid(embedding) AND json_array_length(embedding) = ?
+	AND id NOT IN (SELECT rowid FROM vec_index)`
+
+// vecIndexMissingLocked counts the ANN drift: -1 when there is no sqlite-vec
+// index to drift from. Call holding s.mu (read or write).
+func (s *LocalStore) vecIndexMissingLocked(dim int) (int64, error) {
+	if s.db == nil || dim <= 0 || !s.vectorExt.Load() || !tableExists(s.db, "vec_index") {
+		return -1, nil
+	}
+	var n int64
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE "+vecIndexMissingWhere, dim).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// ReconcileVecIndex indexes every embedded vectors row missing from
+// vec_index and returns how many it healed.
+//
+// A vec_index insert that fails leaves its vectors row behind -- the write
+// path logs "ANN drift" and moves on, because failing the store over the
+// index would lose the row itself -- and until 2026-09-25 nothing put it
+// back until the next SetEmbeddingEngine dropped and rebuilt the whole index.
+// In a long session that is hours of ANN search not finding rows brute force
+// finds. The maintenance cycle (MaintenanceConfig.ReconcileVecIndex) runs this.
+//
+// It waits for a pending backfill first: the backfill is already rebuilding
+// the index, and two writers on the same rowids race.
+func (s *LocalStore) ReconcileVecIndex(ctx context.Context) (int, error) {
+	if s == nil {
+		return 0, nil
+	}
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	s.mu.RUnlock()
+	if engine == nil || !s.vectorExt.Load() {
+		return 0, nil
+	}
+	if err := s.waitForVecBackfill(ctx); err != nil {
+		return 0, err
+	}
+	dim := engine.Dimensions()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !tableExists(s.db, "vec_index") {
+		return 0, nil
+	}
+	rows, err := s.db.QueryContext(ctx, "SELECT id, content, embedding, metadata FROM vectors WHERE "+vecIndexMissingWhere, dim)
+	if err != nil {
+		return 0, fmt.Errorf("select vectors missing from vec_index: %w", err)
+	}
+	type missingRow struct {
+		id       int64
+		content  string
+		vec      []float32
+		metaJSON string
+	}
+	var missing []missingRow
+	for rows.Next() {
+		var r missingRow
+		var embeddingJSON, metaJSON []byte
+		if err := rows.Scan(&r.id, &r.content, &embeddingJSON, &metaJSON); err != nil {
+			continue
+		}
+		vec, perr := fastParseVectorJSON(embeddingJSON, nil)
+		if perr != nil || len(vec) != dim {
+			continue
+		}
+		r.vec, r.metaJSON = vec, string(metaJSON)
+		missing = append(missing, r)
+	}
+	rowsErr := rows.Err()
+	rows.Close()
+	if rowsErr != nil {
+		return 0, fmt.Errorf("scan vectors missing from vec_index: %w", rowsErr)
+	}
+
+	healed := 0
+	var firstErr error
+	for _, r := range missing {
+		if err := ctx.Err(); err != nil {
+			return healed, err
+		}
+		if err := s.insertVecIndexRow(r.id, r.vec, r.content, r.metaJSON); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("re-index rowid %d: %w", r.id, err)
+			}
+			continue
+		}
+		healed++
+	}
+	if len(missing) > 0 {
+		logging.Store("vec_index reconcile: %d of %d drifted rows re-indexed", healed, len(missing))
+	}
+	return healed, firstErr
+}
+
 // vectorRecallKeyword is the fallback keyword-based search.
 func (s *LocalStore) vectorRecallKeyword(query string, limit int) ([]VectorEntry, error) {
 	// This is the old implementation from local.go VectorRecall

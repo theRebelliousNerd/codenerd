@@ -194,7 +194,7 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 	}
 	focus := normalizeWorkingEntity(intentTarget, root)
 	loop := &workingLoop{
-		set: set, focus: focus, anchor: input, prior: e.priorTurnMessages(),
+		set: set, focus: focus, anchor: withRetrievalBrief(ctx, input), prior: e.priorTurnMessages(),
 		observations: make(map[string]string),
 		evicted:      make(map[string]bool),
 		appended:     make(map[string]string),
@@ -490,6 +490,7 @@ func (e *Executor) singleShotRequest(ctx context.Context, system, userInput stri
 	if loop == nil {
 		return userInput, nil
 	}
+	userInput = withRetrievalBrief(ctx, userInput)
 	if view := e.workingFocusView(ctx, loop); view != "" {
 		userInput += "\n\n" + view
 	}

@@ -194,6 +194,10 @@ type Executor struct {
 	// instructions into the prompt; enforcement reads the kernel.
 	projectDoc *projectdoc.Document
 
+	// issueRetriever runs the kernel-gated retrieval pass for a turn, or nil.
+	// See issue_retrieval.go.
+	issueRetriever IssueRetriever
+
 	// fileContext is the holographic per-file context provider, or nil. Used only
 	// to render file-targeted context into the prompt. Narrow interface so no
 	// import of internal/world is needed and no import cycle is possible.
@@ -560,6 +564,9 @@ func (e *Executor) CloneForTask() *Executor {
 	clone.plannerClient = e.plannerClient
 	clone.projectDoc = e.projectDoc
 	clone.fileContext = e.fileContext
+	// A delegated task is exactly the turn a retrieval brief is for: the
+	// clone is what a `nerd fix` runs on.
+	clone.issueRetriever = e.issueRetriever
 	// turnRecorder IS inherited, and it is the one place where inheriting
 	// differs from sessionPersister on purpose. Persistence is session
 	// bookkeeping, which a delegated task has no business writing into. The
@@ -1007,6 +1014,13 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 			}()
 		}
 	}
+
+	// ORIENT, retrieval: the kernel decides whether this intent's turn runs
+	// the issue-driven sparse pass and which of the files it finds the model
+	// is handed (schemas_knowledge.mg 52.5). The brief rides the turn context
+	// into the working loop's anchor; the pass's facts leave with the turn.
+	ctx, releaseRetrieval := e.retrieveForTurn(ctx, intentID, input)
+	defer releaseRetrieval()
 
 	// 2. ORIENT: Build compilation context from intent + world state
 	compilationCtx := e.buildCompilationContext(ctx, intent)

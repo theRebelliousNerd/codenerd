@@ -94,11 +94,25 @@ Store is **orthogonal** to OODA control flow: it is invoked when actions or boot
 | Trace adapter | `system/factory_adapters.go` |
 | Graph adapter | `system/factory.go` |
 | VirtualStore inject | core factory path / VirtualStore setters |
-| ToolStore | opened by tool/cleanup paths (`.nerd/tools.db`), not always at boot |
+| ToolStore | opened at every boot by `initFactoryToolStore` (`.nerd/tools.db`), auto-cleaned there and by maintenance |
 
-## Wiring gaps to re-check before “unused” deletions
+## Maintenance wiring (2026-09-25)
 
-- `LearnedCorpusStore` consumer sites
-- Tool smart-cleanup LLM path
-- Embedded corpus only when `defaults.IntentCorpusAvailable()`
-- Build tags altering `defaultRequireVec` behavior in CI vs local
+| Hook | Location |
+|------|----------|
+| tools.db budget (`ToolStore.AutoCleanup`) | `autoCleanupToolStore`, at boot in `initFactoryToolStore` and in `Cortex.runMaintenance` (`internal/system/factory.go`) |
+| ANN drift heal (`ReconcileVecIndex`) | `MaintenanceConfig.ReconcileVecIndex`, on in `Cortex.runMaintenance` |
+| Store gauges (`vec_index_missing`, `reflection_trace_backlog`) | `LocalStore.GetStats`, printed by `nerd memory` |
+
+## Wiring gaps re-checked (2026-09-25)
+
+- `LearnedCorpusStore`: wired. `perception.NewLearnedCorpusStore` wraps it for
+  the semantic classifier (`internal/perception/semantic_classifier.go`).
+- Tool smart-cleanup LLM path: deliberately not wired. `CleanupIntelligent`
+  would let a model choose what to delete; retention is the budgets'.
+  `/cleanup-tools --smart` states the decision.
+- Embedded corpus only when `defaults.IntentCorpusAvailable()`: unchanged,
+  fails closed with an error in dev builds without the corpus.
+- Build tags and `defaultRequireVec`: documented in the root `agents.md`
+  (`-tags sqlite_vec`). With cgo, `init_vec.go` registers sqlite-vec either
+  way; the tag only makes it required.
