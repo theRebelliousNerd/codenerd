@@ -170,7 +170,9 @@ now, and are owed only for /go writes, as today.
   the kernel keeps a finding's last two attempts and a node's latest kept
   change, and retires each cycle's inputs once it is judged; each attempt's
   campaign (facts and `.nerd/campaigns` files) is released after it runs;
-  gate output is kept head and tail under a byte bound.
+  gate output is kept head and tail under a byte bound; every task executor
+  an attempt runs retires its working-context archive (`.nerd/context`) when
+  its task returns, and `internal/context/working_retention.mg` prunes it.
 * `nerd campaign recurse status` shows the ledger: pass, node, what was measured,
   picked, kept, reverted and stalled, with the gate trend.
 

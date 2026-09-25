@@ -147,7 +147,7 @@ it bounded by anything.
 | `campaigns` | 773 M | per-campaign artifacts |
 | `logs_archive` | 711 M | rotated logs |
 | `logs` | 159 M | 280 files, a set per run |
-| `context` | 86 M | 170 working-context archives, one per executor (N13) |
+| `context` | 86 M | 170 working-context archives, one per executor (N13); **bounded** since lane B wave 4: `working_retention.mg` releases an archive nothing can redeem, task executors retire theirs, boot and `nerd memory prune` remove them |
 | `prompts`, `shards`, `tools` | 34 M | |
 
 A machine left running for weeks grows this without bound while the disk guard's floor is real.

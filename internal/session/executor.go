@@ -200,6 +200,10 @@ type Executor struct {
 	// import of internal/world is needed and no import cycle is possible.
 	fileContext  FileContextProvider
 	workingScope string
+	// workingScopes are the working scopes this executor opened an archive
+	// for (one per shard it ran a loop as): what RetireWorkingScopes hands
+	// back to the retention policy when the executor's task is over.
+	workingScopes map[string]struct{}
 
 	// codeElements parses the file a turn is looking at into the CodeDOM fact
 	// layer, and codedom is what this run has put there. Narrow interface for

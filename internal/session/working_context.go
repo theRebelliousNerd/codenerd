@@ -198,6 +198,12 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 	if err != nil {
 		return ctx, func() {}, err
 	}
+	e.mu.Lock()
+	if e.workingScopes == nil {
+		e.workingScopes = make(map[string]struct{})
+	}
+	e.workingScopes[scope] = struct{}{}
+	e.mu.Unlock()
 	focus := normalizeWorkingEntity(intentTarget, root)
 	// The loop's window names its eviction handle, and the loop serves what
 	// the window evicted behind recall_context for as long as it runs.
@@ -214,6 +220,49 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 		working: set, handle: historyEvictionHandle(evictedHistory), evicted: evictedHistory,
 	})
 	return ctx, func() { _ = set.Close() }, nil
+}
+
+// RetireWorkingScopes tells the retention policy that this executor is done
+// with every working scope it opened, and lets it prune their archives. A
+// scope's name is random and held only here, so once the executor's task is
+// over nothing can redeem a handle into its archive. The executors that end
+// are the ones minted per task -- a CloneForTask run, a subagent -- and a
+// campaign mints them by the thousand; the session's own executor keeps its
+// scope for the life of the process, and its archive is pruned after the
+// process is gone (PruneWorkingArchives at the next boot). A failure is
+// logged, not returned: the task's outcome is already decided.
+func (e *Executor) RetireWorkingScopes() {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	scopes := make([]string, 0, len(e.workingScopes))
+	for s := range e.workingScopes {
+		scopes = append(scopes, s)
+	}
+	e.workingScopes = nil
+	e.mu.Unlock()
+	root := e.workingLoopWorkspace()
+	if root == "" || len(scopes) == 0 {
+		return
+	}
+	sort.Strings(scopes)
+	for _, scope := range scopes {
+		if _, err := working.RetireWorkingScope(root, scope); err != nil {
+			logging.Get(logging.CategorySession).Warn("working scope %q was not retired; its archive waits for the next prune: %v", scope, err)
+		}
+	}
+}
+
+// PruneWorkingArchives removes the workspace's working-context archives the
+// retention policy derives prunable -- those whose owner process is gone or
+// retired them -- and reports what it kept. Boot calls it once.
+func (e *Executor) PruneWorkingArchives() (working.WorkingArchiveReport, error) {
+	root := e.workingLoopWorkspace()
+	if root == "" {
+		return working.WorkingArchiveReport{}, nil
+	}
+	return working.PruneWorkingArchives(root)
 }
 
 // normalizeWorkingEntity turns a target into the workspace entity observations

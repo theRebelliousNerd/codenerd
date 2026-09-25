@@ -2096,6 +2096,14 @@ func initFinalExecutors(bctx *bootContext) error {
 	execCfg := session.ExecutorConfigFrom(sessionPolicy, bctx.appCfg.GetWorkingConfig())
 	execCfg.WorkspaceRoot = bctx.workspace
 	bctx.sessionExecutor.SetConfig(execCfg)
+	// Working-context archives whose owner process is gone, or retired them,
+	// can never be redeemed; the retention policy releases them here, at the
+	// start of every session (nothing else removes one from a crashed run).
+	if report, err := bctx.sessionExecutor.PruneWorkingArchives(); err != nil {
+		logging.Get(logging.CategoryBoot).Warn("working-context archives were not pruned: %v", err)
+	} else if report.Total > 0 {
+		logging.Boot("working context: %s", report)
+	}
 	// The shard profile's enable_learning gates what the executor records
 	// for prompt evolution, per persona.
 	if appCfg := bctx.appCfg; appCfg != nil {

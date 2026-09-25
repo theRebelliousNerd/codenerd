@@ -137,6 +137,17 @@ mutate state by other means.
 
 Feedback DB lives at `<workspace>/.nerd/context_feedback.db`.
 
+## Working-context archives
+
+Each working scope (one per executor that runs a tool loop) keeps its observations in
+`<workspace>/.nerd/context/<sha256(scope)>.db`, beside a `.owner` record (pid, host)
+written first. `working_retention.mg` decides what is kept: an archive is
+`working_archive_prunable` when nothing can redeem a handle into it -- its owner process
+is gone, or its executor retired the scope (`RetireWorkingScope`, called when a task
+clone or subagent returns). Age never enters it. `PruneWorkingArchives` runs at boot and
+behind `nerd memory prune`; `SurveyWorkingArchives` feeds `nerd status` and
+`nerd memory status`.
+
 ## Testing
 
 ```bash

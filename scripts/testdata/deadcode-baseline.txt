@@ -283,9 +283,7 @@ internal/init/agents.go	Initializer.generateAgentPromptsYAML
 internal/init/agents_knowledge.go	convertStoreAtomsToInitAtoms
 internal/init/interactive.go	GetContext7AgentSuggestions
 internal/init/jit_integration.go	isExpertInitPhase
-internal/init/profile.go	GetLatestSession
 internal/init/profile.go	LoadPreferences
-internal/init/profile.go	LoadProjectProfile
 internal/init/profile.go	cleanNameConstant
 internal/init/tools.go	GetDependencyTools
 internal/init/validation.go	PrintValidationSummary
