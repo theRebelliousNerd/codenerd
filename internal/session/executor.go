@@ -817,6 +817,13 @@ type ExecutionResult struct {
 	// sentence claimed.
 	StepReport string
 
+	// safetyNotices are the constitutional-override notices put on the
+	// surface of a round that was not the turn's last (a Piggyback round that
+	// blocked an unsafe mangle_update and went on to call tools). That
+	// round's surface is never shown, so the notice is carried to the
+	// response rather than lost with it (withSafetyNotices).
+	safetyNotices []string
+
 	// Duration is how long the execution took.
 	Duration time.Duration
 
@@ -1103,7 +1110,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 
 	// 7. Articulate response — process Piggyback control packet (best-effort)
-	result.Response = e.processPiggybackControlPacket(llmResponse.Text)
+	result.Response = withSafetyNotices(e.processPiggybackControlPacket(llmResponse.Text), result.safetyNotices)
 	if result.StepReport != "" {
 		result.Response = strings.TrimSpace(result.Response) + "\n\n" + result.StepReport
 	}
@@ -1461,8 +1468,16 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 	if client == nil {
 		return nil, fmt.Errorf("cannot generate response: no LLM client configured")
 	}
-	// Check if client should use Piggyback for tools (e.g., Gemini with grounding enabled)
+	// A Piggyback client (the CLI engines; Gemini with grounding on) carries
+	// its tool calls in the envelope. Inside a working loop its first request
+	// is a working request like a native one -- the prior turns, the anchor
+	// with the focus view, the budget check -- sent on the envelope channel,
+	// so the rounds that follow continue the same conversation.
 	if usesPiggybackTools(client) {
+		if channel, ok := e.toolResultsChannel(client, cfg); ok && activeWorkingLoop(ctx) != nil {
+			return e.completeWithWorkingContext(ctx, channel, systemPrompt,
+				[]types.Message{{Role: "user", Text: userInput}}, e.buildToolDefinitions(cfg))
+		}
 		return e.generateResponseWithPiggybackTools(ctx, client, systemPrompt, userInput, cfg)
 	}
 
@@ -2438,8 +2453,14 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 			ic.Category, ic.Verb, ic.Target, ic.Confidence)
 	}
 
-	// Return only the surface response (control data has been routed to kernel)
-	return processed.Surface
+	// Return only the surface response (control data has been routed to
+	// kernel) -- the envelope's, not the parse's: blocking an unsafe
+	// mangle_update prefixes the surface with a safety notice
+	// (ApplyConstitutionalOverride), and returning the parse's copy dropped it,
+	// so the user was never told the model had tried to write a protected
+	// fact. The single-shot Piggyback path kept the notice; every path that
+	// promotes an envelope through here did not.
+	return envelope.Surface
 }
 
 // turnSeq numbers turn verdicts across the process, so two executors sharing a

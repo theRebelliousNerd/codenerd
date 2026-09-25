@@ -49,6 +49,12 @@ type workingLoop struct {
 	restated map[string]string
 	// viewed is the focus view the ledger carries: focus and its revision.
 	viewed string
+	// callIDs are the tool-call ids this loop has handed out on the
+	// Piggyback channel (claimCallIDs), so no two calls share one.
+	callIDs map[string]bool
+	// result is the turn this loop runs for, where a round's safety notice
+	// is kept once that round's surface is superseded (piggybackChannel).
+	result *ExecutionResult
 }
 
 // commitRegime is the working_regime under which exploration is closed.

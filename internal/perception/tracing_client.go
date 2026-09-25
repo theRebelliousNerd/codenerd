@@ -819,6 +819,21 @@ func (tc *TracingLLMClient) IsURLContextEnabled() bool {
 	return false
 }
 
+// ShouldUsePiggybackTools forwards types.PiggybackToolProvider. The answer
+// selects the executor's tool channel, and boot puts this wrapper between the
+// scheduler (which forwards it) and the broker (which forwards it), so a wrapper
+// that swallowed it would send a CLI engine -- envelope-only -- down the native
+// tool path. No opinion answers false, as the unwrapped probe would.
+func (tc *TracingLLMClient) ShouldUsePiggybackTools() bool {
+	if tc == nil || tc.underlying == nil {
+		return false
+	}
+	if p, ok := tc.underlying.(types.PiggybackToolProvider); ok {
+		return p.ShouldUsePiggybackTools()
+	}
+	return false
+}
+
 // -- GroundedWebSearcher --
 
 var _ types.GroundedWebSearcher = (*TracingLLMClient)(nil)
