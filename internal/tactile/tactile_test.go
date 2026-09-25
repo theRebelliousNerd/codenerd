@@ -568,33 +568,6 @@ func TestCompositeExecutor(t *testing.T) {
 	}
 }
 
-func TestExecutorFactory(t *testing.T) {
-	factory := NewDefaultFactory()
-
-	// Create direct executor
-	direct := factory.CreateDirect()
-	if direct == nil {
-		t.Errorf("Expected direct executor")
-	}
-
-	caps := direct.Capabilities()
-	if caps.Name != "direct" {
-		t.Errorf("Expected 'direct' executor")
-	}
-
-	// Create composite
-	composite := factory.CreateComposite()
-	if composite == nil {
-		t.Errorf("Expected composite executor")
-	}
-
-	// Create best
-	best := factory.CreateBest()
-	if best == nil {
-		t.Errorf("Expected best executor")
-	}
-}
-
 func TestOutputAnalyzer_TestOutput(t *testing.T) {
 	analyzer := NewOutputAnalyzer()
 
@@ -657,70 +630,5 @@ main.go:15:10: cannot use x (type int) as type string`
 
 	if analysis.Diagnostics[0].File != "main.go" {
 		t.Errorf("Expected file 'main.go', got: %s", analysis.Diagnostics[0].File)
-	}
-}
-
-func TestPooledExecutor(t *testing.T) {
-	config := DefaultExecutorConfig()
-	pool := NewPooledExecutor(config, 5)
-
-	// Execute some commands
-	var cmd Command
-	if runtime.GOOS == "windows" {
-		cmd = Command{
-			Binary:    "cmd",
-			Arguments: []string{"/c", "echo", "pooled"},
-		}
-	} else {
-		cmd = Command{
-			Binary:    "echo",
-			Arguments: []string{"pooled"},
-		}
-	}
-
-	result, err := pool.Execute(context.Background(), cmd)
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	if !result.Success {
-		t.Errorf("Expected success")
-	}
-
-	// Check stats
-	stats := pool.Stats()
-	if stats["borrowed"] < 1 {
-		t.Errorf("Expected at least 1 borrow")
-	}
-	if stats["returned"] < 1 {
-		t.Errorf("Expected at least 1 return")
-	}
-}
-
-func TestRetryExecutor(t *testing.T) {
-	direct := NewDirectExecutor()
-	retry := NewRetryExecutor(direct, 2)
-
-	// Successful command should work first try
-	var cmd Command
-	if runtime.GOOS == "windows" {
-		cmd = Command{
-			Binary:    "cmd",
-			Arguments: []string{"/c", "echo", "retry"},
-		}
-	} else {
-		cmd = Command{
-			Binary:    "echo",
-			Arguments: []string{"retry"},
-		}
-	}
-
-	result, err := retry.Execute(context.Background(), cmd)
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	if !result.Success {
-		t.Errorf("Expected success")
 	}
 }

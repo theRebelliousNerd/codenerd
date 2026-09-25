@@ -41,12 +41,6 @@ var (
 	}{}
 )
 
-// NewDockerExecutor creates a new Docker executor.
-func NewDockerExecutor() *DockerExecutor {
-	logging.TactileDebug("Creating new DockerExecutor with default config")
-	return NewDockerExecutorWithConfig(DefaultExecutorConfig())
-}
-
 // NewDockerExecutorWithConfig creates a new Docker executor with custom config.
 func NewDockerExecutorWithConfig(config ExecutorConfig) *DockerExecutor {
 	logging.TactileDebug("Creating DockerExecutor with custom config")

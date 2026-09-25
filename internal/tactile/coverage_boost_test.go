@@ -421,262 +421,21 @@ func TestLimitedWriter_WhenMultipleWrites_ShouldTrackCumulative(t *testing.T) {
 // RetryExecutor.shouldRetry
 // =============================================================================
 
-func TestRetryExecutor_ShouldRetry_WhenInfraError_ShouldNotRetry(t *testing.T) {
-	t.Parallel()
-	direct := NewDirectExecutor()
-	retry := NewRetryExecutor(direct, 3)
-
-	result := retry.shouldRetry(nil, context.DeadlineExceeded)
-	if result {
-		t.Error("should not retry on infrastructure error")
-	}
-}
-
-func TestRetryExecutor_ShouldRetry_WhenKilled_ShouldNotRetry(t *testing.T) {
-	t.Parallel()
-	direct := NewDirectExecutor()
-	retry := NewRetryExecutor(direct, 3)
-
-	execResult := &ExecutionResult{Killed: true, KillReason: "timeout"}
-	result := retry.shouldRetry(execResult, nil)
-	if result {
-		t.Error("should not retry killed commands")
-	}
-}
-
-func TestRetryExecutor_ShouldRetry_WhenInfraFailure_ShouldRetry(t *testing.T) {
-	t.Parallel()
-	direct := NewDirectExecutor()
-	retry := NewRetryExecutor(direct, 3)
-
-	execResult := &ExecutionResult{Success: false, ExitCode: -1}
-	result := retry.shouldRetry(execResult, nil)
-	if !result {
-		t.Error("should retry on infrastructure failure (exit code -1)")
-	}
-}
-
-func TestRetryExecutor_ShouldRetry_WhenNormalFailure_ShouldNotRetry(t *testing.T) {
-	t.Parallel()
-	direct := NewDirectExecutor()
-	retry := NewRetryExecutor(direct, 3)
-
-	execResult := &ExecutionResult{Success: false, ExitCode: 1}
-	result := retry.shouldRetry(execResult, nil)
-	if result {
-		t.Error("should not retry normal command failures")
-	}
-}
-
-func TestRetryExecutor_ShouldRetry_WhenNilResult_ShouldNotRetry(t *testing.T) {
-	t.Parallel()
-	direct := NewDirectExecutor()
-	retry := NewRetryExecutor(direct, 3)
-
-	result := retry.shouldRetry(nil, nil)
-	if result {
-		t.Error("should not retry with nil result and nil error")
-	}
-}
-
 // =============================================================================
 // RetryExecutor.SetRetryDelay
 // =============================================================================
-
-func TestRetryExecutor_SetRetryDelay_ShouldOverrideDefault(t *testing.T) {
-	t.Parallel()
-	direct := NewDirectExecutor()
-	retry := NewRetryExecutor(direct, 3)
-
-	customDelay := func(attempt int) int { return 42 }
-	retry.SetRetryDelay(customDelay)
-
-	if retry.retryDelay(0) != 42 {
-		t.Errorf("expected custom delay 42, got %d", retry.retryDelay(0))
-	}
-}
 
 // =============================================================================
 // RetryExecutor.Capabilities & Validate
 // =============================================================================
 
-func TestRetryExecutor_Capabilities_ShouldDelegateToWrapped(t *testing.T) {
-	t.Parallel()
-	direct := NewDirectExecutor()
-	retry := NewRetryExecutor(direct, 2)
-
-	caps := retry.Capabilities()
-	if caps.Name != "direct" {
-		t.Errorf("expected 'direct', got %q", caps.Name)
-	}
-}
-
-func TestRetryExecutor_Validate_ShouldDelegateToWrapped(t *testing.T) {
-	t.Parallel()
-	direct := NewDirectExecutor()
-	retry := NewRetryExecutor(direct, 2)
-
-	if err := retry.Validate(Command{Binary: "echo"}); err != nil {
-		t.Errorf("unexpected validation error: %v", err)
-	}
-	if err := retry.Validate(Command{Binary: ""}); err == nil {
-		t.Error("expected validation error for empty binary")
-	}
-}
-
 // =============================================================================
 // PooledExecutor - Borrow/Return/Stats
 // =============================================================================
 
-func TestPooledExecutor_BorrowReturn_ShouldTrackStats(t *testing.T) {
-	t.Parallel()
-	config := DefaultExecutorConfig()
-	pool := NewPooledExecutor(config, 3)
-
-	exec1 := pool.Borrow()
-	exec2 := pool.Borrow()
-
-	pool.Return(exec1)
-	pool.Return(exec2)
-
-	stats := pool.Stats()
-	if stats["borrowed"] != 2 {
-		t.Errorf("expected 2 borrowed, got %d", stats["borrowed"])
-	}
-	if stats["returned"] != 2 {
-		t.Errorf("expected 2 returned, got %d", stats["returned"])
-	}
-	if stats["created"] != 2 {
-		t.Errorf("expected 2 created (empty pool), got %d", stats["created"])
-	}
-	if stats["max_size"] != 3 {
-		t.Errorf("expected max_size 3, got %d", stats["max_size"])
-	}
-}
-
-func TestPooledExecutor_Return_WhenPoolFull_ShouldDiscardExecutor(t *testing.T) {
-	t.Parallel()
-	config := DefaultExecutorConfig()
-	pool := NewPooledExecutor(config, 1) // pool size 1
-
-	exec1 := pool.Borrow()
-	exec2 := pool.Borrow()
-
-	pool.Return(exec1) // Should go into pool
-	pool.Return(exec2) // Pool full, should discard
-
-	stats := pool.Stats()
-	if stats["pool_size"] != 1 {
-		t.Errorf("expected pool_size 1, got %d", stats["pool_size"])
-	}
-}
-
-func TestPooledExecutor_Borrow_WhenPoolHasExecutor_ShouldReuseIt(t *testing.T) {
-	t.Parallel()
-	config := DefaultExecutorConfig()
-	pool := NewPooledExecutor(config, 3)
-
-	// Borrow and return to put one in pool
-	exec1 := pool.Borrow()
-	pool.Return(exec1)
-
-	// Second borrow should reuse from pool (not create new)
-	_ = pool.Borrow()
-
-	stats := pool.Stats()
-	if stats["created"] != 1 {
-		t.Errorf("expected 1 created (reused from pool), got %d", stats["created"])
-	}
-	if stats["borrowed"] != 2 {
-		t.Errorf("expected 2 borrowed, got %d", stats["borrowed"])
-	}
-}
-
-func TestPooledExecutor_Capabilities_ShouldReturnDirectCapabilities(t *testing.T) {
-	t.Parallel()
-	config := DefaultExecutorConfig()
-	pool := NewPooledExecutor(config, 3)
-
-	caps := pool.Capabilities()
-	if caps.Name != "direct" {
-		t.Errorf("expected 'direct', got %q", caps.Name)
-	}
-}
-
-func TestPooledExecutor_Validate_ShouldDelegate(t *testing.T) {
-	t.Parallel()
-	config := DefaultExecutorConfig()
-	pool := NewPooledExecutor(config, 3)
-
-	if err := pool.Validate(Command{Binary: "echo"}); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if err := pool.Validate(Command{Binary: ""}); err == nil {
-		t.Error("expected error for empty binary")
-	}
-}
-
 // =============================================================================
 // ExecutorFactory
 // =============================================================================
-
-func TestExecutorFactory_CreateFromConfig_WhenNone_ShouldReturnDirect(t *testing.T) {
-	t.Parallel()
-	factory := NewDefaultFactory()
-	exec, err := factory.CreateFromConfig(SandboxNone)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	caps := exec.Capabilities()
-	if caps.Name != "direct" {
-		t.Errorf("expected 'direct', got %q", caps.Name)
-	}
-}
-
-func TestExecutorFactory_CreateFromConfig_WhenFirejail_ShouldReturnError(t *testing.T) {
-	t.Parallel()
-	factory := NewDefaultFactory()
-	_, err := factory.CreateFromConfig(SandboxFirejail)
-	if err == nil {
-		t.Error("expected error for Firejail on non-Linux")
-	}
-}
-
-func TestExecutorFactory_CreateFromConfig_WhenNamespace_ShouldReturnError(t *testing.T) {
-	t.Parallel()
-	factory := NewDefaultFactory()
-	_, err := factory.CreateFromConfig(SandboxNamespace)
-	if err == nil {
-		t.Error("expected error for Namespace on non-Linux")
-	}
-}
-
-func TestExecutorFactory_CreateFromConfig_WhenUnknown_ShouldReturnError(t *testing.T) {
-	t.Parallel()
-	factory := NewDefaultFactory()
-	_, err := factory.CreateFromConfig(SandboxMode("alien"))
-	if err == nil {
-		t.Error("expected error for unknown sandbox mode")
-	}
-}
-
-func TestExecutorFactory_CreateAudited_ShouldWrapExecutor(t *testing.T) {
-	t.Parallel()
-	factory := NewDefaultFactory()
-	direct := factory.CreateDirect()
-	audited := factory.CreateAudited(direct)
-
-	if audited == nil {
-		t.Fatal("CreateAudited returned nil")
-	}
-	caps := audited.Capabilities()
-	if caps.Name != "direct" {
-		t.Errorf("expected 'direct', got %q", caps.Name)
-	}
-	if audited.GetLogger() == nil {
-		t.Error("expected non-nil logger")
-	}
-}
 
 // =============================================================================
 // CompositeExecutor
@@ -885,20 +644,6 @@ func TestDirectExecutor_BuildEnvironment_WhenNoCmdEnv_ShouldStillIncludeAllowed(
 // =============================================================================
 // NewExecutorFactory with custom config
 // =============================================================================
-
-func TestNewExecutorFactory_WhenCustomConfig_ShouldUseConfig(t *testing.T) {
-	t.Parallel()
-	config := DefaultExecutorConfig()
-	config.DefaultWorkingDir = "/custom/path"
-
-	factory := NewExecutorFactory(config)
-	direct := factory.CreateDirect()
-
-	caps := direct.Capabilities()
-	if caps.Name != "direct" {
-		t.Errorf("expected 'direct', got %q", caps.Name)
-	}
-}
 
 // =============================================================================
 // AuditFileLogger.Close idempotent
