@@ -4,75 +4,89 @@ What is connected, what exists but nothing calls, and what the design
 assumes that the code does not do. What the package is: README.md. How it
 works: INTERNALS.md.
 
+Re-verified 2026-09-25 (lane A build-out); first written 2026-09-20 against
+`456e5217`. Line numbers below were re-read on 2026-09-25.
+
 ## Wired and reachable
 
 | Symbol | Production caller |
 |---|---|
-| `ApplyConstitutionalOverride` (`emitter.go:854-902`) | `internal/session/executor.go:1740` — filters blocked mangle atoms after parsing |
-| `NewEmitter` + `Emit` (`emitter.go:729-738`, `741-773`) | `cmd/nerd/cmd_instruction.go:78,96,370` — one-shot instruction path writes the envelope to stdout |
-| `SetJITBudgets` + `EnableJIT` (`prompt_assembler.go:1255-1281`, `1216-1225`) | `cmd/nerd/chat/campaign.go:65-66`, `cmd/nerd/chat/campaign_assault.go:56-57`, `cmd/nerd/chat/campaign_recurse.go:162-163`, `internal/shards/registration.go:493-495`, `internal/system/factory.go:1636-1638` |
-| `SetJITCompiler` (`prompt_assembler.go:1229-1238`) | `internal/shards/registration.go:493`, `internal/system/factory.go:1636` |
-| `NewPromptAssemblerAdapter` (`prompt_assembler_adapter.go:22-24`) | `internal/shards/system/perception.go:182,257`, `internal/system/factory.go:1640,1850` |
-| `mapToPromptContext` (`prompt_assembler_adapter.go:51-137`) | `prompt_assembler.go:381`, inside `AssembleSystemPrompt` |
+| `ApplyConstitutionalOverride` (`emitter.go:850`) | `internal/session/executor.go:1754` — after `core.FilterMangleUpdates` (`:1747`) blocked atoms, marks the surface and drops them |
+| `NewEmitter` + `Emit` (`emitter.go:725`, `:737`) | `cmd/nerd/cmd_instruction.go:78,96,370` — one-shot instruction path writes the envelope to stdout |
+| `SetJITBudgets` + `EnableJIT` | `cmd/nerd/chat/campaign.go`, `cmd/nerd/chat/campaign_assault.go`, `cmd/nerd/chat/campaign_recurse.go`, `internal/shards/registration.go`, `internal/system/factory.go` |
+| `SetJITCompiler` | `internal/shards/registration.go`, `internal/system/factory.go` |
+| `NewPromptAssemblerAdapter` | `internal/shards/system/perception.go`, `internal/system/factory.go` |
+| `mapToPromptContext` | inside `AssembleSystemPrompt` |
 | `PiggybackEnvelopeSchema` | `internal/perception/client_schema.go:23` |
-| `NewPromptAssemblerWithJIT` (`prompt_assembler.go:81`) | `cmd/nerd/chat/campaign.go:60`, `cmd/nerd/chat/campaign_assault.go:51`, `cmd/nerd/chat/campaign_recurse.go:157`, `cmd/nerd/cmd_campaign.go:259` |
-| `ProcessLLMResponse` (`emitter.go:1072`) | `internal/session/executor.go:1517,1570`, `internal/shards/system/planner.go:320` |
-| `ProcessLLMResponseAllowPlain` (`emitter.go:1078`) | `internal/session/executor.go:2315`, `internal/session/piggyback_promotion.go:33`, `internal/shards/requirements_interrogator.go:138`, `internal/shards/system/legislator.go:89`, `internal/shards/system/mangle_repair.go:351`, `cmd/nerd/chat/delegation.go:475`, `cmd/nerd/chat/helpers.go:466` |
-| `HasSelfCorrection` (`emitter.go:972-979`), `HasMemoryOperations` (`emitter.go:982-988`), `GetMemoryOperationsByType` (`emitter.go:991-1001`) | `internal/session/executor.go:2331,2347,2353` |
-| `NewStreamParser` (`stream_parser.go:38`) | `cmd/nerd/chat/helpers_articulation.go:301` |
+| `NewPromptAssemblerWithJIT` | `cmd/nerd/chat/campaign.go`, `cmd/nerd/chat/campaign_assault.go`, `cmd/nerd/chat/campaign_recurse.go`, `cmd/nerd/cmd_campaign.go` |
+| `ProcessLLMResponse` (`emitter.go:1027`) | `internal/session/executor.go`, `internal/shards/system/planner.go` |
+| `ProcessLLMResponseAllowPlain` (`emitter.go:1033`) | `internal/session/executor.go`, `internal/session/piggyback_promotion.go`, `internal/shards/requirements_interrogator.go`, `internal/shards/system/legislator.go`, `internal/shards/system/mangle_repair.go`, `cmd/nerd/chat/delegation.go`, `cmd/nerd/chat/helpers.go` |
+| `HasSelfCorrection`, `HasMemoryOperations`, `GetMemoryOperationsByType` | `internal/session/executor.go` |
+| `NewStreamParser` | `cmd/nerd/chat/helpers_articulation.go` |
+
+**Every path that applies `mangle_updates` to a kernel filters them first.**
+The session executor (`executor.go:1747`), the session planner
+(`internal/shards/system/planner.go:1081`) and the perception firewall
+(`internal/shards/system/perception.go:291`) all go through
+`core.FilterMangleUpdates`; the executor additionally marks the surface via
+`ApplyConstitutionalOverride`. The display helpers that skip it
+(`ExtractSurfaceOnly`, `MustExtractSurface`) have no production caller and
+apply nothing to a kernel.
+
+**The envelope's three descriptions are held together by a test.** The JSON
+Schema the model is held to (`PiggybackEnvelopeSchema`, `schema.go`), the
+structs responses decode into (`protocol_types.go`), and the key set strict
+decoding accepts (`schemaAllowedKeys`, `emitter.go:454`) agree at every level
+today; `TestEnvelopeShape_SchemaStructAndStrictKeysAgree`
+(`envelope_shape_agreement_test.go`) fails, naming the path, when one drifts
+(checked by dropping `priority` from `schemaAllowedKeys`).
 
 ## Exists but nothing calls it
 
-Each item below was checked with a whole-repo grep whose result set was
-not truncated; the only hits are the definition, package tests, and the deadcode baseline.
+Each was re-checked with a whole-repo grep on 2026-09-25. No wiring gap was
+found for any of them: nothing in production needs what they do and does it
+another, worse way. Deleting them is a maintainer call; they are listed in
+`scripts/testdata/deadcode-baseline.txt` where noted.
 
-- `Emitter.EmitSurface` (`emitter.go:776-781`): no callers anywhere.
-- `Emitter.ParseAndProcess` (`emitter.go:784-794`): no callers anywhere.
-- `Emitter.CreateEnvelope` (`emitter.go:797-813`) and
-  `Emitter.MarshalEnvelope` (`emitter.go:816-838`): called only from
-  `internal/articulation/emitter_helpers_test.go:13,21`. The production
-  one-shot path builds `PiggybackEnvelope` literally
-  (`cmd/nerd/cmd_instruction.go:96`) instead of using them.
-- `AppendReasoningDirective` (`emitter.go:936-943`) with
-  `ReasoningTraceDirective` (`emitter.go:912`) and
-  `ShardReasoningDirective` (`emitter.go:930`): called only from
-  `internal/articulation/emitter_extra_test.go:74-82`, and listed in
-  `scripts/testdata/deadcode-baseline.txt:144`. No shard prompt is built
-  through them in production.
-- `GetKernelContext` (`kernel_context.go:20-31`): no production callers;
-  listed in `scripts/testdata/deadcode-baseline.txt:147`. Its body delegates
-  to `BuildContextSection` (`kernel_context.go:30`), which likewise has no
-  production callers.
-- `AssembleQuickPrompt` (`prompt_assembler.go:1160`): called only from
-  `internal/articulation/prompt_assembler_test.go:386`; listed in
-  `scripts/testdata/deadcode-baseline.txt:148`.
-- `GetStats` / `ResetStats` (`emitter.go:690-706`): read only from
-  `internal/articulation/emitter_test.go:119,124`; no production use.
-- `MustExtractSurface` (`emitter.go:1136`): no callers at all; listed in
-  `scripts/testdata/deadcode-baseline.txt:146`.
-- `ExtractSurfaceOnly` (`emitter.go:951`): called only from
-  `internal/articulation/emitter_helpers_test.go:56-63`; listed in
-  `scripts/testdata/deadcode-baseline.txt:145`.
+- `Emitter.EmitSurface` (`emitter.go:772`): no callers. No CLI flag asks for
+  surface-only output.
+- `Emitter.ParseAndProcess` (`emitter.go:780`): no callers.
+- `Emitter.CreateEnvelope` (`emitter.go:793`) and `Emitter.MarshalEnvelope`
+  (`emitter.go:812`): tests only. `cmd_instruction.go` builds the envelope
+  literally and `Emit` marshals it itself.
+- `GetKernelContext` / `PromptAssembler.BuildContextSection`
+  (`kernel_context.go:20`, `:35`): no production callers (baseline).
+- `AssembleQuickPrompt` (`prompt_assembler.go:1160`): tests only (baseline).
+- `GetStats` / `ResetStats` (`emitter.go:686`, `:697`): tests only.
+- `MustExtractSurface` (`emitter.go:1091`), `ExtractSurfaceOnly`
+  (`emitter.go:906`): no production callers (baseline).
+- `AppendReasoningDirective` and its two directive constants, listed here on
+  2026-09-20, are gone: deleted in `a5e12f0` ("the model's reasoning trace is
+  kept whole; the dead directive is gone"). The deadcode baseline still names
+  `AppendReasoningDirective` and needs a refresh.
 
 ## Assumed by the design, not done by the code
 
-- Strict validation is available but unwired: `ResponseProcessor` carries
-  `RequireValidJSON` (`emitter.go:126-135`), yet the package's own LLM
-  entries go through `processLLMResponse`, which hardcodes it to false
-  (`emitter.go:1090`). Nothing on this path sets it to true.
-- `ApplyConstitutionalOverride` mutates the envelope in place and returns
-  an audit record (`ConstitutionalOverride`, `emitter.go:845-850`), so
-  callers must treat the pointer as mutated. It runs only on the
-  session-executor path (`executor.go:1740`): it has no other production
-  caller, so display paths built on `ExtractSurfaceOnly` /
-  `MustExtractSurface` never pass through it.
-- `GetStats` / `ResetStats` (`emitter.go:690-706`) expose the in-memory
-  `ProcessorStats` counters (`emitter.go:138-144`); nothing persists or
-  exports them.
-- Three places must agree on the envelope shape — the schema text from
-  `GetPiggybackSchema` (`schema.go:235-240`), the allowed-keys list
-  (`schemaAllowedKeys`, `emitter.go:458-499`), and the `UnmarshalJSON`
-  methods (`protocol_types.go:49-78,100-138,166-205`) — and keeping them
-  in agreement is manual.
+- Strict validation is available but off: `ResponseProcessor.RequireValidJSON`
+  (`emitter.go:128`) is false on every production path
+  (`processLLMResponse`, `emitter.go:1045`). Declined: a response that does not
+  parse falls back to plain text with a nil control packet, so nothing from
+  it reaches a kernel; strict mode would turn a model's plain answer into an
+  error without a safety gain.
+- `ApplyConstitutionalOverride` mutates the envelope in place and returns an
+  audit record (`ConstitutionalOverride`), so callers must treat the pointer
+  as mutated.
+- `GetStats` / `ResetStats` expose in-memory `ProcessorStats` counters; nothing
+  persists or exports them. Declined: no consumer wants them.
+- `Emit`'s error is ignored at both call sites in `cmd/nerd/cmd_instruction.go`
+  (`:96`, `:370`). `json.Marshal` fails only on a non-finite
+  `IntentClassification.Confidence`; if it did, `nerd run` would print nothing.
+  Open: noted, not changed in this pass.
 
-Verified: 2026-09-20 · branch `main`, working tree clean · commit `456e5217`.
+## Closed in this pass (2026-09-25)
+
+| Item (2026-09-20 wording) | Verdict | Evidence |
+|---|---|---|
+| Display paths never pass through `ApplyConstitutionalOverride` | stale as a risk: those helpers have no production caller; every kernel-applying path filters | `FilterMangleUpdates` call sites above |
+| Three places must agree on the envelope shape, manually | built: an agreement test | `envelope_shape_agreement_test.go` |
+| `AppendReasoningDirective` unused | stale: deleted in `a5e12f0` | `grep` finds no definition |
