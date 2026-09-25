@@ -86,6 +86,7 @@ func listImportPaths(ctx context.Context, workspace string, pkgs []string) map[s
 // before it (attributeTestFailures, over the same preimages). A skipped or
 // unfinished run is no verdict: the turn's own gate stands.
 func verifyImporters(ctx context.Context, workspace string, result *ExecutionResult) TestVerification {
+	workspace = goWorkspace(workspace)
 	own, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
 	importers := importerPackages(ctx, workspace, own)
 	runnable, _ := splitTagGatedPackages(workspace, importers)
