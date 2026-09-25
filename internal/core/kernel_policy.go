@@ -409,11 +409,13 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 		return err
 	}
 
-	// 1b. Schema validation - ensure all predicates in rule body are declared
-	// This prevents "Schema Drift" where rules use hallucinated predicates
+	// 1b. Learned-rule validation: every body predicate is declared (no
+	// schema drift), and no head is protected -- the static list, the
+	// constitution's grant path, or a host witness. The error goes back to
+	// the proposer as-is, so it must say which of those it was.
 	if err := k.ValidateLearnedRule(rule); err != nil {
-		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: schema validation failed: %v", err)
-		return fmt.Errorf("rule uses undeclared predicates: %w", err)
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: learned-rule validation failed: %v", err)
+		return fmt.Errorf("learned rule rejected: %w", err)
 	}
 	logging.KernelDebug("HotLoadLearnedRule: schema validation passed")
 
