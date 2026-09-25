@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
 )
 
 const (
@@ -16,12 +17,18 @@ const (
 	defaultRiskIntelligenceTimeout = 45 * time.Second
 )
 
-var protectedCampaignRiskRoots = []string{
-	"internal/core",
-	"internal/mangle",
-	"internal/campaign",
-	"internal/perception",
-	"internal/articulation",
+// riskCriticalPaths are the workspace's protected surfaces: its nerd.md
+// critical: list. This used to be a list of codeNERD's own packages, which in
+// any other workspace protected nothing that exists and left the workspace's
+// real critical paths unprotected. A nerd.md that does not parse protects
+// nothing extra, and the log says why.
+func riskCriticalPaths(workspace string) []string {
+	critical, err := projectdoc.CriticalPaths(workspace)
+	if err != nil {
+		logging.CampaignWarn("campaign risk: nerd.md critical: list unreadable, no protected surfaces this run: %v", err)
+		return nil
+	}
+	return critical
 }
 
 // RiskGateMode controls override behavior for campaign risk gating.
@@ -237,7 +244,7 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 
 	o.recomputeRiskGateStateLocked()
 	targetPaths := collectCampaignRiskPaths(o.campaign)
-	protectedRoots := detectProtectedCampaignRoots(targetPaths)
+	protectedRoots := detectProtectedCampaignRoots(riskCriticalPaths(o.workspace), targetPaths)
 
 	// Everything Go observes goes here; the kernel grades it at the end.
 	measured := riskContractFacts{
@@ -540,7 +547,7 @@ func buildCampaignRiskDecision(c *Campaign, cfg OrchestratorConfig, gates riskGa
 	}
 	paths = dedupeSortedStrings(paths)
 	inputs := buildRiskInputSnapshot(c, paths, intel)
-	metrics := calculateRiskMetrics(c, paths, inputs)
+	metrics := calculateRiskMetrics(c, paths, inputs, riskCriticalPaths(cfg.Workspace))
 
 	score := weightedRiskScore(
 		metrics.criticality,
@@ -604,8 +611,8 @@ type riskMetrics struct {
 	errorNorm      int
 }
 
-func calculateRiskMetrics(c *Campaign, paths []string, inputs RiskInputSnapshot) riskMetrics {
-	criticality := criticalityNorm(paths)
+func calculateRiskMetrics(c *Campaign, paths []string, inputs RiskInputSnapshot, critical []string) riskMetrics {
+	criticality := criticalityNorm(critical, paths)
 	churnBase := percentileNorm(len(paths), []int{1, 3, 5, 8, 13, 21, 34, 55, 89})
 	churnIntel := clampInt(inputs.HighChurnFiles*10, 0, 100)
 	churn := clampInt(int(math.Round(0.7*float64(churnBase)+0.3*float64(churnIntel))), 0, 100)
@@ -982,8 +989,8 @@ func campaignMaxComplexity(c *Campaign) string {
 	return label
 }
 
-func criticalityNorm(paths []string) int {
-	protectedRoots := protectedCampaignRiskRoots
+func criticalityNorm(critical, paths []string) int {
+	protectedRoots := critical
 	apiRoots := []string{
 		"internal/api",
 		"internal/models",
@@ -1019,19 +1026,22 @@ func criticalityNorm(paths []string) int {
 	return 10
 }
 
-func detectProtectedCampaignRoots(paths []string) []string {
-	if len(paths) == 0 {
+func detectProtectedCampaignRoots(critical, paths []string) []string {
+	if len(paths) == 0 || len(critical) == 0 {
 		return nil
 	}
 
-	matched := make(map[string]struct{}, len(protectedCampaignRiskRoots))
+	matched := make(map[string]struct{}, len(critical))
 	for _, candidate := range paths {
 		path := normalizeRiskPathForMatch(candidate)
 		if path == "" {
 			continue
 		}
-		for _, root := range protectedCampaignRiskRoots {
+		for _, root := range critical {
 			if pathMatchesRiskRoot(path, root) {
+				matched[root] = struct{}{}
+			} else if _, ok := projectdoc.MatchCritical([]string{root}, path); ok {
+				// A glob entry ("*.mg") names files, not a directory.
 				matched[root] = struct{}{}
 			}
 		}

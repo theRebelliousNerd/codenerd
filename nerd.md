@@ -50,6 +50,20 @@ gates:
   - id: deadcode-budget
     kind: audit
     run: bash ./scripts/deadcode-budget.sh
+critical:
+  # The paths whose loss or breakage is catastrophic for codeNERD: the risk
+  # gate protects them, the Dreamer treats deleting them as catastrophic, and
+  # the Northstar Guardian checks alignment on any change to them. These were
+  # three lists of codeNERD's packages written into Go; they are declared here
+  # so every other workspace declares its own.
+  - internal/core
+  - internal/mangle
+  - internal/campaign
+  - internal/perception
+  - internal/articulation
+  - internal/session
+  - cmd/nerd
+  - "*.mg"
 forbid:
   - match: .nerd/config.json
     reason: >-

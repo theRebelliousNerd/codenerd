@@ -51,7 +51,7 @@ func riskContractCampaign(id string, paths ...string) *Campaign {
 func riskContractOrchestrator(t *testing.T, kernel core.Kernel, c *Campaign) *Orchestrator {
 	t.Helper()
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
+		Workspace:    criticalWorkspace(t),
 		Kernel:       kernel,
 		LLMClient:    &MockLLMClient{},
 		TaskExecutor: &MockTaskExecutor{},

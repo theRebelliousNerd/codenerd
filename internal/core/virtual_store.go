@@ -14,6 +14,7 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
@@ -515,7 +516,13 @@ func (v *VirtualStore) getDreamer() *Dreamer {
 		// NewDreamer asserts boot facts and can evaluate Mangle. Never perform
 		// that work while holding VirtualStore.mu: virtual predicates may route
 		// back into this store during evaluation.
-		candidate := NewDreamer(realKernel)
+		critical, err := projectdoc.CriticalPaths(v.workspaceRoot)
+		if err != nil {
+			// .git and .nerd stay critical; the workspace's own list is what
+			// a broken nerd.md cost, and the log says so.
+			logging.Get(logging.CategoryDream).Error("Dreamer: nerd.md critical: list unreadable, only .git and .nerd are protected: %v", err)
+		}
+		candidate := NewDreamer(realKernel, critical...)
 
 		v.mu.Lock()
 		if v.dreamer != nil {

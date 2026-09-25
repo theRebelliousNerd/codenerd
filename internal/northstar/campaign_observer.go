@@ -47,7 +47,7 @@ func BuildCampaignObserver(cwd string, llmClient LLMClient, kern KernelClient) *
 	// Shared guardian: a campaign that opened its own store cached its own copy
 	// of GuardianState, so its periodic-check counter diverged from the chat
 	// session's the moment either recorded a check.
-	guardian, err := AcquireGuardian(nerdDir, DefaultGuardianConfig())
+	guardian, err := AcquireGuardian(nerdDir, GuardianConfigFor(cwd))
 	if err != nil {
 		logging.CampaignWarn("northstar store unavailable (%v); campaigns touching protected surfaces will be refused by the risk gate", err)
 		fmt.Println("   ⚠ Northstar observer unavailable — campaigns on protected paths will be refused")

@@ -1,6 +1,7 @@
 package northstar
 
 import (
+	"codenerd/internal/projectdoc"
 	"context"
 	"fmt"
 	pathpkg "path"
@@ -962,5 +963,8 @@ func matchesHighImpactPath(pattern, path string) bool {
 		}
 	}
 
-	return normalizedPath == normalizedPattern
+	// A nerd.md critical: entry ("internal/core") covers everything under it,
+	// on whole path segments.
+	_, ok := projectdoc.MatchCritical([]string{pattern}, path)
+	return ok
 }
