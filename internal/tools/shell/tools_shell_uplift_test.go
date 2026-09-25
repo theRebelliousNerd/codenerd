@@ -35,6 +35,12 @@ func TestGitOperation_CommitMessageCannotInject(t *testing.T) {
 		}
 	}
 	run("git", "init", "-q")
+	// The commit under test is the tool's own git process, which does not
+	// inherit run's environment: the identity has to be the repository's, or
+	// a host with no global git identity (CI's Windows runner) refuses the
+	// commit before the message is ever examined.
+	run("git", "config", "user.name", "t")
+	run("git", "config", "user.email", "t@t")
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("x\n"), 0644); err != nil {
 		t.Fatal(err)
 	}

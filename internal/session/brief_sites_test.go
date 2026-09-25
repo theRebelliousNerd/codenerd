@@ -96,3 +96,22 @@ func TestPlanTurnSteps_TheSiteThresholdIsTheUsersConfig(t *testing.T) {
 		t.Fatalf("after step_plan_min_sites=2 a two-site brief made %d planning call(s); want one", n)
 	}
 }
+
+// A Windows 8.3 short name (RUNNER~1) is one path, not two fragments split at
+// the tilde. CI's path-alias run puts every temp dir under one, and there an
+// absolute path inside the workspace came back as a cut-off relative site and
+// one outside the workspace as a site inside it.
+func TestBriefSites_AShortNameIsOnePath(t *testing.T) {
+	ws := filepath.Join(t.TempDir(), "RUNNER~1", "ws")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inside := "edit " + filepath.Join(ws, "internal", "a.go") + ":7"
+	if got, want := briefSites(ws, inside), []briefSite{{"internal/a.go", 7}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("briefSites(%q) = %+v, want %+v", inside, got, want)
+	}
+	outside := "edit " + filepath.Join(filepath.Dir(ws), "elsewhere", "x.go")
+	if got := briefSites(ws, outside); got != nil {
+		t.Fatalf("briefSites(%q) = %+v, want none", outside, got)
+	}
+}
