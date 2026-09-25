@@ -206,7 +206,13 @@ func selectSwebenchInstance(datasetPath, id string) (*swebench.Instance, error) 
 	}
 	instances, err := swebench.LoadInstances(datasetPath)
 	if err != nil {
-		return nil, fmt.Errorf("load instances: %w", err)
+		// A single pretty-printed instance object is neither a JSON array nor
+		// JSONL; accept it as a one-instance dataset.
+		single, singleErr := swebench.LoadInstance(datasetPath)
+		if singleErr != nil || single.InstanceID == "" {
+			return nil, fmt.Errorf("load instances: %w", err)
+		}
+		instances = []*swebench.Instance{single}
 	}
 	if len(instances) == 0 {
 		return nil, fmt.Errorf("no instances found in %s", datasetPath)

@@ -430,7 +430,7 @@ func TestE2E_CrossBoundary_VirtualStore_BootGuard_PermissionRace(t *testing.T) {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	executor := tactile.NewCompositeExecutor()
+	executor := tactile.NewCompositeExecutorWithConfig(tactile.DefaultExecutorConfig())
 	vs := core.NewVirtualStore(executor)
 
 	// Boot guard should be active initially
@@ -696,7 +696,7 @@ func TestE2E_CrossBoundary_Executor_DualRegistryToolRouting(t *testing.T) {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	executor := tactile.NewCompositeExecutor()
+	executor := tactile.NewCompositeExecutorWithConfig(tactile.DefaultExecutorConfig())
 	vs := core.NewVirtualStore(executor)
 	vs.SetKernel(kernel)
 

@@ -561,37 +561,10 @@ func (e *PersistentDockerExecutor) ExecInContainer(ctx context.Context, opts Con
 		return nil, fmt.Errorf("Docker is not available")
 	}
 
-	logging.Tactile("Executing in container %s: %s %v", opts.ContainerID[:12], opts.Binary, opts.Arguments)
+	logging.Tactile("Executing in container %s: %s %v", getLogID(opts.ContainerID), opts.Binary, opts.Arguments)
 
-	// Build docker exec arguments
-	args := []string{"exec"}
-
-	// Working directory
-	if opts.WorkingDir != "" {
-		args = append(args, "-w", opts.WorkingDir)
-	}
-
-	// Environment variables
-	for _, env := range opts.Environment {
-		args = append(args, "-e", env)
-	}
-
-	// User
-	if opts.User != "" {
-		args = append(args, "-u", opts.User)
-	}
-	// Use -- to prevent option injection
-	args = append(args, "--")
-
-	// Prevent option injection
-	args = append(args, "--")
-
-	// Container ID
-	args = append(args, "--", opts.ContainerID)
-
-	// Command
-	args = append(args, opts.Binary)
-	args = append(args, opts.Arguments...)
+	// Build docker exec arguments: exec [OPTIONS] -- CONTAINER COMMAND [ARG...]
+	args := dockerExecArgs(opts)
 
 	logging.TactileDebug("Docker exec args: %v", args)
 
@@ -614,17 +587,41 @@ func (e *PersistentDockerExecutor) ExecInContainer(ctx context.Context, opts Con
 	execCmd.Stderr = &stderrBuf
 
 	// Prepare result
+	command := Command{
+		Binary:           opts.Binary,
+		Arguments:        opts.Arguments,
+		WorkingDirectory: opts.WorkingDir,
+		Sandbox:          &SandboxConfig{Mode: SandboxDocker},
+	}
 	result := &ExecutionResult{
 		ExitCode:    -1,
 		SandboxUsed: SandboxDocker,
-		Command: &Command{
-			Binary:    opts.Binary,
-			Arguments: opts.Arguments,
-		},
+		Command:     &command,
 	}
 
 	// Record start time
 	result.StartedAt = time.Now()
+	e.emitAudit(AuditEvent{
+		Type:         AuditEventStart,
+		Timestamp:    result.StartedAt,
+		Command:      command,
+		ExecutorName: "persistent-docker",
+	})
+	defer func() {
+		eventType := AuditEventComplete
+		if result.Killed {
+			eventType = AuditEventKilled
+		} else if !result.Success {
+			eventType = AuditEventError
+		}
+		e.emitAudit(AuditEvent{
+			Type:         eventType,
+			Timestamp:    time.Now(),
+			Command:      command,
+			Result:       result,
+			ExecutorName: "persistent-docker",
+		})
+	}()
 
 	// Run the command
 	err := execCmd.Run()
@@ -682,6 +679,25 @@ func (e *PersistentDockerExecutor) ExecInContainer(ctx context.Context, opts Con
 		opts.Binary, result.ExitCode, result.Duration)
 
 	return result, nil
+}
+
+// dockerExecArgs builds `docker exec [OPTIONS] -- CONTAINER COMMAND [ARG...]`.
+// A single "--" ends the options so a container ID or command cannot be read
+// as a flag; the previous argv carried three of them, which made docker take
+// the second "--" as the container name, so every exec failed.
+func dockerExecArgs(opts ContainerExecOptions) []string {
+	args := []string{"exec"}
+	if opts.WorkingDir != "" {
+		args = append(args, "-w", opts.WorkingDir)
+	}
+	for _, env := range opts.Environment {
+		args = append(args, "-e", env)
+	}
+	if opts.User != "" {
+		args = append(args, "-u", opts.User)
+	}
+	args = append(args, "--", opts.ContainerID, opts.Binary)
+	return append(args, opts.Arguments...)
 }
 
 // =============================================================================

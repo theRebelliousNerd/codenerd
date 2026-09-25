@@ -527,7 +527,7 @@ func TestAuditLogger(t *testing.T) {
 }
 
 func TestCompositeExecutor(t *testing.T) {
-	composite := NewCompositeExecutor()
+	composite := NewCompositeExecutorWithConfig(DefaultExecutorConfig())
 	caps := composite.Capabilities()
 
 	if caps.Name != "composite" {

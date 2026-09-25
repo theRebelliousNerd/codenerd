@@ -32,12 +32,6 @@ type CompositeExecutor struct {
 	limitsExecutor Executor
 }
 
-// NewCompositeExecutor creates a new composite executor with default configuration.
-func NewCompositeExecutor() *CompositeExecutor {
-	logging.TactileDebug("Creating new CompositeExecutor with default config")
-	return NewCompositeExecutorWithConfig(DefaultExecutorConfig())
-}
-
 // NewCompositeExecutorWithConfig creates a new composite executor with custom configuration.
 func NewCompositeExecutorWithConfig(config ExecutorConfig) *CompositeExecutor {
 	logging.Tactile("Initializing CompositeExecutor")

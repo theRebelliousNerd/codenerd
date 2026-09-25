@@ -23,6 +23,7 @@ type fakeContainerRuntime struct {
 	patches   map[string]string // container -> last written patch
 	failing   map[string]bool
 	ops       []string
+	audit     func(tactile.AuditEvent)
 }
 
 func newFakeContainerRuntime() *fakeContainerRuntime {
@@ -58,6 +59,14 @@ func (f *fakeContainerRuntime) liveCount() int {
 }
 
 func (f *fakeContainerRuntime) IsAvailable() bool { return f.available }
+
+// SetAuditCallback records the sink the store attaches, as
+// PersistentDockerExecutor does.
+func (f *fakeContainerRuntime) SetAuditCallback(cb func(tactile.AuditEvent)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.audit = cb
+}
 
 func (f *fakeContainerRuntime) newID(prefix string) string {
 	f.next++

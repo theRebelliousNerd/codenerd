@@ -444,7 +444,7 @@ func TestLimitedWriter_WhenMultipleWrites_ShouldTrackCumulative(t *testing.T) {
 
 func TestCompositeExecutor_RegisterExecutor_ShouldAddExecutor(t *testing.T) {
 	t.Parallel()
-	composite := NewCompositeExecutor()
+	composite := NewCompositeExecutorWithConfig(DefaultExecutorConfig())
 	direct := NewDirectExecutor()
 
 	// Register the same direct executor under a custom mode
@@ -459,7 +459,7 @@ func TestCompositeExecutor_RegisterExecutor_ShouldAddExecutor(t *testing.T) {
 
 func TestCompositeExecutor_SetAuditCallback_ShouldPropagate(t *testing.T) {
 	t.Parallel()
-	composite := NewCompositeExecutor()
+	composite := NewCompositeExecutorWithConfig(DefaultExecutorConfig())
 
 	var capturedEvents []AuditEvent
 	composite.SetAuditCallback(func(e AuditEvent) {
@@ -478,7 +478,7 @@ func TestCompositeExecutor_SetAuditCallback_ShouldPropagate(t *testing.T) {
 
 func TestCompositeExecutor_Validate_WhenValidCommand_ShouldPass(t *testing.T) {
 	t.Parallel()
-	composite := NewCompositeExecutor()
+	composite := NewCompositeExecutorWithConfig(DefaultExecutorConfig())
 
 	err := composite.Validate(Command{Binary: "echo"})
 	if err != nil {
@@ -488,7 +488,7 @@ func TestCompositeExecutor_Validate_WhenValidCommand_ShouldPass(t *testing.T) {
 
 func TestCompositeExecutor_Validate_WhenEmptyBinary_ShouldFail(t *testing.T) {
 	t.Parallel()
-	composite := NewCompositeExecutor()
+	composite := NewCompositeExecutorWithConfig(DefaultExecutorConfig())
 
 	err := composite.Validate(Command{Binary: ""})
 	if err == nil {
@@ -498,7 +498,7 @@ func TestCompositeExecutor_Validate_WhenEmptyBinary_ShouldFail(t *testing.T) {
 
 func TestCompositeExecutor_Validate_WhenUnknownMode_ShouldFallbackToDefaultWhichRejects(t *testing.T) {
 	t.Parallel()
-	composite := NewCompositeExecutor()
+	composite := NewCompositeExecutorWithConfig(DefaultExecutorConfig())
 
 	// selectExecutor falls back to defaultExecutor (direct) which rejects non-SandboxNone modes
 	cmd := Command{

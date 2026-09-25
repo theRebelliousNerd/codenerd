@@ -69,6 +69,14 @@ func (v *VirtualStore) bench() *pythonWorkbench {
 		}
 		runtime = docker
 	}
+	// Commands run in a container are executions like any other: send their
+	// lifecycle events to the store's audit logger so they land in the kernel
+	// as execution facts, the same way composite executions do.
+	if audited, ok := runtime.(interface {
+		SetAuditCallback(func(tactile.AuditEvent))
+	}); ok && v.auditLogger != nil {
+		audited.SetAuditCallback(v.auditLogger.Log)
+	}
 	v.pythonBench = &pythonWorkbench{
 		runtime:   runtime,
 		envs:      make(map[string]*python.Environment),

@@ -292,7 +292,7 @@ func TestE2E_VirtualStore_ActionDispatch_BoundaryHardening(t *testing.T) {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	executor := tactile.NewCompositeExecutor()
+	executor := tactile.NewCompositeExecutorWithConfig(tactile.DefaultExecutorConfig())
 	vs := core.NewVirtualStore(executor)
 	vs.SetKernel(kernel)
 	vs.DisableBootGuard()

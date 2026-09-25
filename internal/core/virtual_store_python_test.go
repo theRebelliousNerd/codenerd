@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
 
@@ -175,6 +176,39 @@ func TestPythonEnvironmentLifecycleRunsInTheContainer(t *testing.T) {
 	res, _ = vs.handlePythonTeardown(ctx, ActionRequest{Payload: map[string]any{"project_name": "proj"}})
 	if !res.Success || rt.liveCount() != 0 {
 		t.Fatalf("teardown left %d containers: %+v", rt.liveCount(), res)
+	}
+}
+
+// Container executions are executions: the store attaches its audit logger to
+// the runtime, so a command run in an environment lands as execution facts.
+func TestContainerExecutionsReachTheKernelThroughTheAuditLogger(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	rt := newFakeContainerRuntime()
+	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
+	vs.SetKernel(kernel)
+	vs.SetContainerRuntime(rt)
+	vs.bench()
+
+	rt.mu.Lock()
+	sink := rt.audit
+	rt.mu.Unlock()
+	if sink == nil {
+		t.Fatal("the store did not attach its audit logger to the container runtime")
+	}
+	cmd := tactile.Command{Binary: "pytest", Arguments: []string{"-x"}, RequestID: "container-audit-probe"}
+	sink(tactile.AuditEvent{Type: tactile.AuditEventStart, Timestamp: time.Now(), Command: cmd, ExecutorName: "persistent-docker"})
+	sink(tactile.AuditEvent{Type: tactile.AuditEventComplete, Timestamp: time.Now(), Command: cmd, ExecutorName: "persistent-docker",
+		Result: &tactile.ExecutionResult{Success: true, ExitCode: 0, Duration: time.Second}})
+
+	facts, err := kernel.Query("execution_completed")
+	if err != nil {
+		t.Fatalf("query execution_completed: %v", err)
+	}
+	if len(facts) == 0 {
+		t.Fatal("a container execution left no execution_completed fact")
 	}
 }
 
