@@ -50,7 +50,6 @@ impact_radius
 interrogative_mode
 investigation_phase
 learned_intent
-memory_operation
 ouroboros_phase
 ouroboros_register_failed
 pytest_execution

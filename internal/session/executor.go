@@ -28,6 +28,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/broker"
 	nerdconfig "codenerd/internal/config"
+	working "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/jit/config"
@@ -645,6 +646,20 @@ func (e *Executor) SetSessionPersister(persister SessionPersister) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.sessionPersister = persister
+}
+
+// memoryStore is where a promoted preference and a stored vector land: the
+// session's persister when it is the knowledge store (production passes the
+// LocalStore), else nothing, and ApplyMemoryOperation reports the operation
+// it could not persist.
+func (e *Executor) memoryStore() working.MemoryStore {
+	e.mu.RLock()
+	persister := e.sessionPersister
+	e.mu.RUnlock()
+	if store, ok := persister.(working.MemoryStore); ok && store != nil {
+		return store
+	}
+	return nil
 }
 
 // SetSessionID sets the session identifier for turn persistence.
@@ -2398,16 +2413,18 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 			}
 		}
 
-		// Assert memory operation facts for future Cold Storage integration
+		// Land each operation where the chat compressor lands it: a note as
+		// session_note in the kernel, a promotion and a vector in the
+		// session's store. Until 2026-09-25 this asserted
+		// memory_operation(Op, Key, Value), which no .mg file declares, so no
+		// rule or query ever read what the model asked to remember on this path.
+		var kernel working.MemoryKernel
 		if e.kernel != nil {
-			for _, op := range memOps {
-				if err := e.kernel.Assert(types.Fact{
-					Predicate: "memory_operation",
-					Args:      []any{op.Op, op.Key, op.Value},
-				}); err != nil {
-					logging.Get(logging.CategorySession).Warn("Failed to assert memory_operation fact: %v", err)
-				}
-			}
+			kernel = e.kernel
+		}
+		store := e.memoryStore()
+		for _, op := range memOps {
+			working.ApplyMemoryOperation(kernel, store, op)
 		}
 	}
 

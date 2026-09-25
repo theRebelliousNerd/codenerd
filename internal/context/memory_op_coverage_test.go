@@ -31,7 +31,7 @@ func TestEveryProtocolMemoryOpIsHandled(t *testing.T) {
 			"moved, this test needs to follow it rather than be deleted")
 	}
 
-	got := switchCases(t, "compressor_turns.go", "processMemoryOperation")
+	got := switchCases(t, "memory_ops.go", "ApplyMemoryOperation")
 	if len(got) == 0 {
 		t.Fatal("found no cases in processMemoryOperation; this test is asserting nothing")
 	}
