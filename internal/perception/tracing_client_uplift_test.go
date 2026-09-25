@@ -3,6 +3,7 @@ package perception
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,7 +31,11 @@ func waitForTraces(t *testing.T, store *mockTraceStore, n int) []*ReasoningTrace
 func TestTracingToolResults_RecordsMetricsAndTrace(t *testing.T) {
 	store := &mockTraceStore{}
 	tc := NewTracingLLMClient(&trpUnderlying{}, store)
-	tc.SetShardContext("sh-trp-1", "trp-type-uplift", "trp-cat-uplift", "sess", "task")
+	// The LLM metrics map is process-global with no reset, so a fixed
+	// category accumulates across -count=2 runs (CI's repeat-run job saw 2
+	// calls where this asserts 1). Each run gets its own category.
+	category := fmt.Sprintf("trp-cat-uplift-%d", llmMetricsSeq.Add(1))
+	tc.SetShardContext("sh-trp-1", "trp-type-uplift", category, "sess", "task")
 
 	history := []types.Message{
 		{Role: "user", Text: "create app"},
@@ -53,11 +58,11 @@ func TestTracingToolResults_RecordsMetricsAndTrace(t *testing.T) {
 	if tr.UserPrompt != "now add tests" {
 		t.Errorf("trace UserPrompt = %q, want the last user turn", tr.UserPrompt)
 	}
-	if tr.ShardID != "sh-trp-1" || tr.ShardCategory != "trp-cat-uplift" {
+	if tr.ShardID != "sh-trp-1" || tr.ShardCategory != category {
 		t.Errorf("trace attribution = %+v, want the shard context", tr)
 	}
 
-	got := GetLLMMetrics()["trp-cat-uplift:trp-type-uplift"]
+	got := GetLLMMetrics()[category+":trp-type-uplift"]
 	if got.Calls != 1 {
 		t.Errorf("metrics calls = %d, want 1", got.Calls)
 	}
