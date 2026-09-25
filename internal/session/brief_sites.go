@@ -61,7 +61,9 @@ func briefSites(workspace, brief string) []briefSite {
 // briefWorkspacePath resolves a candidate token to a workspace-relative,
 // slash-separated path, or reports that it names no workspace file.
 func briefWorkspacePath(workspace, token string) (string, bool) {
-	p := filepath.ToSlash(token)
+	// A brief can be written on either OS: a backslash is a separator whatever
+	// the host, since filepath.ToSlash only converts the host's own.
+	p := strings.ReplaceAll(filepath.ToSlash(token), `\`, "/")
 	if filepath.IsAbs(token) || filepath.IsAbs(p) {
 		if workspace == "" {
 			return "", false
