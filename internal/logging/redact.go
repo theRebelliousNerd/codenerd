@@ -15,11 +15,10 @@ import (
 // Redaction therefore happens at the log boundary, not by trusting every
 // producer upstream to sanitise first.
 //
-// The patterns are deliberately shape-based, and this is a deliberate
-// duplicate of internal/mcp's redactor rather than a shared import: internal/mcp
-// depends on internal/logging, so the dependency can only run one way, and
-// logging sits below everything and must stay import-free. If one side gains a
-// pattern the other should follow — the shapes, not the code, are the contract.
+// The patterns are deliberately shape-based. This is the one redactor:
+// internal/mcp logs server payloads through RedactForLog (it used to carry a
+// copy of this table, on the mistaken belief that sharing would need logging to
+// import mcp -- the edge runs mcp -> logging, which is the permitted direction).
 var secretPatterns = []*regexp.Regexp{
 	// key: value / "key": "value" / key=value for credential-ish key names.
 	// The surrounding [A-Za-z0-9_.-]* is what catches prefixed and suffixed

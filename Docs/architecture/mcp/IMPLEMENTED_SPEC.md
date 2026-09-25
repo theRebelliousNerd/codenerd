@@ -235,9 +235,9 @@ All transports implement `MCPTransport` (`types.go`): Connect, Disconnect, ListT
 
 | Value | Constructor |
 |-------|-------------|
-| `http` | `NewHTTPTransport(BaseURL, timeout)` |
+| `http` | `NewHTTPTransportWithHeaders(BaseURL, timeout, Headers)` |
 | `stdio` | `NewStdioTransport(Endpoint)` |
-| `sse` | `NewSSETransport(BaseURL, timeout)` |
+| `sse` | `NewSSETransportWithHeaders(BaseURL, timeout, Headers)` |
 
 Invalid timeout → 30s. Empty protocol → error.
 
@@ -658,7 +658,7 @@ Prioritized gaps live in [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md). Top three:
 
 ## 18. Public API quick reference
 
-Constructors: `NewMCPIntegrationBridge`, `NewMCPClientManager`, `NewMCPToolStore`, `NewToolAnalyzer`, `NewJITToolCompiler`, `NewToolRenderer`, `NewHTTPTransport`, `NewStdioTransport`, `NewSSETransport`, `NewIntegrationAdapter`, `DefaultToolSelectionConfig`.
+Constructors: `NewMCPIntegrationBridge`, `NewMCPClientManager`, `NewMCPToolStore`, `NewToolAnalyzer`, `NewJITToolCompiler`, `NewToolRenderer`, `NewHTTPTransportWithHeaders`, `NewStdioTransport`, `NewSSETransportWithHeaders`, `NewIntegrationAdapter`, `DefaultToolSelectionConfig`.
 
 See [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) for full tables.
 
