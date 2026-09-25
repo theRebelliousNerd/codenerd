@@ -195,17 +195,17 @@ func TestGlobalAllowlistSettersReachTheGlobalRegistry(t *testing.T) {
 	if Global().AllowlistEnforced() {
 		t.Fatal("the global registry already has an envelope; this test would destroy it")
 	}
-	t.Cleanup(func() { SetGlobalAllowlist(nil) })
+	t.Cleanup(func() { Global().SetAllowlist(nil) })
 
-	SetGlobalAllowlist(&Allowlist{Enforced: true, Names: []string{"only-this"}})
+	Global().SetAllowlist(&Allowlist{Enforced: true, Names: []string{"only-this"}})
 	if !Global().AllowlistEnforced() {
-		t.Fatal("SetGlobalAllowlist did not reach the global registry")
+		t.Fatal("Global().SetAllowlist did not reach the global registry")
 	}
 	if Global().IsAllowed("anything-else") {
 		t.Error("the global envelope permits a tool outside it")
 	}
 
-	SetGlobalAllowlist(nil)
+	Global().SetAllowlist(nil)
 	if Global().AllowlistEnforced() {
 		t.Error("clearing the global envelope left it in force")
 	}

@@ -38,18 +38,6 @@ func getBrowserManager() *browser.SessionManager {
 	return browserMgr
 }
 
-// SetBrowserManager binds research tools to the Cortex-owned browser manager.
-// Passing nil restores lazy standalone construction for narrow package use.
-func SetBrowserManager(mgr *browser.SessionManager) {
-	browserMgrMu.Lock()
-	browserMgr = mgr
-	if browserKernelOwner != mgr {
-		browserKernel = nil
-		browserKernelOwner = nil
-	}
-	browserMgrMu.Unlock()
-}
-
 // SetBrowserRuntime binds both browser control and browser reasoning to one
 // Cortex. The kernel is the same live authority used for planning and policy.
 func SetBrowserRuntime(mgr *browser.SessionManager, kernel types.Kernel) {

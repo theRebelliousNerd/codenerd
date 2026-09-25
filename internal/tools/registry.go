@@ -54,7 +54,7 @@ type Registry struct {
 //
 // This mirrors the contract session.Executor.isToolAllowed already implements
 // for the JIT config layer, and closes the hole underneath it: the registry is
-// reachable process-globally through tools.Execute, so any caller that skips
+// reachable process-globally through tools.Global().Execute, so any caller that skips
 // the session gate previously got the whole catalog.
 type Allowlist struct {
 	// Enforced turns the envelope on. When false the registry does not gate.
@@ -104,7 +104,7 @@ func (m ToolMetrics) AvgMs() float64 {
 // This exists because nerd.md's forbidden-path enforcement lived only in
 // callers — session.Executor.executeToolCall and VirtualStore.executeAction —
 // while the tools themselves enforced nothing and the registry is reachable
-// process-globally via tools.Execute. Any code path calling
+// process-globally via tools.Global().Execute. Any code path calling
 // tools.Global().Execute(ctx, "write_file", ...) directly bypassed both gates,
 // which is the exact failure the codebase already suffered once and documents
 // at virtual_store_routing.go:317 ("a shard could write .nerd/config.json").
@@ -386,7 +386,7 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 
 	// Consult the write guard before the tool can touch anything. This is the
 	// chokepoint every execution path reaches, including the process-global
-	// tools.Execute that bypassed the caller-side nerd.md gates entirely.
+	// tools.Global().Execute that bypassed the caller-side nerd.md gates entirely.
 	if guard != nil {
 		if err := guard(ctx, tool.Name, args); err != nil {
 			refused := time.Since(start)
@@ -646,12 +646,6 @@ func (r *Registry) SetWriteGuard(g WriteGuard) {
 	r.writeGuard = g
 }
 
-// SetGlobalWriteGuard installs a write guard on the global registry, which is
-// the one reachable via tools.Execute.
-func SetGlobalWriteGuard(g WriteGuard) {
-	Global().SetWriteGuard(g)
-}
-
 // check returns nil when name may execute under this envelope.
 //
 // A nil *Allowlist means "no envelope configured" and permits everything; that
@@ -704,11 +698,6 @@ func (r *Registry) IsAllowed(name string) bool {
 	return a.check(name) == nil
 }
 
-// SetGlobalAllowlist installs the capability envelope on the global registry.
-func SetGlobalAllowlist(a *Allowlist) {
-	Global().SetAllowlist(a)
-}
-
 // SetWorkspaceRoot sets the containment boundary handed to every tool this
 // registry executes, replacing reliance on the process-global
 // CODENERD_WORKSPACE_ROOT environment variable. An empty string clears it and
@@ -738,11 +727,6 @@ func (r *Registry) SetFactSink(s FactSink) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.factSink = s
-}
-
-// SetGlobalFactSink installs the execution fact sink on the global registry.
-func SetGlobalFactSink(s FactSink) {
-	Global().SetFactSink(s)
 }
 
 func (r *Registry) recordMetrics(name string, success bool, durationMs int64) {
@@ -793,24 +777,4 @@ func (r *Registry) AllMetrics() map[string]ToolMetrics {
 // Global returns the global tool registry.
 func Global() *Registry {
 	return globalRegistry.Load()
-}
-
-// Register adds a tool to the global registry.
-func Register(tool *Tool) error {
-	return Global().Register(tool)
-}
-
-// MustRegisterGlobal registers a tool in the global registry, panicking on error.
-func MustRegisterGlobal(tool *Tool) {
-	Global().MustRegister(tool)
-}
-
-// Get retrieves a tool from the global registry.
-func Get(name string) *Tool {
-	return Global().Get(name)
-}
-
-// Execute runs a tool from the global registry.
-func Execute(ctx context.Context, name string, args map[string]any) (*ToolResult, error) {
-	return Global().Execute(ctx, name, args)
 }

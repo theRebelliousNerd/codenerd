@@ -13,7 +13,7 @@ import (
 
 func TestBrowserTestCreateAndInspectPortableYAML(t *testing.T) {
 	manager := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
-	SetBrowserManager(manager)
+	SetBrowserRuntime(manager, nil)
 	defer ClearBrowserManager(manager)
 
 	fixture := map[string]any{
@@ -48,7 +48,7 @@ func TestBrowserTestGenerateReadsPortableActionIntent(t *testing.T) {
 	cfg.WorkspaceRoot = workspace
 	cfg.WritableRoots = []string{workspace}
 	manager := browser.NewSessionManagerWithSink(cfg, nil)
-	SetBrowserManager(manager)
+	SetBrowserRuntime(manager, nil)
 	defer ClearBrowserManager(manager)
 
 	_, err := manager.RecordEvidence("session-a", "action_intent", map[string]any{"operation": browser.ActionOperation{
@@ -76,7 +76,7 @@ func TestBrowserTestGenerateRefusesOversizedActionHistory(t *testing.T) {
 	cfg.WorkspaceRoot = workspace
 	cfg.WritableRoots = []string{workspace}
 	manager := browser.NewSessionManagerWithSink(cfg, nil)
-	SetBrowserManager(manager)
+	SetBrowserRuntime(manager, nil)
 	defer ClearBrowserManager(manager)
 	for index := 0; index < maxGeneratedBrowserActions+1; index++ {
 		if _, err := manager.RecordEvidence("session-a", "action_intent", map[string]any{"operation": browser.ActionOperation{

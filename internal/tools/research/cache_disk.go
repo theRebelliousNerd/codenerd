@@ -1,7 +1,6 @@
 package research
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
-	"codenerd/internal/tools"
 )
 
 // Disk backing for the research cache.
@@ -268,14 +266,4 @@ func EnableDiskCache(workspaceRoot string) error {
 	n := cache.disk.loadInto(cache)
 	logging.Researcher("Research cache: %d entries restored from %s", n, dir)
 	return nil
-}
-
-// EnableDiskCacheFromContext resolves the workspace root the same way the file
-// tools do and enables persistence under it.
-func EnableDiskCacheFromContext(ctx context.Context) error {
-	root, err := tools.WorkspaceRoot(ctx)
-	if err != nil {
-		return err
-	}
-	return EnableDiskCache(root)
 }

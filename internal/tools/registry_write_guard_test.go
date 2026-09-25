@@ -12,7 +12,7 @@ import (
 // in exactly two callers — session.Executor.executeToolCall and
 // VirtualStore.executeAction — and the tools themselves enforced nothing.
 //
-// The registry is reachable process-globally via tools.Execute, so any code
+// The registry is reachable process-globally via tools.Global().Execute, so any code
 // path calling it directly wrote protected paths unchecked. Not hypothetical:
 // the codebase already suffered this once and documents it at
 // virtual_store_routing.go:317 ("a shard could write .nerd/config.json"), fixed
@@ -83,30 +83,30 @@ func TestWriteGuard_AllowsUnguardedTools(t *testing.T) {
 	}
 }
 
-// This is the bypass itself: the process-global registry behind tools.Execute.
+// This is the bypass itself: the process-global registry behind tools.Global().Execute.
 func TestWriteGuard_CoversTheGlobalRegistry(t *testing.T) {
 	ran := false
 	name := "guard_probe_write"
-	if err := Register(guardTestTool(name, &ran)); err != nil {
+	if err := Global().Register(guardTestTool(name, &ran)); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	// Unregister as well as clearing the guard: Register rejects a duplicate
 	// name, so without this the test only works the first time it runs in a
 	// process and fails under -count=2.
 	t.Cleanup(func() {
-		SetGlobalWriteGuard(nil)
+		Global().SetWriteGuard(nil)
 		Global().Unregister(name)
 	})
 
-	SetGlobalWriteGuard(func(_ context.Context, toolName string, _ map[string]any) error {
+	Global().SetWriteGuard(func(_ context.Context, toolName string, _ map[string]any) error {
 		if toolName == name {
 			return errors.New("blocked by nerd.md")
 		}
 		return nil
 	})
 
-	if _, err := Execute(context.Background(), name, map[string]any{"path": "p"}); err == nil {
-		t.Fatal("tools.Execute bypassed the write guard")
+	if _, err := Global().Execute(context.Background(), name, map[string]any{"path": "p"}); err == nil {
+		t.Fatal("tools.Global().Execute bypassed the write guard")
 	}
 	if ran {
 		t.Error("the tool executed despite the global guard refusing it")
