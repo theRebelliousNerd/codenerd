@@ -164,9 +164,9 @@ the executive (`RouteAction`), which is the only path session code uses today
 (no production caller reaches the adapter's `ReadFile`/`WriteFile`).
 `TestSessionVirtualStoreAdapter` (it pinned the raw round trip; it now pins
 contained reads, a refused traversal and a refused write). The campaign
-command's adapter had the same raw fallback and now has the same posture
-(`cmd/nerd/cmd_campaign.go` `campaignVirtualStoreAdapter`,
-`TestCampaignVirtualStoreAdapter_ShouldReadContainedAndRefuseWrites`). Open: the
+command's `campaignVirtualStoreAdapter` (`cmd/nerd/cmd_campaign.go`) has the
+same raw fallback but nothing constructs it -- every method is in the dead-code
+baseline -- so it reaches nothing; deleting it is its owner's call. Open: the
 typed, policy-preserving VirtualStore file capability itself.
 
 <!-- NERD_FEATURE

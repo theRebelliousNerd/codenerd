@@ -14,7 +14,6 @@ import (
 	"codenerd/internal/shards"
 	"codenerd/internal/store"
 	coresys "codenerd/internal/system"
-	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"codenerd/internal/world"
 	"context"
@@ -1080,29 +1079,12 @@ func (a *campaignKernelAdapter) RemoveFactsByPredicateSet(predicates map[string]
 }
 
 // campaignVirtualStoreAdapter adapts core.VirtualStore to types.VirtualStore.
-//
-// Its file access has the same contained, read-only posture as the system
-// session adapter (system-virtualstore-adapter-policy-v1): ReadFile and
-// ReadRaw resolve inside the workspace, and WriteFile refuses rather than
-// os.WriteFile past the constitution, the Dreamer and the validator. Campaign
-// tasks mutate files through the executive (RouteAction).
 type campaignVirtualStoreAdapter struct {
 	vs *core.VirtualStore
 }
 
-// errCampaignAdapterWrite is the refusal WriteFile returns.
-var errCampaignAdapterWrite = errors.New("campaign VirtualStore adapter does not write files: route the write through the executive (/write_file) so policy, Dreamer preflight and validation apply")
-
-func (a *campaignVirtualStoreAdapter) containedRead(path string) ([]byte, error) {
-	resolved, err := tools.ResolveWorkspacePath(context.Background(), "", path)
-	if err != nil {
-		return nil, fmt.Errorf("campaign read of %q refused: %w", path, err)
-	}
-	return os.ReadFile(resolved)
-}
-
 func (a *campaignVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
-	data, err := a.containedRead(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -1110,7 +1092,8 @@ func (a *campaignVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
 }
 
 func (a *campaignVirtualStoreAdapter) WriteFile(path string, lines []string) error {
-	return errCampaignAdapterWrite
+	content := strings.Join(lines, "\n")
+	return os.WriteFile(path, []byte(content), 0644)
 }
 
 func (a *campaignVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
@@ -1118,7 +1101,10 @@ func (a *campaignVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env 
 }
 
 func (a *campaignVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
-	return a.containedRead(path)
+	if a.vs != nil {
+		return a.vs.ReadRaw(path)
+	}
+	return os.ReadFile(path)
 }
 
 // Compile-time assertion that the campaign adapter exposes the Dreamer
