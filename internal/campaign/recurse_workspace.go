@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"codenerd/internal/build"
+	"codenerd/internal/gates"
 	"codenerd/internal/tools"
 )
 
@@ -216,6 +217,7 @@ func (g *workspaceGraph) collapse() []SubsystemNode {
 			Title:     title,
 			Paths:     append([]string(nil), comp...),
 			DependsOn: sortedKeys(deps),
+			Languages: sortedKeys(langs),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -249,14 +251,6 @@ func appendCrossCutting(nodes []SubsystemNode) []SubsystemNode {
 // Walking
 // ---------------------------------------------------------------------------
 
-// skipDirs are directories no workspace's own order runs through: VCS and
-// agent state, dependencies, build output, virtualenvs, fixtures.
-var skipDirs = map[string]bool{
-	"node_modules": true, "vendor": true, "dist": true, "build": true, "out": true,
-	"target": true, "venv": true, "env": true, "__pycache__": true, "testdata": true,
-	"coverage": true, "site-packages": true,
-}
-
 // collectSourceFiles walks the workspace once and groups the files the
 // scanners read: ".py", ".js" (every JS/TS flavour) and "Cargo.toml".
 // Hidden directories are skipped with the rest.
@@ -275,7 +269,7 @@ func collectSourceFiles(root string) (map[string][]string, error) {
 		}
 		name := d.Name()
 		if d.IsDir() {
-			if p != root && (strings.HasPrefix(name, ".") || skipDirs[name]) {
+			if p != root && gates.SkipDir(name) {
 				return filepath.SkipDir
 			}
 			return nil

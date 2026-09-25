@@ -166,7 +166,7 @@ func persistWizardVision(workspace string, w *NorthstarWizardState, kernel north
 	}
 
 	nerdDir := filepath.Join(workspace, ".nerd")
-	guardian, err := northstar.AcquireGuardian(nerdDir, northstar.DefaultGuardianConfig())
+	guardian, err := northstar.AcquireGuardian(nerdDir, northstar.GuardianConfigFor(workspace))
 	if err != nil {
 		return fmt.Errorf("open guardian: %w", err)
 	}

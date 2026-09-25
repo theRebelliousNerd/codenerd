@@ -59,6 +59,7 @@ var queryCalls = map[string]bool{
 	"first":                true,
 	"acceptanceDerived":    true,
 	"askWithCampaignState": true,
+	"derivedColumn":        true,
 	"queryKernelStrings":   true,
 }
 

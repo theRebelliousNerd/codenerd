@@ -20,7 +20,7 @@ import (
 //
 // The defect: NorthstarObserver was set at 2 of 5 construction sites.
 // risk_scoring.go refuses to start any campaign whose targets touch a protected
-// root (protectedCampaignRiskRoots) when configuredNorthstarObserver is nil, so
+// root (the workspace nerd.md critical: list) when configuredNorthstarObserver is nil, so
 // every in-chat campaign against internal/core, internal/mangle,
 // internal/campaign, internal/perception or internal/articulation was
 // permanently blocked. Measured live 2026-08-08: one campaign was refused 850
@@ -102,7 +102,7 @@ func TestOrchestratorConfigLiterals_AllSetNorthstarObserver(t *testing.T) {
 	if len(missing) > 0 {
 		t.Errorf("OrchestratorConfig built without NorthstarObserver at %d site(s):\n  %s\n"+
 			"Campaigns from these sites are refused outright when their targets touch a "+
-			"protected root (see protectedCampaignRiskRoots in risk_scoring.go). Use "+
+			"protected root (see riskCriticalPaths in risk_scoring.go). Use "+
 			"northstar.BuildCampaignObserver(workspace, llmClient, kernel).",
 			len(missing), strings.Join(missing, "\n  "))
 	}

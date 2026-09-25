@@ -19,7 +19,7 @@ gates:
     scope: node
   - id: go-test
     kind: test
-    run: go test -count=1 {pkg}
+    run: go test -count=1 -cover {pkg}
     scope: node
   # The audits CI enforces (.github/workflows/ci.yml), so the loop holds
   # every change to the bar a PR is held to.
@@ -50,6 +50,20 @@ gates:
   - id: deadcode-budget
     kind: audit
     run: bash ./scripts/deadcode-budget.sh
+critical:
+  # The paths whose loss or breakage is catastrophic for codeNERD: the risk
+  # gate protects them, the Dreamer treats deleting them as catastrophic, and
+  # the Northstar Guardian checks alignment on any change to them. These were
+  # three lists of codeNERD's packages written into Go; they are declared here
+  # so every other workspace declares its own.
+  - internal/core
+  - internal/mangle
+  - internal/campaign
+  - internal/perception
+  - internal/articulation
+  - internal/session
+  - cmd/nerd
+  - "*.mg"
 forbid:
   - match: .nerd/config.json
     reason: >-

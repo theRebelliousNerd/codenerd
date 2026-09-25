@@ -65,7 +65,7 @@ func fromNerdMD(doc *projectdoc.Document) ([]Gate, error) {
 		}
 		out = append(out, Gate{
 			ID: "nerd.md:" + string(c.kind), Kind: c.kind, Argv: argv, Scope: ScopeAll,
-			Source: sourceCommands, Env: cmds.Env,
+			Language: languageOf(argv), Source: sourceCommands, Env: cmds.Env,
 		})
 	}
 	for _, spec := range doc.Spec.Gates {
@@ -79,10 +79,37 @@ func fromNerdMD(doc *projectdoc.Document) ([]Gate, error) {
 		}
 		out = append(out, Gate{
 			ID: "nerd.md:" + spec.ID, Kind: Kind(spec.Kind), Argv: argv, Scope: scope,
-			Source: sourceGates, Env: cmds.Env,
+			Language: languageOf(argv), Source: sourceGates, Env: cmds.Env,
 		})
 	}
 	return out, nil
+}
+
+// languageOf names the toolchain a declared command belongs to, from its
+// program, so a node-scoped `go vet {pkg}` is not run on a Python package.
+// A program it does not recognise (make, a script) belongs to every node.
+func languageOf(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	prog := strings.ToLower(filepath.Base(argv[0]))
+	prog = strings.TrimSuffix(prog, ".exe")
+	if prog == "go" && len(argv) > 1 && argv[1] == "run" {
+		// `go run ./tools/check` is a tool the workspace runs, not a check of
+		// Go code; what it checks is its own business.
+		return ""
+	}
+	switch prog {
+	case "go", "gofmt", "golangci-lint", "staticcheck":
+		return "go"
+	case "python", "python3", "pytest", "mypy", "ruff", "flake8", "tox", "uv", "poetry":
+		return "python"
+	case "npm", "npx", "pnpm", "yarn", "bun", "node", "tsc", "eslint", "jest", "vitest":
+		return "js/ts"
+	case "cargo", "rustc", "clippy-driver":
+		return "rust"
+	}
+	return ""
 }
 
 // detect reads the workspace's markers. Each language contributes the gates
@@ -94,7 +121,9 @@ func detect(root string) []Gate {
 		out = append(out,
 			Gate{ID: "go:build", Kind: Build, Argv: []string{"go", "build", "./..."}, Scope: ScopeAll, Language: "go", Source: "detected: go.mod"},
 			Gate{ID: "go:vet", Kind: Lint, Argv: []string{"go", "vet", PkgToken}, Scope: ScopeNode, Language: "go", Source: "detected: go.mod"},
-			Gate{ID: "go:test", Kind: Test, Argv: []string{"go", "test", "-count=1", PkgToken}, Scope: ScopeNode, Language: "go", Source: "detected: go.mod"},
+			// -cover: the node's coverage is a metric recurse's harden angle
+			// moves and no improvement may lower.
+			Gate{ID: "go:test", Kind: Test, Argv: []string{"go", "test", "-count=1", "-cover", PkgToken}, Scope: ScopeNode, Language: "go", Source: "detected: go.mod"},
 		)
 	}
 	if marker := pythonMarker(root); marker != "" {

@@ -260,7 +260,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	observerMgr := shards.NewBackgroundObserverManager(&taskExecutorObserverSpawner{taskExecutor})
 	if err := observerMgr.RegisterObserver("northstar"); err == nil {
 		// Shared with /alignment and the campaign risk gate; see registry.go.
-		if guardian, err := northstar.AcquireGuardian(nerdDir, northstar.DefaultGuardianConfig()); err == nil {
+		if guardian, err := northstar.AcquireGuardian(nerdDir, northstar.GuardianConfigFor(workspace)); err == nil {
 			guardian.SetLLMClient(llmClient)
 			if kernel != nil {
 				guardian.SetParentKernel(kernel)
