@@ -199,15 +199,20 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 		return ctx, func() {}, err
 	}
 	focus := normalizeWorkingEntity(intentTarget, root)
+	// The loop's window names its eviction handle, and the loop serves what
+	// the window evicted behind recall_context for as long as it runs.
+	prior, evictedHistory := e.priorTurnWindow(true)
 	loop := &workingLoop{
-		set: set, focus: focus, anchor: input, prior: e.priorTurnMessages(),
+		set: set, focus: focus, anchor: input, prior: prior,
 		observations: make(map[string]string),
 		evicted:      make(map[string]bool),
 		appended:     make(map[string]string),
 		restated:     make(map[string]string),
 	}
 	ctx = context.WithValue(ctx, workingLoopKey{}, loop)
-	ctx = tools.WithContextRecall(ctx, set)
+	ctx = tools.WithContextRecall(ctx, historyRecall{
+		working: set, handle: historyEvictionHandle(evictedHistory), evicted: evictedHistory,
+	})
 	return ctx, func() { _ = set.Close() }, nil
 }
 

@@ -36,7 +36,7 @@ func TestHistoryEviction_MarksAndRetains(t *testing.T) {
 		})
 	}
 
-	msgs := e.priorTurnMessages()
+	msgs, evicted := e.priorTurnWindow(false)
 	if len(msgs) == 0 {
 		t.Fatal("the whole window was evicted")
 	}
@@ -57,8 +57,8 @@ func TestHistoryEviction_MarksAndRetains(t *testing.T) {
 		t.Errorf("the marker does not name what was evicted: %q", truncateForFailure(msgs[0].Text))
 	}
 
-	// Recoverable: the dropped turns are retained, not destroyed.
-	evicted := e.recoverHistoryEviction()
+	// Recoverable: the dropped turns are retained, not destroyed (a working
+	// loop serves them behind recall_context: TestHistoryEviction_RecallContextReturnsTheEvictedTurns).
 	if len(evicted) == 0 {
 		t.Fatal("eviction recorded nothing; the dropped turns cannot be brought back")
 	}
@@ -82,12 +82,12 @@ func TestHistoryEviction_SaysNothingWhenNothingWasEvicted(t *testing.T) {
 	e.appendToHistory(perception.ConversationTurn{Role: "user", Content: "fix the router"})
 	e.appendToHistory(perception.ConversationTurn{Role: "assistant", Content: "done"})
 
-	msgs := e.priorTurnMessages()
+	msgs, evicted := e.priorTurnWindow(false)
 	joined := strings.Join(messageTexts(msgs), "\n")
 	if types.IsClamped(joined) {
 		t.Errorf("an intact window carries a truncation marker: %q", joined)
 	}
-	if got := e.recoverHistoryEviction(); len(got) != 0 {
+	if got := evicted; len(got) != 0 {
 		t.Errorf("recorded %d evicted messages for an intact window", len(got))
 	}
 }

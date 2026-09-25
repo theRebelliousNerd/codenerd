@@ -168,12 +168,6 @@ type Executor struct {
 	conversationHistory []perception.ConversationTurn
 	sessionContext      *types.SessionContext
 
-	// evictedHistory holds the messages the last priorTurnMessages call
-	// dropped from the generation window. The window is a view, not a
-	// deletion: what leaves it is announced in the window's own text and
-	// kept here so it can be brought back.
-	evictedHistory []types.Message
-
 	// Session persistence
 	sessionPersister SessionPersister
 	sessionID        string
@@ -2142,9 +2136,10 @@ func (e *Executor) GetHistory() []perception.ConversationTurn {
 // earlier" questions from a transcript that no longer contains what it said,
 // and has no way to tell that from a conversation that started here. The
 // surviving oldest message now opens with the pipeline's marker naming how
-// many messages and characters left, and the evicted messages themselves are
-// retained on the executor (recoverHistoryEviction) so what was dropped can
-// be brought back rather than reconstructed.
+// many messages and characters left. Inside a working loop the evicted
+// messages themselves stay behind recall_context for the loop's life, and the
+// notice names the handle (priorTurnWindow, historyRecall), so what was dropped
+// can be brought back rather than reconstructed.
 //
 // The notice rides inside that message rather than arriving as a message of
 // its own, which would put two user turns in a row and break the alternation
@@ -2153,10 +2148,22 @@ func (e *Executor) GetHistory() []perception.ConversationTurn {
 // is what keeps it from reading as something the assistant said — that
 // distinctive prefix is the reason the convention has one.
 func (e *Executor) priorTurnMessages() []types.Message {
+	msgs, _ := e.priorTurnWindow(false)
+	return msgs
+}
+
+// priorTurnWindow is priorTurnMessages plus the messages it evicted, oldest
+// first. When recallable, the eviction notice names the handle that gives
+// them back (historyEvictionHandle). Only a caller that installs the redeemer
+// -- a working loop, which puts historyRecall behind recall_context -- asks
+// for one: a handle nobody can redeem is worse than none
+// (types.DroppedNotice). Each call recomputes the window from the whole
+// history, so what it evicted is what is evicted now.
+func (e *Executor) priorTurnWindow(recallable bool) ([]types.Message, []types.Message) {
 	cfg := e.configSnapshot()
 	window := cfg.HistoryTurnWindow
 	if window <= 0 {
-		return nil
+		return nil, nil
 	}
 	budget := cfg.HistoryCharBudget
 	if budget <= 0 {
@@ -2165,7 +2172,7 @@ func (e *Executor) priorTurnMessages() []types.Message {
 
 	turns := e.GetHistory()
 	if len(turns) == 0 {
-		return nil
+		return nil, nil
 	}
 	msgs := make([]types.Message, 0, len(turns))
 	for _, turn := range turns {
@@ -2179,7 +2186,7 @@ func (e *Executor) priorTurnMessages() []types.Message {
 		msgs = append(msgs, types.Message{Role: role, Text: turn.Content})
 	}
 	if len(msgs) == 0 {
-		return nil
+		return nil, nil
 	}
 	eligible := len(msgs)
 	var evicted []types.Message
@@ -2194,44 +2201,24 @@ func (e *Executor) priorTurnMessages() []types.Message {
 		evicted = append(evicted, msgs[:drop]...)
 		msgs = msgs[drop:]
 	}
-	e.recordHistoryEviction(evicted)
 	if len(msgs) == 0 {
 		// Nothing survived the budget, so there is no surviving message to
 		// carry the marker. The window is empty and the caller renders no
 		// history at all, which is honest on its own: the model is not shown
 		// a partial transcript it could mistake for the whole one.
-		return nil
+		return nil, evicted
 	}
 	if len(evicted) > 0 {
+		recover := ""
+		if recallable {
+			recover = fmt.Sprintf("recall_context id=%q returns them", historyEvictionHandle(evicted))
+		}
 		notice := types.DroppedNotice(len(evicted), eligible,
 			fmt.Sprintf("older conversation messages (%d chars) evicted from this window; the session still holds them",
-				historyMessageChars(evicted)), "")
+				historyMessageChars(evicted)), recover)
 		msgs[0].Text = notice + "\n\n" + msgs[0].Text
 	}
-	return msgs
-}
-
-// recordHistoryEviction stores the messages priorTurnMessages dropped so the
-// window's contents are recoverable rather than merely gone. It replaces the
-// record each call because each call recomputes the window from the whole
-// history: what is evicted now is what is evicted, not the union of every
-// pass.
-func (e *Executor) recordHistoryEviction(evicted []types.Message) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if len(evicted) == 0 {
-		e.evictedHistory = nil
-		return
-	}
-	e.evictedHistory = append([]types.Message(nil), evicted...)
-}
-
-// recoverHistoryEviction returns the messages the last window computation
-// evicted, oldest first. Empty means nothing was dropped.
-func (e *Executor) recoverHistoryEviction() []types.Message {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return append([]types.Message(nil), e.evictedHistory...)
+	return msgs, evicted
 }
 
 // historyMessageChars totals the text carried by prior messages.

@@ -133,7 +133,7 @@ func assertNoSilentCutsInChatTurn(t *testing.T) {
 		sources = append(sources, content)
 	}
 
-	msgs := e.priorTurnMessages()
+	msgs, evicted := e.priorTurnWindow(false)
 	if len(msgs) == 0 {
 		t.Fatal("the window is empty")
 	}
@@ -159,9 +159,9 @@ func assertNoSilentCutsInChatTurn(t *testing.T) {
 	if !types.IsClamped(rendered) {
 		t.Errorf("the rendered transcript lost %d turns with no marker:\n%s", dropped, truncateForFailure(rendered))
 	}
-	if len(e.recoverHistoryEviction()) != dropped {
+	if len(evicted) != dropped {
 		t.Errorf("recovered %d evicted turns, %d were dropped; the record and the window disagree",
-			len(e.recoverHistoryEviction()), dropped)
+			len(evicted), dropped)
 	}
 	t.Logf("chat turn: %d evicted turns, announced and recoverable", dropped)
 }
