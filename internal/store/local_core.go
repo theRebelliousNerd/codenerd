@@ -14,10 +14,22 @@ import (
 	"sync/atomic"
 )
 
-// LocalStore implements Shards B, C, and D using SQLite.
-// Shard B: Vector/Associative Memory (semantic search)
-// Shard C: Knowledge Graph (relational links)
-// Shard D: Cold Storage (persistent facts and preferences)
+// LocalStore is knowledge.db: the persistent tiers of the memory model, whose
+// RAM tier is the kernel's EDB. The original design named three of them
+// Shards B, C and D, and the per-file headers still carry those labels:
+//
+//   - vector tier ("Shard B", local_vector.go, vector_store.go): vectors, and
+//     vec_index for sqlite-vec ANN search;
+//   - knowledge graph ("Shard C", local_graph.go): knowledge_graph;
+//   - cold and archival tiers ("Shard D", local_cold.go): cold_storage,
+//     archived_facts.
+//
+// It has since grown the world cache (world_files, world_facts), sessions and
+// activation (session_history, compressed_states, activation_log), knowledge
+// atoms, prompt atoms, reasoning traces and task verifications, review
+// findings and learning candidates. GetStats counts every one of them
+// (statsTables); tools.db (ToolStore) and the learning stores are separate
+// databases.
 //
 // Storage Tiers:
 // - Cold Storage: Active facts with access tracking (last_accessed, access_count)
@@ -601,6 +613,16 @@ func getBatchCountQueryPiece(table string) string {
 		return "SELECT 'world_facts' as tbl, COUNT(*) as cnt FROM world_facts"
 	case "learning_candidates":
 		return "SELECT 'learning_candidates' as tbl, COUNT(*) as cnt FROM learning_candidates"
+	case "reasoning_traces":
+		return "SELECT 'reasoning_traces' as tbl, COUNT(*) as cnt FROM reasoning_traces"
+	case "prompt_atoms":
+		return "SELECT 'prompt_atoms' as tbl, COUNT(*) as cnt FROM prompt_atoms"
+	case "task_verifications":
+		return "SELECT 'task_verifications' as tbl, COUNT(*) as cnt FROM task_verifications"
+	case "review_findings":
+		return "SELECT 'review_findings' as tbl, COUNT(*) as cnt FROM review_findings"
+	case "archived_facts":
+		return "SELECT 'archived_facts' as tbl, COUNT(*) as cnt FROM archived_facts"
 	default:
 		return ""
 	}
@@ -628,12 +650,46 @@ func getTableCountQuery(table string) string {
 		return "SELECT COUNT(*) FROM world_facts"
 	case "learning_candidates":
 		return "SELECT COUNT(*) FROM learning_candidates"
+	case "reasoning_traces":
+		return "SELECT COUNT(*) FROM reasoning_traces"
+	case "prompt_atoms":
+		return "SELECT COUNT(*) FROM prompt_atoms"
+	case "task_verifications":
+		return "SELECT COUNT(*) FROM task_verifications"
+	case "review_findings":
+		return "SELECT COUNT(*) FROM review_findings"
+	case "archived_facts":
+		return "SELECT COUNT(*) FROM archived_facts"
 	default:
 		return ""
 	}
 }
 
-// GetStats returns database statistics.
+// statsTables are the tables GetStats counts. Until 2026-09-25 it counted the
+// first ten and left out the reasoning traces, the prompt atoms, the task
+// verifications, the review findings and the archive, so `nerd memory` could
+// not see most of what the store holds.
+var statsTables = []string{
+	"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history",
+	"compressed_states", "knowledge_atoms", "world_files", "world_facts", "learning_candidates",
+	"reasoning_traces", "prompt_atoms", "task_verifications", "review_findings", "archived_facts",
+}
+
+// Gauges GetStats reports beside the table counts. Each is present only when
+// it can be measured: the ANN drift needs the sqlite-vec index and an engine
+// to name its dimension, the reflection backlog needs an engine.
+const (
+	// StatVecIndexMissing is the number of embedded vectors rows ANN search
+	// cannot find: an embedding of the index's dimension and no vec_index row.
+	StatVecIndexMissing = "vec_index_missing"
+	// StatReflectionTraceBacklog is the number of reasoning traces the
+	// reflection worker has yet to describe or embed.
+	StatReflectionTraceBacklog = "reflection_trace_backlog"
+)
+
+// GetStats returns database statistics: a row count per table in statsTables,
+// plus the StatVecIndexMissing and StatReflectionTraceBacklog gauges when they
+// can be measured.
 func (s *LocalStore) GetStats() (map[string]int64, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "GetStats")
 	defer timer.Stop()
@@ -644,7 +700,8 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 	logging.StoreDebug("Computing database statistics")
 
 	stats := make(map[string]int64)
-	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "compressed_states", "knowledge_atoms", "world_files", "world_facts", "learning_candidates"}
+	defer s.addStatsGaugesLocked(stats)
+	tables := statsTables
 
 	// Prepare a single query using UNION ALL to avoid N+1 queries.
 	var queryBuilder strings.Builder
@@ -690,6 +747,28 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 
 	logging.StoreDebug("Database stats computed: tables=%d", len(stats))
 	return stats, nil
+}
+
+// addStatsGaugesLocked adds the gauges GetStats reports beside the table
+// counts. Call holding s.mu (read or write).
+func (s *LocalStore) addStatsGaugesLocked(stats map[string]int64) {
+	engine := s.embeddingEngine
+	if engine == nil {
+		return
+	}
+	if n, err := s.vecIndexMissingLocked(engine.Dimensions()); err == nil && n >= 0 {
+		stats[StatVecIndexMissing] = n
+	} else if err != nil {
+		logging.StoreDebug("vec_index drift not measured: %v", err)
+	}
+	if s.traceStore != nil {
+		expectedTask := embedding.SelectTaskType(embedding.ContentTypeDocumentation, false)
+		if n, err := s.traceStore.CountTraceEmbeddingBacklog(engine.Name(), engine.Dimensions(), expectedTask); err == nil {
+			stats[StatReflectionTraceBacklog] = int64(n)
+		} else {
+			logging.StoreDebug("reflection backlog not measured: %v", err)
+		}
+	}
 }
 
 func (s *LocalStore) dedupePredicateVectors() (int64, error) {

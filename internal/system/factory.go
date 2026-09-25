@@ -718,6 +718,7 @@ func (c *Cortex) runMaintenance() {
 		maintenanceTestHook()
 		return
 	}
+	autoCleanupToolStore(c.ToolStore)
 	if c.LocalDB == nil {
 		return
 	}
@@ -727,16 +728,40 @@ func (c *Cortex) runMaintenance() {
 		PurgeArchivedOlderThanDays: 365,
 		CleanActivationLogDays:     30,
 		VacuumDatabase:             false, // Only vacuum on explicit request
+		// Heal the ANN drift a failed vec_index insert leaves behind; until
+		// 2026-09-25 only the next engine attach rebuilt the index.
+		ReconcileVecIndex: true,
 	})
 	if err != nil {
 		logging.Get(logging.CategoryStore).Warn("Maintenance cycle failed: %v", err)
 		return
 	}
-	if stats.FactsArchived > 0 || stats.FactsPurged > 0 || stats.ActivationLogsDeleted > 0 {
+	if stats.FactsArchived > 0 || stats.FactsPurged > 0 || stats.ActivationLogsDeleted > 0 || stats.VecIndexHealed > 0 {
 		logging.Get(logging.CategoryStore).Info(
-			"Maintenance complete: archived=%d purged=%d logs_cleaned=%d",
-			stats.FactsArchived, stats.FactsPurged, stats.ActivationLogsDeleted,
+			"Maintenance complete: archived=%d purged=%d logs_cleaned=%d vec_index_healed=%d",
+			stats.FactsArchived, stats.FactsPurged, stats.ActivationLogsDeleted, stats.VecIndexHealed,
 		)
+	}
+}
+
+// autoCleanupToolStore keeps tools.db inside the store's cleanup budget
+// (store.DefaultCleanupConfig: 336 runtime hours of tool executions, cleaned
+// from 80%). ToolStore.AutoCleanup existed with no caller, so the journal grew
+// until someone ran /cleanup-tools by hand -- and a CLI-only user, who has no
+// /cleanup-tools, never could. Run at boot, which every entry path passes
+// through, and on each maintenance cycle.
+func autoCleanupToolStore(ts *store.ToolStore) {
+	if ts == nil {
+		return
+	}
+	stats, err := ts.AutoCleanup(store.DefaultCleanupConfig())
+	if err != nil {
+		logging.Get(logging.CategoryStore).Warn("tools.db auto-cleanup failed: %v", err)
+		return
+	}
+	if stats != nil && stats.ExecutionsDeleted > 0 {
+		logging.Get(logging.CategoryStore).Info("tools.db auto-cleanup (%s): %d executions deleted, %d bytes freed",
+			stats.Method, stats.ExecutionsDeleted, stats.BytesFreed)
 	}
 }
 
@@ -2255,6 +2280,7 @@ func initFactoryToolStore(bctx *bootContext) {
 		return
 	}
 	bctx.toolStore = ts
+	autoCleanupToolStore(ts)
 	if bctx.shardManager == nil {
 		return
 	}

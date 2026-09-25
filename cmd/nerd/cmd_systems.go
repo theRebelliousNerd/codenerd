@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"codenerd/internal/features"
 	"codenerd/internal/mcp"
+	"codenerd/internal/store"
 	coresys "codenerd/internal/system"
 
 	"github.com/spf13/cobra"
@@ -484,18 +486,16 @@ var memoryStatusCmd = &cobra.Command{
 		allFacts, _ := cortex.Kernel.Query("*")
 		fmt.Printf("RAM (Working Memory):  %d facts\n", len(allFacts))
 
-		// Vector tier
+		// Store tiers. This printed the sum of every table under the
+		// label "Vector (Embeddings)" until 2026-09-25; the counts are per
+		// table now, with the ANN drift and the reflection backlog beside
+		// them when the store can measure them.
 		if cortex.LocalDB != nil {
 			stats, err := cortex.LocalDB.GetStats()
 			if err == nil {
-				// Sum up all entries
-				var total int64
-				for _, count := range stats {
-					total += count
-				}
-				fmt.Printf("Vector (Embeddings):   %d entries\n", total)
+				fmt.Print(renderStoreStats(stats))
 			} else {
-				fmt.Println("Vector (Embeddings):   unavailable")
+				fmt.Printf("Store (knowledge.db):  unavailable: %v\n", err)
 			}
 		}
 
@@ -513,6 +513,33 @@ var memoryStatusCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// renderStoreStats renders LocalStore.GetStats for `nerd memory`: the vector
+// tier first, every other table by name, then the gauges.
+func renderStoreStats(stats map[string]int64) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Vector (Embeddings):   %d entries\n", stats["vectors"])
+	tables := make([]string, 0, len(stats))
+	for name := range stats {
+		switch name {
+		case "vectors", store.StatVecIndexMissing, store.StatReflectionTraceBacklog:
+			continue
+		}
+		tables = append(tables, name)
+	}
+	sort.Strings(tables)
+	b.WriteString("Store tables (knowledge.db):\n")
+	for _, name := range tables {
+		fmt.Fprintf(&b, "  %-22s %d\n", name+":", stats[name])
+	}
+	if n, ok := stats[store.StatVecIndexMissing]; ok {
+		fmt.Fprintf(&b, "ANN drift:             %d embedded rows missing from vec_index (healed by the maintenance cycle)\n", n)
+	}
+	if n, ok := stats[store.StatReflectionTraceBacklog]; ok {
+		fmt.Fprintf(&b, "Reflection backlog:    %d traces awaiting a descriptor or embedding\n", n)
+	}
+	return b.String()
 }
 
 func init() {

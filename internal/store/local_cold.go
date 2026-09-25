@@ -2,6 +2,7 @@ package store
 
 import (
 	"codenerd/internal/logging"
+	"context"
 	"fmt"
 	"time"
 )
@@ -44,6 +45,10 @@ type MaintenanceConfig struct {
 	PurgeArchivedOlderThanDays int  // Permanently delete archived facts older than N days
 	CleanActivationLogDays     int  // Delete activation logs older than N days
 	VacuumDatabase             bool // Run VACUUM to reclaim space
+	// ReconcileVecIndex re-indexes vectors rows missing from vec_index
+	// (ReconcileVecIndex): the healer for the ANN drift a failed vec_index
+	// insert leaves until the next engine attach rebuilds the index.
+	ReconcileVecIndex bool
 }
 
 // MaintenanceStats reports results of maintenance operations.
@@ -52,6 +57,7 @@ type MaintenanceStats struct {
 	FactsPurged           int
 	ActivationLogsDeleted int
 	DatabaseVacuumed      bool
+	VecIndexHealed        int
 }
 
 // StoreFact persists a fact to cold storage.
@@ -558,6 +564,16 @@ func (s *LocalStore) MaintenanceCleanup(config MaintenanceConfig) (MaintenanceSt
 		}
 	}
 
+	// Heal ANN drift. A failure here is reported, not fatal: the rows are
+	// still found by brute force, and the next cycle tries again.
+	if config.ReconcileVecIndex {
+		healed, err := s.ReconcileVecIndex(context.Background())
+		if err != nil {
+			logging.Get(logging.CategoryStore).Warn("vec_index reconcile failed during maintenance: %v", err)
+		}
+		stats.VecIndexHealed = healed
+	}
+
 	// Vacuum database to reclaim space
 	if config.VacuumDatabase {
 		logging.StoreDebug("Running VACUUM to reclaim disk space")
@@ -571,7 +587,7 @@ func (s *LocalStore) MaintenanceCleanup(config MaintenanceConfig) (MaintenanceSt
 		stats.DatabaseVacuumed = true
 	}
 
-	logging.Store("Maintenance complete: archived=%d, purged=%d, activation_logs_deleted=%d, vacuumed=%v",
-		stats.FactsArchived, stats.FactsPurged, stats.ActivationLogsDeleted, stats.DatabaseVacuumed)
+	logging.Store("Maintenance complete: archived=%d, purged=%d, activation_logs_deleted=%d, vec_index_healed=%d, vacuumed=%v",
+		stats.FactsArchived, stats.FactsPurged, stats.ActivationLogsDeleted, stats.VecIndexHealed, stats.DatabaseVacuumed)
 	return stats, nil
 }
