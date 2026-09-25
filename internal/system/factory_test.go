@@ -2,6 +2,8 @@ package system
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -181,31 +183,48 @@ func (a *imageCaptureAgent) Execute(ctx context.Context, task string) (string, e
 	return "image-ok", nil
 }
 
+// The session file adapter reads inside the workspace and never writes. It
+// used to os.ReadFile / os.WriteFile any path it was handed, so a write through
+// the interface skipped the constitution, the Dreamer and the post-action
+// validator a routed /write_file gets (system-virtualstore-adapter-policy-v1).
+// This test pinned that raw round trip; it now pins the contained contract.
 func TestSessionVirtualStoreAdapter(t *testing.T) {
-	// Adapter uses os package directly for ReadFile/WriteFile fallback
-	// This tests the fallback logic in sessionVirtualStoreAdapter
-
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test.txt")
-
-	adapter := &sessionVirtualStoreAdapter{vs: nil} // VS can be nil for ReadFile/WriteFile fallback
-
-	// Test WriteFile
-	content := []string{"line1", "line2"}
-	if err := adapter.WriteFile(path, content); err != nil {
-		t.Fatalf("WriteFile failed: %v", err)
+	ws := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", ws)
+	path := filepath.Join(ws, "test.txt")
+	if err := os.WriteFile(path, []byte("line1\nline2"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	// Test ReadFile
+	adapter := &sessionVirtualStoreAdapter{vs: nil}
+
 	readContent, err := adapter.ReadFile(path)
 	if err != nil {
-		t.Fatalf("ReadFile failed: %v", err)
+		t.Fatalf("ReadFile inside the workspace: %v", err)
+	}
+	if len(readContent) != 2 || readContent[0] != "line1" {
+		t.Errorf("ReadFile = %q, want [line1 line2]", readContent)
+	}
+	if raw, err := adapter.ReadRaw("test.txt"); err != nil || string(raw) != "line1\nline2" {
+		t.Errorf("ReadRaw of a workspace-relative path = %q, %v", raw, err)
 	}
 
-	if len(readContent) != 2 {
-		t.Errorf("Expected 2 lines, got %d", len(readContent))
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if readContent[0] != "line1" {
-		t.Errorf("Expected line1, got %s", readContent[0])
+	if _, err := adapter.ReadFile(outside); err == nil {
+		t.Error("ReadFile read a file outside the workspace")
+	}
+	if _, err := adapter.ReadRaw("../" + filepath.Base(filepath.Dir(outside)) + "/secret.txt"); err == nil {
+		t.Error("ReadRaw followed a traversal out of the workspace")
+	}
+
+	target := filepath.Join(ws, "new.txt")
+	if err := adapter.WriteFile(target, []string{"x"}); !errors.Is(err, errSessionAdapterWrite) {
+		t.Fatalf("WriteFile err = %v, want the routed-write refusal", err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Error("a refused WriteFile still created the file")
 	}
 }

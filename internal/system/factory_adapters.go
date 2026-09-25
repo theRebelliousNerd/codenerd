@@ -17,6 +17,7 @@ import (
 
 	"codenerd/internal/store"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -419,16 +420,34 @@ func (a *sessionKernelAdapter) RemoveFactsByPredicateSet(predicates map[string]s
 }
 
 // sessionVirtualStoreAdapter adapts core.VirtualStore to types.VirtualStore.
-// NOTE: VirtualStore doesn't directly expose ReadFile/WriteFile/Exec methods.
-// These route through VirtualStore's HandleAction internally. For now, this
-// adapter provides fallback implementations using the os package directly.
+//
+// File access through this adapter is read-only and contained
+// (system-virtualstore-adapter-policy-v1, rollback posture). ReadFile and
+// WriteFile used to call os.ReadFile / os.WriteFile on whatever path they were
+// given: a session task asking the interface for a file got it from anywhere on
+// disk, and a write skipped the constitution, the Dreamer and the post-action
+// validator the executive applies to a routed /write_file. Until a typed,
+// policy-preserving file capability exists on VirtualStore, reads resolve inside
+// the workspace and writes are refused -- visibly, never by falling back to a
+// raw write. Session file mutation goes through the executive (RouteAction).
 type sessionVirtualStoreAdapter struct {
 	vs *core.VirtualStore
 }
 
+// errSessionAdapterWrite is the refusal WriteFile returns.
+var errSessionAdapterWrite = errors.New("session VirtualStore adapter does not write files: route the write through the executive (/write_file) so policy, Dreamer preflight and validation apply")
+
+// containedRead reads path after resolving it inside the workspace root.
+func (a *sessionVirtualStoreAdapter) containedRead(path string) ([]byte, error) {
+	resolved, err := tools.ResolveWorkspacePath(context.Background(), "", path)
+	if err != nil {
+		return nil, fmt.Errorf("session read of %q refused: %w", path, err)
+	}
+	return os.ReadFile(resolved)
+}
+
 func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
-	// Fallback: use os.ReadFile directly
-	data, err := os.ReadFile(path)
+	data, err := a.containedRead(path)
 	if err != nil {
 		return nil, err
 	}
@@ -436,8 +455,7 @@ func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
 }
 
 func (a *sessionVirtualStoreAdapter) WriteFile(path string, content []string) error {
-	// Fallback: use os.WriteFile directly
-	return os.WriteFile(path, []byte(strings.Join(content, "\n")), 0644)
+	return errSessionAdapterWrite
 }
 
 func (a *sessionVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
@@ -445,11 +463,7 @@ func (a *sessionVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env [
 }
 
 func (a *sessionVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
-	// Route through VirtualStore if available, else fallback to os.ReadFile
-	if a.vs != nil {
-		return a.vs.ReadRaw(path)
-	}
-	return os.ReadFile(path)
+	return a.containedRead(path)
 }
 
 // Compile-time assertion that the production adapter exposes the Dreamer

@@ -75,10 +75,16 @@ and the same normalization reaches boot behavior. Named boot stages share
 embedding, JIT/DB/store, shard, maintenance, and perception ownership. Behavioral
 tests cover normalized reuse, set split, failed-boot retry, and late rollback.
 
-**Remaining gap.** Separately configured engine/provider mode is absent from
-identity. Cleanup reuses an enumerated aggregate rather than a typed exact-
-reverse-order acquisition registry, and caller-owned override semantics are not
-pinned.
+**Remaining gap.** ~~Separately configured engine/provider mode is absent from
+identity.~~ Closed 2026-09-25: `cortexKey` carries the configured engine
+(`cfg.GetEngine()`) beside provider and model
+(`TestGetOrBootCortexEngineIsPartOfIdentity`, fails without it: switching
+config.json from `api` to `claude-cli` returned the cached Cortex). Cleanup
+reuses an enumerated aggregate rather than a typed exact-reverse-order
+acquisition registry, and caller-owned override semantics are not pinned;
+both are declined for now: they are the typed acquisition registry the
+boot-receipt card below describes, a restructuring of every boot stage, and
+the enumerated aggregate already passes the forced-failure rollback tests.
 
 **Desired behavior.** Define one canonical, redacted `CortexIdentity` containing
 every boot-shaping input, including engine and a normalized disabled-shard set.
@@ -113,7 +119,7 @@ identity and typed registry acceptance criteria are not complete.
 <!-- NERD_FEATURE
 id: system-virtualstore-adapter-policy-v1
 owner: system
-status: proposed
+status: in_progress
 kind: truth-gap
 depends_on: [system-exact-executive-envelope-v1]
 affects: [core, session, system]
@@ -149,6 +155,19 @@ executes twice.
 
 **Rollback.** Disable session file mutation and retain read-only contained access
 until the typed adapter is proven; do not restore silent unrestricted writes.
+
+**Progress 2026-09-25 (rollback posture in force).** The adapter's `ReadFile`
+and `ReadRaw` resolve the path inside the workspace root
+(`tools.ResolveWorkspacePath`) before reading, and `WriteFile` returns
+`errSessionAdapterWrite` instead of writing: session file mutation goes through
+the executive (`RouteAction`), which is the only path session code uses today
+(no production caller reaches the adapter's `ReadFile`/`WriteFile`).
+`TestSessionVirtualStoreAdapter` (it pinned the raw round trip; it now pins
+contained reads, a refused traversal and a refused write). The campaign
+command's adapter had the same raw fallback and now has the same posture
+(`cmd/nerd/cmd_campaign.go` `campaignVirtualStoreAdapter`,
+`TestCampaignVirtualStoreAdapter_ShouldReadContainedAndRefuseWrites`). Open: the
+typed, policy-preserving VirtualStore file capability itself.
 
 <!-- NERD_FEATURE
 id: system-boot-receipt-registry-v1
@@ -191,3 +210,9 @@ cannot authorize or execute an action.
 
 **Rollback.** Keep the registry as an internal cleanup mechanism and disable
 receipt persistence independently.
+
+**Re-checked 2026-09-25: declined for now.** A north star, not an unfinished
+wire: it asks every boot stage in `factory.go` to register typed acquisitions
+and replaces the enumerated rollback aggregate. What an operator can already
+see of a boot is the boot log (`logging.CategoryBoot`); the typed registry is a
+redesign to schedule on its own.

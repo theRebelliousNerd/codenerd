@@ -100,10 +100,10 @@ var (
 // model, and the normalized disabled system-shard set. The components are
 // length-delimited before hashing so embedded separators cannot collide. The
 // SHA-256 digest is safe to use as a map key without exposing the API key.
-func cortexKey(workspace, provider, apiKey, model string, disableSystemShards []string) string {
+func cortexKey(workspace, engine, provider, apiKey, model string, disableSystemShards []string) string {
 	h := sha256.New()
 	components := append(
-		[]string{workspace, provider, apiKey, model},
+		[]string{workspace, engine, provider, apiKey, model},
 		normalizeDisableSystemShards(disableSystemShards)...,
 	)
 	for _, component := range components {
@@ -175,22 +175,27 @@ func resolveWorkspaceRoot(workspace string) string {
 }
 
 // resolveProviderModelForKey reads the user config (best-effort) to
-// determine the provider and model components of the cortex cache key.
+// determine the engine, provider and model components of the cortex cache key.
 // Errors are intentionally swallowed: if the config is unreadable the
 // caller will hit the same failure mode inside BootCortex, and we still
 // want to key consistently across calls.
-func resolveProviderModelForKey(workspace string) (provider, model string) {
+//
+// The engine is part of the identity: switching config.json from the API
+// engine to claude-cli (or back) changes which LLM client boot constructs, and
+// the cache used to hand back the Cortex wired to the old one.
+func resolveProviderModelForKey(workspace string) (engine, provider, model string) {
 	userCfgPath := filepath.Join(workspace, ".nerd", "config.json")
 	cfg, err := config.LoadUserConfig(userCfgPath)
 	if err != nil || cfg == nil {
-		return "", ""
+		return "", "", ""
 	}
-	return cfg.Provider, cfg.Model
+	return cfg.GetEngine(), cfg.Provider, cfg.Model
 }
 
 // GetOrBootCortex returns the Cortex bound to the given workspace and
 // provider context, booting it on first use. Subsequent calls with the
-// same (workspace, provider, apiKey, model) tuple return the cached
+// same (workspace, engine, provider, apiKey, model, disabled shards) identity
+// return the cached
 // instance; calls with a different tuple boot a fresh Cortex so that
 // switching workspace, provider, or credentials mid-session does not
 // hand back a Cortex wired to the wrong context.
@@ -222,9 +227,9 @@ func getOrBootCortex(
 	}
 
 	ws := resolveWorkspaceRoot(workspace)
-	provider, model := resolveProviderModelForKey(ws)
+	engine, provider, model := resolveProviderModelForKey(ws)
 	disabled := normalizeDisableSystemShards(disableSystemShards)
-	key := cortexKey(ws, provider, apiKey, model, disabled)
+	key := cortexKey(ws, engine, provider, apiKey, model, disabled)
 
 	// Fast path: cache hit under read lock.
 	cortexCacheMu.RLock()
