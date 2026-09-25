@@ -8,7 +8,6 @@ import (
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codenerd/internal/logging"
-	"codenerd/internal/types"
 )
 
 // Asserting a predicate with no Decl is silent, and the fact is unreachable.
@@ -144,20 +143,6 @@ func isStringArg(v any) bool {
 		return false
 	}
 	return reflect.ValueOf(v).Kind() == reflect.String
-}
-
-// isNameArg accepts the two shapes a /name value takes on the Go side: a
-// plain string shaped like a Mangle atom ("/coder") and types.MangleAtom.
-// A string without the leading "/" is a real type error, not an atom.
-func isNameArg(v any) bool {
-	switch t := v.(type) {
-	case types.MangleAtom:
-		return isValidMangleNameConstant(string(t))
-	case string:
-		return isValidMangleNameConstant(t)
-	default:
-		return false
-	}
 }
 
 func declBounds(decl any) []string {

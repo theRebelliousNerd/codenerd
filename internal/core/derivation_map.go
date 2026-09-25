@@ -162,9 +162,14 @@ type DerivationMap struct {
 	Arities map[string]int
 	// Presence: where a predicate's facts can exist.
 	Presence map[string]Presence
-	// QueryTargets: where a query for a derived predicate must look (rules
-	// that fire everywhere contribute only the catch-all).
+	// QueryTargets: where a query for a derived predicate must look (a rule
+	// that fires everywhere contributes the catch-all, plus every shard
+	// where its premises' facts are local).
 	QueryTargets map[string]Presence
+	// Local: per derived predicate, the shards whose own facts can add to
+	// the copy every shard derives alike -- where a read must look beyond
+	// the catch-all.
+	Local map[string]Presence
 	// Consumes: shard -> shared predicates referenced by a rule that can
 	// fire there.
 	Consumes       map[string]map[string]struct{}
@@ -302,6 +307,12 @@ type derivationBuilder struct {
 	derived    map[string]struct{}
 	presence   map[string]Presence
 	leafMemo   map[string]map[string]struct{}
+	// adds / cuts: per derived predicate, the shards whose own facts can add
+	// facts to, or remove facts from, the copy every shard derives alike
+	// (localFixpoint). Presence cannot say this: All means "can exist in
+	// every shard", not "is the same in every shard".
+	adds map[string]map[string]struct{}
+	cuts map[string]map[string]struct{}
 }
 
 func newDerivationBuilder(owners map[string]string, shared map[string]struct{}, catchAll string) *derivationBuilder {
@@ -475,6 +486,152 @@ func (b *derivationBuilder) fixpoint() {
 	}
 }
 
+// Uniform versus local facts.
+//
+// Every shard holds the program facts and the replicated shared facts, and
+// evaluates the whole program, so what those alone derive is the same in every
+// shard: the uniform copy, which the catch-all answers for. Everything else a
+// shard derives depends on facts only it holds -- its owned predicates, or for
+// the catch-all the unowned runtime ones -- and is local to it.
+//
+// A rule whose positive body is present everywhere (Presence All) fires in
+// every shard, but it derives the same facts everywhere only if its whole body
+// is uniform. context_relevant is the live case: one rule reads shared
+// user_intent, so its Presence is All, and another reads world-owned modified.
+// should_include_context(F, P) :- context_relevant(F, P) therefore fires
+// everywhere, and its facts for a modified file exist only in the world shard.
+// queryTargets used to send that query to the catch-all alone, so no modified
+// file reached the context window through the kernel.
+
+// edbLocal is where a non-derived predicate's facts are shard-specific: its
+// owner, the catch-all for an unowned runtime predicate, nowhere for a program
+// or shared one (every shard holds the same copy).
+func (b *derivationBuilder) edbLocal(p string) map[string]struct{} {
+	if _, ok := b.shared[p]; ok {
+		return nil
+	}
+	if owner, ok := b.owners[p]; ok {
+		return map[string]struct{}{owner: {}}
+	}
+	if _, ok := b.programEDB[p]; ok {
+		return nil
+	}
+	if _, isDerived := b.derived[p]; isDerived {
+		return nil
+	}
+	return map[string]struct{}{b.catchAll: {}}
+}
+
+// Local facts have a direction. A shard's own facts reaching a positive
+// premise can ADD head facts there that no other shard derives; reaching a
+// negated premise they can only REMOVE head facts there, so that shard holds
+// fewer than the others. A read is a union across the shards it visits, so
+// only a shard that can add facts is worth visiting: one that can only cut
+// returns a subset of what the catch-all already returns. Through a negation
+// the two swap (a cut under a negation is an add). delegate_task is why this
+// matters: it reads missing_tool_for, which is tools- and world-local only
+// through !has_capability, so those shards hold fewer delegations, never more,
+// and visiting them would cost a world-shard evaluation on every step for
+// nothing.
+
+// localityOf returns the shards whose own facts can add p facts to, and remove
+// p facts from, the copy every shard derives alike.
+func (b *derivationBuilder) localityOf(p string) (adds, cuts map[string]struct{}) {
+	if _, isDerived := b.derived[p]; !isDerived {
+		return b.edbLocal(p), nil
+	}
+	adds, cuts = b.adds[p], b.cuts[p]
+	// A derived predicate Go also asserts into its owner has facts of its own
+	// there.
+	if owner, ok := b.owners[p]; ok {
+		if _, has := adds[owner]; !has {
+			merged := make(map[string]struct{}, len(adds)+1)
+			for s := range adds {
+				merged[s] = struct{}{}
+			}
+			merged[owner] = struct{}{}
+			adds = merged
+		}
+	}
+	return adds, cuts
+}
+
+// ruleLocality is where a rule's facts differ from the uniform copy, in each
+// direction. A rule that fires in only some shards adds its facts there and
+// nowhere else. A rule that fires everywhere adds where a positive premise
+// adds or a negated one cuts, and cuts where a positive premise cuts or a
+// negated one adds.
+func (b *derivationBuilder) ruleLocality(r parsedRule) (adds, cuts map[string]struct{}) {
+	adds = make(map[string]struct{})
+	cuts = make(map[string]struct{})
+	union := func(into, from map[string]struct{}) {
+		for s := range from {
+			into[s] = struct{}{}
+		}
+	}
+	for _, p := range r.pos {
+		a, c := b.localityOf(p)
+		union(adds, a)
+		union(cuts, c)
+	}
+	for _, p := range r.neg {
+		a, c := b.localityOf(p)
+		union(adds, c)
+		union(cuts, a)
+	}
+	if cur := positiveIntersection(b, r.pos); !cur.All {
+		adds = make(map[string]struct{}, len(cur.Shards))
+		union(adds, cur.Shards)
+	}
+	return adds, cuts
+}
+
+// localFixpoint computes adds and cuts for every derived predicate: the union
+// of its rules' ruleLocality, iterated to a fixpoint (recursive rules).
+func (b *derivationBuilder) localFixpoint() {
+	b.adds = make(map[string]map[string]struct{}, len(b.derived))
+	b.cuts = make(map[string]map[string]struct{}, len(b.derived))
+	for p := range b.derived {
+		b.adds[p] = map[string]struct{}{}
+		b.cuts[p] = map[string]struct{}{}
+	}
+	grow := func(into, from map[string]struct{}) bool {
+		grew := false
+		for s := range from {
+			if _, ok := into[s]; !ok {
+				into[s] = struct{}{}
+				grew = true
+			}
+		}
+		return grew
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, r := range b.rules {
+			adds, cuts := b.ruleLocality(r)
+			if grow(b.adds[r.head], adds) {
+				changed = true
+			}
+			if grow(b.cuts[r.head], cuts) {
+				changed = true
+			}
+		}
+	}
+}
+
+// ruleReadShards is the smallest shard set whose facts cover everything a
+// rule derives: the shards it fires in when it fires in only some; else the
+// catch-all for the uniform copy plus every shard where its facts can be
+// added to it. A query reads a derived predicate there (queryTargets), so
+// those shards also need the rule's shared inputs (consumes).
+func (b *derivationBuilder) ruleReadShards(r parsedRule) map[string]struct{} {
+	adds, _ := b.ruleLocality(r)
+	if cur := positiveIntersection(b, r.pos); cur.All {
+		adds[b.catchAll] = struct{}{}
+	}
+	return adds
+}
+
 func positiveIntersection(b *derivationBuilder, pos []string) Presence {
 	cur := AllPresence()
 	for _, p := range pos {
@@ -543,31 +700,69 @@ func (b *derivationBuilder) consumeRule(out map[string]map[string]struct{}, allS
 	if len(sharedInRule) == 0 {
 		return
 	}
-	cur := positiveIntersection(b, r.pos)
-	if cur.All {
-		// A rule that fires everywhere derives the same facts in every
-		// shard, and queries read those from the catch-all (queryTargets),
-		// so only the catch-all needs this rule's shared inputs.
-		m, ok := out[b.catchAll]
-		if !ok {
-			m = make(map[string]struct{})
-			out[b.catchAll] = m
-		}
-		for q := range sharedInRule {
-			m[q] = struct{}{}
-		}
-		return
-	}
-	for s := range cur.Shards {
+	add := func(s string, preds map[string]struct{}) {
 		m, ok := out[s]
 		if !ok {
 			m = make(map[string]struct{})
 			out[s] = m
 		}
-		for q := range sharedInRule {
+		for q := range preds {
 			m[q] = struct{}{}
 		}
 	}
+	cur := positiveIntersection(b, r.pos)
+	if !cur.All {
+		// The rule fires only in these shards: each needs every shared
+		// input of the whole derivation chain.
+		for s := range cur.Shards {
+			add(s, sharedInRule)
+		}
+		return
+	}
+	// The catch-all answers for the copy every shard derives alike.
+	add(b.catchAll, sharedInRule)
+	// A shard read for its local additions needs only what those additions
+	// join with (sharedForLocal), not the inputs of the uniform copy the
+	// catch-all already derives.
+	adds, _ := b.ruleLocality(r)
+	for s := range adds {
+		if s != b.catchAll {
+			add(s, b.sharedForLocal(r, s))
+		}
+	}
+}
+
+// sharedForLocal returns the shared predicates shard s must hold for rule r's
+// facts local to s to be derived there. When exactly one positive premise
+// carries local facts in s, what s adds is that premise's local facts joined
+// with the rest of the body in full: every other premise needs all its shared
+// inputs (a negated one most of all, or the join over-derives), while the
+// local premise's own derivation is registered by the rules that make it local
+// in s. Any other shape (several local premises, or locality through a
+// negation) needs every shared input of the whole rule.
+func (b *derivationBuilder) sharedForLocal(r parsedRule, s string) map[string]struct{} {
+	var localPos []string
+	for _, p := range r.pos {
+		if adds, _ := b.localityOf(p); adds != nil {
+			if _, ok := adds[s]; ok {
+				localPos = append(localPos, p)
+			}
+		}
+	}
+	skip := ""
+	if len(localPos) == 1 {
+		skip = localPos[0]
+	}
+	out := make(map[string]struct{})
+	for _, p := range r.pos {
+		if p != skip {
+			b.sharedLeaves(p, out, map[string]struct{}{})
+		}
+	}
+	for _, p := range r.neg {
+		b.sharedLeaves(p, out, map[string]struct{}{})
+	}
+	return out
 }
 
 // sharedInRule returns every shared predicate the rule depends on, directly
@@ -633,6 +828,7 @@ func BuildDerivationMap(policyText string, programFacts map[string]struct{}, own
 	}
 	b.seed()
 	b.fixpoint()
+	b.localFixpoint()
 	splits, blinds := b.findings()
 	summaries := make([]RuleSummary, 0, len(b.rules))
 	for _, r := range b.rules {
@@ -641,10 +837,15 @@ func BuildDerivationMap(policyText string, programFacts map[string]struct{}, own
 			Fires: positiveIntersection(b, r.pos),
 		})
 	}
+	local := make(map[string]Presence, len(b.adds))
+	for p, shards := range b.adds {
+		local[p] = Presence{Shards: shards}
+	}
 	return &DerivationMap{
 		Arities:        b.arities,
 		Presence:       b.presence,
 		QueryTargets:   b.queryTargets(),
+		Local:          local,
 		Consumes:       b.consumes(),
 		SplitJoins:     splits,
 		BlindNegations: blinds,
@@ -654,23 +855,19 @@ func BuildDerivationMap(policyText string, programFacts map[string]struct{}, own
 }
 
 // queryTargets computes, per derived predicate, the smallest shard set a
-// query must visit to see every fact: the union over its rules of each
-// rule's firing set, where a rule that fires everywhere (only shared and
-// program facts in its body) derives the same facts in every shard and so
-// contributes the catch-all alone. Presence answers "where can it exist";
-// QueryTargets answers "where must I look". delegate_task is the live case:
-// one rule needs only user_intent, so Presence is All and a fan-out paid a
-// world-shard evaluation on every step for facts the catch-all already had.
+// query must visit to see every fact: the union over its rules of
+// ruleReadShards. A rule that fires everywhere contributes the catch-all for
+// the copy every shard derives alike, and a shard beyond it only when a
+// premise's facts are local there. Presence answers "where can it exist";
+// QueryTargets answers "where must I look". delegate_task is why the catch-all
+// stands in for the uniform copy: one rule needs only user_intent, so Presence
+// is All, and a fan-out paid a world-shard evaluation on every step for facts
+// the catch-all already had. should_include_context is why that is not the
+// whole answer (see the note on uniform versus local facts above).
 func (b *derivationBuilder) queryTargets() map[string]Presence {
 	out := make(map[string]Presence, len(b.derived))
 	for _, r := range b.rules {
-		cur := positiveIntersection(b, r.pos)
-		var contrib Presence
-		if cur.All {
-			contrib = SingleShardPresence(b.catchAll)
-		} else {
-			contrib = cur
-		}
+		contrib := Presence{Shards: b.ruleReadShards(r)}
 		if prev, ok := out[r.head]; ok {
 			out[r.head] = unionShards(prev.Shards, contrib.Shards)
 		} else {

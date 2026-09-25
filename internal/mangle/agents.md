@@ -88,6 +88,27 @@ than between a value and however a literal happens to lex. Seed
 `protected_path("/etc/passwd")` as a fact from Go, where it is an ordinary
 string.
 
+## A learned rule may narrow a grant, never widen one
+
+`forbiddenLearnedHeads` used to be the whole defence, and it was incomplete: a
+learned `appeal_granted(...)` fact reached `permitted` through
+`has_active_override` and was persisted. Learned-rule validation now also
+refuses the program's **grant path** — every predicate whose facts can add a
+`permitted` fact, derived from the rules by `GrantPathOf` (`grant_path.go`) —
+and the host witnesses in `core.hostWitnessPredicates`, for every statement in
+the learned text.
+
+- A new `permitted` rule in the constitution is covered the moment it exists.
+  Do not add its premises to a Go list.
+- A rule that requires a human's consent (`grantConsent`: `signed_approval`,
+  `admin_override`) does not put its other premises on the path. That is what
+  keeps `dangerous_action` learnable. A new consent predicate belongs on that
+  list only if it truly stands for a person's authorization; leaving one off
+  only protects more.
+- Callers that know the program use `ValidateLearnedRuleProtected` with the
+  kernel's `learnedHeadProtectionLocked()`. Plain `ValidateLearnedRule` checks
+  the static list only.
+
 ## `HotLoadRule` validates; it does not load
 
 `RealKernel.HotLoadRule` compiles a candidate against a sandbox kernel and

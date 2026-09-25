@@ -133,3 +133,50 @@ func TestDerivationMap_DefaultCorpus(t *testing.T) {
 	// parser and the fixpoint handle the full corpus.
 	t.Logf("corpus: %d predicates, %d split joins, %d blind negations", len(m.Presence), len(m.SplitJoins), len(m.BlindNegations))
 }
+
+// A rule that fires everywhere is not therefore the same everywhere. Here
+// mixed_head is present in every shard (its first rule reads only shared and
+// program facts) but its second rule's facts exist only in alpha, so a head
+// that reads mixed_head must be read from alpha as well as the catch-all, and
+// alpha must hold the shared inputs that head joins those facts with. This is
+// should_include_context(F, P) :- context_relevant(F, P) in miniature: the
+// catch-all-only answer dropped every modified file (world-local).
+func TestDerivationMap_AnEverywhereRuleOverLocalFactsIsReadWhereTheyAre(t *testing.T) {
+	policy := toyPolicy + `
+Decl uni_head(X).
+uni_head(X) :- mixed_head(X).
+Decl shared_two(X).
+Decl uni_join(X).
+uni_join(X) :- mixed_head(X), shared_two(X).
+Decl pure_head(X).
+pure_head(X) :- shared_sig(X), table(X).
+Decl pure_reader(X).
+pure_reader(X) :- pure_head(X).
+`
+	owners := map[string]string{"alpha_fact": "alpha", "beta_fact": "beta"}
+	shared := map[string]struct{}{"shared_sig": {}, "shared_two": {}}
+	m, err := BuildDerivationMap(policy, nil, owners, shared, "cortex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shards := []string{"alpha", "beta", "cortex"}
+	for _, head := range []string{"uni_head", "uni_join"} {
+		if !m.Presence[head].All {
+			t.Fatalf("%s presence = %+v, want All (the case under test)", head, m.Presence[head])
+		}
+		got := m.ShardsFor(head, shards)
+		if len(got) != 2 || got[0] != "alpha" || got[1] != "cortex" {
+			t.Errorf("ShardsFor(%s) = %v, want [alpha cortex]: alpha holds mixed_head's local facts", head, got)
+		}
+	}
+	if _, ok := m.Consumes["alpha"]["shared_two"]; !ok {
+		t.Errorf("alpha joins its local mixed_head with shared_two, so it must consume it: %+v", m.Consumes["alpha"])
+	}
+	if _, ok := m.Consumes["beta"]["shared_two"]; ok {
+		t.Errorf("beta has no local mixed_head facts and must not consume shared_two: %+v", m.Consumes["beta"])
+	}
+	// A body that is uniform all the way down stays a catch-all read.
+	if got := m.ShardsFor("pure_reader", shards); len(got) != 1 || got[0] != "cortex" {
+		t.Errorf("ShardsFor(pure_reader) = %v, want [cortex]", got)
+	}
+}
