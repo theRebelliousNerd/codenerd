@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"codenerd/internal/build"
+	"codenerd/internal/tools"
 )
 
 // The recurse DAG is derived from the workspace it sweeps, not written down.
@@ -62,7 +63,10 @@ func DeriveWorkspaceDAG(ctx context.Context, root string) ([]SubsystemNode, erro
 	if root == "" {
 		return nil, errors.New("recurse DAG: empty workspace root")
 	}
-	abs, err := filepath.Abs(root)
+	// One spelling of the root: go list reports package directories through
+	// the resolved path, so a symlinked or 8.3-aliased root compared as given
+	// matched none of them and the sweep lost every Go package.
+	abs, err := tools.CanonicalWorkspaceRoot(root)
 	if err != nil {
 		return nil, fmt.Errorf("recurse DAG: %w", err)
 	}
@@ -369,13 +373,16 @@ func scanGoPackages(ctx context.Context, root string, g *workspaceGraph) error {
 	}
 	dirOf := map[string]string{}
 	for _, p := range pkgs {
-		rel, err := filepath.Rel(root, p.Dir)
+		dir := p.Dir
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = resolved
+		}
+		rel, err := filepath.Rel(root, dir)
 		if err != nil || strings.HasPrefix(rel, "..") {
 			continue
 		}
-		dir := filepath.ToSlash(rel)
-		dirOf[p.ImportPath] = dir
-		g.addNode(dir, "go")
+		dirOf[p.ImportPath] = filepath.ToSlash(rel)
+		g.addNode(filepath.ToSlash(rel), "go")
 	}
 	for _, p := range pkgs {
 		from, ok := dirOf[p.ImportPath]
