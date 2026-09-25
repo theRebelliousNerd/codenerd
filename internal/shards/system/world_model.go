@@ -60,13 +60,6 @@ type Symbol struct {
 	Signature  string
 }
 
-// Dependency represents an import/dependency relationship.
-type Dependency struct {
-	CallerID   string
-	CalleeID   string
-	ImportPath string
-}
-
 // WorldModelConfig holds configuration for the world model ingestor.
 type WorldModelConfig struct {
 	// Workspace
@@ -122,10 +115,9 @@ type WorldModelIngestorShard struct {
 	config WorldModelConfig
 
 	// State
-	files        map[string]FileInfo
-	symbols      map[string]Symbol
-	dependencies []Dependency
-	diagnostics  []Diagnostic
+	files       map[string]FileInfo
+	symbols     map[string]Symbol
+	diagnostics []Diagnostic
 
 	parser *world.ASTParser
 
@@ -165,7 +157,6 @@ func NewWorldModelIngestorShardWithConfig(cfg WorldModelConfig) *WorldModelInges
 		config:          cfg,
 		files:           make(map[string]FileInfo),
 		symbols:         make(map[string]Symbol),
-		dependencies:    make([]Dependency, 0),
 		diagnostics:     make([]Diagnostic, 0),
 		parser:          world.NewASTParser(),
 		lastActivity:    time.Now(),
@@ -360,7 +351,6 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 	w.mu.Lock()
 	w.files = make(map[string]FileInfo)
 	w.symbols = make(map[string]Symbol)
-	w.dependencies = make([]Dependency, 0)
 	w.mu.Unlock()
 
 	batchFacts := make([]types.Fact, 0)

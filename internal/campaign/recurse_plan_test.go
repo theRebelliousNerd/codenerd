@@ -60,11 +60,12 @@ func TestRecurseConfig_Normalize(t *testing.T) {
 }
 
 func TestNewRecurseCampaign_CoversDAGInOrder(t *testing.T) {
+	useFixtureDAG(t)
 	c, err := NewRecurseCampaign(t.TempDir(), RecurseConfig{})
 	if err != nil {
 		t.Fatalf("NewRecurseCampaign: %v", err)
 	}
-	nodes, err := TopoOrder(RecurseDAG())
+	nodes, err := TopoOrder(fixtureDAG())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +124,7 @@ func TestNewRecurseCampaign_CoversDAGInOrder(t *testing.T) {
 }
 
 func TestNewRecurseCampaign_TestWaveGatesOnSuite(t *testing.T) {
+	useFixtureDAG(t)
 	c, err := NewRecurseCampaign(t.TempDir(), RecurseConfig{Angles: []RecurseAngle{"test", "bench"}})
 	if err != nil {
 		t.Fatal(err)
@@ -157,6 +159,7 @@ func TestSummarizeWave_CountsAndOrdersFailures(t *testing.T) {
 }
 
 func TestPlanNextWave_RetargetsFailuresAndRotates(t *testing.T) {
+	useFixtureDAG(t)
 	prev, err := NewRecurseCampaign(t.TempDir(), RecurseConfig{})
 	if err != nil {
 		t.Fatal(err)
@@ -194,7 +197,7 @@ func TestPlanNextWave_RetargetsFailuresAndRotates(t *testing.T) {
 		t.Fatalf("world did not move earlier: wave0=%d wave1=%d", prevPos, pos["world"])
 	}
 	// The whole retargeted order must still be a valid topo order.
-	nodes := RecurseDAG()
+	nodes := fixtureDAG()
 	byID := map[string]SubsystemNode{}
 	for _, n := range nodes {
 		byID[n.ID] = n
@@ -216,6 +219,7 @@ func TestPlanNextWave_RetargetsFailuresAndRotates(t *testing.T) {
 }
 
 func TestPlanNextWave_RequiresPrevWave(t *testing.T) {
+	useFixtureDAG(t)
 	if _, err := PlanNextWave(t.TempDir(), RecurseConfig{}, nil); err == nil {
 		t.Fatal("nil prev must fail")
 	}

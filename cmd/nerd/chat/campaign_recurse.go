@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -32,13 +33,11 @@ type recurseState struct {
 }
 
 // parseRecurseArgs parses `/recurse` / `/campaign recurse` arguments. Bare
-// tokens name subsystems to focus; unknown flags fail closed.
-func parseRecurseArgs(args []string) (campaign.RecurseConfig, error) {
+// tokens name subsystems to focus; unknown flags fail closed. known is the set
+// of node IDs in the workspace's derived DAG (recurseNodeIDs); a subsystem
+// outside it is refused here rather than after the first wave is planned.
+func parseRecurseArgs(args []string, known map[string]bool) (campaign.RecurseConfig, error) {
 	cfg := campaign.RecurseConfig{MaxWaves: 1}
-	known := map[string]bool{}
-	for _, n := range campaign.RecurseDAG() {
-		known[n.ID] = true
-	}
 	for i := 0; i < len(args); i++ {
 		a := strings.TrimSpace(args[i])
 		if a == "" {
@@ -123,6 +122,20 @@ func parseRecurseArgs(args []string) (campaign.RecurseConfig, error) {
 	return cfg.Normalize()
 }
 
+// recurseNodeIDs is the set of node IDs recurse would sweep in workspace: the
+// workspace's own package directories plus the cross-cutting close.
+func recurseNodeIDs(workspace string) (map[string]bool, error) {
+	nodes, err := campaign.DeriveWorkspaceDAG(context.Background(), workspace)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		known[n.ID] = true
+	}
+	return known, nil
+}
+
 func (m Model) startRecurseCampaign(args []string) tea.Cmd {
 	return func() tea.Msg {
 		if m.kernel == nil {
@@ -138,7 +151,11 @@ func (m Model) startRecurseCampaign(args []string) tea.Cmd {
 			return campaignErrorMsg{err: fmt.Errorf("system not ready: task executor not initialized")}
 		}
 
-		cfg, err := parseRecurseArgs(args)
+		known, err := recurseNodeIDs(m.workspace)
+		if err != nil {
+			return campaignErrorMsg{err: err}
+		}
+		cfg, err := parseRecurseArgs(args, known)
 		if err != nil {
 			return campaignErrorMsg{err: err}
 		}

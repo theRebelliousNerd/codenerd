@@ -104,6 +104,34 @@ type Spec struct {
 	// older binary with an unknown-field error, which is the strictness that
 	// decoder.KnownFields(true) at line 180 exists to provide.
 	Northstar *Northstar `yaml:"northstar,omitempty"`
+
+	// Gates are the project's own checks beyond commands.build/test/lint --
+	// audits, budgets, linters -- that recurse measures before and after every
+	// cycle and must never leave worse. Optional, and added without a schema
+	// bump for the reason given at Northstar.
+	Gates []GateSpec `yaml:"gates,omitempty"`
+
+	// Critical lists workspace-relative path prefixes whose loss or breakage is
+	// catastrophic for this project: the risk gate protects them, the Dreamer
+	// treats deleting them as catastrophic, and the Northstar Guardian watches
+	// them. It replaces lists that used to be codeNERD's own packages written
+	// into Go. Optional, added without a schema bump (see Northstar).
+	Critical []string `yaml:"critical,omitempty"`
+}
+
+// GateSpec declares one project check.
+type GateSpec struct {
+	// ID is the gate's stable name; findings and the recurse ledger key on it.
+	ID string `yaml:"id"`
+	// Kind is one of build, test, lint, audit.
+	Kind string `yaml:"kind"`
+	// Run is the command, split like a shell would but never run through one.
+	// "{node}" is replaced by the node's workspace-relative directory and
+	// "{pkg}" by its Go package pattern ("./internal/core", or "." for the root).
+	Run string `yaml:"run"`
+	// Scope is "all" (run once for the workspace; the default) or "node" (run
+	// per node; Run must name {node} or {pkg}).
+	Scope string `yaml:"scope,omitempty"`
 }
 
 // Commands holds the project's canonical shell invocations.
@@ -416,6 +444,41 @@ func (s *Spec) validate() error {
 			if sev := strings.TrimSpace(req.Severity); sev != "" && sev != "blocker" && sev != "major" && sev != "minor" {
 				return fmt.Errorf("northstar.requirements[%d] (id %q) has invalid %q %q; expected one of %q, %q, %q", i, req.ID, "severity", req.Severity, "blocker", "major", "minor")
 			}
+		}
+	}
+
+	seenGate := make(map[string]struct{}, len(s.Gates))
+	for i, g := range s.Gates {
+		id := strings.TrimSpace(g.ID)
+		if id == "" {
+			return fmt.Errorf("gates[%d] has an empty %q", i, "id")
+		}
+		if _, dup := seenGate[id]; dup {
+			return fmt.Errorf("gates[%d] has duplicate %q %q", i, "id", id)
+		}
+		seenGate[id] = struct{}{}
+		switch g.Kind {
+		case "build", "test", "lint", "audit":
+		default:
+			return fmt.Errorf("gates[%d] (id %q) has invalid %q %q; expected one of build, test, lint, audit", i, id, "kind", g.Kind)
+		}
+		if strings.TrimSpace(g.Run) == "" {
+			return fmt.Errorf("gates[%d] (id %q) has an empty %q", i, id, "run")
+		}
+		switch g.Scope {
+		case "", "all":
+		case "node":
+			if !strings.Contains(g.Run, "{node}") && !strings.Contains(g.Run, "{pkg}") {
+				return fmt.Errorf("gates[%d] (id %q) is scoped per node but its %q names neither {node} nor {pkg}; it would run the same check once per node", i, id, "run")
+			}
+		default:
+			return fmt.Errorf("gates[%d] (id %q) has invalid %q %q; expected all or node", i, id, "scope", g.Scope)
+		}
+	}
+
+	for i, c := range s.Critical {
+		if strings.TrimSpace(c) == "" {
+			return fmt.Errorf("critical[%d] is empty; an empty prefix would mark every path critical", i)
 		}
 	}
 
