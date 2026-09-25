@@ -24,10 +24,9 @@ type HelpRenderer struct {
 // experience level is the one the workspace's journey state implies
 // (ux.ExperienceLevelForState; this used to be a private copy of the switch).
 func NewHelpRenderer(workspace string) *HelpRenderer {
-	state := ux.GetUserJourneyState(workspace)
 	return &HelpRenderer{
-		experienceLevel: ux.ExperienceLevelForState(state),
-		journeyState:    state,
+		experienceLevel: ux.GetExperienceLevelFromPreferences(workspace),
+		journeyState:    ux.GetUserJourneyState(workspace),
 		workspace:       workspace,
 	}
 }

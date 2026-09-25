@@ -12,7 +12,7 @@
 | P1 | Lifecycle cleanup is enumerated rather than registered | rollback reuses `cortexFromBootContext(...).Close`; Close owns MCP/browser/closable embedding and stores, but no typed acquisition order/ownership record exists | Typed acquisition registry with caller-owned override policy and cleanup receipt | **EVOLVE** |
 | P2 | Cache eviction/reset edges lack decisive tests | reuse, disabled-set split, and failed-boot retry are covered; explicit Close eviction and Reset semantics are not | Close eviction plus evict-only/reset-and-close contract tests | **BUILD** |
 | P2 | Chat uses direct BootCortexWithConfig | `cmd/nerd/chat/session_shared_boot.go#performSystemBootShared` | Explicit decision: shared cache identity or intentionally separate lifecycle | **BLOCKED_BY_SPEC** |
-| P2 | Reset evicts without Close | `ResetGlobalCortex`, `ResetCortexForWorkspace` | Separate explicit evict-only and reset-and-close APIs | **EVOLVE** |
+| P2 | Reset evicts without Close | Closed 2026-09-25: both evict-only resets were removed (no caller, not even a test). The one eviction left is `Cortex.Close` -> `evictCortexByKey`, which closes what it evicts. | — | **CLOSED** |
 | P2 | Trace load adapter is a nil stub | `factory_adapters.go#LocalStoreTraceAdapter.LoadReasoningTrace` returns nil, nil | Implement or remove the advertised read capability | **BUILD** |
 | P2 | No correlated boot receipt | category logs are stage-local | Redacted stage/resource/degradation/close artifact | **EVOLVE** |
 | P3 | Crash artifact remains in source tree | `internal/system/debug_program_ERROR.mg` | Relocate future dumps under workspace `.nerd/debug/` and remove tracked accident safely | **EVOLVE** |

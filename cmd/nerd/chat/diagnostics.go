@@ -54,8 +54,13 @@ func renderDiagnostics(workspace string) string {
 	} else if total := sqlpragmas.PragmaFailureTotal(); total == 0 {
 		sb.WriteString("- SQLite pragma failures: none\n")
 	} else {
+		byStatement := sqlpragmas.PragmaFailuresByStatement()
+		rejected := make([]string, 0, len(byStatement))
+		for _, stmt := range sqlpragmas.FailingPragmas() {
+			rejected = append(rejected, fmt.Sprintf("%s (x%d)", stmt, byStatement[stmt]))
+		}
 		sb.WriteString(fmt.Sprintf("- SQLite pragma failures: %d -- the driver rejected: %s\n",
-			total, strings.Join(sqlpragmas.FailingPragmas(), "; ")))
+			total, strings.Join(rejected, "; ")))
 		byProfile := sqlpragmas.PragmaFailuresByProfile()
 		profiles := make([]string, 0, len(byProfile))
 		for p := range byProfile {

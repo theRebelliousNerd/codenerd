@@ -267,31 +267,6 @@ func getOrBootCortex(
 	return cortex, nil
 }
 
-// ResetGlobalCortex clears every cached Cortex instance. Primarily intended
-// for testing; in production prefer ResetCortexForWorkspace for surgical
-// invalidation. Does not Close() the evicted instances; callers that need
-// resource cleanup should Close() the Cortex they hold a reference to.
-func ResetGlobalCortex() {
-	cortexCacheMu.Lock()
-	defer cortexCacheMu.Unlock()
-	cortexCache = make(map[string]*Cortex)
-}
-
-// ResetCortexForWorkspace evicts every cached Cortex whose Workspace matches
-// the given path. Use this when a workspace's configuration changes (provider
-// switch, key rotation, model change) and you want the next GetOrBootCortex
-// call for that workspace to boot fresh against the new config.
-func ResetCortexForWorkspace(workspace string) {
-	ws := resolveWorkspaceRoot(workspace)
-	cortexCacheMu.Lock()
-	defer cortexCacheMu.Unlock()
-	for k, c := range cortexCache {
-		if c != nil && c.Workspace == ws {
-			delete(cortexCache, k)
-		}
-	}
-}
-
 // evictCortexByKey removes the given key from the cache. Used by Cortex.Close
 // to keep the cache from holding pointers to torn-down instances.
 func evictCortexByKey(key string) {
