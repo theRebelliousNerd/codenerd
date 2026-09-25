@@ -1291,9 +1291,40 @@ func canonicalizeWrittenPath(target, workspace string) string {
 					}
 				}
 			}
+			// The same file can be spelled through an alias of the workspace:
+			// a symlink, or on Windows an 8.3 short name (C:\Users\RUNNER~1\...).
+			// The verification workspace is the resolved root
+			// (tools.CanonicalWorkspaceRoot), so an alias-spelled target never
+			// shares a lexical prefix with it; left absolute, it became the
+			// package pattern "./C:/Users/..." and every build and test gate of
+			// the turn failed to set up. Resolve it the way the tools'
+			// containment check does and relativise against the resolved root.
+			if rel, ok := resolvedWorkspaceRel(ws, clean); ok {
+				return rel
+			}
 		}
 	}
 	return filepath.ToSlash(clean)
+}
+
+// resolvedWorkspaceRel returns target's workspace-relative, slash-separated
+// path after resolving aliases (symlinks, short names) in both the root and the
+// target, or false when it is not inside the workspace. A target that does not
+// exist yet is resolved through its nearest existing ancestor.
+func resolvedWorkspaceRel(workspace, target string) (string, bool) {
+	root, err := tools.CanonicalWorkspaceRoot(workspace)
+	if err != nil || root == "" {
+		return "", false
+	}
+	resolved, err := tools.ResolveWorkspacePath(context.Background(), root, target)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }
 
 // projectDocTargetPath extracts the target path from a tool call's arguments.
