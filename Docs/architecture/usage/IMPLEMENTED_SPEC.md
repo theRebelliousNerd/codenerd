@@ -53,7 +53,7 @@ Usage never asserts facts, never queries the kernel, never routes VirtualStore a
 | Track producers — streaming paths | **Implemented** | once per stream, from the final billed usage chunk |
 | Track producers — CLI engines | **N/A** | `claude-cli` / `codex-cli` decoders receive no token counts |
 | Canonical provider ids | **Implemented** | `perception.canonicalProviderIDs`, checked against config engine names |
-| `UsageEvent` bounded ring | **Implemented** | opt-in via `WithEventLog` |
+| `UsageEvent` bounded ring | **Implemented** | opt-in via config `usage.event_log`; listed by `nerd usage --events N` |
 | `Cost` estimation | **Implemented** | `pricing.go` price table; `UnpricedTokens` for misses |
 | By-shard-name aggregates | **Implemented** | `ByShardName` |
 | `BySession` pruning | **Implemented** | folds low-spend rows into `(pruned)` |

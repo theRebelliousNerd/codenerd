@@ -833,20 +833,12 @@ func initCoreComponents(bctx *bootContext) error {
 		perception.SharedTaxonomy.SetWorkspace(bctx.workspace)
 	}
 
-	// Shared so a host that already owns a tracker for this workspace (the
-	// interactive chat model does) meters into the same one instead of racing
-	// it for the file. Each owner Closes its own handle; the last one flushes.
-	tracker, err := usage.Shared(bctx.workspace)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize usage tracker: %v\n", err)
-	}
-	bctx.tracker = tracker
-
 	userCfgPath := filepath.Join(bctx.workspace, ".nerd", "config.json")
 	var appCfg *config.UserConfig
 	if bctx.cfg.UserConfigOverride != nil {
 		appCfg = bctx.cfg.UserConfigOverride
 	} else {
+		var err error
 		appCfg, err = config.LoadUserConfig(userCfgPath)
 		if err != nil {
 			return fmt.Errorf("load user config: %w", err)
@@ -855,6 +847,18 @@ func initCoreComponents(bctx *bootContext) error {
 	if appCfg == nil {
 		appCfg = config.DefaultUserConfig()
 	}
+
+	// Shared so a host that already owns a tracker for this workspace (the
+	// interactive chat model does) meters into the same one instead of racing
+	// it for the file. Each owner Closes its own handle; the last one flushes.
+	// Acquired after the config loads: price overrides and the event log come
+	// from its usage section.
+	tracker, err := usage.Shared(bctx.workspace, UsageOptions(appCfg)...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize usage tracker: %v\n", err)
+	}
+	bctx.tracker = tracker
+
 	// Boot has already parsed .nerd/config.json into appCfg, so hand those
 	// logging settings to internal/logging instead of letting it re-read and
 	// re-parse the same file. The injected config is pinned so a later

@@ -5,6 +5,7 @@ package chat
 import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/config"
+	coresys "codenerd/internal/system"
 
 	// Domain shards removed - JIT clean loop handles these via prompt atoms:
 	// "codenerd/internal/shards/coder"
@@ -127,8 +128,9 @@ func InitChat(cfg Config) Model {
 	// Shared, not NewTracker: chat and the Cortex it boots meter the same
 	// workspace, and two trackers over one usage.json each hold their own
 	// aggregates and overwrite the file on flush — whichever saved last erased
-	// the other's tokens.
-	tracker, err := usage.Shared(workspace)
+	// the other's tokens. Chat usually acquires it first, so its options (the
+	// config's price overrides and event log) are the ones in force.
+	tracker, err := usage.Shared(workspace, coresys.UsageOptions(appCfg)...)
 	if err != nil {
 		fmt.Printf("⚠ Usage tracking init failed: %v\n", err)
 	}
