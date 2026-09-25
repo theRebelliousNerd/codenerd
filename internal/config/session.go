@@ -47,6 +47,14 @@ type SessionConfig struct {
 	// RepairMaxAttempts is how many repair attempts one build or test repair
 	// episode may make before it gives up.
 	RepairMaxAttempts int `json:"repair_max_attempts,omitempty"`
+	// RepairDiffFileBytes bounds one file's section of the turn diff a repair
+	// round is shown (internal/session/turn_diff.go); a longer diff is cut at
+	// a line with a marker naming what was cut. A whole-file rewrite of a
+	// generated file used to put the entire file in the prompt.
+	RepairDiffFileBytes int `json:"repair_diff_file_bytes,omitempty"`
+	// RepairDiffTurnBytes bounds the whole turn diff a repair round is shown;
+	// files past it are named, not dropped.
+	RepairDiffTurnBytes int `json:"repair_diff_turn_bytes,omitempty"`
 
 	// --- the turn's tools and its answer ---
 
@@ -71,14 +79,16 @@ type SessionConfig struct {
 func DefaultSessionConfig() SessionConfig {
 	window := 6
 	return SessionConfig{
-		StepPlanMinSites:   2,
-		StepPlanMaxSteps:   12,
-		StepPlanTimeout:    "2m",
-		RepairMaxAttempts:  3,
-		ToolTimeout:        "5m",
-		FinalAnswerReserve: "5m",
-		HistoryTurnWindow:  &window,
-		HistoryCharBudget:  24000,
+		StepPlanMinSites:    2,
+		StepPlanMaxSteps:    12,
+		StepPlanTimeout:     "2m",
+		RepairMaxAttempts:   3,
+		RepairDiffFileBytes: 8192,
+		RepairDiffTurnBytes: 24576,
+		ToolTimeout:         "5m",
+		FinalAnswerReserve:  "5m",
+		HistoryTurnWindow:   &window,
+		HistoryCharBudget:   24000,
 	}
 }
 
@@ -108,6 +118,8 @@ func (c SessionConfig) WithDefaults() SessionConfig {
 	intOr(&c.StepPlanMaxSteps, d.StepPlanMaxSteps)
 	strOr(&c.StepPlanTimeout, d.StepPlanTimeout)
 	intOr(&c.RepairMaxAttempts, d.RepairMaxAttempts)
+	intOr(&c.RepairDiffFileBytes, d.RepairDiffFileBytes)
+	intOr(&c.RepairDiffTurnBytes, d.RepairDiffTurnBytes)
 	strOr(&c.ToolTimeout, d.ToolTimeout)
 	strOr(&c.FinalAnswerReserve, d.FinalAnswerReserve)
 	if c.HistoryTurnWindow == nil {
@@ -121,14 +133,16 @@ func (c SessionConfig) WithDefaults() SessionConfig {
 // filled, durations parsed. Resolve is the only way to make one, so a policy
 // in hand has passed Check.
 type SessionPolicy struct {
-	StepPlanMinSites   int
-	StepPlanMaxSteps   int
-	StepPlanTimeout    time.Duration
-	RepairMaxAttempts  int
-	ToolTimeout        time.Duration
-	FinalAnswerReserve time.Duration
-	HistoryTurnWindow  int
-	HistoryCharBudget  int
+	StepPlanMinSites    int
+	StepPlanMaxSteps    int
+	StepPlanTimeout     time.Duration
+	RepairMaxAttempts   int
+	RepairDiffFileBytes int
+	RepairDiffTurnBytes int
+	ToolTimeout         time.Duration
+	FinalAnswerReserve  time.Duration
+	HistoryTurnWindow   int
+	HistoryCharBudget   int
 }
 
 // Resolve defaults, checks and parses the section. Every problem Check finds
@@ -147,14 +161,16 @@ func (c SessionConfig) Resolve() (SessionPolicy, error) {
 		return v
 	}
 	return SessionPolicy{
-		StepPlanMinSites:   c.StepPlanMinSites,
-		StepPlanMaxSteps:   c.StepPlanMaxSteps,
-		StepPlanTimeout:    d(c.StepPlanTimeout),
-		RepairMaxAttempts:  c.RepairMaxAttempts,
-		ToolTimeout:        d(c.ToolTimeout),
-		FinalAnswerReserve: d(c.FinalAnswerReserve),
-		HistoryTurnWindow:  *c.HistoryTurnWindow,
-		HistoryCharBudget:  c.HistoryCharBudget,
+		StepPlanMinSites:    c.StepPlanMinSites,
+		StepPlanMaxSteps:    c.StepPlanMaxSteps,
+		StepPlanTimeout:     d(c.StepPlanTimeout),
+		RepairMaxAttempts:   c.RepairMaxAttempts,
+		RepairDiffFileBytes: c.RepairDiffFileBytes,
+		RepairDiffTurnBytes: c.RepairDiffTurnBytes,
+		ToolTimeout:         d(c.ToolTimeout),
+		FinalAnswerReserve:  d(c.FinalAnswerReserve),
+		HistoryTurnWindow:   *c.HistoryTurnWindow,
+		HistoryCharBudget:   c.HistoryCharBudget,
 	}, nil
 }
 
@@ -179,6 +195,25 @@ func (c SessionConfig) Check(prefix string) []Problem {
 		if f.v < 1 {
 			add(f.name, fmt.Sprintf("%d is below 1", f.v), "a count of at least 1, or remove the key for the default")
 		}
+	}
+	// A diff budget below one hunk's worth of framing shows the round a
+	// marker and nothing else.
+	const minRepairDiffBytes = 1024
+	for _, f := range []struct {
+		name string
+		v    int
+	}{
+		{"repair_diff_file_bytes", c.RepairDiffFileBytes},
+		{"repair_diff_turn_bytes", c.RepairDiffTurnBytes},
+	} {
+		if f.v < minRepairDiffBytes {
+			add(f.name, fmt.Sprintf("%d is below %d: the round would see a truncation marker and no diff", f.v, minRepairDiffBytes),
+				fmt.Sprintf("a byte count of at least %d, or remove the key for the default", minRepairDiffBytes))
+		}
+	}
+	if c.RepairDiffFileBytes >= minRepairDiffBytes && c.RepairDiffTurnBytes >= minRepairDiffBytes && c.RepairDiffTurnBytes < c.RepairDiffFileBytes {
+		add("repair_diff_turn_bytes", fmt.Sprintf("%d is below repair_diff_file_bytes (%d): one file could not have its budget", c.RepairDiffTurnBytes, c.RepairDiffFileBytes),
+			"a turn budget at least repair_diff_file_bytes")
 	}
 	if c.StepPlanMinSites >= 1 && c.StepPlanMaxSteps >= 1 && c.StepPlanMaxSteps < c.StepPlanMinSites {
 		add("step_plan_max_steps", fmt.Sprintf("%d is below step_plan_min_sites (%d): no plan a brief qualifies for could be run", c.StepPlanMaxSteps, c.StepPlanMinSites), "a cap at least step_plan_min_sites")

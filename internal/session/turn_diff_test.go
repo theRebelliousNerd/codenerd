@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/config"
 	"codenerd/internal/types"
 )
 
@@ -18,7 +19,7 @@ func TestTurnDiffSection_ShowsWhatTheTurnChanged(t *testing.T) {
 	after := "package p\n\nfunc Name() string {\n\treturn \"a.widget\"\n}\n"
 	ws := writeBaselineModule(t, map[string]string{"go.mod": "module p\n\ngo 1.21\n", "a.go": after, "new.go": "package p\n\nfunc Added() {}\n"})
 
-	section := turnDiffSection(ws, []string{"a.go", "new.go"}, map[string]PreImage{"a.go": existed(before), "new.go": {}})
+	section := turnDiffSection(ws, []string{"a.go", "new.go"}, map[string]PreImage{"a.go": existed(before), "new.go": {}}, testDiffBudget)
 	if !strings.Contains(section, "What this turn changed") {
 		t.Fatalf("no diff section:\n%s", section)
 	}
@@ -28,12 +29,34 @@ func TestTurnDiffSection_ShowsWhatTheTurnChanged(t *testing.T) {
 		}
 	}
 	// A file the turn left as it found it has no diff to show.
-	if got := turnDiffSection(ws, []string{"a.go"}, map[string]PreImage{"a.go": existed(after)}); got != "" {
+	if got := turnDiffSection(ws, []string{"a.go"}, map[string]PreImage{"a.go": existed(after)}, testDiffBudget); got != "" {
 		t.Errorf("an unchanged file produced a diff:\n%s", got)
 	}
 	// A path with no recorded preimage is not guessed at.
-	if got := turnDiffSection(ws, []string{"a.go"}, map[string]PreImage{"a.go": {Unknown: "denied"}}); got != "" {
+	if got := turnDiffSection(ws, []string{"a.go"}, map[string]PreImage{"a.go": {Unknown: "denied"}}, testDiffBudget); got != "" {
 		t.Errorf("an unknown preimage produced a diff:\n%s", got)
+	}
+}
+
+// testDiffBudget is the repair diff budget an executor built from the session
+// section's defaults uses.
+var testDiffBudget = ExecutorConfig{}.repairDiffBudget()
+
+// The budget is the session section's, reaching the executor through
+// ExecutorConfigFrom: a knob config.json can set, not a Go constant.
+func TestRepairDiffBudget_IsTheSessionSections(t *testing.T) {
+	policy, err := config.SessionConfig{RepairDiffFileBytes: 2048, RepairDiffTurnBytes: 4096}.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ExecutorConfigFrom(policy, config.DefaultWorkingConfig()).repairDiffBudget()
+	if got.perFile != 2048 || got.perTurn != 4096 {
+		t.Errorf("repairDiffBudget() = %+v, want the section's 2048/4096", got)
+	}
+	def := config.DefaultSessionConfig()
+	if testDiffBudget.perFile != def.RepairDiffFileBytes || testDiffBudget.perTurn != def.RepairDiffTurnBytes {
+		t.Errorf("a zero ExecutorConfig budget = %+v, want the section's defaults %d/%d",
+			testDiffBudget, def.RepairDiffFileBytes, def.RepairDiffTurnBytes)
 	}
 }
 
@@ -45,11 +68,12 @@ func TestRenderFileDiff_BinaryMarker(t *testing.T) {
 	after := "PNG\x00\x02new-and-longer"
 	ws := writeBaselineModule(t, map[string]string{"go.mod": "module p\n\ngo 1.21\n", "logo.png": after})
 
-	out, _ := renderFileDiff(fileChange{path: "logo.png", before: before, after: after})
+	s, _ := renderFileDiff(fileChange{path: "logo.png", before: before, after: after})
+	out := s.String()
 	if !strings.Contains(out, "binary") || !strings.Contains(out, "logo.png") {
 		t.Fatalf("a binary edit rendered without a marker: %q", out)
 	}
-	section := turnDiffSection(ws, []string{"logo.png"}, map[string]PreImage{"logo.png": existed(before)})
+	section := turnDiffSection(ws, []string{"logo.png"}, map[string]PreImage{"logo.png": existed(before)}, testDiffBudget)
 	if !strings.Contains(section, "logo.png (binary:") {
 		t.Fatalf("turnDiffSection dropped the binary edit:\n%s", section)
 	}
@@ -62,7 +86,7 @@ func TestRenderFileDiff_DeleteNote(t *testing.T) {
 	gone := "package p\n\nfunc Gone() {}\n"
 	ws := writeBaselineModule(t, map[string]string{"go.mod": "module p\n\ngo 1.21\n", "keep.go": "package p\n"})
 
-	section := turnDiffSection(ws, []string{"gone.go"}, map[string]PreImage{"gone.go": existed(gone)})
+	section := turnDiffSection(ws, []string{"gone.go"}, map[string]PreImage{"gone.go": existed(gone)}, testDiffBudget)
 	for _, want := range []string{"gone.go (deleted by this turn)", "-func Gone() {}"} {
 		if !strings.Contains(section, want) {
 			t.Errorf("the deleted file's diff does not carry %q:\n%s", want, section)
@@ -72,7 +96,7 @@ func TestRenderFileDiff_DeleteNote(t *testing.T) {
 	// A file the turn emptied is not a deleted file, whatever diff.FileDiff's
 	// IsDelete says about an empty new side.
 	emptied := writeBaselineModule(t, map[string]string{"go.mod": "module p\n\ngo 1.21\n", "empty.go": ""})
-	out := turnDiffSection(emptied, []string{"empty.go"}, map[string]PreImage{"empty.go": existed(gone)})
+	out := turnDiffSection(emptied, []string{"empty.go"}, map[string]PreImage{"empty.go": existed(gone)}, testDiffBudget)
 	if strings.Contains(out, "deleted by this turn") || !strings.Contains(out, "-func Gone() {}") {
 		t.Errorf("an emptied file was reported as deleted, or its removed lines were lost:\n%s", out)
 	}
@@ -97,12 +121,12 @@ func TestTurnDiffSection_Budget(t *testing.T) {
 	}
 	ws := writeBaselineModule(t, files)
 
-	single := turnDiffSection(ws, written[:1], pre)
-	if len(single) > turnDiffTurnBudget {
-		t.Fatalf("one file's section is %d bytes, over the %d turn budget", len(single), turnDiffTurnBudget)
+	single := turnDiffSection(ws, written[:1], pre, testDiffBudget)
+	if len(single) > testDiffBudget.perTurn {
+		t.Fatalf("one file's section is %d bytes, over the %d turn budget", len(single), testDiffBudget.perTurn)
 	}
-	if body := strings.TrimPrefix(single, turnDiffHeader); len(body) > turnDiffFileBudget {
-		t.Errorf("one file's diff is %d bytes, over the %d file budget", len(body), turnDiffFileBudget)
+	if body := strings.TrimPrefix(single, turnDiffHeader); len(body) > testDiffBudget.perFile {
+		t.Errorf("one file's diff is %d bytes, over the %d file budget", len(body), testDiffBudget.perFile)
 	}
 	if !strings.Contains(single, diffTruncatedMarker) || !strings.Contains(single, "read_file") {
 		t.Errorf("a cut file diff does not say it was cut, or where the rest is:\n%s", tail(single, 400))
@@ -111,9 +135,9 @@ func TestTurnDiffSection_Budget(t *testing.T) {
 		t.Errorf("a cut diff left its fence open:\n%s", tail(single, 400))
 	}
 
-	all := turnDiffSection(ws, written, pre)
-	if len(all) > turnDiffTurnBudget {
-		t.Fatalf("the turn's section is %d bytes, over its %d budget", len(all), turnDiffTurnBudget)
+	all := turnDiffSection(ws, written, pre, testDiffBudget)
+	if len(all) > testDiffBudget.perTurn {
+		t.Fatalf("the turn's section is %d bytes, over its %d budget", len(all), testDiffBudget.perTurn)
 	}
 	// Every file the turn changed is mentioned: shown, cut, or named as left out.
 	for _, name := range written {

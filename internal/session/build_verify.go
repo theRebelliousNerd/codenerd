@@ -236,7 +236,7 @@ func (e *Executor) verifyAndRepairBuild(
 		// The round is shown the turn's own edits (N26): a compiler error
 		// names a line, and what put it there is the diff.
 		promptFor: func(seed string) string {
-			return buildRepairPrompt(seed) + turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents)
+			return buildRepairPrompt(seed) + turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents, e.configSnapshot().repairDiffBudget())
 		},
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			r := verifyBuild(epCtx, workspace, nil)
@@ -338,7 +338,7 @@ func (e *Executor) verifyAndRepairTests(
 		// a model that has not already read the test it broke cannot.
 		promptFor: func(seed string) string {
 			return testRepairPrompt(seed, failingTestSection(workspace, seed, result.WrittenPaths)) +
-				turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents)
+				turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents, e.configSnapshot().repairDiffBudget())
 		},
 		// A test repair can break the build, so re-check both, cheapest
 		// first. Only an affirmative failure verdict fails here: a recheck

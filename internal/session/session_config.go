@@ -25,17 +25,19 @@ var defaultSessionPolicy = func() config.SessionPolicy {
 // enabled: those are not the file's to switch off (see config.SessionConfig).
 func ExecutorConfigFrom(p config.SessionPolicy, working config.WorkingConfig) ExecutorConfig {
 	return ExecutorConfig{
-		ToolTimeout:        p.ToolTimeout,
-		Working:            working,
-		RepairMaxAttempts:  p.RepairMaxAttempts,
-		FinalAnswerReserve: p.FinalAnswerReserve,
-		EnableSafetyGate:   true,
-		TokenBudget:        DefaultTokenBudget(),
-		HistoryTurnWindow:  p.HistoryTurnWindow,
-		HistoryCharBudget:  p.HistoryCharBudget,
-		StepPlanMinSites:   p.StepPlanMinSites,
-		StepPlanMaxSteps:   p.StepPlanMaxSteps,
-		StepPlanTimeout:    p.StepPlanTimeout,
+		ToolTimeout:         p.ToolTimeout,
+		Working:             working,
+		RepairMaxAttempts:   p.RepairMaxAttempts,
+		RepairDiffFileBytes: p.RepairDiffFileBytes,
+		RepairDiffTurnBytes: p.RepairDiffTurnBytes,
+		FinalAnswerReserve:  p.FinalAnswerReserve,
+		EnableSafetyGate:    true,
+		TokenBudget:         DefaultTokenBudget(),
+		HistoryTurnWindow:   p.HistoryTurnWindow,
+		HistoryCharBudget:   p.HistoryCharBudget,
+		StepPlanMinSites:    p.StepPlanMinSites,
+		StepPlanMaxSteps:    p.StepPlanMaxSteps,
+		StepPlanTimeout:     p.StepPlanTimeout,
 		// On by default: the failure this prevents (confident, non-compiling
 		// edits reported as complete) is silent, and a default-off guard against
 		// a silent failure protects nobody.
@@ -64,6 +66,20 @@ func (c ExecutorConfig) sessionRepairMaxAttempts() int {
 		return c.RepairMaxAttempts
 	}
 	return defaultSessionPolicy.RepairMaxAttempts
+}
+
+// repairDiffBudget is the bound on the turn diff a repair round is shown
+// (session.repair_diff_file_bytes / repair_diff_turn_bytes). A zero field in a
+// hand-built ExecutorConfig takes the section's default.
+func (c ExecutorConfig) repairDiffBudget() diffBudget {
+	b := diffBudget{perFile: c.RepairDiffFileBytes, perTurn: c.RepairDiffTurnBytes}
+	if b.perFile <= 0 {
+		b.perFile = defaultSessionPolicy.RepairDiffFileBytes
+	}
+	if b.perTurn <= 0 {
+		b.perTurn = defaultSessionPolicy.RepairDiffTurnBytes
+	}
+	return b
 }
 
 // ensureSessionParams puts the executor's thresholds into the kernel as
