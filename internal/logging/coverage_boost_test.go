@@ -475,151 +475,6 @@ func TestContextLogger_WhenLevelRestricted_ShouldFilter(t *testing.T) {
 // RequestLogger tests
 // =============================================================================
 
-func TestWithRequestID_ShouldReturnNonNil(t *testing.T) {
-	resetLoggingState(t)
-	defer resetLoggingState(t)
-
-	rl := WithRequestID(CategoryKernel, "req-123")
-	if rl == nil {
-		t.Fatal("WithRequestID returned nil")
-	}
-	if rl.requestID != "req-123" {
-		t.Errorf("expected requestID='req-123', got %q", rl.requestID)
-	}
-}
-
-func TestRequestLogger_WithField_ShouldChain(t *testing.T) {
-	resetLoggingState(t)
-	defer resetLoggingState(t)
-
-	rl := WithRequestID(CategoryKernel, "req-1")
-	// WithField returns a derived logger (copy-on-write), so chaining is
-	// verified by the accumulated fields rather than by pointer equality.
-	result := rl.WithField("key", "value").WithField("second", 2)
-	if result.fields["key"] != "value" {
-		t.Errorf("expected field 'key'='value', got %v", result.fields["key"])
-	}
-	if result.fields["second"] != 2 {
-		t.Errorf("expected field 'second'=2, got %v", result.fields["second"])
-	}
-	if len(rl.fields) != 0 {
-		t.Errorf("expected receiver not to be mutated, got %d fields: %v", len(rl.fields), rl.fields)
-	}
-}
-
-func TestRequestLogger_FormatMsg_WhenNoFields_ShouldIncludeRequestID(t *testing.T) {
-	rl := &RequestLogger{
-		logger:    &Logger{category: CategoryKernel},
-		requestID: "req-abc",
-		fields:    make(map[string]any),
-	}
-	msg := rl.formatMsg("hello %s", "world")
-	if !strings.Contains(msg, "[req:req-abc]") {
-		t.Errorf("expected request ID in message, got: %q", msg)
-	}
-	if !strings.Contains(msg, "hello world") {
-		t.Errorf("expected formatted message, got: %q", msg)
-	}
-}
-
-func TestRequestLogger_FormatMsg_WhenFields_ShouldIncludeFields(t *testing.T) {
-	rl := &RequestLogger{
-		logger:    &Logger{category: CategoryKernel},
-		requestID: "req-xyz",
-		fields:    map[string]any{"op": "read"},
-	}
-	msg := rl.formatMsg("test %d", 42)
-	if !strings.Contains(msg, "[req:req-xyz]") {
-		t.Errorf("expected request ID, got: %q", msg)
-	}
-	if !strings.Contains(msg, "test 42") {
-		t.Errorf("expected formatted message, got: %q", msg)
-	}
-	// Fields should be included
-	if !strings.Contains(msg, "op") {
-		t.Errorf("expected field key in message, got: %q", msg)
-	}
-}
-
-func TestRequestLogger_WhenNilInternalLogger_ShouldNotPanic(t *testing.T) {
-	rl := &RequestLogger{
-		logger:    &Logger{category: CategoryKernel}, // nil internal logger
-		requestID: "req-1",
-		fields:    make(map[string]any),
-	}
-
-	// All should be no-ops
-	rl.Debug("test %s", "msg")
-	rl.Info("test %s", "msg")
-	rl.Warn("test %s", "msg")
-	rl.Error("test %s", "msg")
-}
-
-func TestRequestLogger_WhenActiveLogger_ShouldWriteAllLevels(t *testing.T) {
-	var buf bytes.Buffer
-	inner := log.New(&buf, "", 0)
-
-	originalLevel := logLevel
-	logLevel = LevelDebug
-	defer func() { logLevel = originalLevel }()
-
-	rl := &RequestLogger{
-		logger:    &Logger{category: CategoryKernel, logger: inner},
-		requestID: "req-test",
-		fields:    make(map[string]any),
-	}
-
-	rl.Debug("debug msg")
-	rl.Info("info msg")
-	rl.Warn("warn msg")
-	rl.Error("error msg")
-
-	output := buf.String()
-	if !strings.Contains(output, "[DEBUG]") {
-		t.Error("expected DEBUG")
-	}
-	if !strings.Contains(output, "[INFO]") {
-		t.Error("expected INFO")
-	}
-	if !strings.Contains(output, "[WARN]") {
-		t.Error("expected WARN")
-	}
-	if !strings.Contains(output, "[ERROR]") {
-		t.Error("expected ERROR")
-	}
-	if !strings.Contains(output, "req-test") {
-		t.Error("expected request ID in output")
-	}
-}
-
-func TestRequestLogger_WhenLevelRestricted_ShouldFilter(t *testing.T) {
-	var buf bytes.Buffer
-	inner := log.New(&buf, "", 0)
-
-	originalLevel := logLevel
-	logLevel = LevelError
-	defer func() { logLevel = originalLevel }()
-
-	rl := &RequestLogger{
-		logger:    &Logger{category: CategoryKernel, logger: inner},
-		requestID: "req-filter",
-		fields:    make(map[string]any),
-	}
-
-	rl.Debug("no")
-	rl.Info("no")
-	rl.Warn("no")
-	rl.Error("yes")
-
-	output := buf.String()
-	if strings.Contains(output, "[DEBUG]") || strings.Contains(output, "[INFO]") || strings.Contains(output, "[WARN]") {
-		t.Error("only ERROR should appear at error level")
-	}
-	if !strings.Contains(output, "[ERROR]") {
-		t.Error("ERROR should appear")
-	}
-}
-
 // =============================================================================
 // Logger JSON mode tests
 // =============================================================================
@@ -735,33 +590,6 @@ func TestTimer_StopWithInfo_ShouldReturnPositiveDuration(t *testing.T) {
 	}
 }
 
-func TestTimer_StopWithThreshold_WhenBelowThreshold_ShouldReturnDuration(t *testing.T) {
-	resetLoggingState(t)
-	defer resetLoggingState(t)
-
-	timer := StartTimer(CategoryKernel, "fast_op")
-	elapsed := timer.StopWithThreshold(10 * time.Second)
-	if elapsed < 0 {
-		t.Errorf("elapsed should be >= 0, got %v", elapsed)
-	}
-}
-
-func TestTimer_StopWithThreshold_WhenAboveThreshold_ShouldReturnDuration(t *testing.T) {
-	resetLoggingState(t)
-	defer resetLoggingState(t)
-
-	// Create a timer with an artificially old start time
-	timer := &Timer{
-		category: CategoryKernel,
-		op:       "slow_op",
-		start:    time.Now().Add(-5 * time.Second),
-	}
-	elapsed := timer.StopWithThreshold(1 * time.Millisecond)
-	if elapsed < 1*time.Millisecond {
-		t.Errorf("elapsed should exceed threshold, got %v", elapsed)
-	}
-}
-
 // =============================================================================
 // Convenience function Warn/Error/Debug variants (no-op path)
 // These exercise the convenience wrappers that delegate to Get().Warn/Error/Debug.
@@ -780,13 +608,13 @@ func TestConvenienceWarnError_WhenNotInitialized_ShouldNotPanic(t *testing.T) {
 	APIDebug("test %d", 4)
 	PerceptionDebug("test %d", 5)
 	ArticulationDebug("test %d", 6)
-	RoutingDebug("test %d", 7)
+	Get(CategoryRouting).Debug("test %d", 7)
 	ToolsDebug("test %d", 8)
 	VirtualStoreDebug("test %d", 9)
 	ShardsDebug("test %d", 10)
-	CoderDebug("test %d", 11)
-	TesterDebug("test %d", 12)
-	ReviewerDebug("test %d", 13)
+	Get(CategoryCoder).Debug("test %d", 11)
+	Get(CategoryTester).Debug("test %d", 12)
+	Get(CategoryReviewer).Debug("test %d", 13)
 	ResearcherDebug("test %d", 14)
 	SystemShardsDebug("test %d", 15)
 	DreamDebug("test %d", 16)
@@ -799,50 +627,50 @@ func TestConvenienceWarnError_WhenNotInitialized_ShouldNotPanic(t *testing.T) {
 
 	// Warn variants
 	BootWarn("test %d", 1)
-	SessionWarn("test %d", 2)
+	Get(CategorySession).Warn("test %d", 2)
 	KernelWarn("test %d", 3)
-	APIWarn("test %d", 4)
+	Get(CategoryAPI).Warn("test %d", 4)
 	PerceptionWarn("test %d", 5)
 	ArticulationWarn("test %d", 6)
-	RoutingWarn("test %d", 7)
+	Get(CategoryRouting).Warn("test %d", 7)
 	ToolsWarn("test %d", 8)
 	VirtualStoreWarn("test %d", 9)
-	ShardsWarn("test %d", 10)
-	CoderWarn("test %d", 11)
-	TesterWarn("test %d", 12)
-	ReviewerWarn("test %d", 13)
+	Get(CategoryShards).Warn("test %d", 10)
+	Get(CategoryCoder).Warn("test %d", 11)
+	Get(CategoryTester).Warn("test %d", 12)
+	Get(CategoryReviewer).Warn("test %d", 13)
 	ResearcherWarn("test %d", 14)
 	SystemShardsWarn("test %d", 15)
-	DreamWarn("test %d", 16)
-	AutopoiesisWarn("test %d", 17)
+	Get(CategoryDream).Warn("test %d", 16)
+	Get(CategoryAutopoiesis).Warn("test %d", 17)
 	CampaignWarn("test %d", 18)
-	ContextWarn("test %d", 19)
+	Get(CategoryContext).Warn("test %d", 19)
 	WorldWarn("test %d", 20)
-	EmbeddingWarn("test %d", 21)
+	Get(CategoryEmbedding).Warn("test %d", 21)
 	StoreWarn("test %d", 22)
 
 	// Error variants
-	BootError("test %d", 1)
-	SessionError("test %d", 2)
-	KernelError("test %d", 3)
-	APIError("test %d", 4)
+	Get(CategoryBoot).Error("test %d", 1)
+	Get(CategorySession).Error("test %d", 2)
+	Get(CategoryKernel).Error("test %d", 3)
+	Get(CategoryAPI).Error("test %d", 4)
 	PerceptionError("test %d", 5)
-	ArticulationError("test %d", 6)
+	Get(CategoryArticulation).Error("test %d", 6)
 	RoutingError("test %d", 7)
 	ToolsError("test %d", 8)
-	VirtualStoreError("test %d", 9)
-	ShardsError("test %d", 10)
-	CoderError("test %d", 11)
-	TesterError("test %d", 12)
-	ReviewerError("test %d", 13)
-	ResearcherError("test %d", 14)
-	SystemShardsError("test %d", 15)
-	DreamError("test %d", 16)
+	Get(CategoryVirtualStore).Error("test %d", 9)
+	Get(CategoryShards).Error("test %d", 10)
+	Get(CategoryCoder).Error("test %d", 11)
+	Get(CategoryTester).Error("test %d", 12)
+	Get(CategoryReviewer).Error("test %d", 13)
+	Get(CategoryResearcher).Error("test %d", 14)
+	Get(CategorySystemShards).Error("test %d", 15)
+	Get(CategoryDream).Error("test %d", 16)
 	AutopoiesisError("test %d", 17)
 	CampaignError("test %d", 18)
-	ContextError("test %d", 19)
-	WorldError("test %d", 20)
-	EmbeddingError("test %d", 21)
+	Get(CategoryContext).Error("test %d", 19)
+	Get(CategoryWorld).Error("test %d", 20)
+	Get(CategoryEmbedding).Error("test %d", 21)
 	StoreError("test %d", 22)
 
 	// Browser-specific variants
@@ -858,16 +686,16 @@ func TestConvenienceWarnError_WhenNotInitialized_ShouldNotPanic(t *testing.T) {
 	Tactile("test %d", 4)
 
 	// JIT-specific variants
-	JITWarn("test %d", 1)
-	JITError("test %d", 2)
+	Get(CategoryJIT).Warn("test %d", 1)
+	Get(CategoryJIT).Error("test %d", 2)
 	JITDebug("test %d", 3)
 	JIT("test %d", 4)
 
 	// Build-specific variants
 	BuildWarn("test %d", 1)
-	BuildError("test %d", 2)
+	Get(CategoryBuild).Error("test %d", 2)
 	BuildDebug("test %d", 3)
-	Build("test %d", 4)
+	Get(CategoryBuild).Info("test %d", 4)
 }
 
 func TestConvenienceWarnError_WhenDebugEnabled_ShouldNotPanic(t *testing.T) {
@@ -880,47 +708,47 @@ func TestConvenienceWarnError_WhenDebugEnabled_ShouldNotPanic(t *testing.T) {
 
 	// Warn + Error functions with active loggers
 	BootWarn("warn %d", 1)
-	BootError("error %d", 1)
-	SessionWarn("warn %d", 2)
-	SessionError("error %d", 2)
+	Get(CategoryBoot).Error("error %d", 1)
+	Get(CategorySession).Warn("warn %d", 2)
+	Get(CategorySession).Error("error %d", 2)
 	KernelWarn("warn %d", 3)
-	KernelError("error %d", 3)
-	APIWarn("warn %d", 4)
-	APIError("error %d", 4)
+	Get(CategoryKernel).Error("error %d", 3)
+	Get(CategoryAPI).Warn("warn %d", 4)
+	Get(CategoryAPI).Error("error %d", 4)
 	PerceptionWarn("warn %d", 5)
 	PerceptionError("error %d", 5)
 	ArticulationWarn("warn %d", 6)
-	ArticulationError("error %d", 6)
-	RoutingWarn("warn %d", 7)
+	Get(CategoryArticulation).Error("error %d", 6)
+	Get(CategoryRouting).Warn("warn %d", 7)
 	RoutingError("error %d", 7)
 	ToolsWarn("warn %d", 8)
 	ToolsError("error %d", 8)
 	VirtualStoreWarn("warn %d", 9)
-	VirtualStoreError("error %d", 9)
-	ShardsWarn("warn %d", 10)
-	ShardsError("error %d", 10)
-	CoderWarn("warn %d", 11)
-	CoderError("error %d", 11)
-	TesterWarn("warn %d", 12)
-	TesterError("error %d", 12)
-	ReviewerWarn("warn %d", 13)
-	ReviewerError("error %d", 13)
+	Get(CategoryVirtualStore).Error("error %d", 9)
+	Get(CategoryShards).Warn("warn %d", 10)
+	Get(CategoryShards).Error("error %d", 10)
+	Get(CategoryCoder).Warn("warn %d", 11)
+	Get(CategoryCoder).Error("error %d", 11)
+	Get(CategoryTester).Warn("warn %d", 12)
+	Get(CategoryTester).Error("error %d", 12)
+	Get(CategoryReviewer).Warn("warn %d", 13)
+	Get(CategoryReviewer).Error("error %d", 13)
 	ResearcherWarn("warn %d", 14)
-	ResearcherError("error %d", 14)
+	Get(CategoryResearcher).Error("error %d", 14)
 	SystemShardsWarn("warn %d", 15)
-	SystemShardsError("error %d", 15)
-	DreamWarn("warn %d", 16)
-	DreamError("error %d", 16)
-	AutopoiesisWarn("warn %d", 17)
+	Get(CategorySystemShards).Error("error %d", 15)
+	Get(CategoryDream).Warn("warn %d", 16)
+	Get(CategoryDream).Error("error %d", 16)
+	Get(CategoryAutopoiesis).Warn("warn %d", 17)
 	AutopoiesisError("error %d", 17)
 	CampaignWarn("warn %d", 18)
 	CampaignError("error %d", 18)
-	ContextWarn("warn %d", 19)
-	ContextError("error %d", 19)
+	Get(CategoryContext).Warn("warn %d", 19)
+	Get(CategoryContext).Error("error %d", 19)
 	WorldWarn("warn %d", 20)
-	WorldError("error %d", 20)
-	EmbeddingWarn("warn %d", 21)
-	EmbeddingError("error %d", 21)
+	Get(CategoryWorld).Error("error %d", 20)
+	Get(CategoryEmbedding).Warn("warn %d", 21)
+	Get(CategoryEmbedding).Error("error %d", 21)
 	StoreWarn("warn %d", 22)
 	StoreError("error %d", 22)
 
@@ -928,10 +756,10 @@ func TestConvenienceWarnError_WhenDebugEnabled_ShouldNotPanic(t *testing.T) {
 	BrowserError("error %d", 23)
 	TactileWarn("warn %d", 24)
 	TactileError("error %d", 24)
-	JITWarn("warn %d", 25)
-	JITError("error %d", 25)
+	Get(CategoryJIT).Warn("warn %d", 25)
+	Get(CategoryJIT).Error("error %d", 25)
 	BuildWarn("warn %d", 26)
-	BuildError("error %d", 26)
+	Get(CategoryBuild).Error("error %d", 26)
 
 	// Debug variants
 	BootDebug("debug %d", 1)
@@ -940,13 +768,13 @@ func TestConvenienceWarnError_WhenDebugEnabled_ShouldNotPanic(t *testing.T) {
 	APIDebug("debug %d", 4)
 	PerceptionDebug("debug %d", 5)
 	ArticulationDebug("debug %d", 6)
-	RoutingDebug("debug %d", 7)
+	Get(CategoryRouting).Debug("debug %d", 7)
 	ToolsDebug("debug %d", 8)
 	VirtualStoreDebug("debug %d", 9)
 	ShardsDebug("debug %d", 10)
-	CoderDebug("debug %d", 11)
-	TesterDebug("debug %d", 12)
-	ReviewerDebug("debug %d", 13)
+	Get(CategoryCoder).Debug("debug %d", 11)
+	Get(CategoryTester).Debug("debug %d", 12)
+	Get(CategoryReviewer).Debug("debug %d", 13)
 	ResearcherDebug("debug %d", 14)
 	SystemShardsDebug("debug %d", 15)
 	DreamDebug("debug %d", 16)
