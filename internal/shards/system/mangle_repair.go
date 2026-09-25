@@ -913,11 +913,18 @@ func (m *MangleRepairShard) getSystemPrompt(ctx context.Context, errors []string
 			logging.SystemShards("[MangleRepair] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
 			return jitPrompt
 		}
-		if err != nil {
-			logging.SystemShards("[MangleRepair] JIT compilation failed, using legacy: %v", err)
-		}
+		logging.Get(logging.CategorySystemShards).Warn(
+			"[MangleRepair] JIT prompt unavailable (err=%v, empty=%v); repairing with the built-in fallback prompt", err, jitPrompt == "")
+	} else {
+		logging.Get(logging.CategorySystemShards).Warn(
+			"[MangleRepair] no JIT-ready prompt assembler; repairing with the built-in fallback prompt")
 	}
 
+	// The fallback degrades the cognition, never the authority: a repaired
+	// rule still has to compile in the sandbox and pass learned-rule
+	// validation. It must at least teach the syntax the parser accepts --
+	// until 2026-09-25 it wrote negation as "not negative(X)", which Mangle
+	// does not parse, so a repair made under it failed on its own advice.
 	return `You are a Mangle (Datalog) expert. Your task is to repair invalid Mangle rules.
 
 Key Mangle syntax rules:
@@ -925,7 +932,7 @@ Key Mangle syntax rules:
 - Constants/atoms use /slash syntax (/active, /pending)
 - Strings use "double quotes"
 - Rules end with a period (.)
-- Negation requires variables to be bound first: positive(X), not negative(X)
+- Negation is written with !, and its variables must be bound first: positive(X), !negative(X)
 - Aggregation uses pipe syntax: source() |> do fn:group_by(K), let N = fn:count()
 
 When repairing rules:
