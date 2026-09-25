@@ -400,6 +400,11 @@ func (v *VirtualStore) injectTactileFact(tf tactile.Fact) error {
 // checkpoints) use it so their commands are not invisible to the kernel. It
 // falls back to the injected executor only when no composite exists.
 func (v *VirtualStore) AuditedExecutor() tactile.Executor {
+	if v == nil {
+		// Boot rollback assembles a Cortex from a half-built context whose
+		// store may not exist yet.
+		return nil
+	}
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	if v.modernExecutor != nil {

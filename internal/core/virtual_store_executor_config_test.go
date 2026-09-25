@@ -80,6 +80,15 @@ func TestVirtualStoreAuditedExecutorEmitsExecutionFacts(t *testing.T) {
 	}
 }
 
+// Boot rollback builds a Cortex from a context whose store may not exist;
+// AuditedExecutor on a nil store is nil, not a panic.
+func TestVirtualStoreAuditedExecutorOnNilStore(t *testing.T) {
+	var vs *VirtualStore
+	if exec := vs.AuditedExecutor(); exec != nil {
+		t.Fatalf("nil store returned executor %T", exec)
+	}
+}
+
 // Config hands out a copy: mutating it cannot reach the executor.
 func TestDirectExecutorConfigIsACopy(t *testing.T) {
 	cfg := tactile.DefaultExecutorConfig()
