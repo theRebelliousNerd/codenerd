@@ -431,17 +431,11 @@ func checkAgainstBaseline(t *testing.T, rule string, hits []guardHit, baseline m
 
 // declMismatchBaseline: Go argument types that contradict the Mangle Decl.
 // Every one of these is a bug or a latent one; none is "fine".
-var declMismatchBaseline = map[string][]string{
-	// task_error(TaskID, ErrorType, ErrorMessage) bound [/string, /name, /string].
-	"internal/campaign/types.go": {
-		`task_error/3 arg 1 is declared /name but the Go value is /string (execution_error)`,
-	},
-	// routing_error(ActionType, Reason, Timestamp) bound [/name, /string, /number].
-	"internal/shards/system/router.go": {
-		`routing_error/3 arg 0 is declared /name but the Go value is /string (internal_error)`,
-		`routing_error/3 arg 0 is declared /name but the Go value is /string (internal_error)`,
-	},
-}
+// The baseline is empty: every fact the scan can see agrees with its Decl.
+// task_error's kind became the attempt's first signal, and routing_error's
+// action type became the /internal_error name the Decl declares. A new entry
+// is a rule written against the declared type that will silently never fire.
+var declMismatchBaseline = map[string][]string{}
 
 // sprintfVBaseline: %v-rendered fact arguments.
 var sprintfVBaseline = map[string][]string{
