@@ -55,6 +55,18 @@ below with what the code does today.
   the same protection. See `Docs/architecture/mangle/WIRING-AND-NOT-BUILT.md`.
 - Git state reaches policy through `UpdateSystemFacts` / `parseGitStatus`
   (`kernel_sysfacts.go`).
+- **A Cortex read visits every shard that can add rows to it.** The derivation
+  map (`derivation_map.go`) tracks, per derived predicate, which shards' own
+  facts can add rows beyond the copy every shard derives alike, and which can
+  only cut rows (`localFixpoint`, polarity flips through negation).
+  `QueryTargets` for a rule that fires everywhere is the catch-all plus the
+  adding shards (`ruleReadShards`), and `Consumes` gives each adding shard the
+  shared inputs its local rows join with (`sharedForLocal`).
+  `should_include_context` now reads the world shard, where `modified` lives
+  (`internal/system/domain_cortex_context_test.go`); so do
+  `injectable_context` (the JIT compiler's read) and `has_block_commit`. Reads
+  a shard can only shrink (`delegate_task` through `!has_capability`) stay on
+  the catch-all.
 
 ## Exists but nothing in production calls
 
@@ -96,3 +108,4 @@ below with what the code does today.
 | Numbers int64 "by convention plus scrubbing" | stale | `coerceAtomToDeclLocked`, `kernel_fact_decl.go:46` |
 | Host silence when a guard is never released; no guard diagnostics | stale for `VirtualStore` (its error names the guard; every cortex boot releases it); the executive guard is passive outside chat by design | `virtual_store_routing.go:46`, `factory.go:1420` |
 | Learned rules could promote into the grant path and host witnesses | built | `internal/core/learned_grant_path_test.go` |
+| (handed over by lane B) The Cortex read a predicate that fires everywhere from the catch-all alone, so rows local to another shard were lost: no modified file reached `should_include_context` | fixed: locality-aware `QueryTargets` and `Consumes` | `TestDomainCortex_AModifiedFileIsIncludedInContext`, `TestDerivationMap_AnEverywhereRuleOverLocalFactsIsReadWhereTheyAre` |
