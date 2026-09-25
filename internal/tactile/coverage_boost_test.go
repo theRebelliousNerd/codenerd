@@ -304,7 +304,8 @@ func TestFileEditor_GetFileInfo_WhenFileNotExist_ShouldReturnError(t *testing.T)
 
 func TestFileEditor_SetFactCallback_WhenSet_ShouldEmitFacts(t *testing.T) {
 	tmpDir := t.TempDir()
-	editor := NewFileEditorWithSession("test-session")
+	editor := NewFileEditor()
+	editor.sessionID = "test-session"
 	editor.SetWorkingDir(tmpDir)
 
 	var capturedFacts []Fact

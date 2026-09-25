@@ -144,14 +144,6 @@ func NewFileEditor() *FileEditor {
 	}
 }
 
-// NewFileEditorWithSession creates a new FileEditor with session context.
-func NewFileEditorWithSession(sessionID string) *FileEditor {
-	return &FileEditor{
-		sessionID:  sessionID,
-		workingDir: ".",
-	}
-}
-
 // SetAuditCallback sets the callback for file audit events.
 func (e *FileEditor) SetAuditCallback(callback func(FileAuditEvent)) {
 	e.mu.Lock()
