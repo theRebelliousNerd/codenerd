@@ -62,6 +62,23 @@ in `INTERNALS.md`.
   but this pass did not read them and makes no claim about whether the
   honeypot-gate or fact-GC behavior is implemented.
 
+## Wave-3 verification (2026-09-25)
+
+Each carried-over "not done" item was checked against the code; each
+unreachable function in the dead-code baseline was classified.
+
+| Item | Class | Evidence |
+|------|-------|----------|
+| TUI `/browser` command | ALREADY DONE | `cmd/nerd/chat/commands.go` dispatches `/browser` to `Model.handleCmdBrowser` (`cmd/nerd/chat/commands_handlers_misc.go:375`); listed in `command_categories.go`. |
+| VirtualStore browse delegate | ALREADY DONE (typed) / honest refusal (generic) | Typed `browser_navigate/extract/screenshot/click/type/close` actions route through the modular browser tools (`internal/core/virtual_store_actions.go`, `handleResearch` arg mapping); the generic `/browse` action refuses with `browser_routing(Op, /requires_shard)` rather than claiming success (`handleBrowse`). |
+| Header-ingestion default policy | ALREADY DONE | `HeaderIngestionOff` is the operator default, `HeaderIngestionRedacted` the research default (`session_manager.go`, header-ingestion constants); `session_manager_dom.go` gates capture on `ShouldIngestHeaders()`. |
+| Honeypot interaction gate | ALREADY DONE | `SessionManager.guardElement` (`honeypot_gate.go:78`) runs before click/type (`session_manager.go`) and progressive actions (`progressive_action.go`); boot binds the live kernel querier (`internal/system/factory.go`, `SetFactQuerier`). |
+| Fact epoch GC | ALREADY DONE | Navigation calls `RollSessionEpoch` (`session_manager_dom.go`); boot binds `NewKernelFactRetractor`. |
+| Browser CI integration job | DECLINE (environment) | CI has no Chrome; the live suites are gated tests. Not buildable without a browser runner. |
+| BPAR-5 live parity gate | DECLINE (unowned claim) | No code or spec in the tree defines BPAR-5; nothing to build against. |
+| Evidence privacy on append (`security.IsPrivatePath`) | REAL gap, WIRED | `FlightRecorder.Record` now re-verifies owner-only policy before appending to an existing trace, re-protects a loosened file and refuses one it cannot re-protect (`flight_recorder.go`, `ensurePrivateEvidence`). Proven by `TestFlightRecorderReprotectsLoosenedEvidenceBeforeAppend` (fails with the check removed). |
+| Contract-audit report/resume (`BuildAuditReport`, `ResumeAuditEvidence` and helpers) | REAL gap, cross-lane | Built and tested in `contract_audit_report.go`, but the only consumer surface, `internal/tools/research/browser_audit.go`, exposes `operation: discover` only. Wiring `report`/`resume` operations belongs to the tools lane; left in the dead-code baseline until then. |
+
 ## Stubs
 
 None. The 19 forwarding and template files previously in this directory

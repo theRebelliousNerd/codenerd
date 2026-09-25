@@ -19,6 +19,7 @@ import (
 	"time"
 
 	browsersecurity "codenerd/internal/browser/security"
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 )
 
@@ -134,6 +135,11 @@ func (r *FlightRecorder) Record(sessionID, eventType string, data any) (string, 
 	if statErr != nil && !newFile {
 		return "", fmt.Errorf("inspect browser evidence: %w", statErr)
 	}
+	if !newFile {
+		if err := ensurePrivateEvidence(path); err != nil {
+			return "", err
+		}
+	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("open browser evidence: %w", err)
@@ -155,6 +161,32 @@ func (r *FlightRecorder) Record(sessionID, eventType string, data any) (string, 
 		return "", err
 	}
 	return path, nil
+}
+
+// ensurePrivateEvidence re-verifies the owner-only policy of an evidence file
+// before anything more is appended to it. Privacy used to be applied once, at
+// creation, and never looked at again, so a file loosened afterwards (or one
+// an older build created with inherited permissions) went on receiving every
+// later event -- redacted, but still session evidence -- readable by others.
+// A loosened file is re-protected and the repair is logged; one that cannot
+// be made private again is refused rather than appended to.
+func ensurePrivateEvidence(path string) error {
+	private, err := browsersecurity.IsPrivatePath(path, false)
+	if err == nil && private {
+		return nil
+	}
+	if perr := browsersecurity.ProtectPrivateFile(path); perr != nil {
+		return fmt.Errorf("browser evidence %s is not owner-only and could not be re-protected; refusing to append: %w", filepath.Base(path), perr)
+	}
+	private, err = browsersecurity.IsPrivatePath(path, false)
+	if err != nil {
+		return fmt.Errorf("verify browser evidence privacy: %w", err)
+	}
+	if !private {
+		return fmt.Errorf("browser evidence %s is not owner-only; refusing to append", filepath.Base(path))
+	}
+	logging.BrowserWarn("browser evidence %s had lost its owner-only policy; re-protected before append", filepath.Base(path))
+	return nil
 }
 
 // Read returns the newest matching events under hard item and byte ceilings.
