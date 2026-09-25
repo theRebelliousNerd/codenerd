@@ -86,18 +86,20 @@ func TestExplorationClosedNudges_TellTheModelDifferentThings(t *testing.T) {
 	}
 }
 
-// The Piggyback path has no channel to return tool results, so a call it
-// cannot run must still come back as a named error. Cancellation is the only
-// reason a call is skipped now: the per-turn ceiling that used to skip them
-// ("<name>: budget exceeded") is gone with the rest of the counting.
-func TestExecuteToolBatchPiggyback_ReportsEverySkippedCall(t *testing.T) {
+// A call the batch cannot run must still come back as a named error.
+// Cancellation is the only reason a call is skipped now: the per-turn ceiling
+// that used to skip them ("<name>: budget exceeded") is gone with the rest of
+// the counting. (This pinned the Piggyback batch, which ran the same batch and
+// discarded its result frames; both protocols now continue through
+// executeToolBatch.)
+func TestExecuteToolBatch_ReportsEverySkippedCall(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	executor := &Executor{config: ExecutorConfig{}}
 	result := &ExecutionResult{}
 	calls := []types.ToolCall{{ID: "skip-1", Name: "first"}, {ID: "skip-2", Name: "second"}}
 
-	errs := executor.executeToolBatchPiggyback(ctx, calls, nil, result)
+	_, errs := executor.executeToolBatch(ctx, calls, nil, result)
 	if len(errs) != len(calls) {
 		t.Fatalf("errors = %v, want one error for each skipped call", errs)
 	}
@@ -298,9 +300,16 @@ func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
 		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
 	})
 
+	// The Piggyback channel continues the conversation now, so the model is
+	// asked again once it has its write's result; it answers with no further
+	// request. (Until 2026-09-25 the Piggyback path ran one batch and returned,
+	// and this client answered every call with the same write.)
 	client := &piggybackStaticClient{MockLLMClient: &MockLLMClient{
-		CompleteWithSystemFunc: func(context.Context, string, string) (string, error) {
-			return `{"control_packet":{"tool_requests":[{"id":"piggy-write","tool_name":"multi_edit","tool_args":{"path":"broken.go"},"required":true}]},"surface_response":"done"}`, nil
+		CompleteWithSystemFunc: func(_ context.Context, _ string, user string) (string, error) {
+			if strings.Contains(user, "tool_result id=piggy-write") {
+				return `{"control_packet":{"tool_requests":[]},"surface_response":"done"}`, nil
+			}
+			return `{"control_packet":{"tool_requests":[{"id":"piggy-write","tool_name":"multi_edit","tool_args":{"path":"broken.go"},"required":true}]},"surface_response":"writing"}`, nil
 		},
 	}}
 	// A real kernel: which post-edit rounds a write owes is its schedule

@@ -320,7 +320,7 @@ func TestPriorTurnMessages_CharBudgetNeverSplitsPair(t *testing.T) {
 		{Role: "user", Content: "cccc"},
 		{Role: "assistant", Content: "dddd"},
 	})
-	msgs := e2.priorTurnMessages()
+	msgs, evicted := e2.priorTurnWindow(false)
 	if len(msgs) != 2 {
 		t.Fatalf("expected oldest pair dropped leaving 2 messages, got %d: %+v", len(msgs), msgs)
 	}
@@ -331,7 +331,7 @@ func TestPriorTurnMessages_CharBudgetNeverSplitsPair(t *testing.T) {
 	if !types.IsClamped(msgs[0].Text) {
 		t.Fatalf("the oldest pair was dropped with no marker: %+v", msgs)
 	}
-	if got := e2.recoverHistoryEviction(); len(got) != 2 {
+	if got := evicted; len(got) != 2 {
 		t.Fatalf("recovered %d evicted messages, want the 2 that were dropped", len(got))
 	}
 }

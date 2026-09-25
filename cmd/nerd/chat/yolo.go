@@ -42,11 +42,19 @@ func (m Model) handleCmdYolo(input string, parts []string) (tea.Model, tea.Cmd) 
 	return m.pushYoloNote("Yolo mode OFF: back to asking."), nil
 }
 
+// yoloEnabled is the persisted switch or the --yolo flag. Until 2026-09-25 the
+// flag was a persistent root flag the chat never read: `nerd --yolo` opened a
+// chat that asked every question anyway, while schemas_intent.mg documented
+// --yolo as one of yolo_mode's sources.
 func (m Model) yoloEnabled() bool {
-	return m.Config != nil && m.Config.YoloMode()
+	return m.yoloFlag || (m.Config != nil && m.Config.YoloMode())
 }
 
 func (m Model) setYolo(on bool) Model {
+	if !on {
+		// /yolo off ends a flag-granted session autonomy too.
+		m.yoloFlag = false
+	}
 	if m.Config == nil {
 		return m
 	}

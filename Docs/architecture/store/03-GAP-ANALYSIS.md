@@ -1,7 +1,14 @@
 # store — Gap Analysis
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-07-13**
 > Method: vision / north-star claims vs `internal/store` reality.
+
+> **Status, 2026-09-25.** The three "Yes" rows are resolved: ANN drift is
+> measured (`vec_index_missing`) and healed by the maintenance cycle
+> (`ReconcileVecIndex`, `2acad15`); `GetStats` counts all fifteen tables and
+> the reflection backlog (`2acad15`); a unified Store interface is declined
+> (no consumer needs one). The reflection-backlog row is now observable
+> rather than silent. Evidence per item: `TODO.md`.
 
 ## Spec vs reality matrix
 

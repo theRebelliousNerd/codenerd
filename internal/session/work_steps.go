@@ -144,8 +144,8 @@ func emptyCompletionError(err error) bool {
 }
 
 // planTurnSteps decides whether this turn is a planned task and, if so, what
-// its steps are. The transport has to be able to run steps (the native tool
-// path inside a working loop, with a write tool); whether this brief is worth
+// its steps are. The transport has to be able to run steps (a tool loop inside
+// a working loop, with a write tool); whether this brief is worth
 // a planning call is the policy's: turn_needs_step_plan derives from the edit
 // sites the brief names (briefSites), and a brief that names fewer than
 // session.step_plan_min_sites of them runs as one pass without asking.
@@ -161,10 +161,9 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 	if !e.writeOrientedIntent(result.Intent.Verb) {
 		return nil
 	}
-	if _, native := client.(types.ToolResultsProvider); !native {
-		return nil
-	}
-	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
+	// Each step is a pass of the tool loop, so the client needs a
+	// continuation channel: native, or the Piggyback envelope channel.
+	if _, ok := e.toolResultsChannel(client, cfg); !ok {
 		return nil
 	}
 	if cfg == nil || !hasWriteTool(cfg.AllowedTools) {
@@ -402,8 +401,7 @@ func (e *Executor) compileNeeds(language, verb string) []string {
 
 // servingConsumer names the path that will read this verb's answer, for the
 // kernel's consumer_need (policy/jit_needs.mg): the text channel runs envelope
-// tool_requests (generateResponseWithPiggybackTools), the native channel runs
-// native tool calls. It asks the client the turn will call (llmForVerb) the
+// tool_requests (piggybackChannel), the native channel runs native tool calls. It asks the client the turn will call (llmForVerb) the
 // question generateResponse asks it, so the compile and the channel cannot
 // disagree.
 func (e *Executor) servingConsumer(verb string) string {
@@ -582,7 +580,7 @@ func (e *Executor) runPlannedSteps(
 	// One gate for the whole task, inside a working loop so a repair round
 	// sees what the steps gathered.
 	client := e.llmForVerb(result.Intent.Verb)
-	trp, _ := client.(types.ToolResultsProvider)
+	trp, _ := e.toolResultsChannel(client, cfg)
 	gateCtx, closeWorking, workingErr := e.beginWorkingLoop(ctx, task, compilationCtx)
 	if workingErr != nil {
 		return last, toolErrs, workingErr

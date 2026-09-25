@@ -1,7 +1,37 @@
 # world — TODO
 
-> Last verified: **2026-08-16**  
+> Last verified: **2026-09-25** (lane B wave 2, against the code)
 > Docs-only backlog derived from code gaps. Not a commitment schedule.
+
+> **Status, 2026-09-25.** Every checked item below was re-verified against the
+> code and holds, with two corrections and two open notes:
+>
+> - Path identity: `canonical_path.go` now delegates to `types.CanonicalPath` /
+>   `types.ResolveWorkspacePath` (the single definition moved to
+>   `internal/types`); `canonical_path_test.go` still pins full vs incremental
+>   vs deep identity.
+> - Verified present: `MapFileAs` (`cartographer.go`), `ResolveDependencyLinks`
+>   (`dependency_links.go`), `FactQuerier` (`holographic.go`),
+>   `FileCache.Stats` (`cache.go`), `ScanRunbook` served by `nerd world
+>   runbook` (`cmd/nerd/cmd_world.go`), `knownDeclDrift`
+>   (`decl_conformance_test.go`).
+> - Open, decision: the generic LSP client (P2) is built and tested against a
+>   fake server, but no production path starts a language server --
+>   `lsp.NewManager` is used only by `nerd mangle-lsp`, which serves Mangle
+>   files -- and no rule reads `code_diagnostic`. The post-edit critic already
+>   runs `gopls check` per turn (`internal/session/lsp_diagnostics.go`).
+>   Starting a long-lived gopls per boot is a process-lifecycle and cost
+>   decision for the maintainer; nothing here should start one by default.
+> - Open, cross-lane: the "Known Decl drift" table below. The Decls live in
+>   `internal/core/defaults/schemas_reviewer.mg`, which lane A owns this
+>   wave; bounds are still not enforced for /string vs /name at load
+>   (`RealKernel.coerceAtomToDeclLocked` narrows /number only), so the rules
+>   work and the pin in `decl_conformance_test.go` holds.
+>
+> Related wiring landed in the retrieval lane: issue retrieval now runs for
+> every session-executor turn the kernel wants it for (`216b818`), and its
+> Tier 3 follows TS/JS and Rust imports (`25ec827`), the same languages whose
+> world `dependency_link` edges resolve exactly.
 
 ## P0
 

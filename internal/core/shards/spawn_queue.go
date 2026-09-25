@@ -382,6 +382,8 @@ func (sq *SpawnQueue) processRequest(workerID int, req *spawnRequestWrapper) {
 	}
 
 	if req.Detached {
+		// No one waits on a detached spawn, so no one will read its result.
+		sq.shardManager.detach(shardID)
 		atomic.AddInt64(&sq.totalSpawned, 1)
 		sq.sendResult(req, SpawnResult{
 			ShardID: shardID,

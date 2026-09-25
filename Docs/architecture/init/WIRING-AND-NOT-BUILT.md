@@ -1,5 +1,20 @@
 # init WIRING-AND-NOT-BUILT — what is reachable, what is dead, what is assumed
 
+> **Status, 2026-09-25 (lane B wave 2).** Every entry below is resolved; the
+> entries are kept as written at `3463477` and this table is current.
+>
+> | Entry | Resolution | Evidence |
+> |---|---|---|
+> | `filterTopicsNeedingResearch` test-only; upgrades researched every topic | closed `500d71d` | `createAgentKnowledgeBase` filters topics in upgrade mode (`minAtomsPerCoveredTopic`), reports `KnowledgeBaseStats.SkippedTopics`; fetch goes through `Initializer.topicFetcher`. `TestCreateAgentKnowledgeBase_UpgradeResearchesOnlyUncoveredTopics` (fails without the filter call) |
+> | `convertStoreAtomsToInitAtoms` test-only | declined | no consumer can exist: research atoms are parsed from fetched text (`parseResearchResult`), never converted from stored atoms. Its own comment calls it a stub of removed research; left for its test, a deletion candidate |
+> | `ProcessDocumentsWithTracking` / `extractAndStoreDocKnowledge` / `SynthesizeFromStoredAtoms` "no call sites" | already done (stale) | called from the chat's `/refresh-docs` (`runDocRefresh`, `cmd/nerd/chat/helpers_scan.go:261,269`); the claim only held inside `internal/init` |
+> | Phase 7e "Generating Project-Specific Tools" generates nothing | closed `500d71d` | titled "Recording Project Tool Needs"; needs land in `InitResult.ToolNeeds` instead of a fake `_generated_tools` agent KB; the summary no longer says tools are "ready to use". (The entry had the branch backwards: for a Go project it printed "Generated 4 tools".) `TestRunPhase7e_RecordsNeedsAndClaimsNoTools` |
+> | Phase 10 drops dependencies (`GetDependencyTools`) | declined (safety) | its entries are shell commands (`docker-compose up -d`, a browser download via `go run`) that `HydrateStaticTools` registers with `/all` affinity; wiring them widens what a model can execute. The repo contract forbids free-form CLI access by default |
+> | Tool coverage lags the agent table (A2A, ADK, Android, Arango, BubbleTea, Cobra, LLMIntegration, Mangle experts) | declined | `RecommendedAgent.Tools` reaches `types.ShardConfig.Tools` and `agents.json`, and nothing executes from it: a persona's catalog is the JIT config factory's plus the kernel's turn catalog (`policy/jit_tools.mg`). Filling an inert table is cruft; `BrowserAutomationExpert` was already covered |
+> | TTY gate is not proof of interactivity | already handled | the read timeout carries the safety property (`agents_curation.go`, `TestReadInput_WhenNobodyAnswers_ShouldGiveUpRatherThanBlockForever`) |
+> | `QualityScore` is a population proxy | documented | labelled legacy in code and in `KnowledgeBaseStats`; not a gap |
+> | Phases 5b/5c/12 prompt-atom pipeline | out of scope | JIT territory (lane A) |
+
 The old 19-file corpus described this package from stale claims. This file
 replaces that entire dimension: every entry cites the code that proves it, at
 commit `34634770970153e78c1e250fdab7abd888dcce6f` (2026-09-21).

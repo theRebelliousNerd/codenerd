@@ -180,6 +180,14 @@ type Delegation struct {
 	// Params are the delegation section's thresholds
 	// (config.DelegationConfig.Params).
 	Params []config.Param
+	// SessionContext is what every attempt's turn is handed: the chat's
+	// blackboard for this delegation (prior shard results, the turn's
+	// context), the same one an unverified delegation runs with. Nil runs
+	// each attempt without one.
+	SessionContext *types.SessionContext
+	// Priority is each attempt's spawn priority, as an unverified delegation
+	// of the same request would have it.
+	Priority types.SpawnPriority
 }
 
 // VerifyWithRetry runs a delegation to its end. Each attempt spawns the
@@ -227,7 +235,12 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 	intent := strings.TrimSpace(d.Persona)
 	task := d.Task
 	for attempt := int64(1); ; attempt++ {
-		ret, err := observed.ExecuteObserved(ctx, session.TaskRequest{IntentVerb: intent, Task: task})
+		// With the delegation's session context, as the chat hands an
+		// unverified delegation. Until 2026-09-25 every attempt went through
+		// ExecuteObserved and ran without the blackboard: the delegations the
+		// kernel routes through verification -- mutations -- were the ones
+		// that never saw the prior shard results.
+		ret, err := observed.ExecuteObservedWithContext(ctx, session.TaskRequest{IntentVerb: intent, Task: task}, d.SessionContext, d.Priority)
 		if err != nil {
 			return ret.Output, nil, fmt.Errorf("shard execution failed: %w", err)
 		}

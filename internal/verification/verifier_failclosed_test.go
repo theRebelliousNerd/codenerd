@@ -59,13 +59,16 @@ func (s *stubLLMClient) CompleteWithTools(_ context.Context, _, _ string, _ []ty
 // records each attempt's task, and returns result with the turn verdict
 // outcomes[n] (outcome once they run out) and missing evidence.
 type stubTaskExecutor struct {
-	calls    int
-	tasks    []string
-	result   string
-	outcome  string
-	outcomes []string
-	missing  []string
-	err      error
+	// sessionCtxs and priorities are what each attempt was handed.
+	sessionCtxs []*types.SessionContext
+	priorities  []types.SpawnPriority
+	calls       int
+	tasks       []string
+	result      string
+	outcome     string
+	outcomes    []string
+	missing     []string
+	err         error
 }
 
 var _ session.ObservedTaskExecutor = (*stubTaskExecutor)(nil)
@@ -88,7 +91,9 @@ func (s *stubTaskExecutor) ExecuteObserved(_ context.Context, req session.TaskRe
 	return ret, s.err
 }
 
-func (s *stubTaskExecutor) ExecuteObservedWithContext(ctx context.Context, req session.TaskRequest, _ *types.SessionContext, _ types.SpawnPriority) (observation.Return, error) {
+func (s *stubTaskExecutor) ExecuteObservedWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
+	s.sessionCtxs = append(s.sessionCtxs, sessionCtx)
+	s.priorities = append(s.priorities, priority)
 	return s.ExecuteObserved(ctx, req)
 }
 

@@ -1,6 +1,6 @@
 # 03 — Gap Analysis: session
 
-> Last verified: 2026-08-09 — true-up for the 2026-08-09 task-integrity incident (prompt/03-GAP-ANALYSIS G9/G10, prompt/12-FAILURE-MODES FM17/FM18, world/03-GAP-ANALYSIS, session/09-SAFETY-AND-INVARIANTS). Section 7 records current reality as OPEN; do not mark G9/G10 closed until the canonical-precedence and temp-repo negative exams exist and pass.
+> Wave-2 reconciliation 2026-09-25: see the table at the end of [TODO.md](TODO.md) for each item's current classification and evidence. Last full verification of the text below: 2026-08-09 — true-up for the 2026-08-09 task-integrity incident (prompt/03-GAP-ANALYSIS G9/G10, prompt/12-FAILURE-MODES FM17/FM18, world/03-GAP-ANALYSIS, session/09-SAFETY-AND-INVARIANTS). Section 7 records current reality as OPEN; do not mark G9/G10 closed until the canonical-precedence and temp-repo negative exams exist and pass.
 
 ## 1. Spec vs reality matrix
 
@@ -10,18 +10,18 @@
 | JIT specialization | Compiler + ConfigFactory wired | **None** |
 | Constitutional default deny | `checkSafety` fail-closed | **None** |
 | Interactive executive gate | Type-assert seam on VirtualStore | **None** (depends on VS implementing interface) |
-| Multi-turn tools all providers | Native `ToolResultsProvider` yes; Piggyback single-round | **High** |
+| Multi-turn tools all providers | Native and Piggyback share one loop (`piggybackChannel`, commit 799c5a3) | **Closed 2026-09-25** |
 | No planning-only false success | `intent_requires_tool_call` + nudge | **Low** residual (kernel policy must exist) |
 | Task isolation | CloneForTask + task intent IDs | **None** |
-| Cross-session memory | Persister optional; atomsJSON empty | **Medium** |
-| Piggyback memory → cold store | Assert/log only | **Medium** |
+| Cross-session memory | Persister optional; atomsJSON populated (`compilationAtomsJSON`) | **Low** (atomsJSON stale claim) |
+| Piggyback memory → cold store | `context.ApplyMemoryOperation` (commit e0df714) | **Closed 2026-09-25** |
 | Ouroboros auto-generation from missing_tool_for | Detect + log; generation elsewhere | **Low** (wiring external) |
 | Spawn auto-start consistency | Spawn does not start; SpawnSpecialist/async do | **Low** |
 | Completion signaling | Poll 100ms | **Low** |
 | Empty AllowedTools unrestricted | Nil/empty now denies every tool | **Closed 2026-07-13** |
 | Package README accuracy | Stale slogans | **Low** (docs) |
-| Pre-task ownership baseline + shell-effect safety (2026-08-09) | No baseline snapshot; run_command/bash classified non-write and bypass write gates; fresh dirty state incorrectly cleaned | **OPEN — Critical (task-integrity)** |
-| World refresh after shell effects (2026-08-09) | One-shot world scan; no incremental retraction/reassertion on accepted shell mutations | **OPEN — Critical (task-integrity)** |
+| Pre-task ownership baseline + shell-effect safety (2026-08-09) | Mutating/ambiguous shell denied before any handler (`checkShellEffect`, `TestExecuteToolCall_ShellEffectGateStopsIncidentBeforeExecution`) | **Closed by fail-closed denial** (see TODO.md wave-2 table) |
+| World refresh after shell effects (2026-08-09) | No shell mutation is accepted, so none needs a refresh | **Moot while shell mutation is denied** |
 
 ## 2. Priority backlog (engineering)
 

@@ -230,6 +230,11 @@ type InitResult struct {
 	CreatedAgents     []CreatedAgent     `json:"created_agents,omitzero"`
 	AgentKBs          map[string]int     `json:"agent_knowledge_bases,omitzero"` // agent name -> KB size
 
+	// ToolNeeds names the project tool needs phase 7e recorded as
+	// missing_tool_for facts. Nothing is built at init: Ouroboros builds a
+	// tool when the kernel asks for it.
+	ToolNeeds []string `json:"tool_needs,omitzero"`
+
 	// Gemini Grounding (when Gemini is the LLM provider)
 	GroundingSources []string `json:"grounding_sources,omitzero"` // URLs used to ground LLM responses
 	GroundingEnabled bool     `json:"grounding_enabled,omitzero"` // Whether grounding was active
@@ -293,6 +298,11 @@ type Initializer struct {
 
 	// E2: ETA tracking
 	etaTracker *ETATracker
+
+	// fetchTopic fetches one research topic's documentation. Nil means
+	// Context7 through the modular research registry (topicFetcher); tests
+	// set it to observe which topics a KB build researches.
+	fetchTopic func(ctx context.Context, topic string) (string, error)
 }
 
 // NewInitializer creates a new initializer.
@@ -987,21 +997,24 @@ func (i *Initializer) runPhase7dCreateCampaignKB(ctx context.Context, runner *ph
 	runner.complete("campaign_kb")
 }
 
+// runPhase7eGenerateTools records the project's tool needs. It generates
+// nothing, and until 2026-09-25 it said otherwise: the phase was titled
+// "Generating Project-Specific Tools", printed "Generated N tools" for N
+// recorded needs, and the summary told the user the tools were "ready to use
+// in .nerd/tools/". Recording needs for on-demand generation is the design
+// (generateProjectTools); the phase now says so. The phase ID stays
+// "tool_generation" because the ETA table and progress events key on it.
 func (i *Initializer) runPhase7eGenerateTools(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string, profile ProjectProfile) {
-	runner.start("tool_generation", "Generating project-specific tools...", 0.86)
-	fmt.Println("\n🛠️  Phase 7e: Generating Project-Specific Tools")
+	runner.start("tool_generation", "Recording project tool needs...", 0.86)
+	fmt.Println("\n🛠️  Phase 7e: Recording Project Tool Needs")
 
-	generatedTools, err := i.generateProjectTools(ctx, nerdDir, profile)
+	needs, err := i.generateProjectTools(ctx, nerdDir, profile)
 	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to generate tools: %v", err))
-	} else if len(generatedTools) > 0 {
-		fmt.Printf("   ✓ Generated %d tools\n", len(generatedTools))
-		if result.AgentKBs == nil {
-			result.AgentKBs = make(map[string]int)
-		}
-		result.AgentKBs["_generated_tools"] = len(generatedTools)
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to record tool needs: %v", err))
+	} else if len(needs) > 0 {
+		result.ToolNeeds = needs
 	} else {
-		fmt.Println("   ⓘ No tools generated (may be skipped or not needed)")
+		fmt.Println("   ⓘ No tool needs for this project profile")
 	}
 	runner.complete("tool_generation")
 }
@@ -1355,10 +1368,9 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 		fmt.Println("\n🤖 LLM Enrichment: no calls attempted")
 	}
 
-	// Show generated tools
-	if toolCount, ok := result.AgentKBs["_generated_tools"]; ok && toolCount > 0 {
-		fmt.Printf("\n🛠️  Generated Tools: %d\n", toolCount)
-		fmt.Printf("   Tools are ready to use in .nerd/tools/\n")
+	// Show recorded tool needs: needs, not tools.
+	if n := len(result.ToolNeeds); n > 0 {
+		fmt.Printf("\n🛠️  Tool Needs Recorded: %d (missing_tool_for facts; Ouroboros builds a tool when the kernel asks)\n", n)
 	}
 
 	fmt.Printf("\n📂 Files Created: %d\n", len(result.FilesCreated))

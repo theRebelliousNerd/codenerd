@@ -102,3 +102,14 @@ subpackage.
   `autopoiesis_kernel.go:533`, `:507`) — with no kernel attached the
   engines are libraries, not an agent. `LoopResult` and `OuroborosStats`
   (`autopoiesis_types.go:89`, `:172`) report outcomes; they do not act.
+
+## Wave 2 reconciliation (2026-09-25, verified against the code)
+
+| Claim above | Classification | Evidence |
+|---|---|---|
+| `autopoiesis.go` is a stub whose modularization note is stale | fixed | Commit bdf2213: the per-file line counts and the `var _ = time.Now` import keeper are gone; the package doc names the files by concern and says where policy decisions cross the kernel. |
+| `TestThunderdomeArena` is a test function committed in a production file | not true | It is text inside the harness template that `Thunderdome.generateTestHarnessWithCall` (`thunderdome.go`) returns; `prepareArena` writes that text into the arena's `harness_test.go` and `runAttack` runs it with `-test.run=TestThunderdomeArena`. No test function ships in the package. (The older `generateTestHarness` wrapper is on the dead-code baseline; `generateTestHarnessWithCall` is the live one.) |
+| Which callers use the tracing variants | pinned | `GenerateToolWithTracing` is called by the quality-profile path (`autopoiesis_profiles.go`) and itself calls `ExecuteOuroborosLoopWithTracing` (`autopoiesis_feedback.go`). |
+| Dual codegen / refiner / validator backends: selection not pinned | pinned | `generateToolCode` and `ToolRefiner.Refine` take the JIT path when `jitEnabled` and the assembler is `JITReady`, else the legacy prompt (`tool_generation.go`, `feedback.go`). `validateGoCodeOffline` no longer exists. |
+| Whether the main loop battles every generation | pinned: yes, when enabled | `ExecuteOuroborosLoop` enters the Thunderdome whenever the loop was built with `EnableThunderdome`, which the orchestrator sets when it builds the loop (`autopoiesis_orchestrator.go`) -- `ouroboros.go`, the `StageThunderdome` block: PanicMaker generates attacks, `Battle` runs them, and each result re-enters as `thunderdome_result` facts. A PanicMaker failure skips the battle with a warning. |
+| Agent management has no caller | still true, open | `ListAgents`, `GetAgent`, `DeleteAgent` and `UpdateAgentMemory` have no production caller. Agents are created by `executeAgentCreation` and then never listed, read, updated or deleted. Wiring them needs an operator surface (`cmd/nerd`, lane B) or a kernel-derived agent lifecycle; neither exists to wire to. |

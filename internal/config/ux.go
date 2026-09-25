@@ -1,21 +1,59 @@
 package config
 
-// UIConfig holds user interface configuration.
-type UIConfig struct {
-	// SplitPaneRatio is the default left:right ratio (0.0-1.0, left pane percentage)
-	// Default is 0.67 (2/3 chat, 1/3 logic)
-	SplitPaneRatio float64 `json:"split_pane_ratio" yaml:"split_pane_ratio"`
+import "fmt"
 
-	// LogicPaneWidth is an alternative fixed width for the logic pane (0 = use ratio)
-	LogicPaneWidth int `json:"logic_pane_width,omitempty" yaml:"logic_pane_width,omitempty"`
+// UIConfig is the `ui` section of .nerd/config.json: how the chat TUI lays
+// itself out.
+//
+// It existed with no UserConfig field and no accessor, so no config file
+// could set it, while cmd/nerd/ui kept NewSplitPaneViewWithRatio ("with a
+// configurable ratio") for a caller that never came. The chat now builds its
+// split pane from GetUIConfig. LogicPaneWidth, a fixed-width alternative the
+// split pane never supported, went with the wiring (2026-09-25): no file could
+// ever have carried it.
+type UIConfig struct {
+	// SplitPaneRatio is the chat pane's share of the width when the logic pane
+	// is open (0 < ratio < 1; the view clamps it to 0.2-0.9). Default 0.67:
+	// two thirds chat, one third logic.
+	SplitPaneRatio float64 `json:"split_pane_ratio,omitempty"`
 }
 
-// DefaultUIConfig returns sensible UI defaults.
-func DefaultUIConfig() *UIConfig {
-	return &UIConfig{
-		SplitPaneRatio: 0.67, // 2/3 chat, 1/3 logic pane
-		LogicPaneWidth: 0,    // Use ratio by default
+// DefaultUIConfig is the ui section with every field written down.
+func DefaultUIConfig() UIConfig {
+	return UIConfig{SplitPaneRatio: 0.67}
+}
+
+// GetUIConfig returns the ui section with every absent field defaulted. A nil
+// receiver is the defaults.
+func (c *UserConfig) GetUIConfig() UIConfig {
+	if c == nil || c.UI == nil {
+		return DefaultUIConfig()
 	}
+	return c.UI.WithDefaults()
+}
+
+// WithDefaults fills every absent field from DefaultUIConfig.
+func (c UIConfig) WithDefaults() UIConfig {
+	if c.SplitPaneRatio == 0 {
+		c.SplitPaneRatio = DefaultUIConfig().SplitPaneRatio
+	}
+	return c
+}
+
+// Check reports the contradictions in a ui section, addressed under prefix
+// ("ui").
+func (c UIConfig) Check(prefix string) []Problem {
+	c = c.WithDefaults()
+	var out []Problem
+	if v := c.SplitPaneRatio; v <= 0 || v >= 1 {
+		out = append(out, Problem{
+			Severity: SeverityError,
+			Path:     prefix + ".split_pane_ratio",
+			Message:  fmt.Sprintf("%g is not a share of the width between 0 and 1", v),
+			Fix:      "a ratio such as 0.67, or remove the key for the default",
+		})
+	}
+	return out
 }
 
 // ExperienceLevel tracks user familiarity with codeNERD.

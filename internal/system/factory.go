@@ -24,6 +24,7 @@ import (
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
 	prsync "codenerd/internal/prompt/sync"
+	"codenerd/internal/retrieval"
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
@@ -323,6 +324,9 @@ type Cortex struct {
 	ToolStore       *store.ToolStore
 	OuroborosQueue  chan<- core.ToolNeed
 	EmbeddingEngine embedding.EmbeddingEngine
+	// Retriever is the process's sparse retriever: the session executor's
+	// task passes and the chat's issue seed share its keyword cache.
+	Retriever       *retrieval.SparseRetriever
 	Workspace       string
 	JITCompiler     *prompt.JITPromptCompiler
 	PromptAssembler *articulation.PromptAssembler
@@ -714,6 +718,7 @@ func (c *Cortex) runMaintenance() {
 		maintenanceTestHook()
 		return
 	}
+	autoCleanupToolStore(c.ToolStore)
 	if c.LocalDB == nil {
 		return
 	}
@@ -723,16 +728,40 @@ func (c *Cortex) runMaintenance() {
 		PurgeArchivedOlderThanDays: 365,
 		CleanActivationLogDays:     30,
 		VacuumDatabase:             false, // Only vacuum on explicit request
+		// Heal the ANN drift a failed vec_index insert leaves behind; until
+		// 2026-09-25 only the next engine attach rebuilt the index.
+		ReconcileVecIndex: true,
 	})
 	if err != nil {
 		logging.Get(logging.CategoryStore).Warn("Maintenance cycle failed: %v", err)
 		return
 	}
-	if stats.FactsArchived > 0 || stats.FactsPurged > 0 || stats.ActivationLogsDeleted > 0 {
+	if stats.FactsArchived > 0 || stats.FactsPurged > 0 || stats.ActivationLogsDeleted > 0 || stats.VecIndexHealed > 0 {
 		logging.Get(logging.CategoryStore).Info(
-			"Maintenance complete: archived=%d purged=%d logs_cleaned=%d",
-			stats.FactsArchived, stats.FactsPurged, stats.ActivationLogsDeleted,
+			"Maintenance complete: archived=%d purged=%d logs_cleaned=%d vec_index_healed=%d",
+			stats.FactsArchived, stats.FactsPurged, stats.ActivationLogsDeleted, stats.VecIndexHealed,
 		)
+	}
+}
+
+// autoCleanupToolStore keeps tools.db inside the store's cleanup budget
+// (store.DefaultCleanupConfig: 336 runtime hours of tool executions, cleaned
+// from 80%). ToolStore.AutoCleanup existed with no caller, so the journal grew
+// until someone ran /cleanup-tools by hand -- and a CLI-only user, who has no
+// /cleanup-tools, never could. Run at boot, which every entry path passes
+// through, and on each maintenance cycle.
+func autoCleanupToolStore(ts *store.ToolStore) {
+	if ts == nil {
+		return
+	}
+	stats, err := ts.AutoCleanup(store.DefaultCleanupConfig())
+	if err != nil {
+		logging.Get(logging.CategoryStore).Warn("tools.db auto-cleanup failed: %v", err)
+		return
+	}
+	if stats != nil && stats.ExecutionsDeleted > 0 {
+		logging.Get(logging.CategoryStore).Info("tools.db auto-cleanup (%s): %d executions deleted, %d bytes freed",
+			stats.Method, stats.ExecutionsDeleted, stats.BytesFreed)
 	}
 }
 
@@ -771,6 +800,7 @@ type bootContext struct {
 	transducer                   perception.Transducer
 	virtualStore                 *core.VirtualStore
 	embeddingEngine              embedding.EmbeddingEngine
+	retriever                    *retrieval.SparseRetriever
 	mcpBridge                    *mcp.MCPIntegrationBridge
 	mcpCancel                    context.CancelFunc
 	mcpDone                      <-chan struct{}
@@ -2177,6 +2207,21 @@ func initFinalExecutors(bctx *bootContext) error {
 	// The shard is what does the work: `nerd fix` delegates, so the CodeDOM
 	// fact layer has to reach the spawned executor and not only the session's.
 	bctx.sessionSpawner.SetCodeElementSource(codeElements)
+	// The issue-driven retrieval pass, for every turn the session executor
+	// runs: the kernel decides whether the turn retrieves and which of the
+	// files it finds the model is handed (schemas_knowledge.mg 52.5). Until
+	// 2026-09-25 only the chat TUI built a retriever, and only for its
+	// compressor, so `nerd fix` and every delegated task started blind.
+	bctx.retriever = retrieval.NewSparseRetriever(retrieval.DefaultSparseRetrieverConfig(bctx.workspace))
+	if taskRetriever := retrieval.NewTaskRetriever(sessionKernel, retrieval.TaskRetrieverConfig{
+		WorkDir:         bctx.workspace,
+		Retriever:       bctx.retriever,
+		EmbeddingEngine: bctx.embeddingEngine,
+		Params:          bctx.appCfg.GetRetrievalConfig().Params(),
+	}); taskRetriever != nil {
+		bctx.sessionExecutor.SetIssueRetriever(taskRetriever)
+		bctx.sessionSpawner.SetIssueRetriever(taskRetriever)
+	}
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
 	// Same meter for spawned subagents: their executors are fresh builds, not
@@ -2235,6 +2280,7 @@ func initFactoryToolStore(bctx *bootContext) {
 		return
 	}
 	bctx.toolStore = ts
+	autoCleanupToolStore(ts)
 	if bctx.shardManager == nil {
 		return
 	}
@@ -2417,6 +2463,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		WorkerLLMClient:       bctx.shardLLMClient,
 		PlannerLLMClient:      bctx.plannerLLMClient,
 		ToolStore:             bctx.toolStore,
+		Retriever:             bctx.retriever,
 		OuroborosQueue:        bctx.ouroborosQueue,
 		mcpBridge:             bctx.mcpBridge,
 		mcpCancel:             bctx.mcpCancel,
