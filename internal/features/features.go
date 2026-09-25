@@ -362,6 +362,57 @@ func Deprecations() []string {
 	return out
 }
 
+// Misconfigurations reports every feature environment variable that is set to
+// a value this package will not act on, with what the operator should write
+// instead. Empty when every set variable parses.
+//
+// envBool and envInt deliberately treat an unparseable value as "no override"
+// so a stray export cannot flip a bit or change a limit. That guarantee stays:
+// the flag still resolves exactly as if the variable were unset. What changes
+// is that it is no longer silent: `CODENERD_DARK_MODE=yes` used to run as
+// false with no message anywhere, which reads to an operator as the flag being
+// broken rather than their value being refused.
+//
+// Like Deprecations it returns strings rather than logging, because this is a
+// leaf package; LoadUserConfig warns with them at boot, and `nerd features` and
+// `/features` print them.
+func Misconfigurations() []string {
+	var out []string
+	checkBool := func(name, envVar string) {
+		if envVar == "" {
+			return
+		}
+		v := strings.TrimSpace(os.Getenv(envVar))
+		if v == "" || envBool(envVar) != nil {
+			return
+		}
+		out = append(out, fmt.Sprintf(
+			"%s=%q is not a boolean and is ignored (flag %s resolves as if it were unset); use 1, 0, true or false",
+			envVar, v, name))
+	}
+	for _, f := range boolFlags {
+		checkBool(f.name, f.envVar)
+		checkBool(f.name, f.legacyEnvVar)
+	}
+	for _, f := range intFlags {
+		for _, envVar := range [2]string{f.envVar, f.legacyEnvVar} {
+			if envVar == "" {
+				continue
+			}
+			v := strings.TrimSpace(os.Getenv(envVar))
+			if v == "" {
+				continue
+			}
+			if _, err := parseInt64(v); err != nil {
+				out = append(out, fmt.Sprintf(
+					"%s=%q is not a positive integer and is ignored (%s resolves as if it were unset)",
+					envVar, v, f.name))
+			}
+		}
+	}
+	return out
+}
+
 // Summary returns a short single-line description of the flags in effect,
 // suitable for boot-time logging by the caller of SetActive.
 //

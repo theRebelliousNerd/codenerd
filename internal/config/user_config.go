@@ -595,6 +595,12 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	for _, dep := range features.Deprecations() {
 		logging.Get(logging.CategoryBoot).Warn("features: %s", dep)
 	}
+	// A value the registry refuses (CODENERD_DARK_MODE=yes) resolves as if it
+	// were unset; saying so is the difference between "my value was refused"
+	// and "the flag is broken".
+	for _, bad := range features.Misconfigurations() {
+		logging.Get(logging.CategoryBoot).Warn("features: %s", bad)
+	}
 
 	// Install the timeout profile into the process-wide singleton the ~25
 	// GetLLMTimeouts() call sites read. Same install-on-load pattern as

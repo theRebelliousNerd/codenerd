@@ -72,6 +72,41 @@ func TestFeaturesCmd_WhenJSONRequested_ShouldEmitParseableOutput(t *testing.T) {
 	}
 }
 
+// A value the registry refuses is named on the surface an operator reads, and
+// the flag still resolves as if it were unset (GAP-FEAT-05).
+func TestFeaturesCmd_WhenAnEnvValueIsRefused_ShouldWarn(t *testing.T) {
+	features.SetActive(nil)
+	t.Cleanup(func() { features.SetActive(nil) })
+	featuresJSON, featuresSchema = false, false
+	t.Setenv("CODENERD_DARK_MODE", "yes")
+
+	out := runFeaturesCmd(t)
+	if !strings.Contains(out, `warning: CODENERD_DARK_MODE="yes" is not a boolean`) {
+		t.Errorf("no warning for the refused value:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "dark_mode ") && !strings.Contains(line, "default") {
+			t.Errorf("dark_mode is attributed to something other than its default: %q", line)
+		}
+	}
+}
+
+// --schema --json is the machine form of the schema: the recognised keys, as
+// JSON a script can read. The commented snippet is not strict JSON.
+func TestFeaturesCmd_WhenSchemaJSONRequested_ShouldEmitTheKeys(t *testing.T) {
+	featuresSchema, featuresJSON = true, true
+	t.Cleanup(func() { featuresSchema, featuresJSON = false, false })
+
+	var keys []string
+	if err := json.Unmarshal([]byte(runFeaturesCmd(t)), &keys); err != nil {
+		t.Fatalf("--schema --json is not a JSON array: %v", err)
+	}
+	want := features.ConfigSchemaKeys()
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Errorf("--schema --json = %v, want features.ConfigSchemaKeys() = %v", keys, want)
+	}
+}
+
 // TestFeaturesCmd_WhenALegacyEnvVarIsSet_ShouldWarn keeps the NERD_* → CODENERD_*
 // migration visible on the surface an operator reaches for when a flag is not
 // behaving the way they expect.

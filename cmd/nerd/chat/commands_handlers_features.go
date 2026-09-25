@@ -43,6 +43,12 @@ func renderFeaturesReport() string {
 			sb.WriteString("- " + msg + "\n")
 		}
 	}
+	if misconfigured := features.Misconfigurations(); len(misconfigured) > 0 {
+		sb.WriteString("\n**Ignored environment values**\n\n")
+		for _, msg := range misconfigured {
+			sb.WriteString("- " + msg + "\n")
+		}
+	}
 
 	// The one-line form is what Boot logs, so showing it here lets an operator
 	// match what they see in chat against what they see in session.log.
