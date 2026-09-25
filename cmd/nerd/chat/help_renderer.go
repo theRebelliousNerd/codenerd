@@ -11,31 +11,49 @@ import (
 // HelpRenderer generates help text based on user experience level.
 type HelpRenderer struct {
 	experienceLevel config.ExperienceLevel
+	journeyState    ux.UserJourneyState
 	workspace       string
+
+	// disclosure is set by WithGuidance: how much the progressive help shows
+	// once the user's configured guidance level has had its say.
+	disclosure    ux.DisclosureLevel
+	hasDisclosure bool
 }
 
-// NewHelpRenderer creates a new help renderer for the given workspace.
+// NewHelpRenderer creates a new help renderer for the given workspace. The
+// experience level is the one the workspace's journey state implies
+// (ux.ExperienceLevelForState; this used to be a private copy of the switch).
 func NewHelpRenderer(workspace string) *HelpRenderer {
-	// Load experience level from preferences
-	pm := ux.NewPreferencesManager(workspace)
-	level := config.ExperienceBeginner
-	if err := pm.Load(); err == nil {
-		journeyState := pm.GetJourneyState()
-		switch journeyState {
-		case ux.StatePower:
-			level = config.ExperienceExpert
-		case ux.StateProductive:
-			level = config.ExperienceAdvanced
-		case ux.StateLearning:
-			level = config.ExperienceIntermediate
-		default:
-			level = config.ExperienceBeginner
-		}
-	}
-
 	return &HelpRenderer{
-		experienceLevel: level,
+		experienceLevel: ux.GetExperienceLevelFromPreferences(workspace),
+		journeyState:    ux.GetUserJourneyState(workspace),
 		workspace:       workspace,
+	}
+}
+
+// WithGuidance lets the user's configured guidance level override what the
+// journey state alone would show: guidance "none" collapses help to the
+// compact full reference however new the user is (ux.GetDisclosureLevel,
+// which existed with no caller).
+func (r *HelpRenderer) WithGuidance(guidance config.GuidanceLevel) *HelpRenderer {
+	r.disclosure = ux.GetDisclosureLevel(r.journeyState, guidance)
+	r.hasDisclosure = true
+	r.experienceLevel = experienceForDisclosure(r.disclosure)
+	return r
+}
+
+// experienceForDisclosure is the progressive-help rendering for a disclosure
+// level: the same four renderings the experience levels select.
+func experienceForDisclosure(d ux.DisclosureLevel) config.ExperienceLevel {
+	switch d {
+	case ux.DisclosureMinimal:
+		return config.ExperienceExpert
+	case ux.DisclosureStandard:
+		return config.ExperienceAdvanced
+	case ux.DisclosureVerbose:
+		return config.ExperienceIntermediate
+	default:
+		return config.ExperienceBeginner
 	}
 }
 
@@ -117,6 +135,11 @@ func (r *HelpRenderer) renderProgressiveHelp() string {
 		sb.WriteString("## Commands\n\n")
 		sb.WriteString(r.renderCommandTable(GetCommandsByCategory(CategoryCore)))
 		sb.WriteString("\n*Type `/help all` for all commands*\n")
+	}
+
+	if r.hasDisclosure {
+		sb.WriteString(fmt.Sprintf("\n*Help detail: %s (journey: %s). The guidance level in `/config` changes it.*\n",
+			r.disclosure, r.journeyState))
 	}
 
 	// Add keyboard shortcuts for all levels

@@ -72,7 +72,7 @@ func TestBrowserProgressiveTools_Live(t *testing.T) {
 	cfg.WorkspaceRoot = t.TempDir()
 	sink := &progressiveLiveSink{}
 	mgr := browser.NewSessionManagerWithSink(cfg, sink)
-	SetBrowserManager(mgr)
+	SetBrowserRuntime(mgr, nil)
 	defer ClearBrowserManager(mgr)
 	defer func() { _ = mgr.Shutdown(context.Background()) }()
 

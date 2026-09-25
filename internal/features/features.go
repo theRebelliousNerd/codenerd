@@ -68,7 +68,7 @@ import (
 // falls back to DefaultFeaturesConfig().
 type FeaturesConfig struct {
 	// FlightRecorder turns on the runtime/trace ring buffer dumped on
-	// panic and on /diag flightrec.
+	// panic and on the /flightrec chat command.
 	// Env var: CODENERD_FLIGHT_RECORDER (legacy: NERD_FLIGHTREC).
 	FlightRecorder *bool `json:"flight_recorder,omitempty"`
 

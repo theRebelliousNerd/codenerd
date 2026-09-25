@@ -12,7 +12,7 @@ helpers used to rank vectors.
 
 | File | Owns |
 |---|---|
-| `internal/embedding/engine.go:19` | `EmbeddingEngine` interface, `Config`, `DefaultConfig`, `NewEngine`, `FindTopK`, validators |
+| `internal/embedding/engine.go:19` | `EmbeddingEngine` interface, `Config`, `DefaultConfig`, `NewEngine`, validators |
 | `internal/embedding/genai.go:35` | `GenAIEngine` — Gemini API backend |
 | `internal/embedding/ollama.go:33` | `OllamaEngine` — local Ollama backend |
 | `internal/embedding/task_selector.go:13` | `ContentType`, `SelectTaskType`, `DetectContentType`, `GetOptimalTaskType` |
@@ -25,7 +25,7 @@ All constructors and methods below were checked against the cited lines.
 | Symbol | Where | Notes |
 |---|---|---|
 | `Config` | `internal/embedding/engine.go:61` | Engine selection knobs |
-| `DefaultConfig` | `internal/embedding/engine.go:78` | Defaults constructor |
+| `DefaultConfig` | `internal/embedding/engine.go:83` | Defaults constructor; `config.DefaultEmbeddingConfig` derives from it |
 | `NewEngine` | `internal/embedding/engine.go:93` | Builds the Ollama (`engine.go:108`) and GenAI (`engine.go:125`) engines |
 | `EmbeddingEngine` | `internal/embedding/engine.go:19` | `Embed`, `EmbedBatch`, `Dimensions`, `Name`, `Close` |
 | `TaskTypeAwareEngine` | `internal/embedding/engine.go:34` | Adds `EmbedWithTask` (`engine.go:37`) |
@@ -43,7 +43,6 @@ All constructors and methods below were checked against the cited lines.
 | `SelectTaskType` | `internal/embedding/task_selector.go:36` | Pure `ContentType` × query-flag → task string; unknown input falls to `SEMANTIC_SIMILARITY` (`task_selector.go:74`) |
 | `DetectContentType` | `internal/embedding/task_selector.go:84` | Metadata first (`task_selector.go:91`, `task_selector.go:97`), then heuristics, defaulting to conversation (`task_selector.go:178`) |
 | `GetOptimalTaskType` | `internal/embedding/task_selector.go:183` | `DetectContentType` (`task_selector.go:186`) + query-side override (`task_selector.go:187`) + `SelectTaskType` (`task_selector.go:194`) |
-| `FindTopK` | `internal/embedding/engine.go:147` | Cosine-rank top K; `k <= 0` means 10 (`engine.go:151`); dimension mismatches are skipped, not errors (`engine.go:161`) |
 | `CosineSimilarity` | `internal/embedding/math_generic.go:14`, `internal/embedding/math_amd64.go:15` | One definition per file; exactly one compiles per target (the build is green, so the separation holds — check the build tags atop those files before editing) |
 
 ## Task-type strings actually emitted

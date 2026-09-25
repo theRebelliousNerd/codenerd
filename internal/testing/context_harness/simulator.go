@@ -2,11 +2,15 @@ package context_harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	internalcontext "codenerd/internal/context"
 	"codenerd/internal/core"
 )
 
@@ -59,6 +63,18 @@ func (s *SessionSimulator) SetObservability(
 	s.feedbackTracer = feedbackTracer
 }
 
+// ErrRequiresRealEngine refuses a RealMode scenario on an engine that is not
+// the real activation engine.
+var ErrRequiresRealEngine = errors.New("scenario requires the real context engine (--mode=real)")
+
+// sampleMemory records the heap in use after a turn, so PeakMemoryMB reports
+// something (it was declared, finalized and never recorded).
+func (s *SessionSimulator) sampleMemory() {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	s.metrics.RecordMemory(float64(ms.HeapAlloc) / (1 << 20))
+}
+
 // SetContextEngine wires in the context engine (mock or real).
 func (s *SessionSimulator) SetContextEngine(engine ContextEngine) {
 	s.contextEngine = engine
@@ -66,6 +82,13 @@ func (s *SessionSimulator) SetContextEngine(engine ContextEngine) {
 
 // RunScenario executes a complete test scenario.
 func (s *SessionSimulator) RunScenario(ctx context.Context, scenario *Scenario) (*TestResult, error) {
+	// A scenario written against the real activation engine has nothing to
+	// say about the mock one: its validators read component breakdowns the
+	// mock does not compute. Refuse it instead of reporting a verdict.
+	if scenario.Mode == RealMode && (s.contextEngine == nil || s.contextEngine.GetMode() != RealMode) {
+		return nil, fmt.Errorf("scenario %s: %w", scenario.ScenarioID, ErrRequiresRealEngine)
+	}
+
 	result := &TestResult{
 		Scenario:          scenario,
 		CheckpointResults: make([]CheckpointResult, 0, len(scenario.Checkpoints)),
@@ -73,25 +96,56 @@ func (s *SessionSimulator) RunScenario(ctx context.Context, scenario *Scenario) 
 		FailureReasons:    make([]string, 0),
 	}
 
-	// Execute each turn
+	// The scenario's world, asserted before the first turn.
+	if len(scenario.InitialFacts) > 0 {
+		facts, err := parseInitialFacts(scenario)
+		if err != nil {
+			return nil, err
+		}
+		if s.contextEngine != nil {
+			err = s.contextEngine.SeedFacts(facts)
+		} else if s.kernel != nil {
+			err = s.kernel.LoadFacts(facts)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("seeding initial facts: %w", err)
+		}
+	}
+
+	// Checkpoints fire after the turn whose TurnID they name. They used to be
+	// matched against the turn's index in the slice, so in every scenario with
+	// sparse turn IDs (seven of the eight mock scenarios) no checkpoint ever
+	// fired and the scenario was judged on aggregate metrics alone.
+	reached := make([]bool, len(scenario.Checkpoints))
 	for i, turn := range scenario.Turns {
 		// Simulate the turn (user message → assistant response)
 		if err := s.executeTurn(ctx, &turn); err != nil {
 			return nil, fmt.Errorf("turn %d failed: %w", i, err)
 		}
+		s.sampleMemory()
 
-		// Check if we have a checkpoint after this turn
-		for _, checkpoint := range scenario.Checkpoints {
-			if checkpoint.AfterTurn == i {
-				cpResult := s.validateCheckpoint(ctx, &checkpoint)
-				result.CheckpointResults = append(result.CheckpointResults, cpResult)
-
-				if !cpResult.Passed {
-					result.Passed = false
-					result.FailureReasons = append(result.FailureReasons,
-						fmt.Sprintf("Checkpoint at turn %d failed: %s", i, cpResult.FailureReason))
-				}
+		for j := range scenario.Checkpoints {
+			checkpoint := &scenario.Checkpoints[j]
+			if reached[j] || checkpoint.AfterTurn != turn.TurnID {
+				continue
 			}
+			reached[j] = true
+			cpResult := s.validateCheckpoint(ctx, checkpoint)
+			result.CheckpointResults = append(result.CheckpointResults, cpResult)
+
+			if !cpResult.Passed {
+				result.Passed = false
+				result.FailureReasons = append(result.FailureReasons,
+					fmt.Sprintf("Checkpoint at turn %d failed: %s", turn.TurnID, cpResult.FailureReason))
+			}
+		}
+	}
+	for j, ok := range reached {
+		if !ok {
+			result.Passed = false
+			result.FailureReasons = append(result.FailureReasons,
+				fmt.Sprintf("Checkpoint after turn %d never ran: the scenario has no turn %d",
+					scenario.Checkpoints[j].AfterTurn, scenario.Checkpoints[j].AfterTurn))
 		}
 	}
 
@@ -345,8 +399,9 @@ func (s *SessionSimulator) executeTurn(ctx context.Context, turn *Turn) error {
 		}
 
 		// Calculate precision/recall from turn metadata
-		precision, recall := s.calculateRetrievalMetrics(retrievedFacts, turn)
-		s.metrics.RecordRetrieval(precision, recall, retrievalLatency)
+		if precision, recall, measured := s.calculateRetrievalMetrics(retrievedFacts, turn); measured {
+			s.metrics.RecordRetrieval(precision, recall, retrievalLatency)
+		}
 	}
 
 	return nil
@@ -429,8 +484,11 @@ func (s *SessionSimulator) countTotalFacts() int {
 	return 0
 }
 
-// calculateRetrievalMetrics calculates precision/recall based on turn metadata
-func (s *SessionSimulator) calculateRetrievalMetrics(retrievedFacts []core.Fact, turn *Turn) (precision, recall float64) {
+// calculateRetrievalMetrics calculates precision/recall based on turn metadata.
+// measured is false when the turn names nothing that should be retrieved: such
+// a turn used to score 0.95/0.95, which raised the averages the scenario is
+// judged on with a number nothing measured.
+func (s *SessionSimulator) calculateRetrievalMetrics(retrievedFacts []core.Fact, turn *Turn) (precision, recall float64, measured bool) {
 	// Ground truth: what SHOULD be retrieved based on turn metadata
 	groundTruth := make(map[string]bool)
 
@@ -450,8 +508,7 @@ func (s *SessionSimulator) calculateRetrievalMetrics(retrievedFacts []core.Fact,
 	}
 
 	if len(groundTruth) == 0 {
-		// No ground truth expectations, return high scores
-		return 0.95, 0.95
+		return 0, 0, false
 	}
 
 	// What was actually retrieved
@@ -489,52 +546,53 @@ func (s *SessionSimulator) calculateRetrievalMetrics(retrievedFacts []core.Fact,
 		precision = 0.0
 	}
 
-	// In mock mode, apply a floor when no facts were retrieved to avoid
-	// penalizing placeholder retrieval during simulation runs.
-	if s.config.Mode != RealMode && len(retrieved) == 0 {
-		return 0.5, 0.5
-	}
-
-	return precision, recall
+	// An engine that retrieved nothing scores zero. Mock mode used to floor
+	// this at 0.5/0.5, so a retrieval that returned nothing counted as half
+	// right.
+	return precision, recall, true
 }
 
 // validateCheckpoint tests retrieval accuracy at a checkpoint.
+//
+// Nothing here passes a checkpoint it did not check. It used to substitute the
+// checkpoint's own MustRetrieve list for an empty or failed retrieval, which
+// scored a total retrieval failure as perfect recall; and the activation,
+// compression and feedback validators a checkpoint declared were never called.
 func (s *SessionSimulator) validateCheckpoint(ctx context.Context, checkpoint *Checkpoint) CheckpointResult {
 	result := CheckpointResult{
-		Checkpoint: checkpoint,
-		Passed:     true,
+		Checkpoint:      checkpoint,
+		Passed:          true,
+		MissingRequired: []string{},
+		UnwantedNoise:   []string{},
 	}
-
-	// Execute real spreading activation if engine is available
-	var retrievedFactIDs []string
-	if s.contextEngine != nil {
-		retrievedFacts, err := s.contextEngine.RetrieveContext(ctx, checkpoint.Query, s.config.TokenBudget)
-		if err == nil {
-			// Convert facts to IDs with smart extraction
-			for _, fact := range retrievedFacts {
-				factID := extractFactID(fact)
-				retrievedFactIDs = append(retrievedFactIDs, factID)
-			}
+	fail := func(format string, args ...any) {
+		result.Passed = false
+		if result.FailureReason != "" {
+			result.FailureReason += "; "
 		}
+		result.FailureReason += fmt.Sprintf(format, args...)
 	}
 
-	if len(retrievedFactIDs) == 0 {
-		// Fallback: mock retrieval for testing
-		retrievedFactIDs = checkpoint.MustRetrieve // Just return what's expected
+	if s.contextEngine == nil {
+		result.MissingRequired = append(result.MissingRequired, checkpoint.MustRetrieve...)
+		fail("no context engine: nothing retrieved")
+		return result
 	}
+	retrievedFacts, err := s.contextEngine.RetrieveContext(ctx, checkpoint.Query, s.config.TokenBudget)
+	if err != nil {
+		result.MissingRequired = append(result.MissingRequired, checkpoint.MustRetrieve...)
+		fail("retrieval failed: %v", err)
+		return result
+	}
+
+	var retrievedFactIDs []string
+	for _, fact := range retrievedFacts {
+		retrievedFactIDs = append(retrievedFactIDs, extractFactID(fact))
+	}
+	result.Retrieved = retrievedFactIDs
 
 	// Use fuzzy matching for checkpoint validation
 	matchedRequired := fuzzyMatchFacts(retrievedFactIDs, checkpoint.MustRetrieve)
-
-	result.Retrieved = retrievedFactIDs
-
-	// Calculate precision and recall using fuzzy matching
-	shouldAvoidSet := toSet(checkpoint.ShouldAvoid)
-	_ = toSet(retrievedFactIDs) // Keep for potential future use
-
-	// Fuzzy matching finds required facts that were retrieved
-	// matchedRequired is the count of required facts that match retrieved facts
-	result.MissingRequired = []string{}
 	for _, required := range checkpoint.MustRetrieve {
 		if !matchedRequired[required] {
 			result.MissingRequired = append(result.MissingRequired, required)
@@ -542,49 +600,180 @@ func (s *SessionSimulator) validateCheckpoint(ctx context.Context, checkpoint *C
 	}
 
 	// Unwanted noise - use fuzzy matching for avoids too
-	matchedAvoided := fuzzyMatchFacts(retrievedFactIDs, checkpoint.ShouldAvoid)
-	result.UnwantedNoise = []string{}
-	for avoided := range matchedAvoided {
+	shouldAvoidSet := toSet(checkpoint.ShouldAvoid)
+	for avoided := range fuzzyMatchFacts(retrievedFactIDs, checkpoint.ShouldAvoid) {
 		if setContains(shouldAvoidSet, avoided) {
 			result.UnwantedNoise = append(result.UnwantedNoise, avoided)
 		}
 	}
 
-	// Calculate metrics
 	matchedCount := len(matchedRequired)
 	if len(checkpoint.MustRetrieve) > 0 {
 		result.Recall = float64(matchedCount) / float64(len(checkpoint.MustRetrieve))
 	} else {
 		result.Recall = 1.0
 	}
-
-	totalRetrieved := len(retrievedFactIDs)
-
-	if totalRetrieved > 0 {
-		result.Precision = float64(matchedCount) / float64(totalRetrieved)
-	} else {
-		result.Precision = 0.0
+	if len(retrievedFactIDs) > 0 {
+		result.Precision = float64(matchedCount) / float64(len(retrievedFactIDs))
 	}
-
 	if result.Precision+result.Recall > 0 {
 		result.F1Score = 2 * (result.Precision * result.Recall) / (result.Precision + result.Recall)
 	}
 
-	// Check if metrics meet thresholds
 	if result.Recall < checkpoint.MinRecall {
-		result.Passed = false
-		result.FailureReason = fmt.Sprintf("Recall %.2f < required %.2f", result.Recall, checkpoint.MinRecall)
+		fail("Recall %.2f < required %.2f", result.Recall, checkpoint.MinRecall)
+	}
+	if result.Precision < checkpoint.MinPrecision {
+		fail("Precision %.2f < required %.2f", result.Precision, checkpoint.MinPrecision)
 	}
 
-	if result.Precision < checkpoint.MinPrecision {
-		result.Passed = false
-		if result.FailureReason != "" {
-			result.FailureReason += "; "
-		}
-		result.FailureReason += fmt.Sprintf("Precision %.2f < required %.2f", result.Precision, checkpoint.MinPrecision)
+	// The budget, measured with the production token counter the activation
+	// engine selects by.
+	usedTokens := internalcontext.NewTokenCounter().CountFacts(retrievedFacts)
+	if s.config.TokenBudget > 0 && usedTokens > s.config.TokenBudget {
+		s.metrics.RecordTokenBudgetViolation()
+		fail("retrieval used %d tokens of a %d-token budget", usedTokens, s.config.TokenBudget)
 	}
+
+	if av := checkpoint.ValidateActivation; av != nil {
+		for _, reason := range s.validateActivation(av, retrievedFacts) {
+			fail("%s", reason)
+		}
+	}
+	if cv := checkpoint.ValidateCompression; cv != nil {
+		for _, reason := range s.validateCompression(cv, usedTokens) {
+			fail("%s", reason)
+		}
+	}
+	if fv := checkpoint.ValidateFeedback; fv != nil {
+		for _, reason := range s.validateFeedback(fv, retrievedFacts) {
+			fail("%s", reason)
+		}
+	}
+	s.traceScoreImpact(checkpoint.AfterTurn, retrievedFacts)
 
 	return result
+}
+
+// validateActivation checks the component breakdown of every retrieved fact
+// the validation's pattern names. No match, or no breakdown, is a failure:
+// the validation did not happen.
+func (s *SessionSimulator) validateActivation(av *ActivationValidation, retrieved []core.Fact) []string {
+	pattern, err := regexp.Compile(av.FactPattern)
+	if err != nil {
+		return []string{fmt.Sprintf("activation validation: bad fact pattern %q: %v", av.FactPattern, err)}
+	}
+	var reasons []string
+	matched := 0
+	for _, fact := range retrieved {
+		if !pattern.MatchString(fact.String()) {
+			continue
+		}
+		matched++
+		if err := av.ValidateActivation(s.contextEngine.GetActivationBreakdown(fact)); err != nil {
+			reasons = append(reasons, fmt.Sprintf("activation of %s: %v", fact.String(), err))
+		}
+	}
+	if matched == 0 {
+		reasons = append(reasons, fmt.Sprintf("activation validation: no retrieved fact matches %q", av.FactPattern))
+	}
+	return reasons
+}
+
+// validateCompression checks what this harness can observe of compression:
+// the engine's compressed/original ratio and the retrieval's share of the
+// budget. Whether the Compressor fired, and what its summary said, are not
+// observable -- the engines estimate compression rather than run the
+// Compressor (TODO T-010) -- so a checkpoint that asks for them fails as
+// unverified instead of passing.
+func (s *SessionSimulator) validateCompression(cv *CompressionCheckpoint, usedTokens int) []string {
+	var reasons []string
+	if cv.ExpectTriggered {
+		reasons = append(reasons, "compression trigger not observable: the engine does not run the Compressor")
+	}
+	if len(cv.ValidateSummaryContains) > 0 {
+		reasons = append(reasons, "compression summary not observable: the engine produces no summary")
+	}
+	if cv.MinRatio > 0 {
+		original, compressed := s.contextEngine.GetCompressionStats()
+		ratio := 0.0
+		if compressed > 0 {
+			ratio = float64(original) / float64(compressed)
+		}
+		if ratio < cv.MinRatio {
+			reasons = append(reasons, fmt.Sprintf("compression ratio %.2f < required %.2f", ratio, cv.MinRatio))
+		}
+	}
+	if cv.MaxBudgetUtilization > 0 && s.config.TokenBudget > 0 {
+		if used := float64(usedTokens) / float64(s.config.TokenBudget); used > cv.MaxBudgetUtilization {
+			reasons = append(reasons, fmt.Sprintf("budget utilization %.2f > allowed %.2f", used, cv.MaxBudgetUtilization))
+		}
+	}
+	return reasons
+}
+
+// validateFeedback reads learned usefulness where it is observable: the
+// FeedbackBoost component of retrieved facts' breakdowns. The number of
+// feedback samples is not observable (the engine keeps no feedback store), so
+// a checkpoint that requires a sample count fails as unverified.
+func (s *SessionSimulator) validateFeedback(fv *FeedbackValidation, retrieved []core.Fact) []string {
+	var reasons []string
+	if fv.MinFeedbackSamples > 0 {
+		reasons = append(reasons, fmt.Sprintf("feedback sample count not observable: the engine keeps no feedback store (want >= %d)", fv.MinFeedbackSamples))
+	}
+	boost := func(predicate string) (float64, bool) {
+		best, found := 0.0, false
+		for _, fact := range retrieved {
+			if fact.Predicate != predicate {
+				continue
+			}
+			if b := s.contextEngine.GetActivationBreakdown(fact); b != nil {
+				if !found || b.FeedbackBoost > best {
+					best = b.FeedbackBoost
+				}
+				found = true
+			}
+		}
+		return best, found
+	}
+	for _, p := range fv.ExpectedHelpful {
+		b, ok := boost(p)
+		switch {
+		case !ok:
+			reasons = append(reasons, fmt.Sprintf("feedback: no scored %s fact retrieved", p))
+		case b < fv.MinHelpfulBoost:
+			reasons = append(reasons, fmt.Sprintf("feedback boost of helpful %s %.2f < %.2f", p, b, fv.MinHelpfulBoost))
+		}
+	}
+	for _, p := range fv.ExpectedNoise {
+		if b, ok := boost(p); ok && b > fv.MaxNoiseBoost {
+			reasons = append(reasons, fmt.Sprintf("feedback boost of noise %s %.2f > %.2f", p, b, fv.MaxNoiseBoost))
+		}
+	}
+	return reasons
+}
+
+// traceScoreImpact logs how learned feedback moved the retrieved facts'
+// activation scores, from their breakdowns.
+func (s *SessionSimulator) traceScoreImpact(turn int, retrieved []core.Fact) {
+	if s.feedbackTracer == nil {
+		return
+	}
+	var impacts []PredicateScoreImpact
+	for _, fact := range retrieved {
+		b := s.contextEngine.GetActivationBreakdown(fact)
+		if b == nil || b.FeedbackBoost == 0 {
+			continue
+		}
+		impacts = append(impacts, PredicateScoreImpact{
+			Predicate:   fact.Predicate,
+			BaseScore:   b.TotalScore - b.FeedbackBoost,
+			FeedbackMod: b.FeedbackBoost,
+			FinalScore:  b.TotalScore,
+			ScoreDelta:  b.FeedbackBoost,
+		})
+	}
+	s.feedbackTracer.TraceScoreImpact(turn, impacts)
 }
 
 // meetsExpectations checks if actual metrics meet expected thresholds.
@@ -623,26 +812,6 @@ func toSet(items []string) map[string]bool {
 		set[item] = true
 	}
 	return set
-}
-
-func setDifference(a, b map[string]bool) []string {
-	diff := make([]string, 0)
-	for item := range a {
-		if !b[item] {
-			diff = append(diff, item)
-		}
-	}
-	return diff
-}
-
-func setIntersection(a, b map[string]bool) []string {
-	intersection := make([]string, 0)
-	for item := range a {
-		if b[item] {
-			intersection = append(intersection, item)
-		}
-	}
-	return intersection
 }
 
 func setContains(set map[string]bool, item string) bool {

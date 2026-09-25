@@ -51,9 +51,25 @@ All items above are implemented in code and covered by tests in
 - **Singleton Guardian** — `internal/northstar/registry.go`
   (`AcquireGuardian`/`ReleaseGuardian`, refcounted per `.nerd` dir).
 - **Prompt atoms** — `internal/prompt/atoms/northstar/guardian_alignment.yaml`,
-  resolved by `internal/northstar/alignment_prompt.go`. northstar deliberately
+  mirrored by `internal/northstar/alignment_prompt.go`. northstar deliberately
   does not import `internal/prompt` (leaf package); a parity test fails if the
   two copies diverge by a byte.
+
+## Dead-code inventory — 2026-09-25 (lane B wave 3)
+
+- `TaskObserver` (`NewTaskObserver`, `OnTaskStart`, `OnTaskComplete`,
+  `OnError`): **removed**. Superseded by `BackgroundEventHandler`, which chat
+  delegation already feeds (`shards.EventTaskCompleted`).
+- `SetAlignmentAtomResolver`: **removed**. The JIT compiler makes the embedded
+  corpus authoritative for the guardian's atom IDs (embedded wins duplicates;
+  evolved atoms never shadow a built-in), and the parity test pins this
+  package's copy to it byte for byte, so a host resolver could only return the
+  same text. `AlignmentAtomIDs` moved to the parity tests, its only reader.
+- `GuardianRefCount`, `ResetGuardianRegistry`: **kept**. Test seams used by
+  tests in `internal/campaign`, `cmd/nerd` and `cmd/nerd/chat`, which cannot
+  reach an unexported registry.
+- The northstar store now enables foreign keys through
+  `sqlpragmas.EnableForeignKeys` and logs a failure it used to discard.
 
 ## Done (already in code — do not re-implement)
 

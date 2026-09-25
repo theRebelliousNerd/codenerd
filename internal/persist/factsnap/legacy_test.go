@@ -21,21 +21,21 @@ func TestLegacyJSONDirect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := LegacyJSON(path)
+	got, err := Read(path)
 	if err != nil {
-		t.Fatalf("LegacyJSON: %v", err)
+		t.Fatalf("Read: %v", err)
 	}
 	if len(got) != 2 || got[0].Predicate != "p1" || got[1].Predicate != "p2" {
-		t.Errorf("LegacyJSON round-trip mismatch: %+v", got)
+		t.Errorf("legacy JSON round-trip mismatch: %+v", got)
 	}
 
 	// Missing file and malformed JSON both return errors (not panics).
-	if _, err := LegacyJSON(filepath.Join(dir, "missing.json")); err == nil {
+	if _, err := Read(filepath.Join(dir, "missing.json")); err == nil {
 		t.Error("missing file should error")
 	}
 	bad := filepath.Join(dir, "bad.json")
 	_ = os.WriteFile(bad, []byte("{not json"), 0o644)
-	if _, err := LegacyJSON(bad); err == nil {
+	if _, err := Read(bad); err == nil {
 		t.Error("malformed JSON should error")
 	}
 }

@@ -230,8 +230,8 @@ type LearningStore interface {
 // Expansion policy (OPEN-QUESTIONS Q6, settled): a method is added here only
 // when at least TWO packages outside core need it, and only in the shape they
 // need — never mirrored from *core.VirtualStore for symmetry. Every method
-// added obliges each adapter (cmd/nerd/chat.sessionVirtualStoreAdapter,
-// cmd/nerd.campaignVirtualStoreAdapter, system.sessionVirtualStoreAdapter) to
+// added obliges each adapter (cmd/nerd.campaignVirtualStoreAdapter,
+// system.sessionVirtualStoreAdapter, and *core.VirtualStore itself) to
 // implement it, and an adapter that has nothing to return implements it as a
 // stub — which is how a single-consumer method becomes three silent nil paths.
 // A single consumer should type-assert the concrete store instead.

@@ -195,11 +195,6 @@ func AuditWithSession(sessionID string) *AuditLogger {
 	return &AuditLogger{sessionID: sessionID}
 }
 
-// WithShard creates an audit logger scoped to a shard
-func AuditWithShard(shardID string) *AuditLogger {
-	return &AuditLogger{shardID: shardID}
-}
-
 // WithContext creates a fully-scoped audit logger
 func AuditWithContext(sessionID, shardID string, category Category) *AuditLogger {
 	return &AuditLogger{

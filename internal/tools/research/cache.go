@@ -114,14 +114,6 @@ func (c *ResearchCache) Set(key, value, source string) {
 	c.disk.write(entry)
 }
 
-// Delete removes an entry from both tiers.
-func (c *ResearchCache) Delete(key string) {
-	c.mu.Lock()
-	delete(c.entries, key)
-	c.mu.Unlock()
-	c.disk.remove(key)
-}
-
 // Clear removes all entries from both tiers. Clearing memory alone would be a
 // lie: the next Get would restore the entry from disk.
 func (c *ResearchCache) Clear() {

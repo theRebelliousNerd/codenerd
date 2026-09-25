@@ -2,7 +2,6 @@ package research
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -234,13 +233,4 @@ func getTextContent(n *html.Node) string {
 	}
 	getText(n)
 	return strings.TrimSpace(sb.String())
-}
-
-// SearchResultsToJSON converts results to JSON for structured output.
-func SearchResultsToJSON(results []SearchResult) (string, error) {
-	data, err := json.MarshalIndent(results, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }

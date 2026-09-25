@@ -16,12 +16,11 @@ import (
 type MCPClientManager struct {
 	mu sync.RWMutex
 
-	servers   map[string]*MCPServerConnection
-	store     *MCPToolStore
-	analyzer  ToolAnalyzerInterface
-	config    map[string]MCPServerConfig
-	selection ToolSelectionConfig
-	facts     *FactEmitter
+	servers  map[string]*MCPServerConnection
+	store    *MCPToolStore
+	analyzer ToolAnalyzerInterface
+	config   map[string]MCPServerConfig
+	facts    *FactEmitter
 
 	// readiness tracks in-flight initial discovery so callers can wait for the
 	// catalog to exist instead of racing an empty store.
@@ -47,11 +46,10 @@ type ToolAnalyzerInterface interface {
 // NewMCPClientManager creates a new MCP client manager.
 func NewMCPClientManager(store *MCPToolStore, analyzer ToolAnalyzerInterface, config map[string]MCPServerConfig) *MCPClientManager {
 	return &MCPClientManager{
-		servers:   make(map[string]*MCPServerConnection),
-		store:     store,
-		analyzer:  analyzer,
-		config:    config,
-		selection: DefaultToolSelectionConfig(),
+		servers:  make(map[string]*MCPServerConnection),
+		store:    store,
+		analyzer: analyzer,
+		config:   config,
 	}
 }
 
@@ -69,13 +67,6 @@ func (m *MCPClientManager) factEmitter() *FactEmitter {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.facts
-}
-
-// SetToolSelectionConfig sets the tool selection configuration.
-func (m *MCPClientManager) SetToolSelectionConfig(config ToolSelectionConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.selection = config
 }
 
 // SetOnToolDiscovered sets the callback for when a new tool is discovered.

@@ -236,65 +236,6 @@ func (o *CampaignObserver) Close() error {
 // TASK OBSERVER (For Standard Task Execution)
 // =============================================================================
 
-// TaskObserver observes standard task execution (non-campaign).
-type TaskObserver struct {
-	guardian  *Guardian
-	sessionID string
-	mu        sync.Mutex
-}
-
-// NewTaskObserver creates a task observer for standard execution.
-func NewTaskObserver(guardian *Guardian, sessionID string) *TaskObserver {
-	return &TaskObserver{
-		guardian:  guardian,
-		sessionID: sessionID,
-	}
-}
-
-// OnTaskStart records the start of a task.
-func (t *TaskObserver) OnTaskStart(taskType, taskDesc string) {
-	// Lightweight - just log
-	logging.Get(logging.CategoryNorthstar).Debug("Task started: %s - %s", taskType, truncate(taskDesc, 50))
-}
-
-// OnTaskComplete records task completion and may trigger alignment check.
-func (t *TaskObserver) OnTaskComplete(ctx context.Context, taskType, taskDesc, result string, filePaths []string) (*AlignmentCheck, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	// Record observation
-	if err := t.guardian.ObserveTaskCompletion(t.sessionID, taskType, taskDesc, result); err != nil {
-		logging.Get(logging.CategoryNorthstar).Debug("Failed to record task observation: %v", err)
-	}
-
-	// Record file changes
-	for _, path := range filePaths {
-		if err := t.guardian.ObserveFileChange(t.sessionID, path, "modified"); err != nil {
-			logging.Get(logging.CategoryNorthstar).Debug("Failed to record task file change: %v", err)
-		}
-	}
-
-	// Delegate to guardian for periodic check logic
-	return t.guardian.OnTaskComplete(ctx, taskDesc)
-}
-
-// OnError records an error observation.
-func (t *TaskObserver) OnError(taskType, taskDesc, errorMsg string) {
-	obs := &Observation{
-		SessionID: t.sessionID,
-		Timestamp: time.Now(),
-		Type:      ObsPatternDetected,
-		Subject:   "error:" + taskType,
-		Content:   fmt.Sprintf("Error in %s: %s\nTask: %s", taskType, errorMsg, taskDesc),
-		Relevance: 0.7,
-		Tags:      []string{"error", taskType},
-	}
-
-	if err := t.guardian.store.RecordObservation(obs); err != nil {
-		logging.Get(logging.CategoryNorthstar).Debug("Failed to record error observation: %v", err)
-	}
-}
-
 // =============================================================================
 // BACKGROUND EVENT HANDLER (For BackgroundObserverManager Integration)
 // =============================================================================

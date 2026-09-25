@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"codenerd/internal/logging"
 	"strings"
 	"testing"
 )
@@ -62,12 +63,12 @@ func TestRedactSecrets_WhenPayloadCarriesCredentials_ShouldRemoveValues(t *testi
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := RedactSecrets(tc.in)
+			got := logging.RedactSecrets(tc.in)
 			if strings.Contains(got, tc.leaked) {
 				t.Errorf("secret survived redaction:\n in: %s\nout: %s", tc.in, got)
 			}
-			if !strings.Contains(got, redactionPlaceholder) {
-				t.Errorf("expected a %s marker, got %q", redactionPlaceholder, got)
+			if !strings.Contains(got, logging.RedactionPlaceholder) {
+				t.Errorf("expected a %s marker, got %q", logging.RedactionPlaceholder, got)
 			}
 			if tc.keepsub != "" && !strings.Contains(got, tc.keepsub) {
 				t.Errorf("redaction destroyed non-secret context %q: %s", tc.keepsub, got)
@@ -78,7 +79,7 @@ func TestRedactSecrets_WhenPayloadCarriesCredentials_ShouldRemoveValues(t *testi
 
 func TestRedactSecrets_WhenPayloadIsBenign_ShouldPassThrough(t *testing.T) {
 	in := `{"path":"internal/mcp/store.go","line":42,"status":"ok"}`
-	if got := RedactSecrets(in); got != in {
+	if got := logging.RedactSecrets(in); got != in {
 		t.Errorf("benign payload was altered:\n in: %s\nout: %s", in, got)
 	}
 }

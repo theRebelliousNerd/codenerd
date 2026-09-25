@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/northstar"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -174,6 +175,17 @@ func hardWrap(s string, width int) string {
 }
 
 // refreshErrorViewport updates the error viewport content with wrapped text.
+// presentError is what the error panel shows for a failed turn. A broker
+// refusal carries its own explanation (explainAdmissionError). Anything else is
+// classified with a category and remediation steps when the operator has
+// transparency on with verbose_errors set; otherwise it is shown as raised.
+func (m Model) presentError(err error) error {
+	if _, ok := broker.IsAdmissionError(err); ok {
+		return explainAdmissionError(err)
+	}
+	return m.transparencyMgr.ExplainError(err)
+}
+
 func (m *Model) refreshErrorViewport() {
 	if m.err == nil {
 		m.errorVP.SetContent("")

@@ -10,10 +10,11 @@ func TestFallbackSelectTiersAndOrdering(t *testing.T) {
 	c := NewJITToolCompiler(nil, nil, nil) // nil kernel forces the fallback path
 
 	tools := []*MCPTool{
-		{ToolID: "full", ShardAffinities: map[string]int{"coder": 100}}, // 100*7/10 = 70 -> Full
-		{ToolID: "cond", ShardAffinities: map[string]int{"coder": 60}},  // 60*7/10  = 42 -> Condensed
-		{ToolID: "min", ShardAffinities: map[string]int{"coder": 30}},   // 30*7/10  = 21 -> Minimal
-		{ToolID: "out", ShardAffinities: map[string]int{"coder": 10}},   // 10*7/10  = 7  -> excluded
+		// No vector scores: relevance is the logic score alone, as in the policy.
+		{ToolID: "full", ShardAffinities: map[string]int{"coder": 100}}, // 100 -> Full
+		{ToolID: "cond", ShardAffinities: map[string]int{"coder": 60}},  // 60  -> Condensed
+		{ToolID: "min", ShardAffinities: map[string]int{"coder": 30}},   // 30  -> Minimal
+		{ToolID: "out", ShardAffinities: map[string]int{"coder": 10}},   // 10  -> excluded
 	}
 	tcc := ToolCompilationContext{ShardType: "coder"}
 
@@ -53,7 +54,7 @@ func TestFallbackSelectStripsShardSlash(t *testing.T) {
 }
 
 func TestSSEResolveURL(t *testing.T) {
-	tr := NewSSETransport("http://example.com/api/", time.Second)
+	tr := NewSSETransportWithHeaders("http://example.com/api/", time.Second, nil)
 	cases := map[string]string{
 		"events":             "http://example.com/api/events",
 		"/abs":               "http://example.com/abs",

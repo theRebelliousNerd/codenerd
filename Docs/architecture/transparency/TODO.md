@@ -1,6 +1,6 @@
 # transparency — TODO
 
-> Last verified: 2026-08-16  
+> Last verified: 2026-09-25  
 > Prioritized backlog for `internal/transparency` and **required** consumer wiring.  
 > DOCS ONLY rebuild does not implement these.
 
@@ -31,6 +31,37 @@
 - [x] OTel bridge (optional) mapping categories → span events. **Resolved 2026-08-16 as keep-file-only:** see `Docs/architecture/logging/WIRING-AND-NOT-BUILT.md` ("Assumed by the design, not done by the code") — `internal/observability` has no OTel spans to bridge to (it is `runtime/trace` flight recording), `otel/sdk` is not a direct dependency, and machine-readable export already ships as `EventSink` plus the env-attached NDJSON sink. Revisit when a real `TracerProvider` is configured, at which point it is one `EventSink` implementation.
 - Needs design - Per-turn Glass Box export attached to campaign assault artifacts. **Primitive exists** (`NDJSONSink.OnlyTurn`); attaching it to assault artifacts requires `internal/campaign` to own the sink lifecycle. The primitives are all present: NewNDJSONFileSink creates parent directories and appends, NDJSONSink.OnlyTurn scopes a sink to one turn, and assault artifacts already live under .nerd/campaigns/<slug>/assault/. Three concrete blockers stand in the way, all of them design rather than typing: (1) GlassBoxEventBus has AddSink (event_bus.go:81) but NO RemoveSink, so a per-turn sink attached today would accumulate for the life of the process - a leak, not an export. (2) internal/campaign has no transparency dependency at all; nothing in that package imports internal/transparency, so the orchestrator cannot reach a bus. (3) The bus is constructed only in the TUI boot paths (cmd/nerd/chat/session_boot.go:553 and session_shared_boot.go:226). An assault launched from the CLI has no bus at all, so "attach a sink" is undefined on that path unless a bus is also constructed there. The design decision is who owns the bus reference across the two launch paths, and what the sink's lifetime is bound to. Note that an env-var opt-in already exists (attachEnvNDJSONSink, keyed on NDJSONEventEnvVar) and is the cheaper alternative worth weighing before adding campaign-owned lifecycle.
 - [x] Machine-checkable invariant tests that ToolEvent still flows when Glass Box disabled (`TestToolEventBus_WhenGlassBoxDisabled_ShouldStillDeliver`).
+
+## Dead-code inventory — 2026-09-25 (lane B wave 3)
+
+- `ClassifiedError.Error` / `Unwrap`: **wired**. `verbose_errors` was reported
+  by `/transparency status` and read by no error surface. The chat error panel
+  now shows `TransparencyManager.ExplainError(err)` — the classified error with
+  category and remediation when transparency is on and `verbose_errors` is set,
+  the raw error otherwise (`cmd/nerd/chat/model_helpers.go` `presentError`).
+  `TestErrorPanel_WhenVerboseErrorsOn_ShouldShowCategoryAndRemediation`.
+- Recovery steps named `/logs` and `/config set-model`, neither of which
+  exists; fixed, and mechanized as a standing rule:
+  `TestRecoverySteps_ShouldNameOnlyRegisteredCommands` (every slash command a
+  recovery step names is a registered chat command, and a named `/config`
+  subcommand is on its menu).
+- `NewBoundaryError`: **removed**; the one producer uses `NewSafetyError`, and
+  a literal `&BoundaryError{...}` says the same thing.
+- `ExplainSafetyAction`: **removed**. A substring heuristic ("-f" matches
+  "config") presented as a safety analysis contradicts
+  04-ARCHITECTURAL-PRINCIPLES: safety verdicts come from the constitution.
+- Explainer `SetMaxDepth`, `SetShowDetails`, `ExplainFact`,
+  `ExplainDecision`, `buildNarrative`, `QuickExplain`: **removed**; see
+  06-PUBLIC-API-AND-TYPES §6 for why each was redundant or wrong. `/why`
+  keeps `ExplainTrace`.
+- `SetProcessManager`, `SetProcessBus`, `ProcessManager`: **keep** — test
+  seams for the process-wide handles (`internal/core/transparency_deny_test.go`,
+  `process_test.go`); boot registers through `adoptProcess*`
+  (first-writer-wins), which RTA sees.
+- Per-turn Glass Box export (P3 "Needs design"): **declined again**, blockers
+  re-verified: `GlassBoxEventBus` still has `AddSink` and no `RemoveSink`,
+  `internal/campaign` still does not import transparency, and the bus is still
+  constructed only in the chat boot path (`session_shared_boot.go`).
 
 ## Done (living — do not re-open without evidence)
 

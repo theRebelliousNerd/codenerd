@@ -214,16 +214,16 @@ func TestGlobalRegistry(t *testing.T) {
 		},
 	}
 
-	if err := Register(tool); err != nil {
+	if err := Global().Register(tool); err != nil {
 		t.Fatalf("Register failed: %v", err)
 	}
 
-	got := Get("global_test")
+	got := Global().Get("global_test")
 	if got == nil {
 		t.Fatal("Get returned nil for globally registered tool")
 	}
 
-	result, err := Execute(context.Background(), "global_test", map[string]any{})
+	result, err := Global().Execute(context.Background(), "global_test", map[string]any{})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}

@@ -247,28 +247,33 @@ type ToolCompilationStats struct {
 	CacheHit      bool  `json:"cache_hit"`
 }
 
-// ToolSelectionConfig holds thresholds and weights for tool selection.
+// ToolSelectionConfig holds the Go selection path's render tiers and budget.
+//
+// Which tools are selected, and at what tier, is policy_mcp.mg's decision
+// (sections 50.6-50.8); the Go path in compiler.go is its fallback mirror for
+// when the kernel query fails. The logic/vector weights and the skeleton rule
+// therefore live in the policy, not here. This struct used to carry
+// LogicWeight, VectorWeight and SkeletonThreshold as well: nothing read them
+// (the fallback hardcoded 7/10 and 3/10, and skeleton membership is
+// mcp_tool_skeleton), and a knob that moved only the fallback would have made
+// the two paths disagree about the same tools. The tier thresholds that remain
+// mirror the policy's 70/40/20 and are pinned to it by
+// TestFallbackSelection_ShouldMirrorPolicyWeightsAndTiers.
 type ToolSelectionConfig struct {
-	SkeletonThreshold  int     `json:"skeleton_threshold"`  // Score for mandatory tools (default: 90)
-	FullThreshold      int     `json:"full_threshold"`      // Score for full render (default: 70)
-	CondensedThreshold int     `json:"condensed_threshold"` // Score for condensed render (default: 40)
-	MinimalThreshold   int     `json:"minimal_threshold"`   // Score for minimal render (default: 20)
-	LogicWeight        float64 `json:"logic_weight"`        // Weight for Mangle score (default: 0.7)
-	VectorWeight       float64 `json:"vector_weight"`       // Weight for vector score (default: 0.3)
-	MaxFullTools       int     `json:"max_full_tools"`      // Max tools with full schema (default: 10)
-	MaxCondensedTools  int     `json:"max_condensed_tools"` // Max tools with condensed info (default: 20)
-	TokenBudget        int     `json:"token_budget"`        // Token budget for tool descriptions (default: 4000)
+	FullThreshold      int `json:"full_threshold"`      // Score for full render (default: 70)
+	CondensedThreshold int `json:"condensed_threshold"` // Score for condensed render (default: 40)
+	MinimalThreshold   int `json:"minimal_threshold"`   // Score for minimal render (default: 20)
+	MaxFullTools       int `json:"max_full_tools"`      // Max tools with full schema (default: 10)
+	MaxCondensedTools  int `json:"max_condensed_tools"` // Max tools with condensed info (default: 20)
+	TokenBudget        int `json:"token_budget"`        // Token budget for tool descriptions (default: 4000)
 }
 
 // DefaultToolSelectionConfig returns sensible defaults for tool selection.
 func DefaultToolSelectionConfig() ToolSelectionConfig {
 	return ToolSelectionConfig{
-		SkeletonThreshold:  90,
 		FullThreshold:      70,
 		CondensedThreshold: 40,
 		MinimalThreshold:   20,
-		LogicWeight:        0.7,
-		VectorWeight:       0.3,
 		MaxFullTools:       10,
 		MaxCondensedTools:  20,
 		TokenBudget:        4000,
@@ -317,31 +322,6 @@ type MCPTransport interface {
 
 	// IsConnected returns current connection status.
 	IsConnected() bool
-}
-
-// ToolAvailableEntry represents an MCP tool entry in available_tools.json.
-type ToolAvailableEntry struct {
-	Name          string   `json:"name"`
-	DisplayName   string   `json:"display_name,omitzero"`
-	Category      string   `json:"category"`
-	Description   string   `json:"description,omitzero"`
-	Type          string   `json:"type"` // "mcp" for MCP tools, empty for static
-	MCPServer     string   `json:"mcp_server,omitzero"`
-	MCPTool       string   `json:"mcp_tool,omitzero"`
-	ShardAffinity string   `json:"shard_affinity,omitzero"`
-	AutoAnalyze   bool     `json:"auto_analyze,omitzero"`
-	Conditions    []string `json:"conditions,omitzero"`
-
-	// Static tool fields (non-MCP)
-	Command    string `json:"command,omitzero"`
-	WorkingDir string `json:"working_dir,omitzero"`
-	InputType  string `json:"input_type,omitzero"`
-	OutputType string `json:"output_type,omitzero"`
-}
-
-// IsMCPTool returns true if this is an MCP tool entry.
-func (t *ToolAvailableEntry) IsMCPTool() bool {
-	return t.Type == "mcp"
 }
 
 // ToolSchemaHash fingerprints the parts of a server-advertised tool schema that

@@ -1,8 +1,25 @@
 # TODO — observability
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-09-25 (lane B wave 3)  
 > Package: `internal/observability/`  
 > Scope: backlog for package + its host wiring (docs-only corpus; items are proposals)
+
+## Status 2026-09-25
+
+| ID | Status | Evidence |
+|----|--------|----------|
+| T0.1 | Closed | `internal/features/features.go` now names `/flightrec`, which exists |
+| T0.2 | Standing | panic dump is still main()'s defer only; see T1.3 |
+| T1.1 | Closed | chat `/flightrec` (`cmd/nerd/chat/diagnostics.go` `handleCmdFlightrec`) calls `DumpFlightRecord` and prints the path; `/status` reports `FlightRecorderEnabled` |
+| T1.2 | Already done | `cmd/nerd/main.go` passes `ws` (the `--workspace`-resolved root) to the panic dump |
+| T1.3 | Declined | a recovered chat panic is handled state; an operator who wants the ring runs `/flightrec` |
+| T2.1 | Declined | no reported need; 64 MiB / 30 s stay constants in main |
+| T2.2 | Closed (stop, not dump) | main defers `StopFlightRecorder` so the recorder and its watchdog stop on a normal return, ordered after the panic dump |
+| T3.1 | Closed | `DumpFlightRecord` keeps the newest `maxFlightTraces` (10) under `.nerd/traces/`; `TestDumpFlightRecord_WhenTracesAccumulate_ShouldKeepOnlyTheNewest` |
+| T3.2 | Already done | `flightDumpSeq` suffix on every dump name |
+| T3.3 | Closed via /status | the Diagnostics block is the mid-session surface |
+| T4.1 | Declined | a real panic dump test needs a subprocess harness; the lifecycle tests cover the dump path |
+| T4.2 | Open | no structured-field assertions on the dump log line |
 
 ## P0 — Trust / documentation correctness
 

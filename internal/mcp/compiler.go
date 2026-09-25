@@ -288,13 +288,19 @@ func (c *JITToolCompiler) fallbackSelect(tcc ToolCompilationContext, tools []*MC
 			st.logicScore = 0
 		}
 
-		// Vector score
+		// Combined score: the policy's mcp_tool_relevance, both rules. With a
+		// vector score it is the weighted sum in the policy's own integer
+		// arithmetic (each term floored before they are summed); without one it
+		// is the logic score alone. The fallback used to weight the logic score
+		// by 7/10 whether or not a vector score existed, and to floor the sum
+		// rather than the terms, so a tool with affinity 50 and no embedding was
+		// /condensed by the policy and /minimal here.
 		if score, ok := vectorScores[tool.ToolID]; ok {
 			st.vecScore = int(score * 100)
+			st.finalScore = st.logicScore*policyLogicWeightTenths/10 + st.vecScore*policyVectorWeightTenths/10
+		} else {
+			st.finalScore = st.logicScore
 		}
-
-		// Combined score (70% logic, 30% vector)
-		st.finalScore = (st.logicScore*7 + st.vecScore*3) / 10
 
 		scored = append(scored, st)
 	}
@@ -336,6 +342,15 @@ func (c *JITToolCompiler) fallbackSelect(tcc ToolCompilationContext, tools []*MC
 
 	return selected
 }
+
+// policyLogicWeightTenths and policyVectorWeightTenths are policy_mcp.mg's
+// mcp_tool_relevance weights (Logic * 7/10 + Vector * 3/10). The fallback
+// mirrors them; TestFallbackSelection_ShouldMirrorPolicyWeightsAndTiers reads
+// the policy and fails if the two drift.
+const (
+	policyLogicWeightTenths  = 7
+	policyVectorWeightTenths = 3
+)
 
 // usageAdjustment is the Go mirror of policy_mcp.mg 50.5: proven tools are
 // promoted, unreliable and consistently slow tools are demoted. Tools with too

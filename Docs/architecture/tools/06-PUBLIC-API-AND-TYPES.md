@@ -50,11 +50,15 @@
 
 ### Package-level global API
 
-- `Global() *Registry`  
-- `Register(*Tool) error`  
-- `MustRegisterGlobal(*Tool)`  
-- `Get(name) *Tool`  
-- `Execute(ctx, name, args) (*ToolResult, error)`
+- `Global() *Registry` — every operation on the process registry is a method
+  on this value (`Global().Register`, `.Get`, `.Execute`, `.SetAllowlist`,
+  `.SetWriteGuard`, `.SetFactSink`). The package-level spellings of those
+  (`Register`, `MustRegisterGlobal`, `Get`, `Execute`, `SetGlobalAllowlist`,
+  `SetGlobalWriteGuard`, `SetGlobalFactSink`) had no production caller and
+  were removed 2026-09-25.
+- `SetGlobalWorkspaceRoot(root)` — kept: the boot path sets containment on
+  the global registry with it (`internal/system/factory.go`).
+- `SwapGlobal(*Registry) (restore func())` — test seam.
 
 ---
 

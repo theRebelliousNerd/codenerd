@@ -24,33 +24,6 @@ func TestExplainerExplainTrace(t *testing.T) {
 	}
 }
 
-func TestExplainerExplainFact(t *testing.T) {
-	explainer := NewExplainer()
-	trace := buildTestTrace()
-
-	text := explainer.ExplainFact(trace, "next_action")
-	if !strings.Contains(text, "Why `next_action` holds") {
-		t.Fatalf("expected why header")
-	}
-}
-
-func TestExplainerExplainDecision(t *testing.T) {
-	explainer := NewExplainer()
-	trace := buildTestTrace()
-
-	text := explainer.ExplainDecision("run tests", trace)
-	if !strings.Contains(text, "Decision:") {
-		t.Fatalf("expected decision header")
-	}
-}
-
-func TestQuickExplain(t *testing.T) {
-	text := QuickExplain("next_action", []any{"/test"})
-	if !strings.Contains(text, "Next action will be") {
-		t.Fatalf("expected quick explain output")
-	}
-}
-
 func TestFormatOperationSummary(t *testing.T) {
 	summary := &OperationSummary{
 		Operation:     "Test Run",

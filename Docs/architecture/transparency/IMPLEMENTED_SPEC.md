@@ -17,7 +17,7 @@ It answers operator questions without becoming a second control plane:
 |----------|-----------|
 | What is the agent doing right now? | Glass Box events + Tool events + optional shard phase tracking |
 | Why did the kernel choose this action? | `Explainer` over `mangle.DerivationTrace` |
-| Why was something blocked? | `SafetyReporter` / `ExplainSafetyAction` |
+| Why was something blocked? | `SafetyReporter` / `ReportDeny` |
 | What went wrong and how do I fix it? | `ClassifyError` / `ClassifiedError.Format` |
 | Is deep visibility on? | `TransparencyManager.GetStatus` + `/transparency` |
 
@@ -72,9 +72,9 @@ Constitutional safety remains: **no `permitted` ⇒ deny**. Transparency only ex
 | TransparencyManager | **Implemented** | Enable/Disable/Toggle/Status/shard+safety façades |
 | ShardObserver + phases | **Implemented** | Under-fed from live shard spawn vs Glass Box |
 | SafetyReporter | **Implemented** | History + format; auto-feed partial |
-| ExplainSafetyAction | **Implemented** | Hypothetical risk analysis (string heuristics) |
+| ExplainSafetyAction | **Removed** 2026-09-25 | Keyword heuristic, no caller; verdicts come from the constitution |
 | Error classifier | **Implemented** | Pattern match on error text |
-| Explainer | **Implemented** | Trace/fact/decision/narrative/QuickExplain |
+| Explainer | **Implemented** | `ExplainTrace` behind `/why` (fact/decision/narrative/QuickExplain variants removed 2026-09-25, no caller) |
 | OperationSummary format | **Implemented** | Formatter only; producers optional |
 | GlassBoxEvent types | **Implemented** | 6 categories |
 | GlassBoxEventBus | **Implemented** | Batch 50ms/20, verbose immediate, filter, stats |
@@ -105,7 +105,7 @@ internal/transparency/
   doc.go                        # package overview + principles
   transparency.go               # TransparencyManager
   shard_observer.go             # phases + PhaseObserver
-  safety_reporter.go            # violations + ExplainSafetyAction
+  safety_reporter.go            # violations
   error_classifier.go           # ClassifiedError
   explainer.go                  # derivation narratives
   glass_box_events.go           # events, categories, ToolEventBus
@@ -136,6 +136,7 @@ Coordinates feature toggles and subcomponents:
 - Façades: `StartShard`, `UpdateShardPhase`, `EndShard`, `ReportSafetyViolation` check `IsEnabled()` and relevant flags.  
 - `GetStatus()` markdown table of feature flags + active executions + recent violations.  
 - `FormatError` always classifies; full remediation format only when enabled + `VerboseErrors`.
+- `ExplainError` is the surface form: the chat error panel shows a `*ClassifiedError` (unwraps to the cause) when enabled + `VerboseErrors`, the raw error otherwise.
 
 Does **not** construct or hold Glass Box / Tool buses.
 
@@ -161,7 +162,7 @@ State machine for shard execution visibility:
 - Heuristics on action/target/rule strings.  
 - Ring buffer max 50.  
 - `FormatViolation` markdown.  
-- `ExplainSafetyAction` for proactive `/safety`-style analysis (not kernel query).
+- (`ExplainSafetyAction` removed 2026-09-25; `/shadow` asks the kernel.)
 
 #### `error_classifier.go`
 
@@ -174,9 +175,8 @@ Categories: Safety, Config, API, Kernel, Shard, Filesystem, Network, Timeout, Un
 Depends on `mangle.DerivationTrace` / `DerivationNode` / `SourceEDB`:
 
 - Tree walk with `maxDepth` (default 5).  
-- Rule name → English map (strategy_selector, permission_gate, …).  
-- `ExplainDecision` prefers root `next_action`.  
-- `QuickExplain` one-liners for common predicates.  
+- Rule-head → English glossary (`ruleGlossary`, keyed by head predicate; audited against the corpus).  
+- `/why <predicate>` traces the predicate and renders it with `ExplainTrace`.  
 - `OperationSummary` + `FormatOperationSummary` for post-hoc ops.
 
 #### `glass_box_events.go`

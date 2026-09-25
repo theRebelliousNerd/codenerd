@@ -265,11 +265,25 @@ func (e *RealIntegrationEngine) GetCompressionStats() (originalTokens, compresse
 	return e.originalTokens, e.compressedTokens
 }
 
-// GetActivationBreakdown returns the 7-component scoring breakdown for a fact.
-func (e *RealIntegrationEngine) GetActivationBreakdown(factID string) *ActivationBreakdown {
+// GetActivationBreakdown returns the scoring breakdown the last retrieval
+// computed for fact.
+func (e *RealIntegrationEngine) GetActivationBreakdown(fact core.Fact) *ActivationBreakdown {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.factScores[factID]
+	return e.factScores[e.factID(fact)]
+}
+
+// SeedFacts asserts a scenario's world facts into the kernel and adds them to
+// the pool the activation engine scores, marked new like a turn's facts.
+func (e *RealIntegrationEngine) SeedFacts(facts []core.Fact) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.kernel.LoadFacts(facts); err != nil {
+		return fmt.Errorf("failed to load seed facts: %w", err)
+	}
+	e.activation.MarkNewFacts(facts)
+	e.allFacts = append(e.allFacts, facts...)
+	return nil
 }
 
 // SetCampaignContext sets the campaign context for campaign-aware activation.
@@ -310,14 +324,12 @@ func (e *RealIntegrationEngine) GetMode() EngineMode {
 	return RealMode
 }
 
-// factID creates a unique identifier for a fact.
+// factID keys a fact's activation breakdown. It is the whole fact: keying by
+// turn and predicate (or by predicate alone for a seeded fact) made two topics
+// of one turn, or two campaign_phase rows, share one breakdown -- whichever
+// was scored last.
 func (e *RealIntegrationEngine) factID(fact core.Fact) string {
-	if len(fact.Args) > 0 {
-		if turnID, ok := fact.Args[0].(int); ok {
-			return fmt.Sprintf("turn_%d_%s", turnID, fact.Predicate)
-		}
-	}
-	return fact.Predicate
+	return fact.String()
 }
 
 // LiveLLMResponse represents a response from the live LLM.

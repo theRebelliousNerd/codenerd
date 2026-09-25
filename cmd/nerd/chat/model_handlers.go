@@ -135,6 +135,8 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	m.recordUXMetric("commands_executed")
+
 	// Check for special commands
 	if strings.HasPrefix(input, "/") {
 		return m.handleCommand(input)

@@ -208,6 +208,10 @@ type UserConfig struct {
 	// retrieval pass's hand-off to the model with (retrieval.go).
 	Retrieval *RetrievalConfig `json:"retrieval,omitempty"`
 
+	// Usage is token metering: price overrides and the raw event log
+	// (usage.go).
+	Usage *UsageConfig `json:"usage,omitempty"`
+
 	// Delegation is the thresholds the kernel decides a chat delegation's
 	// attempts with (delegation.go).
 	Delegation *DelegationConfig `json:"delegation,omitempty"`
@@ -1558,6 +1562,7 @@ func DefaultUserConfig() *UserConfig {
 		Session:                      &sessionCfg,
 		Routing:                      &routingCfg,
 		Retrieval:                    &retrievalCfg,
+		Usage:                        &UsageConfig{},
 		Delegation:                   &delegationCfg,
 		Working:                      &workingCfg,
 		Logging:                      DefaultLoggingConfig(),

@@ -16,6 +16,8 @@
 //	internal/core        — virtual_store_actions.go
 //	internal/system      — factory_execution.go (tactile ExecutorConfig.BaseEnvironment)
 //	internal/campaign    — checkpoint.go, orchestrator_task_handlers.go (TestTagsForWorkspace, gate env)
+//	internal/tools/shell — verification.go (run_build / run_tests, via GoInvocation)
+//	internal/tools/codedom — run_impacted_tests.go (via GoInvocation)
 //
 // The historical list in this comment named preflight, attack_runner and tester,
 // none of which ever imported the package; that fiction is what the inventory
@@ -162,18 +164,6 @@ func GetBuildEnv(userCfg *config.UserConfig, workspaceRoot string) []string {
 
 	logging.BuildDebug("Final build environment (%d vars): %s", len(env), SummarizeEnv(env))
 	return env
-}
-
-// GetBuildEnvForModule builds the environment for a command whose working
-// directory is moduleDir, resolving the header-detection root separately.
-//
-// The two are not the same thing and conflating them is the monorepo CGO bug:
-// a caller sets cmd.Dir to a nested module and passes that same path as the
-// detection root, so the repo-root sqlite_headers is never found and the
-// compile dies on a missing sqlite3.h. Use this when cmd.Dir is a submodule;
-// use GetBuildEnv directly when you already hold the workspace root.
-func GetBuildEnvForModule(userCfg *config.UserConfig, moduleDir string) []string {
-	return GetBuildEnv(userCfg, DetectionRootFor(moduleDir))
 }
 
 // DetectionRootFor walks up from moduleDir to the directory whose headers a

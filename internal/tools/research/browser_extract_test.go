@@ -156,7 +156,7 @@ func TestBrowserExtractRedactionPreservedAfterBounding(t *testing.T) {
 
 func TestBrowserExtractUnknownSession(t *testing.T) {
 	mgr := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
-	SetBrowserManager(mgr)
+	SetBrowserRuntime(mgr, nil)
 	defer ClearBrowserManager(mgr)
 	if _, err := BrowserExtractTool().Execute(context.Background(), map[string]any{"session_id": "no-such-session"}); err == nil {
 		t.Fatal("expected error for unknown session")
@@ -169,7 +169,7 @@ func TestBrowserExtractLiveSuccess(t *testing.T) {
 	mgr := requireBrowserExtractLiveManager(t, ctx)
 	ts := serveBrowserExtractPage(t, `<html><body><h1 id="title">Hello Extract</h1><p>Some body text</p></body></html>`)
 	sessionID := createBrowserExtractSession(t, ctx, mgr, ts.URL)
-	SetBrowserManager(mgr)
+	SetBrowserRuntime(mgr, nil)
 	defer ClearBrowserManager(mgr)
 
 	out, err := BrowserExtractTool().Execute(ctx, map[string]any{"session_id": sessionID, "selector": "body"})
@@ -193,7 +193,7 @@ func TestBrowserExtractLiveMissingSelectorCancelsPromptly(t *testing.T) {
 	mgr := requireBrowserExtractLiveManager(t, ctx)
 	ts := serveBrowserExtractPage(t, `<html><body><h1>Present</h1></body></html>`)
 	sessionID := createBrowserExtractSession(t, ctx, mgr, ts.URL)
-	SetBrowserManager(mgr)
+	SetBrowserRuntime(mgr, nil)
 	defer ClearBrowserManager(mgr)
 
 	callCtx, callCancel := context.WithTimeout(ctx, 3*time.Second)
@@ -222,7 +222,7 @@ func TestBrowserExtractLiveBoundedTruncationAndRedaction(t *testing.T) {
 	html := `<html><body><div id="content">hello 🌟 password=live-secret-123 ` + longText + `</div></body></html>`
 	ts := serveBrowserExtractPage(t, html)
 	sessionID := createBrowserExtractSession(t, ctx, mgr, ts.URL)
-	SetBrowserManager(mgr)
+	SetBrowserRuntime(mgr, nil)
 	defer ClearBrowserManager(mgr)
 
 	out, err := BrowserExtractTool().Execute(ctx, map[string]any{"session_id": sessionID, "selector": "#content", "max_chars": 100})
@@ -249,7 +249,7 @@ func TestBrowserExtractLiveIncludeHTML(t *testing.T) {
 	mgr := requireBrowserExtractLiveManager(t, ctx)
 	ts := serveBrowserExtractPage(t, `<html><body><h1 id="title">HTML Title</h1></body></html>`)
 	sessionID := createBrowserExtractSession(t, ctx, mgr, ts.URL)
-	SetBrowserManager(mgr)
+	SetBrowserRuntime(mgr, nil)
 	defer ClearBrowserManager(mgr)
 
 	out, err := BrowserExtractTool().Execute(ctx, map[string]any{"session_id": sessionID, "selector": "#title", "include_html": true})
@@ -285,7 +285,7 @@ func TestBrowserExtractLiveLongParentStillBoundsMissingSelector(t *testing.T) {
 	mgr := requireBrowserExtractLiveManager(t, ctx)
 	ts := serveBrowserExtractPage(t, `<html><body>Present</body></html>`)
 	sessionID := createBrowserExtractSession(t, ctx, mgr, ts.URL)
-	SetBrowserManager(mgr)
+	SetBrowserRuntime(mgr, nil)
 	defer ClearBrowserManager(mgr)
 	start := time.Now()
 	_, err := BrowserExtractTool().Execute(ctx, map[string]any{"session_id": sessionID, "selector": "#absent"})

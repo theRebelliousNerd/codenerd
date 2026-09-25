@@ -9,7 +9,7 @@ import (
 func TestBrowserManagerBindingCompareAndClear(t *testing.T) {
 	first := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
 	second := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
-	SetBrowserManager(first)
+	SetBrowserRuntime(first, nil)
 
 	ClearBrowserManager(second)
 	if got := getBrowserManager(); got != first {
@@ -19,7 +19,7 @@ func TestBrowserManagerBindingCompareAndClear(t *testing.T) {
 	if got := getBrowserManager(); got == first || got == nil {
 		t.Fatal("clearing the active manager did not restore lazy standalone construction")
 	}
-	SetBrowserManager(nil)
+	SetBrowserRuntime(nil, nil)
 }
 
 func TestBrowserRuntimeBindingKeepsKernelPairedWithManager(t *testing.T) {
@@ -36,5 +36,5 @@ func TestBrowserRuntimeBindingKeepsKernelPairedWithManager(t *testing.T) {
 	if getBrowserKernel() != nil {
 		t.Fatal("clearing the owning manager retained a stale browser kernel")
 	}
-	SetBrowserManager(nil)
+	SetBrowserRuntime(nil, nil)
 }

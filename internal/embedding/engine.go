@@ -144,82 +144,8 @@ func NewEngine(cfg Config) (EmbeddingEngine, error) {
 }
 
 // =============================================================================
-// COSINE SIMILARITY UTILITY
+// INPUT AND RESPONSE VALIDATION
 // =============================================================================
-
-// FindTopK returns the indices of the top K most similar vectors to the query.
-// Uses cosine similarity.
-func FindTopK(query []float32, corpus [][]float32, k int) ([]SimilarityResult, error) {
-	timer := logging.StartTimer(logging.CategoryEmbedding, "FindTopK")
-	defer timer.Stop()
-
-	if k <= 0 {
-		k = 10
-	}
-
-	logging.EmbeddingDebug("FindTopK: searching for top %d results in corpus of %d vectors (query dim=%d)",
-		k, len(corpus), len(query))
-
-	results := make([]SimilarityResult, 0, len(corpus))
-	skippedCount := 0
-
-	for i, vec := range corpus {
-		similarity, err := CosineSimilarity(query, vec)
-		if err != nil {
-			skippedCount++
-			continue
-		}
-
-		results = append(results, SimilarityResult{
-			Index:      i,
-			Similarity: similarity,
-		})
-	}
-
-	if skippedCount > 0 {
-		logging.Get(logging.CategoryEmbedding).Warn("FindTopK: skipped %d vectors due to dimension mismatch", skippedCount)
-	}
-
-	// Sort by similarity descending
-	// Use simple bubble sort for small K
-	sortStart := time.Now()
-	for i := 0; i < len(results) && i < k; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Similarity > results[i].Similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-	logging.EmbeddingDebug("FindTopK: sorting completed in %v", time.Since(sortStart))
-
-	// Return top K
-	if len(results) > k {
-		results = results[:k]
-	}
-
-	logging.EmbeddingDebug("FindTopK: returning %d results (top similarity=%.4f, bottom similarity=%.4f)",
-		len(results),
-		func() float64 {
-			if len(results) > 0 {
-				return results[0].Similarity
-			}
-			return 0
-		}(),
-		func() float64 {
-			if len(results) > 0 {
-				return results[len(results)-1].Similarity
-			}
-			return 0
-		}())
-
-	return results, nil
-}
-
-// SimilarityResult represents a similarity search result.
-type SimilarityResult struct {
-	Index      int
-	Similarity float64
-}
 
 // ErrEmptyText is returned, before any provider call, for a text with nothing
 // to embed. Neither engine checked: Ollama answered an empty prompt with an

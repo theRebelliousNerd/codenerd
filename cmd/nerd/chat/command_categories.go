@@ -194,6 +194,13 @@ var CommandRegistry = []CommandInfo{
 		ShowInHelp:  true,
 	},
 	{
+		Name:        "/flightrec",
+		Description: "Dump the flight recorder's runtime trace window to .nerd/traces/",
+		Usage:       "/flightrec",
+		Category:    CategoryBasic,
+		ShowInHelp:  true,
+	},
+	{
 		Name:        "/reflection",
 		Description: "Show System 2 reflection recall status",
 		Usage:       "/reflection",

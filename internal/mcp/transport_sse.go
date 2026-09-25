@@ -38,11 +38,6 @@ type SSETransport struct {
 	headers map[string]string
 }
 
-// NewSSETransport creates a new SSE transport for MCP communication.
-func NewSSETransport(baseURL string, timeout time.Duration) *SSETransport {
-	return NewSSETransportWithHeaders(baseURL, timeout, nil)
-}
-
 // NewSSETransportWithHeaders creates an SSE transport that attaches static
 // headers to both the event stream request and every POST. Values are
 // environment-expanded, so tokens stay out of the workspace config.

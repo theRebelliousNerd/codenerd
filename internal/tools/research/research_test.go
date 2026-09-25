@@ -268,20 +268,6 @@ func TestResearchCache_Size(t *testing.T) {
 	}
 }
 
-func TestResearchCache_Delete(t *testing.T) {
-	t.Parallel()
-
-	cache := NewResearchCache(100, time.Hour)
-
-	cache.Set("key", "value", "source")
-	cache.Delete("key")
-
-	_, found := cache.Get("key")
-	if found {
-		t.Error("expected not found after Delete")
-	}
-}
-
 func TestResearchCache_Clear(t *testing.T) {
 	t.Parallel()
 
