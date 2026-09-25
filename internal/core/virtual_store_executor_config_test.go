@@ -80,6 +80,43 @@ func TestVirtualStoreAuditedExecutorEmitsExecutionFacts(t *testing.T) {
 	}
 }
 
+// An executed command's action result carries its execution receipt,
+// correlated by action ID; a denied action never reaches an executor and has
+// no receipt (tactile-effect-receipt-v1).
+func TestExecActionCarriesItsReceiptAndDeniedActionHasNone(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	vsCfg := DefaultVirtualStoreConfig()
+	vsCfg.WorkingDir = t.TempDir()
+	vs := NewVirtualStoreWithConfig(tactile.NewDirectExecutorWithConfig(tactile.DefaultExecutorConfig()), vsCfg)
+	vs.SetKernel(kernel)
+	vs.DisableBootGuard()
+
+	res, err := vs.handleExecCmd(context.Background(), ActionRequest{ActionID: "act-receipt", Type: ActionExecCmd, Target: "go version", SessionID: "sess-r"})
+	if err != nil {
+		t.Fatalf("handleExecCmd: %v", err)
+	}
+	receipt, ok := res.Metadata["execution_receipt"].(tactile.ExecutionReceipt)
+	if !ok {
+		t.Fatalf("exec result carries no execution receipt: %+v", res.Metadata)
+	}
+	if receipt.RequestID != "act-receipt" || receipt.SessionID != "sess-r" || receipt.Outcome != tactile.ReceiptOutcomeSuccess {
+		t.Fatalf("receipt = %+v", receipt)
+	}
+	if receipt.FactsEmitted == 0 || receipt.FactsRejected != 0 {
+		t.Fatalf("the kernel should have accepted the execution facts: %+v", receipt)
+	}
+
+	if _, err := vs.RouteActionResult(context.Background(), Fact{Predicate: "next_action", Args: []any{"act-denied", "/exec_cmd", "go version"}}); err == nil {
+		t.Fatal("an exec action with no permission was routed")
+	}
+	if _, ok := vs.auditLogger.Receipt("act-denied"); ok {
+		t.Fatal("a denied action has an execution receipt")
+	}
+}
+
 // Boot rollback builds a Cortex from a context whose store may not exist;
 // AuditedExecutor on a nil store is nil, not a panic.
 func TestVirtualStoreAuditedExecutorOnNilStore(t *testing.T) {

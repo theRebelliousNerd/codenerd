@@ -307,12 +307,15 @@ func (v *VirtualStore) initModernExecutor() {
 	// Create audit logger
 	v.auditLogger = tactile.NewAuditLogger()
 
-	// Wire audit events to emit facts to kernel
-	v.auditLogger.SetFactCallback(func(fact tactile.Fact) {
-		if err := v.injectTactileFact(fact); err != nil {
+	// Wire audit events to emit facts to kernel. A rejected fact is counted on
+	// the execution's receipt (FactsRejected) as well as logged.
+	v.auditLogger.SetFactSink(func(fact tactile.Fact) error {
+		err := v.injectTactileFact(fact)
+		if err != nil {
 			logging.Get(logging.CategoryVirtualStore).Error(
 				"Failed to inject tactile fact %s: %v", fact.Predicate, err)
 		}
+		return err
 	})
 
 	// Connect audit logger to executor

@@ -224,6 +224,24 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 	}, nil
 }
 
+// attachExecutionReceipt puts the execution's receipt (tactile.ExecutionReceipt:
+// backend, effective limits, outcome, truncation, output digests and redacted
+// previews, facts accepted/rejected) on the action result, correlated by the
+// action ID the command carried as its request ID.
+func (v *VirtualStore) attachExecutionReceipt(result *ActionResult, requestID string) {
+	v.mu.RLock()
+	logger := v.auditLogger
+	v.mu.RUnlock()
+	receipt, ok := logger.Receipt(requestID)
+	if !ok {
+		return
+	}
+	if result.Metadata == nil {
+		result.Metadata = map[string]any{}
+	}
+	result.Metadata["execution_receipt"] = receipt
+}
+
 // handleExecCmdModern executes using the new tactile.Executor with auto-audit.
 func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, args []string, timeout int, sessionID, requestID string) (ActionResult, error) {
 	if err := validateDirectShellEffect("exec", commandForExecGate(binary, args, "")); err != nil {
@@ -244,10 +262,12 @@ func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, a
 	result, err := v.modernExecutor.Execute(ctx, cmd)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Modern executor error: %s - %v", binary, err)
-		return ActionResult{
+		failed := ActionResult{
 			Success: false,
 			Error:   err.Error(),
-		}, nil
+		}
+		v.attachExecutionReceipt(&failed, requestID)
+		return failed, nil
 	}
 
 	actionResult := ActionResult{
@@ -260,6 +280,7 @@ func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, a
 			"sandbox_used": string(result.SandboxUsed),
 		},
 	}
+	v.attachExecutionReceipt(&actionResult, requestID)
 
 	if !actionResult.Success {
 		actionResult.Error = result.Error
