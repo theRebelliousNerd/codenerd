@@ -14,21 +14,21 @@ import (
 // gates measured and reads back what the kernel decided. It decides nothing
 // itself.
 //
-// It also bounds what a forever run leaves in the kernel. The stall rule
-// compares two failed attempts with one signature and no kept change to the
-// node since the first; so per finding and signature only the first and the
-// latest attempt since the node last changed can matter, and a kept change
-// retires every attempt on its node before it. Nothing else is kept.
+// It also bounds what a forever run leaves in the kernel. A finding stalls
+// when its last two attempts ended the same way with no kept change to its
+// node since; so per finding only the previous and the latest attempt can
+// matter, and a kept change retires every attempt on its node. Nothing else
+// is kept, however many passes the loop runs.
 type recursePolicy struct {
 	k core.Kernel
 
-	pairs  map[string]*attemptPair    // finding + signature -> its first and latest attempt
-	byNode map[string]map[string]bool // node -> the pair keys on it
+	pairs  map[string]*attemptPair    // finding -> its previous and latest attempt
+	byNode map[string]map[string]bool // node -> the findings attempted on it
 	kept   map[string]core.Fact       // node -> its latest recurse_node_kept
 }
 
 type attemptPair struct {
-	first, latest *core.Fact
+	previous, latest *core.Fact
 }
 
 // Ratchet verdicts (recurse_ratchet/2).
@@ -113,22 +113,21 @@ func (p *recursePolicy) attempt(findingID, node string, cycle int, outcome, sign
 	if p.pairs == nil {
 		p.pairs, p.byNode = map[string]*attemptPair{}, map[string]map[string]bool{}
 	}
-	key := findingID + "\x00" + signature
+	key := findingID
 	pair := p.pairs[key]
 	var retract []core.Fact
-	switch {
-	case pair == nil:
-		p.pairs[key] = &attemptPair{first: &f}
+	if pair == nil {
+		pair = &attemptPair{}
+		p.pairs[key] = pair
 		if p.byNode[node] == nil {
 			p.byNode[node] = map[string]bool{}
 		}
 		p.byNode[node][key] = true
-	case pair.latest == nil:
-		pair.latest = &f
-	default:
-		retract = append(retract, *pair.latest)
-		pair.latest = &f
 	}
+	if pair.previous != nil {
+		retract = append(retract, *pair.previous)
+	}
+	pair.previous, pair.latest = pair.latest, &f
 	if len(retract) > 0 {
 		if err := p.k.RetractExactFactsBatch(retract); err != nil {
 			return fmt.Errorf("recurse: retire attempt: %w", err)
@@ -149,9 +148,10 @@ func (p *recursePolicy) nodeKept(node string, cycle int) error {
 	}
 	for key := range p.byNode[node] {
 		if pair := p.pairs[key]; pair != nil {
-			retract = append(retract, *pair.first)
-			if pair.latest != nil {
-				retract = append(retract, *pair.latest)
+			for _, f := range []*core.Fact{pair.previous, pair.latest} {
+				if f != nil {
+					retract = append(retract, *f)
+				}
 			}
 			delete(p.pairs, key)
 		}
@@ -281,6 +281,22 @@ func (p *recursePolicy) ratchet(in ratchetInput) (string, error) {
 		return "", fmt.Errorf("recurse: the kernel derived %d ratchet verdicts for cycle %d (%v); the policy must decide one", len(verdicts), in.Cycle, verdicts)
 	}
 	return verdicts[0], nil
+}
+
+// ratchetInputs are the predicates one cycle's judgment is asserted as.
+var ratchetInputs = map[string]struct{}{
+	"recurse_ratchet_changed": {}, "recurse_ratchet_target": {}, "recurse_ratchet_gate": {},
+	"recurse_ratchet_forbidden": {}, "recurse_improve": {}, "recurse_metric": {},
+}
+
+// endCycle retires a judged cycle's inputs. Its verdict is in the journal and
+// its outcome in recurse_attempt; left in the kernel, every cycle's gate
+// verdicts and metrics would accumulate for as long as the loop runs.
+func (p *recursePolicy) endCycle() error {
+	if err := p.k.RemoveFactsByPredicateSet(ratchetInputs); err != nil {
+		return fmt.Errorf("recurse: retire cycle facts: %w", err)
+	}
+	return nil
 }
 
 // worseGates returns the gates the kernel judged worse after cycle's attempt.

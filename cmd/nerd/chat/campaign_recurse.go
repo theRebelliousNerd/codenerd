@@ -182,6 +182,11 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 			Execute: func(ctx context.Context, a campaign.RecurseAttempt) error {
 				camp := campaign.RecurseAttemptCampaign(m.workspace, a)
 				camp.ContextBudget = cfg.ContextBudget
+				defer func() {
+					if err := campaign.ReleaseRecurseAttempt(m.workspace, m.kernel, camp); err != nil {
+						fmt.Fprintf(out, "recurse: %v\n", err)
+					}
+				}()
 				progress := make(chan campaign.Progress, 100)
 				events := make(chan campaign.OrchestratorEvent, 200)
 				done := make(chan struct{})

@@ -2,9 +2,12 @@ package campaign
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"codenerd/internal/core"
 
 	"github.com/google/uuid"
 )
@@ -142,4 +145,35 @@ func recurseImproveTask(a RecurseAttempt, scope string) string {
 		fmt.Fprintf(&b, "\nNorth star:\n%s\n", a.NorthStar)
 	}
 	return b.String()
+}
+
+// ReleaseRecurseAttempt drops what an attempt's campaign left behind once it
+// has run: its facts in the kernel and its files under
+// .nerd/campaigns (the snapshot, its journal, its knowledge base). The recurse
+// journal and the git history are the record of an attempt; a forever loop
+// that also kept every attempt's campaign would grow without bound.
+func ReleaseRecurseAttempt(workspace string, kernel core.Kernel, c *Campaign) error {
+	if c == nil {
+		return nil
+	}
+	var firstErr error
+	if kernel != nil {
+		if err := retractCampaignFacts(kernel, c); err != nil {
+			firstErr = fmt.Errorf("recurse: retract attempt campaign facts: %w", err)
+		}
+	}
+	slug := sanitizeCampaignID(c.ID)
+	if slug == "" {
+		return firstErr
+	}
+	matches, err := filepath.Glob(filepath.Join(workspace, ".nerd", "campaigns", slug+"*"))
+	if err != nil && firstErr == nil {
+		firstErr = err
+	}
+	for _, m := range matches {
+		if err := os.RemoveAll(m); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("recurse: remove %s: %w", m, err)
+		}
+	}
+	return firstErr
 }

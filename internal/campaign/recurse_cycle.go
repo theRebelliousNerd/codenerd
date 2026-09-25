@@ -752,6 +752,9 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	default:
 		return fmt.Errorf("recurse: unknown ratchet verdict %q", verdict)
 	}
+	if err := r.policy.endCycle(); err != nil {
+		return err
+	}
 	switch {
 	case spec.finding != nil:
 		err = r.policy.attempt(findingID, node.ID, cycle, rec.Outcome, rec.Signature)

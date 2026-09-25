@@ -106,10 +106,11 @@ recurse_finding_rank(ID, 3) :-
     R > 3.
 
 # A stalled finding is one the loop has shown it cannot fix as things stand:
-# two failed attempts that ended the same way, with no kept change to its node
-# since the first of them. It is not a counter -- a third try that fails
+# its last two attempts failed the same way, with no kept change to its node
+# since the first of them. It is not a counter -- an attempt that fails
 # differently is new evidence, and a kept change to the node lifts the stall,
-# because the finding may be fixable now.
+# because the finding may be fixable now. (The loop keeps only a finding's
+# last two attempts in the kernel, which is what makes "two" "the last two".)
 recurse_attempt_failed(/reverted).
 recurse_attempt_failed(/unverified).
 

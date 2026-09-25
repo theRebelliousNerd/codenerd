@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -209,9 +210,8 @@ func TestRecursePolicy_ImprovementKeptOnlyOnAMeasuredMove(t *testing.T) {
 	}
 }
 
-// A forever run leaves a bounded number of attempt facts: per finding and
-// signature the first and the latest, and none from before the node's last
-// kept change. Refusals stay.
+// A forever run leaves a bounded number of attempt facts: per finding its last
+// two, and none from before the node's last kept change. Refusals stay.
 func TestRecursePolicy_AttemptMemoryIsBounded(t *testing.T) {
 	p := newRecursePolicy(t)
 	count := func() int {
@@ -222,12 +222,22 @@ func TestRecursePolicy_AttemptMemoryIsBounded(t *testing.T) {
 		return len(rows)
 	}
 	for c := 1; c <= 200; c++ {
+		// Every attempt fails differently: new evidence each time, so no
+		// stall -- and still only the last two are kept.
+		if err := p.attempt("g", "store", c, outcomeReverted, fmt.Sprintf("failure %d-%c", c, 'a'+c%26)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if stalled, _ := p.stalled(); slices.Contains(stalled, "g") {
+		t.Fatalf("failures that differ are not a stall: %v", stalled)
+	}
+	for c := 201; c <= 400; c++ {
 		if err := p.attempt("f", "store", c, outcomeReverted, "same failure"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := count(); got != 2 {
-		t.Fatalf("200 identical failures leave %d attempt facts, want 2", got)
+	if got := count(); got != 4 {
+		t.Fatalf("400 failures over two findings leave %d attempt facts, want 4", got)
 	}
 	if stalled, _ := p.stalled(); !slices.Contains(stalled, "f") {
 		t.Fatalf("pruning must not lose the stall: %v", stalled)

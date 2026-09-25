@@ -190,6 +190,11 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	execute := func(ctx context.Context, a campaign.RecurseAttempt) error {
 		camp := campaign.RecurseAttemptCampaign(cwd, a)
 		camp.ContextBudget = cfg.ContextBudget
+		defer func() {
+			if err := campaign.ReleaseRecurseAttempt(cwd, kernel, camp); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "recurse: %v\n", err)
+			}
+		}()
 		attemptCfg := recurseAttemptConfig(orchCfg, attempts, func() *northstar.CampaignObserver { return campaignNorthstarObserver(cortex, cwd) })
 		attempts++
 		return executeCampaignPlan(ctx, cmd, attemptCfg, promptProvider, camp)
