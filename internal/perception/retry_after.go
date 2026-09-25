@@ -55,7 +55,7 @@ const retryAfterCap = 60 * time.Second
 // "Retry-After: 0" and a past date mean retry now (zero wait); a missing or
 // unparseable header falls back to backoff; a large delta or far date is capped.
 func retryDelay(resp *http.Response, attempt int) time.Duration {
-	backoff := time.Duration(1<<uint(attempt)) * time.Second
+	backoff := llmRetryBackoff(attempt + 1)
 	d, ok := retryAfterHeader(resp)
 	if !ok {
 		return backoff

@@ -310,7 +310,7 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 	// sibling tool-loop path retried the same failure. The retry decision
 	// uses only the status code — never the body — so the sanitized-error
 	// posture below is unchanged: vendor text still never reaches an error.
-	const maxRetries = 3
+	maxRetries := llmMaxRetries()
 	var (
 		body    []byte
 		lastErr error
