@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"codenerd/internal/config"
 )
@@ -20,8 +19,9 @@ func TestCodexCLIClient_RunHealthProbe_Success(t *testing.T) {
 	skillEnabled := false
 	client := NewCodexCLIClient(&config.CodexCLIConfig{SkillEnabled: &skillEnabled})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// The test's own context, not a wall clock: a fake CLI's startup on a
+	// loaded Windows runner took 5.8s, and a 5s bound failed it as exec_failed.
+	ctx := t.Context()
 
 	result, err := client.RunHealthProbe(ctx)
 	if err != nil {
@@ -47,8 +47,7 @@ func TestCodexCLIClient_RunHealthProbe_SkillMissingAfterSuccessfulExec(t *testin
 	client.skillName = config.DefaultCodexExecSkillName
 	client.skillPath = filepath.Join(t.TempDir(), ".agents", "skills", client.skillName, "SKILL.md")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := t.Context()
 
 	result, err := client.RunHealthProbe(ctx)
 	if err == nil {
@@ -71,8 +70,7 @@ func TestCodexCLIClient_RunHealthProbe_RateLimited(t *testing.T) {
 	skillEnabled := false
 	client := NewCodexCLIClient(&config.CodexCLIConfig{SkillEnabled: &skillEnabled})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := t.Context()
 
 	result, err := client.RunHealthProbe(ctx)
 	if err == nil {
