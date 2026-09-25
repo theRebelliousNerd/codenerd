@@ -80,8 +80,12 @@ another, worse way. Deleting them is a maintainer call; they are listed in
   persists or exports them. Declined: no consumer wants them.
 - `Emit`'s error is ignored at both call sites in `cmd/nerd/cmd_instruction.go`
   (`:96`, `:370`). `json.Marshal` fails only on a non-finite
-  `IntentClassification.Confidence`; if it did, `nerd run` would print nothing.
-  Open: noted, not changed in this pass.
+  `IntentClassification.Confidence`, and the LLM transducer clamps NaN and
+  out-of-range confidence before it reaches an intent
+  (`internal/perception/transducer_llm.go:417`), so the failure is not
+  reachable from `nerd run` today. A new perception path that skips the clamp
+  would make `nerd run` print nothing; checking the error at the call site is
+  the cheap guard if that changes.
 
 ## Closed in this pass (2026-09-25)
 
