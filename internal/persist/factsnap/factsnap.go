@@ -14,8 +14,8 @@
 //
 // Both formats are auto-detected on Read from the path suffix, falling back to
 // a container magic-byte sniff when the suffix was lost (renamed, copied
-// through a tool that strips extensions). Legacy JSON snapshots (".json") can
-// be loaded via the LegacyJSON helper for migration paths.
+// through a tool that strips extensions). Legacy JSON snapshots (".json") are
+// read by the same Read, as a JSON []types.Fact.
 //
 // Every write also emits a `<path>.sha256` sidecar in sha256sum(1) format.
 // Read verifies it when present, so a snapshot truncated by a full disk or
@@ -96,28 +96,12 @@ const (
 	CodecZstd
 )
 
-// Write serialises facts to path using SimpleColumn + gzip. The path should
-// end in ExtGzip (".sc.gz"); if it does not, the extension is appended.
-func Write(path string, facts []types.Fact) error {
-	return WriteCodec(path, facts, CodecGzip)
-}
-
-// WriteCodec serialises facts to path using the requested codec. If the path
-// suffix does not match the codec the canonical suffix is appended.
-func WriteCodec(path string, facts []types.Fact, codec Codec) error {
-	return WriteOptions(path, facts, Options{Codec: codec})
-}
-
-// WriteOptions serialises facts to path under opts and returns nothing but the
-// error; use CanonicalPath if you need the resulting filename.
-func WriteOptions(path string, facts []types.Fact, opts Options) error {
-	_, err := writeSnapshot(path, facts, opts)
-	return err
-}
-
-// WritePath is WriteOptions but returns the file it actually wrote, which is
-// path plus the codec's canonical suffix. Callers that report a location to an
-// operator should use this rather than re-deriving the name.
+// WritePath serialises facts to path under opts and returns the file it
+// actually wrote, which is path plus the codec's canonical suffix. It is the
+// one writer: callers that report a location to an operator use the returned
+// name rather than re-deriving it. (Write, WriteCodec and WriteOptions were
+// convenience spellings of this with no production caller; they live in the
+// package's tests now.)
 func WritePath(path string, facts []types.Fact, opts Options) (string, error) {
 	return writeSnapshot(path, facts, opts)
 }
@@ -295,8 +279,7 @@ func CodecName(c Codec) string {
 // Read loads facts from path, detecting the codec from the file suffix and,
 // when the suffix is absent or lies, from the container's magic bytes. If a
 // `<path>.sha256` sidecar exists the bytes are verified against it first.
-// Legacy ".json" snapshots are tolerated via LegacyJSON-compatible decoding
-// when the slice was encoded with types.Fact's JSON shape.
+// Legacy ".json" snapshots are decoded as a JSON []types.Fact.
 func Read(path string) ([]types.Fact, error) {
 	start := time.Now()
 	data, err := os.ReadFile(path)
@@ -404,26 +387,6 @@ func sniffCodec(data []byte) (Codec, bool) {
 	default:
 		return CodecAuto, false
 	}
-}
-
-// LegacyJSON loads facts from a JSON snapshot regardless of extension. This is
-// a migration helper for code paths that still emit JSON.
-func LegacyJSON(path string) ([]types.Fact, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("factsnap: legacy read %s: %w", path, err)
-	}
-	var facts []types.Fact
-	if err := json.Unmarshal(data, &facts); err != nil {
-		return nil, fmt.Errorf("factsnap: legacy json decode %s: %w", path, err)
-	}
-	return facts, nil
-}
-
-// CanonicalPath returns path rewritten with the canonical extension for codec.
-// Useful when a caller has a logical name and wants to know the on-disk file.
-func CanonicalPath(path string, codec Codec) string {
-	return ensureExt(path, codec)
 }
 
 func ensureExt(path string, codec Codec) string {

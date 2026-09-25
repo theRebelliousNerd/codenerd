@@ -16,6 +16,7 @@
 package snapshot
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -153,6 +154,27 @@ func Import(root, ref string) ([]types.Fact, string, error) {
 		return nil, path, err
 	}
 	return facts, path, nil
+}
+
+// ErrNoSidecar is returned by Verify for a snapshot written without a .sha256
+// sidecar: there is nothing to check it against.
+var ErrNoSidecar = errors.New("snapshot: no .sha256 sidecar to verify against")
+
+// Verify resolves ref and checks its bytes against its .sha256 sidecar without
+// decoding the snapshot -- the check an operator runs on a file that has been
+// copied between machines or attached to a report. factsnap.Read verifies too,
+// but only as a step of importing; a verify that needs a full decode cannot be
+// run on a snapshot too large to load. A snapshot with no sidecar is reported
+// as ErrNoSidecar rather than as verified: silence is not a pass.
+func Verify(root, ref string) (string, error) {
+	path, err := Resolve(root, ref)
+	if err != nil {
+		return "", err
+	}
+	if !factsnap.HasSidecar(path) {
+		return path, fmt.Errorf("%w: %s", ErrNoSidecar, path)
+	}
+	return path, factsnap.Verify(path)
 }
 
 // List enumerates snapshots newest-first. A missing directory is not an error:
