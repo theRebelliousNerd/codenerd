@@ -109,17 +109,20 @@ func TestRestore_AWriteItCouldNotUndoStaysWritten(t *testing.T) {
 
 // The test baseline puts each written file back as it was: an empty file that
 // existed is an empty file in the baseline, not a deleted one; a created file
-// is absent; an unknown preimage has no baseline at all.
+// is absent; an unknown preimage has no baseline at all. Each is keyed by the
+// file as the go command spells it (goOverlayKey), which under a linked temp
+// directory is not the spelling t.TempDir returned.
 func TestWriteOverlayFiles_ThreePreimages(t *testing.T) {
 	ws, tmp := t.TempDir(), t.TempDir()
 	replace, err := writeOverlayFiles(tmp, ws, map[string]PreImage{"empty.go": existed(""), "created.go": {}})
 	if err != nil {
 		t.Fatalf("writeOverlayFiles: %v", err)
 	}
-	if got := replace[filepath.Join(ws, "created.go")]; got != "" {
-		t.Errorf("created file maps to %q, want \"\" (absent in the baseline)", got)
+	created, ok := replace[goOverlayKey(ws, "created.go")]
+	if !ok || created != "" {
+		t.Errorf("created file maps to %q (present %v), want \"\" (absent in the baseline)", created, ok)
 	}
-	emptyOverlay := replace[filepath.Join(ws, "empty.go")]
+	emptyOverlay := replace[goOverlayKey(ws, "empty.go")]
 	if emptyOverlay == "" {
 		t.Fatal("an existing empty file is deleted in the baseline, want it restored empty")
 	}

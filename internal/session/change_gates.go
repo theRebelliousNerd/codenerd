@@ -99,6 +99,10 @@ func newVetFindings(now, before []vetDiagnostic) []string {
 // a vet run that failed without naming a finding.
 func verifyVet(ctx context.Context, workspace string, written []string, preWrite map[string]PreImage) BuildVerification {
 	start := time.Now()
+	// Vet prints paths relative to where it ran, or absolute in its own
+	// spelling of the workspace; keyed against any other spelling, a finding
+	// and its pre-turn twin are two different files (go_paths.go).
+	workspace = goWorkspace(workspace)
 	runnable, _ := splitTagGatedPackages(workspace, packagesForPaths(written))
 	if len(runnable) == 0 {
 		return BuildVerification{Outcome: VerifySkipped, Reason: "no untagged Go package written", Duration: time.Since(start)}
@@ -142,6 +146,7 @@ func verifyVet(ctx context.Context, workspace string, written []string, preWrite
 // keyed as the post-turn run's are. ok is false, with the reason, when there
 // is no baseline to compare with.
 func vetBaseline(ctx context.Context, workspace string, packages []string, preWrite map[string]PreImage) (findings []vetDiagnostic, ok bool, why string) {
+	workspace = goWorkspace(workspace)
 	if len(preWrite) == 0 {
 		return nil, false, "no record of the written files before the turn"
 	}
@@ -152,8 +157,13 @@ func vetBaseline(ctx context.Context, workspace string, packages []string, preWr
 	defer os.RemoveAll(tmpDir)
 	standsFor := make(map[string]string, len(replace))
 	for abs, tmp := range replace {
-		if tmp != "" {
-			standsFor[overlayKey(tmp)] = abs
+		if tmp == "" {
+			continue
+		}
+		// The stand-in lives under the temp directory, itself often reached
+		// through a link (macOS's /var): vet may print either name for it.
+		for _, name := range pathSpellings(tmp) {
+			standsFor[overlayKey(name)] = abs
 		}
 	}
 	resolve := func(printed string) string {

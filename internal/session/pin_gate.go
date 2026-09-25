@@ -532,6 +532,7 @@ func conditionsFor(workspace string, result *ExecutionResult) []pinUnit {
 // re-measures without it, because nothing reads the answer.
 func verifyPinning(ctx context.Context, workspace string, result *ExecutionResult, withConditions bool) BuildVerification {
 	start := time.Now()
+	workspace = goWorkspace(workspace)
 	units := pinUnits(workspace, result.WrittenPaths, result.PreWriteContents)
 	if len(units) == 0 {
 		return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Reason: "the turn changed no function", Duration: time.Since(start)}
@@ -628,7 +629,8 @@ func runPinUnit(ctx context.Context, workspace string, u pinUnit, runArg string,
 		return "unmeasured", err.Error()
 	}
 	defer os.RemoveAll(tmpDir)
-	abs := diskPath(workspace, filepath.FromSlash(u.path))
+	workspace = goWorkspace(workspace)
+	abs := goOverlayKey(workspace, u.path)
 	replace := map[string]string{abs: ""}
 	if !u.absent {
 		stand := filepath.Join(tmpDir, "unit.go")

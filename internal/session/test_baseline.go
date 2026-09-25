@@ -22,6 +22,7 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 	if head.Outcome != VerifyFailed {
 		return head
 	}
+	workspace = goWorkspace(workspace)
 	headFailed := topLevelFailedTests(head.Output)
 	if len(headFailed) == 0 {
 		logging.SessionDebug("test gate: no baseline attribution: no top-level failed test names parsed from %d bytes of output", len(head.Output))
@@ -162,7 +163,10 @@ func writeOverlayFiles(tmpDir, workspace string, preWrite map[string]PreImage) (
 		if !pre.Known() {
 			return nil, fmt.Errorf("no baseline for %s: its preimage is unknown (%s)", key, pre.Unknown)
 		}
-		abs := filepath.Join(workspace, filepath.FromSlash(key))
+		// The key go matches is the file as go spells it (go_paths.go): an
+		// alias-spelled key is an overlay go ignores, and a baseline run
+		// that silently measures the tree as it is now.
+		abs := goOverlayKey(workspace, key)
 		if !pre.Existed {
 			replace[abs] = ""
 			continue
