@@ -843,11 +843,6 @@ type SplitPaneView struct {
 	FocusRight bool
 }
 
-// NewSplitPaneView creates a new split pane view with default ratio
-func NewSplitPaneView(styles Styles, width, height int) SplitPaneView {
-	return NewSplitPaneViewWithRatio(styles, width, height, DefaultSplitRatio)
-}
-
 // NewSplitPaneViewWithRatio creates a new split pane view with a configurable ratio
 func NewSplitPaneViewWithRatio(styles Styles, width, height int, splitRatio float64) SplitPaneView {
 	// Clamp ratio to valid range
