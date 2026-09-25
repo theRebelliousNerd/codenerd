@@ -57,9 +57,17 @@ func OpenWorkingStore(workspace, scope string) (*WorkingStore, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	path, err := tools.ResolveWorkspacePath(context.Background(), workspace, filepath.Join(dir, workingDigest(scope)+".db"))
+	digest := workingDigest(scope)
+	path, err := tools.ResolveWorkspacePath(context.Background(), workspace, filepath.Join(dir, digest+".db"))
 	if err != nil {
 		return nil, err
+	}
+	// The owner record comes before the database: an archive the retention
+	// policy finds without one was minted before owners were recorded and is
+	// pruned (working_retention.go), so a live scope must never be seen in
+	// that state. No record, no archive.
+	if err := recordWorkingOwner(dir, digest, workingOwner{PID: os.Getpid(), Host: thisHost()}); err != nil {
+		return nil, fmt.Errorf("record the working scope's owner: %w", err)
 	}
 	// Every SQLite open in the repo goes through the pragma profile (the
 	// sqlpragmas open-site audit fails a bare sql.Open); the connector hook

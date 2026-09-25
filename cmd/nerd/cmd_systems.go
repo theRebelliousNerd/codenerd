@@ -511,6 +511,18 @@ var memoryStatusCmd = &cobra.Command{
 		compressed, _ := cortex.Kernel.Query("compressed_context")
 		fmt.Printf("\nCompressed Contexts:   %d\n", len(compressed))
 
+		// Working-context archives (.nerd/context), one per working scope,
+		// with the retention policy's verdict. `nerd memory prune` acts on it.
+		ws := workspace
+		if strings.TrimSpace(ws) == "" {
+			ws = "."
+		}
+		if report, err := runMemoryPrune(ws, true); err == nil {
+			fmt.Printf("Working context:       %s\n", report)
+		} else {
+			fmt.Printf("Working context:       could not survey .nerd/context: %v\n", err)
+		}
+
 		return nil
 	},
 }
@@ -560,6 +572,7 @@ func init() {
 	// Memory subcommands
 	memoryCmd.AddCommand(
 		memoryStatusCmd,
+		memoryPruneCmd,
 	)
 }
 
