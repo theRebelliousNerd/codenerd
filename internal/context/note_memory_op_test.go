@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"codenerd/internal/articulation"
+	"codenerd/internal/types"
 )
 
 // The "note" memory operation lands (TODO-CTX-07A). It was admitted by the
@@ -63,5 +64,26 @@ func TestNoteMemoryOp_WithoutAKeyIsDroppedNotStored(t *testing.T) {
 	comp.processMemoryOperation(articulation.MemoryOperation{Op: "note", Key: "  ", Value: "orphan"})
 	if notes, _ := comp.kernel.Query(sessionNotePredicate); len(notes) != 0 {
 		t.Fatalf("a keyless note was stored: %v", notes)
+	}
+}
+
+// forget takes back what a memory operation put there -- the session note --
+// and nothing else. It used to call Retract(key), and a model that wrote
+// {"op": "forget", "key": "security_violation"} erased every recorded security
+// violation from the kernel: executive state deleted by control data that
+// never met the mangle_updates filter.
+func TestForgetMemoryOp_CannotRetractAPredicateItNames(t *testing.T) {
+	comp := newKernelBackedCompressor(t)
+	violation := fact("security_violation", types.MangleAtom("/write_file"), "blocked by the constitution", int64(1))
+	if err := comp.kernel.Assert(violation); err != nil {
+		t.Fatalf("assert: %v", err)
+	}
+	comp.processMemoryOperation(articulation.MemoryOperation{Op: "forget", Key: "security_violation"})
+	rows, err := comp.kernel.Query("security_violation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("a forget memory operation keyed security_violation left %d violation(s) in the kernel, want 1", len(rows))
 	}
 }

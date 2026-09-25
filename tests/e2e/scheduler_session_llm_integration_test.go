@@ -834,12 +834,16 @@ func TestE2E_SchedulerSession_Semantic_PiggybackFallback(t *testing.T) {
 	// A client that CLAIMS piggyback support. The claim must survive the
 	// scheduler wrapper (ScheduledLLMCall delegates ShouldUsePiggybackTools),
 	// so generation takes the structured-output path and the envelope's
-	// tool_request executes via the single-turn piggyback batch, which runs
-	// tools once without multi-turn continuation.
+	// tool_request executes on the Piggyback channel, which then continues the
+	// conversation with the result. (Until 2026-09-25 that path ran tools once
+	// with no continuation, and this client's one scripted answer -- which the
+	// mock repeats once its script runs out -- was enough.) The second answer
+	// is the model concluding.
 	envelope := `{"control_packet":{"reasoning_trace":"need tool data","tool_requests":[{"id":"req_1","tool_name":"mock_tool","tool_args":{},"purpose":"fallback probe","required":true}]},"surface_response":"using tools"}`
+	conclusion := `{"control_packet":{"tool_requests":[]},"surface_response":"done with the tool data"}`
 	llm := &mockLLMClientWithControls{
 		isPiggyback: true,
-		responses:   []types.LLMToolResponse{{Text: envelope}},
+		responses:   []types.LLMToolResponse{{Text: envelope}, {Text: conclusion}},
 	}
 
 	exec, _ := setupTestExecutorLLM(t, llm, 5)
@@ -850,9 +854,12 @@ func TestE2E_SchedulerSession_Semantic_PiggybackFallback(t *testing.T) {
 		t.Fatalf("Executor failed on piggyback fallback: %v", err)
 	}
 
-	// Piggyback batch path executes tools but does not feed them back
+	// The tool ran once and its result went back to the model, which concluded.
 	if res.ToolCallsExecuted != 1 {
 		t.Errorf("Expected 1 tool call to be executed, got %d", res.ToolCallsExecuted)
+	}
+	if !strings.Contains(res.Response, "done with the tool data") {
+		t.Errorf("the response is not the model's conclusion after seeing the result: %q", res.Response)
 	}
 }
 

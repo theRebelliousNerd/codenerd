@@ -137,7 +137,9 @@ func TestShardsDeclAtomsUnify(t *testing.T) {
 	check(`pending_intent("current_intent")`, 0)
 
 	// --- shard_startup/2, activate_shard/1 --------------------------------
-	check("shard_startup(S, /auto)", 3)
+	// Four: the three gates and mangle_repair, whose Go profile auto-starts it
+	// (held to the profiles by TestSystemShardStartupModesAgreeWithTheKernel).
+	check("shard_startup(S, /auto)", 4)
 	check("shard_startup(/session_planner, /on_demand)", 1)
 	check("activate_shard(/world_model_ingestor)", 1)
 

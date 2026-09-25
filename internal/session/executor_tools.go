@@ -40,17 +40,16 @@ type ToolCall struct {
 // Returns the final LLM response, a slice of tool error messages encountered
 // across all iterations, and any fatal error.
 //
-// Behavior degrades gracefully:
-//   - If the client implements types.ToolResultsProvider: native multi-turn loop.
-//   - Otherwise: one round of tool execution then return (the pre-fix behavior).
-//     Tool failures are still recorded for the caller to surface.
-//   - Piggyback Protocol clients keep using their structured-output path — the
-//     loop currently runs for one iteration on that path because the
-//     Piggyback envelope is its own contract; extending it is future work.
+// The continuation channel (toolResultsChannel):
+//   - A Piggyback Protocol client continues on the rendered envelope channel
+//     (piggybackChannel): same loop, same stops, same repair rounds.
+//   - A client implementing types.ToolResultsProvider continues natively.
+//   - Otherwise: one round of tool execution then return. Tool failures are
+//     still recorded for the caller to surface.
 //
-// A write-oriented turn on the native path is first divided into edit steps
-// (see work_steps.go); with two or more, each step runs as its own pass and
-// the gate runs once at the end. Otherwise the turn is one pass.
+// A write-oriented turn is first divided into edit steps (see work_steps.go);
+// with two or more, each step runs as its own pass and the gate runs once at
+// the end. Otherwise the turn is one pass.
 func (e *Executor) runToolLoop(
 	ctx context.Context,
 	systemPrompt, userInput string,
@@ -84,8 +83,9 @@ func (e *Executor) runToolLoopPass(
 		return nil, nil, workingErr
 	}
 	defer closeWorking()
-	if pass.regime != "" {
-		if loop := activeWorkingLoop(ctx); loop != nil {
+	if loop := activeWorkingLoop(ctx); loop != nil {
+		loop.result = result
+		if pass.regime != "" {
 			loop.regime = pass.regime
 		}
 	}
@@ -154,24 +154,11 @@ func (e *Executor) runToolLoopPass(
 		}
 	}
 
-	// Piggyback Protocol path: execute tools but don't continue the loop here.
-	// (The Piggyback envelope carries tool_requests in structured output; a
-	// proper loop for that path would require re-invoking with a synthesized
-	// envelope. Out of scope for this fix.)
-	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
-		toolErrs := e.executeToolBatchPiggyback(ctx, llmResponse.ToolCalls, cfg, result)
-		if !pass.verify {
-			return llmResponse, toolErrs, nil
-		}
-		verified, verifyErrs, verifyErr := e.verifyCompletedToolTurn(
-			ctx, nil, systemPrompt, nil, llmResponse, e.buildToolDefinitions(cfg), cfg, result)
-		toolErrs = append(toolErrs, verifyErrs...)
-		return verified, toolErrs, verifyErr
-	}
-
-	// Native multi-turn tool calling required for correct semantics on
-	// Anthropic/OpenAI-style providers.
-	trp, supportsLoop := client.(types.ToolResultsProvider)
+	// One loop for both protocols. A native provider continues on its own
+	// tool-result channel; a Piggyback client continues on the rendered
+	// envelope channel (piggybackChannel), so its results come back to it and
+	// every stop, finalize and repair round below applies to it unchanged.
+	trp, supportsLoop := e.toolResultsChannel(client, cfg)
 	toolDefs := e.buildToolDefinitions(cfg)
 	executorCfg := e.configSnapshot()
 
@@ -446,9 +433,10 @@ func (e *Executor) runToolLoopPass(
 
 // verifyCompletedToolTurn is the transport-independent post-edit gate. Native
 // and Piggyback calls differ in how tool results return to the model, but both
-// must answer for their writes before the turn can report success. A Piggyback
-// client has no native repair channel, so hard-gate failures remain failures
-// with the compiler/test output instead of being silently skipped.
+// must answer for their writes before the turn can report success, and both
+// repair through trp (a Piggyback client's is piggybackChannel). A caller with
+// no continuation channel passes nil, and hard-gate failures then remain
+// failures with the compiler/test output instead of being silently skipped.
 //
 // Which rounds run, and in what order, is the kernel's (turn_next_round,
 // policy/turn_rounds.mg): this runs the round it names, records
@@ -2242,22 +2230,6 @@ func (e *Executor) retryWithNoToolNudge(
 	// That is a safety regression, not just a context one.
 	retryPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), retryCtx.IntentTarget)
 	return e.generateResponse(ctx, client, retryPrompt, userInput, cfg)
-}
-
-// executeToolBatchPiggyback handles the single-turn Piggyback path. Tools are
-// executed and any errors collected, but results are not fed back to the LLM
-// here (that would require a Piggyback-specific envelope follow-up).
-func (e *Executor) executeToolBatchPiggyback(
-	ctx context.Context,
-	calls []types.ToolCall,
-	cfg *config.EffectiveAgentRuntimeConfig,
-	result *ExecutionResult,
-) []string {
-	// Piggyback does not feed results back to the provider, but execution,
-	// cancellation, and accounting must still be identical to the native
-	// path. Discard only the transport-specific result frames.
-	_, toolErrs := e.executeToolBatch(ctx, calls, cfg, result)
-	return toolErrs
 }
 
 func effectiveToolTimeout(configured time.Duration) time.Duration {

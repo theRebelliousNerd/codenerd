@@ -13,10 +13,22 @@ import (
 	"strings"
 )
 
+// chatIssueID is the one EDB key the chat seeds under, for the reason it
+// asserts one /current_intent: a kernel that keeps every past turn's
+// candidates answers the current turn with all of them, and the compressor
+// picked "the last" issue_context row out of an unordered query result.
+const chatIssueID = "/chat_issue"
+
 // seedIssueFacts runs a bounded sparse-retrieval pass over the workspace and
 // asserts the issue_* / candidate_file / keyword_hit / tiered_context_file /
 // issue_context EDB surface. This drives issue-aware spreading activation and
 // prompt atom selection.
+//
+// Whether it runs is the kernel's decision, issue_retrieval_wanted over
+// /current_intent (schemas_knowledge.mg 52.5), not a Go switch on the verb:
+// until 2026-09-25 this method carried that switch and no other entry path
+// consulted it, so a shard's task turns never retrieved. The pass replaces
+// the previous turn's, so the kernel holds one live chat issue.
 //
 // It used to extract keywords and stop there, so the SparseRetriever that boot
 // builds into SystemComponents.Retriever was never called — it was not even
@@ -32,10 +44,12 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		return
 	}
 
-	// Only seed for verbs that are typically issue-driven.
-	switch intent.Verb {
-	case "/fix", "/debug", "/review", "/security":
-	default:
+	wanted, err := retrieval.Wanted(m.kernel, "/current_intent")
+	if err != nil {
+		logging.Context("[seedIssueFacts] kernel not asked whether %s retrieves: %v", intent.Verb, err)
+		return
+	}
+	if !wanted {
 		return
 	}
 
@@ -54,6 +68,10 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		ctx = context.Background()
 	}
 
+	if err := retrieval.SupersedeIssue(m.kernel, chatIssueID); err != nil {
+		logging.Context("[seedIssueFacts] previous chat issue not retracted: %v", err)
+	}
+
 	// The budget is deliberately separate from the LLM timeouts: this is
 	// filesystem work on the user's turn, and a repository too large to finish
 	// inside it must yield the tiers that completed rather than stall the loop.
@@ -63,7 +81,7 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 	}
 
 	if _, err := retrieval.SeedIssueFacts(ctx, m.kernel, retrieval.SeedRequest{
-		IssueID:   retrieval.NewIssueID(),
+		IssueID:   chatIssueID,
 		IssueText: issueText,
 		WorkDir:   m.workspace,
 		Retriever: m.retriever,

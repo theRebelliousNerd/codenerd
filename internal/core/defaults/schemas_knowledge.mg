@@ -137,3 +137,21 @@ Decl issue_context(IssueID, TotalFiles, TotalTokens) bound [/string, /number, /n
 # activation_boost(File, BoostAmount)
 # Additional activation score for issue-related files.
 Decl activation_boost(File, BoostAmount) bound [/string, /number].
+
+# -----------------------------------------------------------------------------
+# 52.5 Retrieval Decisions
+# -----------------------------------------------------------------------------
+# Whether a turn runs the issue-driven sparse pass, and which of the files it
+# found the model is handed, are the kernel's to decide. The rules are in
+# policy/retrieval.mg: a schema module is loaded into sandbox engines (the
+# working set's) that do not carry the policy they would join.
+
+# issue_retrieval_verb(Verb): intent verbs whose request reads as an issue.
+Decl issue_retrieval_verb(Verb) bound [/name].
+
+# issue_retrieval_wanted(Intent): run the sparse pass for this intent.
+Decl issue_retrieval_wanted(Intent) bound [/name].
+
+# retrieval_brief_file(IssueID, File, Tier, Relevance): a retrieved file the
+# model is handed as a place to start reading.
+Decl retrieval_brief_file(IssueID, File, Tier, Relevance) bound [/string, /string, /name, /number].

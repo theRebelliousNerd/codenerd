@@ -86,7 +86,7 @@ func TestLogicPaneEmptyState(t *testing.T) {
 }
 
 func TestSplitPaneViewRenderModes(t *testing.T) {
-	view := NewSplitPaneView(DefaultStyles(), 80, 20)
+	view := NewSplitPaneViewWithRatio(DefaultStyles(), 80, 20, DefaultSplitRatio)
 	left := "left content"
 
 	view.SetMode(ModeSinglePane)

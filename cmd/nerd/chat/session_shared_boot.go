@@ -25,13 +25,24 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, workspace string) tea.Cmd {
+func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace string) tea.Cmd {
 	return func() tea.Msg {
-		return performSystemBootShared(cfg, disableSystemShards, workspace)
+		return performSystemBootShared(cfg, disableSystemShards, apiKey, workspace)
 	}
 }
 
-func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []string, workspace string) tea.Msg {
+// sharedBootConfig is the Cortex boot the chat asks for: the launch flags
+// (--disable-system-shard, --api-key) and the chat's loaded config.
+func sharedBootConfig(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace string) nerdsystem.BootConfig {
+	return nerdsystem.BootConfig{
+		Workspace:           workspace,
+		APIKey:              apiKey,
+		DisableSystemShards: disableSystemShards,
+		UserConfigOverride:  cfg,
+	}
+}
+
+func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace string) tea.Msg {
 	bootStart := time.Now()
 	if err := logging.Initialize(workspace); err != nil {
 		fmt.Printf("[boot] Warning: logging init failed: %v\n", err)
@@ -64,18 +75,17 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		logStep("Transparency enabled")
 	}
 
-	logStep("Initializing sparse retriever...")
-	retrieverCfg := retrieval.DefaultSparseRetrieverConfig(workspace)
-	retriever := retrieval.NewSparseRetriever(retrieverCfg)
-
 	logStep("Booting shared backend...")
-	cortex, err := nerdsystem.BootCortexWithConfig(context.Background(), nerdsystem.BootConfig{
-		Workspace:           workspace,
-		DisableSystemShards: disableSystemShards,
-		UserConfigOverride:  appCfg,
-	})
+	cortex, err := nerdsystem.BootCortexWithConfig(context.Background(), sharedBootConfig(appCfg, disableSystemShards, apiKey, workspace))
 	if err != nil {
 		return bootCompleteMsg{err: fmt.Errorf("shared bootstrap failed: %w", err)}
+	}
+
+	// One retriever per process: the chat's issue seed and the session
+	// executor's task passes share its keyword cache.
+	retriever := cortex.Retriever
+	if retriever == nil {
+		retriever = retrieval.NewSparseRetriever(retrieval.DefaultSparseRetrieverConfig(workspace))
 	}
 
 	kernel, primary, err := sessionKernels(cortex)

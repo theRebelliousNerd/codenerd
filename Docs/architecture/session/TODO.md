@@ -119,7 +119,7 @@ never return to permissive unvalidated loading.
 <!-- NERD_FEATURE
 id: session-protocol-neutral-tool-loop-v1
 owner: session
-status: proposed
+status: verified
 kind: leverage
 depends_on: [session-effective-capability-envelope-v1]
 affects: [session, articulation, perception, tools]
@@ -129,9 +129,31 @@ affects: [session, articulation, perception, tools]
 the same safety, budget, cancellation, and completion behavior as native function
 calling.
 
-**Evidence and observed gap.** `Executor.runToolLoop` supports native tool result
-feedback; the Piggyback route parses/executes requests but is not a fully symmetric
-multi-iteration feedback loop.
+**Verified 2026-09-25 (commit 799c5a3).** `internal/session/piggyback_channel.go`
+(`piggybackChannel`, `Executor.toolResultsChannel`) is the envelope client's
+`ToolResultsProvider`: it renders the working request (the round's offered
+catalog, the conversation with each call id and result) onto the text channel
+and promotes the envelope back to tool calls, so `runToolLoopPass` -- working
+ledger, working-policy stops and finalize, forced final answer, every repair
+round, planned steps -- is one loop for both protocols. Reused envelope ids are
+made loop-unique (`workingLoop.claimCallIDs`). A constitutional-override notice
+on a round that goes on to call tools is carried to the response
+(`withSafetyNotices`). It also took a wiring fix: the broker, the tracer and the
+session adapter did not forward `ShouldUsePiggybackTools`, so in production no
+client was ever treated as Piggyback and the CLI engines failed their first
+continuation ("does not implement ToolResultsProvider"). Proof:
+`TestPiggybackClientSeesItsToolResultsAndContinues`,
+`TestPiggybackRepeatedRequestIsEndedByTheWorkingPolicy`,
+`TestPiggybackSafetyNoticeOutlivesTheRoundThatRaisedIt` (internal/session),
+`TestWrapAnswersThePiggybackQuestionForTheUnderlyingClient` (internal/broker),
+`TestSessionAdapterReportsAnEnvelopeOnlyEngineThroughTheProductionChain`
+(internal/system), and the integration tests
+`TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary` and
+`TestE2E_SchedulerSession_Semantic_PiggybackFallback`.
+
+**Evidence and observed gap (historical).** `Executor.runToolLoop` supported native tool result
+feedback; the Piggyback route parsed/executed requests but was not a multi-iteration
+feedback loop.
 
 **Desired behavior.** Normalize native and Piggyback requests into one typed turn
 state machine: resolve capability, exact permission, execute, record bounded
@@ -265,3 +287,27 @@ candidate panic/timeout is contained; secrets are redacted before capture.
 
 **Rollback.** Disable replay and delete artifacts; live session behavior is
 unchanged.
+
+## Wave 2 reconciliation (2026-09-25, verified against the code)
+
+Each open item in this corpus (this file, `03-GAP-ANALYSIS.md`,
+`08-WIRING-AND-INTEGRATION.md`) re-checked against the tree; commits are on
+the lane-A wave-2 branch.
+
+| Item | Classification | Evidence |
+|---|---|---|
+| `session-protocol-neutral-tool-loop-v1` | built | commit 799c5a3; card above |
+| `session-stack-lifecycle-manifest-v1` | partly stale, rest declined for now | The dual assembly is gone: `session.NewExecutor`/`NewSpawner`/`NewJITExecutor` are constructed only in `internal/system/factory.go` (`initFinalExecutors`); `cmd/nerd/cmd_campaign.go` no longer builds a stack. A versioned lifecycle manifest has no reader yet; building one without a consumer is the unwired-feature pattern. Revisit when teardown ordering is an observed defect. |
+| `session-turn-execution-receipt-v1` | open (north star) | Its premise "persistTurn does not store compiled atom identity" is stale: `persistTurn` passes `compilationAtomsJSON(telemetry.compileResult)` to `StoreSessionTurn`, and `recordTurn` carries `AtomIDs`. The joined, redacted, versioned receipt is not built; it depends on a receipt schema decision. |
+| `session-counterfactual-replay-v1` | declined | Deferred moonshot; depends on the receipt above. |
+| Evicted history is recoverable (lead from wave 1: `Executor.recoverHistoryEviction` unreachable) | built | commit 478bfbd. The window's notice named no way back and the reader had no caller. A working loop now serves the evicted turns behind `recall_context` under an `obs:hist:` handle the notice names (`history_recall.go`); the executor-wide record and its reader are deleted, since the loop holds its own snapshot. `TestHistoryEviction_RecallContextReturnsTheEvictedTurns`. |
+| Piggyback memory ops to cold storage (03 P2) | built | commit e0df714. The executor asserted undeclared `memory_operation/3`; it now calls `context.ApplyMemoryOperation` (note -> `session_note`, promotion/vector -> the knowledge store). `forget` no longer calls `Retract(key)` on an arbitrary predicate. `TestPiggybackMemoryOperationsLandInKernelAndStore`, `TestForgetMemoryOp_CannotRetractAPredicateItNames`. |
+| `atomsJSON` on `StoreSessionTurn` (03 P2) | already done | `compilationAtomsJSON` in `persistTurn` (`executor.go`). |
+| `StoreCompressedState` when a SubAgent compresses (03 P2) | open | `SubAgent` compresses through `SemanticCompressor` and persists nothing; only the chat compressor (`internal/context/compressor_turns.go`) and chat persistence call `StoreCompressedState`. A SubAgent has no persister today; wiring one is a spawner-configuration change with no current reader of subagent compressed state. |
+| Production VS implements `InteractiveExecutiveGate` (03 P0.7) | already done | `var _ session.InteractiveExecutiveGate = (*sessionVirtualStoreAdapter)(nil)` (`internal/system/factory_adapters.go`); a missing gate fails closed for every non-read effect (`executeToolCall`: "mandatory executive gate unavailable"). |
+| Task-integrity incident (03 §7: shell effects, dirty/untracked work) | already done by fail-closed denial | `checkShellEffect` (`executor_tools.go`) runs `projectdoc.ValidateShellToolInvocation` before any handler and denies mutating or ambiguous shell; `TestExecuteToolCall_ShellEffectGateStopsIncidentBeforeExecution` runs both incident commands (`git checkout -- <tracked>`, a recursive delete) and proves neither reaches the handler. With no accepted shell mutation there is nothing to attribute or refresh; a task-baseline that would *permit* scoped shell mutation is a relaxation for a maintainer to design, not a gap. |
+| Canonical prompt-atom precedence (03 P0.6) | out of lane | `internal/prompt` corpus reconciliation. |
+| Spawn vs SpawnSpecialist start semantics (03 P3) | already done | Documented contract in `internal/session/README.md` ("`Spawn` constructs/registers; higher-level helpers decide when execution starts"). |
+| Replace Wait polling (03 P3) | declined | Conditional item ("if contention becomes hot"); no measured contention. `SubAgent.WaitWithContext` and `JITExecutor.waitObserved` still poll at 100 ms. |
+| Package README accuracy (03 P3) | open, not edited here | `internal/session/README.md` still says tool calls are "bounded by call count, loop count"; the loop has no count bound (`runToolLoopPass`: "No count bounds this loop"). Left for the README owner. |
+| Ouroboros registry wiring (08 §8) | verified live | `SetOuroborosRegistry` is called on the executor and the spawner by `internal/system/factory.go` (`initFinalExecutors`) and on the chat executor by `cmd/nerd/chat/session_shared_boot.go`; the spawner forwards it to each SubAgent (`spawner.go`). |

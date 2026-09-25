@@ -28,6 +28,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/broker"
 	nerdconfig "codenerd/internal/config"
+	working "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/jit/config"
@@ -68,9 +69,11 @@ type SessionPersister interface {
 // modular tools directly via tools.Global(), bypassing RouteAction, so without
 // this seam those executive layers never fire on a live coding turn.
 //
-// The executor type-asserts e.virtualStore against this interface; when the
-// store does not implement it (e.g. a nil store or a stub adapter), the gate is
-// simply skipped and behavior is identical to before — a graceful fallback.
+// The executor type-asserts e.virtualStore against this interface. When the
+// store does not implement it (a nil store, a stub adapter), read-effect tools
+// still run and every other effect is refused before execution
+// ("mandatory executive gate unavailable", executeToolCall): the gate is
+// mandatory, not a graceful fallback.
 //
 // Implemented by *core.VirtualStore (see virtual_store_interactive_gate.go).
 type InteractiveExecutiveGate interface {
@@ -84,11 +87,11 @@ type InteractiveExecutiveGate interface {
 	ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error
 }
 
-// warnInteractiveGateUnavailable logs the missing-gate fallback exactly once
-// per executor lifetime. The flag gates the log, not the behavior: ungated
-// calls still proceed unsimulated (fail-open), but the single warning makes
-// the bypass visible instead of silent. Returns true when this call emitted
-// the warning.
+// warnInteractiveGateUnavailable logs the missing gate exactly once per
+// executor lifetime. The flag gates the log, not the behavior: every
+// non-read effect is refused without the gate (fail-closed, executeToolCall),
+// and the single warning says why. Returns true when this call emitted the
+// warning.
 func (e *Executor) warnInteractiveGateUnavailable() bool {
 	if e == nil {
 		return false
@@ -101,7 +104,7 @@ func (e *Executor) warnInteractiveGateUnavailable() bool {
 }
 
 // interactiveGate returns the VirtualStore's executive gate when available.
-// On the fail-open fallback (store nil or adapter without the interface) it
+// With no gate (store nil or adapter without the interface) it
 // logs the one-time warning and reports unavailable. Both the pre-execution
 // Dreamer preflight and the post-execution validation seams go through here
 // so the warning fires once no matter which seam is hit first.
@@ -168,12 +171,6 @@ type Executor struct {
 	conversationHistory []perception.ConversationTurn
 	sessionContext      *types.SessionContext
 
-	// evictedHistory holds the messages the last priorTurnMessages call
-	// dropped from the generation window. The window is a view, not a
-	// deletion: what leaves it is announced in the window's own text and
-	// kept here so it can be brought back.
-	evictedHistory []types.Message
-
 	// Session persistence
 	sessionPersister SessionPersister
 	sessionID        string
@@ -193,6 +190,10 @@ type Executor struct {
 	// projectDoc is the workspace's parsed nerd.md, or nil. Used only to render
 	// instructions into the prompt; enforcement reads the kernel.
 	projectDoc *projectdoc.Document
+
+	// issueRetriever runs the kernel-gated retrieval pass for a turn, or nil.
+	// See issue_retrieval.go.
+	issueRetriever IssueRetriever
 
 	// fileContext is the holographic per-file context provider, or nil. Used only
 	// to render file-targeted context into the prompt. Narrow interface so no
@@ -560,6 +561,9 @@ func (e *Executor) CloneForTask() *Executor {
 	clone.plannerClient = e.plannerClient
 	clone.projectDoc = e.projectDoc
 	clone.fileContext = e.fileContext
+	// A delegated task is exactly the turn a retrieval brief is for: the
+	// clone is what a `nerd fix` runs on.
+	clone.issueRetriever = e.issueRetriever
 	// turnRecorder IS inherited, and it is the one place where inheriting
 	// differs from sessionPersister on purpose. Persistence is session
 	// bookkeeping, which a delegated task has no business writing into. The
@@ -651,6 +655,20 @@ func (e *Executor) SetSessionPersister(persister SessionPersister) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.sessionPersister = persister
+}
+
+// memoryStore is where a promoted preference and a stored vector land: the
+// session's persister when it is the knowledge store (production passes the
+// LocalStore), else nothing, and ApplyMemoryOperation reports the operation
+// it could not persist.
+func (e *Executor) memoryStore() working.MemoryStore {
+	e.mu.RLock()
+	persister := e.sessionPersister
+	e.mu.RUnlock()
+	if store, ok := persister.(working.MemoryStore); ok && store != nil {
+		return store
+	}
+	return nil
 }
 
 // SetSessionID sets the session identifier for turn persistence.
@@ -816,6 +834,13 @@ type ExecutionResult struct {
 	// truth about a task that was run in steps, whatever the model's last
 	// sentence claimed.
 	StepReport string
+
+	// safetyNotices are the constitutional-override notices put on the
+	// surface of a round that was not the turn's last (a Piggyback round that
+	// blocked an unsafe mangle_update and went on to call tools). That
+	// round's surface is never shown, so the notice is carried to the
+	// response rather than lost with it (withSafetyNotices).
+	safetyNotices []string
 
 	// Duration is how long the execution took.
 	Duration time.Duration
@@ -1008,6 +1033,13 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		}
 	}
 
+	// ORIENT, retrieval: the kernel decides whether this intent's turn runs
+	// the issue-driven sparse pass and which of the files it finds the model
+	// is handed (schemas_knowledge.mg 52.5). The brief rides the turn context
+	// into the working loop's anchor; the pass's facts leave with the turn.
+	ctx, releaseRetrieval := e.retrieveForTurn(ctx, intentID, input)
+	defer releaseRetrieval()
+
 	// 2. ORIENT: Build compilation context from intent + world state
 	compilationCtx := e.buildCompilationContext(ctx, intent)
 	// The persona is known from here: its shard profile rides on the context
@@ -1103,7 +1135,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 
 	// 7. Articulate response — process Piggyback control packet (best-effort)
-	result.Response = e.processPiggybackControlPacket(llmResponse.Text)
+	result.Response = withSafetyNotices(e.processPiggybackControlPacket(llmResponse.Text), result.safetyNotices)
 	if result.StepReport != "" {
 		result.Response = strings.TrimSpace(result.Response) + "\n\n" + result.StepReport
 	}
@@ -1461,8 +1493,16 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 	if client == nil {
 		return nil, fmt.Errorf("cannot generate response: no LLM client configured")
 	}
-	// Check if client should use Piggyback for tools (e.g., Gemini with grounding enabled)
+	// A Piggyback client (the CLI engines; Gemini with grounding on) carries
+	// its tool calls in the envelope. Inside a working loop its first request
+	// is a working request like a native one -- the prior turns, the anchor
+	// with the focus view, the budget check -- sent on the envelope channel,
+	// so the rounds that follow continue the same conversation.
 	if usesPiggybackTools(client) {
+		if channel, ok := e.toolResultsChannel(client, cfg); ok && activeWorkingLoop(ctx) != nil {
+			return e.completeWithWorkingContext(ctx, channel, systemPrompt,
+				[]types.Message{{Role: "user", Text: userInput}}, e.buildToolDefinitions(cfg))
+		}
 		return e.generateResponseWithPiggybackTools(ctx, client, systemPrompt, userInput, cfg)
 	}
 
@@ -2127,9 +2167,10 @@ func (e *Executor) GetHistory() []perception.ConversationTurn {
 // earlier" questions from a transcript that no longer contains what it said,
 // and has no way to tell that from a conversation that started here. The
 // surviving oldest message now opens with the pipeline's marker naming how
-// many messages and characters left, and the evicted messages themselves are
-// retained on the executor (recoverHistoryEviction) so what was dropped can
-// be brought back rather than reconstructed.
+// many messages and characters left. Inside a working loop the evicted
+// messages themselves stay behind recall_context for the loop's life, and the
+// notice names the handle (priorTurnWindow, historyRecall), so what was dropped
+// can be brought back rather than reconstructed.
 //
 // The notice rides inside that message rather than arriving as a message of
 // its own, which would put two user turns in a row and break the alternation
@@ -2138,10 +2179,22 @@ func (e *Executor) GetHistory() []perception.ConversationTurn {
 // is what keeps it from reading as something the assistant said — that
 // distinctive prefix is the reason the convention has one.
 func (e *Executor) priorTurnMessages() []types.Message {
+	msgs, _ := e.priorTurnWindow(false)
+	return msgs
+}
+
+// priorTurnWindow is priorTurnMessages plus the messages it evicted, oldest
+// first. When recallable, the eviction notice names the handle that gives
+// them back (historyEvictionHandle). Only a caller that installs the redeemer
+// -- a working loop, which puts historyRecall behind recall_context -- asks
+// for one: a handle nobody can redeem is worse than none
+// (types.DroppedNotice). Each call recomputes the window from the whole
+// history, so what it evicted is what is evicted now.
+func (e *Executor) priorTurnWindow(recallable bool) ([]types.Message, []types.Message) {
 	cfg := e.configSnapshot()
 	window := cfg.HistoryTurnWindow
 	if window <= 0 {
-		return nil
+		return nil, nil
 	}
 	budget := cfg.HistoryCharBudget
 	if budget <= 0 {
@@ -2150,7 +2203,7 @@ func (e *Executor) priorTurnMessages() []types.Message {
 
 	turns := e.GetHistory()
 	if len(turns) == 0 {
-		return nil
+		return nil, nil
 	}
 	msgs := make([]types.Message, 0, len(turns))
 	for _, turn := range turns {
@@ -2164,7 +2217,7 @@ func (e *Executor) priorTurnMessages() []types.Message {
 		msgs = append(msgs, types.Message{Role: role, Text: turn.Content})
 	}
 	if len(msgs) == 0 {
-		return nil
+		return nil, nil
 	}
 	eligible := len(msgs)
 	var evicted []types.Message
@@ -2179,44 +2232,24 @@ func (e *Executor) priorTurnMessages() []types.Message {
 		evicted = append(evicted, msgs[:drop]...)
 		msgs = msgs[drop:]
 	}
-	e.recordHistoryEviction(evicted)
 	if len(msgs) == 0 {
 		// Nothing survived the budget, so there is no surviving message to
 		// carry the marker. The window is empty and the caller renders no
 		// history at all, which is honest on its own: the model is not shown
 		// a partial transcript it could mistake for the whole one.
-		return nil
+		return nil, evicted
 	}
 	if len(evicted) > 0 {
+		recover := ""
+		if recallable {
+			recover = fmt.Sprintf("recall_context id=%q returns them", historyEvictionHandle(evicted))
+		}
 		notice := types.DroppedNotice(len(evicted), eligible,
 			fmt.Sprintf("older conversation messages (%d chars) evicted from this window; the session still holds them",
-				historyMessageChars(evicted)), "")
+				historyMessageChars(evicted)), recover)
 		msgs[0].Text = notice + "\n\n" + msgs[0].Text
 	}
-	return msgs
-}
-
-// recordHistoryEviction stores the messages priorTurnMessages dropped so the
-// window's contents are recoverable rather than merely gone. It replaces the
-// record each call because each call recomputes the window from the whole
-// history: what is evicted now is what is evicted, not the union of every
-// pass.
-func (e *Executor) recordHistoryEviction(evicted []types.Message) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if len(evicted) == 0 {
-		e.evictedHistory = nil
-		return
-	}
-	e.evictedHistory = append([]types.Message(nil), evicted...)
-}
-
-// recoverHistoryEviction returns the messages the last window computation
-// evicted, oldest first. Empty means nothing was dropped.
-func (e *Executor) recoverHistoryEviction() []types.Message {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return append([]types.Message(nil), e.evictedHistory...)
+	return msgs, evicted
 }
 
 // historyMessageChars totals the text carried by prior messages.
@@ -2396,16 +2429,18 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 			}
 		}
 
-		// Assert memory operation facts for future Cold Storage integration
+		// Land each operation where the chat compressor lands it: a note as
+		// session_note in the kernel, a promotion and a vector in the
+		// session's store. Until 2026-09-25 this asserted
+		// memory_operation(Op, Key, Value), which no .mg file declares, so no
+		// rule or query ever read what the model asked to remember on this path.
+		var kernel working.MemoryKernel
 		if e.kernel != nil {
-			for _, op := range memOps {
-				if err := e.kernel.Assert(types.Fact{
-					Predicate: "memory_operation",
-					Args:      []any{op.Op, op.Key, op.Value},
-				}); err != nil {
-					logging.Get(logging.CategorySession).Warn("Failed to assert memory_operation fact: %v", err)
-				}
-			}
+			kernel = e.kernel
+		}
+		store := e.memoryStore()
+		for _, op := range memOps {
+			working.ApplyMemoryOperation(kernel, store, op)
 		}
 	}
 
@@ -2438,8 +2473,14 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 			ic.Category, ic.Verb, ic.Target, ic.Confidence)
 	}
 
-	// Return only the surface response (control data has been routed to kernel)
-	return processed.Surface
+	// Return only the surface response (control data has been routed to
+	// kernel) -- the envelope's, not the parse's: blocking an unsafe
+	// mangle_update prefixes the surface with a safety notice
+	// (ApplyConstitutionalOverride), and returning the parse's copy dropped it,
+	// so the user was never told the model had tried to write a protected
+	// fact. The single-shot Piggyback path kept the notice; every path that
+	// promotes an envelope through here did not.
+	return envelope.Surface
 }
 
 // turnSeq numbers turn verdicts across the process, so two executors sharing a

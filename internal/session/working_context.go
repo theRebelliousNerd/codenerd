@@ -49,6 +49,12 @@ type workingLoop struct {
 	restated map[string]string
 	// viewed is the focus view the ledger carries: focus and its revision.
 	viewed string
+	// callIDs are the tool-call ids this loop has handed out on the
+	// Piggyback channel (claimCallIDs), so no two calls share one.
+	callIDs map[string]bool
+	// result is the turn this loop runs for, where a round's safety notice
+	// is kept once that round's surface is superseded (piggybackChannel).
+	result *ExecutionResult
 }
 
 // commitRegime is the working_regime under which exploration is closed.
@@ -193,15 +199,20 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 		return ctx, func() {}, err
 	}
 	focus := normalizeWorkingEntity(intentTarget, root)
+	// The loop's window names its eviction handle, and the loop serves what
+	// the window evicted behind recall_context for as long as it runs.
+	prior, evictedHistory := e.priorTurnWindow(true)
 	loop := &workingLoop{
-		set: set, focus: focus, anchor: input, prior: e.priorTurnMessages(),
+		set: set, focus: focus, anchor: withRetrievalBrief(ctx, input), prior: prior,
 		observations: make(map[string]string),
 		evicted:      make(map[string]bool),
 		appended:     make(map[string]string),
 		restated:     make(map[string]string),
 	}
 	ctx = context.WithValue(ctx, workingLoopKey{}, loop)
-	ctx = tools.WithContextRecall(ctx, set)
+	ctx = tools.WithContextRecall(ctx, historyRecall{
+		working: set, handle: historyEvictionHandle(evictedHistory), evicted: evictedHistory,
+	})
 	return ctx, func() { _ = set.Close() }, nil
 }
 
@@ -490,6 +501,7 @@ func (e *Executor) singleShotRequest(ctx context.Context, system, userInput stri
 	if loop == nil {
 		return userInput, nil
 	}
+	userInput = withRetrievalBrief(ctx, userInput)
 	if view := e.workingFocusView(ctx, loop); view != "" {
 		userInput += "\n\n" + view
 	}

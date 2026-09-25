@@ -92,15 +92,22 @@ type SeedRequest struct {
 	// MaxFiles caps the tiered context. The builder default applies when zero.
 	MaxFiles int
 
-	// GlassBox receives the liveness event. Callers that own a bus should pass
-	// it: nothing in production calls transparency.SetProcessBus, so the
-	// process-wide fallback below is empty in a real session and an event sent
-	// only there would be invisible — the exact "wired but unreachable" shape
-	// this pass exists to remove.
+	// GlassBox receives the liveness event. Nil falls back to the process bus
+	// (transparency.ProcessBus), which the first NewGlassBoxEventBus of the
+	// process adopts; a caller that owns a bus should still pass it, so the
+	// event lands on the stream its operator is watching.
 	GlassBox *transparency.GlassBoxEventBus
 
 	// TurnID tags the glass-box event.
 	TurnID int
+
+	// IssueScopedOnly asserts only the facts keyed by IssueID (issue_text,
+	// issue_keyword, file_mentioned, tiered_context_file, issue_context). The
+	// unscoped half -- candidate_file, keyword_hit, context_tier,
+	// keyword_weight -- carries no issue, so a pass that runs beside another
+	// (parallel subagents) could neither tell its rows apart nor retract them
+	// without taking the other pass's evidence too.
+	IssueScopedOnly bool
 }
 
 // SeedReport records what the pass actually did. It exists so callers (and
@@ -118,6 +125,9 @@ type SeedReport struct {
 	TimedOut bool
 	// Metrics is the retriever's cumulative counter snapshot after the pass.
 	Metrics RetrieverMetrics
+	// Asserted is every fact the pass loaded, so a caller that owns the issue
+	// can retract exactly those when it is over.
+	Asserted []types.Fact
 	// SemanticTier records which Tier 4 backend the pass used: "embeddings"
 	// when an engine was supplied, "heuristic fallback" otherwise. It exists
 	// so the degradation is visible in the seed summary line itself rather
@@ -246,7 +256,11 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 		facts = append(facts, mentionFacts(issueID, workDir, keywords.MentionedFiles, nil)...)
 	}
 
+	if req.IssueScopedOnly {
+		facts = scopedFacts(facts)
+	}
 	report.Facts = len(facts)
+	report.Asserted = facts
 	report.Duration = time.Since(started)
 
 	if err := sink.LoadFacts(facts); err != nil {

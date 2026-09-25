@@ -169,10 +169,7 @@ Run without arguments to start the interactive chat interface.`,
 		}
 
 		// Default behavior: launch interactive chat
-		cfg := chat.Config{
-			DisableSystemShards: disableSystemShards,
-		}
-		return chat.RunInteractiveChat(cfg)
+		return chat.RunInteractiveChat(chatLaunchConfig())
 	},
 }
 
@@ -332,6 +329,18 @@ func init() {
 		transparencyCmd,
 		reflectionCmd,
 	)
+}
+
+// chatLaunchConfig is what the root flags ask of the interactive chat. --yolo
+// and --api-key are persistent root flags; until 2026-09-25 only
+// --disable-system-shard reached the chat and the other two were silently
+// dropped on the bare `nerd` path.
+func chatLaunchConfig() chat.Config {
+	return chat.Config{
+		DisableSystemShards: disableSystemShards,
+		Yolo:                yoloMode,
+		APIKey:              apiKey,
+	}
 }
 
 // isCampaignInvocation reports whether nerd was launched as a `campaign`

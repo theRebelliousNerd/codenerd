@@ -228,9 +228,30 @@ and optional specialist failure cannot deadlock boot.
   factory/profile descriptors evolve.
 - Preserve input-ordered partial consultation outcomes and joined errors through
   every campaign/chat adapter.
-- Add observer drop counters and return snapshots rather than internal pointers.
+- ~~Add observer drop counters and return snapshots rather than internal
+  pointers.~~ **Done 2026-09-25 (commit 9e61a5d):** `SendEvent` counts every
+  event a full queue drops (`DroppedEvents`) and warns on the first and every
+  doubling; `GetLastAssessment` returns a copy.
+  `TestSendEvent_CountsWhatAFullQueueDrops`,
+  `TestGetLastAssessment_ReturnsASnapshot`.
 - Preserve exactly-once permitted-action consumption on every new router branch.
-- Bound and expire unobserved asynchronous `ShardManager` results.
+- ~~Bound and expire unobserved asynchronous `ShardManager` results.~~ **Done
+  2026-09-25 (commit 9a72d9b), without a count or a clock:** spawns nobody reads
+  (system boot, on-demand activation, the queue's detached submissions) are
+  detached and `recordResult` retains nothing for them; the outcome stays in the
+  audit log, Glass Box and transparency record.
+  `TestOnDemandActivationRetainsNoResult`, `TestAttachedSpawnKeepsItsResult`.
 - Replace timing sleeps in observer integration tests with deterministic signals.
 - Add boot generation, disable reason, and dropped-event counters to operator
-  diagnostics.
+  diagnostics. (The dropped-event counter exists now; nothing renders it yet.)
+
+## Wave 2 reconciliation (2026-09-25, verified against the code)
+
+| Item | Classification | Evidence |
+|---|---|---|
+| `shards-registration-contract-v1` remaining slice (one typed factory/profile/dependency descriptor) | open, declined this wave | Predicate ownership is unified (`factory.go` consumes `shards.DefaultShardPredicateManifests`). Boot still re-registers `tactile_router` and `campaign_runner` with enriched factories after `RegisterAllShardFactories` (`internal/system/factory.go`). Collapsing that into one descriptor touches the system factory and chat boot together; a refactor with no behaviour to prove it by, left for the owner of both. |
+| System shard startup modes written twice (new finding, part of `shards-policy-certified-activation-v1`) | standing rule mechanised | Go profiles (`StartupMode`) and the kernel's `shard_startup/2` (`policy/system_config.mg`) had drifted: `mangle_repair` auto-starts with no kernel row; `campaign_runner` and `legislator` had none. Rows added; `TestSystemShardStartupModesAgreeWithTheKernel` (commit 767bb8b). The activation plan itself is still Go's (StartSystemShards reads profiles); deriving it in the kernel is the card's first real slice, and it needs `system_shard/2` (no producer) before the health escalation can fire. |
+| `shards-policy-certified-activation-v1` readiness barrier | open (north star) | `StartSystemShards` still returns after submission; per-shard failures are logged. A required/optional distinction is a maintainer decision (which shards may fail boot). |
+| `shards-terminal-outcomes-v1` drop telemetry and result retention | built | commits 9e61a5d, 9a72d9b (backlog above). The unified typed lifecycle receipt is not built. |
+| `shards-jit-prompt-boundary-v1` | partly built | `MangleRepairShard`'s fallback prompt taught negation as `not negative(X)`, which Mangle does not parse; it now teaches `!negative(X)` and warns when used (commit 664ae29, `TestMangleRepairFallbackPromptTeachesParsableNegation`). The inventory of every shards-owned LLM call, and moving consultation protocol text into atoms, remain open. |
+

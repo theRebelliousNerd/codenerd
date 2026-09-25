@@ -11,10 +11,16 @@
 - Normal chat, campaign, and factory boot paths must consume the same execution
   and provider settings. An invalid explicit config fails closed before ambient
   environment detection.
-- Tool-budget adaptation is executable policy: preserve the explicit
-  `adaptive_tool_budget=false` pointer value, bound extension size/count and
-  repeat thresholds, and propagate the same resolved limits to chat, campaigns,
-  and spawned agents.
+- A removed key stays removed. `rejectRemovedKeys` (`removed_keys.go`) fails
+  the load and names the key and why it went: the tool loop is not bounded by
+  counts (the working policy stops a stall) and runs are not bounded by wall
+  clocks. When you delete a key, add it to those maps; never reintroduce a
+  knob they name. The limits that remain reach chat, campaigns and spawned
+  agents alike. `TestAgentsGuide_TeachesNoRemovedKey` fails if this file names
+  a removed key again.
+- A section the kernel's rules read gives them `config_param` rows through a
+  `Params` method (`params.go`); a threshold that fails open when absent is
+  declared `config_param_required` next to its rule.
 - Root and secondary-slot `reasoning_effort` values are strict config fields.
   Provider factories decide support; Meta accepts only
   `minimal|low|medium|high|xhigh`, while other providers must omit the wire field.

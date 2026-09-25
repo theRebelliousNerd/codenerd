@@ -5,6 +5,7 @@ package chat
 import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
+	"codenerd/internal/store"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -127,7 +128,9 @@ func (m Model) buildStatusReport() string {
 //   - (no args): Show current storage stats
 //   - --runtime: Cleanup by runtime hours budget (default: 336 hours)
 //   - --size: Cleanup by size limit (default: 100MB)
-//   - --smart: LLM-based intelligent cleanup (requires confirmation)
+//   - --smart: refused: which executions to delete is a retention decision
+//     the budgets make, not a model (store.ToolStore.CleanupIntelligent is
+//     deliberately not wired)
 //   - --force: Skip confirmation prompts
 func (m Model) handleCleanupToolsCommand(args []string) string {
 	var sb strings.Builder
@@ -186,7 +189,7 @@ func (m Model) handleCleanupToolsCommand(args []string) string {
 		sb.WriteString("### Cleanup Options\n")
 		sb.WriteString("- `/cleanup-tools --runtime` - Delete executions exceeding 336 runtime hours\n")
 		sb.WriteString("- `/cleanup-tools --size` - Delete oldest executions to stay under 100MB\n")
-		sb.WriteString("- `/cleanup-tools --smart` - LLM-based intelligent cleanup\n")
+		sb.WriteString("- `/cleanup-tools --smart` - not offered: retention is decided by the budgets, not by a model\n")
 		sb.WriteString("- Add `--force` to skip confirmation\n")
 		return sb.String()
 	}
@@ -196,7 +199,9 @@ func (m Model) handleCleanupToolsCommand(args []string) string {
 
 	switch mode {
 	case "runtime":
-		budgetHours := 336.0 // 14 days equivalent
+		// The same budget boot and the maintenance cycle enforce
+		// (store.DefaultCleanupConfig), so what this previews is what runs.
+		budgetHours := store.DefaultCleanupConfig().MaxRuntimeHours
 		if !force {
 			sb.WriteString(fmt.Sprintf("Would clean up executions exceeding %.0f runtime hours.\n", budgetHours))
 			sb.WriteString("Add `--force` to execute.\n")
@@ -212,7 +217,7 @@ func (m Model) handleCleanupToolsCommand(args []string) string {
 		}
 
 	case "size":
-		maxBytes := int64(100 * 1024 * 1024) // 100MB
+		maxBytes := store.DefaultCleanupConfig().MaxSizeBytes
 		if !force {
 			sb.WriteString(fmt.Sprintf("Would clean up to stay under %.0f MB.\n", float64(maxBytes)/1024/1024))
 			sb.WriteString("Add `--force` to execute.\n")
@@ -227,8 +232,12 @@ func (m Model) handleCleanupToolsCommand(args []string) string {
 		}
 
 	case "smart":
-		sb.WriteString("LLM-based intelligent cleanup is not yet implemented.\n")
-		sb.WriteString("Use `--runtime` or `--size` for now.\n")
+		// store.ToolStore.CleanupIntelligent asks a model which executions to
+		// delete. That is a retention decision, and retention is the
+		// harness's: the runtime and size budgets decide it, at boot and on
+		// every maintenance cycle. Declined 2026-09-25 rather than wired.
+		sb.WriteString("Smart cleanup is not offered: which executions to delete is decided by the runtime and size budgets, not by a model.\n")
+		sb.WriteString("The runtime budget already runs at boot and on every maintenance cycle; use `--runtime` or `--size` to run one now.\n")
 	}
 
 	return sb.String()
@@ -243,9 +252,9 @@ func (m Model) renderCleanupToolsHelp() string {
 
 ### Options
 - ` + "`(no args)`" + ` - Show current storage statistics
-- ` + "`--runtime`" + ` - Delete executions exceeding 336 runtime hours (14 days equivalent)
+- ` + "`--runtime`" + ` - Delete the oldest sessions past the runtime budget (336 hours; also run at boot and by maintenance)
 - ` + "`--size`" + ` - Delete oldest executions to stay under 100MB storage limit
-- ` + "`--smart`" + ` - LLM-based intelligent cleanup (coming soon)
+- ` + "`--smart`" + ` - Not offered: retention is decided by the budgets, not by a model
 - ` + "`--force`" + ` - Skip confirmation and execute cleanup immediately
 
 ### Examples

@@ -51,7 +51,11 @@ Nil TaskExecutor → error path (must be wired).
 
 Interactive user turns may still use broader chat process pipelines; delegated coding work funnels TaskExecutor.
 
-## 5. Campaign wiring (secondary assembly)
+## 5. Campaign wiring (secondary assembly) — historical
+
+Corrected 2026-09-25: `cmd/nerd/cmd_campaign.go` no longer constructs a session
+stack; `session.NewExecutor`, `NewSpawner` and `NewJITExecutor` are called only
+in `internal/system/factory.go`. The text below describes the old shape.
 
 `cmd/nerd/cmd_campaign.go` constructs a **local** session stack:
 
@@ -85,7 +89,15 @@ Session does **not** register the gate. It type-asserts:
 if gate, ok := e.virtualStore.(InteractiveExecutiveGate); ok && gate != nil { ... }
 ```
 
-Production requires `*core.VirtualStore` (or adapter exposing methods) on the executor’s `virtualStore` field. If chat/system adapters wrap VS without forwarding Preflight/Validate, the gate silently no-ops — **wiring gap to audit** when changing adapters.
+Production requires `*core.VirtualStore` (or adapter exposing methods) on the executor’s `virtualStore` field. The system adapter asserts the interface at compile time (`var _ session.InteractiveExecutiveGate = (*sessionVirtualStoreAdapter)(nil)`), and an executor without the gate refuses every non-read effect ("mandatory executive gate unavailable") rather than no-oping. (Corrected 2026-09-25.)
+
+## 7b. LLM client capability forwarding (2026-09-25)
+
+The session LLM is `sessionLLMAdapter` over `ScheduledLLMCall` over
+`TracingLLMClient` over the broker wrapper. The adapter always claims
+`ToolResultsProvider`, so the Piggyback answer (`ShouldUsePiggybackTools`) is
+the only thing that keeps an envelope-only client off the native path; every
+layer forwards it (`TestSessionAdapterReportsAnEnvelopeOnlyEngineThroughTheProductionChain`).
 
 ## 8. Ouroboros registry
 

@@ -119,6 +119,28 @@ func (c *core) SupportsGrounding() bool {
 	return ok
 }
 
+// ShouldUsePiggybackTools implements types.PiggybackToolProvider: whether the
+// client underneath carries its tool calls in the Piggyback envelope rather
+// than in native tool_use blocks. The two CLI engines always do (they have no
+// tool channel at all); Gemini does while grounding is on.
+//
+// This selects a control flow, like the three methods in optional.go, but it
+// is an answer rather than a method whose presence is the capability, so it can
+// forward unconditionally: a client with no opinion answers false here, which
+// is exactly what a probe of the unwrapped client concludes.
+//
+// Until 2026-09-25 the broker did not forward it, and every production client
+// is metered, so the answer was false for every client in the process. The
+// session executor then sent a CLI engine down the native tool path, where the
+// first tool round failed with "does not implement ToolResultsProvider", and
+// sent a grounded Gemini through function calling, which drops grounding.
+func (c *core) ShouldUsePiggybackTools() bool {
+	if p, ok := c.underlying.(types.PiggybackToolProvider); ok {
+		return p.ShouldUsePiggybackTools()
+	}
+	return false
+}
+
 // SetEnableGoogleSearch implements types.GroundingController.
 func (c *core) SetEnableGoogleSearch(enable bool) {
 	if p, ok := c.underlying.(interface{ SetEnableGoogleSearch(bool) }); ok {

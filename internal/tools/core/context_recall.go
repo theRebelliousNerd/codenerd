@@ -25,9 +25,9 @@ var retainedHandleRedeemers = map[string]func(context.Context, map[string]any) (
 
 func RecallContextTool() *tools.Tool {
 	return &tools.Tool{
-		Name: "recall_context", Description: "Recover a page of an archived observation by its context record ID, or the retained text behind any handle the harness gave you (a subagent return obs:sa:..., a code search obs:cs:...). Returns original revision and provenance; historical observations are not current verification.", Category: tools.CategoryGeneral, Priority: 65,
+		Name: "recall_context", Description: "Recover a page of an archived observation by its context record ID, or the retained text behind any handle the harness gave you (a subagent return obs:sa:..., a code search obs:cs:...), or the conversation turns an eviction notice says left your window (obs:hist:..., paged in characters). Returns original revision and provenance; historical observations are not current verification.", Category: tools.CategoryGeneral, Priority: 65,
 		Schema: tools.ToolSchema{Properties: map[string]tools.Property{
-			"id":     {Type: "string", Description: "Observation ID from working context, or a retained handle (obs:sa:..., obs:cs:...)"},
+			"id":     {Type: "string", Description: "Observation ID from working context, a retained handle (obs:sa:..., obs:cs:...), or an eviction notice's obs:hist:... handle"},
 			"query":  {Type: "string", Description: "Literal archive search when the observation ID is unknown; provide query or id"},
 			"offset": {Type: "integer", Description: "Character offset, default zero (lines, for a retained handle)"},
 			"limit":  {Type: "integer", Description: "With id: page characters; omitted returns the rest of the body from offset. Page only when a whole body was reported as not fitting the request. With query: number of records, at most 50. Lines, for a retained handle"},

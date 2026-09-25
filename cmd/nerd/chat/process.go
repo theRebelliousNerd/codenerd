@@ -461,6 +461,9 @@ func (m Model) processInput(input string) tea.Cmd {
 					Persona:     shardType,
 					MaxAttempts: m.shardMaxRetries(shardType),
 					Params:      m.Config.GetDelegationConfig().Params(),
+					// The blackboard and priority the unverified path uses.
+					SessionContext: sessionCtx,
+					Priority:       types.PriorityHigh,
 				})
 
 				// CRITICAL FIX: Inject verified shard results as facts for cross-turn context

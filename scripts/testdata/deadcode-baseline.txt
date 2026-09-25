@@ -193,7 +193,6 @@ internal/campaign/orchestrator_task_transaction.go	Orchestrator.withTaskExecutio
 internal/campaign/risk_scoring.go	Orchestrator.computeCampaignRiskDecision
 internal/campaign/types.go	campaignRefLifecycleContractMap
 internal/config/user_config.go	IsImageGenerationModel
-internal/config/ux.go	DefaultUIConfig
 internal/context/compressor.go	NewCompressorWithConfig
 internal/context/compressor_turns.go	Compressor.generateSimpleSummary
 internal/context/compressor_turns.go	Compressor.generateSummary
@@ -295,7 +294,6 @@ internal/features/features.go	DefaultFeaturesConfig
 internal/features/features.go	boolPtrString
 internal/init/agents.go	Initializer.generateAgentPromptsYAML
 internal/init/agents_knowledge.go	convertStoreAtomsToInitAtoms
-internal/init/agents_knowledge.go	filterTopicsNeedingResearch
 internal/init/interactive.go	GetContext7AgentSuggestions
 internal/init/jit_integration.go	isExpertInitPhase
 internal/init/profile.go	GetLatestSession
@@ -488,7 +486,6 @@ internal/retrieval/tiered_context.go	TieredContextBuilder.ResolveFile
 internal/session/critic.go	CriticSeverityRank
 internal/session/executor.go	Executor.parseMangleArg
 internal/session/executor.go	Executor.parseMangleArgs
-internal/session/executor.go	Executor.recoverHistoryEviction
 internal/session/executor.go	MangleAtom.String
 internal/session/executor_tools.go	Executor.assertPendingEdit
 internal/session/executor_tools.go	Executor.checkSafety
@@ -536,7 +533,6 @@ internal/store/local_core.go	vecExtensionAvailable
 internal/store/local_knowledge.go	KnowledgeStore.StoreAtom
 internal/store/local_knowledge.go	NewKnowledgeStore
 internal/store/reflection_worker.go	applyRecencyWeight
-internal/store/tool_cleanup.go	DefaultCleanupConfig
 internal/system/factory.go	ResetCortexForWorkspace
 internal/system/factory.go	ResetGlobalCortex
 internal/tactile/audit.go	AuditedExecutorWrapper.Capabilities

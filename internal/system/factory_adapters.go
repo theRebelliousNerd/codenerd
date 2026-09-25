@@ -569,6 +569,21 @@ func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt,
 	return a.client.CompleteWithTools(a.meteredContext(ctx), systemPrompt, userPrompt, tools)
 }
 
+// ShouldUsePiggybackTools forwards types.PiggybackToolProvider. This adapter
+// always claims ToolResultsProvider (it forwards or errors), so the Piggyback
+// answer is the only thing that keeps an envelope-only client -- the two CLI
+// engines, a grounded Gemini -- off the native tool path, whose first
+// continuation fails "does not implement ToolResultsProvider" for them.
+func (a *sessionLLMAdapter) ShouldUsePiggybackTools() bool {
+	if a == nil || a.client == nil {
+		return false
+	}
+	if p, ok := a.client.(types.PiggybackToolProvider); ok {
+		return p.ShouldUsePiggybackTools()
+	}
+	return false
+}
+
 // CompleteWithToolResults forwards multi-turn tool results when the underlying
 // perception client implements types.ToolResultsProvider (e.g. XAIClient).
 // Without this, the session executor always falls back to single-turn tools
