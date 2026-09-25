@@ -102,37 +102,3 @@ func TestRestore_RewindsAndDropsSidecars(t *testing.T) {
 		t.Errorf("restored content = %q with %d rows, want exactly [before]", v, countRows(t, ro, "t"))
 	}
 }
-
-// The shared ANN row mapper: distance becomes similarity, ranks are 1-based,
-// and every column lands on the right field.
-func TestScanSemanticMatches_MapsAndRanks(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	rows, err := db.Query(`SELECT 'c1', 'p1', 'v1', 't1', 'cat1', 0.25
-		UNION ALL SELECT 'c2', 'p2', 'v2', 't2', 'cat2', 0.75`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-
-	matches, err := scanSemanticMatches(rows, "results")
-	if err != nil {
-		t.Fatalf("scanSemanticMatches: %v", err)
-	}
-	if len(matches) != 2 {
-		t.Fatalf("matches = %d, want 2", len(matches))
-	}
-	if matches[0].Similarity != 0.75 || matches[0].Rank != 1 {
-		t.Errorf("match[0] = %+v, want similarity 0.75 rank 1", matches[0])
-	}
-	if matches[1].Similarity != 0.25 || matches[1].Rank != 2 {
-		t.Errorf("match[1] = %+v, want similarity 0.25 rank 2", matches[1])
-	}
-	if matches[0].TextContent != "c1" || matches[0].Predicate != "p1" ||
-		matches[0].Verb != "v1" || matches[0].Target != "t1" || matches[0].Category != "cat1" {
-		t.Errorf("match[0] = %+v, columns misaligned", matches[0])
-	}
-}

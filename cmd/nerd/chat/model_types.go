@@ -139,11 +139,6 @@ func (m *Model) setInputMode(mode InputMode) {
 	}
 }
 
-// isInWizard reports whether the model is currently inside any wizard mode.
-func (m *Model) isInWizard() bool {
-	return m.inputMode.IsWizard()
-}
-
 // BootStage represents the startup phase for the interactive UI.
 // While any boot stage is active, the chat input is hidden.
 type BootStage int

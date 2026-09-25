@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/core"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -147,94 +146,6 @@ func (m Model) runWhatIfQuery(change string) tea.Cmd {
 	}
 }
 
-// buildDerivationTrace builds a trace explaining why a fact was derived
-func (m Model) buildDerivationTrace(fact string) string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## Derivation Trace for: %s\n\n", fact))
-
-	// Query for the fact
-	facts, err := m.kernel.Query(fact)
-	if err != nil || len(facts) == 0 {
-		sb.WriteString("Fact not found in the knowledge base.\n")
-		return sb.String()
-	}
-
-	// Build the trace tree
-	sb.WriteString("### Derivation Tree\n\n")
-	sb.WriteString("```\n")
-
-	for _, f := range facts {
-		sb.WriteString(fmt.Sprintf("%s\n", f.String()))
-
-		// Get the rule that derived this fact
-		rule := getRuleForPredicate(m.kernel, f.Predicate)
-		if rule != "" {
-			sb.WriteString(fmt.Sprintf("  <- Rule: %s\n", rule))
-		}
-
-		// Get child facts (premises)
-		children := getChildNodes(m.kernel, f)
-		for _, child := range children {
-			sb.WriteString(fmt.Sprintf("    <- %s\n", child.String()))
-		}
-	}
-
-	sb.WriteString("```\n")
-
-	return sb.String()
-}
-
-// getRuleForPredicate returns the rule that derives a predicate
-func getRuleForPredicate(k core.Kernel, predicate string) string {
-	// Query the rule_description table
-	descriptions, err := k.Query("rule_description")
-	if err != nil {
-		return ""
-	}
-
-	for _, desc := range descriptions {
-		// rule_description(Predicate, Text)
-		if len(desc.Args) >= 2 && desc.Args[0] == predicate {
-			if text, ok := desc.Args[1].(string); ok {
-				return text
-			}
-		}
-	}
-	return ""
-}
-
-// getChildNodes returns the child facts (premises) for a derived fact
-func getChildNodes(kernel core.Kernel, fact core.Fact) []core.Fact {
-	children := []core.Fact{}
-
-	// Query for related facts based on the predicate
-	switch fact.Predicate {
-	case "next_action":
-		// Look for user_intent
-		intents, _ := kernel.Query("user_intent")
-		children = append(children, intents...)
-
-	case "impacted":
-		// Look for dependency_link and modified
-		deps, _ := kernel.Query("dependency_link")
-		children = append(children, deps...)
-		mods, _ := kernel.Query("modified")
-		children = append(children, mods...)
-
-	case "clarification_needed":
-		// Look for focus_resolution
-		focus, _ := kernel.Query("focus_resolution")
-		children = append(children, focus...)
-	}
-
-	// Limit to first 5 children
-	if len(children) > 5 {
-		children = children[:5]
-	}
-
-	return children
-}
-
 // renderLogicPane renders content for the logic pane
 func (m Model) renderLogicPane() string {
 	if m.logicPane == nil {
@@ -292,9 +203,4 @@ func (m *Model) UpdateLogicPane() {
 		content := m.renderLogicPane()
 		m.logicPane.Viewport.SetContent(content)
 	}
-}
-
-// getStyles returns the current UI styles (for helper functions)
-func (m Model) getStyles() ui.Styles {
-	return m.styles
 }

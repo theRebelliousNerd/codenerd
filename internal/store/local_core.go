@@ -6,7 +6,6 @@ import (
 	"codenerd/internal/logging"
 	"database/sql"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -532,9 +531,8 @@ func (s *LocalStore) GetDB() *sql.DB {
 
 // detectVecExtension attempts to create a vec0 virtual table to see if sqlite-vec is available.
 // Constructor audit (2026-08-10): There is a single public constructor for
-// LocalStore — NewLocalStore — plus one wrapper NewKnowledgeStore that delegates
-// to it. Both run the same strict check via defaultRequireVec. No alternate
-// constructor bypasses the check, so the observed boot-success with vectorExt==false
+// LocalStore — NewLocalStore — and it runs the strict check via
+// defaultRequireVec. No alternate constructor bypasses the check, so the observed boot-success with vectorExt==false
 // is not due to an unchecked path. It means either (a) the binary was built without
 // the sqlite_vec tag so defaultRequireVec==false and the strict check is intentionally
 // lenient, or (b) the probe itself is failing for this handle. To make (b) visible,
@@ -553,42 +551,6 @@ func (s *LocalStore) detectVecExtension() {
 	}
 
 	s.vectorExt.Store(false)
-}
-
-// vecExtensionAvailable reports whether this handle can run sqlite-vec
-// functions. Unlike detectVecExtension it never creates or drops a table, so
-// it is safe to call from a read path: search-time fallback logging needs to
-// tell "extension missing" apart from "index not built yet", and answering
-// that question must not mutate the database.
-func vecExtensionAvailable(db *sql.DB) bool {
-	if db == nil {
-		return false
-	}
-	var version string
-	if err := db.QueryRow("SELECT vec_version()").Scan(&version); err != nil {
-		return false
-	}
-	return version != ""
-}
-
-// CosineSimilarity computes cosine similarity between two vectors.
-func CosineSimilarity(a, b []float64) float64 {
-	if len(a) != len(b) {
-		return 0
-	}
-
-	var dotProduct, normA, normB float64
-	for i := range a {
-		dotProduct += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
-	}
-
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-
-	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
 func getBatchCountQueryPiece(table string) string {

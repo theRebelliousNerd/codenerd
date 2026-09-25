@@ -31,11 +31,12 @@ var ErrVerificationFailed = errors.New("post-edit verification failed")
 // task_status(/manual_instruction, /complete) and exited 0. A single `go build`
 // would have caught all four.
 //
-// Nothing verified write-tool output. internal/core/self_healing.go defines a
+// Nothing verified write-tool output. internal/core/self_healing.go defined a
 // SelfHealer with HandleValidationFailure / retryAction / rollbackAction /
-// escalateToUser and has zero production callers anywhere in the repo;
-// ValidatorRegistry survives only in comments describing what it would dispatch
-// on. The machinery to check the work existed and was wired to nothing.
+// escalateToUser and had zero production callers anywhere in the repo, and was
+// deleted once this file superseded it; ValidatorRegistry survived only in
+// comments describing what it would dispatch on. The machinery to check the
+// work existed and was wired to nothing.
 //
 // Detection alone would only convert a false success into an honest failure.
 // The point of this file is the repair round: the compiler's own errors go back

@@ -1174,12 +1174,6 @@ func formatMultiShardResponse(review *AggregatedReview) string {
 	return sb.String()
 }
 
-// Helper to get localDB from model (needs to be added to Model struct)
-// For now, we'll use a method that accesses the workspace store
-func (m Model) getLocalDB() *store.LocalStore {
-	return m.localDB
-}
-
 // enableNemesisReview checks if Nemesis adversarial review should run.
 // Nemesis runs attack scripts against the code to find vulnerabilities.
 // It can be enabled via:

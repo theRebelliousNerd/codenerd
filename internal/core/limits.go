@@ -24,16 +24,6 @@ type LimitsConfig struct {
 	MaxDerivedFactsLimit int // Mangle gas limit for inference
 }
 
-// DefaultLimitsConfig returns production defaults matching config.go.
-func DefaultLimitsConfig() LimitsConfig {
-	return LimitsConfig{
-		MaxTotalMemoryMB:     12288,   // 12GB RAM limit
-		MaxConcurrentShards:  12,      // Max 12 parallel shards (7 system + 5 user)
-		MaxFactsInKernel:     2000000, // Out-of-memory backstop, not a working budget
-		MaxDerivedFactsLimit: 5000000, // Runaway-rule backstop; a real repository's world derives past 500k
-	}
-}
-
 // LimitsEnforcer tracks resource usage and enforces hard limits.
 type LimitsEnforcer struct {
 	mu sync.RWMutex

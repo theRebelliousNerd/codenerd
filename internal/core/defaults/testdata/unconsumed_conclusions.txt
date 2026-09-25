@@ -13,7 +13,6 @@ unconsumed action_blocked
 unconsumed action_complete_verified
 unconsumed action_enhanced_validated
 unconsumed action_failed_validation
-unconsumed action_healed
 unconsumed action_is_escalated
 unconsumed action_needs_self_healing
 unconsumed action_paranoid_validated
@@ -567,7 +566,6 @@ unconsumed unchecked_error
 unconsumed unhandled_case_count
 unconsumed unresolved_failure
 unconsumed unsafe_deref
-unconsumed unsafe_to_refactor
 unconsumed unserved_persona
 unconsumed unvalidated_side_effect
 unconsumed unwired_function

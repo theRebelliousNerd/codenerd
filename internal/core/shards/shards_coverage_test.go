@@ -265,45 +265,6 @@ func TestShardManager_ToFacts_WithProfiles(t *testing.T) {
 
 // --- categorizeShardType ---
 
-func TestCategorizeShardType_WhenSystemShard_ShouldReturnSystem(t *testing.T) {
-	sm := NewShardManager()
-	tests := []string{"perception_firewall", "constitution_gate", "executive_policy",
-		"cost_guard", "tactile_router", "session_planner", "world_model_ingestor"}
-	for _, name := range tests {
-		result := sm.categorizeShardType(name, "")
-		if result != "system" {
-			t.Errorf("expected 'system' for %q, got %q", name, result)
-		}
-	}
-}
-
-func TestCategorizeShardType_WhenEphemeralShard_ShouldReturnEphemeral(t *testing.T) {
-	sm := NewShardManager()
-	tests := []string{"coder", "tester", "reviewer", "researcher"}
-	for _, name := range tests {
-		result := sm.categorizeShardType(name, "")
-		if result != "ephemeral" {
-			t.Errorf("expected 'ephemeral' for %q, got %q", name, result)
-		}
-	}
-}
-
-func TestCategorizeShardType_WhenUnknown_ShouldReturnSpecialist(t *testing.T) {
-	sm := NewShardManager()
-	result := sm.categorizeShardType("custom-agent", "")
-	if result != "specialist" {
-		t.Errorf("expected 'specialist', got %q", result)
-	}
-}
-
-func TestCategorizeShardType_WhenTypeSystem_ShouldReturnSystem(t *testing.T) {
-	sm := NewShardManager()
-	result := sm.categorizeShardType("anything", types.ShardTypeSystem)
-	if result != "system" {
-		t.Errorf("expected 'system' when type is ShardTypeSystem, got %q", result)
-	}
-}
-
 // --- normalizeMangleAtom ---
 
 func TestNormalizeMangleAtom_WhenEmpty_ShouldReturnEmpty(t *testing.T) {

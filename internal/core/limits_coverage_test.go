@@ -102,7 +102,7 @@ func TestLimitsEnforcer_CoverageExtra(t *testing.T) {
 	}
 
 	// 4. Test CheckAll and GetStatus
-	cfgOK := DefaultLimitsConfig()
+	cfgOK := testLimitsConfig()
 	cfgOK.MaxTotalMemoryMB = 999999
 	leOK := NewLimitsEnforcer(cfgOK)
 	if err := leOK.CheckAll(1); err != nil {

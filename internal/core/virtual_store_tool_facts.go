@@ -106,3 +106,11 @@ func worldRefOf(e tools.EditedElement) string {
 	}
 	return prefix + ":" + e.Package + "." + e.Name
 }
+
+// boolToAtom converts a Go boolean to a Mangle atom string.
+func boolToAtom(b bool) string {
+	if b {
+		return "/true"
+	}
+	return "/false"
+}

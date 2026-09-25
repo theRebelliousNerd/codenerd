@@ -3,11 +3,9 @@ package core
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
 
@@ -157,54 +155,5 @@ func TestToolRegistry_CatalogDeterministic(t *testing.T) {
 	}
 	if !(iz < ia && ia < im) {
 		t.Fatalf("catalog not sorted by affinity then name:\n%s", first)
-	}
-}
-
-// TestTDDLoop_FailedPatchReturnsToAnalyzing pins the RouteActionResult fix:
-// a patch the store cannot apply (missing file) must bounce the loop to
-// Analyzing, not advance to Compiling as if applied.
-func TestTDDLoop_FailedPatchReturnsToAnalyzing(t *testing.T) {
-	tdd, _, _, _ := SetupTDDLoop(t)
-	tdd.state = TDDStateApplying
-	tdd.patches = []Patch{{FilePath: filepath.Join(t.TempDir(), "missing.go"), OldContent: "a", NewContent: "b"}}
-	if err := tdd.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if tdd.GetState() != TDDStateAnalyzing {
-		t.Fatalf("state = %s after failed apply, want analyzing", tdd.GetState())
-	}
-}
-
-// TestTDDLoop_BuildFailureCompilesError pins build gating on Success rather
-// than grepping output for the substring "error".
-func TestTDDLoop_BuildFailureCompilesError(t *testing.T) {
-	tdd, mockExec, _, _ := SetupTDDLoop(t)
-	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
-		return &tactile.ExecutionResult{Success: false, ExitCode: 2, Stdout: "build failed: boom"}, nil
-	}
-	tdd.state = TDDStateCompiling
-	if err := tdd.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if tdd.GetState() != TDDStateCompileError {
-		t.Fatalf("state = %s after failed build, want compile_error", tdd.GetState())
-	}
-}
-
-// TestTDDLoop_MalformedPatchSkipped pins the section-order guard: NEW: before
-// OLD: must skip the block, not slice out of range.
-func TestTDDLoop_MalformedPatchSkipped(t *testing.T) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("parseLLMPatch panicked: %v", r)
-		}
-	}()
-	patches := parseLLMPatch("FILE: x.go\nNEW:\nB\nOLD:\nA\nRATIONALE: r\n")
-	if len(patches) != 0 {
-		t.Fatalf("malformed patch parsed: %+v", patches)
-	}
-	good := parseLLMPatch("FILE: x.go\nOLD:\nA\nNEW:\nB\nRATIONALE: r\n")
-	if len(good) != 1 || good[0].NewContent != "B" {
-		t.Fatalf("well-formed patch rejected: %+v", good)
 	}
 }

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"codeberg.org/TauCeti/mangle-go/analysis"
-
 	"codenerd/cmd/nerd/chat"
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
@@ -14,7 +12,6 @@ import (
 	"codenerd/internal/shards"
 	"codenerd/internal/store"
 	coresys "codenerd/internal/system"
-	"codenerd/internal/types"
 	"codenerd/internal/world"
 	"context"
 	"encoding/json"
@@ -1021,197 +1018,9 @@ func writeCampaignJSON(path string, c *campaign.Campaign) error {
 }
 
 // ============================================================================
-// SESSION ADAPTERS FOR JITEXECUTOR
-// These adapt internal types to the types.* interfaces required by session package.
+// CONSULTATION ADAPTERS
+// These adapt the task executor and consultation manager to the campaign package.
 // ============================================================================
-
-// campaignKernelAdapter adapts core.Kernel to types.Kernel for session package.
-type campaignKernelAdapter struct {
-	kernel types.Kernel
-}
-
-func (a *campaignKernelAdapter) LoadFacts(facts []types.Fact) error {
-	return a.kernel.LoadFacts(facts)
-}
-
-func (a *campaignKernelAdapter) Query(predicate string) ([]types.Fact, error) {
-	return a.kernel.Query(predicate)
-}
-
-func (a *campaignKernelAdapter) QueryAll() (map[string][]types.Fact, error) {
-	return a.kernel.QueryAll()
-}
-
-func (a *campaignKernelAdapter) Assert(fact types.Fact) error {
-	return a.kernel.Assert(fact)
-}
-
-func (a *campaignKernelAdapter) AssertBatch(facts []types.Fact) error {
-	return a.kernel.AssertBatch(facts)
-}
-
-func (a *campaignKernelAdapter) Retract(predicate string) error {
-	return a.kernel.Retract(predicate)
-}
-
-func (a *campaignKernelAdapter) RetractFact(fact types.Fact) error {
-	return a.kernel.RetractFact(fact)
-}
-
-func (a *campaignKernelAdapter) UpdateSystemFacts() error {
-	return a.kernel.UpdateSystemFacts()
-}
-
-func (a *campaignKernelAdapter) Reset() {
-	a.kernel.Reset()
-}
-
-func (a *campaignKernelAdapter) AppendPolicy(policy string) {
-	a.kernel.AppendPolicy(policy)
-}
-
-func (a *campaignKernelAdapter) RetractExactFactsBatch(facts []types.Fact) error {
-	return a.kernel.RetractExactFactsBatch(facts)
-}
-
-func (a *campaignKernelAdapter) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
-	return a.kernel.RemoveFactsByPredicateSet(predicates)
-}
-
-// campaignVirtualStoreAdapter adapts core.VirtualStore to types.VirtualStore.
-type campaignVirtualStoreAdapter struct {
-	vs *core.VirtualStore
-}
-
-func (a *campaignVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return strings.Split(string(data), "\n"), nil
-}
-
-func (a *campaignVirtualStoreAdapter) WriteFile(path string, lines []string) error {
-	content := strings.Join(lines, "\n")
-	return os.WriteFile(path, []byte(content), 0644)
-}
-
-func (a *campaignVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
-	return "", "", fmt.Errorf("exec not implemented in campaign adapter")
-}
-
-func (a *campaignVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
-	if a.vs != nil {
-		return a.vs.ReadRaw(path)
-	}
-	return os.ReadFile(path)
-}
-
-// Compile-time assertion that the campaign adapter exposes the Dreamer
-// preflight and post-action validator seam. Without this, the session
-// executor's type assertion silently skips both gates on every campaign task.
-var _ session.InteractiveExecutiveGate = (*campaignVirtualStoreAdapter)(nil)
-
-// isCampaignAdapterDestructiveTool mirrors the core gate's destructive
-// classification for interactive tool names (see
-// internal/core/virtual_store_interactive_gate.go interactiveToolActionType
-// filtered by isDestructiveAction). Only read_file is non-destructive; every
-// other mapped tool mutates files or executes code.
-func isCampaignAdapterDestructiveTool(toolName string) bool {
-	switch toolName {
-	case "write_file", "edit_file", "delete_file",
-		"run_command", "bash", "run_build",
-		"edit_lines", "insert_lines", "delete_lines",
-		"edit_element", "apply_edits":
-		return true
-	default:
-		return false
-	}
-}
-
-// PreflightDestructiveToolCall delegates to the wrapped VirtualStore's Dreamer
-// gate, satisfying session.InteractiveExecutiveGate so campaign task execution
-// runs the safety simulation before destructive tool calls.
-//
-// Nil handling is deliberately fail-CLOSED for destructive tools, matching the
-// core gate's documented policy (every mapped destructive tool requires a
-// usable Dreamer): a nil store blocks destructive tools instead of allowing
-// them. This differs from the TUI chat adapter
-// (cmd/nerd/chat/session_adapters.go), which is fail-OPEN on a nil store to
-// preserve its prior behavior.
-func (a *campaignVirtualStoreAdapter) PreflightDestructiveToolCall(ctx context.Context, actionID, toolName string, args map[string]any) error {
-	if a == nil || a.vs == nil {
-		if isCampaignAdapterDestructiveTool(toolName) {
-			return &core.InteractiveGateError{Reason: "interactive executive gate unavailable: VirtualStore is nil; blocked destructive tool " + toolName}
-		}
-		return nil
-	}
-	return a.vs.PreflightDestructiveToolCall(ctx, actionID, toolName, args)
-}
-
-// ValidateInteractiveToolResult delegates to the wrapped VirtualStore's
-// post-action validator registry, satisfying session.InteractiveExecutiveGate.
-// Nil store => no validation (a post-action check cannot fail closed without a
-// side effect to verify).
-func (a *campaignVirtualStoreAdapter) ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error {
-	if a == nil || a.vs == nil {
-		return nil
-	}
-	return a.vs.ValidateInteractiveToolResult(ctx, actionID, toolName, args, output, success)
-}
-
-// campaignLLMAdapter adapts perception.LLMClient to types.LLMClient.
-type campaignLLMAdapter struct {
-	client perception.LLMClient
-}
-
-// newCampaignLLMAdapter wraps a client for the session layer. Both campaign
-// paths shadow the type name with a local variable, so construction goes
-// through this helper rather than a composite literal.
-func newCampaignLLMAdapter(client perception.LLMClient) *campaignLLMAdapter {
-	return &campaignLLMAdapter{client: client}
-}
-
-// Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
-// walk the decorator chain. Without it this type is opaque to both: Base stops
-// here instead of reaching the concrete client, and IsBrokered reports an
-// already-metered chain as un-metered. Neither surfaces as an error -- Base's
-// callers use a comma-ok type assertion, so a miss reads as "not that engine".
-func (a *campaignLLMAdapter) Unwrap() perception.LLMClient { return a.client }
-
-func (a *campaignLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {
-	return a.client.Complete(ctx, prompt)
-}
-
-func (a *campaignLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-}
-
-func (a *campaignLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
-}
-
-// CompleteWithToolResults forwards multi-turn tool results so campaign coder
-// shards can write files after glob/list (SuperGrok / API path). Without this,
-// the session executor aborts after the first tool batch and campaigns stall
-// on hollow-success / missing micro-checkpoint paths.
-func (a *campaignLLMAdapter) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	if a == nil || a.client == nil {
-		return nil, fmt.Errorf("campaign LLM client is nil")
-	}
-	if trp, ok := a.client.(types.ToolResultsProvider); ok {
-		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
-	}
-	// ScheduledLLMCall and perception clients may implement the method without
-	// being types.ToolResultsProvider on the interface value after wrapping.
-	type perceptionTRP interface {
-		CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
-	}
-	if trp, ok := a.client.(perceptionTRP); ok {
-		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
-	}
-	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", a.client)
-}
 
 // campaignTaskExecutorConsultationSpawner adapts TaskExecutor to ConsultationSpawner.
 type campaignTaskExecutorConsultationSpawner struct {
@@ -1286,36 +1095,4 @@ func (a *campaignConsultationProviderAdapter) RequestBatchConsultation(ctx conte
 	}
 
 	return converted, err
-}
-
-func (a *campaignKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
-	return a.kernel.GetProgramInfo()
-}
-
-func (a *campaignLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-		res, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-	return contentChan, errorChan
-}
-
-type campaignTaskDelegatorAdapter struct {
-	executor session.TaskExecutor
-}
-
-func (a *campaignTaskDelegatorAdapter) Execute(ctx context.Context, intent string, task string) (string, error) {
-	req := session.TaskRequest{
-		IntentVerb: intent,
-		Task:       task,
-	}
-	return a.executor.Execute(ctx, req)
 }

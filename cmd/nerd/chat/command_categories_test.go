@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"codenerd/internal/config"
 	"testing"
 )
 
@@ -29,56 +28,6 @@ func TestGetCommandsByCategory_FiltersShowInHelp(t *testing.T) {
 	commands := GetCommandsByCategory(CategoryCore)
 	if containsCommand(commands, "/hidden") {
 		t.Fatalf("GetCommandsByCategory returned a hidden command")
-	}
-}
-
-func TestGetCommandsForLevel_IncludesExpectedCategories(t *testing.T) {
-	tests := []struct {
-		name    string
-		level   config.ExperienceLevel
-		want    []string
-		notWant []string
-	}{
-		{
-			name:    "beginner",
-			level:   config.ExperienceBeginner,
-			want:    []string{"/help"},
-			notWant: []string{"/read", "/query", "/logic", "/config"},
-		},
-		{
-			name:    "intermediate",
-			level:   config.ExperienceIntermediate,
-			want:    []string{"/help", "/read"},
-			notWant: []string{"/query", "/logic", "/config"},
-		},
-		{
-			name:    "advanced",
-			level:   config.ExperienceAdvanced,
-			want:    []string{"/help", "/read", "/query"},
-			notWant: []string{"/logic", "/config"},
-		},
-		{
-			name:    "expert",
-			level:   config.ExperienceExpert,
-			want:    []string{"/help", "/read", "/query", "/logic", "/config"},
-			notWant: []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			commands := GetCommandsForLevel(tt.level)
-			for _, name := range tt.want {
-				if !containsCommand(commands, name) {
-					t.Errorf("expected command %q to be present", name)
-				}
-			}
-			for _, name := range tt.notWant {
-				if containsCommand(commands, name) {
-					t.Errorf("expected command %q to be absent", name)
-				}
-			}
-		})
 	}
 }
 

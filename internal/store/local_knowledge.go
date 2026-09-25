@@ -26,20 +26,6 @@ type KnowledgeAtom struct {
 	CreatedAt  time.Time
 }
 
-// KnowledgeStore wraps a LocalStore for knowledge-specific operations.
-type KnowledgeStore struct {
-	*LocalStore
-}
-
-// NewKnowledgeStore creates a new knowledge store at the given path.
-func NewKnowledgeStore(dbPath string) (*KnowledgeStore, error) {
-	ls, err := NewLocalStore(dbPath)
-	if err != nil {
-		return nil, err
-	}
-	return &KnowledgeStore{LocalStore: ls}, nil
-}
-
 // StoreKnowledgeAtom stores a knowledge atom for agent knowledge bases.
 // This is used by Type 3 agents to persist their expertise.
 func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence float64) error {
@@ -481,36 +467,4 @@ func truncateForLog(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
-}
-
-// StoreAtom stores a knowledge atom in the database.
-func (ks *KnowledgeStore) StoreAtom(atom KnowledgeAtom) error {
-	timer := logging.StartTimer(logging.CategoryStore, "KnowledgeStore.StoreAtom")
-	defer timer.Stop()
-
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-
-	logging.StoreDebug("Storing atom: concept=%s source=%s confidence=%.2f tags=%d",
-		atom.Concept, atom.Source, atom.Confidence, len(atom.Tags))
-
-	tagsJSON, err := json.Marshal(atom.Tags)
-	if err != nil {
-		tagsJSON = []byte("[]")
-	}
-
-	// Compute content hash for deduplication
-	contentHash := ComputeContentHash(atom.Concept, atom.Content)
-
-	_, err = ks.db.Exec(`
-		INSERT INTO knowledge_atoms (concept, content, source, confidence, tags, created_at, content_hash)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		atom.Concept, atom.Content, atom.Source, atom.Confidence, string(tagsJSON), atom.CreatedAt.Format(time.RFC3339), contentHash)
-	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to store atom %s: %v", atom.Concept, err)
-		return err
-	}
-
-	logging.StoreDebug("Atom stored: concept=%s", atom.Concept)
-	return nil
 }

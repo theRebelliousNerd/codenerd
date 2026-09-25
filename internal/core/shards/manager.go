@@ -256,36 +256,6 @@ func (sm *ShardManager) SetJITUnregistrar(unregistrar types.JITDBUnregistrar) {
 	logging.ShardsDebug("JIT unregistrar callback set")
 }
 
-func (sm *ShardManager) categorizeShardType(typeName string, shardType types.ShardType) string {
-	// System shards (built-in, always-on)
-	systemShards := map[string]bool{
-		"perception_firewall":  true,
-		"constitution_gate":    true,
-		"executive_policy":     true,
-		"cost_guard":           true,
-		"tactile_router":       true,
-		"session_planner":      true,
-		"world_model_ingestor": true,
-	}
-	if systemShards[typeName] || shardType == types.ShardTypeSystem {
-		return "system"
-	}
-
-	// Ephemeral shards (built-in factories)
-	ephemeralShards := map[string]bool{
-		"coder":      true,
-		"tester":     true,
-		"reviewer":   true,
-		"researcher": true,
-	}
-	if ephemeralShards[typeName] || shardType == types.ShardTypeEphemeral {
-		return "ephemeral"
-	}
-
-	// Everything else is a specialist (LLM-created or user-created)
-	return "specialist"
-}
-
 func (sm *ShardManager) SetLearningStore(store types.LearningStore) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

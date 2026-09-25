@@ -292,36 +292,6 @@ func TestFirstFailure(t *testing.T) {
 	}
 }
 
-func TestAggregate(t *testing.T) {
-	results := []ValidationResult{
-		{Verified: true, Confidence: 0.9},
-		{Verified: false, Confidence: 0.8, Error: "error 1"},
-		{Verified: true, Confidence: 1.0},
-		{Verified: false, Confidence: 0.7, Error: "error 2"},
-	}
-
-	agg := Aggregate(results)
-
-	if agg.AllVerified {
-		t.Error("expected AllVerified to be false")
-	}
-	if agg.ValidatorCount != 4 {
-		t.Errorf("expected 4 validators, got %d", agg.ValidatorCount)
-	}
-	if agg.FailureCount != 2 {
-		t.Errorf("expected 2 failures, got %d", agg.FailureCount)
-	}
-	if agg.HighestConfidence != 1.0 {
-		t.Errorf("expected highest confidence 1.0, got %f", agg.HighestConfidence)
-	}
-	if agg.LowestConfidence != 0.7 {
-		t.Errorf("expected lowest confidence 0.7, got %f", agg.LowestConfidence)
-	}
-	if agg.FirstError != "error 1" {
-		t.Errorf("expected first error 'error 1', got '%s'", agg.FirstError)
-	}
-}
-
 func TestValidationResult_ToFacts(t *testing.T) {
 	t.Run("verified result", func(t *testing.T) {
 		vr := &ValidationResult{

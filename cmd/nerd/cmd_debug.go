@@ -3,7 +3,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -65,19 +64,9 @@ func (t *DebugTracer) TracePhase(phase string) {
 	t.Trace("PHASE", ">>> %s", phase)
 }
 
-// TraceAPI logs API-related events.
-func (t *DebugTracer) TraceAPI(format string, args ...any) {
-	t.Trace("API", format, args...)
-}
-
 // TraceShard logs shard-related events.
 func (t *DebugTracer) TraceShard(format string, args ...any) {
 	t.Trace("SHARD", format, args...)
-}
-
-// TraceKernel logs Mangle kernel events.
-func (t *DebugTracer) TraceKernel(format string, args ...any) {
-	t.Trace("KERNEL", format, args...)
 }
 
 // TraceContext logs context creation/cancellation.
@@ -88,11 +77,6 @@ func (t *DebugTracer) TraceContext(format string, args ...any) {
 // TraceError logs errors.
 func (t *DebugTracer) TraceError(format string, args ...any) {
 	t.Trace("ERROR", format, args...)
-}
-
-// TraceTool logs tool invocation.
-func (t *DebugTracer) TraceTool(format string, args ...any) {
-	t.Trace("TOOL", format, args...)
 }
 
 // Summary prints a summary of the trace at the end.
@@ -125,17 +109,6 @@ func registerDebugFlags(cmds ...*cobra.Command) {
 	}
 }
 
-// VerboseContextDeadlineLogger wraps a context to log deadline info.
-func VerboseContextDeadlineLogger(ctx context.Context, tracer *DebugTracer, name string) context.Context {
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		tracer.TraceContext("%s: deadline in %v", name, remaining.Round(time.Second))
-	} else {
-		tracer.TraceContext("%s: no deadline set", name)
-	}
-	return ctx
-}
-
 // PrintVerboseHeader prints debug header if verbose mode is enabled.
 func PrintVerboseHeader() {
 	if !verbose {
@@ -147,17 +120,12 @@ func PrintVerboseHeader() {
 	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("═", 60))
 }
 
-// ShouldDumpKernel returns true if kernel dump is requested.
-func ShouldDumpKernel() bool {
-	return dumpKernel
-}
-
 // DumpKernelSnapshot writes the kernel's base facts to .nerd/snapshots/ when
 // --dump-kernel was passed, returning the snapshot path (empty when the flag
 // is off).
 //
-// The flag and ShouldDumpKernel have existed since the debug commands were
-// added, and nothing ever called them — "Export Mangle facts after execution"
+// The flag existed since the debug commands were added, and nothing ever
+// read it — "Export Mangle facts after execution"
 // was a promise with no implementation behind it. internal/persist/factsnap
 // was the other half of the same gap: a serializer with no production caller.
 // This connects them.

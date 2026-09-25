@@ -153,13 +153,3 @@ func DefaultAgentPolicySetFiles(setID string) ([]string, bool) {
 	files = append(files, extras...)
 	return files, true
 }
-
-// DefaultAgentPolicySetIDs returns the stable policy-set vocabulary.
-func DefaultAgentPolicySetIDs() []string {
-	ids := make([]string, 0, len(defaultAgentPolicySetExtras))
-	for id := range defaultAgentPolicySetExtras {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
-}

@@ -94,12 +94,6 @@ var learnedHostOnlyHeads = func() map[string]string {
 	return out
 }()
 
-func (k *RealKernel) refreshSchemaValidator() {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.refreshSchemaValidatorLocked()
-}
-
 // healLearnedRules validates learned rules and comments out invalid ones.
 // This is a self-healing mechanism to recover from corrupted learned.mg files.
 // Returns the healed rules text with invalid rules commented out.

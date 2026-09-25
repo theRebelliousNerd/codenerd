@@ -99,7 +99,7 @@ Major consumers (non-exhaustive; dozens of files):
 
 | Area | Examples |
 |------|----------|
-| Core | `cortex_kernel.go`, `kernel_utils.go`, `kernel_transactions.go`, `tdd_loop.go`, shards base agent |
+| Core | `cortex_kernel.go`, `kernel_utils.go`, `kernel_transactions.go`, shards base agent |
 | Articulation | `prompt_assembler.go`, `kernel_context.go` |
 | Autopoiesis | orchestrator, ouroboros, mocks |
 | Campaign | fact sync, context pager, task handlers |

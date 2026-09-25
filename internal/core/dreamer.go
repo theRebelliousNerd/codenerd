@@ -158,15 +158,6 @@ func (d *Dreamer) assertCriticalPathFactsLocked() {
 	logging.DreamDebug("Dreamer: asserted %d critical_path_prefix facts", len(d.critical))
 }
 
-func (d *Dreamer) getKernel() *RealKernel {
-	if d == nil {
-		return nil
-	}
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.kernel
-}
-
 // SimulateAction performs a speculative evaluation of a single action.
 // It returns a DreamResult with any panic_state detections.
 // Safety verdicts are deliberately not reused. The kernel has no revision

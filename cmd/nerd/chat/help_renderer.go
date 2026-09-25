@@ -247,13 +247,3 @@ func (r *HelpRenderer) renderCommandDetails(cmd *CommandInfo) string {
 
 	return sb.String()
 }
-
-// GetCurrentLevel returns the current experience level.
-func (r *HelpRenderer) GetCurrentLevel() config.ExperienceLevel {
-	return r.experienceLevel
-}
-
-// SetLevel sets the experience level (useful for testing).
-func (r *HelpRenderer) SetLevel(level config.ExperienceLevel) {
-	r.experienceLevel = level
-}

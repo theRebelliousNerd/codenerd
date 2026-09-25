@@ -4,6 +4,7 @@
 package store
 
 import (
+	"bytes"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"context"
@@ -442,252 +443,6 @@ func (s *LearnedCorpusStore) searchVec(queryBlob []byte, topK int) ([]SemanticMa
 	return matches, rows.Err()
 }
 
-// GetAllPatterns returns all stored learned patterns (for persistence/export).
-func (s *LearnedCorpusStore) GetAllPatterns() ([]LearnedPattern, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "LearnedCorpusStore.GetAllPatterns")
-	defer timer.Stop()
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	logging.StoreDebug("Retrieving all learned patterns")
-
-	rows, err := s.db.Query(`
-		SELECT id, pattern, verb, target, constraint_text, confidence, created_at
-		FROM learned_patterns
-		ORDER BY confidence DESC, created_at DESC
-	`)
-	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to query learned patterns: %v", err)
-		return nil, fmt.Errorf("failed to query patterns: %w", err)
-	}
-	defer rows.Close()
-
-	var patterns []LearnedPattern
-	for rows.Next() {
-		var p LearnedPattern
-		var target, constraint sql.NullString
-
-		if err := rows.Scan(&p.ID, &p.Pattern, &p.Verb, &target, &constraint, &p.Confidence, &p.CreatedAt); err != nil {
-			logging.Get(logging.CategoryStore).Warn("Failed to scan pattern row: %v", err)
-			continue
-		}
-
-		p.Target = target.String
-		p.Constraint = constraint.String
-		patterns = append(patterns, p)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating patterns: %w", err)
-	}
-
-	logging.StoreDebug("Retrieved %d learned patterns", len(patterns))
-	return patterns, nil
-}
-
-// GetPatternsByVerb retrieves patterns filtered by verb.
-func (s *LearnedCorpusStore) GetPatternsByVerb(verb string) ([]LearnedPattern, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "LearnedCorpusStore.GetPatternsByVerb")
-	defer timer.Stop()
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	logging.StoreDebug("Retrieving learned patterns by verb: %s", verb)
-
-	rows, err := s.db.Query(`
-		SELECT id, pattern, verb, target, constraint_text, confidence, created_at
-		FROM learned_patterns
-		WHERE verb = ? AND confidence > 0.3
-		ORDER BY confidence DESC
-	`, verb)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query patterns by verb: %w", err)
-	}
-	defer rows.Close()
-
-	var patterns []LearnedPattern
-	for rows.Next() {
-		var p LearnedPattern
-		var target, constraint sql.NullString
-
-		if err := rows.Scan(&p.ID, &p.Pattern, &p.Verb, &target, &constraint, &p.Confidence, &p.CreatedAt); err != nil {
-			continue
-		}
-
-		p.Target = target.String
-		p.Constraint = constraint.String
-		patterns = append(patterns, p)
-	}
-
-	logging.StoreDebug("Retrieved %d patterns for verb=%s", len(patterns), verb)
-	return patterns, rows.Err()
-}
-
-// DecayConfidence reduces confidence of old patterns.
-// Implements "forgetting" - patterns not reinforced will fade.
-func (s *LearnedCorpusStore) DecayConfidence(decayFactor float64, olderThanDays int) (int, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "LearnedCorpusStore.DecayConfidence")
-	defer timer.Stop()
-
-	if decayFactor <= 0 || decayFactor >= 1 {
-		decayFactor = 0.9 // Default 10% decay
-	}
-	if olderThanDays <= 0 {
-		olderThanDays = 7
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	logging.Store("Decaying learned pattern confidence (factor=%.2f, older than %d days)", decayFactor, olderThanDays)
-
-	// Decay old patterns
-	result, err := s.db.Exec(`
-		UPDATE learned_patterns
-		SET confidence = confidence * ?,
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE datetime(updated_at) < datetime('now', '-' || ? || ' days')
-	`, decayFactor, olderThanDays)
-
-	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to decay pattern confidence: %v", err)
-		return 0, fmt.Errorf("failed to decay confidence: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	logging.StoreDebug("Decayed confidence on %d patterns", rowsAffected)
-
-	// Delete patterns with very low confidence
-	pruneResult, err := s.db.Exec(`DELETE FROM learned_patterns WHERE confidence < 0.1`)
-	if err != nil {
-		logging.Get(logging.CategoryStore).Warn("Failed to prune low-confidence patterns: %v", err)
-	} else {
-		pruned, _ := pruneResult.RowsAffected()
-		if pruned > 0 {
-			logging.Store("Pruned %d forgotten patterns (confidence < 0.1)", pruned)
-		}
-		// Pruned rows must not haunt the ANN index: the join in searchVec
-		// hides them from results, but dead rows still bloat the index.
-		if _, err := s.db.Exec(`DELETE FROM vec_learned WHERE pattern NOT IN (SELECT pattern FROM learned_patterns)`); err != nil {
-			logging.Get(logging.CategoryStore).Warn("Failed to purge pruned patterns from vec_learned: %v", err)
-		}
-	}
-
-	return int(rowsAffected), nil
-}
-
-// DeletePattern removes a specific pattern.
-func (s *LearnedCorpusStore) DeletePattern(pattern string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	logging.StoreDebug("Deleting learned pattern: %s", pattern)
-
-	// Delete from main table
-	if _, err := s.db.Exec("DELETE FROM learned_patterns WHERE pattern = ?", pattern); err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to delete pattern: %v", err)
-		return fmt.Errorf("failed to delete pattern: %w", err)
-	}
-
-	// Delete from vec table
-	if _, err := s.db.Exec("DELETE FROM vec_learned WHERE pattern = ?", pattern); err != nil {
-		logging.Get(logging.CategoryStore).Warn("Failed to delete from vec_learned: %v", err)
-	}
-
-	logging.StoreDebug("Pattern deleted: %s", pattern)
-	return nil
-}
-
-// GetStats returns statistics about the learned corpus.
-func (s *LearnedCorpusStore) GetStats() (map[string]any, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "LearnedCorpusStore.GetStats")
-	defer timer.Stop()
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	stats := make(map[string]any)
-
-	// Total patterns
-	var total int64
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM learned_patterns").Scan(&total); err == nil {
-		stats["total_patterns"] = total
-	}
-
-	// Active patterns (confidence > 0.3)
-	var active int64
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM learned_patterns WHERE confidence > 0.3").Scan(&active); err == nil {
-		stats["active_patterns"] = active
-	}
-
-	// Average confidence
-	var avgConfidence float64
-	if err := s.db.QueryRow("SELECT COALESCE(AVG(confidence), 0) FROM learned_patterns").Scan(&avgConfidence); err == nil {
-		stats["avg_confidence"] = avgConfidence
-	}
-
-	// Patterns by verb
-	verbRows, err := s.db.Query("SELECT verb, COUNT(*) FROM learned_patterns GROUP BY verb ORDER BY COUNT(*) DESC")
-	if err == nil {
-		verbs := make(map[string]int64)
-		for verbRows.Next() {
-			var verb string
-			var count int64
-			if err := verbRows.Scan(&verb, &count); err == nil {
-				verbs[verb] = count
-			}
-		}
-		verbRows.Close()
-		stats["by_verb"] = verbs
-	}
-
-	// Embedding engine info
-	if s.embedEngine != nil {
-		stats["embedding_engine"] = s.embedEngine.Name()
-		stats["embedding_dimensions"] = s.embedEngine.Dimensions()
-	} else {
-		stats["embedding_engine"] = "none"
-	}
-
-	stats["source"] = "learned"
-	stats["writable"] = true
-	stats["db_path"] = s.dbPath
-
-	logging.StoreDebug("Learned corpus stats: total=%d, active=%d, avg_confidence=%.2f", total, active, avgConfidence)
-	return stats, nil
-}
-
-// SetEmbeddingEngine configures or updates the embedding engine.
-// Can be called after store creation if engine wasn't available initially.
-func (s *LearnedCorpusStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	logging.Store("Setting embedding engine for learned corpus: %s", engine.Name())
-	s.embedEngine = engine
-
-	// Re-initialize vec table with correct dimensions if needed
-	// We drop the table first to ensure dimension correctness if the user switched models
-	dims := engine.Dimensions()
-	_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_learned")
-
-	vecTable := fmt.Sprintf(`
-		CREATE VIRTUAL TABLE vec_learned USING vec0(
-			embedding float[%d],
-			pattern TEXT,
-			verb TEXT
-		);
-	`, dims)
-
-	if _, err := s.db.Exec(vecTable); err != nil {
-		logging.Get(logging.CategoryStore).Warn("Failed to create/update vec_learned table: %v", err)
-	} else {
-		s.backfillVecLearned()
-	}
-}
-
 // Close closes the database connection.
 func (s *LearnedCorpusStore) Close() error {
 	s.mu.Lock()
@@ -705,4 +460,26 @@ func (s *LearnedCorpusStore) Close() error {
 
 	logging.Store("Learned corpus store closed")
 	return nil
+}
+
+// SemanticMatch represents a match from semantic search.
+type SemanticMatch struct {
+	TextContent string  // Original text that was matched
+	Predicate   string  // Mangle predicate (e.g., "user_intent")
+	Verb        string  // Intent verb (e.g., "create", "fix", "explain")
+	Target      string  // Intent target (e.g., "function", "test", "file")
+	Category    string  // Intent category (e.g., "code", "test", "review")
+	Similarity  float64 // Cosine similarity score (0.0-1.0)
+	Rank        int     // Result rank (1-based)
+}
+
+// encodeFloat32SliceToBlob encodes a float32 slice as a binary blob for sqlite-vec.
+// Uses little-endian encoding as expected by sqlite-vec.
+func encodeFloat32SliceToBlob(vec []float32) []byte {
+	buf := &bytes.Buffer{}
+	if err := binary.Write(buf, binary.LittleEndian, vec); err != nil {
+		// Should never happen with bytes.Buffer
+		return nil
+	}
+	return buf.Bytes()
 }

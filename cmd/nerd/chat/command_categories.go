@@ -2,8 +2,6 @@ package chat
 
 import "slices"
 
-import "codenerd/internal/config"
-
 // CommandCategory represents a logical grouping of commands.
 type CommandCategory int
 
@@ -597,31 +595,6 @@ func GetCommandsByCategory(category CommandCategory) []CommandInfo {
 			result = append(result, cmd)
 		}
 	}
-	return result
-}
-
-// GetCommandsForLevel returns commands appropriate for the user's experience level.
-func GetCommandsForLevel(level config.ExperienceLevel) []CommandInfo {
-	var result []CommandInfo
-
-	// Always include Core commands
-	result = append(result, GetCommandsByCategory(CategoryCore)...)
-
-	// Add more categories based on level
-	switch level {
-	case config.ExperienceExpert:
-		result = append(result, GetCommandsByCategory(CategoryExpert)...)
-		result = append(result, GetCommandsByCategory(CategorySystem)...)
-		fallthrough
-	case config.ExperienceAdvanced:
-		result = append(result, GetCommandsByCategory(CategoryAdvanced)...)
-		fallthrough
-	case config.ExperienceIntermediate:
-		result = append(result, GetCommandsByCategory(CategoryBasic)...)
-	case config.ExperienceBeginner:
-		// Only Core commands for beginners
-	}
-
 	return result
 }
 
