@@ -39,6 +39,12 @@ context_relevant(SourceFile, /p90) :-
     failing_test(_, _),
     test_file_for(_, SourceFile).
 
+# Session-note relevance: what the model noted for itself this session with the
+# memory operation "note" (session_note/2). Below the intent and the focus it
+# was noted about, above modification relevance.
+context_relevant(Key, /p90) :-
+    session_note(Key, _).
+
 # Modification relevance: recently changed files (high relevance, must be in context)
 context_relevant(File, /p85) :-
     modified(File).
@@ -65,6 +71,22 @@ context_relevant(Fact, /p60) :-
 
 should_include_context(Fact, Priority) :-
     context_relevant(Fact, Priority).
+
+# =============================================================================
+# CC.2: Retention -- what the window always carries
+# Every fact of a retained predicate is in every context block, relevant or not:
+# a model that cannot see what is forbidden will propose it. This list lived in
+# Go (getCoreFacts) until 2026-09-25; the compressor now asks, and keeps its
+# own copy only as the floor under a policy that failed to load.
+# A rule may retain more (a predicate while some state holds); nothing here may
+# retain less than these five -- TestRetentionPolicy_KeepsTheConstitutionalFloor.
+# =============================================================================
+
+context_must_retain(/permitted).
+context_must_retain(/dangerous_action).
+context_must_retain(/admin_override).
+context_must_retain(/security_violation).
+context_must_retain(/block_commit).
 
 # =============================================================================
 # C4: Dependency-Graph-Driven Reachability Rules

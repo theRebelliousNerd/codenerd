@@ -1,6 +1,6 @@
 # TODO — `internal/logging`
 
-> Last verified: **2026-08-16**
+> Last verified: **2026-09-25** (against `77a5027`)
 > Backlog. Items marked done carry the test that keeps them done.
 
 ## P1
@@ -12,9 +12,9 @@
 - [x] Document (and optionally implement) loading from the same file the rest of
       the app treats as source of truth → it is already the same file
       (`.nerd/config.json`); `ApplyConfig` / `ClearInjectedConfig` now let boot
-      inject its parsed config instead of a second parse. **Open:**
-      `internal/config` does not call it yet, so the file is still parsed twice
-      (same file, so no divergence — only a wasted read).
+      inject its parsed config instead of a second parse. (The "open" half of
+      this item — boot calling it — was closed below: `config.ApplyLoggingConfig`
+      at `internal/system/factory.go:857`, re-verified 2026-09-25.)
 - [x] LLM I/O redaction hooks for common secret patterns → `redact.go`, applied
       to prompts, history, responses and errors; `trace_llm_io_raw` opts out.
 
@@ -64,6 +64,34 @@
 - [x] Category taxonomy cap (Q7) -> `internal/logging/category_inventory_test.go` declares a 30-row inventory with an owner per category and a numeric `categoryCap`, and its guard AST-parses `internal/logging/logger.go` and fails on drift in either direction — a new constant with no row, or a stale row whose constant is gone. This closes only the cap half of Q7; the flat-versus-hierarchical redesign stays open in OPEN-QUESTIONS.md.
 - [x] Bridge to `internal/observability` spans (Q6).
       → resolved 2026-08-16 as keep-file-only. `internal/observability` has no OTel spans to bridge to - it is `runtime/trace` flight recording plus runtime metrics - so the item's premise had no referent. `otel/sdk` is not a dependency (the API is present only as `// indirect`, with zero imports repo-wide). Machine-readable export already ships as `EventSink` plus the env-attached NDJSON sink wired in `NewGlassBoxEventBus`. Full reasoning in OPEN-QUESTIONS.md Q6.
+
+## Closed 2026-09-25 (lane B build-out, from WIRING-AND-NOT-BUILT.md)
+
+- [x] Performance sampling dropped timings with no trace → `77a5027`.
+      `logPerformance` counts the non-slow timings it saw and the ones
+      `performance_sampling` dropped (`internal/logging/logger.go:1023`);
+      `closeAllSinks` writes one `performance.sampling` line with both counts
+      before the sinks close (`reportPerformanceSampling`, `:953`, called at
+      `:814`); `PerformanceSamplingStats` (`:946`) exposes them. Slow
+      operations were never sampled. Test:
+      `TestPerformanceSampling_WhenTimingsAreDropped_ShouldCountAndReportThem`.
+- [x] `nerd audit playbook` pointed at deleted corpus pages
+      (`IMPLEMENTED_SPEC`, `09-SAFETY-AND-INVARIANTS`) → `77a5027`: it names
+      README, INTERNALS and WIRING-AND-NOT-BUILT (`cmd/nerd/cmd_audit.go:168`),
+      and `TestAuditPlaybook_TheCorpusPagesItNamesExist` fails if a named page
+      disappears.
+
+## Decided, not built (2026-09-25)
+
+- `ContextLogger` / `RequestLogger` have no production callers. They are
+  exported API with tests; whether session or campaign code should adopt a
+  request ID for correlation is a maintainer decision, not a wiring gap.
+- The two spellings (`logging.Boot(...)` and `logging.Get(CategoryBoot)...`)
+  stay. Both are live across the tree; choosing one is a style decision for
+  the maintainer.
+- Fresh-run cleanup deleting other runs' ordinary logs is the designed
+  behaviour, guarded by the symlink refusal and the substantive-audit guard
+  (`fresh_run.go`).
 
 ## Done (already in code before this pass)
 

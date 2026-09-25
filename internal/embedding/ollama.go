@@ -98,6 +98,10 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 	timer := logging.StartTimer(logging.CategoryEmbedding, "Ollama.Embed")
 	defer timer.Stop()
 
+	if err := checkEmbeddable(text); err != nil {
+		return nil, err
+	}
+
 	// Best-effort: make sure the model is installed before first use.
 	// Non-fatal if Ollama is briefly unreachable — the request loop still runs.
 	if err := e.EnsureModel(ctx); err != nil {
@@ -269,6 +273,11 @@ func (e *OllamaEngine) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 	if len(texts) == 0 {
 		logging.EmbeddingDebug("Ollama.EmbedBatch: empty input, returning nil")
 		return nil, nil
+	}
+	// Before the first request: an empty text late in the batch would
+	// otherwise cost every embed ahead of it.
+	if err := checkEmbeddableBatch(texts); err != nil {
+		return nil, err
 	}
 
 	// One ensure for the whole batch.

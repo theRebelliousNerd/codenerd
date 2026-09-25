@@ -280,6 +280,13 @@ type ExecutorConfig struct {
 	// repair is always bounded.
 	RepairMaxAttempts int
 
+	// RepairDiffFileBytes and RepairDiffTurnBytes bound the turn diff a
+	// repair round is shown, per file and in all
+	// (session.repair_diff_file_bytes / repair_diff_turn_bytes). Zero takes
+	// the section's default.
+	RepairDiffFileBytes int
+	RepairDiffTurnBytes int
+
 	// StepPlanMinSites is how many edit sites a write-oriented brief must
 	// name before the executive spends a planning call on it; the policy
 	// reads it as config_param(/session_step_plan_min_sites)

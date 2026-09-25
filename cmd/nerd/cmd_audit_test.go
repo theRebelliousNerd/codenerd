@@ -76,6 +76,27 @@ func TestAuditPlaybookCmd_WhenRun_ShouldPointAtTheLoggingCorpus(t *testing.T) {
 	}
 }
 
+// Every corpus page the playbook names exists. It named IMPLEMENTED_SPEC and
+// 09-SAFETY-AND-INVARIANTS for a month after the corpus rewrite deleted both.
+func TestAuditPlaybook_TheCorpusPagesItNamesExist(t *testing.T) {
+	const prefix = "Docs/architecture/logging/ ("
+	i := strings.Index(loggingPlaybook, prefix)
+	if i < 0 {
+		t.Fatal("the playbook no longer names corpus pages in the form this test reads; update the test with it")
+	}
+	list, _, ok := strings.Cut(loggingPlaybook[i+len(prefix):], ")")
+	if !ok {
+		t.Fatal("unterminated corpus page list in the playbook")
+	}
+	root := filepath.Join("..", "..", "Docs", "architecture", "logging")
+	for _, page := range strings.Split(list, ",") {
+		page = strings.TrimSpace(page)
+		if _, err := os.Stat(filepath.Join(root, page+".md")); err != nil {
+			t.Errorf("the playbook points operators at %s.md, which does not exist: %v", page, err)
+		}
+	}
+}
+
 // TestAuditFacts_WhenEveryEventFamilyRecorded_ShouldParseAsMangle exercises
 // each generateMangleFact branch through the public audit API and parses the
 // export with the real Mangle parser. Before this, the fact strings were

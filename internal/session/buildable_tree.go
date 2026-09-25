@@ -46,7 +46,9 @@ func (e *Executor) leaveBuildableTree(ctx context.Context, result *ExecutionResu
 	if build.Verdict() != VerifyFailed {
 		return ""
 	}
-	patch := turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents)
+	// The whole attempt, not the repair prompt's budgeted view of it: this is
+	// the record a person restores from.
+	patch := turnDiffPatch(workspace, result.WrittenPaths, result.PreWriteContents)
 	saved := saveAttemptPatch(workspace, patch)
 	restored, err := turnFiles{pre: map[string]PreImage{}}.restore(workspace, result)
 	if err != nil {

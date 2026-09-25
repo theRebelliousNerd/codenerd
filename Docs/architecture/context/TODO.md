@@ -2,10 +2,56 @@
 doc-class: governance
 subsystem: context
 implementation-status: not-applicable
-last-verified: 2026-09-21
-verified-against: 456e521
+last-verified: 2026-09-25
+verified-against: 76afac9
 supersedes: []
 ---
+
+> **Status, 2026-09-25 (lane B build-out).** Verified against the code, not
+> the corpus. Many item bodies below describe `WorkingSet.Select`, which no
+> longer exists: the per-task funnel was replaced by the context ledger
+> (`WorkingSet.Ledger`, `internal/context/working_set.go:222`; policy
+> `working_evict` / `working_stale` / `working_restate`,
+> `internal/context/working_set.mg:183-268`). Items are resolved against
+> that successor where it carries the same obligation. The bodies are kept
+> as written; this table and the closed log are current.
+>
+> | Item | Resolution | Evidence |
+> |---|---|---|
+> | TODO-CTX-00A | already done | `working_set.mg` is embedded (`internal/context/working_set.go:24`) and loaded into the working set's private engine with the schemas and `config_params.mg` (`:62`); `TestWorkingLedger_*`, `TestWorkingSetContinuePolicy` evaluate it. `should_include_context` is decided in the session kernel by `policy/context_compilation.mg`. `working_selected` no longer exists |
+> | TODO-CTX-00B | already done (the doc was stale) | `ProcessTurn` is driven from chat (`cmd/nerd/chat/process.go:956`); `GetContextString` from `cmd/nerd/chat/process.go:783` and `cmd/nerd/chat/model_session_context.go:92`; `WorkingSet.Continue` from `internal/session/executor_tools.go:297` and `internal/session/build_verify.go:618`; `RepeatThreshold` from `executor_tools.go:209` and `build_verify.go:547`; `Ledger` from `internal/session/working_context.go:556`. `Select` was removed |
+> | TODO-CTX-01A | already done on the production path; the named seam declined | `BuildContext` takes the kernel's `should_include_context` selection whole or falls back to Go whole: `TestBuildContext_WhenKernelDerivesInclusion_ShouldUseKernelSelection`. `ScoreFactsWithKernelOverride` (`internal/context/activation_scoring.go:653`) still has no production caller and is not wired: it puts kernel priorities (≤100) and Go scores (100–250) on one scale, the silent mixing TODO-CTX-06C forbids |
+> | TODO-CTX-01B | already done | an unresolved or empty kernel answer falls back to Go with a recorded reason: `TestBuildContext_WhenKernelDerivesNothing_ShouldFallBackToGoActivation`, `TestBuildKernelDerivedContext_WhenEntityNamesNoFact_ShouldReturnNil` |
+> | TODO-CTX-01C | already done | kernel selections are budgeted without the Go threshold: `buildKernelDerivedContext` → `SelectWithinBudgetPreFiltered` (`internal/context/compressor_metrics.go:663`); `TestSelectWithinBudgetPreFiltered` |
+> | TODO-CTX-02A / 02B | superseded by the ledger, obligation met | results move out behind recall handles (`working_evict`) and come back through `WorkingSet.Recall` (`working_set.go:108`): `TestWorkingSetEvictionRecallAndRevision`, `TestWorkingLedger_CompactionMovesCoveredAndRepeatedReadsOut`. The two-hop / 64-entity silent drop went with `Select` |
+> | TODO-CTX-03A | already done | a changed file's observation is stale (`working_stale`) and restated once per revision (`working_restate`): `TestWorkingLedger_RestatesAStaleObservationOncePerRevision`, `TestWorkingLedger_AnEditToOneElementLeavesTheOthersCurrent` |
+> | TODO-CTX-07A | closed `76afac9` (persist) | a `note` becomes `session_note(Key, Value)` (`recordSessionNote`, `internal/context/compressor_turns.go:287`); `context_relevant(Key, /p90) :- session_note(Key, _)` puts it in the window; a later note replaces it; `forget` drops it. `TestNoteMemoryOp_ReachesTheNextContextThroughTheKernel` |
+> | TODO-CTX-04A | closed `76afac9` | retention is `context_must_retain(Predicate)` (`internal/core/defaults/schemas_context.mg:38`, facts at `policy/context_compilation.mg:85`); `getCoreFacts` (`internal/context/compressor.go:859`) obeys it, keeping `constitutionalFloor` (`:817`) only for a kernel that derives none, warned once and counted. `TestGetCoreFacts_RetainsWhatTheKernelDecides`, `TestRetentionPolicy_KeepsTheConstitutionalFloor`, `TestGetCoreFacts_WhenTheKernelDecidesNoRetention_ShouldRetainTheFloorAndCountIt`. See also the Cortex finding below |
+> | TODO-CTX-04B | already done | `TestProcessTurn_CompressionTrigger` (over the threshold compresses) and `TestProcessTurn_HappyPath` (under it does not); the trigger is `TokenBudget.ShouldCompress`, not a turn count |
+> | TODO-CTX-05A | already done | `TestCompress_WhenKernelMasksObservations_ShouldDropResultsAndKeepReasoning`, `TestMaskedObservationTurns_WhenKernelMarksOldTurns_ShouldReturnThoseTurns` |
+> | TODO-CTX-05B | code already right; proof added `76afac9` | `mergeOldestSegments` (`compressor_turns.go:692`) keeps coverage, masked turns, original tokens and the summed `DroppedAtoms`: `TestMergeOldestSegments_KeepsEveryInheritedCount` (fails if the inherited sum is dropped) |
+> | TODO-CTX-06A | superseded by the ledger, obligation met | as 02A/02B: every evicted result carries a recall handle; `TestWorkingSetEvictionRecallAndRevision` |
+> | TODO-CTX-06B | partly done; the rest declined for now | within the active block the kernel's priority orders facts (`buildKernelDerivedContext` sorts by derived priority, ties by entity); the section order core → atoms → history → recent is fixed in Go. A `context_position/2` placement policy has no specified rules to derive yet; building one is a design decision (lost-in-the-middle placement), not a wiring gap |
+> | TODO-CTX-06C | closed `76afac9` | the rendered block carries exactly one line saying whose order it is — `selected and ordered by the kernel` or `heuristic_ordered: … (reason)` (`internal/context/serializer.go:279-281`); `TestSerializeCompressedContext_SaysWhoOrderedTheActiveBlock` |
+>
+> **Cortex finding (2026-09-25, cross-lane).** In chat the compressor is
+> built on the domain Cortex's catch-all shard, which holds only facts no
+> other shard owns: measured, `modified(File)` had 0 rows there and 1 in the
+> Cortex, and a `block_commit` the world shard derives never reached the
+> constitutional section. `76afac9` routes the retention and relevance
+> queries through the Cortex (`KernelReader`, `SetKernelReader`;
+> `newSessionCompressor`, `cmd/nerd/chat/session_shared_boot.go:325`;
+> `TestSessionCompressor_RetainsFactsOtherShardsDerive`). **Still open, in
+> `internal/core`:** the Cortex answers `should_include_context` from the
+> catch-all shard only, while the world shard also derives the
+> modified-file row (`/p85`), so that row still does not reach the window.
+> Cause, read in `internal/core/derivation_map.go` (`queryTargets`): a rule
+> whose body presence is `All` is taken to "derive the same facts in every
+> shard" and routed to the catch-all alone. `should_include_context`'s one
+> rule reads `context_relevant`, whose presence is `All` only as the union of
+> its rules — one of which (`context_relevant(File, /p85) :- modified(File)`)
+> fires in the world shard alone. The shortcut is sound for base facts and
+> unsound for a derived body predicate whose rules fire in different shards.
 
 # TODO — build queue: `internal/context` (leaf work only)
 
@@ -76,6 +122,16 @@ Rules for this queue (per `Docs/journeys/09-architecture-doc-standard.md:63`):
 
 ## 4. Closed log (stays here, never deleted)
 
-_None closed yet. When a TODO passes its exit, mark it closed with the
-commit hash; keep the row. The corresponding `03:43-51` gap row is marked
-closed with the same commit, never deleted._
+When a TODO passes its exit, mark it closed with the commit hash; keep the
+row. (The `03-GAP-ANALYSIS.md` gap rows were not edited in this pass.)
+
+- TODO-CTX-07A — closed `76afac9` — `TestNoteMemoryOp_ReachesTheNextContextThroughTheKernel`.
+- TODO-CTX-04A — closed `76afac9` — `TestGetCoreFacts_RetainsWhatTheKernelDecides`,
+  `TestSessionCompressor_RetainsFactsOtherShardsDerive`.
+- TODO-CTX-06C — closed `76afac9` — `TestSerializeCompressedContext_SaysWhoOrderedTheActiveBlock`.
+- TODO-CTX-05B — proof added `76afac9` — `TestMergeOldestSegments_KeepsEveryInheritedCount`.
+- TODO-CTX-00A, 00B, 01A, 01B, 01C, 03A, 04B, 05A — already done; evidence
+  in the status table.
+- TODO-CTX-02A, 02B, 06A — superseded by the context ledger; obligation met;
+  evidence in the status table.
+- TODO-CTX-06B — open (design decision), see the status table.

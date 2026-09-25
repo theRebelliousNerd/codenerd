@@ -1,5 +1,11 @@
 # features: wiring and what is NOT built
 
+> Updated 2026-09-25 against `791e821` for the provenance, schema-key,
+> misconfiguration and reader-enumeration changes (sections "Wired since
+> 2026-09-25" and "Test-only by design"). The "Wired and reachable" list
+> below is from the 2026-09-21 pass; its `features.go` anchors have shifted
+> since (see `Docs/architecture/features/TODO.md` for current ones).
+
 Verified 2026-09-21 against commit `34634770970153e78c1e250fdab7abd888dcce6f` (`main`). Read from `internal/features/features.go`,
 `internal/features/schema.go`, `internal/config/user_config.go`, `cmd/nerd/main.go`, `cmd/nerd/cmd_features.go`,
 `cmd/nerd/chat/commands_handlers_features.go`,
@@ -84,36 +90,44 @@ Evidence base: `task_7b853890_2_0` (grep imports vs exact callers), `task_7b8538
   `internal/features/features.go:374-391`) and appends the tunables
   (`internal/features/features.go:387-388`).
 
-## Exists but uncalled in prod (test-only)
+## Wired since 2026-09-25 (lane B build-out)
 
-No production caller in the index for these four. Each is real code with
-test-only callers — not dead text, but not reachable from any prod entry path:
+- Provenance: `NewDomainCortex` turns derivation recording on in every
+  shard when `features.IsProvenanceEnabled()` holds, before the first
+  evaluation (`internal/system/factory.go:1207`, `df4a9d2`). Until then the
+  flag had no reader and `/explain` switched recording on itself
+  (`cmd/nerd/chat/commands_handlers_misc.go:101`, still its fallback when
+  the flag is off). `TestNewDomainCortex_HonorsTheProvenanceFlag`.
+- Schema keys: `nerd features --schema --json` prints
+  `features.ConfigSchemaKeys()` (`cmd/nerd/cmd_features.go:41`, `791e821`).
+- Refused env values: `features.Misconfigurations()`
+  (`internal/features/features.go:379`) is warned at boot by
+  `LoadUserConfig` (`internal/config/user_config.go:601`) and printed by
+  `nerd features` (`cmd/nerd/cmd_features.go:52`) and `/features`
+  (`cmd/nerd/chat/commands_handlers_features.go:46`) (`791e821`).
+- Every flag has a production reader, enforced:
+  `TestEveryFlagHasAProductionReaderOrIsReserved`
+  (`internal/features/flag_readers_test.go`) walks the module and fails on a
+  flag with no reader outside `internal/features` and the inspection
+  surfaces, unless `reservedFlags` records the decision (empty today).
 
-- `features.IsProvenanceEnabled` (`internal/features/features.go:479-482`) —
-  zero prod callers; only `internal/features/*_test.go` + `config_roundtrip_test.go`.
-  This is a different symbol from the kernel method
-  `(*RealKernel).IsProvenanceEnabled` (`internal/core/kernel_provenance.go:49-54`).
-  The one chat caller observed uses the kernel's, not the flag's
-  (`cmd/nerd/chat/commands_handlers_misc.go:101`). Exists-but-uncalled wiring gap:
-  either wire the flag to the kernel or mark it reserved.
-- `features.Active` (`internal/features/features.go:408`) — 1 exact caller total:
-  `internal/features/features_test.go:122` in `TestSetActiveCopySemantics`.
-  By design: prod goes via the `Is*`/`Fast*` accessors, never `Active()` directly.
-- `features.DefaultFeaturesConfig` (`internal/features/features.go:156-168`) —
-  1 caller: `internal/features/features_defaults_test.go:6`. Conservative
-  compile-time defaults, currently unreferenced in prod (`DefaultUserConfig`
-  uses `FullyEnabledFeaturesConfig`).
-- `features.ConfigSchemaKeys` (`internal/features/schema.go:56-65`) — 2 callers,
-  both `internal/features/schema_test.go:14,54`. No prod caller; contrast
-  `ConfigSchemaJSON`, which IS reachable via `nerd features --schema`
-  (`cmd/nerd/cmd_features.go:37`).
+## Test-only by design
+
+- `features.Active` (`internal/features/features.go:459`) — production goes
+  through the `Is*`/`Fast*` accessors, never `Active()` directly.
+- `features.DefaultFeaturesConfig` (`internal/features/features.go:156`) —
+  the struct form of the compile-time defaults a no-config boot resolves to;
+  `nerd init` seeds `FullyEnabledFeaturesConfig` instead
+  (`internal/config/user_config.go:1514`). Both facts are pinned by
+  `internal/features/boot_truth_test.go`, so the three places a default is
+  written (the `boolFlags` def column, this function, each accessor's
+  literal) cannot drift apart silently.
 
 ## Assumed seams (imports without exact caller — not wiring evidence)
 
-- `cmd/nerd/cmd_systems.go:12` imports `codenerd/internal/features` but has zero
-  exact hits in any `features.*` callers set this round. Assumed systems surface
-  until a `read_file cmd/nerd/cmd_systems.go` + `callers_of` re-check names the
-  call site. Do not cite the import line as wiring.
+- `cmd/nerd/cmd_systems.go` — RESOLVED: it calls
+  `features.IsPromptEvolutionEnabled` (`cmd/nerd/cmd_systems.go:300`), as
+  the reader table of `TestEveryFlagHasAProductionReaderOrIsReserved` shows.
 - `cmd/nerd/cmd_features.go:8` was in this category in an earlier pass (index
   showed zero exact hits) but is now RESOLVED as reachable: the file calls
   `Resolved`, `Deprecations`, `ConfigSchemaJSON`, `FastScanWorkers`,
@@ -128,12 +142,12 @@ test-only callers — not dead text, but not reachable from any prod entry path:
 ## Assumed by the design, not done by the code
 
 - Names are trusted, not fenced. Nothing stops two packages reading the same
-  flag to mean different things, and nothing warns when a flag has no reader —
-  the four uncalled symbols above are silent, not errors.
-- Misconfiguration is silent by design. A typo'd env value is "no override"
-  (`internal/features/features.go:436-458`), so `CODENERD_DARK_MODE=yes` runs
-  as false with no message; only shadowed legacy vars get a warning, via
-  `Deprecations()` (`internal/features/features.go:341-363`).
+  flag to mean different things. A flag with no reader at all is no longer
+  silent: the enumeration test above fails on it.
+- A typo'd env value is still "no override" (`envBool`,
+  `internal/features/features.go:495`), deliberately: a stray export must not
+  flip a bit. Since `791e821` it is reported rather than silent
+  (`Misconfigurations`, above).
 
 ## What the old corpus got WRONG
 

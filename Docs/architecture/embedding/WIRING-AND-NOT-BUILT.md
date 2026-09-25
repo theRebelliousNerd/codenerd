@@ -1,6 +1,8 @@
 # embedding — WIRING-AND-NOT-BUILT
 
-> Verified 2026-09-21 against branch `main` working tree.
+> Verified 2026-09-21 against branch `main` working tree; the last two
+> sections re-verified 2026-09-25 against `fc857b3`. Anchors in "Wired and
+> reachable" are from the 2026-09-21 pass.
 
 What is wired and reachable, what exists but has no verified caller, and what
 the design assumes that the code does not do.
@@ -50,31 +52,54 @@ the design assumes that the code does not do.
 
 ## Exists but nothing verified calls
 
-- `GenAIEngine.EmbedBatchJob` (`internal/embedding/genai.go:330`): full async
-  submission implementation, no caller found in the package or in search
-  output. Treat as unwired until a caller is produced.
-- `FindTopK` (`internal/embedding/engine.go:147`): the only verified callers
-  are its own tests (`internal/embedding/engine_coverage_test.go:250` and
-  following). No production call site was verified — the store ranks elsewhere.
-- `DetectContentType` (`internal/embedding/task_selector.go:84`): verified
-  callers are `GetOptimalTaskType` (`task_selector.go:186`) and its tests; no
-  direct external caller was verified.
+Re-verified 2026-09-25 (lane B build-out, against `fc857b3`). Each entry
+now carries its decision.
 
-## Assumed but not done
+- `GenAIEngine.EmbedBatchJob` (`internal/embedding/genai.go:403`): still no
+  caller. **Declined, not wired.** It is the submission half only: it
+  returns a job handle, and nothing in the tree polls the job or reads its
+  results, so wiring it into reembed means building the other half against
+  an SDK surface the code itself marks experimental — unverifiable here
+  without a Gemini key. The synchronous `EmbedBatch` (parallel 100-text
+  chunks, now retried) covers every caller today. Keep as a library entry
+  point; wiring it is a maintainer decision.
+- `FindTopK` (`internal/embedding/engine.go:152`): still test-only.
+  **Declined, not wired.** The production rankers break ties
+  deterministically (`internal/retrieval/semantic.go` sorts by score, then
+  path) and apply their own filters; `FindTopK` is a partial selection sort
+  with no tie-break, so routing them through it would make results
+  order-unstable.
+- `DetectContentType` (`internal/embedding/task_selector.go:124`): its entry
+  point is `GetOptimalTaskType` (`:230`) by design; no direct caller is
+  needed.
 
-- Gemini single-embed has no retry: `embedWithTask`
-  (`internal/embedding/genai.go:98`) makes one API call and wraps failure
-  (`genai.go:129`). Any retry story for the GenAI backend lives outside this
-  package, if anywhere.
-- Ollama batch is sequential (`internal/embedding/ollama.go:231`); a caller
-  embedding N texts pays N round trips with no parallelism.
-- `normalizeTaskType` (`internal/embedding/task_selector.go:30`) passes
-  unknown task strings to the API untouched — an invalid task type fails
-  server-side, not here.
-- Metadata is trusted verbatim: `DetectContentType` returns any
-  `content_type` metadata string unchecked (`task_selector.go:91`), so a
-  misspelled kind silently becomes an unknown `ContentType` and selects
-  `SEMANTIC_SIMILARITY` (`task_selector.go:74`).
-- Neither engine rejects empty text client-side: `embedWithTask`
-  (`internal/embedding/genai.go:98`) and `OllamaEngine.Embed`
-  (`internal/embedding/ollama.go:81`) send what they are given.
+## Assumed but not done — status 2026-09-25
+
+- GenAI had no retry — **done, `fc857b3`.** `embedContent`
+  (`internal/embedding/genai.go:63`) retries a 429, a 5xx or a transport
+  error up to `genaiMaxAttempts` (3, `:56`), the wait observing the caller's
+  context; a 4xx other than 429 is not retried (`retryableGenAIError`,
+  `:89`). Both the single embed and each batch chunk go through it. The SDK
+  retries uploads only. Tests: `TestGenAIEngine_RetriesATransientFailure`,
+  `_DoesNotRetryABadRequest`, `_GivesUpAfterItsAttempts`,
+  `_RetryWaitObservesTheContext` (`internal/embedding/guards_test.go`).
+- Ollama batch is sequential (`internal/embedding/ollama.go:267`) — **open,
+  declined for now.** Throughput from concurrent requests depends on the
+  server's `OLLAMA_NUM_PARALLEL`, and the real fix, the batched `/api/embed`
+  endpoint, changes the wire protocol; neither can be measured or verified
+  without an Ollama server. Reopen with a measurement.
+- Unknown task types reached the API — **done, `fc857b3`.** `checkTaskType`
+  (`internal/embedding/task_selector.go:53`) refuses a type outside
+  `knownTaskTypes` (`:38`, the set `config.EmbeddingConfig.TaskType`
+  documents): at construction for `embedding.task_type`, and at the call for
+  a caller's. `TestGenAIEngine_RefusesAnUnknownTaskType`.
+- Metadata was trusted verbatim — **done, `fc857b3`.** `DetectContentType`
+  normalizes a `content_type` and accepts it only if it is in
+  `knownContentTypes` (`:67`); otherwise it warns and detects from the type
+  field and the text.
+  `TestDetectContentType_WhenMetadataNamesNoKnownType_ShouldDetectFromTheText`.
+- Empty text was sent — **done, `fc857b3`.** Both engines return
+  `ErrEmptyText` (`internal/embedding/engine.go:229`) before any request,
+  naming the index in a batch. `TestEngines_RejectEmptyTextBeforeTheProvider`;
+  the coverage test that pinned the old behaviour is now
+  `TestOllamaEngine_Embed_WhenEmptyText_ShouldRefuseBeforeTheServer`.

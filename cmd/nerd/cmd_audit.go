@@ -165,7 +165,7 @@ Triage order that actually works:
      default; only set trace_llm_io_raw when a masked value IS the bug, and
      delete the file afterwards.
 
-Reference: Docs/architecture/logging/ (README, IMPLEMENTED_SPEC, 09-SAFETY-AND-INVARIANTS).
+Reference: Docs/architecture/logging/ (README, INTERNALS, WIRING-AND-NOT-BUILT).
 This is NOT the zap console logger, NOT transparency/glass-box, and NOT
 internal/observability metrics — those are adjacent surfaces with their own docs.
 `

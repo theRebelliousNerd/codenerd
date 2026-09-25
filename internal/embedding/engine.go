@@ -4,8 +4,10 @@ package embedding
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"codenerd/internal/logging"
@@ -217,6 +219,32 @@ func FindTopK(query []float32, corpus [][]float32, k int) ([]SimilarityResult, e
 type SimilarityResult struct {
 	Index      int
 	Similarity float64
+}
+
+// ErrEmptyText is returned, before any provider call, for a text with nothing
+// to embed. Neither engine checked: Ollama answered an empty prompt with an
+// empty vector, which failed validation and was retried three times, and
+// Gemini refused it with a 400 -- a round trip (or four) to learn what the
+// caller could have been told.
+var ErrEmptyText = errors.New("embedding: the text is empty or whitespace")
+
+// checkEmbeddable rejects a text with nothing to embed.
+func checkEmbeddable(text string) error {
+	if strings.TrimSpace(text) == "" {
+		return ErrEmptyText
+	}
+	return nil
+}
+
+// checkEmbeddableBatch rejects a batch holding a text with nothing to embed,
+// naming its index: one empty text fails the provider's whole batch anyway.
+func checkEmbeddableBatch(texts []string) error {
+	for i, text := range texts {
+		if err := checkEmbeddable(text); err != nil {
+			return fmt.Errorf("text %d of %d: %w", i, len(texts), err)
+		}
+	}
+	return nil
 }
 
 func validateEmbeddingVector(values []float32) error {
