@@ -271,6 +271,16 @@ func (fs *FactSerializer) SerializeCompressedContext(ctx *CompressedContext) str
 	// High-activation context atoms
 	if ctx.ContextAtoms != "" {
 		sb.WriteString("# ─── ACTIVE CONTEXT ───\n")
+		// Exactly one line says whose order this is. A fallback block is the
+		// Go heuristic's choice and order; presenting it under the same bare
+		// header as a derived one mixed the two silently.
+		switch ctx.Selection {
+		case SelectionKernel:
+			sb.WriteString("# (selected and ordered by the kernel: should_include_context)\n")
+		case SelectionGoFallback:
+			sb.WriteString(fmt.Sprintf("# (heuristic_ordered: the kernel made no inclusion decision (%s); Go activation scoring chose and ordered these)\n",
+				ctx.SelectionReason))
+		}
 		sb.WriteString(ctx.ContextAtoms)
 		sb.WriteString("\n\n")
 	}

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -24,7 +25,7 @@ func (k *RealKernel) ValidateLearnedRule(ruleText string) error {
 		return fmt.Errorf("schema validator uninitialized")
 	}
 
-	return k.schemaValidator.ValidateLearnedRule(ruleText)
+	return k.schemaValidator.ValidateLearnedRuleProtected(ruleText, k.learnedHeadProtectionLocked())
 }
 
 // ValidateLearnedRules validates multiple learned rules.
@@ -65,6 +66,33 @@ func (k *RealKernel) refreshSchemaValidatorLocked() {
 		logging.KernelDebug("Schema validator refreshed")
 	}
 }
+
+// learnedHeadProtectionLocked is what a learned rule may not define beyond
+// the static list in internal/mangle, for the program as it stands now: the
+// grant path this kernel's schemas and policy derive (mangle.GrantPathOf),
+// and the host witnesses a control packet may not write either
+// (hostWitnessPredicates). It is derived per call, not cached on the
+// validator, because AppendPolicy, LoadPolicyFile and friends change the
+// program without rebuilding the validator; GrantPathOfSource memoizes by the
+// program's hash. A program whose grant path cannot be read admits no learned
+// rule. Caller holds k.mu (read or write), or the kernel is not yet shared.
+func (k *RealKernel) learnedHeadProtectionLocked() mangle.LearnedHeadProtection {
+	path, err := mangle.GrantPathOfSource(k.schemas + "\n" + k.policy)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("Learned rules are refused until the program parses: %v", err)
+	}
+	return mangle.LearnedHeadProtection{GrantPath: path, GrantPathErr: err, HostOnly: learnedHostOnlyHeads}
+}
+
+// learnedHostOnlyHeads is hostWitnessPredicates with the reason a learned rule
+// is refused one, built once.
+var learnedHostOnlyHeads = func() map[string]string {
+	out := make(map[string]string, len(hostWitnessPredicates))
+	for pred := range hostWitnessPredicates {
+		out[pred] = "it is a host witness or conclusion, which a model may not write (the control-packet gate refuses it too)"
+	}
+	return out
+}()
 
 func (k *RealKernel) refreshSchemaValidator() {
 	k.mu.Lock()
@@ -208,6 +236,9 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 
 	statements := groupLearnedStatements(learnedText)
 	var healedLines []string
+	// A rule already in learned.mg is judged by the same heads a new one is
+	// refused, so one persisted before the grant path was derived is healed.
+	protection := k.learnedHeadProtectionLocked()
 
 	for _, stmt := range statements {
 		line := stmt.text
@@ -271,13 +302,17 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 			}
 
 			// STEP 2: Schema + safety validation for learned rules/facts.
-			if err := k.schemaValidator.ValidateLearnedRule(trimmed); err != nil {
+			if err := k.schemaValidator.ValidateLearnedRuleProtected(trimmed, protection); err != nil {
 				result.stats.InvalidRules++
 				errMsg := fmt.Sprintf("line %d: %v", lineNo, err)
 				result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
 				logging.Get(logging.CategoryKernel).Warn("Startup validation: invalid learned rule at %s", errMsg)
 
-				if heal {
+				// A rule refused only because the program's grant path could
+				// not be read says nothing about the rule: keep it on disk.
+				// The program will not compile either, and healing here would
+				// persist every learned rule commented out.
+				if heal && !errors.Is(err, mangle.ErrGrantPathUnknown) {
 					emitHealed("# SELF-HEALED: " + err.Error())
 				} else {
 					emitRaw()

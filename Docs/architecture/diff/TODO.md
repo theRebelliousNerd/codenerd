@@ -2,10 +2,33 @@
 doc-class: governance
 subsystem: diff
 implementation-status: not-applicable
-last-verified: 2026-09-21
-verified-against: 231cfa7
+last-verified: 2026-09-25
+verified-against: c91c6b3
 supersedes: []
 ---
+
+> **Status, 2026-09-25 (lane B build-out).** Every item below is resolved:
+> closed by a commit, or closed by an evidenced decision. The item bodies
+> are kept as written (their line anchors predate the rewrite of
+> `internal/session/turn_diff.go`); the table and the closed log are
+> current. Current anchors: `turnDiffSection`
+> (`internal/session/turn_diff.go:79`), `turnDiffPatch` (`:85`),
+> `assembleTurnDiff` (`:129`), `truncateSection` (`:203`),
+> `renderFileDiff` (`:223`), `fileNote` (`:263`);
+> `ExecutorConfig.repairDiffBudget` (`internal/session/session_config.go:74`);
+> `SessionConfig.RepairDiffFileBytes` / `RepairDiffTurnBytes`
+> (`internal/config/session.go:54,57`).
+>
+> | Item | Resolution | Evidence |
+> |---|---|---|
+> | TODO-DIFF-02a / 02b | closed `c774044` | binary edits render `<path> (binary: N bytes before, M after; diff not shown)`; `TestRenderFileDiff_BinaryMarker` |
+> | TODO-DIFF-03a | closed `c774044` | a deleted file renders its whole preimage under `(deleted by this turn)`; notes come from the preimage and the disk, not `FileDiff.IsNew/IsDelete`; `TestRenderFileDiff_DeleteNote` |
+> | TODO-DIFF-04a–04d | closed `c774044`, `c91c6b3` | budget is config, not constants: `session.repair_diff_file_bytes` (8192) and `repair_diff_turn_bytes` (24576); cut at line boundaries with a `[diff truncated …]` marker; files past the turn budget are named; the saved attempt patch (`turnDiffPatch`, `internal/session/buildable_tree.go:51`) stays unbounded; `TestTurnDiffSection_Budget`, `TestRepairDiffBudget_IsTheSessionSections` |
+> | TODO-DIFF-01a | already done | `TestCache_WhenVerifyEnabledAndKeyCollides_ShouldRecomputeRatherThanServeWrongDiff` (`internal/diff/word_span_test.go:94`) forces a collision and asserts the recompute and `Stats.Collisions` |
+> | TODO-DIFF-01b | decided: trusted keys are an accepted risk while diffs are display-only | witness `TestDiffImporters_AreDisplayOnly` (`internal/diff/importers_test.go`, `c774044`): every production importer of `internal/diff` (`cmd/nerd/ui`, `internal/session`) only renders diffs; a new importer fails the test until it builds its engine with `VerifyCacheContent` or is listed as display-only |
+> | TODO-DIFF-05a / 05b | decided: tuning retired | both seams render for a reader (TUI approval view, repair prompt) and neither shows a need for non-default `Options`; `NewEngineWith` stays for tests and the benchmark. Reopen with a measurement, not a guess |
+> | TODO-DIFF-06b (06a out of scope) | decided: `ClearCache` stays test-only | the cache is a bounded LRU (512 entries / 32 MiB, `internal/diff/cache.go:18,23`), so no lifecycle event needs to clear it; its concurrency is pinned by `TestClearCache_ConcurrentWithComputeDiff_ShouldNotRace` (`internal/diff/cache_test.go:167`) and `TestClearCache_ShouldPreserveCumulativeCounters` (`:203`) |
+> | TODO-DIFF-07b (07a out of scope) | decided: `DiffEngineStats` stays test-only | both production engines run with `VerifyCacheContent` off, so the counter worth alerting on (`Collisions`) is always zero in production; the only caller is `TestCreateDiffFromStrings_ShouldUseTheSameEngineAsTheView` |
 
 # TODO — internal/diff build queue
 
@@ -178,5 +201,19 @@ Severity is copied from the gap row.
 
 ## Closed items
 
-None. Closed items stay listed here with their closing commit; IDs are
-never reused or deleted.
+Closed items stay listed here with their closing commit; IDs are never
+reused or deleted.
+
+- TODO-DIFF-02a, 02b — `c774044` — `TestRenderFileDiff_BinaryMarker`.
+- TODO-DIFF-03a — `c774044` — `TestRenderFileDiff_DeleteNote`.
+- TODO-DIFF-04a, 04b, 04c, 04d — `c774044` (renderer and budget),
+  `c91c6b3` (budget moved to `session.repair_diff_*_bytes`, as
+  `TestExecutiveLiteralBudget` requires) — `TestTurnDiffSection_Budget`,
+  `TestRepairDiffBudget_IsTheSessionSections`.
+- TODO-DIFF-01a — already covered by
+  `TestCache_WhenVerifyEnabledAndKeyCollides_ShouldRecomputeRatherThanServeWrongDiff`.
+- TODO-DIFF-01b — decision with witness `TestDiffImporters_AreDisplayOnly`
+  (`c774044`).
+- TODO-DIFF-05a, 05b — decision: tuning retired (see status table).
+- TODO-DIFF-06b — decision: `ClearCache` test-only (06a out of scope).
+- TODO-DIFF-07b — decision: `DiffEngineStats` test-only (07a out of scope).

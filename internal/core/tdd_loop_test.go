@@ -16,14 +16,18 @@ import (
 // MOCKS
 // =============================================================================
 
-// MockExecutor implements tactile.Executor for testing.
+// MockExecutor implements tactile.Executor for testing. Execute may be called
+// from many goroutines (TestTDDLoop_Concurrent_Locks), so History is guarded.
 type MockExecutor struct {
+	mu          sync.Mutex
 	ExecuteFunc func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error)
 	History     []tactile.Command
 }
 
 func (m *MockExecutor) Execute(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
+	m.mu.Lock()
 	m.History = append(m.History, cmd)
+	m.mu.Unlock()
 	if m.ExecuteFunc != nil {
 		return m.ExecuteFunc(ctx, cmd)
 	}
@@ -42,15 +46,21 @@ func (m *MockExecutor) Validate(cmd tactile.Command) error {
 	return nil
 }
 
-// MockKernel implements Kernel for testing.
+// MockKernel implements Kernel for testing. Like the real kernel it is safe
+// for concurrent use: TestTDDLoop_Concurrent_Locks drives Run from many
+// goroutines, and an unlocked append here was a data race in the mock, not in
+// the loop.
 type MockKernel struct {
+	mu         sync.Mutex
 	Facts      []Fact
 	QueryFunc  func(predicate string) ([]Fact, error)
 	AssertFunc func(fact Fact) error
 }
 
 func (m *MockKernel) Assert(fact Fact) error {
+	m.mu.Lock()
 	m.Facts = append(m.Facts, fact)
+	m.mu.Unlock()
 	if m.AssertFunc != nil {
 		return m.AssertFunc(fact)
 	}
@@ -58,6 +68,8 @@ func (m *MockKernel) Assert(fact Fact) error {
 }
 
 func (m *MockKernel) AssertBatch(facts []Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Facts = append(m.Facts, facts...)
 	return nil
 }
@@ -66,6 +78,8 @@ func (m *MockKernel) Query(predicate string) ([]Fact, error) {
 	if m.QueryFunc != nil {
 		return m.QueryFunc(predicate)
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// Default: mirror the constitution rule, which derives permitted/3 from
 	// an asserted pending_action/5 with an exactly matching canonical
 	// payload. A hardcoded payload here would silently desync from the
@@ -95,11 +109,15 @@ func (m *MockKernel) Query(predicate string) ([]Fact, error) {
 	return results, nil
 }
 
-func (m *MockKernel) LoadFacts(facts []Fact) error                                   { return nil }
-func (m *MockKernel) Retract(predicate string) error                                 { return nil }
-func (m *MockKernel) RetractFact(fact Fact) error                                    { return nil }
-func (m *MockKernel) QueryAll() (map[string][]Fact, error)                           { return nil, nil }
-func (m *MockKernel) FactCount() int                                                 { return len(m.Facts) }
+func (m *MockKernel) LoadFacts(facts []Fact) error         { return nil }
+func (m *MockKernel) Retract(predicate string) error       { return nil }
+func (m *MockKernel) RetractFact(fact Fact) error          { return nil }
+func (m *MockKernel) QueryAll() (map[string][]Fact, error) { return nil, nil }
+func (m *MockKernel) FactCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.Facts)
+}
 func (m *MockKernel) IsInitialized() bool                                            { return true }
 func (m *MockKernel) LoadPolicyFile(file string) error                               { return nil }
 func (m *MockKernel) GetSchemas() string                                             { return "" }

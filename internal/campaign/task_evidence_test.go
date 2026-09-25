@@ -28,6 +28,18 @@ func writeEvidenceDoc(t *testing.T, ws, rel, body string) string {
 	return rel
 }
 
+// storedWriteSet is rel as a plan's write set holds it once normalized: an
+// absolute path, a spelling different from the relative one an artifact
+// carries, and case-folded where the filesystem folds case
+// (normalizeAbsolutePath lowercases it on Windows only). These tests used to
+// write the Windows shape by hand -- filepath.Join(ws, "docs", "readme.md")
+// for Docs/README.md -- which names the same file only on a case-insensitive
+// filesystem; on Linux it named a file that does not exist, so the task's own
+// output was, correctly, not recognised as its own and both tests failed.
+func storedWriteSet(ws, rel string) []string {
+	return normalizeWriteSetPaths(ws, []string{rel})
+}
+
 // evidenceOrchestrator is an orchestrator over c whose kernel is the shipped
 // corpus holding the campaign section's thresholds (edit changes them) and
 // the campaign's own rows, as NewOrchestrator leaves it.
@@ -216,7 +228,7 @@ func TestTaskEvidence_ATasksOwnOutputIsNotItsEvidence(t *testing.T) {
 	c := &Campaign{ID: "/campaign_own", Phases: []Phase{{ID: "/phase_0", Order: 0, Tasks: []Task{
 		{ID: "/task_first", PhaseID: "/phase_0", Type: TaskTypeFileCreate, Status: TaskCompleted, Order: 0, Description: "Create the questions", Artifacts: []TaskArtifact{{Type: "/source_file", Path: rel}}},
 		{ID: "/task_again", PhaseID: "/phase_0", Type: TaskTypeFileModify, Status: TaskPending, Order: 1,
-			Description: "Rewrite OPEN-QUESTIONS.md one question per file", WriteSet: []string{filepath.ToSlash(filepath.Join(ws, "docs", "spec", "open-questions.md"))}},
+			Description: "Rewrite OPEN-QUESTIONS.md one question per file", WriteSet: storedWriteSet(ws, "Docs/spec/OPEN-QUESTIONS.md")},
 	}}}}
 	o := evidenceOrchestrator(t, ws, c, nil)
 	modes, err := func() (map[string]string, error) {
@@ -251,7 +263,7 @@ func TestTaskEvidence_ADocumentTheBriefNamesArrives(t *testing.T) {
 			Artifacts: []TaskArtifact{{Type: "/source_file", Path: draft}}},
 		{ID: "/task_readme", PhaseID: "/phase_0", Type: TaskTypeFileModify, Status: TaskPending, Order: 1,
 			Description: "Rewrite Docs/README.md per Docs/journeys/09-standard.md; cite Docs/big.md, Docs/private.md and Docs/draft.md",
-			WriteSet:    []string{filepath.ToSlash(filepath.Join(ws, "docs", "readme.md"))}},
+			WriteSet:    storedWriteSet(ws, "Docs/README.md")},
 	}}}}
 	o := evidenceOrchestrator(t, ws, c, func(cc *config.CampaignConfig) { cc.UpstreamInlineMaxBytes = len(bigBody) - 1 })
 	section, err := o.taskContextSection(context.Background(), &c.Phases[0].Tasks[1])

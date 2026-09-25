@@ -63,7 +63,9 @@ func IsSecretPath(p string) bool {
 	if p == "" {
 		return false
 	}
-	clean := strings.ToLower(filepath.ToSlash(filepath.Clean(p)))
+	// A backslash is a separator on every host here, not only on Windows: a
+	// secret check must not be sidestepped by the other OS's spelling.
+	clean := strings.ToLower(path.Clean(strings.ReplaceAll(filepath.ToSlash(p), `\`, "/")))
 	segments := strings.Split(strings.TrimPrefix(clean, "/"), "/")
 	for _, pattern := range activeSecretPatterns() {
 		depth := strings.Count(pattern, "/") + 1

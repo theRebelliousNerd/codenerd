@@ -164,23 +164,54 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 		turn.Number, len(atoms), len(c.recentTurns),
 		result.TokenUsage.Total, c.config.TotalBudget, utilization*100)
 
-	// 10. Persist compressed state + activation analytics (best-effort)
+	// 10. Persist compressed state + activation analytics. Best-effort -- a
+	// failed write does not fail the turn -- but not silent: both errors were
+	// discarded, and a session whose state was never stored cannot be
+	// rehydrated, with nothing anywhere saying why.
 	if c.store != nil {
-		state := c.buildStateLocked()
-		if data, err := MarshalCompressedState(state); err == nil {
-			_ = c.store.StoreCompressedState(c.sessionID, c.turnNumber, string(data), state.CompressionRatio)
-		}
-		// Log top hot facts for long-term activation analytics.
-		maxLogs := 50
-		for i, sf := range state.HotFacts {
-			if i >= maxLogs {
-				break
-			}
-			_ = c.store.LogActivation(sf.Fact.String(), sf.Score)
-		}
+		c.persistTurnLocked()
 	}
 
 	return result, nil
+}
+
+// maxActivationLogs bounds the hot facts logged per turn for activation
+// analytics.
+const maxActivationLogs = 50
+
+// persistTurnLocked stores the compressed state and logs the hottest facts,
+// warning and counting (persistFailures, GetMetrics "persist_failures") when
+// either write fails. Caller holds c.mu.
+func (c *Compressor) persistTurnLocked() {
+	state := c.buildStateLocked()
+	data, err := MarshalCompressedState(state)
+	if err == nil {
+		err = c.store.StoreCompressedState(c.sessionID, c.turnNumber, string(data), state.CompressionRatio)
+	}
+	if err != nil {
+		c.persistFailures++
+		logging.Get(logging.CategoryContext).Warn(
+			"Compressed state for session %s turn %d was NOT stored; this session cannot be rehydrated from it: %v",
+			c.sessionID, c.turnNumber, err)
+	}
+	failed := 0
+	var lastErr error
+	for i, sf := range state.HotFacts {
+		if i >= maxActivationLogs {
+			break
+		}
+		if err := c.store.LogActivation(sf.Fact.String(), sf.Score); err != nil {
+			failed++
+			lastErr = err
+		}
+	}
+	if failed > 0 {
+		c.persistFailures++
+		// One line for the turn, not one per fact.
+		logging.Get(logging.CategoryContext).Warn(
+			"Activation analytics: %d of %d hot facts for turn %d were not logged: %v",
+			failed, min(len(state.HotFacts), maxActivationLogs), c.turnNumber, lastErr)
+	}
 }
 
 // processMemoryOperation handles a memory operation from the control packet.
@@ -193,12 +224,12 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 // with nobody informed. The next session simply does not know.
 //
 // The default branch matters for a different reason. The protocol enum in
-// internal/articulation/schema.go admits four operations and this switch
-// handles three, so a "note" -- specified in protocol/piggyback/memory_ops as
-// a short-term session observation, and validated as legal on the way in --
-// fell through to nothing at all. Whatever is decided about implementing it,
-// an operation the model was told to emit must not vanish without a word, and
-// the next operation added to that enum must not either.
+// internal/articulation/schema.go once admitted four operations while this
+// switch handled three, so a "note" -- specified in protocol/piggyback/memory_ops
+// as a short-term session observation, and validated as legal on the way in --
+// fell through to nothing at all (it is now recordSessionNote). An operation
+// the model was told to emit must not vanish without a word, and the next one
+// added to that enum must not either (TestEveryProtocolMemoryOpIsHandled).
 func (c *Compressor) processMemoryOperation(op articulation.MemoryOperation) {
 	switch op.Op {
 	case "promote_to_long_term":
@@ -212,8 +243,16 @@ func (c *Compressor) processMemoryOperation(op articulation.MemoryOperation) {
 		}
 	case "forget":
 		logging.ContextDebug("Memory op: forget key=%s", op.Key)
+		if c.kernel == nil {
+			logging.Get(logging.CategoryContext).Warn("Memory op forget FAILED, no kernel attached: key=%s", op.Key)
+			return
+		}
 		// Remove from kernel
 		c.kernel.Retract(op.Key)
+		// A note under the same key is forgotten with it.
+		if err := c.kernel.RetractFact(core.Fact{Predicate: sessionNotePredicate, Args: []any{op.Key}}); err != nil {
+			logging.Get(logging.CategoryContext).Warn("Memory op forget could not drop the session note: key=%s: %v", op.Key, err)
+		}
 	case "store_vector":
 		logging.ContextDebug("Memory op: store_vector key=%s", op.Key)
 		// Store in vector memory
@@ -224,16 +263,58 @@ func (c *Compressor) processMemoryOperation(op articulation.MemoryOperation) {
 			}
 		}
 	case "note":
-		// Accepted by the schema, described to the model, not implemented.
-		// Logged at Warn rather than Debug so it reads as a gap in the
-		// protocol's implementation and not as ordinary traffic.
-		logging.Get(logging.CategoryContext).Warn(
-			"Memory op note is accepted by the protocol schema but not implemented; dropping: key=%s", op.Key)
+		c.recordSessionNote(op.Key, op.Value)
 	default:
 		logging.Get(logging.CategoryContext).Warn(
 			"Unhandled memory op %q, dropping: key=%s -- the protocol schema admits an operation this switch does not", op.Op, op.Key)
 	}
 }
+
+// sessionNotePredicate carries a memory-op note in the kernel:
+// session_note(Key, Value), declared in schemas_context.mg and made relevant
+// by context_compilation.mg.
+const sessionNotePredicate = "session_note"
+
+// recordSessionNote lands a "note" memory operation: a short-term observation
+// for the session (protocol/piggyback/memory_ops), such as
+// {"op": "note", "key": "current_focus", "value": "refactoring auth module"}.
+//
+// It becomes session_note(Key, Value) in the kernel, replacing any earlier
+// note under the key, and the kernel decides when it enters the window:
+// context_relevant(Key, /p90) :- session_note(Key, _). Until 2026-09-25 the
+// operation was admitted by the protocol schema, described to the model, and
+// dropped with a warning (TODO-CTX-07A).
+func (c *Compressor) recordSessionNote(key, value string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		logging.Get(logging.CategoryContext).Warn("Memory op note has no key; dropping: value=%q", truncateForNote(value))
+		return
+	}
+	if c.kernel == nil {
+		logging.Get(logging.CategoryContext).Warn("Memory op note FAILED, no kernel attached: key=%s", key)
+		return
+	}
+	// RetractFact matches on the first argument: the key.
+	if err := c.kernel.RetractFact(core.Fact{Predicate: sessionNotePredicate, Args: []any{key}}); err != nil {
+		logging.Get(logging.CategoryContext).Warn("Memory op note could not replace the earlier note: key=%s: %v", key, err)
+	}
+	if err := c.kernel.Assert(core.Fact{Predicate: sessionNotePredicate, Args: []any{key, value}}); err != nil {
+		logging.Get(logging.CategoryContext).Warn(
+			"Memory op note FAILED, the observation is not in session context: key=%s: %v", key, err)
+		return
+	}
+	logging.ContextDebug("Memory op: note key=%s (%d chars)", key, len(value))
+}
+
+func truncateForNote(s string) string {
+	if r := []rune(s); len(r) > maxNoteLogRunes {
+		return string(r[:maxNoteLogRunes]) + "..."
+	}
+	return s
+}
+
+// maxNoteLogRunes bounds a dropped note's value in the log line.
+const maxNoteLogRunes = 80
 
 // shouldCompress returns true if compression should be triggered.
 // Compression is purely token-budget driven - we only compress when

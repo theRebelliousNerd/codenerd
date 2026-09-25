@@ -252,55 +252,62 @@ func (k *RealKernel) ExecSinksReachedBy(predicate string) ([]string, error) {
 	return hit, nil
 }
 
+// hostWitnessPredicates are host witnesses and conclusions, never model
+// observations. Two gates read this one set, so they cannot drift apart:
+// predicateAllowed refuses them in a control packet, and the kernel's
+// learned-rule validator refuses them as the head of a learned rule
+// (installLearnedHeadProtection). A model that may not write
+// build_state(/passing) may not learn a rule that derives it either.
+//
+// build_state and test_state are on this list because they are what the
+// session executor's own post-edit gates recorded (recordBuildState, from
+// BuildCheck/TestCheck): the compiler and the test runner, measured by the
+// host. Since turn_verified reads them (coder_safety.mg), a model able to
+// write build_state(/passing) could manufacture its own completion. Two
+// routes existed: the SessionPlanner's "build_" prefix allowlist
+// (internal/shards/system/planner.go), and ModelObservationPolicy, which
+// named "test_state" outright on the two busiest surfaces there are — the
+// session executor and the chat turn.
+var hostWitnessPredicates = map[string]struct{}{
+	"turn_acceptance": {}, "turn_evidence": {}, "turn_executed": {}, "turn_done": {}, "turn_cost": {},
+	"turn_verified": {}, "turn_unverified": {}, "turn_wrote": {}, "turn_build_failed": {},
+	"turn_missing_evidence": {}, "turn_created_source": {}, "has_turn_acceptance": {},
+	"turn_gate": {}, "turn_build_green": {}, "turn_build_red": {}, "turn_tests_green": {}, "turn_tests_red": {},
+	"turn_untested": {}, "turn_has_untested": {},
+	"turn_uncovered": {}, "turn_has_uncovered": {}, "turn_vet_green": {}, "turn_vet_red": {},
+	"turn_created_test": {}, "turn_test_coverage": {}, "turn_missing_test": {},
+	// What a write owes (N01): write_class is the table a model could
+	// otherwise extend to reclassify its own code as documentation.
+	"turn_written": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
+	"turn_owes_gate": {}, "turn_unmet_gate": {}, "turn_red_gate": {}, "has_unmet_gate": {}, "has_red_gate": {},
+	// What a behaviour change owes (N22): the turn's intent and the table
+	// of intents that owe /pinned.
+	"turn_verb": {}, "behavior_change_intent": {},
+	// What the planner is spent on: the sites the host measured in the
+	// brief, and the conclusion drawn from them.
+	"turn_brief_site": {}, "turn_brief_site_count": {}, "turn_needs_step_plan": {},
+	// What a repair episode does next (repair_episode.mg): a model that
+	// could write repair_attempt could keep its own episode alive.
+	"repair_attempt": {}, "repair_attempt_count": {}, "repair_exhausted": {}, "repair_not_converging": {},
+	"repair_gives_up": {}, "repair_move": {}, "repair_closed": {},
+	// What a failed checkpoint leads to (campaign_decisions.mg): a model
+	// that could write phase_checkpoint_failure could close or keep open
+	// its own phase.
+	"phase_checkpoint_failure": {}, "phase_ckpt_failures": {}, "phase_ckpt_exhausted": {}, "phase_ckpt_move": {},
+	// The user's thresholds (config_params.mg): a model that could write
+	// config_param could raise its own attempt cap or lower a gate's bar.
+	"config_param": {}, "config_param_required": {},
+	"hollow_success": {}, "has_hollow_success": {}, "has_turn_tools": {}, "has_turn_write": {}, "has_turn_test": {},
+	"build_state": {}, "test_state": {},
+	// What may carry unchecked strings, and what the host acts on: a
+	// model that could write either could exempt its own strings.
+	"prose_only": {}, "exec_sink": {},
+}
+
 func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
-	// These are host witnesses and conclusions, never model observations.
-	// Even a permissive caller allowlist cannot delegate their authority —
-	// this switch runs BEFORE AllowedPredicates and AllowedPrefixes precisely
-	// so no caller can widen it.
-	//
-	// build_state and test_state are on this list because they are what the
-	// session executor's own post-edit gates recorded (recordBuildState, from
-	// BuildCheck/TestCheck): the compiler and the test runner, measured by the
-	// host. Since turn_verified reads them (coder_safety.mg), a model able to
-	// write build_state(/passing) could manufacture its own completion. Two
-	// routes existed: the SessionPlanner's "build_" prefix allowlist
-	// (internal/shards/system/planner.go), and ModelObservationPolicy, which
-	// named "test_state" outright on the two busiest surfaces there are — the
-	// session executor and the chat turn.
-	switch predicate {
-	case "turn_acceptance", "turn_evidence", "turn_executed", "turn_done", "turn_cost",
-		"turn_verified", "turn_unverified", "turn_wrote", "turn_build_failed",
-		"turn_missing_evidence", "turn_created_source", "has_turn_acceptance",
-		"turn_gate", "turn_build_green", "turn_build_red", "turn_tests_green", "turn_tests_red",
-		"turn_untested", "turn_has_untested",
-		"turn_uncovered", "turn_has_uncovered", "turn_vet_green", "turn_vet_red",
-		"turn_created_test", "turn_test_coverage", "turn_missing_test",
-		// What a write owes (N01): write_class is the table a model could
-		// otherwise extend to reclassify its own code as documentation.
-		"turn_written", "write_class", "known_write_ext", "has_turn_written", "turn_write_class",
-		"turn_owes_gate", "turn_unmet_gate", "turn_red_gate", "has_unmet_gate", "has_red_gate",
-		// What a behaviour change owes (N22): the turn's intent and the table
-		// of intents that owe /pinned.
-		"turn_verb", "behavior_change_intent",
-		// What the planner is spent on: the sites the host measured in the
-		// brief, and the conclusion drawn from them.
-		"turn_brief_site", "turn_brief_site_count", "turn_needs_step_plan",
-		// What a repair episode does next (repair_episode.mg): a model that
-		// could write repair_attempt could keep its own episode alive.
-		"repair_attempt", "repair_attempt_count", "repair_exhausted", "repair_not_converging",
-		"repair_gives_up", "repair_move", "repair_closed",
-		// What a failed checkpoint leads to (campaign_decisions.mg): a model
-		// that could write phase_checkpoint_failure could close or keep open
-		// its own phase.
-		"phase_checkpoint_failure", "phase_ckpt_failures", "phase_ckpt_exhausted", "phase_ckpt_move",
-		// The user's thresholds (config_params.mg): a model that could write
-		// config_param could raise its own attempt cap or lower a gate's bar.
-		"config_param", "config_param_required",
-		"hollow_success", "has_hollow_success", "has_turn_tools", "has_turn_write", "has_turn_test",
-		"build_state", "test_state",
-		// What may carry unchecked strings, and what the host acts on: a
-		// model that could write either could exempt its own strings.
-		"prose_only", "exec_sink":
+	// A host witness is refused BEFORE AllowedPredicates and AllowedPrefixes
+	// are read, precisely so no caller allowlist can delegate its authority.
+	if _, hostOnly := hostWitnessPredicates[predicate]; hostOnly {
 		return false
 	}
 	if len(policy.AllowedPredicates) == 0 && len(policy.AllowedPrefixes) == 0 {

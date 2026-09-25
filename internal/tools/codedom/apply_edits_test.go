@@ -30,6 +30,21 @@ func writeFixture(t *testing.T, dir, rel, content string) string {
 	return abs
 }
 
+// resolvedTempDir is t.TempDir() as the tool resolves it. The write hooks in
+// the restore-failure tests match on the absolute path the tool passes, and
+// the tool resolves the workspace through symlinks and, on Windows, 8.3 short
+// names (ResolveWorkspacePath). Compared against the unresolved TempDir, a hook
+// never matched under an aliased TEMP -- CI's path-alias run -- and the
+// injected failure never happened.
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve temp dir: %v", err)
+	}
+	return dir
+}
+
 func readFile(t *testing.T, abs string) string {
 	t.Helper()
 	b, err := os.ReadFile(abs)
@@ -700,7 +715,7 @@ func TestApplyEdits_PartialWriteFailureLeavesNoCorruption(t *testing.T) {
 }
 
 func TestApplyEdits_FailedFileRestoreReadFailsNamesFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	aRel := "a.txt"
 	bRel := "b.txt"
 	aAbs := writeFixture(t, dir, aRel, "one\ntwo\n")
@@ -747,7 +762,7 @@ func TestApplyEdits_FailedFileRestoreReadFailsNamesFile(t *testing.T) {
 }
 
 func TestApplyEdits_FailedFileRestoreWriteFailsNamesFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	aRel := "a.txt"
 	bRel := "b.txt"
 	aAbs := writeFixture(t, dir, aRel, "one\ntwo\n")
@@ -800,7 +815,7 @@ func TestApplyEdits_FailedFileRestoreWriteFailsNamesFile(t *testing.T) {
 }
 
 func TestApplyEdits_FailedFileRestoreVerifyReadFailsNamesFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	aRel := "a.txt"
 	bRel := "b.txt"
 	aAbs := writeFixture(t, dir, aRel, "one\ntwo\n")
@@ -853,7 +868,7 @@ func TestApplyEdits_FailedFileRestoreVerifyReadFailsNamesFile(t *testing.T) {
 }
 
 func TestApplyEdits_FailedFileRestoreVerifyMismatchNamesFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	aRel := "a.txt"
 	bRel := "b.txt"
 	aAbs := writeFixture(t, dir, aRel, "one\ntwo\n")

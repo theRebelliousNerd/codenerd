@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
+	"codenerd/internal/perception"
 	"codenerd/internal/retrieval"
 	"codenerd/internal/shards"
 	shardsystem "codenerd/internal/shards/system"
@@ -127,15 +128,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	shadowMode := core.NewShadowMode(kernel)
 
 	logStep("Initializing context compressor...")
-	ctxCfg := appCfg.GetContextWindowConfig()
-	compressor := ctxcompress.NewCompressorWithParams(
-		primary, localDB, llmClient,
-		ctxCfg.MaxTokens,
-		ctxCfg.CoreReservePercent, ctxCfg.AtomReservePercent,
-		ctxCfg.HistoryReservePercent, ctxCfg.WorkingReservePercent,
-		ctxCfg.RecentTurnWindow,
-		ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
-	)
+	compressor := newSessionCompressor(kernel, primary, localDB, llmClient, appCfg.GetContextWindowConfig())
 	if corpus := primary.GetPredicateCorpus(); corpus != nil {
 		if err := compressor.LoadPrioritiesFromCorpus(corpus); err != nil {
 			logging.Get(logging.CategoryContext).Warn("Failed to load corpus priorities: %v", err)
@@ -322,6 +315,29 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 // the catch-all shard's kernel (primary) serves only the consumers that need
 // a RealKernel's internals -- the context compressor, and the .mg watcher's
 // repair interceptor.
+// newSessionCompressor builds the session's context compressor. It is built on
+// the catch-all shard's kernel (primary), where the facts it asserts itself
+// land, and asks its retention and relevance decisions -- context_must_retain,
+// the retained facts, should_include_context -- through the session kernel,
+// the Cortex, which routes each predicate to the shards that hold or derive
+// it. On the catch-all alone it could not see modified files (world shard) or
+// a block_commit another shard derives.
+func newSessionCompressor(kernel ctxcompress.KernelReader, primary *core.RealKernel, localDB *store.LocalStore,
+	llmClient perception.LLMClient, ctxCfg config.ContextWindowConfig) *ctxcompress.Compressor {
+	compressor := ctxcompress.NewCompressorWithParams(
+		primary, localDB, llmClient,
+		ctxCfg.MaxTokens,
+		ctxCfg.CoreReservePercent, ctxCfg.AtomReservePercent,
+		ctxCfg.HistoryReservePercent, ctxCfg.WorkingReservePercent,
+		ctxCfg.RecentTurnWindow,
+		ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
+	)
+	if kernel != nil {
+		compressor.SetKernelReader(kernel)
+	}
+	return compressor
+}
+
 func sessionKernels(cortex *nerdsystem.Cortex) (chatKernel, *core.RealKernel, error) {
 	kernel, ok := cortex.Kernel.(chatKernel)
 	if !ok || kernel == nil {

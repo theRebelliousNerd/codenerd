@@ -259,17 +259,15 @@ func TestOllamaEngine_Embed_WhenInvalidJSON_ShouldRetryAndFail(t *testing.T) {
 	}
 }
 
-func TestOllamaEngine_Embed_WhenEmptyText_ShouldStillCallServer(t *testing.T) {
+// Empty text is refused before the server. This test used to pin the opposite
+// (…_ShouldStillCallServer), against a stand-in server that answered an empty
+// prompt with a vector; an embedding of nothing is one point every empty
+// document collides on, and the real server's answer was an empty vector,
+// retried three times. Changed deliberately with ErrEmptyText.
+func TestOllamaEngine_Embed_WhenEmptyText_ShouldRefuseBeforeTheServer(t *testing.T) {
+	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req ollamaEmbedRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		if req.Prompt != "" {
-			t.Errorf("expected empty prompt, got %q", req.Prompt)
-		}
-
+		called = true
 		resp := ollamaEmbedResponse{Embedding: []float32{0.0, 0.0}}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
@@ -282,12 +280,11 @@ func TestOllamaEngine_Embed_WhenEmptyText_ShouldStillCallServer(t *testing.T) {
 	}
 	skipEnsure(engine)
 
-	emb, err := engine.Embed(context.Background(), "")
-	if err != nil {
-		t.Fatalf("Embed with empty text returned error: %v", err)
+	if _, err := engine.Embed(context.Background(), ""); !errors.Is(err, ErrEmptyText) {
+		t.Fatalf("Embed with empty text: err = %v, want ErrEmptyText", err)
 	}
-	if len(emb) != 2 {
-		t.Errorf("Expected 2-dim embedding, got %d", len(emb))
+	if called {
+		t.Error("the server was called for an empty text")
 	}
 }
 

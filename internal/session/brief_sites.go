@@ -25,7 +25,11 @@ var briefURL = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.\-]*://\S+`)
 // briefPathToken is a candidate path: an optional drive, then path
 // characters ending in an extension that starts with a letter, then an
 // optional :line.
-var briefPathToken = regexp.MustCompile(`(?:[A-Za-z]:)?[A-Za-z0-9_.\-/\\]+\.[A-Za-z][A-Za-z0-9]{0,7}(?::(\d+))?`)
+// A "~" followed by a digit is part of a Windows 8.3 short name
+// (C:\Users\RUNNER~1\...): without it the token stopped at the tilde, an
+// absolute path in the workspace was cut into a relative fragment, and one
+// outside the workspace came back as a site inside it.
+var briefPathToken = regexp.MustCompile(`(?:[A-Za-z]:)?(?:[A-Za-z0-9_.\-/\\]|~[0-9])+\.[A-Za-z][A-Za-z0-9]{0,7}(?::(\d+))?`)
 
 // briefSites measures the edit sites a brief names. A candidate is a site
 // when it names a directory (a/b.go) or a file that exists in the workspace
@@ -61,7 +65,9 @@ func briefSites(workspace, brief string) []briefSite {
 // briefWorkspacePath resolves a candidate token to a workspace-relative,
 // slash-separated path, or reports that it names no workspace file.
 func briefWorkspacePath(workspace, token string) (string, bool) {
-	p := filepath.ToSlash(token)
+	// A brief can be written on either OS: a backslash is a separator whatever
+	// the host, since filepath.ToSlash only converts the host's own.
+	p := strings.ReplaceAll(filepath.ToSlash(token), `\`, "/")
 	if filepath.IsAbs(token) || filepath.IsAbs(p) {
 		if workspace == "" {
 			return "", false

@@ -31,6 +31,54 @@ type SchemaValidator struct {
 	learnedText        string
 }
 
+// LearnedHeadProtection is what a learned rule may not define beyond
+// forbiddenLearnedHeads, as the program it would join sees it: the grant path
+// derived from that program's rules, and the predicates only the host may
+// produce. It is passed per validation rather than stored, because the
+// program changes (AppendPolicy, LoadPolicyFile, ...) under a validator that
+// clones share.
+type LearnedHeadProtection struct {
+	// GrantPath is the program's grant path (GrantPathOfSource).
+	GrantPath GrantPath
+	// GrantPathErr is set when the grant path could not be derived. Then no
+	// learned rule is admitted: none can be shown not to widen a grant.
+	GrantPathErr error
+	// HostOnly maps a host witness or conclusion to why a model may not
+	// define it (the control-packet gate refuses the same set).
+	HostOnly map[string]string
+}
+
+// protectedHead returns why a learned rule may not define head, or nil.
+func (p LearnedHeadProtection) protectedHead(head string) error {
+	if reason, forbidden := forbiddenLearnedHeads[head]; forbidden {
+		return fmt.Errorf("learned rule defines protected predicate %q: %s", head, reason)
+	}
+	if via, ok := p.GrantPath.Contains(head); ok {
+		return fmt.Errorf("learned rule defines protected predicate %q: its facts can widen the constitutional grant (it reaches permitted through %s); a learned rule may narrow a grant, never widen one", head, via)
+	}
+	if reason, ok := p.HostOnly[head]; ok {
+		return fmt.Errorf("learned rule defines protected predicate %q: %s", head, reason)
+	}
+	return nil
+}
+
+// learnedHeads returns every predicate the learned text defines: the head the
+// line opens with, and the head of every clause the parser finds in it. The
+// regex alone saw only the first statement, so "ok(X) :- a(X). bad(1)." was
+// judged by ok alone and persisted whole.
+func (sv *SchemaValidator) learnedHeads(text string) []string {
+	var heads []string
+	if head := sv.extractHeadPredicate(text); head != "" {
+		heads = append(heads, head)
+	}
+	if unit, err := ParseUnit(strings.NewReader(text)); err == nil {
+		for _, clause := range unit.Clauses {
+			heads = append(heads, clause.Head.Predicate.Symbol)
+		}
+	}
+	return heads
+}
+
 // NewSchemaValidator creates a validator with the system schemas.
 func NewSchemaValidator(schemasText, learnedText string) *SchemaValidator {
 	return &SchemaValidator{
@@ -155,13 +203,22 @@ func (sv *SchemaValidator) ValidateRule(ruleText string) error {
 	return nil
 }
 
-// ValidateLearnedRule validates a learned rule/fact.
+// ValidateLearnedRule validates a learned rule/fact against the static
+// protected heads only. A caller that knows the program the rule would join --
+// the kernel always does -- must use ValidateLearnedRuleProtected, which also
+// refuses the program's grant path and the host's witnesses.
+func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
+	return sv.ValidateLearnedRuleProtected(ruleText, LearnedHeadProtection{})
+}
+
+// ValidateLearnedRuleProtected validates a learned rule/fact.
 //
 // In addition to schema drift checks (undefined predicates in the body), learned rules are
-// prevented from defining protected control-plane predicates that must remain deterministic.
-// Also validates that head predicates match declared arities and that learned facts only
-// assert into declared predicates (schema drift prevention).
-func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
+// prevented from defining protected control-plane predicates that must remain deterministic:
+// forbiddenLearnedHeads, and p's grant path and host-only heads, for every statement in
+// ruleText. Also validates that head predicates match declared arities and that learned
+// facts only assert into declared predicates (schema drift prevention).
+func (sv *SchemaValidator) ValidateLearnedRuleProtected(ruleText string, p LearnedHeadProtection) error {
 	trimmed := strings.TrimSpace(ruleText)
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 		return nil
@@ -170,10 +227,13 @@ func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
 	head := sv.extractHeadPredicate(trimmed)
 	_, isRule := splitRuleBody(trimmed)
 
-	if head != "" {
-		if reason, forbidden := forbiddenLearnedHeads[head]; forbidden {
-			return fmt.Errorf("learned rule defines protected predicate %q: %s", head, reason)
+	for _, h := range sv.learnedHeads(trimmed) {
+		if err := p.protectedHead(h); err != nil {
+			return err
 		}
+	}
+	if p.GrantPathErr != nil {
+		return fmt.Errorf("learned rule not admitted: %w", p.GrantPathErr)
 	}
 
 	// Atom-syntax check on whatever the model put in head position. This

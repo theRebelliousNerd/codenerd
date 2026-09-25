@@ -1197,6 +1197,18 @@ func NewDomainCortex(workspace string) (*core.CortexKernel, error) {
 		cortex.SetDerivationMap(dm)
 	}
 
+	// features.provenance is documented as turning the derivation recorder
+	// on so /explain can answer; until 2026-09-25 nothing read it, and /explain
+	// only ever switched recording on itself, mid-session, with a forced
+	// re-evaluation. Installed here, after the shards exist (EnableProvenance
+	// fans out to each) and before the first evaluation, so the first pass is
+	// recorded. Measured on the default corpus: 79 ms per evaluation off, 81 ms
+	// on; the buffer holds only the latest pass.
+	if features.IsProvenanceEnabled() {
+		cortex.EnableProvenance()
+		logging.Boot("kernel: provenance recording on from boot (features.provenance)")
+	}
+
 	if err := cortex.Evaluate(); err != nil {
 		return nil, fmt.Errorf("failed to boot cortex kernel: %w", err)
 	}

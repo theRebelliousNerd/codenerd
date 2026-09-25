@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -809,6 +810,9 @@ func CloseAll() {
 // closeAllSinks is CloseAll's body, split out so Initialize can reuse it during
 // a workspace rebind without the public function's documented semantics.
 func closeAllSinks() {
+	// Before the sinks go: the report is written to one of them.
+	reportPerformanceSampling()
+
 	loggersMu.Lock()
 	for _, l := range loggers {
 		if l.sink != nil {
@@ -930,6 +934,41 @@ func shouldLogLevel(level string) bool {
 	}
 }
 
+// performanceSampleSeen counts the non-slow timings logPerformance considered
+// for sampling, and performanceSampleDropped the ones performance_sampling
+// dropped. Slow operations are never sampled. Before these, a dropped timing
+// left no trace at all: a performance log thinned by sampling read exactly
+// like a quiet run.
+var performanceSampleSeen, performanceSampleDropped atomic.Uint64
+
+// PerformanceSamplingStats reports, since the sinks were last closed, how many
+// non-slow timings the performance sampler saw and how many it dropped.
+func PerformanceSamplingStats() (seen, dropped uint64) {
+	return performanceSampleSeen.Load(), performanceSampleDropped.Load()
+}
+
+// reportPerformanceSampling writes one line to the performance log saying what
+// sampling dropped, then starts the count again. Called as the sinks close, so
+// a run's performance log ends by saying how much of it is missing.
+func reportPerformanceSampling() {
+	seen := performanceSampleSeen.Swap(0)
+	dropped := performanceSampleDropped.Swap(0)
+	if dropped == 0 {
+		return
+	}
+	logger := Get(CategoryPerformance)
+	if logger.logger == nil {
+		return
+	}
+	logger.StructuredLog("info", "performance.sampling", map[string]any{
+		"seen":    seen,
+		"dropped": dropped,
+		"rate":    performanceSamplingRate(),
+		"message": fmt.Sprintf("performance sampling dropped %d of %d non-slow timings (performance_sampling=%.3g); slow operations are always logged",
+			dropped, seen, performanceSamplingRate()),
+	})
+}
+
 func performanceSamplingRate() float64 {
 	configMu.RLock()
 	defer configMu.RUnlock()
@@ -978,8 +1017,10 @@ func logPerformance(category Category, operation string, elapsed time.Duration, 
 	elapsedMs := elapsed.Milliseconds()
 	isSlow := thresholdMs > 0 && elapsedMs > thresholdMs
 	if !isSlow {
+		performanceSampleSeen.Add(1)
 		sampleRate := performanceSamplingRate()
 		if sampleRate < 1 && secureFloat64() > sampleRate {
+			performanceSampleDropped.Add(1)
 			return
 		}
 	}

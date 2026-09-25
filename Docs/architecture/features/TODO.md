@@ -2,10 +2,28 @@
 doc-class: governance
 subsystem: features
 implementation-status: not-applicable
-last-verified: 2026-09-23
-verified-against: 34634770970153e78c1e250fdab7abd888dcce6f
+last-verified: 2026-09-25
+verified-against: 791e821
 supersedes: []
 ---
+
+> **Status, 2026-09-25 (lane B build-out).** Every item below is closed.
+> The item bodies are kept as written; their `features.go` anchors predate
+> `Misconfigurations` and have shifted (current: `IsProvenanceEnabled`
+> `internal/features/features.go:530`, `Misconfigurations` `:379`,
+> `DefaultFeaturesConfig` `:156`, `FullyEnabledFeaturesConfig` `:202`,
+> `boolFlags` `:276`; `ConfigSchemaKeys` `internal/features/schema.go:56`).
+> Decisions were recorded in the commits and in this table rather than in
+> separate ADR files: each has a test as its witness, which is what the
+> exits ask for.
+>
+> | Item | Resolution | Evidence |
+> |---|---|---|
+> | TODO-FEAT-01a / 01b | closed `df4a9d2`: **wired**, option (a) | `NewDomainCortex` enables recording in every shard when `features.IsProvenanceEnabled()` holds, before the first evaluation (`internal/system/factory.go:1207`). Measured on the default corpus: 79 ms per evaluation off, 81 ms on; the buffer holds only the latest pass, so no reason remained to leave the flag unread. `TestNewDomainCortex_HonorsTheProvenanceFlag` fails without the wiring |
+> | TODO-FEAT-02a / 02b | closed `791e821` | one boot truth: a no-config boot resolves every flag to the table's default, which `DefaultFeaturesConfig` states as a struct, and `nerd init` seeds `FullyEnabledFeaturesConfig` via `config.DefaultUserConfig` (`internal/config/user_config.go:1514`). Pinned by `TestBootTruth_ANoConfigBootResolvesToDefaultFeaturesConfig` and `TestBootTruth_InitSeedsFullyEnabledFeaturesConfig` (`internal/features/boot_truth_test.go`) |
+> | TODO-FEAT-03 | closed `791e821`: surfaced, option (a) | `nerd features --schema --json` prints `ConfigSchemaKeys()` as a JSON array (`cmd/nerd/cmd_features.go:41`); `TestFeaturesCmd_WhenSchemaJSONRequested_ShouldEmitTheKeys` |
+> | TODO-FEAT-04a / 04b | closed `df4a9d2` | `TestEveryFlagHasAProductionReaderOrIsReserved` (`internal/features/flag_readers_test.go`) walks the module and requires a production reader outside `internal/features` for every flag (the `nerd features` / `/features` inspection surfaces do not count), or a `reservedFlags` entry with its decision; `reservedFlags` is empty. It logs the reader table (e.g. `provenance -> internal/system/factory.go:1207`, `fast_scan_workers -> internal/world/scanner_config.go:31`) and failed before `df4a9d2`, naming provenance |
+> | TODO-FEAT-05 | closed `791e821` | `features.Misconfigurations()` names every feature env var set to a value the registry refuses; `LoadUserConfig` warns with each at boot (`internal/config/user_config.go:601`), and `nerd features` / `/features` print them. The no-flip guarantee is unchanged. `TestMisconfigurations_WhenAnEnvValueDoesNotParse_ShouldReportItAndStillIgnoreIt`, `TestFeaturesCmd_WhenAnEnvValueIsRefused_ShouldWarn` |
 
 # features: TODO (build queue)
 
@@ -195,6 +213,16 @@ matrix; repeated here only as pointers.
   is out of scope.
 - Exit: `go test ./internal/features/... ./internal/config/...` passes with
   the new warn-only test.
+
+## Closed log
+
+- TODO-FEAT-01a, 01b — `df4a9d2` — wired; `TestNewDomainCortex_HonorsTheProvenanceFlag`.
+- TODO-FEAT-02a, 02b — `791e821` — `TestBootTruth_*` (`internal/features/boot_truth_test.go`).
+- TODO-FEAT-03 — `791e821` — `nerd features --schema --json`;
+  `TestFeaturesCmd_WhenSchemaJSONRequested_ShouldEmitTheKeys`.
+- TODO-FEAT-04a, 04b — `df4a9d2` — `TestEveryFlagHasAProductionReaderOrIsReserved`.
+- TODO-FEAT-05 — `791e821` — `TestMisconfigurations_*`,
+  `TestFeaturesCmd_WhenAnEnvValueIsRefused_ShouldWarn`.
 
 ## Non-goals (do not revive as TODO)
 

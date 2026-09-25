@@ -172,6 +172,14 @@ type CompressedContext struct {
 	GeneratedAt   time.Time
 	TurnNumber    int
 	CompressionID string
+
+	// Selection says who chose and ordered ContextAtoms: the kernel's
+	// should_include_context gate, or the Go activation fallback, with
+	// SelectionReason saying why. Empty for a block built without a selection
+	// (budget accounting). The serializer renders it on the ACTIVE CONTEXT
+	// header, so a heuristic block is never presented as a derived one.
+	Selection       SelectionMode
+	SelectionReason string
 }
 
 // CompressedTurn represents a single conversation turn with surface text removed.
@@ -273,6 +281,11 @@ type SelectionStats struct {
 	// the store across the session. Non-zero means C1/C4 rules and the fact
 	// store disagree about identity.
 	UnresolvedKernelFacts int
+	// RetentionFloorUsed counts retention decisions (getCoreFacts) the kernel
+	// did not make: context_must_retain failed or derived nothing, so the
+	// constitutional floor was retained instead. Non-zero means the context
+	// policy is not loaded where the compressor asks.
+	RetentionFloorUsed int
 }
 
 // KernelInclusionRate returns the fraction of context builds decided by the

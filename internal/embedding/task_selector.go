@@ -1,6 +1,8 @@
 package embedding
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -29,6 +31,44 @@ const (
 
 func normalizeTaskType(taskType string) string {
 	return strings.ToUpper(strings.TrimSpace(taskType))
+}
+
+// knownTaskTypes are the Gemini embedding task types (the set
+// config.EmbeddingConfig.TaskType documents, plus the API's unspecified value).
+var knownTaskTypes = map[string]bool{
+	"SEMANTIC_SIMILARITY":   true,
+	"CLASSIFICATION":        true,
+	"CLUSTERING":            true,
+	"RETRIEVAL_DOCUMENT":    true,
+	"RETRIEVAL_QUERY":       true,
+	"CODE_RETRIEVAL_QUERY":  true,
+	"QUESTION_ANSWERING":    true,
+	"FACT_VERIFICATION":     true,
+	"TASK_TYPE_UNSPECIFIED": true,
+}
+
+// checkTaskType refuses a task type the API does not define. An unknown one
+// used to reach the API untouched and fail server-side, on every call, as a
+// 400 that did not say which knob was wrong.
+func checkTaskType(taskType string) error {
+	if taskType == "" || knownTaskTypes[taskType] {
+		return nil
+	}
+	known := make([]string, 0, len(knownTaskTypes))
+	for k := range knownTaskTypes {
+		known = append(known, k)
+	}
+	sort.Strings(known)
+	return fmt.Errorf("unknown embedding task type %q (embedding.task_type, or a caller's task type); known: %s",
+		taskType, strings.Join(known, ", "))
+}
+
+// knownContentTypes are the ContentType values SelectTaskType understands.
+var knownContentTypes = map[ContentType]bool{
+	ContentTypeCode: true, ContentTypeDocumentation: true, ContentTypeConversation: true,
+	ContentTypeKnowledgeAtom: true, ContentTypePromptAtom: true, ContentTypeQuery: true,
+	ContentTypeFact: true, ContentTypeQuestion: true, ContentTypeAnswer: true,
+	ContentTypeClassification: true, ContentTypeClustering: true,
 }
 
 // SelectTaskType intelligently selects the optimal GenAI task type based on content.
@@ -87,10 +127,17 @@ func DetectContentType(text string, metadata map[string]any) ContentType {
 	originalText := text
 	text = strings.ToLower(text)
 
-	// Check metadata first (most reliable)
+	// Check metadata first (most reliable) -- when it names a content type.
+	// It was returned verbatim, so a misspelled or differently-cased kind
+	// ("Code", "docs") became an unknown ContentType and silently selected
+	// SEMANTIC_SIMILARITY; the text was never looked at.
 	if meta, ok := metadata["content_type"].(string); ok {
 		logging.EmbeddingDebug("DetectContentType: found explicit content_type in metadata: %s", meta)
-		return ContentType(meta)
+		if ct := ContentType(strings.ToLower(strings.TrimSpace(meta))); knownContentTypes[ct] {
+			return ct
+		}
+		logging.Get(logging.CategoryEmbedding).Warn(
+			"DetectContentType: metadata content_type %q is not a known content type; detecting from the type field and the text instead", meta)
 	}
 
 	// Check metadata type field

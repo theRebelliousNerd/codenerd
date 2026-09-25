@@ -29,11 +29,17 @@ the source that decided it:
 Precedence is env → legacy-env → config → default.
 
 Use --schema to print a documented JSON snippet for the features block of
-.nerd/config.json.`,
+.nerd/config.json. That snippet carries comments and is not strict JSON; add
+--json to --schema for the recognised keys as a JSON array a script can read.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 
 		if featuresSchema {
+			if featuresJSON {
+				// The machine form of the schema: the keys a features block
+				// may carry, in the order the documented snippet prints them.
+				return json.NewEncoder(out).Encode(features.ConfigSchemaKeys())
+			}
 			fmt.Fprint(out, features.ConfigSchemaJSON())
 			return nil
 		}
@@ -43,6 +49,7 @@ Use --schema to print a documented JSON snippet for the features block of
 		// command would report defaults while the session uses config values.
 		flags := features.Resolved()
 		deprecations := features.Deprecations()
+		misconfigured := features.Misconfigurations()
 
 		if featuresJSON {
 			enc := json.NewEncoder(out)
@@ -52,6 +59,7 @@ Use --schema to print a documented JSON snippet for the features block of
 				"fast_scan_workers":  features.FastScanWorkers(),
 				"fast_ast_max_bytes": features.FastASTMaxBytes(),
 				"deprecations":       deprecations,
+				"misconfigurations":  misconfigured,
 			})
 		}
 
@@ -75,9 +83,12 @@ Use --schema to print a documented JSON snippet for the features block of
 		// Deprecation notices go last so they are the final thing on screen;
 		// a legacy variable that is set but shadowed is the case most likely
 		// to send an operator debugging the wrong knob.
-		if len(deprecations) > 0 {
+		if len(deprecations)+len(misconfigured) > 0 {
 			fmt.Fprintln(out)
 			for _, msg := range deprecations {
+				fmt.Fprintf(out, "warning: %s\n", msg)
+			}
+			for _, msg := range misconfigured {
 				fmt.Fprintf(out, "warning: %s\n", msg)
 			}
 		}

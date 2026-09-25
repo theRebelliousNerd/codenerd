@@ -61,6 +61,67 @@ type Compressor struct {
 	// the third learning loop's state is inspectable from the compressor —
 	// glass-box surfaces have no other handle on it.
 	feedbackStore *ContextFeedbackStore
+
+	// reader answers the compressor's questions of the kernel -- what to
+	// retain (context_must_retain) and what is relevant
+	// (should_include_context) -- when it is not the kernel above. See
+	// SetKernelReader. Guarded by mu.
+	reader KernelReader
+	// retentionFloorWarned keeps the retention-floor warning to one line per
+	// compressor: the condition is a broken policy, and it would otherwise
+	// repeat on every build. Guarded by mu.
+	retentionFloorWarned bool
+
+	// persistFailures counts turns whose compressed state or activation
+	// analytics failed to store (persistTurnLocked). Guarded by mu.
+	persistFailures int
+}
+
+// KernelReader is what the compressor asks its kernel decisions through.
+//
+// The compressor is constructed on one RealKernel, and in a chat session that
+// is the domain Cortex's catch-all shard, which holds only the facts no other
+// shard owns. Measured 2026-09-25 on NewDomainCortex: modified(File) lives in
+// the world shard (the catch-all has 0 rows, the Cortex 1), and a
+// block_commit the world shard derives never reached the catch-all, so
+// getCoreFacts -- whose whole job is to keep constitutional facts in the
+// window -- could not see it. The Cortex routes each predicate to the shards
+// that hold or derive it; handing it to the compressor as its reader puts the
+// session's whole kernel behind the retention and relevance decisions.
+type KernelReader interface {
+	Query(predicate string) ([]core.Fact, error)
+}
+
+// SetKernelReader routes the compressor's retention and relevance decisions
+// through r (in production, the domain Cortex). Nil restores the compressor's
+// own kernel. Facts the compressor asserts (turn atoms, turn ages, notes) and
+// the fact snapshot it scores still use its own kernel.
+func (c *Compressor) SetKernelReader(r KernelReader) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reader = r
+}
+
+// asker is what a kernel decision is asked of: the reader when one is set, the
+// compressor's own kernel otherwise. Callers spell the query out --
+// c.asker().Query("should_include_context") -- so the executive-conclusion
+// gate (internal/core/defaults) sees which conclusions Go acts on. Caller
+// holds c.mu.
+func (c *Compressor) asker() KernelReader {
+	if c.reader != nil {
+		return c.reader
+	}
+	if c.kernel == nil {
+		return noKernel{}
+	}
+	return c.kernel
+}
+
+// noKernel answers every question with the error a missing kernel is.
+type noKernel struct{}
+
+func (noKernel) Query(string) ([]core.Fact, error) {
+	return nil, fmt.Errorf("no kernel attached to the compressor")
 }
 
 // NewCompressor creates a new context compressor.
@@ -685,7 +746,7 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 	activationTimer := logging.StartTimer(logging.CategoryContext, "ActivationScoring")
 	var scoredFacts []ScoredFact
 	reason := reasonKernelSelected
-	kernelFacts, kernelErr := c.kernel.Query("should_include_context")
+	kernelFacts, kernelErr := c.asker().Query("should_include_context")
 	switch {
 	case kernelErr != nil:
 		reason = reasonQueryError
@@ -730,6 +791,13 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 		c.turnNumber,
 	)
 
+	// The block says who chose and ordered its active facts. A fallback is
+	// the Go heuristic's order, not the kernel's, and nothing else in the
+	// rendered block would tell the model -- or anyone reading a prompt dump --
+	// which of the two it is looking at.
+	compressedCtx.Selection = c.selection.LastMode
+	compressedCtx.SelectionReason = reason
+
 	// 6. Update usage
 	compressedCtx.TokenUsage.Available = c.config.TotalBudget - compressedCtx.TokenUsage.Total
 
@@ -741,32 +809,71 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 	return compressedCtx, nil
 }
 
-// getCoreFacts returns constitutional facts that are always included.
-func (c *Compressor) getCoreFacts() []core.Fact {
-	var coreFacts []core.Fact
+// constitutionalFloor is what getCoreFacts retains when the kernel derives no
+// retention at all. It is the floor under a broken policy, not the policy:
+// context_must_retain (policy/context_compilation.mg) decides what is always
+// retained, and TestRetentionPolicy_KeepsTheConstitutionalFloor pins that it
+// never decides less than this.
+var constitutionalFloor = []string{"permitted", "dangerous_action", "admin_override", "security_violation", "block_commit"}
 
-	if c.kernel == nil {
+// retainedPredicates is the kernel's retention decision: every predicate
+// context_must_retain names. It falls back to constitutionalFloor, with one
+// warning per compressor and a count in SelectionStats, when the query fails
+// or derives nothing -- a policy that failed to load must not take the safety
+// facts out of the window with it. Caller holds c.mu.
+func (c *Compressor) retainedPredicates() []string {
+	rows, err := c.asker().Query("context_must_retain")
+	var preds []string
+	seen := map[string]bool{}
+	for _, r := range rows {
+		if len(r.Args) != 1 {
+			continue
+		}
+		name := strings.TrimPrefix(fmt.Sprint(r.Args[0]), "/")
+		if name != "" && !seen[name] {
+			seen[name] = true
+			preds = append(preds, name)
+		}
+	}
+	if err == nil && len(preds) > 0 {
+		slices.Sort(preds)
+		return preds
+	}
+	c.selection.RetentionFloorUsed++
+	if !c.retentionFloorWarned {
+		c.retentionFloorWarned = true
+		why := "derived no row"
+		if err != nil {
+			why = "failed: " + err.Error()
+		}
+		logging.Get(logging.CategoryContext).Warn(
+			"getCoreFacts: context_must_retain %s; retaining the constitutional floor (%s) instead of the kernel's decision",
+			why, strings.Join(constitutionalFloor, ", "))
+	}
+	return constitutionalFloor
+}
+
+// getCoreFacts returns the facts the kernel says are always retained in the
+// window (context_must_retain), read through the session's whole kernel (see
+// KernelReader). Caller holds c.mu.
+func (c *Compressor) getCoreFacts() []core.Fact {
+	if c.kernel == nil && c.reader == nil {
 		return nil
 	}
 
-	// Always include permission-related facts. Silently swallowing the
-	// error here was the same class of bug as the recent prompt_atom
-	// silent-drop — if a safety predicate Query failed, the resulting
-	// empty coreFacts slice would let the compressor build a context
-	// without any safety facts, and policy rules downstream had no way
-	// to know whether the kernel had refused the row or simply had
-	// nothing to say.
-	predicates := []string{"permitted", "dangerous_action", "admin_override", "security_violation", "block_commit"}
-
-	for _, pred := range predicates {
-		facts, err := c.kernel.Query(pred)
+	// Silently swallowing a query error here was the same class of bug as the
+	// prompt_atom silent-drop: an empty result would let the compressor build
+	// a context without the safety facts, and nothing downstream could tell a
+	// refused row from a kernel with nothing to say.
+	var coreFacts []core.Fact
+	for _, pred := range c.retainedPredicates() {
+		facts, err := c.asker().Query(pred)
 		if err != nil {
-			logging.Get(logging.CategoryContext).Warn("getCoreFacts: safety-predicate query failed predicate=%s: %v", pred, err)
+			logging.Get(logging.CategoryContext).Warn("getCoreFacts: retained-predicate query failed predicate=%s: %v", pred, err)
 			continue
 		}
 		coreFacts = append(coreFacts, facts...)
 	}
-
 	return coreFacts
 }
 
