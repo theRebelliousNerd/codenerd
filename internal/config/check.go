@@ -268,6 +268,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Routing.Check("routing")...)
 	}
 
+	// --- retrieval ---
+	if c.Retrieval != nil {
+		out = append(out, c.Retrieval.Check("retrieval")...)
+	}
+
 	// --- delegation ---
 	if c.Delegation != nil {
 		out = append(out, c.Delegation.Check("delegation")...)

@@ -57,6 +57,10 @@ type Spawner struct {
 	// context to the compiled system prompt.
 	fileContext FileContextProvider
 
+	// issueRetriever is the per-turn retrieval pass handed to every spawned
+	// subagent's executor. Nil means subagents start without a brief.
+	issueRetriever IssueRetriever
+
 	// codeElements parses the file a turn is looking at into the CodeDOM fact
 	// layer. It MUST be forwarded to every spawned subagent: `nerd fix`
 	// delegates to a coder shard, so the shard's executor is the one that
@@ -210,6 +214,21 @@ func (s *Spawner) currentFileContext() FileContextProvider {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.fileContext
+}
+
+// SetIssueRetriever attaches the retrieval pass every subagent spawned from
+// here on inherits. Mirrors SetFileContextProvider.
+func (s *Spawner) SetIssueRetriever(r IssueRetriever) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.issueRetriever = r
+}
+
+// currentIssueRetriever reads the retrieval slot under the read lock.
+func (s *Spawner) currentIssueRetriever() IssueRetriever {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.issueRetriever
 }
 
 // SetCodeElementSource attaches the CodeDOM parser every subagent spawned from
@@ -403,6 +422,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	}
 	if src := s.currentCodeElements(); src != nil {
 		agent.executor.SetCodeElementSource(src)
+	}
+	if r := s.currentIssueRetriever(); r != nil {
+		agent.executor.SetIssueRetriever(r)
 	}
 	// Forward the parent session's executor config — the workspace the shard
 	// works in, its wall-clock constraints, its gates. Guard on whether one

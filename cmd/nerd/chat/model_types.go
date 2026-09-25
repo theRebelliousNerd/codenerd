@@ -312,7 +312,7 @@ type Model struct {
 	emitter             *articulation.Emitter
 	virtualStore        *core.VirtualStore
 	scanner             *world.Scanner
-	retriever           *retrieval.SparseRetriever // Issue-seed sparse search; boot builds it (session_shared_boot.go) and model_update.go copies it here
+	retriever           *retrieval.SparseRetriever // Issue-seed sparse search: Cortex.Retriever, shared with the session executor; model_update.go copies it here
 	workspace           string
 	DisableSystemShards []string
 	browserMgr          *browser.SessionManager // Browser automation manager

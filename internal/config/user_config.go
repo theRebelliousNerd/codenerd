@@ -201,6 +201,10 @@ type UserConfig struct {
 	// interactive turn's lane with (routing.go).
 	Routing *RoutingConfig `json:"routing,omitempty"`
 
+	// Retrieval is the thresholds the kernel decides an issue-driven sparse
+	// retrieval pass's hand-off to the model with (retrieval.go).
+	Retrieval *RetrievalConfig `json:"retrieval,omitempty"`
+
 	// Delegation is the thresholds the kernel decides a chat delegation's
 	// attempts with (delegation.go).
 	Delegation *DelegationConfig `json:"delegation,omitempty"`
@@ -1522,6 +1526,7 @@ func DefaultUserConfig() *UserConfig {
 	campaign := DefaultCampaignConfig()
 	sessionCfg := DefaultSessionConfig()
 	routingCfg := DefaultRoutingConfig()
+	retrievalCfg := DefaultRetrievalConfig()
 	delegationCfg := DefaultDelegationConfig()
 	workingCfg := DefaultWorkingConfig()
 
@@ -1547,6 +1552,7 @@ func DefaultUserConfig() *UserConfig {
 		Campaign:                     &campaign,
 		Session:                      &sessionCfg,
 		Routing:                      &routingCfg,
+		Retrieval:                    &retrievalCfg,
 		Delegation:                   &delegationCfg,
 		Working:                      &workingCfg,
 		Logging:                      DefaultLoggingConfig(),

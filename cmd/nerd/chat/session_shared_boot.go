@@ -64,10 +64,6 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		logStep("Transparency enabled")
 	}
 
-	logStep("Initializing sparse retriever...")
-	retrieverCfg := retrieval.DefaultSparseRetrieverConfig(workspace)
-	retriever := retrieval.NewSparseRetriever(retrieverCfg)
-
 	logStep("Booting shared backend...")
 	cortex, err := nerdsystem.BootCortexWithConfig(context.Background(), nerdsystem.BootConfig{
 		Workspace:           workspace,
@@ -76,6 +72,13 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	})
 	if err != nil {
 		return bootCompleteMsg{err: fmt.Errorf("shared bootstrap failed: %w", err)}
+	}
+
+	// One retriever per process: the chat's issue seed and the session
+	// executor's task passes share its keyword cache.
+	retriever := cortex.Retriever
+	if retriever == nil {
+		retriever = retrieval.NewSparseRetriever(retrieval.DefaultSparseRetrieverConfig(workspace))
 	}
 
 	kernel, primary, err := sessionKernels(cortex)

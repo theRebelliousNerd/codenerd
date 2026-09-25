@@ -24,6 +24,7 @@ import (
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
 	prsync "codenerd/internal/prompt/sync"
+	"codenerd/internal/retrieval"
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
@@ -323,6 +324,9 @@ type Cortex struct {
 	ToolStore       *store.ToolStore
 	OuroborosQueue  chan<- core.ToolNeed
 	EmbeddingEngine embedding.EmbeddingEngine
+	// Retriever is the process's sparse retriever: the session executor's
+	// task passes and the chat's issue seed share its keyword cache.
+	Retriever       *retrieval.SparseRetriever
 	Workspace       string
 	JITCompiler     *prompt.JITPromptCompiler
 	PromptAssembler *articulation.PromptAssembler
@@ -771,6 +775,7 @@ type bootContext struct {
 	transducer                   perception.Transducer
 	virtualStore                 *core.VirtualStore
 	embeddingEngine              embedding.EmbeddingEngine
+	retriever                    *retrieval.SparseRetriever
 	mcpBridge                    *mcp.MCPIntegrationBridge
 	mcpCancel                    context.CancelFunc
 	mcpDone                      <-chan struct{}
@@ -2177,6 +2182,21 @@ func initFinalExecutors(bctx *bootContext) error {
 	// The shard is what does the work: `nerd fix` delegates, so the CodeDOM
 	// fact layer has to reach the spawned executor and not only the session's.
 	bctx.sessionSpawner.SetCodeElementSource(codeElements)
+	// The issue-driven retrieval pass, for every turn the session executor
+	// runs: the kernel decides whether the turn retrieves and which of the
+	// files it finds the model is handed (schemas_knowledge.mg 52.5). Until
+	// 2026-09-25 only the chat TUI built a retriever, and only for its
+	// compressor, so `nerd fix` and every delegated task started blind.
+	bctx.retriever = retrieval.NewSparseRetriever(retrieval.DefaultSparseRetrieverConfig(bctx.workspace))
+	if taskRetriever := retrieval.NewTaskRetriever(sessionKernel, retrieval.TaskRetrieverConfig{
+		WorkDir:         bctx.workspace,
+		Retriever:       bctx.retriever,
+		EmbeddingEngine: bctx.embeddingEngine,
+		Params:          bctx.appCfg.GetRetrievalConfig().Params(),
+	}); taskRetriever != nil {
+		bctx.sessionExecutor.SetIssueRetriever(taskRetriever)
+		bctx.sessionSpawner.SetIssueRetriever(taskRetriever)
+	}
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
 	// Same meter for spawned subagents: their executors are fresh builds, not
@@ -2417,6 +2437,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		WorkerLLMClient:       bctx.shardLLMClient,
 		PlannerLLMClient:      bctx.plannerLLMClient,
 		ToolStore:             bctx.toolStore,
+		Retriever:             bctx.retriever,
 		OuroborosQueue:        bctx.ouroborosQueue,
 		mcpBridge:             bctx.mcpBridge,
 		mcpCancel:             bctx.mcpCancel,
