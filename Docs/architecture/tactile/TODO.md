@@ -62,10 +62,24 @@ controls, or move permission decisions into tactile.
 **Affected contracts.** Composite selection, factory creation, VirtualStore
 modern execution, effective time/output/environment bounds.
 
-**Positive acceptance.** The four focused tests in
+**Positive acceptance.** The focused tests in
 `internal/tactile/docker_detection_test.go` prove cached negative probes,
-composite config parity, explicit fail-closed selection, and factory config
-parity; package and race gates pass.
+composite config parity and explicit fail-closed selection; package and race
+gates pass.
+
+**Wave-3 update (2026-09-25).** The factory route this card cited is gone:
+`ExecutorFactory` had no production caller and was removed with its factory
+config-parity test. The route that does run every production command,
+VirtualStore's composite, did *not* preserve the caller's configuration -- it
+started from `DefaultExecutorConfig`, dropping `execution.default_timeout` and
+the project build environment. `internal/core/virtual_store.go#initModernExecutor`
+now starts from the injected executor's `tactile.ConfiguredExecutor.Config()`;
+`internal/core/virtual_store_executor_config_test.go#TestVirtualStoreModernExecutorInheritsCallerExecutorConfig`
+proves it (fails on the old code). Explicit isolation is now served where the
+host provides it: `registerPlatformIsolation` (`platform_linux.go`) registers
+probed Firejail/namespace backends and routes enforced-limit commands to the
+cgroup executor; an unprovided mode stays unregistered and fails closed
+(`platform_linux_isolation_test.go`).
 
 **Negative acceptance.** Omitted isolation still selects direct; unavailable
 Docker remains an error; no test invokes the real Docker daemon.
@@ -78,7 +92,7 @@ an equivalent typed preflight that cannot silently downgrade isolation.
 <!-- NERD_FEATURE
 id: tactile-direct-bypass-registry-v1
 owner: tactile
-status: proposed
+status: verified
 kind: truth-gap
 depends_on: [tactile-failclosed-backend-selection-v1]
 affects: [tactile, core, system, cli, campaign]
@@ -114,12 +128,25 @@ registered contract fails CI; an exception cannot grant permission itself.
 **Rollback.** Keep adapters behind the registry while migrating consumers; do
 not restore an undocumented bypass.
 
+**Closed (2026-09-25).** `internal/tactile/direct_bypass.go#DirectBypassRegistry`
+records each production construction outside tactile (system boot, dom
+commands, campaign assault x2, campaign runner) with owner, reason, permission
+proof, audit sink, limits and review date.
+`direct_bypass_registry_test.go#TestDirectBypassRegistryMatchesProductionConstructors`
+parses every production file and fails on an unregistered construction, count
+drift, stale entry, missing field or passed review date. The two bypasses
+that ran commands invisibly now audit into their kernel through
+`tactile.NewFactAuditedExecutor` (`TestAssaultExecutorAuditsIntoTheCampaignKernel`),
+and boot's `Cortex.Executor` -- what chat and `nerd campaign` run on -- is
+`VirtualStore.AuditedExecutor`, not the bare direct executor
+(`TestVirtualStoreAuditedExecutorEmitsExecutionFacts`). Entries grant nothing.
+
 ## P1: Emit one bounded execution receipt
 
 <!-- NERD_FEATURE
 id: tactile-effect-receipt-v1
 owner: tactile
-status: proposed
+status: verified
 kind: leverage
 depends_on: [tactile-direct-bypass-registry-v1]
 affects: [tactile, core, observability, transparency, articulation]
@@ -155,6 +182,19 @@ effect.
 
 **Rollback.** Dual-write existing facts and the receipt until parity is proven;
 disable receipt persistence without weakening execution bounds.
+
+**Closed (2026-09-25).** `internal/tactile/receipt.go#ExecutionReceipt`
+(`tactile-execution-receipt-v1`) is built by `AuditLogger.Log` on every
+terminal event: IDs, executor and backend, effective limits, timing, outcome
+class, exit/kill, truncation, output digests with 512-byte redacted previews,
+facts emitted/rejected (`SetFactSink`), idempotency key. Receipts are retained
+(last 256, deduplicated by key) and appended to the audit file when file
+logging is on; a write failure is a metric, never a re-execution. VirtualStore
+attaches the receipt to the exec action's result, correlated by action ID --
+the key of the permission the kernel granted (no separate permission digest).
+Proofs: `receipt_test.go` (all outcome classes, bounds/redaction, idempotency,
+rejected facts, persistence) and
+`internal/core/virtual_store_executor_config_test.go#TestExecActionCarriesItsReceiptAndDeniedActionHasNone`.
 
 ## P2: Derive backend admission from typed requirements
 
@@ -196,3 +236,9 @@ capability observations expire; admission cannot outlive its action ID.
 
 **Rollback.** Retain the current fail-closed Go selection behind a feature gate;
 rollback removes derived admission but never restores isolation downgrade.
+
+**Open (2026-09-25).** Not built. The backends an admission plan would choose
+between are now registered from host probes (`registerPlatformIsolation`), but
+no production command requests isolation yet, and which actions *require*
+which isolation is a policy decision for the owner, not something to derive
+from nothing. The execution receipt it depends on now exists.

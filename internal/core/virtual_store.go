@@ -58,6 +58,13 @@ type VirtualStore struct {
 	modernExecutor tactile.Executor
 	auditLogger    *tactile.AuditLogger
 
+	// Python/SWE-bench workbench: the container runtime and the live
+	// environments the python_* and swebench_* actions drive. Created on the
+	// first such action (virtual_store_python.go); containerRuntime may be
+	// injected with SetContainerRuntime before then.
+	pythonBench      *pythonWorkbench
+	containerRuntime tactile.ContainerRuntime
+
 	// MCP integration clients - dynamic map supports arbitrary servers
 	// Key is server ID (e.g., "code_graph", "browser", "my_custom_server")
 	mcpClients map[string]IntegrationClient
@@ -258,6 +265,9 @@ func (v *VirtualStore) Close() error {
 		}
 	}
 
+	// Tear down Python/SWE-bench containers this store created.
+	v.closePythonBench()
+
 	// Clean up Modern Executor
 	if v.modernExecutor != nil {
 		if closer, ok := v.modernExecutor.(interface{ Close() error }); ok {
@@ -277,8 +287,17 @@ func (v *VirtualStore) Close() error {
 func (v *VirtualStore) initModernExecutor() {
 	logging.VirtualStoreDebug("Initializing modern executor with audit logging")
 
-	// Create executor config
+	// Create executor config. Every production command runs through this
+	// composite, not through the executor the caller handed in, so the
+	// caller's configuration (execution.default_timeout, the project build
+	// environment in BaseEnvironment, output and limit defaults) must carry
+	// over. It used to start from DefaultExecutorConfig and drop all of it:
+	// boot built a DirectExecutor with the build env and the configured
+	// timeout, and every command then ran with neither.
 	execConfig := tactile.DefaultExecutorConfig()
+	if configured, ok := v.executor.(tactile.ConfiguredExecutor); ok {
+		execConfig = configured.Config()
+	}
 	execConfig.DefaultWorkingDir = v.workingDir
 	execConfig.AllowedEnvironment = v.allowedEnvVars
 
@@ -288,12 +307,15 @@ func (v *VirtualStore) initModernExecutor() {
 	// Create audit logger
 	v.auditLogger = tactile.NewAuditLogger()
 
-	// Wire audit events to emit facts to kernel
-	v.auditLogger.SetFactCallback(func(fact tactile.Fact) {
-		if err := v.injectTactileFact(fact); err != nil {
+	// Wire audit events to emit facts to kernel. A rejected fact is counted on
+	// the execution's receipt (FactsRejected) as well as logged.
+	v.auditLogger.SetFactSink(func(fact tactile.Fact) error {
+		err := v.injectTactileFact(fact)
+		if err != nil {
 			logging.Get(logging.CategoryVirtualStore).Error(
 				"Failed to inject tactile fact %s: %v", fact.Predicate, err)
 		}
+		return err
 	})
 
 	// Connect audit logger to executor
@@ -372,6 +394,26 @@ func (v *VirtualStore) injectTactileFact(tf tactile.Fact) error {
 
 	logging.VirtualStoreDebug("Injecting tactile fact: %s (args=%d)", tf.Predicate, len(tf.Args))
 	return kernel.Assert(coreFact)
+}
+
+// AuditedExecutor returns the executor VirtualStore's own commands run
+// through: the composite with the audit logger attached, whose lifecycle and
+// analyzer facts land in this store's kernel and whose configuration is the
+// caller's. Components that execute outside RouteAction (campaigns,
+// checkpoints) use it so their commands are not invisible to the kernel. It
+// falls back to the injected executor only when no composite exists.
+func (v *VirtualStore) AuditedExecutor() tactile.Executor {
+	if v == nil {
+		// Boot rollback assembles a Cortex from a half-built context whose
+		// store may not exist yet.
+		return nil
+	}
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.modernExecutor != nil {
+		return v.modernExecutor
+	}
+	return v.executor
 }
 
 // EnableModernExecutor switches to the modern tactile executor.

@@ -6,25 +6,6 @@ import (
 	"codenerd/internal/core"
 )
 
-// TestRefineCategory_DeterministicPriority pins the priority order:
-// instruction beats mutation beats query, and ambiguous inputs classify
-// identically on every call (map iteration used to flip them run to run).
-func TestRefineCategory_DeterministicPriority(t *testing.T) {
-	cases := map[string]string{
-		"fix the bug?":       "/mutation", // imperative verb beats trailing "?"
-		"always use tabs":    "/instruction",
-		"what is the JIT?":   "/query",
-		"please explain TLS": "/query",
-	}
-	for input, want := range cases {
-		for i := 0; i < 20; i++ {
-			if got := refineCategory(input, "/query"); got != want {
-				t.Fatalf("refineCategory(%q) = %s, want %s (attempt %d)", input, got, want, i)
-			}
-		}
-	}
-}
-
 // TestGetVerbCorpus_SnapshotIsolation pins the snapshot contract: mutating
 // the returned slice must not corrupt the registry for other readers.
 func TestGetVerbCorpus_SnapshotIsolation(t *testing.T) {

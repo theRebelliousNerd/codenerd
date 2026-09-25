@@ -249,8 +249,12 @@ type AuditLogger struct {
 	// callbacks are functions to call for each event
 	callbacks []func(AuditEvent)
 
-	// factCallback is called for each generated fact
-	factCallback func(Fact)
+	// factSink receives each generated fact; its error counts the fact as
+	// rejected on the execution's receipt.
+	factSink func(Fact) error
+
+	// receipts holds the most recent execution receipts.
+	receipts *receiptLedger
 
 	// fileLogger writes events to a file
 	fileLogger *AuditFileLogger
@@ -268,6 +272,7 @@ func NewAuditLogger() *AuditLogger {
 	return &AuditLogger{
 		callbacks: make([]func(AuditEvent), 0),
 		metrics:   NewExecutionMetrics(),
+		receipts:  newReceiptLedger(),
 	}
 }
 
@@ -278,11 +283,41 @@ func (l *AuditLogger) AddCallback(callback func(AuditEvent)) {
 	l.callbacks = append(l.callbacks, callback)
 }
 
-// SetFactCallback sets the callback for generated facts.
+// SetFactCallback sets the callback for generated facts. A callback cannot
+// report rejection; use SetFactSink when the receipt should count it.
 func (l *AuditLogger) SetFactCallback(callback func(Fact)) {
+	if callback == nil {
+		l.SetFactSink(nil)
+		return
+	}
+	l.SetFactSink(func(f Fact) error {
+		callback(f)
+		return nil
+	})
+}
+
+// SetFactSink sets where generated facts go. A returned error marks the fact
+// rejected on the execution receipt (FactsRejected); it never re-executes.
+func (l *AuditLogger) SetFactSink(sink func(Fact) error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.factCallback = callback
+	l.factSink = sink
+}
+
+// Receipt returns the most recent execution receipt for a request ID.
+func (l *AuditLogger) Receipt(requestID string) (ExecutionReceipt, bool) {
+	if l == nil || l.receipts == nil || requestID == "" {
+		return ExecutionReceipt{}, false
+	}
+	return l.receipts.forRequest(requestID)
+}
+
+// Receipts returns the retained receipts, oldest first.
+func (l *AuditLogger) Receipts() []ExecutionReceipt {
+	if l == nil || l.receipts == nil {
+		return nil
+	}
+	return l.receipts.all()
 }
 
 // EnableFileLogging enables logging to a file.
@@ -322,9 +357,10 @@ func (l *AuditLogger) Close() error {
 func (l *AuditLogger) Log(event AuditEvent) {
 	l.mu.RLock()
 	callbacks := slices.Clone(l.callbacks)
-	factCallback := l.factCallback
+	factSink := l.factSink
 	fileLogger := l.fileLogger
 	metrics := l.metrics
+	receipts := l.receipts
 	l.mu.RUnlock()
 
 	// Update metrics
@@ -338,22 +374,41 @@ func (l *AuditLogger) Log(event AuditEvent) {
 	}
 
 	// Generate and emit facts
-	if factCallback != nil {
+	emitted, rejected := 0, 0
+	if factSink != nil {
 		for _, fact := range event.ToFacts() {
-			factCallback(fact)
+			emitted++
+			if err := factSink(fact); err != nil {
+				rejected++
+			}
 		}
 	}
 
 	// Write to file if enabled
 	if fileLogger != nil {
 		if err := fileLogger.Write(event); err != nil {
-			l.mu.Lock()
-			l.fileWriteErrors++
-			l.lastFileError = err.Error()
-			l.mu.Unlock()
-			logging.TactileWarn("Audit file write failed: %v", err)
+			l.recordFileError(err)
 		}
 	}
+
+	// A terminal event closes the execution: record its receipt once.
+	if receipts != nil {
+		if receipt, ok := BuildExecutionReceipt(event, emitted, rejected); ok && receipts.add(receipt) && fileLogger != nil {
+			if err := fileLogger.WriteReceipt(receipt); err != nil {
+				l.recordFileError(err)
+			}
+		}
+	}
+}
+
+// recordFileError keeps a sink failure visible in the metrics. The execution
+// it describes already happened and is never repeated because of it.
+func (l *AuditLogger) recordFileError(err error) {
+	l.mu.Lock()
+	l.fileWriteErrors++
+	l.lastFileError = err.Error()
+	l.mu.Unlock()
+	logging.TactileWarn("Audit file write failed: %v", err)
 }
 
 // GetMetrics returns the current execution metrics.
@@ -414,6 +469,26 @@ func (l *AuditFileLogger) Write(event AuditEvent) error {
 		return err
 	}
 
+	_, err = l.file.Write(append(data, '\n'))
+	return err
+}
+
+// WriteReceipt appends an execution receipt as a JSON line. The receipt is
+// already bounded and redacted.
+func (l *AuditFileLogger) WriteReceipt(receipt ExecutionReceipt) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.file == nil {
+		return fmt.Errorf("log file not open")
+	}
+	data, err := json.Marshal(struct {
+		Type    string           `json:"type"`
+		Receipt ExecutionReceipt `json:"receipt"`
+	}{Type: "execution_receipt", Receipt: receipt})
+	if err != nil {
+		return err
+	}
 	_, err = l.file.Write(append(data, '\n'))
 	return err
 }
@@ -738,6 +813,24 @@ func NewAuditedExecutor(executor Executor, logger *AuditLogger) *AuditedExecutor
 		logger:        logger,
 		callbackWired: callbackWired,
 	}
+}
+
+// NewFactAuditedExecutor wraps executor so every command's lifecycle and
+// analyzer facts (the ones VirtualStore's audited composite emits) are handed
+// to assert. It is the audit sink for the registered direct-executor bypasses
+// (DirectBypassRegistry) that run commands outside VirtualStore; without it
+// their executions never reached the kernel. A failed assert is logged, never
+// retried, and never re-executes the command.
+func NewFactAuditedExecutor(executor Executor, assert func(Fact) error) *AuditedExecutorWrapper {
+	logger := NewAuditLogger()
+	if assert != nil {
+		logger.SetFactCallback(func(fact Fact) {
+			if err := assert(fact); err != nil {
+				logging.TactileWarn("audited executor: fact %s not asserted: %v", fact.Predicate, err)
+			}
+		})
+	}
+	return NewAuditedExecutor(executor, logger)
 }
 
 // Execute runs a command and logs the execution.

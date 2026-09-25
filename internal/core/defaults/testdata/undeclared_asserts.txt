@@ -52,14 +52,6 @@ investigation_phase
 learned_intent
 ouroboros_phase
 ouroboros_register_failed
-pytest_execution
-python_command_executed
-python_environment
-python_patch_applied
-python_project_source
-python_restored
-python_snapshot
-python_teardown_complete
 refactored
 research_completed
 research_failed

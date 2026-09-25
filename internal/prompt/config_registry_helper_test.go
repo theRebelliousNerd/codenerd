@@ -2,7 +2,9 @@ package prompt
 
 import "sync"
 
-// SimpleRegistry is an in-memory implementation of ConfigAtomProvider.
+// SimpleRegistry is an in-memory ConfigAtomProvider test double. Production
+// uses DefaultConfigAtomProvider (NewDefaultConfigAtomProvider) as the single
+// intent -> tools/policies authority.
 type SimpleRegistry struct {
 	atoms map[string]ConfigAtom
 	mu    sync.RWMutex

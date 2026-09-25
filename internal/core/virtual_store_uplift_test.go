@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -378,7 +379,8 @@ func TestHandleLineEdits_RejectsGarbage(t *testing.T) {
 func TestSWEBenchSetup_ShortCommitNoPanic(t *testing.T) {
 	ctx := context.Background()
 	vs := NewVirtualStore(nil)
-	for _, commit := range []string{"", "abc", "abcdef1234567890"} {
+	vs.SetContainerRuntime(newFakeContainerRuntime())
+	for i, commit := range []string{"", "abc", "abcdef1234567890"} {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -387,7 +389,7 @@ func TestSWEBenchSetup_ShortCommitNoPanic(t *testing.T) {
 			}()
 			res, err := vs.handleSWEBenchSetup(ctx, ActionRequest{
 				ActionID: "sw-1", Type: ActionSWEBenchSetup, Target: "x",
-				Payload: map[string]any{"instance_id": "inst-1", "repo": "r", "base_commit": commit},
+				Payload: map[string]any{"instance_id": fmt.Sprintf("inst-%d", i), "repo": "r", "base_commit": commit},
 			})
 			if err != nil {
 				t.Fatalf("handleSWEBenchSetup: %v", err)

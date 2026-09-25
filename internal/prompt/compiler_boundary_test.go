@@ -25,10 +25,12 @@ func TestNewJITPromptCompiler_BoundaryValues(t *testing.T) {
 		// Verify with mixed valid and nil options
 		assert.NotPanics(t, func() {
 			var nilOpt CompilerOption = nil
+			cfg := DefaultCompilerConfig()
+			cfg.DefaultTokenBudget = 100
 			compiler, err := NewJITPromptCompiler(
-				WithConfig(DefaultCompilerConfig()),
 				nilOpt,
-				WithDefaultTokenBudget(100),
+				WithConfig(cfg),
+				nilOpt,
 			)
 			require.NoError(t, err)
 			assert.NotNil(t, compiler)

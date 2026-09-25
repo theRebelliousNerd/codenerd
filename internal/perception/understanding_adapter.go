@@ -2,7 +2,6 @@ package perception
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -217,12 +216,16 @@ func truncateClassificationInput(input string) (string, bool) {
 // instead of laundering this into a "you were unclear" (/heuristic_low)
 // clarification.
 func degradedClassificationIntent(err error) Intent {
+	// The raw error carries the provider's response body; the user gets the
+	// failure class and status instead (SafeProviderFailureMessage).
 	degraded := Intent{
 		Verb:     "/explain",
 		Category: "/query",
-		Response: fmt.Sprintf("I had trouble understanding that: %v", err),
+		Response: fmt.Sprintf("I had trouble understanding that: %s", SafeProviderFailureMessage(err)),
 	}
-	if errors.Is(err, ErrLLMUnavailable) {
+	// Every adapter's exhausted outage counts, not only errors that wrap
+	// ErrLLMUnavailable (which only the Gemini client ever did).
+	if IsTransientProviderFailure(err) {
 		degraded.TransientFailure = true
 		// On the live interactive path the canonical user-facing wording comes
 		// from clarification.mg's clarification_question(_, /llm_unavailable)

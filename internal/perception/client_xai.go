@@ -113,14 +113,14 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 	}
 
 	// Retry loop for rate limits
-	maxRetries := 3
+	maxRetries := llmMaxRetries()
 	var lastErr error
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			// Context-aware backoff: a cancelled turn must exit during
 			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			backoff := llmRetryBackoff(i)
 			select {
 			case <-ctx.Done():
 				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())

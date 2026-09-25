@@ -131,6 +131,14 @@ file is silently skipped.
 **Rollback.** Retain the previous schema reader as an explicit version adapter,
 not a permissive fallback, and preserve the last generated corpus artifact.
 
+**Wave-3 note (2026-09-25).** `AtomLoader.LoadFromDirectory` had no
+production caller and was removed; the filesystem route of the parity contract
+is `ParsePromptAtomDirectory`, kept as the public API that
+`cmd/tools/validate_prompt_atoms/corpus_parity_test.go` pins. The alternate
+`SimpleRegistry` config catalog (gap G5) is now a test double only; the
+production `DefaultConfigAtomProvider` is the single intent -> tools/policies
+authority.
+
 ## P1: Persist a prompt decision receipt
 
 <!-- NERD_FEATURE
@@ -176,6 +184,12 @@ action; high-cardinality labels do not enter process metrics.
 **Rollback.** Disable durable persistence while retaining the existing in-memory
 manifest and compilation logs.
 
+**Open (2026-09-25).** Not built in wave 3. The in-memory manifest and the
+compiler's private-copy cache (`privateResult`) are the current state; a
+durable, redacted, per-call receipt correlated to permission and outcome needs
+a storage and retention decision (transparency store vs. session log) that this
+pass did not make.
+
 ## P3: Counterfactual prompt replay lab
 
 <!-- NERD_FEATURE
@@ -213,3 +227,7 @@ redacted before persistence; candidate output cannot mutate production atom stor
 
 **Rollback.** Delete replay outputs and disable the lab; production compilation and
 atom promotion remain unchanged.
+
+
+**Deferred (2026-09-25).** DECLINE for this pass: moonshot, depends on the
+decision receipt.

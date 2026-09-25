@@ -12,9 +12,9 @@ import (
 // gains). A wave that hardened the CLI before the kernel it drives would be
 // testing conclusions before premises.
 //
-// Curated, not derived: CodeDOM could emit a dependency graph, but the sweep
-// order is an architectural judgment (what is load-bearing for what), and a
-// generated graph would reorder the campaign every time an import changes.
+// Derived, not curated (recurse_workspace.go). The DAG was a hand-written
+// table of codeNERD's own packages, which made recurse useless in any other
+// workspace; it is now the workspace's own import graph.
 
 // SubsystemNode is one sweep target: a slice of the tree plus the nodes whose
 // soundness it assumes.
@@ -30,30 +30,6 @@ type SubsystemNode struct {
 	DependsOn []string
 	// CrossCutting marks the across/review/benchmark nodes that close a wave.
 	CrossCutting bool
-}
-
-// RecurseDAG returns the subsystem sweep order. The slice is freshly built on
-// every call; callers may filter it but must run TopoOrder before planning.
-func RecurseDAG() []SubsystemNode {
-	return []SubsystemNode{
-		{ID: "mangle", Title: "Mangle kernel", Paths: []string{"internal/mangle"}},
-		{ID: "kernel", Title: "Core kernel and policy", Paths: []string{"internal/core"}, DependsOn: []string{"mangle"}},
-		{ID: "store", Title: "Store and persistence", Paths: []string{"internal/store", "internal/persist"}, DependsOn: []string{"kernel"}},
-		{ID: "context", Title: "Working context", Paths: []string{"internal/context"}, DependsOn: []string{"kernel", "store"}},
-		{ID: "perception", Title: "Perception", Paths: []string{"internal/perception"}, DependsOn: []string{"kernel"}},
-		{ID: "prompt", Title: "Prompt compiler and articulation", Paths: []string{"internal/prompt", "internal/jit", "internal/articulation"}, DependsOn: []string{"kernel", "store"}},
-		{ID: "tools", Title: "Tools and dispatch", Paths: []string{"internal/tools", "internal/tactile", "internal/mcp"}, DependsOn: []string{"kernel", "store"}},
-		{ID: "retrieval", Title: "Retrieval and embeddings", Paths: []string{"internal/retrieval", "internal/embedding"}, DependsOn: []string{"store"}},
-		{ID: "world", Title: "World model and scanner", Paths: []string{"internal/world"}, DependsOn: []string{"store"}},
-		{ID: "session", Title: "Session executor", Paths: []string{"internal/session"}, DependsOn: []string{"kernel", "prompt", "tools", "perception", "context"}},
-		{ID: "shards", Title: "Shard lifecycle", Paths: []string{"internal/shards"}, DependsOn: []string{"session"}},
-		{ID: "broker", Title: "Broker streaming", Paths: []string{"internal/broker"}, DependsOn: []string{"session"}},
-		{ID: "campaign", Title: "Campaign orchestrator", Paths: []string{"internal/campaign"}, DependsOn: []string{"session", "shards"}},
-		{ID: "cli", Title: "CLI and system boot", Paths: []string{"cmd", "internal/system"}, DependsOn: []string{"session", "campaign"}},
-		{ID: "wiring", Title: "Cross-subsystem wiring", DependsOn: []string{"cli", "broker", "world", "retrieval"}, CrossCutting: true},
-		{ID: "review", Title: "Architectural review", DependsOn: []string{"wiring"}, CrossCutting: true},
-		{ID: "bench", Title: "Benchmarks and test creation", DependsOn: []string{"review"}, CrossCutting: true},
-	}
 }
 
 // TopoOrder sorts nodes so every dependency sweeps before its dependents. It

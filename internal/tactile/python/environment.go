@@ -121,7 +121,7 @@ type Environment struct {
 
 	project   *ProjectInfo
 	config    EnvironmentConfig
-	executor  *tactile.PersistentDockerExecutor
+	executor  tactile.ContainerRuntime
 	container *tactile.PersistentContainer
 
 	state         EnvironmentState
@@ -139,7 +139,7 @@ type Environment struct {
 func NewEnvironment(
 	project *ProjectInfo,
 	config EnvironmentConfig,
-	executor *tactile.PersistentDockerExecutor,
+	executor tactile.ContainerRuntime,
 ) *Environment {
 	repoPath := config.WorkspaceDir + "/" + project.RepoName()
 	return &Environment{
@@ -258,7 +258,7 @@ func (e *Environment) Initialize(ctx context.Context) error {
 		return e.lastError
 	}
 
-	logging.Tactile("Container created and started: %s", container.ID[:12])
+	logging.Tactile("Container created and started: %s", shortID(container.ID))
 	return nil
 }
 
@@ -358,25 +358,50 @@ func (e *Environment) Reset(ctx context.Context) error {
 	}
 
 	logging.Tactile("Resetting environment to post-setup state")
+	return e.restore(ctx, snapshot.ID)
+}
 
-	// Stop current container
-	if err := e.executor.StopContainer(ctx, e.container.ID, 10*time.Second); err != nil {
-		logging.TactileWarn("Failed to stop container during reset: %v", err)
+// Snapshot commits the environment's current container state under a name
+// and returns the snapshot, so a later RestoreSnapshot can return to it.
+func (e *Environment) Snapshot(ctx context.Context, name string) (*tactile.ContainerSnapshot, error) {
+	e.mu.RLock()
+	container := e.container
+	e.mu.RUnlock()
+	if container == nil {
+		return nil, fmt.Errorf("container not initialized")
+	}
+	snapshot, err := e.executor.CreateSnapshot(ctx, container.ID, name)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot %q: %w", name, err)
+	}
+	return snapshot, nil
+}
+
+// RestoreSnapshot replaces the environment's container with one started from
+// the given snapshot.
+func (e *Environment) RestoreSnapshot(ctx context.Context, snapshotID string) error {
+	return e.restore(ctx, snapshotID)
+}
+
+func (e *Environment) restore(ctx context.Context, snapshotID string) error {
+	e.mu.RLock()
+	current := e.container
+	e.mu.RUnlock()
+
+	if current != nil {
+		if err := e.executor.StopContainer(ctx, current.ID, 10*time.Second); err != nil {
+			logging.TactileWarn("Failed to stop container during restore: %v", err)
+		}
+		if err := e.executor.RemoveContainer(ctx, current.ID, true); err != nil {
+			return fmt.Errorf("failed to remove container during restore: %w", err)
+		}
 	}
 
-	// Remove current container
-	if err := e.executor.RemoveContainer(ctx, e.container.ID, true); err != nil {
-		return fmt.Errorf("failed to remove container during reset: %w", err)
-	}
-
-	// Restore from snapshot
-	newContainer, err := e.executor.RestoreSnapshot(ctx, snapshot.ID)
+	newContainer, err := e.executor.RestoreSnapshot(ctx, snapshotID)
 	if err != nil {
 		e.setError(fmt.Errorf("failed to restore from snapshot: %w", err))
 		return e.lastError
 	}
-
-	// Start restored container
 	if err := e.executor.StartContainer(ctx, newContainer.ID); err != nil {
 		e.setError(fmt.Errorf("failed to start restored container: %w", err))
 		return e.lastError
@@ -387,8 +412,15 @@ func (e *Environment) Reset(ctx context.Context) error {
 	e.state = StateReady
 	e.mu.Unlock()
 
-	logging.Tactile("Environment reset complete")
+	logging.Tactile("Environment restored from snapshot %s", shortID(snapshotID))
 	return nil
+}
+
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }
 
 // =============================================================================

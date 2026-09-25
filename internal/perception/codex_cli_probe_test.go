@@ -93,18 +93,20 @@ func TestClassifyCodexCLIProbeError_AuthUnavailable(t *testing.T) {
 	}
 }
 
-func TestProbeCodexExec_MapsLoginFailures(t *testing.T) {
+// nerd auth codex / status read RunHealthProbe's Failure code directly, so the
+// login-required case must surface as CodexCLIProbeFailureAuthUnavailable.
+func TestRunHealthProbe_ClassifiesLoginFailures(t *testing.T) {
 	fakeDir := installFakeCLI(t, "codex")
 	t.Setenv("PATH", prependPath(fakeDir, os.Getenv("PATH")))
 	t.Setenv("CODEX_TEST_MODE", "auth")
 
 	skillEnabled := false
-	result, err := ProbeCodexExec(context.Background(), &config.CodexCLIConfig{SkillEnabled: &skillEnabled})
+	result, err := NewCodexCLIClient(&config.CodexCLIConfig{SkillEnabled: &skillEnabled}).RunHealthProbe(context.Background())
 	if err == nil {
-		t.Fatal("expected ProbeCodexExec to fail for login/auth errors")
+		t.Fatal("expected the health probe to fail for login/auth errors")
 	}
-	if result.Classification != CodexExecProbeLoginRequired {
-		t.Fatalf("Classification=%s, want %s", result.Classification, CodexExecProbeLoginRequired)
+	if result.Failure != CodexCLIProbeFailureAuthUnavailable {
+		t.Fatalf("Failure=%s, want %s", result.Failure, CodexCLIProbeFailureAuthUnavailable)
 	}
 }
 

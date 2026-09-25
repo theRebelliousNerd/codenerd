@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseRecurseArgs(t *testing.T) {
-	cfg, err := parseRecurseArgs(nil)
+	cfg, err := parseRecurseArgs(nil, recurseTestKnown)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,7 +16,7 @@ func TestParseRecurseArgs(t *testing.T) {
 		t.Fatalf("defaults wrong: %+v", cfg)
 	}
 
-	cfg, err = parseRecurseArgs([]string{"--waves", "3", "--angles", "harden,secure", "--subsystem", "session", "--stall-waves=5"})
+	cfg, err = parseRecurseArgs([]string{"--waves", "3", "--angles", "harden,secure", "--subsystem", "session", "--stall-waves=5"}, recurseTestKnown)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestParseRecurseArgs(t *testing.T) {
 	}
 
 	// Bare tokens name subsystems.
-	cfg, err = parseRecurseArgs([]string{"session", "cli"})
+	cfg, err = parseRecurseArgs([]string{"session", "cli"}, recurseTestKnown)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestParseRecurseArgs(t *testing.T) {
 		{"sauron"},
 		{"--subsystem", "sauron"},
 	} {
-		if _, err := parseRecurseArgs(args); err == nil {
+		if _, err := parseRecurseArgs(args, recurseTestKnown); err == nil {
 			t.Errorf("%v must fail", args)
 		}
 	}
@@ -214,3 +214,6 @@ type recurseTestError struct{}
 func (recurseTestError) Error() string { return "boom" }
 
 var errRecurseTest = recurseTestError{}
+
+// recurseTestKnown stands in for a workspace's derived node IDs.
+var recurseTestKnown = map[string]bool{"session": true, "cli": true, "wiring": true, "review": true, "bench": true}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"codenerd/internal/config"
 	"codenerd/internal/logging"
 )
 
@@ -24,19 +23,6 @@ const (
 	CodexCLIProbeFailureExecFailed           CodexCLIProbeFailure = "exec_failed"
 )
 
-// CodexExecProbeClassification is the exported auth/status-facing probe taxonomy.
-type CodexExecProbeClassification string
-
-const (
-	CodexExecProbeReady             CodexExecProbeClassification = "ready"
-	CodexExecProbeLoginRequired     CodexExecProbeClassification = "login_required"
-	CodexExecProbeSkillMissing      CodexExecProbeClassification = "skill_missing"
-	CodexExecProbeSchemaRejected    CodexExecProbeClassification = "schema_rejected"
-	CodexExecProbeRateLimited       CodexExecProbeClassification = "rate_limited"
-	CodexExecProbeFallbackExhausted CodexExecProbeClassification = "fallback_model_exhausted"
-	CodexExecProbeExecFailed        CodexExecProbeClassification = "exec_failed"
-)
-
 // CodexCLIProbeResult captures the state of a codex exec readiness probe.
 type CodexCLIProbeResult struct {
 	SkillEnabled    bool
@@ -48,16 +34,6 @@ type CodexCLIProbeResult struct {
 	Failure         CodexCLIProbeFailure
 	Detail          string
 	RawError        string
-}
-
-// CodexExecProbeResult is the exported shape used by auth/status UX.
-type CodexExecProbeResult struct {
-	Classification  CodexExecProbeClassification
-	Message         string
-	RawError        string
-	SkillPath       string
-	SkillAvailable  bool
-	SchemaSupported bool
 }
 
 const codexCLIProbeSchema = `{
@@ -165,48 +141,5 @@ func classifyCodexCLIProbeError(err error) (CodexCLIProbeFailure, string) {
 		return CodexCLIProbeFailureAuthUnavailable, "codex exec could not use the current ChatGPT login/subscription"
 	default:
 		return CodexCLIProbeFailureExecFailed, truncateString(err.Error(), 240)
-	}
-}
-
-// ProbeCodexExec runs the exported codex exec readiness probe for auth/status flows.
-func ProbeCodexExec(ctx context.Context, cfg *config.CodexCLIConfig) (*CodexExecProbeResult, error) {
-	client := NewCodexCLIClient(cfg)
-	result, err := client.RunHealthProbe(ctx)
-
-	exported := &CodexExecProbeResult{
-		Classification:  mapCodexCLIProbeClassification(result),
-		Message:         result.Detail,
-		RawError:        result.RawError,
-		SkillPath:       result.SkillPath,
-		SkillAvailable:  result.SkillAvailable,
-		SchemaSupported: result.SchemaValidated,
-	}
-	if err == nil {
-		exported.Classification = CodexExecProbeReady
-		exported.Message = "codex exec noninteractive probe succeeded"
-	}
-	return exported, err
-}
-
-func mapCodexCLIProbeClassification(result *CodexCLIProbeResult) CodexExecProbeClassification {
-	if result == nil {
-		return CodexExecProbeExecFailed
-	}
-
-	switch result.Failure {
-	case CodexCLIProbeFailureNone:
-		return CodexExecProbeReady
-	case CodexCLIProbeFailureAuthUnavailable:
-		return CodexExecProbeLoginRequired
-	case CodexCLIProbeFailureSkillMissing:
-		return CodexExecProbeSkillMissing
-	case CodexCLIProbeFailureSchemaRejected:
-		return CodexExecProbeSchemaRejected
-	case CodexCLIProbeFailureRateLimited:
-		return CodexExecProbeRateLimited
-	case CodexCLIProbeFailureFallbackModelMissing:
-		return CodexExecProbeFallbackExhausted
-	default:
-		return CodexExecProbeExecFailed
 	}
 }

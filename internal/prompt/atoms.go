@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"codenerd/internal/core"
-	"codenerd/internal/logging"
 )
 
 // AtomCategory represents the category of a prompt atom.
@@ -868,13 +867,4 @@ type AtomStore interface {
 
 	// DeleteAtom removes an atom from the store.
 	DeleteAtom(ctx context.Context, id string) error
-}
-
-// LogAtomSelection logs atom selection decisions for debugging.
-func LogAtomSelection(atomID string, selected bool, reason string) {
-	if selected {
-		logging.Get(logging.CategoryContext).Debug("Atom selected: %s (%s)", atomID, reason)
-	} else {
-		logging.Get(logging.CategoryContext).Debug("Atom rejected: %s (%s)", atomID, reason)
-	}
 }

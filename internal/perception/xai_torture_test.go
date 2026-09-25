@@ -647,88 +647,13 @@ func TestTorture_PureGo_GetRegexCandidates(t *testing.T) {
 // 12. PURE GO: extractTarget — target extraction (6 subtests)
 // =============================================================================
 
-func TestTorture_PureGo_ExtractTarget(t *testing.T) {
-	tests := []struct {
-		name         string
-		input        string
-		wantContains string
-	}{
-		{"file_path", "fix the bug in auth.go", "auth.go"},
-		{"dir_path", "look at internal/core/kernel.go", "internal/core/kernel.go"},
-		{"function_name", "function validateToken is broken", "validateToken"},
-		{"quoted_target", `fix the "parseResponse" function`, "parseResponse"},
-		{"struct_name", "struct UnderstandingTransducer has issues", "UnderstandingTransducer"},
-		{"no_target", "help me", "none"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractTarget(tt.input)
-			if tt.wantContains == "none" {
-				if got != "none" {
-					t.Errorf("extractTarget(%q) = %q, want %q", tt.input, got, "none")
-				}
-			} else if !strings.Contains(got, tt.wantContains) {
-				t.Errorf("extractTarget(%q) = %q, want containing %q", tt.input, got, tt.wantContains)
-			}
-		})
-	}
-}
-
 // =============================================================================
 // 13. PURE GO: extractConstraint — constraint extraction (4 subtests)
 // =============================================================================
 
-func TestTorture_PureGo_ExtractConstraint(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string // "none" or expected constraint substring
-	}{
-		{"language_constraint", "fix it using go", "go"},
-		{"exclusion_constraint", "refactor but without breaking tests", "breaking tests"},
-		{"only_constraint", "test only the auth module", "the auth module"},
-		{"no_constraint", "fix the bug", "none"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractConstraint(tt.input)
-			if tt.want == "none" {
-				if got != "none" {
-					t.Errorf("extractConstraint(%q) = %q, want %q", tt.input, got, "none")
-				}
-			} else if !strings.Contains(strings.ToLower(got), strings.ToLower(tt.want)) {
-				t.Errorf("extractConstraint(%q) = %q, want containing %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 // =============================================================================
 // 14. PURE GO: refineCategory — category refinement (5 subtests)
 // =============================================================================
-
-func TestTorture_PureGo_RefineCategory(t *testing.T) {
-	tests := []struct {
-		name         string
-		input        string
-		defaultCat   string
-		wantCategory string
-	}{
-		{"imperative_mutation", "please fix the bug", "/default", "/mutation"},
-		{"question_query", "what is this function?", "/default", "/query"},
-		{"question_mark_query", "is this code safe?", "/default", "/query"},
-		{"instruction_pattern", "always use context.Context", "/default", "/instruction"},
-		{"no_match_returns_default", "hello world", "/default", "/default"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := refineCategory(tt.input, tt.defaultCat)
-			if got != tt.wantCategory {
-				t.Errorf("refineCategory(%q, %q) = %q, want %q", tt.input, tt.defaultCat, got, tt.wantCategory)
-			}
-		})
-	}
-}
 
 // =============================================================================
 // 15. PURE GO: Memory operations from Understanding (3 subtests)

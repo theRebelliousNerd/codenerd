@@ -239,7 +239,15 @@ func (s *CampaignRunnerShard) tick(ctx context.Context) {
 func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, workspace string, shardMgr *coreshards.ShardManager) {
 	logging.SystemShards("[CampaignRunner] Resuming campaign: %s", campaignID)
 
-	executor := tactile.NewDirectExecutor()
+	// A registered direct bypass (tactile.DirectBypassRegistry): the resumed
+	// campaign runs its commands here, so the shard kernel is its audit sink.
+	var executor tactile.Executor = tactile.NewDirectExecutor()
+	if s.Kernel != nil {
+		kernel := s.Kernel
+		executor = tactile.NewFactAuditedExecutor(executor, func(f tactile.Fact) error {
+			return kernel.Assert(types.Fact{Predicate: f.Predicate, Args: append([]any(nil), f.Args...)})
+		})
+	}
 	worldScanner := world.NewScanner()
 	consultationMgr := newCampaignRunnerConsultationManager(
 		&campaignRunnerShardManagerConsultationSpawner{shardMgr: shardMgr},

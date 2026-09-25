@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -168,6 +169,28 @@ func recurseNodeOfPhase(name string) string {
 	return node
 }
 
+// RecurseSweepOrder derives the workspace's DAG and returns it bottom to top,
+// narrowed to subsystems (and what they depend on) when any are named. It is
+// the order every wave sweeps and the order `nerd campaign recurse --plan`
+// prints.
+func RecurseSweepOrder(ctx context.Context, workspace string, subsystems []string) ([]SubsystemNode, error) {
+	derived, err := deriveRecurseDAG(ctx, workspace)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := TopoOrder(derived)
+	if err != nil {
+		return nil, err
+	}
+	if len(subsystems) == 0 {
+		return nodes, nil
+	}
+	if nodes, err = FilterDAG(nodes, subsystems); err != nil {
+		return nil, err
+	}
+	return TopoOrder(nodes)
+}
+
 // NewRecurseCampaign builds wave zero: every DAG node in topo order, two
 // angle tasks per node, hard phase dependencies along the DAG edges, and
 // context chaining so each task sees what the sweep already learned.
@@ -176,19 +199,9 @@ func NewRecurseCampaign(workspace string, cfg RecurseConfig) (*Campaign, error) 
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := TopoOrder(RecurseDAG())
+	nodes, err := RecurseSweepOrder(context.Background(), workspace, cfg.Subsystems)
 	if err != nil {
 		return nil, err
-	}
-	if len(cfg.Subsystems) > 0 {
-		nodes, err = FilterDAG(nodes, cfg.Subsystems)
-		if err != nil {
-			return nil, err
-		}
-		nodes, err = TopoOrder(nodes)
-		if err != nil {
-			return nil, err
-		}
 	}
 	recurseID := fmt.Sprintf("/recurse_%s", uuid.New().String()[:8])
 	return buildRecurseWave(workspace, recurseID, 0, cfg, nodes, nil), nil
@@ -205,19 +218,9 @@ func PlanNextWave(workspace string, cfg RecurseConfig, prev *Campaign) (*Campaig
 	if prev == nil || prev.RecurseID == "" {
 		return nil, fmt.Errorf("recurse: cannot plan a next wave without a previous recurse wave")
 	}
-	nodes, err := TopoOrder(RecurseDAG())
+	nodes, err := RecurseSweepOrder(context.Background(), workspace, cfg.Subsystems)
 	if err != nil {
 		return nil, err
-	}
-	if len(cfg.Subsystems) > 0 {
-		nodes, err = FilterDAG(nodes, cfg.Subsystems)
-		if err != nil {
-			return nil, err
-		}
-		nodes, err = TopoOrder(nodes)
-		if err != nil {
-			return nil, err
-		}
 	}
 	findings := SummarizeWave(prev)
 	nodes = retargetNodes(nodes, findings.FailedNodes)

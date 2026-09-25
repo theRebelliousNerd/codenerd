@@ -87,7 +87,7 @@ func TestConfigFactory_NullBytesAndInvalidUTF8(t *testing.T) {
 // TODO: [User Request Extremes] Missing test for GenerateFallback with a massive fallbackIdentity string (e.g., 50MB) to ensure it doesn't cause OOM when constructing the EffectiveAgentRuntimeConfig.
 
 func TestConfigFactory_GenerateFallbackMassiveIdentity(t *testing.T) {
-	factory := NewDefaultConfigFactory()
+	factory := NewConfigFactory(NewDefaultConfigAtomProvider())
 	ctx := context.Background()
 
 	// Create a 50MB string
@@ -379,7 +379,7 @@ func TestConfigFactory_UserExtremes(t *testing.T) {
 // Validate started enforcing the policy requirement.
 
 func TestDefaultConfigFactory_OutputPassesValidate(t *testing.T) {
-	factory := NewDefaultConfigFactory()
+	factory := NewConfigFactory(NewDefaultConfigAtomProvider())
 	ctx := context.Background()
 	compileResult := &CompilationResult{Prompt: "You are codeNERD."}
 
@@ -421,7 +421,7 @@ func TestDefaultConfigFactory_OutputPassesValidate(t *testing.T) {
 // also produces a config that satisfies Validate when given a known intent.
 
 func TestDefaultConfigFactory_FallbackPassesValidate(t *testing.T) {
-	factory := NewDefaultConfigFactory()
+	factory := NewConfigFactory(NewDefaultConfigAtomProvider())
 	ctx := context.Background()
 
 	cfg := factory.GenerateFallback(ctx, "/fix", "Fallback identity prompt.")
@@ -502,7 +502,7 @@ func TestConfigFactory_EmptySpacesIntent(t *testing.T) {
 // TODO: [User Request Extremes] Missing test for GenerateFallback with a massive fallbackIdentity string (e.g., 50MB) to ensure it doesn't cause OOM.
 
 func TestConfigFactory_MassiveFallbackIdentity(t *testing.T) {
-	factory := NewDefaultConfigFactory()
+	factory := NewConfigFactory(NewDefaultConfigAtomProvider())
 	ctx := context.Background()
 
 	// Simulate 10MB string (smaller than 50MB for test speed, but large enough to catch blatant OOM)

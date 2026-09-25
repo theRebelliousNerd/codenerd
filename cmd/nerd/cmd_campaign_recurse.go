@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"codenerd/internal/campaign"
+	"codenerd/internal/gates"
 	"codenerd/internal/northstar"
 	coresys "codenerd/internal/system"
 
@@ -35,6 +38,7 @@ var (
 	recurseStallWaves  int
 	recurseContextSize int
 	recurseDryRun      bool
+	recursePlan        bool
 )
 
 var campaignRecurseCmd = &cobra.Command{
@@ -54,7 +58,8 @@ Examples:
   nerd campaign recurse --waves 1
   nerd campaign recurse --waves 3 --subsystem session --subsystem cli
   nerd campaign recurse --waves 0 --yolo
-  nerd campaign recurse --angles harden,secure --dry-run`,
+  nerd campaign recurse --plan
+  nerd campaign recurse --angles harden,secure --plan`,
 	RunE: runCampaignRecurse,
 }
 
@@ -65,7 +70,8 @@ func init() {
 	f.StringSliceVar(&recurseSubsystems, "subsystem", nil, "Focus subsystems (dependencies pulled in); repeatable")
 	f.IntVar(&recurseStallWaves, "stall-waves", 0, "Stop after N consecutive waves with nothing completed (default 2)")
 	f.IntVar(&recurseContextSize, "context-budget", 0, "Token budget for wave campaign context (default 200000)")
-	f.BoolVar(&recurseDryRun, "dry-run", false, "Print the resolved configuration and wave-zero plan without running")
+	f.BoolVar(&recursePlan, "plan", false, "Print the derived sweep order, the workspace's gates and the wave-zero plan; runs nothing")
+	f.BoolVar(&recurseDryRun, "dry-run", false, "Same as --plan")
 }
 
 // resolveRecurseConfig validates flags into a campaign.RecurseConfig. Pure
@@ -120,6 +126,11 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		cwd, _ = os.Getwd()
 	}
 
+	// A plan runs nothing, so it needs no bound and no yolo.
+	if recursePlan || recurseDryRun {
+		return writeRecursePlan(cmd.OutOrStdout(), cwd, cfg)
+	}
+
 	yolo := yoloMode
 	if !yolo {
 		if appCfg := loadCampaignConfig(filepath.Join(cwd, ".nerd")); appCfg != nil {
@@ -128,10 +139,6 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	}
 	if err := checkRecurseYolo(cfg, yolo); err != nil {
 		return err
-	}
-
-	if recurseDryRun {
-		return printRecurseDryRun(cwd, cfg)
 	}
 
 	// Unbounded runs still honor --timeout like any other command; Ctrl+C
@@ -232,17 +239,57 @@ func printRecurseResult(result *campaign.RecurseResult) {
 	}
 }
 
-func printRecurseDryRun(cwd string, cfg campaign.RecurseConfig) error {
-	c, err := campaign.NewRecurseCampaign(cwd, cfg)
+// writeRecursePlan prints what recurse would do in this workspace without a
+// model: the sweep order derived from the workspace's own imports (bottom to
+// top), the gates that will judge every change, the gates that cannot run
+// here, and the wave-zero phases. It is the owner's look before a real run.
+func writeRecursePlan(w io.Writer, cwd string, cfg campaign.RecurseConfig) error {
+	root, err := filepath.Abs(cwd)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Recurse dry run: %s\n", c.Title)
-	fmt.Printf("  goal: %s\n", c.Goal)
-	fmt.Printf("  phases: %d, tasks: %d, max waves: %d, stall waves: %d\n",
+	nodes, err := campaign.RecurseSweepOrder(context.Background(), root, cfg.Subsystems)
+	if err != nil {
+		return err
+	}
+	set, err := gates.Detect(root)
+	if err != nil {
+		return err
+	}
+	c, err := campaign.NewRecurseCampaign(root, cfg)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(w, "Recurse plan for %s (no model; nothing runs)\n", root)
+	fmt.Fprintf(w, "\nSweep order, bottom to top (%d nodes):\n", len(nodes))
+	for i, n := range nodes {
+		deps := "-"
+		if len(n.DependsOn) > 0 {
+			deps = strings.Join(n.DependsOn, ", ")
+		}
+		fmt.Fprintf(w, "  %3d  %-40s after: %s\n", i+1, n.Title, deps)
+	}
+
+	fmt.Fprintf(w, "\nGates (%d runnable):\n", len(set.Gates))
+	if len(set.Gates) == 0 {
+		fmt.Fprintln(w, "  none: every node is /unverified until nerd.md declares commands or gates")
+	}
+	for _, g := range set.Gates {
+		fmt.Fprintf(w, "  %s   [%s]\n", g, g.Source)
+	}
+	if len(set.Unavailable) > 0 {
+		fmt.Fprintf(w, "\nGates that cannot run here (%d; what they cover is /unverified, never a pass):\n", len(set.Unavailable))
+		for _, u := range set.Unavailable {
+			fmt.Fprintf(w, "  %s   (%s)\n", u.Gate, u.Reason)
+		}
+	}
+
+	fmt.Fprintf(w, "\nWave 0: %s\n", c.Title)
+	fmt.Fprintf(w, "  phases: %d, tasks: %d, max waves: %d, stall waves: %d\n",
 		c.TotalPhases, c.TotalTasks, cfg.MaxWaves, cfg.StallWaveLimit)
 	for i, p := range c.Phases {
-		fmt.Printf("  phase %d: %s (%d tasks, gate %s)\n", i, p.Name, len(p.Tasks), p.Checkpoints[0].Type)
+		fmt.Fprintf(w, "  phase %d: %s (%d tasks, gate %s)\n", i, p.Name, len(p.Tasks), p.Checkpoints[0].Type)
 	}
 	return nil
 }

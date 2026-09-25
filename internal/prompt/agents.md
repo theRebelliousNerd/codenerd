@@ -8,7 +8,7 @@
 - Canonical agent selectors use `shard_types`. `agent_types`, legacy metadata, and nested `selectors` exist only as bounded, observable compatibility migrations scheduled for removal on 2027-01-01.
 - Built-in atoms under `atoms/` must parse without migrations. Unknown fields and invalid records fail the complete document; never log-and-skip a bad atom.
 - Closed selector vocabulary comes from live typed context definitions (`AllContextDimensions`), not a validator-local list.
-- SQLite tag persistence has one producer: `PromptAtom.ContextTags` feeds every tag-table writer (loader, reconciler, corpus hydration) and `appendTag` reads them back. A selector dimension added to one side but not the other silently drops on round-trip (unpinned atoms match every vendor); `TestContextTags_ReaderParity` pins the pairing.
+- SQLite tag persistence has one producer: `PromptAtom.ContextTags` feeds every tag-table writer (loader, reconciler) and `appendTag` reads them back. A selector dimension added to one side but not the other silently drops on round-trip (unpinned atoms match every vendor); `TestContextTags_ReaderParity` pins the pairing.
 - Keep runtime selector values normalized without `/`; YAML authoring uses `/` for non-world-state selectors.
 - After atom/schema changes run:
   - `go run ./cmd/tools/validate_prompt_atoms -root internal/prompt/atoms -fail-on-warn`

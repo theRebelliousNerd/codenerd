@@ -33,7 +33,7 @@ type Harness struct {
 func NewHarness(
 	instance *Instance,
 	config python.EnvironmentConfig,
-	executor *tactile.PersistentDockerExecutor,
+	executor tactile.ContainerRuntime,
 ) *Harness {
 	// Convert SWE-bench instance to general project info
 	project := &python.ProjectInfo{

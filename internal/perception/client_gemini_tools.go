@@ -24,13 +24,13 @@ func (c *GeminiClient) postGenerateContent(ctx context.Context, reqBody GeminiRe
 	}
 	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", c.baseURL, c.model, c.apiKey)
 
-	maxRetries := 3
+	maxRetries := llmMaxRetries()
 	var lastErr error
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			// Context-aware backoff: a cancelled turn must exit during
 			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			backoff := llmRetryBackoff(i)
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())

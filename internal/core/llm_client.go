@@ -62,12 +62,3 @@ type TracingClient interface {
 	SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string)
 	ClearShardContext()
 }
-
-// ShardTraceAccessor provides shards with access to their own historical traces.
-// Enables self-learning by querying past reasoning patterns.
-type ShardTraceAccessor interface {
-	GetMyTraces(limit int) ([]any, error)
-	GetMyFailedTraces(limit int) ([]any, error)
-	GetSimilarTasks(taskPattern string, limit int) ([]any, error)
-	GetSuccessfulPatterns(limit int) ([]any, error)
-}

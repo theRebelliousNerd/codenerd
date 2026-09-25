@@ -41,6 +41,35 @@ func NewDirectExecutorWithConfig(config ExecutorConfig) *DirectExecutor {
 	}
 }
 
+// ConfiguredExecutor is implemented by executors that can report the
+// configuration they were built with, so a caller that wraps or replaces one
+// (VirtualStore builds its audited composite beside the executor it is handed)
+// can carry the caller's timeouts, limits and base environment forward instead
+// of silently starting again from DefaultExecutorConfig.
+type ConfiguredExecutor interface {
+	Config() ExecutorConfig
+}
+
+// Config returns a copy of the configuration this executor was built with.
+// Slices and limit pointers are copied so the caller cannot mutate the
+// executor's own configuration.
+func (e *DirectExecutor) Config() ExecutorConfig {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	cfg := e.config
+	cfg.AllowedEnvironment = append([]string(nil), e.config.AllowedEnvironment...)
+	cfg.BaseEnvironment = append([]string(nil), e.config.BaseEnvironment...)
+	if e.config.DefaultLimits != nil {
+		limits := *e.config.DefaultLimits
+		cfg.DefaultLimits = &limits
+	}
+	if e.config.DefaultSandbox != nil {
+		sandbox := *e.config.DefaultSandbox
+		cfg.DefaultSandbox = &sandbox
+	}
+	return cfg
+}
+
 // SetAuditCallback sets the callback for audit events.
 func (e *DirectExecutor) SetAuditCallback(callback func(AuditEvent)) {
 	e.mu.Lock()

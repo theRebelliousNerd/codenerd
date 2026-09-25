@@ -72,31 +72,6 @@ func (l *AtomLoader) LoadFromYAML(ctx context.Context, yamlPath string, db *sql.
 	return stored, nil
 }
 
-// LoadFromDirectory recursively loads all YAML files from a directory.
-func (l *AtomLoader) LoadFromDirectory(ctx context.Context, dirPath string, db *sql.DB) (int, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "LoadFromDirectory")
-	defer timer.Stop()
-
-	logging.Get(logging.CategoryStore).Info("Loading prompt atoms from directory: %s", dirPath)
-
-	parsed, migrations, err := ParsePromptAtomDirectory(dirPath)
-	if err != nil {
-		return 0, fmt.Errorf("parse atom directory %s: %w", dirPath, err)
-	}
-	logAtomMigrations(migrations)
-
-	totalStored := 0
-	for _, record := range parsed {
-		if err := l.StoreAtom(ctx, db, record.Atom); err != nil {
-			return totalStored, fmt.Errorf("store atom %s from %s: %w", record.Atom.ID, record.SourcePath, err)
-		}
-		totalStored++
-	}
-
-	logging.Get(logging.CategoryStore).Info("Loaded total of %d atoms from directory", totalStored)
-	return totalStored, nil
-}
-
 // EnsureSchema creates the prompt_atoms table and atom_context_tags table.
 func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 	// Step 1: Create tables WITHOUT indexes first (so we can run migrations)

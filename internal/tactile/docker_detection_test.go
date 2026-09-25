@@ -86,32 +86,3 @@ func TestCompositeExecutorExplicitMissingSandboxFailsClosed(t *testing.T) {
 		t.Fatal("explicit unavailable Docker request executed; want fail-closed error")
 	}
 }
-
-func TestExecutorFactoryCreateDockerPassesConfig(t *testing.T) {
-	dockerDetectionCache.Lock()
-	previousCheckedAt := dockerDetectionCache.checkedAt
-	previousPath := dockerDetectionCache.path
-	previousAvailable := dockerDetectionCache.available
-	dockerDetectionCache.checkedAt = time.Now()
-	dockerDetectionCache.path = "docker-test"
-	dockerDetectionCache.available = true
-	dockerDetectionCache.Unlock()
-	t.Cleanup(func() {
-		dockerDetectionCache.Lock()
-		dockerDetectionCache.checkedAt = previousCheckedAt
-		dockerDetectionCache.path = previousPath
-		dockerDetectionCache.available = previousAvailable
-		dockerDetectionCache.Unlock()
-	})
-
-	config := DefaultExecutorConfig()
-	config.DefaultTimeout = 23 * time.Second
-	factory := NewExecutorFactory(config)
-	docker, err := factory.CreateDocker()
-	if err != nil {
-		t.Fatalf("CreateDocker error = %v", err)
-	}
-	if docker.config.DefaultTimeout != config.DefaultTimeout {
-		t.Fatalf("Docker default timeout = %s, want %s", docker.config.DefaultTimeout, config.DefaultTimeout)
-	}
-}

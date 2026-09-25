@@ -7,7 +7,7 @@ import "testing"
 //	[kernel] rejecting fact that fails ToAtom: vector_hit -
 //	unsupported arg type func() (float64, error) at index 1
 //
-// loadFleshAtomsKernel emitted vector_hit facts with the score formatted as a
+// The flesh loader emitted vector_hit facts with the score formatted as a
 // float in 0..1. That was wrong twice over:
 //
 //  1. Wrong type. schemas_prompts.mg:359 declares

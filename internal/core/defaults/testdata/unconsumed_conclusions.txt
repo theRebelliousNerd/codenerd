@@ -515,7 +515,6 @@ unconsumed suggest_use_specialist
 unconsumed suppressed_finding
 unconsumed suspicious_gap
 unconsumed swebench_patch_failed
-unconsumed swebench_resolved
 unconsumed symbol_reachable
 unconsumed symbol_reachable_safe
 unconsumed system_invariant_violated

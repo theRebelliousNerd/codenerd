@@ -8,7 +8,7 @@ import (
 )
 
 func TestDefaultConfigFactoryPoliciesResolveAgainstCoreInventory(t *testing.T) {
-	factory := NewDefaultConfigFactory()
+	factory := NewConfigFactory(NewDefaultConfigAtomProvider())
 	result := &CompilationResult{Prompt: "bounded identity"}
 	intents := []string{
 		"/fix", "/test", "/review", "/research", "/attack", "/generate-tool", "/general",
@@ -29,32 +29,5 @@ func TestDefaultConfigFactoryPoliciesResolveAgainstCoreInventory(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestDefaultConfigProvidersShareCanonicalPolicySets(t *testing.T) {
-	registry := NewSimpleRegistry()
-	RegisterDefaultConfigAtoms(registry)
-	legacyFactory := NewConfigFactory(registry)
-	defaultFactory := NewDefaultConfigFactory()
-	result := &CompilationResult{Prompt: "bounded identity"}
-
-	for _, intent := range []string{"/fix", "/test", "/review", "/research"} {
-		legacy, err := legacyFactory.Generate(context.Background(), result, intent)
-		if err != nil {
-			t.Fatalf("legacy Generate(%q) error = %v", intent, err)
-		}
-		current, err := defaultFactory.Generate(context.Background(), result, intent)
-		if err != nil {
-			t.Fatalf("default Generate(%q) error = %v", intent, err)
-		}
-		if len(legacy.Policies) != len(current.Policies) {
-			t.Fatalf("Generate(%q) policy counts differ: registry=%v provider=%v", intent, legacy.Policies, current.Policies)
-		}
-		for i := range legacy.Policies {
-			if legacy.Policies[i] != current.Policies[i] {
-				t.Fatalf("Generate(%q) policy sets differ: registry=%v provider=%v", intent, legacy.Policies, current.Policies)
-			}
-		}
 	}
 }

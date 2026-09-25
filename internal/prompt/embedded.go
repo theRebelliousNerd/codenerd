@@ -104,23 +104,3 @@ func parseEmbeddedYAML(path string) ([]*PromptAtom, error) {
 func pathpkgJoin(sourcePath, relative string) string {
 	return path.Join(path.Dir(sourcePath), filepath.ToSlash(relative))
 }
-
-// MustLoadEmbeddedCorpus loads the embedded corpus and panics on error.
-// Use this for initialization where failure is unrecoverable.
-func MustLoadEmbeddedCorpus() *EmbeddedCorpus {
-	corpus, err := LoadEmbeddedCorpus()
-	if err != nil {
-		panic(fmt.Sprintf("failed to load embedded corpus: %v", err))
-	}
-	return corpus
-}
-
-// GetEmbeddedAtomCount returns the number of atoms in the embedded corpus.
-// Useful for diagnostics and testing.
-func GetEmbeddedAtomCount() (int, error) {
-	corpus, err := LoadEmbeddedCorpus()
-	if err != nil {
-		return 0, err
-	}
-	return corpus.Count(), nil
-}

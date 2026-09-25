@@ -1,8 +1,10 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"codenerd/internal/campaign"
@@ -137,5 +139,46 @@ func TestRecurseWaveConfig_ObserverRefsAreIndependent(t *testing.T) {
 	b.Close()
 	if got := northstar.GuardianRefCount(nerdDir); got != 0 {
 		t.Fatalf("refcount after second Close = %d, want 0", got)
+	}
+}
+
+// --plan runs nothing and needs no model: on any workspace it prints the order
+// derived from the workspace's own imports and the gates that will judge the
+// run, including the ones that cannot run here.
+func TestWriteRecursePlan_PrintsDerivedOrderAndGates(t *testing.T) {
+	root := t.TempDir()
+	for rel, body := range map[string]string{
+		"app/core/__init__.py": "",
+		"app/web/views.py":     "from app.core import thing\n",
+		"nerd.md": "---\nschema: nerd/v1\ngates:\n" +
+			"  - id: style\n    kind: lint\n    run: ./scripts/style.sh {node}\n    scope: node\n" +
+			"  - id: fuzz\n    kind: audit\n    run: definitely-not-installed-fuzzer --all\n---\n",
+	} {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out strings.Builder
+	if err := writeRecursePlan(&out, root, campaign.RecurseConfig{}); err != nil {
+		t.Fatalf("writeRecursePlan: %v", err)
+	}
+	got := out.String()
+	core, web := strings.Index(got, "app/core (python)"), strings.Index(got, "app/web (python)")
+	if core < 0 || web < 0 || core > web {
+		t.Fatalf("app/core must be listed before app/web, which imports it:\n%s", got)
+	}
+	if !strings.Contains(got, "nerd.md:style") {
+		t.Fatalf("a workspace-relative gate script is runnable:\n%s", got)
+	}
+	unavailable := got[strings.Index(got, "cannot run here"):]
+	if !strings.Contains(unavailable, "nerd.md:fuzz") || !strings.Contains(unavailable, "not on PATH") {
+		t.Fatalf("a gate whose program is missing must be listed as unavailable, with why:\n%s", got)
+	}
+	if strings.Contains(got, "internal/mangle") {
+		t.Fatalf("a Python workspace's plan must not name codeNERD's packages:\n%s", got)
 	}
 }

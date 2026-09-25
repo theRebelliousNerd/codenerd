@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"codenerd/internal/core"
@@ -15,6 +17,8 @@ import (
 var (
 	swebenchDataset    string
 	swebenchInstanceID string
+	swebenchPatchFile  string
+	swebenchModelName  string
 )
 
 // swebenchCmd groups SWE-bench benchmark operations.
@@ -24,7 +28,8 @@ var swebenchCmd = &cobra.Command{
 	Long: `SWE-bench benchmark operations.
 
 This command bridges the SWE-bench dataset loader (internal/tactile/swebench)
-and the kernel-routed handlers in internal/core/virtual_store_python.go.`,
+and the kernel-routed handlers in internal/core/virtual_store_python.go, which
+run each instance in a persistent container.`,
 	RunE: parentGroupRunE,
 }
 
@@ -38,13 +43,34 @@ The dataset is a SWE-bench instances file (JSON array or JSONL). When --instance
 is absent the first instance in the file is used. The instance is dispatched
 through routePermittedAction as next_action(..., "/swebench_setup", <instance_id>, <payload>).
 
-After routing the kernel is queried for swebench_instance and
-swebench_expected_fail_to_pass to prove the join landed expectation facts.`,
+The handler builds the instance's environment in a container (requires
+Docker) and fails, rather than claiming success, when it cannot. After routing
+the kernel is queried for swebench_instance and swebench_expected_fail_to_pass
+to prove the join landed expectation facts.`,
 	RunE: runSwebenchSetup,
+}
+
+// swebenchEvaluateCmd sets an instance up, evaluates a patch against it and
+// prints the kernel's verdict.
+var swebenchEvaluateCmd = &cobra.Command{
+	Use:   "evaluate",
+	Short: "Evaluate a patch against a SWE-bench instance and print the kernel's verdict",
+	Long: `Set up a SWE-bench instance in a container, apply a model patch, run its
+FAIL_TO_PASS and PASS_TO_PASS tests, and print the verdict the kernel derives
+(benchmarks.mg swebench_resolved / swebench_unmet_expectation) from the
+recorded test results. Requires Docker.`,
+	RunE: runSwebenchEvaluate,
 }
 
 func init() {
 	swebenchCmd.AddCommand(swebenchSetupCmd)
+	swebenchCmd.AddCommand(swebenchEvaluateCmd)
+	swebenchEvaluateCmd.Flags().StringVar(&swebenchDataset, "dataset", "", "Path to SWE-bench instances file (JSON or JSONL) (required)")
+	swebenchEvaluateCmd.Flags().StringVar(&swebenchInstanceID, "instance", "", "Instance ID to evaluate (defaults to first instance in file)")
+	swebenchEvaluateCmd.Flags().StringVar(&swebenchPatchFile, "patch-file", "", "Unified diff to evaluate (required)")
+	swebenchEvaluateCmd.Flags().StringVar(&swebenchModelName, "model", "codenerd", "Model name recorded with the evaluation")
+	_ = swebenchEvaluateCmd.MarkFlagRequired("dataset")
+	_ = swebenchEvaluateCmd.MarkFlagRequired("patch-file")
 	swebenchSetupCmd.Flags().StringVar(&swebenchDataset, "dataset", "", "Path to SWE-bench instances file (JSON or JSONL) (required)")
 	swebenchSetupCmd.Flags().StringVar(&swebenchInstanceID, "instance", "", "Instance ID to setup (defaults to first instance in file)")
 	_ = swebenchSetupCmd.MarkFlagRequired("dataset")
@@ -98,32 +124,9 @@ func runSwebenchSetup(cmd *cobra.Command, args []string) error {
 	ctx, cancel := operationContext(baseCtx)
 	defer cancel()
 
-	datasetPath := swebenchDataset
-	if datasetPath == "" {
-		return fmt.Errorf("--dataset is required")
-	}
-
-	instances, err := swebench.LoadInstances(datasetPath)
+	inst, err := selectSwebenchInstance(swebenchDataset, swebenchInstanceID)
 	if err != nil {
-		return fmt.Errorf("load instances: %w", err)
-	}
-	if len(instances) == 0 {
-		return fmt.Errorf("no instances found in %s", datasetPath)
-	}
-
-	var inst *swebench.Instance
-	if swebenchInstanceID != "" {
-		for _, cand := range instances {
-			if cand.InstanceID == swebenchInstanceID {
-				inst = cand
-				break
-			}
-		}
-		if inst == nil {
-			return fmt.Errorf("instance %q not found in %s", swebenchInstanceID, datasetPath)
-		}
-	} else {
-		inst = instances[0]
+		return err
 	}
 
 	key := resolveAPIKey(apiKey, workspace)
@@ -192,5 +195,97 @@ func runSwebenchSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("SWE-bench setup verified for %s (%s@%s) expectations=%d\n", inst.InstanceID, inst.Repo, inst.BaseCommit, totalExpectation)
+	return nil
+}
+
+// selectSwebenchInstance loads the dataset and picks the named instance, or
+// the first one when id is empty.
+func selectSwebenchInstance(datasetPath, id string) (*swebench.Instance, error) {
+	if datasetPath == "" {
+		return nil, fmt.Errorf("--dataset is required")
+	}
+	instances, err := swebench.LoadInstances(datasetPath)
+	if err != nil {
+		// A single pretty-printed instance object is neither a JSON array nor
+		// JSONL; accept it as a one-instance dataset.
+		single, singleErr := swebench.LoadInstance(datasetPath)
+		if singleErr != nil || single.InstanceID == "" {
+			return nil, fmt.Errorf("load instances: %w", err)
+		}
+		instances = []*swebench.Instance{single}
+	}
+	if len(instances) == 0 {
+		return nil, fmt.Errorf("no instances found in %s", datasetPath)
+	}
+	if id == "" {
+		return instances[0], nil
+	}
+	for _, cand := range instances {
+		if cand.InstanceID == id {
+			return cand, nil
+		}
+	}
+	return nil, fmt.Errorf("instance %q not found in %s", id, datasetPath)
+}
+
+func runSwebenchEvaluate(cmd *cobra.Command, args []string) error {
+	baseCtx := cmd.Context()
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	ctx, cancel := operationContext(baseCtx)
+	defer cancel()
+
+	inst, err := selectSwebenchInstance(swebenchDataset, swebenchInstanceID)
+	if err != nil {
+		return err
+	}
+	patch, err := os.ReadFile(swebenchPatchFile)
+	if err != nil {
+		return fmt.Errorf("read patch: %w", err)
+	}
+
+	key := resolveAPIKey(apiKey, workspace)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, disableSystemShards)
+	if err != nil {
+		return fmt.Errorf("failed to boot cortex: %w", err)
+	}
+	defer cortex.Close()
+	if cortex.VirtualStore != nil {
+		cortex.VirtualStore.DisableBootGuard()
+	}
+
+	route := func(action string, payload map[string]any) error {
+		fact := core.Fact{
+			Predicate: "next_action",
+			Args:      []any{fmt.Sprintf("swebench-%s-%d", strings.TrimPrefix(action, "/"), time.Now().UnixNano()), action, inst.InstanceID, payload},
+		}
+		if _, err := routePermittedAction(ctx, cortex.VirtualStore, cortex.Kernel, fact); err != nil {
+			return fmt.Errorf("route %s: %w", action, err)
+		}
+		return nil
+	}
+	if err := route("/swebench_setup", swebenchSetupPayload(inst)); err != nil {
+		return err
+	}
+	defer func() {
+		_ = route("/swebench_teardown", map[string]any{"instance_id": inst.InstanceID})
+	}()
+	if err := route("/swebench_evaluate", map[string]any{
+		"instance_id": inst.InstanceID,
+		"patch":       string(patch),
+		"model_name":  swebenchModelName,
+	}); err != nil {
+		return err
+	}
+
+	resolved, unmet, err := core.SWEBenchVerdict(cortex.Kernel, inst.InstanceID)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("SWE-bench %s: resolved=%t\n", inst.InstanceID, resolved)
+	for _, test := range unmet {
+		fmt.Printf("  unmet: %s\n", test)
+	}
 	return nil
 }
