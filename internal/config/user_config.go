@@ -133,6 +133,9 @@ type UserConfig struct {
 	// Theme for the TUI ("light" or "dark")
 	Theme string `json:"theme,omitempty"`
 
+	// UI is the chat TUI's layout (ux.go).
+	UI *UIConfig `json:"ui,omitempty"`
+
 	// ContinuationMode controls multi-step task execution behavior
 	// 0 = Auto (fully automatic), 1 = Confirm (pause after each step), 2 = Breakpoint (pause before mutations)
 	ContinuationMode int `json:"continuation_mode,omitempty"`
@@ -1527,12 +1530,14 @@ func DefaultUserConfig() *UserConfig {
 	sessionCfg := DefaultSessionConfig()
 	routingCfg := DefaultRoutingConfig()
 	retrievalCfg := DefaultRetrievalConfig()
+	uiCfg := DefaultUIConfig()
 	delegationCfg := DefaultDelegationConfig()
 	workingCfg := DefaultWorkingConfig()
 
 	return &UserConfig{
 		Engine:                       "api",
 		Theme:                        "light",
+		UI:                           &uiCfg,
 		ContinuationMode:             1,
 		Gemini:                       DefaultGeminiProviderConfig(),
 		ClaudeCLI:                    DefaultClaudeCLIConfig(),

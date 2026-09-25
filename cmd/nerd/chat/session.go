@@ -38,6 +38,12 @@ import (
 // Functions for initializing the chat, loading/saving session state, and
 // managing persistent configuration.
 
+// newSplitPane builds the chat's split pane at the configured ratio
+// (config.UIConfig, the `ui` section).
+func newSplitPane(styles ui.Styles, appCfg *config.UserConfig) ui.SplitPaneView {
+	return ui.NewSplitPaneViewWithRatio(styles, 80, 24, appCfg.GetUIConfig().SplitPaneRatio)
+}
+
 // InitChat initializes the interactive chat model (Lightweight UI only)
 func InitChat(cfg Config) Model {
 	// Load configuration from unified .nerd/config.json
@@ -128,7 +134,7 @@ func InitChat(cfg Config) Model {
 	}
 
 	// Initialize split-pane view
-	splitPaneView := ui.NewSplitPaneView(styles, 80, 24)
+	splitPaneView := newSplitPane(styles, appCfg)
 
 	// Create shutdown context for coordinating background goroutine lifecycle
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
