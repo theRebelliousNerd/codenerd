@@ -382,7 +382,7 @@ func TestEdgeCaseDetector_GatherMetrics_NilIntelligence(t *testing.T) {
 	ctx := context.Background()
 
 	decision := &FileDecision{}
-	detector.gatherMetrics(ctx, decision, "foo_test.go", nil)
+	detector.gatherMetricsWithCache(ctx, decision, "foo_test.go", nil, nil)
 
 	if !decision.HasTests {
 		t.Errorf("Expected HasTests=true since path has _test.go suffix, even with nil intelligence")
@@ -400,7 +400,7 @@ func TestEdgeCaseDetector_StateConflicts_DeletedFile(t *testing.T) {
 		},
 	}
 
-	decision := detector.analyzeFile(context.Background(), path, intel)
+	decision := detector.analyzeFileWithCache(context.Background(), path, intel, nil)
 
 	if decision.Exists {
 		t.Errorf("Expected decision.Exists to be false since file is not on disk")
@@ -427,7 +427,7 @@ func TestEdgeCaseDetector_StateConflicts_CreatedFile(t *testing.T) {
 		FileTopology: map[string]FileInfo{},
 	}
 
-	decision := detector.analyzeFile(context.Background(), path, intel)
+	decision := detector.analyzeFileWithCache(context.Background(), path, intel, nil)
 
 	if !decision.Exists {
 		t.Errorf("Expected decision.Exists to be true since file is on disk")

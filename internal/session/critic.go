@@ -274,16 +274,17 @@ func parseCriticFindings(response string) []CriticFinding {
 	return out
 }
 
-// findingsWorthUplift returns only high and medium severity findings.
+// findingsWorthUplift returns only high and medium severity findings, in the
+// reviewer's order.
 //
 // Low-severity findings are noise for the uplift gate: they describe style
-// nits or minor suggestions that do not justify a repair round. The filter
-// is case-insensitive to match the parser's normalization.
+// nits or minor suggestions that do not justify a repair round. The threshold
+// is CriticSeverityRank's, which is case-insensitive to match the parser's
+// normalization and ranks an unknown severity lowest.
 func findingsWorthUplift(findings []CriticFinding) []CriticFinding {
 	var out []CriticFinding
 	for _, f := range findings {
-		sev := strings.ToLower(strings.TrimSpace(f.Severity))
-		if sev == "high" || sev == "medium" {
+		if SeverityAtLeast(f.Severity, "medium") {
 			out = append(out, f)
 		}
 	}

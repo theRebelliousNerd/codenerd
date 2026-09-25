@@ -61,10 +61,6 @@ func (o *Orchestrator) executeTaskWithRollback(ctx context.Context, task *Task) 
 	})
 }
 
-func (o *Orchestrator) withTaskExecutionSnapshot(task *Task, run func() (any, error)) (any, error) {
-	return o.withTaskMutationSnapshot(task, run)
-}
-
 func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, error)) (result any, err error) {
 	if run == nil {
 		return nil, fmt.Errorf("task execution callback is nil")

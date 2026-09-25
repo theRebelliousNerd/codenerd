@@ -863,19 +863,6 @@ func campaignRefLifecycleFromStatus(status CampaignStatus) string {
 	}
 }
 
-func campaignRefLifecycleContractMap() map[string]string {
-	return map[string]string{
-		string(StatusPlanning):    CampaignRefLifecycleQueued,
-		string(StatusDecomposing): CampaignRefLifecycleQueued,
-		string(StatusValidating):  CampaignRefLifecycleQueued,
-		string(StatusActive):      CampaignRefLifecycleActive,
-		string(StatusPaused):      CampaignRefLifecyclePaused,
-		string(StatusCompleted):   CampaignRefLifecycleCompleted,
-		string(StatusFailed):      CampaignRefLifecycleFailed,
-		"/unknown":                CampaignRefLifecycleLinked,
-	}
-}
-
 // ToFacts converts a ContextProfile to Mangle facts.
 func (cp *ContextProfile) ToFacts() []core.Fact {
 	return []core.Fact{{

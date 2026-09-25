@@ -1315,11 +1315,6 @@ func resolvedWorkspaceRel(workspace, target string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
-// projectDocTargetPath extracts the target path from a tool call's arguments.
-func projectDocTargetPath(args map[string]any) string {
-	return projectdoc.TargetPath(args)
-}
-
 func projectDocTargetLabel(args map[string]any) string {
 	paths, err := projectdoc.TargetPaths(args)
 	if err != nil || len(paths) == 0 {
@@ -1426,15 +1421,6 @@ func (e *Executor) assertPendingEdits(call ToolCall) []types.Fact {
 		facts = append(facts, fact)
 	}
 	return facts
-}
-
-// assertPendingEdit preserves the single-target test and caller seam.
-func (e *Executor) assertPendingEdit(call ToolCall) (types.Fact, bool) {
-	facts := e.assertPendingEdits(call)
-	if len(facts) == 0 {
-		return types.Fact{}, false
-	}
-	return facts[0], true
 }
 
 // retractPendingEdit removes the in-flight marker asserted by
@@ -2547,12 +2533,6 @@ func (e *Executor) assertSecurityViolation(actionAtom types.MangleAtom, reason s
 // bloat the fact store; a payload over the cap is refused, never truncated,
 // because permitted/3 is matched against the exact payload.
 const MaxActionPayloadBytes = 100 * 1024 // 100 KB
-
-// checkSafety verifies a tool call against the Constitutional Gate.
-func (e *Executor) checkSafety(call ToolCall) bool {
-	ok, _ := e.checkSafetyWithGate(call, e.configSnapshot().EnableSafetyGate)
-	return ok
-}
 
 func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (bool, string) {
 	// Categorically reject empty tool names — they would assert "/" as the

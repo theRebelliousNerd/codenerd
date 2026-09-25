@@ -16,7 +16,6 @@
 # nothing calls the functions that would fill them — triage them last.
 AmbientContext.CursorLine	internal/types/types.go:426	(dead file)
 AmbientContext.SelectedText	internal/types/types.go:427	(dead file)
-AuditReportInput.Discovery	internal/browser/contract_audit_report.go:16	(dead file)
 BindMount.ReadOnly	internal/tactile/platform_unix.go:39
 BootConfig.KernelOverride	internal/system/factory.go:81
 CompilationStats.FallbackUsed	internal/prompt/compiler.go:182

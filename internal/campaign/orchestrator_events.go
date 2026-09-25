@@ -1,7 +1,5 @@
 package campaign
 
-import "slices"
-
 // OrchestratorEvent.Type used to be a free string written at ~35 call sites and
 // switched on by name in three UIs (cmd/nerd/cmd_campaign.go, the chat model,
 // cmd/nerd/ui/campaign_page.go). A typo produced an event that every consumer
@@ -128,18 +126,4 @@ var orchestratorEventTypes = []OrchestratorEventType{
 	EventTaskStarted,
 	EventTaskWriteSetMissing,
 	EventToolGenerationRequested,
-}
-
-// OrchestratorEventTypes returns the closed set of event types an orchestrator
-// can emit. UIs use it to assert they handle every event they can receive.
-func OrchestratorEventTypes() []OrchestratorEventType {
-	out := make([]OrchestratorEventType, len(orchestratorEventTypes))
-	copy(out, orchestratorEventTypes)
-	return out
-}
-
-// IsKnownOrchestratorEventType reports whether t is in the closed set.
-func IsKnownOrchestratorEventType(t OrchestratorEventType) bool {
-	i, found := slices.BinarySearch(orchestratorEventTypes, t)
-	return found && i < len(orchestratorEventTypes)
 }

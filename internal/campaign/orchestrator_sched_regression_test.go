@@ -29,7 +29,7 @@ func TestRollback_NonStructuralTask_PreservesSiblingCompletions(t *testing.T) {
 	campaignBefore := orch.campaign // identity guard
 
 	failing := &Task{ID: "/task_seed", PhaseID: "/phase_0", Type: TaskTypeDocument}
-	_, err := orch.withTaskExecutionSnapshot(failing, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(failing, func() (any, error) {
 		// Simulate a concurrent sibling committing its completion to the live
 		// campaign while the failing task is mid-flight.
 		for i := range orch.campaign.Phases[0].Tasks {
@@ -61,7 +61,7 @@ func TestRollback_StructuralTask_StillFullyRollsBack(t *testing.T) {
 	orch := newSnapshotTestOrchestrator()
 	beforeTasks := len(orch.campaign.Phases[0].Tasks)
 
-	_, err := orch.withTaskExecutionSnapshot(&Task{ID: "/task_seed", Type: TaskTypeAssaultDiscover}, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(&Task{ID: "/task_seed", Type: TaskTypeAssaultDiscover}, func() (any, error) {
 		orch.campaign.Phases[0].Tasks = append(orch.campaign.Phases[0].Tasks, Task{
 			ID:      "/task_discovered",
 			PhaseID: "/phase_0",

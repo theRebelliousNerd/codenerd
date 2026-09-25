@@ -118,3 +118,12 @@ func loadCampaignAtomIDs(dir string) ([]string, error) {
 	})
 	return ids, err
 }
+
+// AllCampaignRoles lists every role the provider serves, so the tests above can
+// require each one to have an atom family and a static fallback.
+func AllCampaignRoles() []CampaignRole {
+	return []CampaignRole{
+		RoleLibrarian, RoleExtractor, RoleTaxonomy,
+		RolePlanner, RoleReplanner, RoleAnalysis, RoleAssault,
+	}
+}

@@ -265,32 +265,12 @@ func TestOrchestratorEventTypes_AreClosedSet(t *testing.T) {
 }
 
 func TestOrchestratorEventTypes_ListIsSortedAndUnique(t *testing.T) {
-	// IsKnownOrchestratorEventType binary-searches the slice.
+	// Sorted and strictly increasing: a duplicate is a merge accident.
 	for i := 1; i < len(orchestratorEventTypes); i++ {
 		if orchestratorEventTypes[i-1] >= orchestratorEventTypes[i] {
-			t.Fatalf("orchestratorEventTypes is not strictly sorted at %d: %q then %q; "+
-				"IsKnownOrchestratorEventType would miss entries",
+			t.Fatalf("orchestratorEventTypes is not strictly sorted at %d: %q then %q",
 				i, orchestratorEventTypes[i-1], orchestratorEventTypes[i])
 		}
-	}
-	for _, v := range orchestratorEventTypes {
-		if !IsKnownOrchestratorEventType(v) {
-			t.Errorf("IsKnownOrchestratorEventType(%q) = false for a listed type", v)
-		}
-	}
-	if IsKnownOrchestratorEventType("definitely_not_an_event") {
-		t.Error("IsKnownOrchestratorEventType accepted an unlisted type")
-	}
-}
-
-func TestOrchestratorEventTypes_ReturnsCopy(t *testing.T) {
-	first := OrchestratorEventTypes()
-	if len(first) == 0 {
-		t.Fatal("no event types returned")
-	}
-	first[0] = "mutated"
-	if OrchestratorEventTypes()[0] == "mutated" {
-		t.Fatal("OrchestratorEventTypes exposed its backing array; a caller could corrupt the closed set")
 	}
 }
 
@@ -308,30 +288,52 @@ func TestMetricsSink_ShouldObserveTaskAndCheckpointDurations(t *testing.T) {
 		t.Fatalf("runPhase: %v", err)
 	}
 
-	snapshot := metrics.Snapshot()
-	tasks, _ := snapshot["tasks"].(map[string]any)
-	if len(tasks) == 0 {
-		t.Fatal("no task durations observed")
+	key := string(TaskTypeFileCreate) + "|completed"
+	if metrics.TaskCount[key] != 1 || metrics.TaskMax[key] != 250*time.Millisecond {
+		t.Errorf("task observation lost detail: count %d, max %s", metrics.TaskCount[key], metrics.TaskMax[key])
 	}
-	entry, ok := tasks[string(TaskTypeFileCreate)+"|completed"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected an entry for file_create|completed, got %v", tasks)
+	if metrics.CheckpointOK[string(VerifyShardValidate)] == 0 {
+		t.Errorf("no passing %s checkpoint observed: ok=%v bad=%v", VerifyShardValidate, metrics.CheckpointOK, metrics.CheckpointBad)
 	}
-	if entry["count"].(int) != 1 || entry["max_ms"].(int64) != 250 {
-		t.Errorf("task observation lost detail: %v", entry)
+	if _, ok := metrics.PhaseTotal[orch.campaign.Phases[0].ID]; !ok {
+		t.Errorf("phase duration was not observed on completion: %v", metrics.PhaseTotal)
 	}
 
-	checkpoints, _ := snapshot["checkpoints"].(map[string]any)
-	if len(checkpoints) == 0 {
-		t.Fatal("no checkpoint outcomes observed; a passing verification recorded nothing")
+	// What `nerd campaign start` prints when the run ends.
+	summary := strings.Join(metrics.Summary(), "\n")
+	for _, want := range []string{
+		"tasks:",
+		"  " + string(TaskTypeFileCreate) + " completed: 1 (avg 250ms, max 250ms)",
+		"checkpoints:",
+		"  " + string(VerifyShardValidate) + ": 1 passed, 0 failed",
+		"phases:",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("summary lacks %q:\n%s", want, summary)
+		}
 	}
-	if _, ok := checkpoints[string(VerifyShardValidate)]; !ok {
-		t.Errorf("expected an entry for %s, got %v", VerifyShardValidate, checkpoints)
-	}
+}
 
-	phases, _ := snapshot["phases_ms"].(map[string]int64)
-	if _, ok := phases[orch.campaign.Phases[0].ID]; !ok {
-		t.Errorf("phase duration was not observed on completion: %v", phases)
+func TestInMemoryMetricsSummary_IsSortedAndEmptyWhenNothingRan(t *testing.T) {
+	m := NewInMemoryMetrics()
+	if lines := m.Summary(); len(lines) != 0 {
+		t.Fatalf("an unused sink reported %v", lines)
+	}
+	m.ObserveTaskDuration("c", "p", "/test_run", "failed", time.Second)
+	m.ObserveTaskDuration("c", "p", "/file_create", "completed", 2*time.Second)
+	m.ObserveTaskDuration("c", "p", "/file_create", "completed", 4*time.Second)
+	m.ObserveCheckpoint("c", "p", "/tests_pass", false, 0)
+	m.ObserveRiskPreflight("c", 35, true, 1, 2)
+	want := []string{
+		"tasks:",
+		"  /file_create completed: 2 (avg 3s, max 4s)",
+		"  /test_run failed: 1 (avg 1s, max 1s)",
+		"checkpoints:",
+		"  /tests_pass: 0 passed, 1 failed",
+		"risk preflight: score 35, 0 blocked of 1 (1 hard, 2 soft findings)",
+	}
+	if got := m.Summary(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("summary =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 

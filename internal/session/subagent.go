@@ -96,21 +96,6 @@ type SubAgentConfig struct {
 	SessionContext *types.SessionContext
 }
 
-var subagentCounter uint64
-
-// DefaultSubAgentConfig returns an ephemeral subagent's identity. It sets no
-// clock and no turn cap: a subagent runs under its caller's context (the
-// user's --timeout, when set) and stops when the working policy derives a
-// stall. Until 2026-09-23 it set a 30-minute wall clock and a 100-task cap
-// (the spawner, which had dropped its clock on 2026-09-19, kept the cap).
-func DefaultSubAgentConfig(name string) SubAgentConfig {
-	return SubAgentConfig{
-		ID:   fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), atomic.AddUint64(&subagentCounter, 1)),
-		Name: name,
-		Type: SubAgentTypeEphemeral,
-	}
-}
-
 // SubAgent is a context-isolated instance of the clean execution loop.
 //
 // Each subagent has:

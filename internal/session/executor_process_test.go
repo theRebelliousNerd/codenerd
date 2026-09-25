@@ -150,7 +150,7 @@ func TestExecutor_Process_ToolExecution(t *testing.T) {
 	mockKernel := &MockKernel{}
 	mockKernel.Assert(types.Fact{
 		Predicate: "permitted",
-		Args:      []any{MangleAtom("/readFile"), "/test/file.txt", `{"path":"/test/file.txt"}`},
+		Args:      []any{types.MangleAtom("/readFile"), "/test/file.txt", `{"path":"/test/file.txt"}`},
 	})
 	// Need to assert user_intent for safety check logic usually, but here we just asserted permitted directly.
 	// Wait, checkSafety logic queries kernel.

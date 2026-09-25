@@ -348,63 +348,6 @@ func (t *ProofTreeTracer) flattenTree(node *DerivationNode) []*DerivationNode {
 	return nodes
 }
 
-// MaterializeToFacts stores the derivation trace as Mangle facts.
-func (t *ProofTreeTracer) MaterializeToFacts(_ context.Context, trace *DerivationTrace) error {
-	for _, node := range trace.AllNodes {
-		// Create derivation_trace fact
-		if err := t.engine.AddFact("derivation_trace",
-			node.Fact.String(),    // Conclusion
-			node.RuleName,         // RuleApplied
-			t.premiseString(node), // Premises as string
-		); err != nil {
-			return err
-		}
-
-		// Create proof_tree_node fact
-		if err := t.engine.AddFact("proof_tree_node",
-			node.ID,
-			node.ParentID,
-			node.Fact.String(),
-			node.RuleName,
-		); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// premiseString formats child facts as a comma-separated string.
-func (t *ProofTreeTracer) premiseString(node *DerivationNode) string {
-	if len(node.Children) == 0 {
-		return ""
-	}
-
-	parts := make([]string, 0, len(node.Children))
-	for _, child := range node.Children {
-		parts = append(parts, child.Fact.String())
-	}
-	return strings.Join(parts, ", ")
-}
-
-// ClearCache clears the trace cache.
-func (t *ProofTreeTracer) ClearCache() {
-	if t == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.traces = make(map[string]*DerivationTrace)
-	t.traceOrder = nil
-}
-
-// GetCachedTrace retrieves a cached trace if available.
-func (t *ProofTreeTracer) GetCachedTrace(query string) *DerivationTrace {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.traces[query]
-}
-
 // ============================================================================
 // Proof Tree Rendering
 // ============================================================================

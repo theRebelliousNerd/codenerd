@@ -354,12 +354,3 @@ func untestedGoFiles(paths []string) []string {
 	sort.Strings(out)
 	return out
 }
-
-// TrimGoExtension returns path with a trailing .go or .GO suffix removed,
-// leaving other paths unchanged. The suffix check is case-insensitive.
-func TrimGoExtension(path string) string {
-	if strings.HasSuffix(strings.ToLower(path), ".go") {
-		return path[:len(path)-3]
-	}
-	return path
-}

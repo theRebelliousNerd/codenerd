@@ -6,19 +6,9 @@ import (
 )
 
 var (
-	schemaV1Once             sync.Once
-	schemaV1JSON             string
 	schemaV1SingleClauseOnce sync.Once
 	schemaV1SingleClauseJSON string
 )
-
-// SchemaV1JSON returns a JSON schema string for MangleSynth (multi-clause).
-func SchemaV1JSON() string {
-	schemaV1Once.Do(func() {
-		schemaV1JSON = marshalSchema(buildSchema(false))
-	})
-	return schemaV1JSON
-}
 
 // SchemaV1SingleClauseJSON returns a JSON schema string enforcing a single clause.
 func SchemaV1SingleClauseJSON() string {
@@ -26,16 +16,6 @@ func SchemaV1SingleClauseJSON() string {
 		schemaV1SingleClauseJSON = marshalSchema(buildSchema(true))
 	})
 	return schemaV1SingleClauseJSON
-}
-
-// BuildSchemaV1 exposes the schema map for provider-specific clients.
-func BuildSchemaV1() map[string]any {
-	return buildSchema(false)
-}
-
-// BuildSchemaV1SingleClause exposes the schema map for a single-clause schema.
-func BuildSchemaV1SingleClause() map[string]any {
-	return buildSchema(true)
 }
 
 func marshalSchema(schema map[string]any) string {

@@ -465,6 +465,7 @@ func executeCampaignPlan(ctx context.Context, cmd *cobra.Command, orchCfg campai
 	if err := orchestrator.SetCampaign(camp); err != nil {
 		return fmt.Errorf("failed to set campaign: %w", err)
 	}
+	defer printCampaignMetrics(attachCampaignMetrics(orchestrator))
 
 	fmt.Println("\n🚀 Starting campaign execution...")
 	fmt.Println("   Press Ctrl+C to pause")
@@ -486,6 +487,28 @@ func executeCampaignPlan(ctx context.Context, cmd *cobra.Command, orchCfg campai
 
 	fmt.Println("\n✨ Campaign completed successfully!")
 	return nil
+}
+
+// attachCampaignMetrics installs an in-memory sink on the orchestrator. The
+// orchestrator measures every task, checkpoint, phase and risk preflight; with
+// no sink those measurements went nowhere.
+func attachCampaignMetrics(orchestrator *campaign.Orchestrator) *campaign.InMemoryMetrics {
+	metrics := campaign.NewInMemoryMetrics()
+	orchestrator.SetMetricsSink(metrics)
+	return metrics
+}
+
+// printCampaignMetrics reports what the run measured, however it ended: a
+// paused or failed run's timings are what an operator tunes --timeout from.
+func printCampaignMetrics(metrics *campaign.InMemoryMetrics) {
+	lines := metrics.Summary()
+	if len(lines) == 0 {
+		return
+	}
+	fmt.Println("\n📈 Campaign metrics")
+	for _, line := range lines {
+		fmt.Println("   " + line)
+	}
 }
 
 // startCampaignEventPrinter streams orchestrator events to stdout until the
@@ -738,6 +761,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	if err := orchestrator.PrepareResume(); err != nil {
 		return fmt.Errorf("cannot resume campaign %s: %w", pausedCampaign.ID, err)
 	}
+	defer printCampaignMetrics(attachCampaignMetrics(orchestrator))
 	if resumeWasFailed && campPath != "" {
 		if werr := writeCampaignJSON(campPath, pausedCampaign); werr != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to persist resumed status: %v\n", werr)

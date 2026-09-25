@@ -128,7 +128,3 @@ func keepDiagnosticLines(raw string) string {
 	}
 	return strings.Join(kept, "\n")
 }
-
-// execLookPathForTest exposes the PATH lookup so tests can skip cleanly when
-// gopls is not installed, without duplicating the lookup logic.
-func execLookPathForTest(name string) (string, error) { return exec.LookPath(name) }

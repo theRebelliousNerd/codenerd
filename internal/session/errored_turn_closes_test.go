@@ -67,7 +67,7 @@ func TestErroredTurnStillClosesAndRetractsItsFacts(t *testing.T) {
 	mockKernel := &MockKernel{}
 	mockKernel.Assert(types.Fact{
 		Predicate: "permitted",
-		Args:      []any{MangleAtom("/readFile"), "/test/file.txt", `{"path":"/test/file.txt"}`},
+		Args:      []any{types.MangleAtom("/readFile"), "/test/file.txt", `{"path":"/test/file.txt"}`},
 	})
 	mockConfig := &MockConfigFactory{
 		GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
