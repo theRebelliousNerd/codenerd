@@ -258,11 +258,13 @@ func (s *ToolStore) getStatsLocked() (*ToolStoreStats, error) {
 		ToolBreakdown: make(map[string]int),
 	}
 
-	// Total count and size
+	// Total count and size. SUM over no rows is NULL, not 0: without the
+	// COALESCE every stats read of an empty journal failed to scan, so a
+	// fresh tools.db answered /cleanup-tools with an error.
 	row := s.db.QueryRow(`
 		SELECT COUNT(*), COALESCE(SUM(result_size), 0),
-		       SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),
-		       SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END)
+		       COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0)
 		FROM tool_executions`)
 	if err := row.Scan(&stats.TotalExecutions, &stats.TotalSizeBytes,
 		&stats.SuccessCount, &stats.FailureCount); err != nil {
