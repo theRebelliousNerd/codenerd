@@ -54,6 +54,16 @@ const (
 type Config struct {
 	// DisableSystemShards is a list of system shard names to disable.
 	DisableSystemShards []string
+
+	// Yolo is the --yolo flag: autonomy for this session. It is not written
+	// to .nerd/config.json -- the flag says "this run", /yolo on says "from
+	// now on" -- and /yolo off ends it.
+	Yolo bool
+
+	// APIKey is the --api-key flag, handed to boot as BootConfig.APIKey: the
+	// legacy fallback the factory uses only when config and environment name
+	// no client, exactly as the one-shot verbs use it.
+	APIKey string
 }
 
 // ViewMode determines which component is focused/active
@@ -315,8 +325,11 @@ type Model struct {
 	retriever           *retrieval.SparseRetriever // Issue-seed sparse search: Cortex.Retriever, shared with the session executor; model_update.go copies it here
 	workspace           string
 	DisableSystemShards []string
-	browserMgr          *browser.SessionManager // Browser automation manager
-	browserCtxCancel    context.CancelFunc      // Cancels browser manager goroutine
+	// yoloFlag and apiKeyFlag are the launch flags (Config.Yolo, Config.APIKey).
+	yoloFlag         bool
+	apiKeyFlag       string
+	browserMgr       *browser.SessionManager // Browser automation manager
+	browserCtxCancel context.CancelFunc      // Cancels browser manager goroutine
 
 	// Campaign Orchestration
 	activeCampaign       *campaign.Campaign

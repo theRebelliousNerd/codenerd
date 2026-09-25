@@ -15,7 +15,7 @@ func BenchmarkSystemBoot(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		// Run boot command
-		cmd := performSystemBoot(cfg, nil, ws)
+		cmd := performSystemBoot(cfg, nil, "", ws)
 		msg := cmd() // blocking execution
 
 		// Verify result
