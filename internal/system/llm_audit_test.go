@@ -14,12 +14,17 @@ import (
 // on, at a fresh workspace for the rest of the test.
 func bindAuditToTempWorkspace(t *testing.T) {
 	t.Helper()
+	// The workspace first, the close second: cleanups run last-registered
+	// first, so the logs are closed before TempDir removes the directory. The
+	// other order left the boot log open during RemoveAll, which Windows
+	// refuses ("being used by another process") and fails the test.
+	ws := t.TempDir()
 	logging.ApplyConfig(logging.Config{DebugMode: true, Level: "debug"})
 	t.Cleanup(func() {
 		logging.CloseAll()
 		logging.ClearInjectedConfig()
 	})
-	if err := logging.Initialize(t.TempDir()); err != nil {
+	if err := logging.Initialize(ws); err != nil {
 		t.Fatalf("logging.Initialize: %v", err)
 	}
 }
