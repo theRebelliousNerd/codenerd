@@ -745,7 +745,6 @@ type (
 		orch         *campaign.Orchestrator
 		progressChan chan campaign.Progress
 		eventChan    chan campaign.OrchestratorEvent
-		recurse      *recurseState // Set for wave zero of a sweep
 	}
 	campaignProgressMsg  *campaign.Progress
 	campaignEventMsg     campaign.OrchestratorEvent // Real-time event from orchestrator

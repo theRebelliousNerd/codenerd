@@ -251,15 +251,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Rendering it as a bare "Campaign Error: <sentence>" hid everything the
 		// operator needs to decide what to do about it.
 		if report, ok := campaign.FormatRiskBlock(msg.err); ok {
-			m.recurse = nil
 			m = m.pushAssistantMsg("## Campaign Blocked by Risk Gate\n\n```\n" + report + "```")
-		} else if m.recurse != nil && m.activeCampaign != nil {
-			// A wave that errors still counts: record it through the loop and
-			// chain or finish like any other boundary. The error stays visible.
-			m = m.pushAssistantMsg(fmt.Sprintf("Recurse wave hit an error and the sweep continues: %v", msg.err))
-			if next, cmd, ok := m.maybeChainRecurseWave(m.activeCampaign); ok {
-				return next, cmd
-			}
 		} else {
 			m = m.pushAssistantMsg(fmt.Sprintf("## Campaign Error\n\n%v", msg.err))
 		}
@@ -275,7 +267,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.campaignProgressChan = msg.progressChan // Store channels for listening
 		m.campaignEventChan = msg.eventChan
 		m.showCampaignPanel = true
-		m.recurse = msg.recurse
 		m = m.pushAssistantMsg(m.renderCampaignStarted(msg.campaign))
 
 		// Start orchestrator execution in background and return both listeners
@@ -321,17 +312,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.campaignProgressChan = nil
 				m.campaignEventChan = nil
 				m.showCampaignPanel = false
-				m.recurse = nil
 			}
 		}
 		if m.campaignEventChan != nil && m.activeCampaign != nil {
 			return m, m.listenCampaignEvents()
 		}
 
+	case recurseStartedMsg, recurseLineMsg, recurseFinishedMsg:
+		next, cmd, _ := m.handleRecurseMsg(msg)
+		return next, cmd
+
 	case campaignCompletedMsg:
-		if next, cmd, ok := m.maybeChainRecurseWave(msg); ok {
-			return next, cmd
-		}
 		m.isLoading = false
 		m.activeCampaign = nil
 		m.campaignOrch = nil

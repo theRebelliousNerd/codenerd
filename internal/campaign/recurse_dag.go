@@ -30,6 +30,10 @@ type SubsystemNode struct {
 	DependsOn []string
 	// CrossCutting marks the across/review/benchmark nodes that close a wave.
 	CrossCutting bool
+	// Languages are the toolchains the node's files belong to ("go",
+	// "python", "js/ts", "rust"); a node-scoped gate runs only on nodes of
+	// its language.
+	Languages []string
 }
 
 // TopoOrder sorts nodes so every dependency sweeps before its dependents. It

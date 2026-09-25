@@ -216,6 +216,7 @@ func (g *workspaceGraph) collapse() []SubsystemNode {
 			Title:     title,
 			Paths:     append([]string(nil), comp...),
 			DependsOn: sortedKeys(deps),
+			Languages: sortedKeys(langs),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })

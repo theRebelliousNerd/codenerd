@@ -212,6 +212,6 @@ live.
 | Phase | What | State |
 |---|---|---|
 | 1 | Derived DAG (`campaign.DeriveWorkspaceDAG`: Go via `go list`, Python and JS/TS imports, Rust crates; cycles collapse); per-language gates (`internal/gates`); `nerd.md` `gates:` and `critical:`; `nerd campaign recurse --plan` | done |
-| 2 | Measure → findings as facts, `recurse.mg` pick/stall, ratchet keep/revert, commits on `nerd/recurse`, journal, fake-model end-to-end tests | next |
-| 3 | Forever by default, `status`/`stop`, measured improvement angles, `workspace_critical_path` replacing the three Go constants | |
+| 2 | Measure → findings as facts (`gates.Run`, `gates.Findings`), `policy/recurse.mg` pick/stall/ratchet, git ratchet keep/revert on `nerd/recurse`, journal + in-flight settle on restart, CLI and chat both on `RunRecurseCycles`; wave planner and wave runner deleted; end-to-end tests with a scripted fake model on the single-store and the production kernel | done |
+| 3 | Forever by default, `status`/`stop`, measured improvement angles (every visit), `workspace_critical_path` replacing the three Go constants | next |
 | 4 | Session forcing gates run the workspace's gates for non-Go writes; `/unverified` when a gate cannot run | |

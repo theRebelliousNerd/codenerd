@@ -188,29 +188,26 @@ func TestDeriveWorkspaceDAG_AnUnreadableWorkspaceIsOneNode(t *testing.T) {
 	assertClose(t, ids)
 }
 
-// Planning uses the derived DAG: a workspace's recurse campaign names its own
-// directories, not codeNERD's.
-func TestNewRecurseCampaign_PlansTheWorkspacesOwnPackages(t *testing.T) {
+// The sweep is the workspace's own: a Python workspace's order names its
+// packages, not codeNERD's.
+func TestRecurseSweepOrder_IsTheWorkspacesOwn(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
 		"pkg/core/__init__.py": "",
 		"pkg/web/app.py":       "from pkg.core import x\n",
 	})
-	c, err := NewRecurseCampaign(root, RecurseConfig{})
+	nodes, err := RecurseSweepOrder(context.Background(), root, nil)
 	if err != nil {
-		t.Fatalf("NewRecurseCampaign: %v", err)
+		t.Fatalf("RecurseSweepOrder: %v", err)
 	}
-	var names []string
-	for _, p := range c.Phases {
-		names = append(names, p.Name)
+	var ids []string
+	for _, n := range nodes {
+		ids = append(ids, n.ID)
 	}
-	joined := func(sub string) bool {
-		return slices.ContainsFunc(names, func(n string) bool { return strings.Contains(n, sub) })
+	if !before(ids, "pkg/core", "pkg/web") {
+		t.Fatalf("pkg/core sweeps before pkg/web, which imports it: %v", ids)
 	}
-	if !joined("pkg/core") || !joined("pkg/web") {
-		t.Fatalf("phases must name the workspace's packages: %v", names)
-	}
-	if joined("internal/mangle") {
-		t.Fatalf("a Python workspace's plan must not name codeNERD's packages: %v", names)
+	if slices.ContainsFunc(ids, func(id string) bool { return strings.HasPrefix(id, "internal/") }) {
+		t.Fatalf("a Python workspace's sweep must not name codeNERD's packages: %v", ids)
 	}
 }

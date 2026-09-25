@@ -240,3 +240,20 @@ func TestDetect_EmptyWorkspaceHasNoGates(t *testing.T) {
 		t.Fatalf("an empty workspace has no gates: %+v", s)
 	}
 }
+
+func TestLanguageOf(t *testing.T) {
+	for argv, want := range map[string]string{
+		"go vet {pkg}":                "go",
+		"go run ./tools/check {node}": "",
+		"python3 -m pytest {node}":    "python",
+		"pnpm run lint":               "js/ts",
+		"cargo clippy":                "rust",
+		"make test":                   "",
+		"./scripts/check.sh":          "",
+		"C:/Go/bin/go.exe test {pkg}": "go",
+	} {
+		if got := languageOf(strings.Fields(argv)); got != want {
+			t.Errorf("languageOf(%q) = %q, want %q", argv, got, want)
+		}
+	}
+}

@@ -669,7 +669,7 @@ every configurable field, so nothing is silently defaulted.
 <tr><td><code>nerd review &lt;target&gt;</code></td><td>Review, routed to the reasoning tier</td></tr>
 <tr><td><code>nerd spawn &lt;persona&gt; "…"</code></td><td>Delegate to a specialist in an isolated context</td></tr>
 <tr><td><code>nerd campaign start "…"</code></td><td>Multi-phase campaign with verified checkpoints (<code>--type</code>, <code>--docs</code>, <code>--accept</code>)</td></tr>
-<tr><td><code>nerd campaign recurse</code></td><td>Waves of campaigns over the subsystem DAG</td></tr>
+<tr><td><code>nerd campaign recurse</code></td><td>Improve the workspace node by node, bottom to top: measure, fix, keep only what the gates prove (<code>--plan</code> to preview)</td></tr>
 <tr><td><code>nerd regression run</code></td><td>Run the regression battery</td></tr>
 </table>
 

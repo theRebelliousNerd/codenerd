@@ -663,9 +663,18 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.startAssaultCampaign(parts[2:]))
 		case "recurse":
+			if args := parts[2:]; len(args) == 1 && args[0] == "stop" {
+				if stopped, ok := m.stopRecurse(); ok {
+					m = stopped
+				} else {
+					m = m.pushAssistantMsg("No recurse loop is running.")
+				}
+				m.textarea.Reset()
+				return m, nil
+			}
 			m = m.addMessage(Message{
 				Role:    "assistant",
-				Content: "Starting self-improvement sweep over the subsystem DAG...",
+				Content: "Starting recurse: improving the workspace node by node, bottom to top...",
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
@@ -681,16 +690,13 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 				Time:    time.Now(),
 			})
 		case "pause":
-			if m.activeCampaign != nil {
+			if stopped, ok := m.stopRecurse(); ok {
+				m = stopped
+			} else if m.activeCampaign != nil {
 				m.activeCampaign.Status = campaign.StatusPaused
-				content := "Campaign paused."
-				if m.recurse != nil {
-					m.recurse.held = true
-					content = "Campaign paused. The recurse sweep holds between waves."
-				}
 				m = m.addMessage(Message{
 					Role:    "assistant",
-					Content: content,
+					Content: "Campaign paused.",
 					Time:    time.Now(),
 				})
 			} else {
@@ -701,22 +707,6 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 				})
 			}
 		case "resume":
-			if m.recurse != nil && m.recurse.held && m.recurse.lastWave != nil {
-				m.recurse.held = false
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: "Resuming recurse sweep with the next wave...",
-					Time:    time.Now(),
-				})
-				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
-				m.textarea.Reset()
-				m.isLoading = true
-				st := m.recurse
-				prev := st.lastWave
-				m, nextCmd := m.startNextRecurseWave(st, prev, fmt.Sprintf("Recurse wave %d finished.", prev.RecurseWave))
-				return m, tea.Batch(m.spinner.Tick, nextCmd)
-			}
 			if m.activeCampaign != nil && m.activeCampaign.Status == campaign.StatusPaused {
 				m = m.addMessage(Message{
 					Role:    "assistant",

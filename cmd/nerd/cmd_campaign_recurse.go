@@ -18,24 +18,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// `nerd campaign recurse` — a self-improvement sweep over the subsystem DAG,
-// wave after wave. Each wave plans deterministically (no LLM decomposition):
-// base primitives first, up through the layers, then across for wiring,
-// architectural review, and benchmarks. The next wave retargets from the
-// previous wave's findings and rotates attack angles, so consecutive waves
-// come at the same code from different directions.
+// `nerd campaign recurse` -- the improve-everything loop over the workspace it
+// runs in (Docs/journeys/10-forever-loop.md). One node at a time, leaves
+// first: run the node's own gates, let the kernel pick a finding, hand it to
+// the model as a one-task campaign, re-run the gates, and keep the change only
+// if the finding is gone and no gate is worse -- otherwise revert every write.
+// Then the next node, and after the top of the graph, the next pass.
 //
-// Bounds: --waves N runs N waves. --waves 0 with --yolo (or yolo:true in
-// config) runs until stopped or stalled. Unbounded without yolo is refused:
-// an infinite loop is a decision the operator must take deliberately. Even
-// unbounded runs stop on the stall fuse (consecutive waves with nothing
-// completed) — looping without progress is a stall, not work.
+// Bounds: --waves N runs N passes. --waves 0 with --yolo (or yolo:true in
+// config) runs until stopped. Kept changes are commits on nerd/recurse; the
+// ledger is .nerd/recurse/journal.jsonl, and a killed run resumes from it.
 
 var (
 	recurseWaves       int
-	recurseAngles      []string
 	recurseSubsystems  []string
-	recurseStallWaves  int
 	recurseContextSize int
 	recurseDryRun      bool
 	recursePlan        bool
@@ -43,80 +39,73 @@ var (
 
 var campaignRecurseCmd = &cobra.Command{
 	Use:   "recurse",
-	Short: "Run a self-improvement sweep over the subsystem DAG, wave after wave",
-	Long: `Run a deterministic self-improvement sweep, wave after wave.
+	Short: "Improve the workspace node by node, bottom to top, pass after pass",
+	Long: `Improve the workspace node by node, bottom to top, pass after pass.
 
-Each wave sweeps every subsystem in dependency order (Mangle first, CLI last),
-then wiring, architectural review, and benchmarks across the tree. The next
-wave leads with whatever failed and rotates attack angles, so the sweep keeps
-coming at the codebase from different directions.
+The sweep order is derived from the workspace's own imports (Go, Python,
+JS/TS, Rust), and the gates are the workspace's own: nerd.md commands and
+gates, else what go.mod, pyproject.toml, package.json or Cargo.toml offer.
 
-Waves are ordinary campaigns: each is resumable and inspectable on its own,
-linked by a shared recurse ID. Ctrl+C stops between waves.
+For each node, leaves first: run its gates; the kernel picks the finding to
+attempt; the model gets one campaign to fix it; the gates run again. A fix is
+kept (committed on nerd/recurse) only if its finding is gone and no gate got
+worse. Anything else is reverted. A finding that fails the same way twice is
+left until something in its node changes.
+
+Ctrl+C stops the loop; an attempt in flight is reverted. Run again to resume.
 
 Examples:
-  nerd campaign recurse --waves 1
-  nerd campaign recurse --waves 3 --subsystem session --subsystem cli
-  nerd campaign recurse --waves 0 --yolo
   nerd campaign recurse --plan
-  nerd campaign recurse --angles harden,secure --plan`,
+  nerd campaign recurse --waves 1
+  nerd campaign recurse --waves 3 --subsystem internal/store
+  nerd campaign recurse --waves 0 --yolo`,
 	RunE: runCampaignRecurse,
 }
 
 func init() {
 	f := campaignRecurseCmd.Flags()
-	f.IntVar(&recurseWaves, "waves", 1, "Waves to run (0 = unbounded, requires --yolo)")
-	f.StringSliceVar(&recurseAngles, "angles", nil, "Fix the wave angles (max 2: harden,wire,review,test,bench,secure); default rotates")
-	f.StringSliceVar(&recurseSubsystems, "subsystem", nil, "Focus subsystems (dependencies pulled in); repeatable")
-	f.IntVar(&recurseStallWaves, "stall-waves", 0, "Stop after N consecutive waves with nothing completed (default 2)")
-	f.IntVar(&recurseContextSize, "context-budget", 0, "Token budget for wave campaign context (default 200000)")
-	f.BoolVar(&recursePlan, "plan", false, "Print the derived sweep order, the workspace's gates and the wave-zero plan; runs nothing")
+	f.IntVar(&recurseWaves, "waves", 1, "Passes over the graph (0 = until stopped, requires --yolo)")
+	f.StringSliceVar(&recurseSubsystems, "subsystem", nil, "Focus nodes (dependencies pulled in); repeatable")
+	f.IntVar(&recurseContextSize, "context-budget", 0, "Token budget for each attempt's campaign context (default 200000)")
+	f.BoolVar(&recursePlan, "plan", false, "Print the derived sweep order and the workspace's gates; runs nothing")
 	f.BoolVar(&recurseDryRun, "dry-run", false, "Same as --plan")
 }
 
 // resolveRecurseConfig validates flags into a campaign.RecurseConfig. Pure
 // (no I/O) so tests pin every flag-to-field mapping.
-func resolveRecurseConfig(waves int, angles, subsystems []string, stallWaves, contextSize int) (campaign.RecurseConfig, error) {
-	cfg := campaign.RecurseConfig{
-		MaxWaves:       waves,
-		Subsystems:     subsystems,
-		StallWaveLimit: stallWaves,
-		ContextBudget:  contextSize,
-	}
-	for _, a := range angles {
-		angle, err := campaign.ParseRecurseAngle(a)
-		if err != nil {
-			return cfg, err
-		}
-		cfg.Angles = append(cfg.Angles, angle)
-	}
-	return cfg.Normalize()
+func resolveRecurseConfig(waves int, subsystems []string, contextSize int) (campaign.RecurseConfig, error) {
+	return campaign.RecurseConfig{
+		MaxWaves:      waves,
+		Subsystems:    subsystems,
+		ContextBudget: contextSize,
+	}.Normalize()
 }
 
 // checkRecurseYolo refuses an unbounded run without yolo mode. An infinite
 // loop is a decision the operator must take deliberately, from the flag or
-// from config — never the default.
+// from config -- never the default.
 func checkRecurseYolo(cfg campaign.RecurseConfig, yolo bool) error {
 	if cfg.MaxWaves == 0 && !yolo {
-		return fmt.Errorf("recurse: unbounded run (--waves 0) requires yolo mode (--yolo or yolo:true in .nerd/config.json)")
+		return fmt.Errorf("recurse: an unbounded run (--waves 0) requires yolo mode (--yolo or yolo:true in .nerd/config.json)")
 	}
 	return nil
 }
 
-// recurseWaveConfig returns the orchestrator config for one recurse wave.
-// Wave 0 uses base as built; every later wave gets a fresh Northstar
-// observer, because the previous wave's orchestrator closed its own.
-func recurseWaveConfig(base campaign.OrchestratorConfig, wave int, newObserver func() *northstar.CampaignObserver) campaign.OrchestratorConfig {
-	if wave == 0 {
+// recurseAttemptConfig returns the orchestrator config for the n-th attempt
+// (zero-based). The first uses base as built; every later one gets a fresh
+// Northstar observer, because the previous attempt's orchestrator closed its
+// own.
+func recurseAttemptConfig(base campaign.OrchestratorConfig, n int, newObserver func() *northstar.CampaignObserver) campaign.OrchestratorConfig {
+	if n == 0 {
 		return base
 	}
-	waveCfg := base
-	waveCfg.NorthstarObserver = newObserver()
-	return waveCfg
+	attemptCfg := base
+	attemptCfg.NorthstarObserver = newObserver()
+	return attemptCfg
 }
 
 func runCampaignRecurse(cmd *cobra.Command, args []string) error {
-	cfg, err := resolveRecurseConfig(recurseWaves, recurseAngles, recurseSubsystems, recurseStallWaves, recurseContextSize)
+	cfg, err := resolveRecurseConfig(recurseWaves, recurseSubsystems, recurseContextSize)
 	if err != nil {
 		return err
 	}
@@ -141,15 +130,15 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Unbounded runs still honor --timeout like any other command; Ctrl+C
-	// stops between waves via the shared context.
+	// Unbounded runs still honor --timeout like any other command. Ctrl+C
+	// cancels the shared context; the loop reverts an attempt in flight.
 	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		fmt.Println("\nRecurse stopping after this wave...")
+		fmt.Println("\nRecurse stopping; reverting any attempt in flight...")
 		cancel()
 	}()
 
@@ -165,7 +154,11 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	if cortex.LLMClient == nil {
 		return fmt.Errorf("campaign recurse: cortex boot did not provide an LLM client")
 	}
-	if cortex.Kernel == nil && cortex.RealKernel == nil {
+	kernel := cortex.Kernel
+	if kernel == nil && cortex.RealKernel != nil {
+		kernel = cortex.RealKernel
+	}
+	if kernel == nil {
 		return fmt.Errorf("campaign recurse: cortex boot did not provide a kernel")
 	}
 
@@ -177,30 +170,25 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	}
 	startCampaignEventPrinter(eventChan)
 
-	runner := &campaign.RecurseRunner{
-		MaxWaves:       cfg.MaxWaves,
-		AllowUnbounded: yolo,
-		StallWaveLimit: cfg.StallWaveLimit,
-		NewWave: func(ctx context.Context, wave int, prev *campaign.Campaign) (*campaign.Campaign, error) {
-			var planned *campaign.Campaign
-			var err error
-			if wave == 0 {
-				planned, err = campaign.NewRecurseCampaign(cwd, cfg)
-			} else {
-				planned, err = campaign.PlanNextWave(cwd, cfg, prev)
-			}
-			if err != nil {
-				return nil, err
-			}
-			fmt.Printf("\n%s Recurse wave %d: %s\n", waveBanner(wave), wave, planned.Title)
-			runErr := executeCampaignPlan(ctx, cmd, recurseWaveConfig(orchCfg, wave, func() *northstar.CampaignObserver { return campaignNorthstarObserver(cortex, cwd) }), promptProvider, planned)
-			return planned, runErr
-		},
+	attempts := 0
+	execute := func(ctx context.Context, a campaign.RecurseAttempt) error {
+		camp := campaign.RecurseAttemptCampaign(cwd, a)
+		camp.ContextBudget = cfg.ContextBudget
+		attemptCfg := recurseAttemptConfig(orchCfg, attempts, func() *northstar.CampaignObserver { return campaignNorthstarObserver(cortex, cwd) })
+		attempts++
+		return executeCampaignPlan(ctx, cmd, attemptCfg, promptProvider, camp)
 	}
 
-	fmt.Printf("\nRecurse: sweeping the subsystem DAG (%s).\n", recurseBoundText(cfg, yolo))
-	result, err := runner.Run(ctx)
-	printRecurseResult(result)
+	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg, yolo))
+	result, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{
+		Workspace:  cwd,
+		Kernel:     kernel,
+		Execute:    execute,
+		Passes:     cfg.MaxWaves,
+		Subsystems: cfg.Subsystems,
+		Progress:   cmd.OutOrStdout(),
+	})
+	printRecurseResult(cmd.OutOrStdout(), result)
 	if err != nil {
 		cmd.SilenceUsage = true
 		return err
@@ -208,41 +196,26 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func waveBanner(wave int) string {
-	if wave == 0 {
-		return "Starting"
-	}
-	return "Continuing to"
-}
-
 func recurseBoundText(cfg campaign.RecurseConfig, yolo bool) string {
 	if cfg.MaxWaves == 0 {
-		return "unbounded, yolo mode — Ctrl+C stops between waves"
+		return "until stopped, yolo mode -- Ctrl+C stops"
 	}
-	if yolo {
-		return fmt.Sprintf("%d waves, yolo mode", cfg.MaxWaves)
+	if cfg.MaxWaves == 1 {
+		return "1 pass"
 	}
-	return fmt.Sprintf("%d waves", cfg.MaxWaves)
+	return fmt.Sprintf("%d passes", cfg.MaxWaves)
 }
 
-func printRecurseResult(result *campaign.RecurseResult) {
-	if result == nil {
-		return
-	}
-	fmt.Printf("\nRecurse finished: %d waves, %d tasks completed, %d failed.\n",
-		result.WavesCompleted, result.CompletedTasks, result.FailedTasks)
-	if result.Stalled {
-		fmt.Printf("Stopped by the stall fuse: consecutive waves completed nothing (last wave %s).\n", result.LastCampaignID)
-	}
-	for _, e := range result.WaveErrors {
-		fmt.Printf("  wave error kept in result: %s\n", e)
+func printRecurseResult(w io.Writer, r *campaign.RecurseCycleResult) {
+	if r != nil {
+		fmt.Fprintf(w, "\n%s\n", r.Summary())
 	}
 }
 
 // writeRecursePlan prints what recurse would do in this workspace without a
 // model: the sweep order derived from the workspace's own imports (bottom to
-// top), the gates that will judge every change, the gates that cannot run
-// here, and the wave-zero phases. It is the owner's look before a real run.
+// top), the gates that will judge every change, and the gates that cannot run
+// here. It is the owner's look before a real run.
 func writeRecursePlan(w io.Writer, cwd string, cfg campaign.RecurseConfig) error {
 	root, err := filepath.Abs(cwd)
 	if err != nil {
@@ -256,11 +229,6 @@ func writeRecursePlan(w io.Writer, cwd string, cfg campaign.RecurseConfig) error
 	if err != nil {
 		return err
 	}
-	c, err := campaign.NewRecurseCampaign(root, cfg)
-	if err != nil {
-		return err
-	}
-
 	fmt.Fprintf(w, "Recurse plan for %s (no model; nothing runs)\n", root)
 	fmt.Fprintf(w, "\nSweep order, bottom to top (%d nodes):\n", len(nodes))
 	for i, n := range nodes {
@@ -285,11 +253,12 @@ func writeRecursePlan(w io.Writer, cwd string, cfg campaign.RecurseConfig) error
 		}
 	}
 
-	fmt.Fprintf(w, "\nWave 0: %s\n", c.Title)
-	fmt.Fprintf(w, "  phases: %d, tasks: %d, max waves: %d, stall waves: %d\n",
-		c.TotalPhases, c.TotalTasks, cfg.MaxWaves, cfg.StallWaveLimit)
-	for i, p := range c.Phases {
-		fmt.Fprintf(w, "  phase %d: %s (%d tasks, gate %s)\n", i, p.Name, len(p.Tasks), p.Checkpoints[0].Type)
+	passes := "until stopped"
+	if cfg.MaxWaves > 0 {
+		passes = fmt.Sprintf("%d", cfg.MaxWaves)
 	}
+	fmt.Fprintf(w, "\nEach pass visits these nodes in order (passes: %s). A visit runs the node's gates,\n", passes)
+	fmt.Fprintln(w, "the kernel picks a finding (policy/recurse.mg), the model gets one campaign to fix it,")
+	fmt.Fprintln(w, "and the fix is kept only if its finding is gone and no gate got worse.")
 	return nil
 }
