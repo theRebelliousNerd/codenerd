@@ -239,8 +239,19 @@ func (e *MockContextEngine) GetCompressionStats() (originalTokens, compressedTok
 }
 
 // GetActivationBreakdown returns nil in mock mode (no real activation scoring).
-func (e *MockContextEngine) GetActivationBreakdown(factID string) *ActivationBreakdown {
+func (e *MockContextEngine) GetActivationBreakdown(fact core.Fact) *ActivationBreakdown {
 	return nil // Not available in mock mode
+}
+
+// SeedFacts adds a scenario's world facts to the retrieval pool and the kernel.
+func (e *MockContextEngine) SeedFacts(facts []core.Fact) error {
+	if e.kernel != nil {
+		if err := e.kernel.LoadFacts(facts); err != nil {
+			return fmt.Errorf("failed to load seed facts: %w", err)
+		}
+	}
+	e.facts = append(e.facts, facts...)
+	return nil
 }
 
 // SetCampaignContext is a no-op in mock mode.
