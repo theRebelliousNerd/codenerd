@@ -15,7 +15,9 @@
 //	internal/session     — build_verify.go, test_verify.go, coverage_profile.go, lsp_diagnostics.go
 //	internal/core        — virtual_store_actions.go
 //	internal/system      — factory_execution.go (tactile ExecutorConfig.BaseEnvironment)
-//	internal/campaign    — checkpoint.go, orchestrator_task_handlers.go (TestTagsForWorkspace, gate env)
+//	internal/campaign    — checkpoint.go, orchestrator_task_handlers.go (TestTagsForWorkspace, gate env),
+//	                       recurse_workspace.go (go list for the recurse DAG, via GoInvocation)
+//	internal/gates       — run.go (a workspace's go gates, via GoInvocation; WorkspaceUserConfig)
 //	internal/tools/shell — verification.go (run_build / run_tests, via GoInvocation)
 //	internal/tools/codedom — run_impacted_tests.go (via GoInvocation)
 //

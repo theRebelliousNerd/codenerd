@@ -611,6 +611,26 @@ the failure is the bug report. Some things that loop has caught:
 
 Dogfooding isn't a slogan here. It's the test harness.
 
+### Recurse: improve everything, forever
+
+```
+   for node in the workspace's own import graph, leaves first:        one at a time
+     measure   the node's gates (the workspace's own: nerd.md, go.mod, pyproject, package.json, Cargo)
+     pick      the kernel chooses a finding            red build > red test > regression > lint
+     fix       one campaign, the finding's gate as its witness
+     ratchet   re-measure ── keep (commit on nerd/recurse) only if it is gone and nothing got worse
+     improve   every visit, red or green: stabilize · harden · simplify · extend, by pass,
+               kept only if tests, coverage or lines moved the right way
+   then the next node; after the top of the graph, the next pass
+```
+
+`nerd campaign recurse` is that loop, in any workspace, until it is stopped. Every decision is a
+rule in `policy/recurse.mg`; Go measures and the kernel judges. A "fix" that deletes the failing
+test is reverted, a finding that fails the same way twice waits until its node changes, a write to
+a `nerd.md`-forbidden path is refused, and a killed run resumes without losing or repeating a kept
+change. `--plan` shows the order and the gates before anything runs; `status` and `stop` work from
+another shell. The design and its evidence: [Docs/journeys/10-forever-loop.md](Docs/journeys/10-forever-loop.md).
+
 ---
 
 ## Part IX · Get started
