@@ -1698,10 +1698,10 @@ func TestDebugTaxonomy_ShouldReturnResults(t *testing.T) {
 	_ = shardType
 }
 
-func TestDebugTaxonomyWithContext_ShouldAcceptContext(t *testing.T) {
+func TestMatchVerbFromCorpus_ShouldAcceptContext(t *testing.T) {
 	ctx := t.Context()
 
-	verb, category, _, _ := DebugTaxonomyWithContext(ctx, "review the code")
+	verb, category, _, _ := matchVerbFromCorpus(ctx, "review the code")
 	if verb == "" {
 		t.Error("expected non-empty verb")
 	}
@@ -2032,30 +2032,6 @@ func TestProviderConstants_ShouldHaveExpectedValues(t *testing.T) {
 // =============================================================================
 // REFINE CATEGORY ADDITIONAL EDGE CASES
 // =============================================================================
-
-func TestRefineCategory_WhenPolitePrefix_ShouldStillDetectMutation(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"please_can_you_make", "please can you make this faster", "/mutation"},
-		{"i_need_you_to", "I need you to fix the login", "/mutation"},
-		{"from_now_on", "from now on use spaces", "/instruction"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := refineCategory(tc.input, "/query")
-			if got != tc.want {
-				t.Errorf("refineCategory(%q) = %q, want %q", tc.input, got, tc.want)
-			}
-		})
-	}
-}
 
 // =============================================================================
 // MAP ACTION TO VERB EXPANDED TESTS

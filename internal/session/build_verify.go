@@ -406,6 +406,7 @@ func mergeImporterVerdict(own, imp TestVerification) TestVerification {
 
 // gateOwnTests is the gate over the turn's own packages.
 func gateOwnTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
+	workspace = goWorkspace(workspace)
 	runnable, gated := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
 	if len(gated) > 0 {
 		if failed, ok := vetTagGatedPackages(ctx, workspace, gated); !ok {

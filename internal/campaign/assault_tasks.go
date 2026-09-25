@@ -232,7 +232,7 @@ func (o *Orchestrator) executeAssaultBatchTask(ctx context.Context, task *Task) 
 	resultsPath := filepath.Join(resultsDir, batch.BatchID+".jsonl")
 	completed := readAssaultResultIndex(resultsPath)
 
-	exec := newAssaultExecutor(o.workspace, cfg.LogMaxBytes, time.Duration(cfg.DefaultTimeoutSeconds)*time.Second)
+	exec := o.auditedExecutor(newAssaultExecutor(o.workspace, cfg.LogMaxBytes, time.Duration(cfg.DefaultTimeoutSeconds)*time.Second))
 
 	wrote := 0
 	skipped := 0
@@ -930,6 +930,20 @@ func writeTextFileBestEffort(path, content string) {
 	_ = os.WriteFile(path, []byte(content), 0644)
 }
 
+// auditedExecutor gives a direct executor built by the campaign (a registered
+// bypass in tactile.DirectBypassRegistry) the campaign kernel as its audit
+// sink, so the commands it runs land as execution facts the way
+// VirtualStore's do instead of leaving no trace in the kernel.
+func (o *Orchestrator) auditedExecutor(exec tactile.Executor) tactile.Executor {
+	if o.kernel == nil {
+		return exec
+	}
+	kernel := o.kernel
+	return tactile.NewFactAuditedExecutor(exec, func(f tactile.Fact) error {
+		return kernel.Assert(core.Fact{Predicate: f.Predicate, Args: append([]any(nil), f.Args...)})
+	})
+}
+
 func newAssaultExecutor(workspace string, maxOutputBytes int64, defaultTimeout time.Duration) tactile.Executor {
 	if defaultTimeout <= 0 {
 		defaultTimeout = 15 * time.Minute
@@ -983,7 +997,7 @@ func (o *Orchestrator) discoverAssaultTargets(ctx context.Context, cfg AssaultCo
 
 func (o *Orchestrator) discoverGoTargets(ctx context.Context, cfg AssaultConfig) ([]string, error) {
 	if o.executor == nil {
-		o.executor = tactile.NewDirectExecutor()
+		o.executor = o.auditedExecutor(tactile.NewDirectExecutor())
 	}
 
 	timeout := cfg.DefaultTimeoutSeconds

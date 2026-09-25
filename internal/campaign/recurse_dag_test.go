@@ -6,12 +6,12 @@ import (
 )
 
 func TestTopoOrder_RespectsDependencies(t *testing.T) {
-	ordered, err := TopoOrder(RecurseDAG())
+	ordered, err := TopoOrder(fixtureDAG())
 	if err != nil {
 		t.Fatalf("TopoOrder: %v", err)
 	}
-	if len(ordered) != len(RecurseDAG()) {
-		t.Fatalf("ordered %d nodes, want %d", len(ordered), len(RecurseDAG()))
+	if len(ordered) != len(fixtureDAG()) {
+		t.Fatalf("ordered %d nodes, want %d", len(ordered), len(fixtureDAG()))
 	}
 	position := make(map[string]int, len(ordered))
 	for i, n := range ordered {
@@ -62,13 +62,13 @@ func TestTopoOrder_RejectsBadGraphs(t *testing.T) {
 }
 
 func TestTopoOrder_IsStableUnderShuffle(t *testing.T) {
-	dag := RecurseDAG()
+	dag := fixtureDAG()
 	// Reverse the input: the lexicographic tie-break must still yield the
 	// same order, or wave plans would wobble run to run.
 	for i, j := 0, len(dag)-1; i < j; i, j = i+1, j-1 {
 		dag[i], dag[j] = dag[j], dag[i]
 	}
-	a, err := TopoOrder(RecurseDAG())
+	a, err := TopoOrder(fixtureDAG())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestTopoOrder_IsStableUnderShuffle(t *testing.T) {
 }
 
 func TestFilterDAG_PullsDependencies(t *testing.T) {
-	filtered, err := FilterDAG(RecurseDAG(), []string{"session"})
+	filtered, err := FilterDAG(fixtureDAG(), []string{"session"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,10 +108,10 @@ func TestFilterDAG_PullsDependencies(t *testing.T) {
 }
 
 func TestFilterDAG_UnknownFails(t *testing.T) {
-	if _, err := FilterDAG(RecurseDAG(), []string{"sauron"}); err == nil {
+	if _, err := FilterDAG(fixtureDAG(), []string{"sauron"}); err == nil {
 		t.Fatal("unknown subsystem must fail closed")
 	}
-	if _, err := FilterDAG(RecurseDAG(), nil); err != nil {
+	if _, err := FilterDAG(fixtureDAG(), nil); err != nil {
 		t.Fatalf("empty filter must keep everything: %v", err)
 	}
 }

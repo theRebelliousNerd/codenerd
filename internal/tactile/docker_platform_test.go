@@ -1,7 +1,6 @@
 package tactile
 
 import (
-	"runtime"
 	"slices"
 	"testing"
 )
@@ -550,28 +549,3 @@ func TestDockerExecutor_EmitAudit_WhenNoCallback_ShouldNotPanic(t *testing.T) {
 // =============================================================================
 // Platform-specific executor tests (Windows)
 // =============================================================================
-
-func TestGetPlatformExecutor_ShouldReturnExecutor(t *testing.T) {
-	t.Parallel()
-	config := DefaultExecutorConfig()
-	exec := GetPlatformExecutor(config)
-	if exec == nil {
-		t.Fatal("GetPlatformExecutor returned nil")
-	}
-	caps := exec.Capabilities()
-	if caps.Platform != runtime.GOOS {
-		t.Errorf("expected platform %s, got %s", runtime.GOOS, caps.Platform)
-	}
-}
-
-func TestCreateRlimits_ShouldReturnNilOnWindows(t *testing.T) {
-	t.Parallel()
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows-only test")
-	}
-	limits := &ResourceLimits{MaxMemoryBytes: 1024}
-	result := createRlimits(limits)
-	if result != nil {
-		t.Errorf("expected nil on Windows, got %v", result)
-	}
-}

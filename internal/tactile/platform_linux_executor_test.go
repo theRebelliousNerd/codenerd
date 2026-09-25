@@ -5,7 +5,6 @@ package tactile
 import (
 	"context"
 	"strings"
-	"syscall"
 	"testing"
 )
 
@@ -46,22 +45,4 @@ func TestLimitedExecutorLinux_ExecuteFallsBackToDirect(t *testing.T) {
 	if !res.Success || !strings.Contains(res.Stdout, "linux-exec-ok") {
 		t.Errorf("Execute result=%+v, want success with echoed output", res)
 	}
-}
-
-func TestCreateRlimits(t *testing.T) {
-	// nil limits yields the common base set without panicking.
-	if rl := createRlimits(nil); rl == nil {
-		t.Error("createRlimits(nil) should return a (possibly empty) map, not nil")
-	}
-
-	limits := &ResourceLimits{MaxProcesses: 64}
-	rl := createRlimits(limits)
-	got, ok := rl[RLIMIT_NPROC]
-	if !ok {
-		t.Fatal("createRlimits should set RLIMIT_NPROC when MaxProcesses > 0")
-	}
-	if got.Cur != 64 || got.Max != 64 {
-		t.Errorf("RLIMIT_NPROC=%+v, want Cur=Max=64", got)
-	}
-	var _ syscall.Rlimit = got // type sanity
 }

@@ -9,7 +9,7 @@ import (
 
 func TestNewDockerExecutor(t *testing.T) {
 	// Rely on docker_detection_test patterns to ensure docker is initialized
-	executor := NewDockerExecutor()
+	executor := NewDockerExecutorWithConfig(DefaultExecutorConfig())
 	if executor == nil {
 		t.Fatal("NewDockerExecutor returned nil")
 	}
@@ -134,7 +134,7 @@ func TestDockerExecutorValidate_Unavailable(t *testing.T) {
 }
 
 func TestDockerExecutorAuditCallback(t *testing.T) {
-	executor := NewDockerExecutor()
+	executor := NewDockerExecutorWithConfig(DefaultExecutorConfig())
 
 	auditCalled := false
 	var receivedEvent AuditEvent

@@ -393,7 +393,7 @@ func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaR
 	// endpoint succeeded seconds later. Other 4xx still surface immediately:
 	// Meta's errors name the offending field, and losing that turns a one-line
 	// fix into a guessing game.
-	const maxRetries = 3
+	maxRetries := llmMaxRetries()
 	start := time.Now()
 	var (
 		body    []byte

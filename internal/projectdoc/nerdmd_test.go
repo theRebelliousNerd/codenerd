@@ -289,3 +289,33 @@ func TestFind_PrefersWorkspaceRootOverNerdDir(t *testing.T) {
 		t.Errorf("Find = %q, want the workspace-root copy %q", got, root)
 	}
 }
+
+// gates: and critical: are validated like every other key: a gate that could
+// never run correctly is refused at parse time, not discovered by the loop.
+func TestParse_GatesAndCriticalAreValidated(t *testing.T) {
+	const head = "---\nschema: nerd/v1\nproject: x\n"
+	valid := head + "gates:\n  - id: deadcode\n    kind: audit\n    run: ./scripts/deadcode.sh\n" +
+		"  - id: vet\n    kind: lint\n    run: go vet {pkg}\n    scope: node\n" +
+		"critical:\n  - internal/core\n---\n"
+	doc, err := Parse([]byte(valid))
+	if err != nil {
+		t.Fatalf("valid gates rejected: %v", err)
+	}
+	if len(doc.Spec.Gates) != 2 || doc.Spec.Gates[1].Scope != "node" || len(doc.Spec.Critical) != 1 {
+		t.Fatalf("parsed gates/critical = %+v / %v", doc.Spec.Gates, doc.Spec.Critical)
+	}
+
+	for name, body := range map[string]string{
+		"empty id":           "gates:\n  - kind: audit\n    run: x\n",
+		"duplicate id":       "gates:\n  - id: a\n    kind: audit\n    run: x\n  - id: a\n    kind: lint\n    run: y\n",
+		"unknown kind":       "gates:\n  - id: a\n    kind: vibes\n    run: x\n",
+		"empty run":          "gates:\n  - id: a\n    kind: test\n    run: \"  \"\n",
+		"node without token": "gates:\n  - id: a\n    kind: test\n    run: go test ./...\n    scope: node\n",
+		"unknown scope":      "gates:\n  - id: a\n    kind: test\n    run: x\n    scope: galaxy\n",
+		"empty critical":     "critical:\n  - \"\"\n",
+	} {
+		if _, err := Parse([]byte(head + body + "---\n")); err == nil {
+			t.Errorf("%s: want a parse error", name)
+		}
+	}
+}

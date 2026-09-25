@@ -118,14 +118,14 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 
 	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s", c.baseURL, c.model, c.apiKey)
 
-	maxRetries := 3
+	maxRetries := llmMaxRetries()
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			// Context-aware backoff: a cancelled turn must exit during
 			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			backoff := llmRetryBackoff(attempt)
 			select {
 			case <-ctx.Done():
 				errorChan <- fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())

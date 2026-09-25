@@ -227,6 +227,37 @@ func isTransientHTTPStatus(code int) bool {
 	return code == http.StatusRequestTimeout || (code >= 500 && code != http.StatusNotImplemented)
 }
 
+// llmMaxRetries is the retry count every adapter's own retry loop uses: the
+// configured llm_timeouts.max_retries (the value ExecuteOpenAIRequest already
+// honours). The adapters used to hardcode 3, so a user's setting reached only
+// the tools path. A negative value means no retries.
+func llmMaxRetries() int {
+	if n := config.GetLLMTimeouts().MaxRetries; n >= 0 {
+		return n
+	}
+	return 0
+}
+
+// llmRetryBackoff is the wait before retry number attempt (1-based): the
+// configured retry_backoff_base doubled per attempt and capped at
+// retry_backoff_max. With the defaults (1s, 30s) it is the 1s, 2s, 4s the
+// adapters used to hardcode.
+func llmRetryBackoff(attempt int) time.Duration {
+	t := config.GetLLMTimeouts()
+	base := t.RetryBackoffBase
+	if base <= 0 {
+		base = time.Second
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	d := base << uint(attempt-1)
+	if t.RetryBackoffMax > 0 && d > t.RetryBackoffMax {
+		d = t.RetryBackoffMax
+	}
+	return d
+}
+
 // ExecuteOpenAIRequest performs a non-streaming OpenAI-compatible request.
 // Used by OpenAI, xAI, OpenRouter clients for tool calls.
 func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, apiKey string, reqBody OpenAIRequest) (*OpenAIResponse, error) {

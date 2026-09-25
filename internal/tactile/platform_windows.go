@@ -201,12 +201,6 @@ func applyPlatformAttrs(execCmd *exec.Cmd, cmd Command) {
 	}
 }
 
-// createRlimits is a no-op on Windows since we use Job Objects.
-// Returns nil as Windows doesn't use rlimits.
-func createRlimits(limits *ResourceLimits) map[int]uint64 {
-	return nil
-}
-
 // JobObject wraps a Windows job object for process resource management.
 type JobObject struct {
 	handle syscall.Handle
@@ -619,20 +613,10 @@ type NamespaceConfig struct {
 	Hostname string
 }
 
-// GetPlatformExecutor returns the best executor for Windows.
-func GetPlatformExecutor(config ExecutorConfig) Executor {
-	// On Windows, we can use Docker or Job Objects for limiting
-
-	// Check for Docker
-	docker := NewDockerExecutor()
-	if docker.IsAvailable() {
-		// Return direct executor - composite will be created by factory
-		return NewDirectExecutorWithConfig(config)
-	}
-
-	// Use job object-based limiting (wraps DirectExecutor)
-	return NewDirectExecutorWithConfig(config)
-}
+// registerPlatformIsolation registers no additional backend on Windows yet:
+// Docker is registered by the composite itself, and the Job Object limited
+// executor has no Windows runner in CI to prove routing through the composite.
+func registerPlatformIsolation(*CompositeExecutor, ExecutorConfig) {}
 
 // GetLimitedExecutor returns a resource-limited executor for Windows.
 func GetLimitedExecutor(config ExecutorConfig) *LimitedExecutorWindows {

@@ -126,12 +126,6 @@ func DefaultGeminiConfig(apiKey string) GeminiConfig {
 	}
 }
 
-// NewGeminiClient creates a new Gemini client.
-func NewGeminiClient(apiKey string) *GeminiClient {
-	config := DefaultGeminiConfig(apiKey)
-	return NewGeminiClientWithConfig(config)
-}
-
 // NewGeminiClientWithConfig creates a new Gemini client with custom config.
 func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 	// No fallback model: an empty model stays empty, and the request fails at
@@ -493,14 +487,14 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	logging.LogLLMRequest("GeminiClient", systemPrompt, userPrompt, nil, c.model, reqBody.GenerationConfig.Temperature)
 
 	// Retry loop for rate limits
-	maxRetries := 3
+	maxRetries := llmMaxRetries()
 	var lastErr error
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			// Context-aware backoff: a cancelled turn must exit during
 			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			backoff := llmRetryBackoff(i)
 			select {
 			case <-ctx.Done():
 				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
@@ -771,14 +765,14 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 	logging.LogLLMRequest("GeminiClient-Schema", systemPrompt, userPrompt, nil, c.model, reqBody.GenerationConfig.Temperature)
 
 	// Retry loop for rate limits
-	maxRetries := 3
+	maxRetries := llmMaxRetries()
 	var lastErr error
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			// Context-aware backoff: a cancelled turn must exit during
 			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			backoff := llmRetryBackoff(i)
 			select {
 			case <-ctx.Done():
 				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())

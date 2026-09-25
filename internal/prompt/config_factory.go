@@ -593,8 +593,3 @@ func (p *DefaultConfigAtomProvider) RegisteredIntents() []string {
 	sort.Strings(intents)
 	return intents
 }
-
-// NewDefaultConfigFactory creates a ConfigFactory with the default provider.
-func NewDefaultConfigFactory() *ConfigFactory {
-	return NewConfigFactory(NewDefaultConfigAtomProvider())
-}

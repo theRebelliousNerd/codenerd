@@ -8,6 +8,48 @@ commands:
   lint: go vet ./...
   env:
     CGO_CFLAGS: -IC:/CodeProjects/codeNERD/sqlite_headers
+gates:
+  # Per-node gates: recurse measures each node of the derived DAG with these,
+  # so a visit re-runs the node's own vet and tests, not the whole suite.
+  # commands.test (go test ./...) stays the workspace-wide gate every pass
+  # closes on.
+  - id: go-vet
+    kind: lint
+    run: go vet {pkg}
+    scope: node
+  - id: go-test
+    kind: test
+    run: go test -count=1 {pkg}
+    scope: node
+  # The audits CI enforces (.github/workflows/ci.yml), so the loop holds
+  # every change to the bar a PR is held to.
+  - id: test-bodies
+    kind: audit
+    run: go run ./cmd/tools/audit_test_bodies .
+  - id: committed-binaries
+    kind: audit
+    run: go run ./cmd/tools/audit_committed_binaries
+  - id: json-errors
+    kind: audit
+    run: go run ./cmd/tools/audit_json_errors
+  - id: dark-fields
+    kind: audit
+    run: go run ./cmd/tools/audit_dark_fields
+  - id: parallel-globals
+    kind: audit
+    run: go run ./cmd/tools/audit_parallel_globals
+  - id: tiebreak
+    kind: audit
+    run: go run ./cmd/tools/audit_tiebreak
+  - id: action-drift
+    kind: audit
+    run: go run ./cmd/tools/action_linter -mg-root internal/core/defaults -virtual-store internal/core/virtual_store_types.go
+  - id: predicate-corpus
+    kind: audit
+    run: go run ./cmd/tools/predicate_corpus_builder -check
+  - id: deadcode-budget
+    kind: audit
+    run: bash ./scripts/deadcode-budget.sh
 forbid:
   - match: .nerd/config.json
     reason: >-

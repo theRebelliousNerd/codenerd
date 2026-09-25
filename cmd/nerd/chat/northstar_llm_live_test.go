@@ -24,9 +24,13 @@ func requireLiveLLMClient(t *testing.T) perception.LLMClient {
 	}
 
 	configPath := config.DefaultUserConfigPath()
-	providerCfg, err := perception.LoadConfigJSON(configPath)
+	userCfg, err := config.LoadUserConfig(configPath)
 	if err != nil {
 		t.Skipf("skipping live LLM test: load config %s: %v", configPath, err)
+	}
+	providerCfg, err := perception.ProviderConfigFromUserConfig(userCfg)
+	if err != nil {
+		t.Skipf("skipping live LLM test: resolve provider config %s: %v", configPath, err)
 	}
 	if providerCfg.Engine != "" && providerCfg.Engine != "api" {
 		t.Skipf("skipping live LLM test: engine=%q (this test requires the API engine)", providerCfg.Engine)

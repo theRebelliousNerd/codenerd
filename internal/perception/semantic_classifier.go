@@ -163,29 +163,6 @@ type SemanticClassifier struct {
 	config        SemanticConfig
 }
 
-// NewSemanticClassifier creates a new classifier with both stores.
-func NewSemanticClassifier(
-	kernel core.Kernel,
-	embeddedStore *EmbeddedCorpusStore,
-	learnedStore *LearnedCorpusStore,
-	embedEngine embedding.EmbeddingEngine,
-) *SemanticClassifier {
-	logging.Perception("Creating SemanticClassifier")
-
-	sc := &SemanticClassifier{
-		kernel:        kernel,
-		embeddedStore: embeddedStore,
-		learnedStore:  learnedStore,
-		embedEngine:   embedEngine,
-		config:        DefaultSemanticConfig(),
-	}
-
-	logging.PerceptionDebug("SemanticClassifier created with TopK=%d, MinSimilarity=%.2f, LearnedBoost=%.2f",
-		sc.config.TopK, sc.config.MinSimilarity, sc.config.LearnedBoost)
-
-	return sc
-}
-
 // NewSemanticClassifierFromConfig creates a classifier using config settings.
 // This is the main constructor for production use.
 func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig) (*SemanticClassifier, error) {
@@ -261,15 +238,6 @@ func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig)
 		embeddedStore != nil, learnedStore != nil)
 
 	return sc, nil
-}
-
-// SetConfig updates the classifier configuration.
-func (sc *SemanticClassifier) SetConfig(cfg SemanticConfig) {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-	sc.config = cfg
-	logging.PerceptionDebug("SemanticClassifier config updated: TopK=%d, MinSimilarity=%.2f",
-		cfg.TopK, cfg.MinSimilarity)
 }
 
 // Classify performs semantic classification and injects facts into kernel.

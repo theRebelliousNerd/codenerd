@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -444,131 +443,6 @@ func TestFinalAssembler_Assemble_InjectsAvailableSpecialists(t *testing.T) {
 	}
 }
 
-func TestDefaultAssemblyOptions(t *testing.T) {
-	opts := DefaultAssemblyOptions()
-
-	assert.False(t, opts.IncludeSectionHeaders)
-	assert.False(t, opts.MinifyWhitespace)
-	assert.False(t, opts.IncludeMetadata)
-}
-
-func TestFinalAssembler_AssembleWithOptions(t *testing.T) {
-	atoms := []*OrderedAtom{
-		{Atom: &PromptAtom{ID: "identity", Category: CategoryIdentity, Content: "Identity content"}, Order: 0},
-		{Atom: &PromptAtom{ID: "protocol", Category: CategoryProtocol, Content: "Protocol content"}, Order: 1},
-	}
-
-	t.Run("with section headers", func(t *testing.T) {
-		assembler := NewFinalAssembler()
-		opts := AssemblyOptions{IncludeSectionHeaders: true}
-
-		result, err := assembler.AssembleWithOptions(atoms, NewCompilationContext(), opts)
-
-		require.NoError(t, err)
-		assert.Contains(t, result, "## Identity")
-	})
-
-	t.Run("with minified whitespace", func(t *testing.T) {
-		atomsWithWhitespace := []*OrderedAtom{
-			{Atom: &PromptAtom{ID: "a", Category: CategoryIdentity, Content: "Line 1\n\n\n\nLine 2"}, Order: 0},
-		}
-
-		assembler := NewFinalAssembler()
-		opts := AssemblyOptions{MinifyWhitespace: true}
-
-		result, err := assembler.AssembleWithOptions(atomsWithWhitespace, NewCompilationContext(), opts)
-
-		require.NoError(t, err)
-		assert.NotContains(t, result, "\n\n\n\n")
-		assert.Contains(t, result, "\n\n")
-	})
-}
-
-func TestMinifyWhitespace(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "triple newlines reduced to double",
-			input:    "a\n\n\nb",
-			expected: "a\n\nb",
-		},
-		{
-			name:     "quadruple newlines reduced",
-			input:    "a\n\n\n\nb",
-			expected: "a\n\nb",
-		},
-		{
-			name:     "trailing whitespace removed",
-			input:    "a   \nb  \t\nc",
-			expected: "a\nb\nc",
-		},
-		{
-			name:     "double newlines preserved",
-			input:    "a\n\nb",
-			expected: "a\n\nb",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := minifyWhitespace(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestAnalyzePrompt(t *testing.T) {
-	atoms := []*OrderedAtom{
-		{Atom: &PromptAtom{ID: "a", Category: CategoryIdentity, IsMandatory: true, Content: "Short"}, Order: 0},
-		{Atom: &PromptAtom{ID: "b", Category: CategoryIdentity, IsMandatory: false, Content: "Medium content here"}, Order: 1},
-		{Atom: &PromptAtom{ID: "c", Category: CategoryProtocol, IsMandatory: false, Content: strings.Repeat("x", 100)}, Order: 2},
-	}
-
-	prompt := "Short\n\nMedium content here\n\n" + strings.Repeat("x", 100)
-
-	stats := AnalyzePrompt(prompt, atoms)
-
-	t.Run("char count", func(t *testing.T) {
-		assert.Equal(t, len(prompt), stats.CharCount)
-	})
-
-	t.Run("token count estimated", func(t *testing.T) {
-		assert.Greater(t, stats.TokenCount, 0)
-	})
-
-	t.Run("line count", func(t *testing.T) {
-		assert.Greater(t, stats.LineCount, 0)
-	})
-
-	t.Run("atom count", func(t *testing.T) {
-		assert.Equal(t, 3, stats.AtomCount)
-	})
-
-	t.Run("category counts", func(t *testing.T) {
-		assert.Equal(t, 2, stats.CategoryCounts[CategoryIdentity])
-		assert.Equal(t, 1, stats.CategoryCounts[CategoryProtocol])
-	})
-
-	t.Run("section count", func(t *testing.T) {
-		assert.Equal(t, 2, stats.SectionCount)
-	})
-
-	t.Run("mandatory count", func(t *testing.T) {
-		assert.Equal(t, 1, stats.MandatoryCount)
-	})
-
-	t.Run("longest atom length", func(t *testing.T) {
-		assert.Equal(t, 100, stats.LongestAtomLen)
-	})
-
-	t.Run("shortest atom length", func(t *testing.T) {
-		assert.Equal(t, 5, stats.ShortestAtomLen)
-	})
-}
-
 // Boundary Value Analysis: Remediated. See assembler_gaps_test.go for comprehensive coverage.
 // Findings: TemplateEngine + FinalAssembler data races fixed with sync.RWMutex.
 // Known bug: truncatePrompt slices at byte boundaries (see assembler.go TODO).
@@ -650,29 +524,6 @@ func BenchmarkTemplateProcess(b *testing.B) {
 	}
 }
 
-func BenchmarkAnalyzePrompt(b *testing.B) {
-	prompt := strings.Repeat("This is a test prompt with some content. ", 100)
-	atoms := make([]*OrderedAtom, 20)
-	categories := AllCategories()
-	for i := range 20 {
-		atoms[i] = &OrderedAtom{
-			Atom: &PromptAtom{
-				ID:          string(rune(i)),
-				Category:    categories[i%len(categories)],
-				IsMandatory: i%5 == 0,
-				Content:     strings.Repeat("x", 50+i*10),
-			},
-			Order: i,
-		}
-	}
-
-	b.ResetTimer()
-
-	for b.Loop() {
-		AnalyzePrompt(prompt, atoms)
-	}
-}
-
 func TestAssemble_UnknownCategoriesSortDeterministically(t *testing.T) {
 	mk := func(id string, cat AtomCategory) *OrderedAtom {
 		return &OrderedAtom{Atom: &PromptAtom{ID: id, Category: cat, Content: "body-" + id}, Order: 0, RenderMode: "standard"}
@@ -724,42 +575,4 @@ func TestAssemble_SkipsNilAtoms(t *testing.T) {
 	out, err := NewFinalAssembler().Assemble(atoms, NewCompilationContext())
 	require.NoError(t, err)
 	assert.Contains(t, out, "hello")
-	assert.NotPanics(t, func() { AnalyzePrompt(out, atoms) })
-}
-
-func TestAssembleWithOptions_ConcurrentOverridesStayIsolated(t *testing.T) {
-	assembler := NewFinalAssembler()
-	atoms := []*OrderedAtom{
-		{Atom: &PromptAtom{ID: "a", Category: CategoryIdentity, Content: "alpha"}, Order: 0, RenderMode: "standard"},
-	}
-	withHeaders := AssemblyOptions{IncludeSectionHeaders: true}
-	withoutHeaders := AssemblyOptions{IncludeSectionHeaders: false}
-	var wg sync.WaitGroup
-	for w := 0; w < 8; w++ {
-		wg.Add(1)
-		go func(w int) {
-			defer wg.Done()
-			for i := 0; i < 25; i++ {
-				opts := withHeaders
-				if (w+i)%2 == 1 {
-					opts = withoutHeaders
-				}
-				out, err := assembler.AssembleWithOptions(atoms, NewCompilationContext(), opts)
-				if err != nil {
-					t.Errorf("assemble: %v", err)
-					return
-				}
-				hasHeader := strings.Contains(out, "## Identity")
-				if opts.IncludeSectionHeaders && !hasHeader {
-					t.Errorf("headers=true rendered without header: %q", out)
-					return
-				}
-				if !opts.IncludeSectionHeaders && hasHeader {
-					t.Errorf("headers=false rendered with header: %q", out)
-					return
-				}
-			}
-		}(w)
-	}
-	wg.Wait()
 }

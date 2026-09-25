@@ -15,3 +15,12 @@
 - On-disk audit logs are a security boundary: keep owner-only permissions,
   redact environment/stdin values, bound captured output, and surface sink
   failures through metrics and logs.
+- Every production `NewDirectExecutor*` outside this package is an exception to
+  VirtualStore's governed route and must be registered in
+  `direct_bypass.go#DirectBypassRegistry` with its permission proof and audit
+  sink; `TestDirectBypassRegistryMatchesProductionConstructors` enforces it.
+  Give a bypass an audit sink with `NewFactAuditedExecutor`, not a silent
+  executor.
+- Isolation backends are registered from host probes
+  (`registerPlatformIsolation`); an explicit mode the host cannot provide stays
+  unregistered and fails closed. Never fall back to direct for an explicit mode.

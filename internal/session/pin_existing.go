@@ -40,7 +40,8 @@ func pinnedByExistingTests(ctx context.Context, workspace string, u pinUnit) (bo
 	}
 	defer os.RemoveAll(tmpDir)
 
-	abs := diskPath(workspace, filepath.FromSlash(u.path))
+	workspace = goWorkspace(workspace)
+	abs := goOverlayKey(workspace, u.path)
 	replace := map[string]string{abs: ""}
 	if !u.absent {
 		stand := filepath.Join(tmpDir, "unit.go")

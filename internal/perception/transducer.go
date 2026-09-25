@@ -89,45 +89,6 @@ func init() {
 	}
 }
 
-// CategoryPatterns maps phrases to categories when verb is ambiguous.
-var CategoryPatterns = map[string][]*regexp.Regexp{
-	"/mutation": {
-		regexp.MustCompile(`(?i)^(please\s+)?(can\s+you\s+)?(make|change|update|modify|edit|fix|add|remove|delete|create|write|implement|refactor)`),
-		regexp.MustCompile(`(?i)i\s+(want|need|would\s+like)\s+(you\s+)?to\s+`),
-		regexp.MustCompile(`(?i)^(add|remove|delete|create|fix|change|update|modify)\s+`),
-	},
-	"/query": {
-		regexp.MustCompile(`(?i)^(what|how|why|when|where|which|who|is|are|does|do|can|could|would|should)\s+`),
-		regexp.MustCompile(`(?i)^(show|explain|describe|tell|list|find|search|look)`),
-		regexp.MustCompile(`(?i)\?$`),
-	},
-	"/instruction": {
-		regexp.MustCompile(`(?i)^(always|never|prefer|remember|from\s+now\s+on|going\s+forward)`),
-		regexp.MustCompile(`(?i)^(use|don'?t\s+use|avoid|include|exclude)\s+.+\s+(by\s+default|always|whenever)`),
-	},
-}
-
-// TargetPatterns help extract the target from natural language.
-var TargetPatterns = []*regexp.Regexp{
-	// File paths
-	regexp.MustCompile(`(?i)(?:file|in)\s+["\x60]?([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)["\x60]?`),
-	regexp.MustCompile(`(?i)["\x60]([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)["\x60]`),
-	regexp.MustCompile(`(?i)(?:^|\s)([a-zA-Z0-9_-]+/[a-zA-Z0-9_./-]+)`),
-	// Function/class names
-	regexp.MustCompile(`(?i)(?:function|method|class|struct|interface)\s+["\x60]?(\w+)["\x60]?`),
-	regexp.MustCompile(`(?i)(?:the|this)\s+(\w+)\s+(?:function|method|class)`),
-	// Generic quoted targets
-	regexp.MustCompile(`["\x60]([^"\x60]+)["\x60]`),
-}
-
-// ConstraintPatterns extract constraints from natural language.
-var ConstraintPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(?:for|using|with|in)\s+(go|golang|python|javascript|typescript|rust|java|c\+\+|ruby)`),
-	regexp.MustCompile(`(?i)(?:but|without|except|excluding)\s+(.+?)(?:\s*$|\s+and\s+)`),
-	regexp.MustCompile(`(?i)(?:only|just)\s+(.+?)(?:\s*$|\s+and\s+)`),
-	regexp.MustCompile(`(?i)(?:security|performance|style|quality)\s+(?:only|focus)`),
-}
-
 // truncateForLog truncates a string for logging purposes.
 // Uses rune-aware truncation to avoid splitting multi-byte UTF-8 characters.
 func truncateForLog(s string, maxLen int) string {
@@ -267,48 +228,6 @@ func getRegexCandidates(input string, corpus []VerbEntry) []VerbEntry {
 		}
 	}
 	return candidates
-}
-
-// extractTarget attempts to extract the target from natural language.
-func extractTarget(input string) string {
-	for _, pattern := range TargetPatterns {
-		matches := pattern.FindStringSubmatch(input)
-		if len(matches) > 1 {
-			return matches[1]
-		}
-	}
-	return "none"
-}
-
-// extractConstraint attempts to extract constraints from natural language.
-func extractConstraint(input string) string {
-	for _, pattern := range ConstraintPatterns {
-		matches := pattern.FindStringSubmatch(input)
-		if len(matches) > 1 {
-			return matches[1]
-		}
-	}
-	return "none"
-}
-
-// categoryPriority orders refineCategory checks from most to least specific.
-// Iterating the CategoryPatterns map directly made ambiguous inputs ("fix the
-// bug?") flip between /mutation and /query run to run. Policy statements win
-// (rare and explicit), then imperative action verbs, then the broad query
-// shapes (trailing "?" matches almost anything).
-var categoryPriority = []string{"/instruction", "/mutation", "/query"}
-
-// refineCategory checks if category patterns override the verb's default category.
-func refineCategory(input string, defaultCategory string) string {
-	lower := strings.ToLower(input)
-	for _, cat := range categoryPriority {
-		for _, pattern := range CategoryPatterns[cat] {
-			if pattern.MatchString(lower) {
-				return cat
-			}
-		}
-	}
-	return defaultCategory
 }
 
 // Intent represents the parsed user intent (Cortex 1.5.0 §3.1).
@@ -454,16 +373,6 @@ type TransducerWithKernel interface {
 	SetKernel(kernel *core.RealKernel)
 }
 
-// containsAny checks if s contains any of the substrings.
-func containsAny(s string, subs []string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
-}
-
 // GetShardTypeForVerb returns the shard type associated with a canonical verb.
 // Returns empty string if verb is not found in the VerbCorpus.
 func GetShardTypeForVerb(verb string) string {
@@ -474,63 +383,6 @@ func GetShardTypeForVerb(verb string) string {
 		}
 	}
 	return ""
-}
-
-// DualPayloadTransducer wraps a transducer to emit Cortex 1.5.0 dual payloads.
-type DualPayloadTransducer struct {
-	Transducer
-}
-
-// NewDualPayloadTransducer creates a transducer that outputs dual payloads.
-func NewDualPayloadTransducer(client LLMClient) *DualPayloadTransducer {
-	logging.Perception("Initializing DualPayloadTransducer")
-	return &DualPayloadTransducer{
-		Transducer: NewUnderstandingTransducer(client),
-	}
-}
-
-// TransducerOutput represents the full output of the transducer.
-type TransducerOutput struct {
-	Intent      Intent
-	Focus       []FocusResolution
-	MangleAtoms []core.Fact
-}
-
-// Parse performs full transduction of user input.
-func (t *DualPayloadTransducer) Parse(ctx context.Context, input string, fileCandidates []string) (TransducerOutput, error) {
-	timer := logging.StartTimer(logging.CategoryPerception, "DualPayloadTransducer.Parse")
-	defer timer.Stop()
-
-	logging.Perception("Full transduction: input=%d chars, candidates=%d", len(input), len(fileCandidates))
-
-	intent, err := t.ParseIntent(ctx, input)
-	if err != nil {
-		logging.Get(logging.CategoryPerception).Error("Transduction failed: %v", err)
-		return TransducerOutput{}, err
-	}
-
-	output := TransducerOutput{
-		Intent:      intent,
-		MangleAtoms: []core.Fact{intent.ToFact()},
-	}
-
-	// Try to resolve focus if target looks like a file reference
-	if intent.Target != "" && intent.Target != "none" {
-		logging.PerceptionDebug("Attempting focus resolution for target: %s", truncateForLog(intent.Target, 50))
-		focus, err := t.ResolveFocus(ctx, intent.Target, fileCandidates)
-		if err == nil && focus.ConfidencePercent > 0 {
-			output.Focus = append(output.Focus, focus)
-			output.MangleAtoms = append(output.MangleAtoms, focus.ToFact())
-			logging.PerceptionDebug("Focus resolved, added to output (total atoms: %d)", len(output.MangleAtoms))
-		} else if err != nil {
-			logging.PerceptionDebug("Focus resolution failed: %v", err)
-		}
-	}
-
-	logging.Perception("Transduction complete: verb=%s, atoms=%d, focus=%d",
-		intent.Verb, len(output.MangleAtoms), len(output.Focus))
-
-	return output, nil
 }
 
 // =============================================================================

@@ -144,14 +144,14 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 	}
 
 	// Retry loop for rate limits and transient errors
-	maxRetries := 3
+	maxRetries := llmMaxRetries()
 	var lastErr error
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			// Context-aware backoff: a cancelled turn must exit during
 			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			backoff := llmRetryBackoff(i)
 			select {
 			case <-ctx.Done():
 				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
@@ -440,14 +440,14 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 // keeps its own loop for prompt-caching headers. Callers map the parsed
 // response and record usage for their own op.
 func (c *AnthropicClient) postMessages(ctx context.Context, reqBody AnthropicRequest) (*AnthropicResponse, error) {
-	maxRetries := 3
+	maxRetries := llmMaxRetries()
 	var lastErr error
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			// Context-aware backoff: a cancelled turn must exit during
 			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			backoff := llmRetryBackoff(i)
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())

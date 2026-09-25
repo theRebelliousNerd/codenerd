@@ -771,9 +771,9 @@ func (s *AtomSelector) runSelection(
 	if skeletonBuildErr != nil {
 		return nil, 0, skeletonBuildErr
 	}
-	// A flesh build panic degrades to no flesh (the old loadFleshAtomsKernel
-	// shape turned the same panic into a flesh error, which also dropped
-	// flesh). Everything else about a failed flesh build falls back to
+	// A flesh build panic degrades to no flesh (the retired sequential
+	// flesh loader turned the same panic into a flesh error, which also
+	// dropped flesh). Everything else about a failed flesh build falls back to
 	// keyword matching in the query phase.
 	fleshFailed := fleshBuildErr != nil
 	if fleshFailed {
@@ -798,8 +798,17 @@ func (s *AtomSelector) runSelection(
 		if err := kernel.AssertBatch(fleshFacts); err != nil {
 			// Logged at Error: the selector falls back to keyword
 			// matching, which INVERTS selection for every situational
-			// dimension rather than approximating it — see the same
-			// failure in loadFleshAtomsKernel for the measured extent.
+			// dimension rather than approximating it. jit_compiler.mg is
+			// permissive by default and fail-closed only for the nine
+			// regime_dimension entries; matchSelector is fail-closed for
+			// everything, with one hand-made exception for frameworks. So
+			// a context missing a language admits all 326 language-gated
+			// atoms on the kernel path and none of them here; the same
+			// holds for 195 intent-gated and 21 world-state-gated
+			// entries (542 of 918 corpus entries select the opposite way).
+			// Two turns either side of a transient kernel failure are
+			// compiled by two different policies, which is why this is an
+			// Error and not a Warn.
 			logging.Get(logging.CategoryContext).Error("Failed to assert flesh facts (selector falls back to keyword matching — selection semantics INVERT for situational dimensions): %v", err)
 		} else {
 			fleshReady = true
@@ -898,52 +907,6 @@ func (s *AtomSelector) getVectorScores(
 // Skeleton/Flesh Bifurcation Methods
 // =========================================================================
 
-// loadSkeletonAtoms loads mandatory atoms via Mangle rules.
-// Skeleton atoms are from categories: identity, protocol, safety, methodology.
-// Returns error if skeleton cannot be loaded (CRITICAL failure).
-func (s *AtomSelector) loadSkeletonAtoms(
-	ctx context.Context,
-	atoms []*PromptAtom,
-	cc *CompilationContext,
-	forcedMandatory map[string]struct{},
-) ([]*ScoredAtom, error) {
-	return s.loadSkeletonAtomsKernel(ctx, atoms, cc, forcedMandatory, s.kernel)
-}
-
-func (s *AtomSelector) loadSkeletonAtomsKernel(
-	ctx context.Context,
-	atoms []*PromptAtom,
-	cc *CompilationContext,
-	forcedMandatory map[string]struct{},
-	kernel KernelQuerier,
-) ([]*ScoredAtom, error) {
-	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.loadSkeletonAtoms")
-	defer timer.Stop()
-	_ = ctx
-
-	if kernel == nil {
-		return nil, fmt.Errorf("CRITICAL: Mangle kernel not configured for skeleton selection")
-	}
-
-	skeletonAtoms := filterSkeletonAtoms(atoms, cc)
-	if len(skeletonAtoms) == 0 {
-		return nil, fmt.Errorf("CRITICAL: no skeleton atoms found in corpus")
-	}
-
-	// Build facts for Mangle query
-	facts, err := s.buildContextFacts(cc, skeletonAtoms, forcedMandatory)
-	if err != nil {
-		return nil, fmt.Errorf("CRITICAL: failed to build skeleton context facts: %w", err)
-	}
-
-	// Assert facts to kernel
-	if err := kernel.AssertBatch(facts); err != nil {
-		return nil, fmt.Errorf("CRITICAL: failed to assert skeleton facts: %w", err)
-	}
-
-	return s.querySkeletonAtoms(kernel, skeletonAtoms, forcedMandatory)
-}
-
 // filterSkeletonAtoms keeps the skeleton-category atoms whose world state
 // matches and whose required tools are all present. The skeleton tier is the
 // set of mandatory atoms in skeleton categories; this filter is unchanged and
@@ -1014,7 +977,7 @@ func (s *AtomSelector) querySkeletonAtoms(
 		atomID, err1 := extractStringArg(fact.Args[0])
 		source, err2 := extractStringArg(fact.Args[2])
 		if err1 != nil || err2 != nil {
-			logging.Get(logging.CategoryContext).Warn("loadSkeletonAtoms: Skipping invalid fact args: %v, %v", err1, err2)
+			logging.Get(logging.CategoryContext).Warn("querySkeletonAtoms: Skipping invalid fact args: %v, %v", err1, err2)
 			continue
 		}
 
@@ -1054,86 +1017,6 @@ func (s *AtomSelector) querySkeletonAtoms(
 	)
 
 	return selected, nil
-}
-
-// loadFleshAtoms loads probabilistic atoms via vector search + Mangle filter.
-// Flesh atoms are from categories: exemplars, domain, context, language, framework, etc.
-// Returns nil on failure (degraded but safe operation continues with skeleton only).
-func (s *AtomSelector) loadFleshAtoms(
-	ctx context.Context,
-	atoms []*PromptAtom,
-	cc *CompilationContext,
-	forcedMandatory map[string]struct{},
-) ([]*ScoredAtom, error) {
-	return s.loadFleshAtomsKernel(ctx, atoms, cc, forcedMandatory, s.kernel)
-}
-
-func (s *AtomSelector) loadFleshAtomsKernel(
-	ctx context.Context,
-	atoms []*PromptAtom,
-	cc *CompilationContext,
-	forcedMandatory map[string]struct{},
-	kernel KernelQuerier,
-) ([]*ScoredAtom, error) {
-	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.loadFleshAtoms")
-	defer timer.Stop()
-
-	fleshAtoms := filterFleshAtoms(atoms, cc)
-	if len(fleshAtoms) == 0 {
-		logging.Get(logging.CategoryContext).Debug("No flesh atoms in corpus")
-		return nil, nil
-	}
-
-	// Step 1: Vector search (if enabled and query provided)
-	var vectorScores map[string]float64
-	if s.vectorSearcher != nil && cc.SemanticQuery != "" {
-		if scores := s.getVectorScores(ctx, cc.SemanticQuery, cc.SemanticTopK); scores != nil {
-			vectorScores = scores
-		}
-	}
-
-	// Step 2: Build facts for Mangle
-	facts, err := s.buildFleshFacts(cc, fleshAtoms, forcedMandatory, vectorScores)
-	if err != nil {
-		// Fact building failure is logged but we continue
-		logging.Get(logging.CategoryContext).Warn("Failed to build flesh context facts: %v", err)
-		return nil, nil
-	}
-
-	// Step 3: Query Mangle (if kernel available)
-	if kernel == nil {
-		// No kernel - fall back to context matching only
-		logging.Get(logging.CategoryContext).Warn("No kernel for flesh selection, using context matching")
-		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
-	}
-
-	if err := kernel.AssertBatch(facts); err != nil {
-		// Logged at Error: when the kernel rejects flesh facts (e.g. the
-		// prompt_atom arg-order bug or a poisoned-EDB type mismatch), the
-		// selector silently falls back to fallbackFleshSelection. The old
-		// Warn level made this look like routine info; in fact it means
-		// the JIT compiler is running in degraded mode for this turn.
-		//
-		// "Loses semantic ranking" is what this comment used to say, and it
-		// understates the change. The fallback does not approximate the
-		// kernel's selection, it INVERTS it for every situational dimension.
-		//
-		// jit_compiler.mg is permissive by default and fail-closed only for the
-		// nine regime_dimension entries; matchSelector here is fail-closed for
-		// everything, with one hand-made exception for frameworks. So a context
-		// missing a language admits all 326 language-gated atoms on the kernel
-		// path and none of them here; the same holds for 195 intent-gated and
-		// 21 world-state-gated entries. 542 of the corpus's 918 entries select
-		// the opposite way when this line is reached.
-		//
-		// That is why it is an Error and not a Warn, and why the fallback is
-		// not a safe degradation to leave running: two turns either side of a
-		// transient kernel failure are compiled by two different policies.
-		logging.Get(logging.CategoryContext).Error("Failed to assert flesh facts (selector falls back to keyword matching — selection semantics INVERT for situational dimensions): %v", err)
-		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
-	}
-
-	return s.queryFleshAtoms(kernel, fleshAtoms, true, forcedMandatory, vectorScores, cc), nil
 }
 
 // filterFleshAtoms keeps the atoms whose world state matches and whose
@@ -1250,7 +1133,7 @@ func (s *AtomSelector) queryFleshAtoms(
 		atomID, err1 := extractStringArg(fact.Args[0])
 		source, err2 := extractStringArg(fact.Args[2])
 		if err1 != nil || err2 != nil {
-			logging.Get(logging.CategoryContext).Warn("loadFleshAtoms: Skipping invalid fact args: %v, %v", err1, err2)
+			logging.Get(logging.CategoryContext).Warn("queryFleshAtoms: Skipping invalid fact args: %v, %v", err1, err2)
 			continue
 		}
 

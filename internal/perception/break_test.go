@@ -478,37 +478,6 @@ But actually:
 // getRegexCandidates / extractTarget TORTURE
 // =============================================================================
 
-func TestBreak_ExtractTarget_NoLengthLimit(t *testing.T) {
-	// Attack: extractTarget has NO input length limit (unlike getRegexCandidates
-	// which caps at 2000). Send 1MB input through extractTarget.
-	// Go's regexp is NFA-based (no backtracking), so this shouldn't hang,
-	// but it will be slow.
-	input := strings.Repeat("x", 1_000_000) + " fix file auth.go please"
-
-	start := time.Now()
-	result := extractTarget(input)
-	elapsed := time.Since(start)
-
-	t.Logf("1MB extractTarget: result=%q, took %v", result, elapsed)
-	if elapsed > 5*time.Second {
-		t.Errorf("extractTarget took %v on 1MB input — needs input length cap", elapsed)
-	}
-}
-
-func TestBreak_ExtractConstraint_NoLengthLimit(t *testing.T) {
-	// Attack: same as above but for extractConstraint.
-	input := strings.Repeat("x", 1_000_000) + " for golang"
-
-	start := time.Now()
-	result := extractConstraint(input)
-	elapsed := time.Since(start)
-
-	t.Logf("1MB extractConstraint: result=%q, took %v", result, elapsed)
-	if elapsed > 5*time.Second {
-		t.Errorf("extractConstraint took %v on 1MB input", elapsed)
-	}
-}
-
 func TestBreak_GetRegexCandidates_AllSynonymsMatch(t *testing.T) {
 	// Attack: craft input that contains synonyms from EVERY verb in the taxonomy.
 	// This maximizes the candidates slice and scoring loop iterations.
@@ -538,30 +507,6 @@ func TestBreak_GetRegexCandidates_AllSynonymsMatch(t *testing.T) {
 // =============================================================================
 // refineCategory NONDETERMINISM
 // =============================================================================
-
-func TestBreak_RefineCategory_Nondeterministic(t *testing.T) {
-	// Attack: input that matches patterns in MULTIPLE categories.
-	// CategoryPatterns is a map[string][]*regexp.Regexp. Map iteration order
-	// in Go is randomized. If multiple categories match, the result depends
-	// on which category is checked first — nondeterministic.
-	//
-	// "what would you change" matches:
-	//   /query: "what" at start (^what\s+)
-	//   /mutation: "change" (change|update|modify)
-	input := "what would you change about this code"
-
-	results := make(map[string]int)
-	for range 1000 {
-		cat := refineCategory(input, "/default")
-		results[cat]++
-	}
-
-	t.Logf("nondeterminism test (1000 runs): %v", results)
-	if len(results) > 1 {
-		t.Errorf("NONDETERMINISTIC: refineCategory returned %d different results for same input: %v",
-			len(results), results)
-	}
-}
 
 // =============================================================================
 // VerbCorpus DATA RACE

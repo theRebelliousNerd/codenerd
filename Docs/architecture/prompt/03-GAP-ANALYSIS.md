@@ -78,6 +78,34 @@ Receipt: `go run ./cmd/tools/validate_prompt_atoms -root internal/prompt/atoms
 
 ## Open gaps
 
+### Wave-3 status (2026-09-25)
+
+- G5 (alternate ConfigAtom catalog): CLOSED. `SimpleRegistry` and
+  `RegisterDefaultConfigAtoms` left production; tests pin the live
+  `DefaultConfigAtomProvider` (`config_generation_test.go`), including that a
+  hybrid grants no free-form shell. The compiler's never-installed
+  `WithConfigFactory` route and `CompilationResult.EffectiveAgentRuntimeConfig`
+  were removed: session.Executor generates the agent config.
+- G6 (TTL / cached-result ownership): ALREADY DONE in code. The LRU has no TTL
+  and the dead `CacheTTLSeconds` knob was deleted (`compiler.go`, the
+  "Deleted rather than wired" note); cache hits return a private copy
+  (`privateResult`).
+- G9 (boot DB reconciliation): CLOSED. `internal/init/profile.go` reconciles
+  corpus.db through `ReconcileEmbeddedCorpus` and reports a corpus load
+  failure it used to drop; `TestInitializePromptDatabase_ReconcilesStaleBuiltinsAndKeepsProjectRows`
+  is the exam (stale built-in swept, project row kept, every embedded ID present).
+- Also removed as superseded: the sequential `loadSkeletonAtoms`/`loadFleshAtoms`
+  selector path (runSelection replaced it; tests migrated to `SelectAtoms`),
+  `SyncEmbeddedToSQLite` and `HydrateAtomContextTags` (third writers of the
+  embedding/tag tables), `AnalyzePrompt`, `AssembleWithOptions`.
+- G7 (verification residuals): PARTIAL. The strict atom parser now has a fuzz
+  gate (`atom_schema_fuzz_test.go#FuzzParsePromptAtomYAML`: no panic, accepted
+  atoms have unique non-empty IDs and a category; seeds run under `go test`, a
+  20s fuzz run found nothing). The external-adapter scope conformance gate is
+  still open.
+- G4, G8, G10: open; see the sections below. G10 (task-integrity coupling)
+  lives in session/world shell-effect tracking, outside the prompt package.
+
 ### Gap G4: manifest is not an end-to-end decision receipt
 
 `internal/prompt/manifest.go#PromptManifest` records context hash, token usage,

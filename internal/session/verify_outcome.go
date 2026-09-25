@@ -111,6 +111,11 @@ func runVerificationCommand(parent context.Context, dir string, env []string, bu
 	// with zero is already done, so "no budget" would otherwise mean "no time
 	// at all" and every verification would come back indeterminate before its
 	// command started.
+	// The command runs in the spelling of the workspace every gate hands it
+	// paths in (go_paths.go). On Windows a process keeps the spelling it was
+	// started in, 8.3 short names included, so a short-named directory and a
+	// long-named overlay key would be two files to go.
+	dir = goWorkspace(dir)
 	var budgetCtx context.Context
 	var cancel context.CancelFunc
 	if budget > 0 {

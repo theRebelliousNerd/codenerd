@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
-	"codenerd/internal/mangle"
 )
 
 // cannedJSONClient returns a fixed classification envelope for Understand.
@@ -215,45 +214,6 @@ func TestNormalizeLLMFields_TrimsAndClamps(t *testing.T) {
 		if v.Confidence != c.want {
 			t.Errorf("clamp(%v)=%v, want %v", c.in, v.Confidence, c.want)
 		}
-	}
-}
-
-// TestValidRoutingAtomArg pins the query-interpolation allowlist.
-func TestValidRoutingAtomArg(t *testing.T) {
-	valid := []string{"implement", "error_handling", "test2"}
-	for _, s := range valid {
-		if !validRoutingAtomArg(s) {
-			t.Errorf("validRoutingAtomArg(%q)=false, want true", s)
-		}
-	}
-	invalid := []string{"", "/implement", "two words", "x), evil(X) :- (", "a/b", "A", "with-dash", "semi;colon"}
-	for _, s := range invalid {
-		if validRoutingAtomArg(s) {
-			t.Errorf("validRoutingAtomArg(%q)=true, want false", s)
-		}
-	}
-}
-
-// TestMangleRoutingKernel_RejectsInjection pins fail-closed behavior when
-// model-derived strings reach query position: no match, no validation,
-// and crucially no query-language evaluation of the payload.
-func TestMangleRoutingKernel_RejectsInjection(t *testing.T) {
-	cfg := mangle.DefaultConfig()
-	eng, err := mangle.NewEngine(cfg, nil)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
-	m := NewMangleRoutingKernel(eng)
-	ctx := context.Background()
-	matches, err := m.QueryRouting(ctx, "mode_from_action", "x), evil(X) :- (")
-	if err != nil || len(matches) != 0 {
-		t.Errorf("injection QueryRouting: matches=%v err=%v, want empty+nil", matches, err)
-	}
-	if m.ValidateField(ctx, "action_type", "implement) :- (true") {
-		t.Error("injection ValidateField returned true, want false")
-	}
-	if m.ValidateField(ctx, "action_type", "") {
-		t.Error("empty ValidateField returned true, want false")
 	}
 }
 

@@ -28,7 +28,7 @@ func TestProviderKeyFieldName(t *testing.T) {
 	}
 }
 
-func TestLoadConfigJSON_OpenAIProvider(t *testing.T) {
+func TestProviderConfigFromUserConfig_OpenAIProvider(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	cfg := `{"provider":"openai","openai_api_key":"sk-test","model":"gpt-4o-mini"}`
@@ -36,9 +36,9 @@ func TestLoadConfigJSON_OpenAIProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pc, err := LoadConfigJSON(path)
+	pc, err := loadProviderConfigFile(path)
 	if err != nil {
-		t.Fatalf("LoadConfigJSON: %v", err)
+		t.Fatalf("load provider config: %v", err)
 	}
 	if pc.Provider != ProviderOpenAI {
 		t.Errorf("Provider=%v, want %v", pc.Provider, ProviderOpenAI)
@@ -51,7 +51,7 @@ func TestLoadConfigJSON_OpenAIProvider(t *testing.T) {
 	}
 }
 
-func TestLoadConfigJSON_ProviderSetButKeyMissing(t *testing.T) {
+func TestProviderConfigFromUserConfig_ProviderSetButKeyMissing(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	// Provider is explicitly anthropic but no anthropic key: config-is-boss
@@ -60,7 +60,7 @@ func TestLoadConfigJSON_ProviderSetButKeyMissing(t *testing.T) {
 	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadConfigJSON(path); err == nil {
+	if _, err := loadProviderConfigFile(path); err == nil {
 		t.Error("expected an error when the configured provider's key is missing")
 	}
 }

@@ -141,6 +141,11 @@ type Routing struct {
 
 	// RequiredValidations are checks that must pass before/after execution.
 	RequiredValidations []string `json:"required_validations,omitzero"`
+
+	// VocabularyMisses lists the understanding fields ("field=value") the
+	// kernel found outside the routing vocabulary (understanding_vocab_miss).
+	// Routing for those fields came from the LLM's suggestion, not a table.
+	VocabularyMisses []string `json:"vocabulary_misses,omitzero"`
 }
 
 // UnderstandingEnvelope is the full control packet from LLM classification.
