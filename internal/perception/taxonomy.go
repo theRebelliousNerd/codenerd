@@ -405,17 +405,6 @@ func toInt(val any) int {
 	return 0
 }
 
-// ClassifyInput uses advanced Mangle inference to determine the best intent.
-//
-// Performance: bug #18 fix. Previously this Reset()'d the engine and reloaded
-// ~17 embedded .mg files on every call. Embedded schema content is immutable
-// in-process (baked in via go:embed), so we now load schemas exactly once in
-// NewTaxonomyEngine and use engine.Clear() here, which wipes EDB facts but
-// preserves all schema declarations and rules.
-func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (bestVerb string, bestConf float64, err error) {
-	return t.ClassifyInputWithMatches(input, candidates, nil)
-}
-
 // ClassifyInputWithMatches scores candidates with neural matches bridged
 // into the engine. The taxonomy_inference rules JOIN semantic_match, but the
 // call below Clear()s the EDB first — so matches passed any other way
@@ -572,95 +561,6 @@ func (t *TaxonomyEngine) SetClient(client LLMClient) {
 	t.mu.Lock()
 	t.client = client
 	t.mu.Unlock()
-}
-
-// GenerateSystemPromptSection generates the "VERB TAXONOMY" section.
-func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
-	t.mu.Lock()
-	verbs, err := t.getVerbsLocked()
-	t.mu.Unlock()
-	if err != nil {
-		return "", err
-	}
-
-	type Group struct {
-		Name  string
-		Verbs []VerbEntry
-	}
-	groups := make(map[string]*Group)
-	var groupOrder []string
-
-	for _, v := range verbs {
-		key := fmt.Sprintf("%s (%s)", v.Category, v.ShardType)
-		if v.ShardType == "" {
-			key = fmt.Sprintf("%s (General)", v.Category)
-		}
-
-		if _, exists := groups[key]; !exists {
-			groups[key] = &Group{Name: key}
-			groupOrder = append(groupOrder, key)
-		}
-		groups[key].Verbs = append(groups[key].Verbs, v)
-	}
-	sort.Strings(groupOrder)
-
-	var sb strings.Builder
-	sb.WriteString("## VERB TAXONOMY (Comprehensive)\n\n")
-
-	for _, key := range groupOrder {
-		g := groups[key]
-		sb.WriteString(fmt.Sprintf("### %s\n", key))
-		for _, v := range g.Verbs {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", v.Verb, strings.Join(v.Synonyms, ", ")))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Inject usage of Learned Patterns
-	if t.engine != nil {
-		facts := t.engine.QueryFacts("learned_exemplar")
-		if len(facts) > 0 {
-			sb.WriteString("### LEARNED USER PATTERNS (High Priority)\n")
-			sb.WriteString("| User Phrase | Mapped Action | Constraint |\n")
-			sb.WriteString("|-------------|---------------|------------|\n")
-			for _, f := range facts {
-				if len(f.Args) < 4 {
-					continue
-				}
-				p := types.ExtractString(f.Args[0])
-				v := types.ExtractString(f.Args[1])
-				targ := types.ExtractString(f.Args[2])
-				c := types.ExtractString(f.Args[3])
-				sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} | %s |\n", p, v, targ, c))
-			}
-			sb.WriteString("\n")
-		}
-	}
-
-	// Inject Canonical Examples (Phase 1 from user feedback)
-	// Query intent_definition(Sentence, Verb, Target)
-	// We need to check if intent_definition exists first to avoid query error if schema not loaded
-	// But if we fail, we just ignore.
-	if t.engine != nil {
-		canonFacts := t.engine.QueryFacts("intent_definition")
-		if len(canonFacts) > 0 {
-			sb.WriteString("### INTENT LIBRARY (Canonical Examples)\n")
-			sb.WriteString("| Canonical Request | Mangle Action |\n")
-			sb.WriteString("|-------------------|---------------|\n")
-			for _, f := range canonFacts {
-				if len(f.Args) < 3 {
-					continue
-				}
-				s := types.ExtractString(f.Args[0])
-				v := types.ExtractString(f.Args[1])
-				targ := types.ExtractString(f.Args[2])
-				sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} |\n", s, v, targ))
-			}
-			sb.WriteString("\n")
-		}
-	}
-
-	return sb.String(), nil
 }
 
 // DefaultTaxonomyData defines the corpus in Go structures to avoid parsing fragility.

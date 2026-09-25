@@ -3,10 +3,10 @@ package perception
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 )
 
 func TestTaxonomyStore_Integration(t *testing.T) {
@@ -91,11 +91,10 @@ func TestTaxonomyStore_Integration(t *testing.T) {
 	}
 }
 
-// GenerateSystemPromptSection read its LEARNED USER PATTERNS table through
-// Engine.Query, which answers nothing for a base fact, so every learned
-// exemplar was invisible to classification (fixed e402020a). Seeded the way
+// Learned exemplars reach classification through taxonomy_inference.mg, which
+// joins learned_exemplar facts in the taxonomy engine. Seeded the way
 // production seeds it: through the taxonomy store's hydration.
-func TestGenerateSystemPromptSection_IncludesLearnedExemplars(t *testing.T) {
+func TestTaxonomyHydration_LoadsLearnedExemplarsIntoEngine(t *testing.T) {
 	localDB, err := store.NewLocalStore(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create local store: %v", err)
@@ -122,18 +121,10 @@ func TestGenerateSystemPromptSection_IncludesLearnedExemplars(t *testing.T) {
 		t.Fatalf("HydrateFromDB failed: %v", err)
 	}
 
-	section, err := te.GenerateSystemPromptSection()
-	if err != nil {
-		t.Fatalf("GenerateSystemPromptSection failed: %v", err)
-	}
-	for _, want := range []string{"LEARNED USER PATTERNS", "Nuke it", "/delete"} {
-		if !strings.Contains(section, want) {
-			t.Errorf("section lacks %q:\n%s", want, section)
-		}
-	}
+	assertLearnedExemplar(t, te, "Nuke it", "/delete")
 }
 
-func TestGenerateSystemPromptSection_IncludesExemplarsLoadedFromFile(t *testing.T) {
+func TestTaxonomyWorkspace_LoadsLearnedExemplarsFromFile(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".nerd", "mangle"), 0o755); err != nil {
 		t.Fatalf("MkdirAll failed: %v", err)
@@ -147,15 +138,20 @@ func TestGenerateSystemPromptSection_IncludesExemplarsLoadedFromFile(t *testing.
 		t.Fatalf("NewTaxonomyEngine failed: %v", err)
 	}
 	te.SetWorkspace(root)
-	section, err := te.GenerateSystemPromptSection()
-	if err != nil {
-		t.Fatalf("GenerateSystemPromptSection failed: %v", err)
-	}
-	for _, want := range []string{"Load me", "/explain"} {
-		if !strings.Contains(section, want) {
-			t.Errorf("section lacks %q:\n%s", want, section)
+	assertLearnedExemplar(t, te, "Load me", "/explain")
+}
+
+func assertLearnedExemplar(t *testing.T, te *TaxonomyEngine, phrase, verb string) {
+	t.Helper()
+	te.mu.Lock()
+	facts := te.engine.QueryFacts("learned_exemplar")
+	te.mu.Unlock()
+	for _, f := range facts {
+		if len(f.Args) >= 2 && types.ExtractString(f.Args[0]) == phrase && types.ExtractString(f.Args[1]) == verb {
+			return
 		}
 	}
+	t.Fatalf("learned_exemplar(%q, %s, ...) not in the taxonomy engine; have %v", phrase, verb, facts)
 }
 
 func TestTaxonomyStore_HydrateEngine_NormalizesNumericArgs(t *testing.T) {

@@ -13,7 +13,6 @@ import (
 	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
-	"codenerd/internal/mangle"
 	"codenerd/internal/types"
 )
 
@@ -840,128 +839,6 @@ func (t *LLMTransducer) deriveBlockedTools(ctx context.Context, u *Understanding
 	}
 
 	return blocked
-}
-
-// validRoutingAtomArg reports whether s is safe to interpolate into a Mangle
-// query as a /name atom. Routing args arrive from LLM JSON (semantic type,
-// action type, domain), which the harness must not trust in query position:
-// anything outside [a-z0-9_] fails closed to no-match instead of becoming
-// a query-language fragment.
-func validRoutingAtomArg(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
-			return false
-		}
-	}
-	return true
-}
-
-// MangleRoutingKernel implements RoutingKernel using the Mangle engine.
-type MangleRoutingKernel struct {
-	engine *mangle.Engine
-}
-
-// NewMangleRoutingKernel creates a routing kernel backed by Mangle.
-func NewMangleRoutingKernel(engine *mangle.Engine) *MangleRoutingKernel {
-	return &MangleRoutingKernel{engine: engine}
-}
-
-// QueryRouting queries the routing schema.
-func (k *MangleRoutingKernel) QueryRouting(ctx context.Context, predicate string, arg string) ([]RoutingMatch, error) {
-	// Build query based on predicate type
-	var query string
-	switch {
-	case strings.HasPrefix(predicate, "mode_from_"):
-		query = fmt.Sprintf("%s(/%s, Mode, Priority)", predicate, arg)
-	case strings.HasPrefix(predicate, "context_affinity_"):
-		query = fmt.Sprintf("%s(/%s, Context, Weight)", predicate, arg)
-	case strings.HasPrefix(predicate, "shard_affinity_"):
-		query = fmt.Sprintf("%s(/%s, Shard, Weight)", predicate, arg)
-	case strings.HasPrefix(predicate, "tool_affinity_"):
-		query = fmt.Sprintf("%s(/%s, Tool, Weight)", predicate, arg)
-	case predicate == "constraint_blocks_tool":
-		query = fmt.Sprintf("constraint_blocks_tool(/%s, Tool)", arg)
-	default:
-		return nil, fmt.Errorf("unknown predicate: %s", predicate)
-	}
-
-	if !validRoutingAtomArg(arg) {
-		return nil, nil // fail closed: unarguable input matches nothing
-	}
-
-	result, err := k.engine.Query(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	var matches []RoutingMatch
-	for _, binding := range result.Bindings {
-		match := RoutingMatch{}
-
-		// Extract target (Mode, Context, Shard, Tool)
-		for key, val := range binding {
-			if key == "Mode" || key == "Context" || key == "Shard" || key == "Tool" {
-				if s, ok := val.(string); ok {
-					match.Target = strings.TrimPrefix(s, "/")
-				}
-			}
-			if key == "Priority" || key == "Weight" {
-				switch v := val.(type) {
-				case int:
-					match.Weight = v
-				case int64:
-					match.Weight = int(v)
-				case float64:
-					match.Weight = int(v)
-				}
-			}
-		}
-
-		if match.Target != "" {
-			matches = append(matches, match)
-		}
-	}
-
-	// Sort by weight descending.
-	sort.SliceStable(matches, func(i, j int) bool {
-		return matches[i].Weight > matches[j].Weight
-	})
-
-	return matches, nil
-}
-
-// ValidateField checks if a value is valid for a field.
-func (k *MangleRoutingKernel) ValidateField(ctx context.Context, field, value string) bool {
-	var query string
-	switch field {
-	case "semantic_type":
-		query = fmt.Sprintf("valid_semantic_type(/%s, _)", value)
-	case "action_type":
-		query = fmt.Sprintf("valid_action_type(/%s, _)", value)
-	case "domain":
-		query = fmt.Sprintf("valid_domain(/%s, _)", value)
-	case "scope_level":
-		query = fmt.Sprintf("valid_scope_level(/%s, _)", value)
-	case "mode":
-		query = fmt.Sprintf("valid_mode(/%s, _)", value)
-	default:
-		return true // Unknown field, assume valid
-	}
-
-	if !validRoutingAtomArg(value) {
-		return false // fail closed: unarguable input validates nothing
-	}
-
-	result, err := k.engine.Query(ctx, query)
-	if err != nil {
-		return false
-	}
-
-	return len(result.Bindings) > 0
 }
 
 // =============================================================================

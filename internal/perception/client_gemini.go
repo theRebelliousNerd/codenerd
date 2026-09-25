@@ -126,12 +126,6 @@ func DefaultGeminiConfig(apiKey string) GeminiConfig {
 	}
 }
 
-// NewGeminiClient creates a new Gemini client.
-func NewGeminiClient(apiKey string) *GeminiClient {
-	config := DefaultGeminiConfig(apiKey)
-	return NewGeminiClientWithConfig(config)
-}
-
 // NewGeminiClientWithConfig creates a new Gemini client with custom config.
 func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 	// No fallback model: an empty model stays empty, and the request fails at

@@ -35,15 +35,6 @@ type OllamaLLMConfig struct {
 	Timeout  time.Duration
 }
 
-// NewOllamaClient creates an Ollama chat client with defaults.
-func NewOllamaClient(model string) *OllamaClient {
-	cfg := DefaultOllamaLLMConfig()
-	if model != "" {
-		cfg.Model = model
-	}
-	return NewOllamaClientWithConfig(cfg)
-}
-
 // NewOllamaClientWithConfig creates an Ollama chat client from config.
 func NewOllamaClientWithConfig(cfg OllamaLLMConfig) *OllamaClient {
 	if cfg.Endpoint == "" {

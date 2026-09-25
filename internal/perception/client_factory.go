@@ -112,16 +112,6 @@ type ProviderConfig struct {
 	ReasoningEffort string
 }
 
-// LoadConfigJSON loads provider configuration from a JSON config file.
-// This now delegates to the unified config.LoadUserConfig().
-func LoadConfigJSON(path string) (*ProviderConfig, error) {
-	userCfg, err := config.LoadUserConfig(path)
-	if err != nil {
-		return nil, err
-	}
-	return ProviderConfigFromUserConfig(userCfg)
-}
-
 // ProviderConfigFromUserConfig resolves the provider contract from an already
 // validated UserConfig. Boot uses this path so it cannot parse one config for
 // scheduling and a different config for the LLM client.
