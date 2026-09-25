@@ -432,31 +432,9 @@ func checkAgainstBaseline(t *testing.T, rule string, hits []guardHit, baseline m
 // declMismatchBaseline: Go argument types that contradict the Mangle Decl.
 // Every one of these is a bug or a latent one; none is "fine".
 var declMismatchBaseline = map[string][]string{
-	// campaign_intent_capture(…, AutonomyLevel, …) bound […, /name, /string]:
-	// asserted as the quoted string "hands_free", so a policy matching
-	// /hands_free cannot see it.
-	"cmd/nerd/chat/campaign.go": {
-		`campaign_intent_capture/5 arg 3 is declared /name but the Go value is /string (hands_free)`,
-	},
-	// continuation_step/max_continuation_steps are declared /number; these pass
-	// float64. RealKernel.coerceAtomToDeclLocked narrows whole floats at insert,
-	// so it works today only because of that safety net.
-	"cmd/nerd/chat/model_update.go": {
-		`continuation_step/2 arg 0 is declared /number but the Go value is /float64 (float64(…))`,
-		`continuation_step/2 arg 1 is declared /number but the Go value is /float64 (float64(…))`,
-		`max_continuation_steps/1 arg 0 is declared /number but the Go value is /float64 (10.0)`,
-	},
 	// task_error(TaskID, ErrorType, ErrorMessage) bound [/string, /name, /string].
 	"internal/campaign/types.go": {
 		`task_error/3 arg 1 is declared /name but the Go value is /string (execution_error)`,
-	},
-	// edit_failed(Path, Reason) / delete_blocked(Path, Reason) are declared
-	// [/string, /name]; both reasons are asserted as quoted strings. No policy
-	// reads them yet, which is exactly why this went unnoticed — the first rule
-	// written against /pattern_not_found would silently never fire.
-	"internal/core/virtual_store_file_actions.go": {
-		`edit_failed/2 arg 1 is declared /name but the Go value is /string (pattern_not_found)`,
-		`delete_blocked/2 arg 1 is declared /name but the Go value is /string (no_confirmation)`,
 	},
 	// routing_error(ActionType, Reason, Timestamp) bound [/name, /string, /number].
 	"internal/shards/system/router.go": {
@@ -476,13 +454,6 @@ var sprintfVBaseline = map[string][]string{
 	"internal/browser/session_manager_dom.go": {
 		`fact "net_header" arg 4 built with fmt.Sprintf("%v")`,
 		`fact "net_header" arg 4 built with fmt.Sprintf("%v")`,
-	},
-	// simulated_effect(ActionID, Predicate, Args): renders a []any as "[a b c]".
-	// Shadow-mode facts are display-only, but the encoding is lossy and should
-	// become JSON like ToAtom's container branch.
-	"internal/core/shadow_mode.go": {
-		`fact "simulated_effect" arg 2 built with fmt.Sprintf("%v")`,
-		`fact "simulated_effect" arg 2 built with fmt.Sprintf("%v")`,
 	},
 	"internal/system/virtual_store_test_helpers_test.go": {
 		`fact "pending_action" arg 0 built with fmt.Sprintf("%v")`,

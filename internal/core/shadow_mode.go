@@ -4,6 +4,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -252,7 +253,7 @@ func (sm *ShadowMode) SimulateAction(ctx context.Context, action SimulatedAction
 	for _, effect := range effects {
 		effectFact := Fact{
 			Predicate: "simulated_effect",
-			Args:      []any{action.ID, effect.Predicate, fmt.Sprintf("%v", effect.Args)},
+			Args:      []any{action.ID, effect.Predicate, effectArgsJSON(effect.Args)},
 		}
 		if err := sm.shadowKernel.Assert(effectFact); err != nil {
 			sim.IsSafe = false
@@ -707,9 +708,22 @@ func (sm *ShadowMode) ToFacts() []Fact {
 	for _, effect := range sim.Effects {
 		facts = append(facts, Fact{
 			Predicate: "simulated_effect",
-			Args:      []any{effect.ActionID, effect.Predicate, fmt.Sprintf("%v", effect.Args)},
+			Args:      []any{effect.ActionID, effect.Predicate, effectArgsJSON(effect.Args)},
 		})
 	}
 
 	return facts
+}
+
+// effectArgsJSON renders a simulated effect's argument list for the
+// simulated_effect fact. It used fmt.Sprintf("%v"), which turns
+// []any{"a b", "c"} into "[a b c]" -- three arguments or two, the fact cannot
+// say. JSON keeps the boundaries, and is the encoding ToAtom uses for the same
+// container. A value JSON cannot encode falls back to the old rendering.
+func effectArgsJSON(args []any) string {
+	data, err := json.Marshal(args)
+	if err != nil {
+		return fmt.Sprintf("%v", args)
+	}
+	return string(data)
 }

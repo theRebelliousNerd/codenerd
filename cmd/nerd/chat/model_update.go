@@ -1153,7 +1153,7 @@ func (m *Model) updateContinuationFacts() {
 	_ = m.kernel.Retract("continuation_step")
 	_ = m.kernel.Assert(core.Fact{
 		Predicate: "continuation_step",
-		Args:      []any{float64(m.continuationStep), float64(m.continuationTotal)},
+		Args:      []any{int64(m.continuationStep), int64(m.continuationTotal)},
 	})
 	// No step ceiling is asserted. Until 2026-09-18 max_continuation_steps(10)
 	// was written here and the continuation ended on it, which is a count as a

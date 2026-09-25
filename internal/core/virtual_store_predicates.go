@@ -735,9 +735,7 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 
 	// Atomic retract + assert: clear stale context and load new facts in one rebuild.
 	tx := types.NewKernelTx(kernel)
-	tx.Retract("session_turn")
-	tx.Retract("similar_content")
-	tx.Retract("reasoning_trace")
+	tx.RetractPredicateSet(hydratedSessionPredicates)
 	tx.LoadFacts(allFacts)
 	if err := tx.Commit(); err != nil {
 		logging.Get(logging.CategoryKernel).Warn("HydrateSessionContext: transaction commit failed: %v", err)
@@ -749,6 +747,16 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 
 	logging.VirtualStore("HydrateSessionContext completed: %d facts hydrated", count)
 	return count, nil
+}
+
+// hydratedSessionPredicates are the predicates HydrateSessionContext owns: each
+// hydration replaces all three whole. One predicate-set retraction lets a
+// sharded kernel route the set to the shards holding it in a single pass
+// (CortexTransaction), instead of three separately routed retractions.
+var hydratedSessionPredicates = map[string]struct{}{
+	"session_turn":    {},
+	"similar_content": {},
+	"reasoning_trace": {},
 }
 
 // =============================================================================
