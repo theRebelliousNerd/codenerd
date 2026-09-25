@@ -54,7 +54,7 @@ type (
 // of node IDs in the workspace's derived DAG (recurseNodeIDs); a subsystem
 // outside it is refused here rather than after the loop starts.
 func parseRecurseArgs(args []string, known map[string]bool) (campaign.RecurseConfig, error) {
-	cfg := campaign.RecurseConfig{MaxWaves: 1}
+	cfg := campaign.RecurseConfig{}
 	for i := 0; i < len(args); i++ {
 		a := strings.TrimSpace(args[i])
 		if a == "" {
@@ -147,10 +147,6 @@ func (m Model) startRecurseCampaign(args []string) tea.Cmd {
 		if err != nil {
 			return campaignErrorMsg{err: err}
 		}
-		if cfg.MaxWaves == 0 && (m.Config == nil || !m.Config.YoloMode()) {
-			return campaignErrorMsg{err: fmt.Errorf("recurse: an unbounded run (--waves 0) requires yolo mode")}
-		}
-
 		var promptProvider campaign.PromptProvider
 		if m.jitCompiler != nil {
 			if pa, err := articulation.NewPromptAssemblerWithJIT(m.kernel, m.jitCompiler); err == nil {
@@ -261,8 +257,8 @@ func (w *recurseLineWriter) flush() {
 	w.partial = ""
 }
 
-// stopRecurse cancels a running loop. The loop reverts an attempt in flight
-// before it reports back.
+// stopRecurse cancels a loop this session runs. The loop reverts an attempt
+// in flight before it reports back.
 func (m Model) stopRecurse() (Model, bool) {
 	if m.recurse == nil {
 		return m, false
@@ -270,6 +266,32 @@ func (m Model) stopRecurse() (Model, bool) {
 	m.recurse.cancel()
 	m = m.pushAssistantMsg("Recurse stopping: an attempt in flight is reverted. `/recurse` resumes from the journal.")
 	return m, true
+}
+
+// stopRecurseElsewhere asks a loop another process runs on this workspace
+// (`nerd campaign recurse` in a terminal) to stop after its attempt in
+// flight is judged.
+func (m Model) stopRecurseElsewhere() Model {
+	st, err := campaign.ReadRecurseStatus(m.workspace)
+	if err != nil {
+		return m.pushAssistantMsg(fmt.Sprintf("Could not read the recurse status: %v", err))
+	}
+	if !st.Running {
+		return m.pushAssistantMsg("No recurse loop is running.")
+	}
+	if err := campaign.RequestRecurseStop(m.workspace); err != nil {
+		return m.pushAssistantMsg(fmt.Sprintf("Could not request a stop: %v", err))
+	}
+	return m.pushAssistantMsg("Stop requested: the loop running on this workspace ends once its attempt in flight is judged.")
+}
+
+// recurseStatus shows the workspace's recurse ledger.
+func (m Model) recurseStatus() Model {
+	st, err := campaign.ReadRecurseStatus(m.workspace)
+	if err != nil {
+		return m.pushAssistantMsg(fmt.Sprintf("Could not read the recurse status: %v", err))
+	}
+	return m.pushAssistantMsg("```\n" + st.String() + "\n```")
 }
 
 // handleRecurseMsg applies the loop's messages to the model.
@@ -286,7 +308,7 @@ func (m Model) handleRecurseMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case recurseFinishedMsg:
 		m.recurse = nil
 		summary := msg.result.Summary()
-		if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
+		if msg.err != nil && !errors.Is(msg.err, context.Canceled) && !errors.Is(msg.err, campaign.ErrRecurseStopped) {
 			summary = strings.TrimSpace(summary + fmt.Sprintf("\nStopped by an error: %v", msg.err))
 		}
 		if summary == "" {

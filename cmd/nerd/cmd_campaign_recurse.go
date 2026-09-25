@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,9 +26,10 @@ import (
 // if the finding is gone and no gate is worse -- otherwise revert every write.
 // Then the next node, and after the top of the graph, the next pass.
 //
-// Bounds: --waves N runs N passes. --waves 0 with --yolo (or yolo:true in
-// config) runs until stopped. Kept changes are commits on nerd/recurse; the
-// ledger is .nerd/recurse/journal.jsonl, and a killed run resumes from it.
+// It runs until stopped: Ctrl+C, or `nerd campaign recurse stop` from another
+// shell. --waves N bounds a run to N passes. Kept changes are commits on
+// nerd/recurse; the ledger is .nerd/recurse/journal.jsonl, and a killed run
+// resumes from it. `nerd campaign recurse status` reads the ledger.
 
 var (
 	recurseWaves       int
@@ -52,23 +54,62 @@ kept (committed on nerd/recurse) only if its finding is gone and no gate got
 worse. Anything else is reverted. A finding that fails the same way twice is
 left until something in its node changes.
 
-Ctrl+C stops the loop; an attempt in flight is reverted. Run again to resume.
+It runs until stopped. 'nerd campaign recurse stop' ends it after the attempt
+in flight is judged; Ctrl+C ends it at once, reverting that attempt. Run it
+again to resume where it stopped. 'nerd campaign recurse status' shows the
+ledger.
 
 Examples:
   nerd campaign recurse --plan
+  nerd campaign recurse
   nerd campaign recurse --waves 1
-  nerd campaign recurse --waves 3 --subsystem internal/store
-  nerd campaign recurse --waves 0 --yolo`,
+  nerd campaign recurse --subsystem internal/store
+  nerd campaign recurse status
+  nerd campaign recurse stop`,
 	RunE: runCampaignRecurse,
 }
 
 func init() {
 	f := campaignRecurseCmd.Flags()
-	f.IntVar(&recurseWaves, "waves", 1, "Passes over the graph (0 = until stopped, requires --yolo)")
+	f.IntVar(&recurseWaves, "waves", 0, "Passes over the graph (0 = until stopped)")
 	f.StringSliceVar(&recurseSubsystems, "subsystem", nil, "Focus nodes (dependencies pulled in); repeatable")
 	f.IntVar(&recurseContextSize, "context-budget", 0, "Token budget for each attempt's campaign context (default 200000)")
 	f.BoolVar(&recursePlan, "plan", false, "Print the derived sweep order and the workspace's gates; runs nothing")
 	f.BoolVar(&recurseDryRun, "dry-run", false, "Same as --plan")
+	campaignRecurseCmd.AddCommand(campaignRecurseStatusCmd, campaignRecurseStopCmd)
+}
+
+var campaignRecurseStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show what the recurse loop has done in this workspace",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		st, err := campaign.ReadRecurseStatus(recurseWorkspace())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), st)
+		return nil
+	},
+}
+
+var campaignRecurseStopCmd = &cobra.Command{
+	Use:   "stop",
+	Short: "Stop the recurse loop after the attempt in flight is judged",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := campaign.RequestRecurseStop(recurseWorkspace()); err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "Stop requested: the loop ends once the attempt in flight is judged.")
+		return nil
+	},
+}
+
+func recurseWorkspace() string {
+	if workspace != "" {
+		return workspace
+	}
+	cwd, _ := os.Getwd()
+	return cwd
 }
 
 // resolveRecurseConfig validates flags into a campaign.RecurseConfig. Pure
@@ -79,16 +120,6 @@ func resolveRecurseConfig(waves int, subsystems []string, contextSize int) (camp
 		Subsystems:    subsystems,
 		ContextBudget: contextSize,
 	}.Normalize()
-}
-
-// checkRecurseYolo refuses an unbounded run without yolo mode. An infinite
-// loop is a decision the operator must take deliberately, from the flag or
-// from config -- never the default.
-func checkRecurseYolo(cfg campaign.RecurseConfig, yolo bool) error {
-	if cfg.MaxWaves == 0 && !yolo {
-		return fmt.Errorf("recurse: an unbounded run (--waves 0) requires yolo mode (--yolo or yolo:true in .nerd/config.json)")
-	}
-	return nil
 }
 
 // recurseAttemptConfig returns the orchestrator config for the n-th attempt
@@ -110,28 +141,13 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cwd := workspace
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-
-	// A plan runs nothing, so it needs no bound and no yolo.
+	cwd := recurseWorkspace()
 	if recursePlan || recurseDryRun {
 		return writeRecursePlan(cmd.OutOrStdout(), cwd, cfg)
 	}
 
-	yolo := yoloMode
-	if !yolo {
-		if appCfg := loadCampaignConfig(filepath.Join(cwd, ".nerd")); appCfg != nil {
-			yolo = appCfg.YoloMode()
-		}
-	}
-	if err := checkRecurseYolo(cfg, yolo); err != nil {
-		return err
-	}
-
-	// Unbounded runs still honor --timeout like any other command. Ctrl+C
-	// cancels the shared context; the loop reverts an attempt in flight.
+	// The run honors --timeout like any other command. Ctrl+C cancels the
+	// shared context; the loop reverts an attempt in flight.
 	ctx, cancel := operationContext(context.Background())
 	defer cancel()
 	sigCh := make(chan os.Signal, 1)
@@ -179,7 +195,7 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		return executeCampaignPlan(ctx, cmd, attemptCfg, promptProvider, camp)
 	}
 
-	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg, yolo))
+	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg))
 	result, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{
 		Workspace:  cwd,
 		Kernel:     kernel,
@@ -189,6 +205,9 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		Progress:   cmd.OutOrStdout(),
 	})
 	printRecurseResult(cmd.OutOrStdout(), result)
+	if errors.Is(err, campaign.ErrRecurseStopped) {
+		return nil
+	}
 	if err != nil {
 		cmd.SilenceUsage = true
 		return err
@@ -196,9 +215,9 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func recurseBoundText(cfg campaign.RecurseConfig, yolo bool) string {
+func recurseBoundText(cfg campaign.RecurseConfig) string {
 	if cfg.MaxWaves == 0 {
-		return "until stopped, yolo mode -- Ctrl+C stops"
+		return "until stopped: `nerd campaign recurse stop`, or Ctrl+C"
 	}
 	if cfg.MaxWaves == 1 {
 		return "1 pass"

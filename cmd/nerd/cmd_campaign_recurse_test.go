@@ -53,17 +53,20 @@ func TestResolveRecurseConfig_RejectsBadInput(t *testing.T) {
 	}
 }
 
-func TestCheckRecurseYolo(t *testing.T) {
-	unbounded := campaign.RecurseConfig{MaxWaves: 0}
-	if err := checkRecurseYolo(unbounded, false); err == nil {
-		t.Fatal("unbounded without yolo must be refused")
+// Recurse runs until stopped unless bounded, and is controlled from outside
+// a running loop with status and stop.
+func TestCampaignRecurse_ForeverByDefaultWithStatusAndStop(t *testing.T) {
+	if got := campaignRecurseCmd.Flags().Lookup("waves").DefValue; got != "0" {
+		t.Fatalf("--waves defaults to %s; recurse runs until stopped unless bounded", got)
 	}
-	if err := checkRecurseYolo(unbounded, true); err != nil {
-		t.Fatalf("unbounded with yolo must pass: %v", err)
-	}
-	bounded := campaign.RecurseConfig{MaxWaves: 2}
-	if err := checkRecurseYolo(bounded, false); err != nil {
-		t.Fatalf("bounded without yolo must pass: %v", err)
+	for _, name := range []string{"status", "stop"} {
+		found := false
+		for _, c := range campaignRecurseCmd.Commands() {
+			found = found || c.Name() == name
+		}
+		if !found {
+			t.Fatalf("`nerd campaign recurse %s` is not registered", name)
+		}
 	}
 }
 

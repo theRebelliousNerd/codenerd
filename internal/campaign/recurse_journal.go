@@ -25,6 +25,7 @@ const (
 	stepRatchet   = "ratchet"
 	stepVisitDone = "visit_done"
 	stepPassEnd   = "pass_end"
+	stepStopped   = "stopped"
 )
 
 // recurseRecord is one journal line.

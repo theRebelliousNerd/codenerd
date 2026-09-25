@@ -15,8 +15,8 @@ func TestParseRecurseArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.MaxWaves != 1 || len(cfg.Subsystems) != 0 {
-		t.Fatalf("defaults wrong: %+v", cfg)
+	if cfg.MaxWaves != 0 || len(cfg.Subsystems) != 0 {
+		t.Fatalf("defaults wrong (recurse runs until stopped unless bounded): %+v", cfg)
 	}
 
 	cfg, err = parseRecurseArgs([]string{"--waves", "3", "--subsystem", "session"}, recurseTestKnown)
@@ -82,9 +82,14 @@ func TestRecurse_StopAndPauseCancelTheLoop(t *testing.T) {
 	}
 
 	m := NewTestModel()
+	m.workspace = t.TempDir()
 	updated, _ := m.handleCampaignCommand("/campaign recurse stop", []string{"/campaign", "recurse", "stop"})
 	if got := lastContent(updated.(Model)); !strings.Contains(got, "No recurse loop") {
 		t.Fatalf("stop with nothing running: %q", got)
+	}
+	updated, _ = m.handleCampaignCommand("/campaign recurse status", []string{"/campaign", "recurse", "status"})
+	if got := lastContent(updated.(Model)); !strings.Contains(got, "not running") {
+		t.Fatalf("status with nothing running: %q", got)
 	}
 }
 

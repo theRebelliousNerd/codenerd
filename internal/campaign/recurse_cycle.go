@@ -175,6 +175,18 @@ func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (*RecurseCycl
 		doc: doc, out: out, state: map[string]gateRun{}, seenThisPass: map[string]bool{},
 	}
 
+	// One loop per workspace: a second would commit and revert the first's
+	// attempts, and would settle its in-flight attempt out from under it.
+	release, err := acquireRecurseLock(root)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	// A stop left over from a run that already ended is not for this one.
+	if err := os.Remove(recurseStopPath(root)); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+
 	// An attempt a killed run left in flight is settled before the checkout
 	// is judged clean: its writes are the loop's, not the owner's.
 	history, err := readRecurseJournal(root)
@@ -208,6 +220,26 @@ func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (*RecurseCycl
 	return &r.result, runErr
 }
 
+// boundary is checked between nodes and between attempts: the loop ends on
+// a cancelled context or on a stop request, never in the middle of judging an
+// attempt.
+func (r *recurseRun) boundary(ctx context.Context, pass int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !recurseStopRequested(r.root) {
+		return nil
+	}
+	if err := os.Remove(recurseStopPath(r.root)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := r.journal.append(recurseRecord{Step: stepStopped, Pass: pass}); err != nil {
+		return err
+	}
+	r.logf("recurse: stopped on request")
+	return ErrRecurseStopped
+}
+
 func (r *recurseRun) logf(format string, args ...any) {
 	fmt.Fprintf(r.out, format+"\n", args...)
 }
@@ -219,7 +251,7 @@ func (r *recurseRun) passes(ctx context.Context, first int, done map[string]bool
 		if r.cfg.Passes > 0 && r.result.Passes >= r.cfg.Passes {
 			return nil
 		}
-		if err := ctx.Err(); err != nil {
+		if err := r.boundary(ctx, pass); err != nil {
 			return err
 		}
 		if err := r.pass(ctx, pass, done); err != nil {
@@ -260,6 +292,9 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 	for _, node := range nodes {
 		if done[node.ID] {
 			continue
+		}
+		if err := r.boundary(ctx, pass); err != nil {
+			return err
 		}
 		if err := r.visit(ctx, pass, node, nodes, set, ratchetKinds); err != nil {
 			return err
@@ -449,7 +484,7 @@ func (r *recurseRun) visit(ctx context.Context, pass int, node SubsystemNode, no
 		return err
 	}
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := r.boundary(ctx, pass); err != nil {
 			return err
 		}
 		id, err := r.policy.next()

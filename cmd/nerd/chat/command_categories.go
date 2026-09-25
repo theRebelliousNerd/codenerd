@@ -287,7 +287,7 @@ var CommandRegistry = []CommandInfo{
 	{
 		Name:        "/recurse",
 		Description: "Improve the workspace node by node, bottom to top, pass after pass",
-		Usage:       "/recurse [--waves N] [subsystems...] | /recurse stop",
+		Usage:       "/recurse [--waves N] [subsystems...] | /recurse status | /recurse stop",
 		Category:    CategoryAdvanced,
 		ShowInHelp:  true,
 	},

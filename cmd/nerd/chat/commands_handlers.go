@@ -663,11 +663,16 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.startAssaultCampaign(parts[2:]))
 		case "recurse":
-			if args := parts[2:]; len(args) == 1 && args[0] == "stop" {
-				if stopped, ok := m.stopRecurse(); ok {
-					m = stopped
-				} else {
-					m = m.pushAssistantMsg("No recurse loop is running.")
+			if args := parts[2:]; len(args) == 1 && (args[0] == "stop" || args[0] == "status") {
+				switch {
+				case args[0] == "status":
+					m = m.recurseStatus()
+				default:
+					if stopped, ok := m.stopRecurse(); ok {
+						m = stopped
+					} else {
+						m = m.stopRecurseElsewhere()
+					}
 				}
 				m.textarea.Reset()
 				return m, nil
