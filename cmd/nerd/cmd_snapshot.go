@@ -66,6 +66,25 @@ use --to-mangle to materialise the facts as reviewable Datalog.`,
 	RunE: runSnapshotImport,
 }
 
+var snapshotVerifyCmd = &cobra.Command{
+	Use:   "verify <name|path>",
+	Short: "Check a snapshot against its .sha256 sidecar without loading it",
+	Long: `Recomputes the snapshot's sha256 and compares it with the sidecar written
+beside it. Exits non-zero when they disagree, and when there is no sidecar to
+compare against -- an unverifiable snapshot is not reported as a good one.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSnapshotVerify,
+}
+
+func runSnapshotVerify(cmd *cobra.Command, args []string) error {
+	path, err := snapshot.Verify(workspaceRootOrCwd(), args[0])
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s: sha256 matches its sidecar\n", path)
+	return nil
+}
+
 var snapshotListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List fact snapshots, newest first",
@@ -299,5 +318,5 @@ func init() {
 	snapshotImportCmd.Flags().IntVar(&snapshotShowFacts, "show", 0,
 		"print the first N facts")
 
-	snapshotCmd.AddCommand(snapshotExportCmd, snapshotImportCmd, snapshotListCmd)
+	snapshotCmd.AddCommand(snapshotExportCmd, snapshotImportCmd, snapshotVerifyCmd, snapshotListCmd)
 }

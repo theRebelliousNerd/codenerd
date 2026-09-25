@@ -98,7 +98,7 @@ Documented on `internal/features/features.go` as serving chat first-run wizard /
 
 | API | Expected integration point | Status |
 |-----|----------------------------|--------|
-| `RecordSessionStart` | Chat open / session ID create | Absent |
+| `RecordSessionStart` | Chat open / session ID create | `PreferencesManager.RecordSessionStart` from `cmd/nerd/chat/ux_journey.go` `openSessionRecord` (2026-09-25) |
 | `CheckJourneyTransition` | End of turn / session | Absent |
 | `IncrementMetric("commands_executed")` | After command | Absent |
 | `IncrementMetric("successful_tasks")` | Executor success | Absent |
@@ -128,10 +128,10 @@ UX is not a VirtualStore backend and does not register shards.
 - [x] First-run check uses ShouldShowOnboarding  
 - [x] MigratePreferences for existing users  
 - [x] Wizard mutates onboarding + guidance  
-- [ ] Session metrics loop  
-- [ ] Transition check loop  
-- [ ] Single writer for preferences.json  
-- [ ] Shared disclosure helper in help/tips  
+- [x] Session metrics loop — `cmd/nerd/chat/ux_journey.go` (`openSessionRecord`, `recordUXMetric` at the command/success/error/clarification/help sites, `closeSessionRecord` on shutdown); `ux_journey_test.go`  
+- [x] Transition check loop — `closeSessionRecord` → `PreferencesManager.CheckJourneyTransition`  
+- [x] Single writer for preferences.json — `PreferencesManager.Save` read-merge-write + atomic rename; `internal/ux/single_writer_test.go`  
+- [x] Shared disclosure helper in help/tips — `help_renderer.go` / `tips.go` read the journey state through the ux helpers  
 
 ## Related corpora
 

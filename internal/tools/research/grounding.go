@@ -262,20 +262,6 @@ type GroundedResearchResult struct {
 	DocURLs  []string `json:"doc_urls_provided"`
 }
 
-// FormatSourcesMarkdown formats grounding sources as markdown for display.
-func FormatSourcesMarkdown(sources []string) string {
-	if len(sources) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.WriteString("\n\n**Sources:**\n")
-	for _, src := range sources {
-		sb.WriteString(fmt.Sprintf("- %s\n", src))
-	}
-	return sb.String()
-}
-
 // truncateQuery truncates a query for logging.
 func truncateQuery(q string) string {
 	if len(q) > 50 {

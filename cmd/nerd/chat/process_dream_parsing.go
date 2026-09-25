@@ -32,12 +32,18 @@ func parseExecutionResults(facts []core.Fact) []systemExecutionResult {
 	return results
 }
 
+// parseBool reads a boolean fact argument. execution_result declares its
+// Success column /name, and a /true read back from the kernel is the string
+// "/true" -- which this function used to compare against "true" and call
+// false, so every delegated execution the chat summarised read as a failure.
+// types.ExtractBool is the helper that knows both spellings.
 func parseBool(value any) bool {
+	if b, ok := types.ExtractBool(value); ok {
+		return b
+	}
 	switch v := value.(type) {
-	case bool:
-		return v
 	case string:
-		return strings.EqualFold(v, "true") || v == "1"
+		return v == "1"
 	case int:
 		return v != 0
 	case int64:

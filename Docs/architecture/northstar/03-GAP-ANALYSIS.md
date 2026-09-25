@@ -19,7 +19,7 @@
 | Alignment history UX | Store APIs only | **Medium** | No CLI `nerd northstar history` over SQLite |
 | Doc ingestion | Schema stub | **Low** | `ingested_docs` without writers/readers in package |
 | Config model selection | `AlignmentModel` field | **Low** | Unused by Guardian (client is injected) |
-| TaskObserver in session loop | Type exists | **Medium** | Campaign path is primary; standard tasks may only hit BackgroundEventHandler if events fire |
+| TaskObserver in session loop | Closed 2026-09-25 by removal | — | Standard tasks already reach the Guardian: chat delegation sends `shards.EventTaskCompleted` (`cmd/nerd/chat/delegation.go`) to the BackgroundObserverManager, whose northstar handler (`BackgroundEventHandler.HandleEvent`) records the observation and runs the check. `TaskObserver` duplicated that with no caller, and was deleted. |
 | Concurrent safety | Mutex + clone getters | **None** | Tests cover concurrent init/access |
 
 ## 2. Non-gaps (do not “fix”)

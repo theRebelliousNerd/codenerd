@@ -16,6 +16,14 @@
 ## P1 — Operator surface
 
 - [x] CLI: `nerd snapshot export | import | list` under `.nerd/snapshots/`
+- [x] CLI: `nerd snapshot verify <ref>` (2026-09-25) — `factsnap.Verify` had no
+      caller; the operator can now check a copied snapshot against its sidecar
+      without importing it, and an unverifiable snapshot fails rather than
+      passing (`TestVerify_ShouldCheckTheSidecarAndRefuseToVouchWithoutOne`,
+      `TestSnapshotVerify_ShouldReportAMatchAndRefuseAnUnverifiableSnapshot`).
+      The unused `Write` / `WriteCodec` / `WriteOptions` / `CanonicalPath`
+      spellings moved to test code and `LegacyJSON` was removed (`Read` decodes
+      `.json`).
 - [x] Document canonical workspace paths ([08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) §4)
 
 ## P2 — Hardening

@@ -2,6 +2,7 @@ package context_harness
 
 import (
 	"context"
+	"strconv"
 
 	internalcontext "codenerd/internal/context"
 	"codenerd/internal/core"
@@ -22,9 +23,15 @@ type ContextEngine interface {
 	// GetCompressionStats returns original and compressed token counts.
 	GetCompressionStats() (originalTokens, compressedTokens int)
 
-	// GetActivationBreakdown returns the 7-component activation scoring breakdown
-	// for a specific fact ID. Returns nil if not available (mock mode).
-	GetActivationBreakdown(factID string) *ActivationBreakdown
+	// GetActivationBreakdown returns the activation scoring breakdown the last
+	// RetrieveContext computed for fact. Returns nil if not available (mock
+	// mode, or a fact the last retrieval did not score).
+	GetActivationBreakdown(fact core.Fact) *ActivationBreakdown
+
+	// SeedFacts asserts a scenario's world facts (Scenario.InitialFacts):
+	// into the kernel, and into the pool RetrieveContext scores, so seeded
+	// state can be retrieved like anything a turn produced.
+	SeedFacts(facts []core.Fact) error
 
 	// SetCampaignContext sets the campaign context for campaign-aware activation.
 	// Used by real engine to enable phase-based boosting.
@@ -96,7 +103,10 @@ type ActivationValidation struct {
 // ValidateActivation checks if a fact's activation breakdown meets expectations.
 func (av *ActivationValidation) ValidateActivation(breakdown *ActivationBreakdown) error {
 	if breakdown == nil {
-		return nil // No breakdown available (mock mode) - skip validation
+		// A checkpoint that asks for component validation and gets no
+		// breakdown has not been validated; passing it would be the soft pass
+		// this validator exists to prevent.
+		return &ActivationValidationError{Component: "breakdown (none available)"}
 	}
 
 	if breakdown.BaseScore < av.MinBaseScore {
@@ -171,6 +181,8 @@ func (e *ActivationValidationError) Error() string {
 		formatFloat(e.Expected) + ", got " + formatFloat(e.Actual)
 }
 
+// formatFloat renders a score with two decimals. It used to add the integer
+// part to '0' as a rune, so 20 printed as 'D' and 1.5 as '1'.
 func formatFloat(f float64) string {
-	return string(rune(int(f*100)/100 + '0'))
+	return strconv.FormatFloat(f, 'f', 2, 64)
 }

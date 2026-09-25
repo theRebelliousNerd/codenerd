@@ -3,6 +3,13 @@ package logging
 // =============================================================================
 // CONVENIENCE FUNCTIONS - Quick logging without getting a logger first
 // These are no-ops if the category is disabled
+//
+// A wrapper exists here only while something calls it. The set used to be
+// the full category x level grid; the 46 no caller used were removed
+// 2026-09-25 (scripts/testdata/deadcode-baseline.txt), because the codebase's
+// idiom for a warning or an error is logging.Get(logging.CategoryX).Warn(...)
+// and a second spelling of the same call is not capability. Add a wrapper back
+// in the same change as its first caller.
 // =============================================================================
 
 // Boot logs to the boot category
@@ -70,11 +77,6 @@ func Routing(format string, args ...any) {
 	Get(CategoryRouting).Info(format, args...)
 }
 
-// RoutingDebug logs debug to the routing category
-func RoutingDebug(format string, args ...any) {
-	Get(CategoryRouting).Debug(format, args...)
-}
-
 // Tools logs to the tools category
 func Tools(format string, args ...any) {
 	Get(CategoryTools).Info(format, args...)
@@ -103,36 +105,6 @@ func Shards(format string, args ...any) {
 // ShardsDebug logs debug to the shards category
 func ShardsDebug(format string, args ...any) {
 	Get(CategoryShards).Debug(format, args...)
-}
-
-// Coder logs to the coder category
-func Coder(format string, args ...any) {
-	Get(CategoryCoder).Info(format, args...)
-}
-
-// CoderDebug logs debug to the coder category
-func CoderDebug(format string, args ...any) {
-	Get(CategoryCoder).Debug(format, args...)
-}
-
-// Tester logs to the tester category
-func Tester(format string, args ...any) {
-	Get(CategoryTester).Info(format, args...)
-}
-
-// TesterDebug logs debug to the tester category
-func TesterDebug(format string, args ...any) {
-	Get(CategoryTester).Debug(format, args...)
-}
-
-// Reviewer logs to the reviewer category
-func Reviewer(format string, args ...any) {
-	Get(CategoryReviewer).Info(format, args...)
-}
-
-// ReviewerDebug logs debug to the reviewer category
-func ReviewerDebug(format string, args ...any) {
-	Get(CategoryReviewer).Debug(format, args...)
 }
 
 // Researcher logs to the researcher category
@@ -275,21 +247,6 @@ func JITDebug(format string, args ...any) {
 	Get(CategoryJIT).Debug(format, args...)
 }
 
-// JITWarn logs warning to the jit category
-func JITWarn(format string, args ...any) {
-	Get(CategoryJIT).Warn(format, args...)
-}
-
-// JITError logs error to the jit category
-func JITError(format string, args ...any) {
-	Get(CategoryJIT).Error(format, args...)
-}
-
-// Build logs to the build category
-func Build(format string, args ...any) {
-	Get(CategoryBuild).Info(format, args...)
-}
-
 // BuildDebug logs debug to the build category
 func BuildDebug(format string, args ...any) {
 	Get(CategoryBuild).Debug(format, args...)
@@ -298,11 +255,6 @@ func BuildDebug(format string, args ...any) {
 // BuildWarn logs warning to the build category
 func BuildWarn(format string, args ...any) {
 	Get(CategoryBuild).Warn(format, args...)
-}
-
-// BuildError logs error to the build category
-func BuildError(format string, args ...any) {
-	Get(CategoryBuild).Error(format, args...)
 }
 
 // =============================================================================
@@ -314,39 +266,9 @@ func BootWarn(format string, args ...any) {
 	Get(CategoryBoot).Warn(format, args...)
 }
 
-// BootError logs error to the boot category
-func BootError(format string, args ...any) {
-	Get(CategoryBoot).Error(format, args...)
-}
-
-// SessionWarn logs warning to the session category
-func SessionWarn(format string, args ...any) {
-	Get(CategorySession).Warn(format, args...)
-}
-
-// SessionError logs error to the session category
-func SessionError(format string, args ...any) {
-	Get(CategorySession).Error(format, args...)
-}
-
 // KernelWarn logs warning to the kernel category
 func KernelWarn(format string, args ...any) {
 	Get(CategoryKernel).Warn(format, args...)
-}
-
-// KernelError logs error to the kernel category
-func KernelError(format string, args ...any) {
-	Get(CategoryKernel).Error(format, args...)
-}
-
-// APIWarn logs warning to the api category
-func APIWarn(format string, args ...any) {
-	Get(CategoryAPI).Warn(format, args...)
-}
-
-// APIError logs error to the api category
-func APIError(format string, args ...any) {
-	Get(CategoryAPI).Error(format, args...)
 }
 
 // PerceptionWarn logs warning to the perception category
@@ -362,16 +284,6 @@ func PerceptionError(format string, args ...any) {
 // ArticulationWarn logs warning to the articulation category
 func ArticulationWarn(format string, args ...any) {
 	Get(CategoryArticulation).Warn(format, args...)
-}
-
-// ArticulationError logs error to the articulation category
-func ArticulationError(format string, args ...any) {
-	Get(CategoryArticulation).Error(format, args...)
-}
-
-// RoutingWarn logs warning to the routing category
-func RoutingWarn(format string, args ...any) {
-	Get(CategoryRouting).Warn(format, args...)
 }
 
 // RoutingError logs error to the routing category
@@ -394,84 +306,14 @@ func VirtualStoreWarn(format string, args ...any) {
 	Get(CategoryVirtualStore).Warn(format, args...)
 }
 
-// VirtualStoreError logs error to the virtual_store category
-func VirtualStoreError(format string, args ...any) {
-	Get(CategoryVirtualStore).Error(format, args...)
-}
-
-// ShardsWarn logs warning to the shards category
-func ShardsWarn(format string, args ...any) {
-	Get(CategoryShards).Warn(format, args...)
-}
-
-// ShardsError logs error to the shards category
-func ShardsError(format string, args ...any) {
-	Get(CategoryShards).Error(format, args...)
-}
-
-// CoderWarn logs warning to the coder category
-func CoderWarn(format string, args ...any) {
-	Get(CategoryCoder).Warn(format, args...)
-}
-
-// CoderError logs error to the coder category
-func CoderError(format string, args ...any) {
-	Get(CategoryCoder).Error(format, args...)
-}
-
-// TesterWarn logs warning to the tester category
-func TesterWarn(format string, args ...any) {
-	Get(CategoryTester).Warn(format, args...)
-}
-
-// TesterError logs error to the tester category
-func TesterError(format string, args ...any) {
-	Get(CategoryTester).Error(format, args...)
-}
-
-// ReviewerWarn logs warning to the reviewer category
-func ReviewerWarn(format string, args ...any) {
-	Get(CategoryReviewer).Warn(format, args...)
-}
-
-// ReviewerError logs error to the reviewer category
-func ReviewerError(format string, args ...any) {
-	Get(CategoryReviewer).Error(format, args...)
-}
-
 // ResearcherWarn logs warning to the researcher category
 func ResearcherWarn(format string, args ...any) {
 	Get(CategoryResearcher).Warn(format, args...)
 }
 
-// ResearcherError logs error to the researcher category
-func ResearcherError(format string, args ...any) {
-	Get(CategoryResearcher).Error(format, args...)
-}
-
 // SystemShardsWarn logs warning to the system_shards category
 func SystemShardsWarn(format string, args ...any) {
 	Get(CategorySystemShards).Warn(format, args...)
-}
-
-// SystemShardsError logs error to the system_shards category
-func SystemShardsError(format string, args ...any) {
-	Get(CategorySystemShards).Error(format, args...)
-}
-
-// DreamWarn logs warning to the dream category
-func DreamWarn(format string, args ...any) {
-	Get(CategoryDream).Warn(format, args...)
-}
-
-// DreamError logs error to the dream category
-func DreamError(format string, args ...any) {
-	Get(CategoryDream).Error(format, args...)
-}
-
-// AutopoiesisWarn logs warning to the autopoiesis category
-func AutopoiesisWarn(format string, args ...any) {
-	Get(CategoryAutopoiesis).Warn(format, args...)
 }
 
 // AutopoiesisError logs error to the autopoiesis category
@@ -489,34 +331,9 @@ func CampaignError(format string, args ...any) {
 	Get(CategoryCampaign).Error(format, args...)
 }
 
-// ContextWarn logs warning to the context category
-func ContextWarn(format string, args ...any) {
-	Get(CategoryContext).Warn(format, args...)
-}
-
-// ContextError logs error to the context category
-func ContextError(format string, args ...any) {
-	Get(CategoryContext).Error(format, args...)
-}
-
 // WorldWarn logs warning to the world category
 func WorldWarn(format string, args ...any) {
 	Get(CategoryWorld).Warn(format, args...)
-}
-
-// WorldError logs error to the world category
-func WorldError(format string, args ...any) {
-	Get(CategoryWorld).Error(format, args...)
-}
-
-// EmbeddingWarn logs warning to the embedding category
-func EmbeddingWarn(format string, args ...any) {
-	Get(CategoryEmbedding).Warn(format, args...)
-}
-
-// EmbeddingError logs error to the embedding category
-func EmbeddingError(format string, args ...any) {
-	Get(CategoryEmbedding).Error(format, args...)
 }
 
 // StoreWarn logs warning to the store category
@@ -542,47 +359,4 @@ func PersistDebug(format string, args ...any) {
 // PersistWarn logs warning to the persist category.
 func PersistWarn(format string, args ...any) {
 	Get(CategoryPersist).Warn(format, args...)
-}
-
-// Northstar logs to the northstar category (vision guardian).
-// CategoryNorthstar was declared but had no wrapper, so every call site had to
-// go through Get() while every neighbouring category had a one-liner — which is
-// why the category ended up with almost no callers.
-func Northstar(format string, args ...any) {
-	Get(CategoryNorthstar).Info(format, args...)
-}
-
-// NorthstarDebug logs debug to the northstar category.
-func NorthstarDebug(format string, args ...any) {
-	Get(CategoryNorthstar).Debug(format, args...)
-}
-
-// NorthstarWarn logs warning to the northstar category.
-func NorthstarWarn(format string, args ...any) {
-	Get(CategoryNorthstar).Warn(format, args...)
-}
-
-// NorthstarError logs error to the northstar category.
-func NorthstarError(format string, args ...any) {
-	Get(CategoryNorthstar).Error(format, args...)
-}
-
-// Regression logs to the regression category (regression battery runs).
-func Regression(format string, args ...any) {
-	Get(CategoryRegression).Info(format, args...)
-}
-
-// RegressionDebug logs debug to the regression category.
-func RegressionDebug(format string, args ...any) {
-	Get(CategoryRegression).Debug(format, args...)
-}
-
-// RegressionWarn logs warning to the regression category.
-func RegressionWarn(format string, args ...any) {
-	Get(CategoryRegression).Warn(format, args...)
-}
-
-// PersistError logs error to the persist category.
-func PersistError(format string, args ...any) {
-	Get(CategoryPersist).Error(format, args...)
 }

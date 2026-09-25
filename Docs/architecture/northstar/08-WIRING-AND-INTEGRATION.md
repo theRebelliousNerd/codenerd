@@ -104,9 +104,21 @@ Wizard (chat) produces those artifacts; Guardian DB is separate unless something
 
 ## 10. Wiring checklist for integrators
 
-- [ ] Store path = `{workspace}/.nerd`
-- [ ] `Initialize` after SetLLM / SetParentKernel
-- [ ] Kernel set if vision facts must appear in Mangle
-- [ ] Campaign: construct `CampaignObserver` and `SetNorthstarObserver` before start
-- [ ] Background: adapter + `SetNorthstarHandler`
-- [ ] Decide which vision file is authoritative (JSON vs SQLite) for your surface
+Verified in the production integrations 2026-09-25 (lane B wave 3):
+
+- [x] Store path = `{workspace}/.nerd` — `northstar.BuildCampaignObserver`
+  (`AcquireGuardian(filepath.Join(cwd, ".nerd"), ...)`), chat boot
+  (`cmd/nerd/chat/session_shared_boot.go`).
+- [x] `Initialize` after SetLLM / SetParentKernel — `BuildCampaignObserver`
+  sets the LLM client, parent kernel and querier, then calls `Initialize`.
+- [x] Kernel set if vision facts must appear in Mangle — same
+  (`SetParentKernel`, `SetQuerier`).
+- [x] Campaign: observer built before start — `OrchestratorConfig.NorthstarObserver`
+  from `BuildCampaignObserver` / `campaignNorthstarObserver`
+  (`cmd/nerd/cmd_campaign.go`, `cmd/nerd/chat/campaign.go`,
+  `campaign_assault.go`, `campaign_recurse.go`).
+- [x] Background: adapter + `SetNorthstarHandler` —
+  `cmd/nerd/chat/session_shared_boot.go`.
+- [x] Vision authority decided — the SQLite Store is the durable record;
+  `.nerd/northstar.json` / `.mg` are the import/export surface
+  (`internal/northstar/bridge.go`, TODO "Single vision authority").

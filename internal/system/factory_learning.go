@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codenerd/internal/autopoiesis"
 	pe "codenerd/internal/autopoiesis/prompt_evolution"
 	ctxlearn "codenerd/internal/context"
 	"codenerd/internal/core"
@@ -336,7 +337,9 @@ func (c *Cortex) runEvolutionCycle(ctx context.Context) {
 		}
 	}()
 
+	logging.Audit().LearningEvent(logging.AuditLearningStart, "prompt_evolution", "evolution_cycle", true)
 	result, err := c.PromptEvolver.RunEvolutionCycle(cycleCtx)
+	logging.Audit().LearningEvent(logging.AuditLearningComplete, "prompt_evolution", "evolution_cycle", err == nil)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Warn("Evolution cycle failed: %v", err)
 		return
@@ -426,4 +429,20 @@ func (r *contextFeedbackRecorder) RecordContextFeedback(rec session.ContextFeedb
 				rec.SessionID, rec.TurnNumber, rec.MissingContext)
 		}
 	}()
+}
+
+// recordToolGeneration puts one unattended Ouroboros run in the audit trail
+// (learning_event facts; `nerd audit facts`). The Cortex runs Ouroboros on its
+// own when the Dreamer reports a missing tool, and before this the only trace
+// of a tool the system wrote for itself, or failed to, was the autopoiesis log.
+// A self-modification belongs in the durable record next to the safety checks.
+func recordToolGeneration(need string, result *autopoiesis.LoopResult) {
+	if result == nil {
+		return
+	}
+	target := result.ToolName
+	if target == "" {
+		target = need
+	}
+	logging.Audit().LearningEvent(logging.AuditToolGenerated, "ouroboros", target, result.Success)
 }

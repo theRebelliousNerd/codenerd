@@ -161,34 +161,6 @@ func ExtractBool(arg any) (bool, bool) {
 	}
 }
 
-// ExtractTime extracts a time.Time value from a fact argument.
-// Returns (value, true) on success, (zero, false) if the type is incompatible.
-func ExtractTime(arg any) (time.Time, bool) {
-	switch v := arg.(type) {
-	case time.Time:
-		return v, true
-	case int64:
-		// Interpret as Unix nanoseconds (Mangle TimeType convention)
-		return time.Unix(0, v).UTC(), true
-	default:
-		return time.Time{}, false
-	}
-}
-
-// ExtractDuration extracts a time.Duration value from a fact argument.
-// Returns (value, true) on success, (0, false) if the type is incompatible.
-func ExtractDuration(arg any) (time.Duration, bool) {
-	switch v := arg.(type) {
-	case time.Duration:
-		return v, true
-	case int64:
-		// Interpret as nanoseconds (Mangle DurationType convention)
-		return time.Duration(v), true
-	default:
-		return 0, false
-	}
-}
-
 // ArgString is a convenience wrapper that extracts a string from fact.Args[i]
 // with bounds checking. Returns "" if index is out of range.
 func ArgString(f Fact, i int) string {

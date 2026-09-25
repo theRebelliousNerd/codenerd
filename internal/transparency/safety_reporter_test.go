@@ -34,16 +34,3 @@ func TestSafetyReporterSecretExposure(t *testing.T) {
 		t.Fatalf("expected secret exposure violation, got %v", violation.ViolationType)
 	}
 }
-
-func TestExplainSafetyAction(t *testing.T) {
-	text := ExplainSafetyAction("sudo rm -rf /etc")
-	if !strings.Contains(text, "Risk Level") {
-		t.Fatalf("expected risk level section")
-	}
-	if !strings.Contains(text, "Potential Risks") {
-		t.Fatalf("expected potential risks section")
-	}
-	if !strings.Contains(text, "Safe Alternatives") {
-		t.Fatalf("expected safe alternatives section")
-	}
-}

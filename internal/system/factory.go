@@ -100,10 +100,10 @@ var (
 // model, and the normalized disabled system-shard set. The components are
 // length-delimited before hashing so embedded separators cannot collide. The
 // SHA-256 digest is safe to use as a map key without exposing the API key.
-func cortexKey(workspace, provider, apiKey, model string, disableSystemShards []string) string {
+func cortexKey(workspace, engine, provider, apiKey, model string, disableSystemShards []string) string {
 	h := sha256.New()
 	components := append(
-		[]string{workspace, provider, apiKey, model},
+		[]string{workspace, engine, provider, apiKey, model},
 		normalizeDisableSystemShards(disableSystemShards)...,
 	)
 	for _, component := range components {
@@ -175,22 +175,27 @@ func resolveWorkspaceRoot(workspace string) string {
 }
 
 // resolveProviderModelForKey reads the user config (best-effort) to
-// determine the provider and model components of the cortex cache key.
+// determine the engine, provider and model components of the cortex cache key.
 // Errors are intentionally swallowed: if the config is unreadable the
 // caller will hit the same failure mode inside BootCortex, and we still
 // want to key consistently across calls.
-func resolveProviderModelForKey(workspace string) (provider, model string) {
+//
+// The engine is part of the identity: switching config.json from the API
+// engine to claude-cli (or back) changes which LLM client boot constructs, and
+// the cache used to hand back the Cortex wired to the old one.
+func resolveProviderModelForKey(workspace string) (engine, provider, model string) {
 	userCfgPath := filepath.Join(workspace, ".nerd", "config.json")
 	cfg, err := config.LoadUserConfig(userCfgPath)
 	if err != nil || cfg == nil {
-		return "", ""
+		return "", "", ""
 	}
-	return cfg.Provider, cfg.Model
+	return cfg.GetEngine(), cfg.Provider, cfg.Model
 }
 
 // GetOrBootCortex returns the Cortex bound to the given workspace and
 // provider context, booting it on first use. Subsequent calls with the
-// same (workspace, provider, apiKey, model) tuple return the cached
+// same (workspace, engine, provider, apiKey, model, disabled shards) identity
+// return the cached
 // instance; calls with a different tuple boot a fresh Cortex so that
 // switching workspace, provider, or credentials mid-session does not
 // hand back a Cortex wired to the wrong context.
@@ -222,9 +227,9 @@ func getOrBootCortex(
 	}
 
 	ws := resolveWorkspaceRoot(workspace)
-	provider, model := resolveProviderModelForKey(ws)
+	engine, provider, model := resolveProviderModelForKey(ws)
 	disabled := normalizeDisableSystemShards(disableSystemShards)
-	key := cortexKey(ws, provider, apiKey, model, disabled)
+	key := cortexKey(ws, engine, provider, apiKey, model, disabled)
 
 	// Fast path: cache hit under read lock.
 	cortexCacheMu.RLock()
@@ -265,31 +270,6 @@ func getOrBootCortex(
 	_ = cortex.StartMaintenanceSchedule(context.Background())
 
 	return cortex, nil
-}
-
-// ResetGlobalCortex clears every cached Cortex instance. Primarily intended
-// for testing; in production prefer ResetCortexForWorkspace for surgical
-// invalidation. Does not Close() the evicted instances; callers that need
-// resource cleanup should Close() the Cortex they hold a reference to.
-func ResetGlobalCortex() {
-	cortexCacheMu.Lock()
-	defer cortexCacheMu.Unlock()
-	cortexCache = make(map[string]*Cortex)
-}
-
-// ResetCortexForWorkspace evicts every cached Cortex whose Workspace matches
-// the given path. Use this when a workspace's configuration changes (provider
-// switch, key rotation, model change) and you want the next GetOrBootCortex
-// call for that workspace to boot fresh against the new config.
-func ResetCortexForWorkspace(workspace string) {
-	ws := resolveWorkspaceRoot(workspace)
-	cortexCacheMu.Lock()
-	defer cortexCacheMu.Unlock()
-	for k, c := range cortexCache {
-		if c != nil && c.Workspace == ws {
-			delete(cortexCache, k)
-		}
-	}
 }
 
 // evictCortexByKey removes the given key from the cache. Used by Cortex.Close
@@ -858,20 +838,12 @@ func initCoreComponents(bctx *bootContext) error {
 		perception.SharedTaxonomy.SetWorkspace(bctx.workspace)
 	}
 
-	// Shared so a host that already owns a tracker for this workspace (the
-	// interactive chat model does) meters into the same one instead of racing
-	// it for the file. Each owner Closes its own handle; the last one flushes.
-	tracker, err := usage.Shared(bctx.workspace)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize usage tracker: %v\n", err)
-	}
-	bctx.tracker = tracker
-
 	userCfgPath := filepath.Join(bctx.workspace, ".nerd", "config.json")
 	var appCfg *config.UserConfig
 	if bctx.cfg.UserConfigOverride != nil {
 		appCfg = bctx.cfg.UserConfigOverride
 	} else {
+		var err error
 		appCfg, err = config.LoadUserConfig(userCfgPath)
 		if err != nil {
 			return fmt.Errorf("load user config: %w", err)
@@ -880,6 +852,18 @@ func initCoreComponents(bctx *bootContext) error {
 	if appCfg == nil {
 		appCfg = config.DefaultUserConfig()
 	}
+
+	// Shared so a host that already owns a tracker for this workspace (the
+	// interactive chat model does) meters into the same one instead of racing
+	// it for the file. Each owner Closes its own handle; the last one flushes.
+	// Acquired after the config loads: price overrides and the event log come
+	// from its usage section.
+	tracker, err := usage.Shared(bctx.workspace, UsageOptions(appCfg)...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize usage tracker: %v\n", err)
+	}
+	bctx.tracker = tracker
+
 	// Boot has already parsed .nerd/config.json into appCfg, so hand those
 	// logging settings to internal/logging instead of letting it re-read and
 	// re-parse the same file. The injected config is pinned so a later
@@ -899,6 +883,8 @@ func initCoreComponents(bctx *bootContext) error {
 	// max_derived_facts_limit bound nothing and the kernels ran on constants.
 	bootLimits := appCfg.GetCoreLimits()
 	core.ConfigureFactLimits(bootLimits.MaxFactsInKernel, bootLimits.MaxDerivedFactsLimit)
+	// Before any store opens: pragmas are applied at open, sized by the class.
+	configureSQLPragmas(bootLimits.SQLHostClass)
 	bctx.jitCfg = appCfg.GetEffectiveJITConfig()
 
 	// LLM API scheduler policy is fully driven by config.json (api_scheduler +
@@ -2345,7 +2331,7 @@ func initFactoryOuroborosWiring(bctx *bootContext) {
 					Purpose:  need.Description,
 					Priority: need.Priority,
 				}
-				poiesis.ExecuteOuroborosLoop(ctx, autoNeed)
+				recordToolGeneration(need.Name, poiesis.ExecuteOuroborosLoop(ctx, autoNeed))
 				timeoutCancel()
 			}
 		}

@@ -75,7 +75,7 @@ internal/mcp/
 ├── compiler.go          # JITToolCompiler: vector + Mangle selection
 ├── renderer.go          # Tool set rendering for LLM context
 ├── metrics.go           # MCP call metrics (latency / error counters)
-├── redact.go            # Secret redaction for tool outputs before logs
+├── redact.go            # Log-bound server payloads through logging.RedactForLog
 ├── integration.go       # MCPIntegrationBridge + IntegrationAdapter
 └── testdata/            # Golden fixtures for the selection policy
 ```
@@ -229,7 +229,8 @@ command is what you configure here.
 
 ### Secret redaction
 
-Tool arguments and outputs may carry credentials. `RedactSecrets` scrubs common
+Tool arguments and outputs may carry credentials. `logging.RedactSecrets` (the
+redactor internal/logging owns and this package logs through) scrubs common
 token shapes (`Authorization` headers, `api_key`/`token`/`password`/`secret`
 fields, bearer tokens, AWS keys, PEM blocks, long high-entropy hex strings)
 before anything reaches a log line. Call sites that log call results must route

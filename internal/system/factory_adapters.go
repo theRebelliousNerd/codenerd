@@ -3,6 +3,7 @@ package system
 import (
 	"codeberg.org/TauCeti/mangle-go/analysis"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	manglepkg "codenerd/internal/mangle"
@@ -16,8 +17,10 @@ import (
 
 	"codenerd/internal/store"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for project corpus
@@ -417,16 +420,34 @@ func (a *sessionKernelAdapter) RemoveFactsByPredicateSet(predicates map[string]s
 }
 
 // sessionVirtualStoreAdapter adapts core.VirtualStore to types.VirtualStore.
-// NOTE: VirtualStore doesn't directly expose ReadFile/WriteFile/Exec methods.
-// These route through VirtualStore's HandleAction internally. For now, this
-// adapter provides fallback implementations using the os package directly.
+//
+// File access through this adapter is read-only and contained
+// (system-virtualstore-adapter-policy-v1, rollback posture). ReadFile and
+// WriteFile used to call os.ReadFile / os.WriteFile on whatever path they were
+// given: a session task asking the interface for a file got it from anywhere on
+// disk, and a write skipped the constitution, the Dreamer and the post-action
+// validator the executive applies to a routed /write_file. Until a typed,
+// policy-preserving file capability exists on VirtualStore, reads resolve inside
+// the workspace and writes are refused -- visibly, never by falling back to a
+// raw write. Session file mutation goes through the executive (RouteAction).
 type sessionVirtualStoreAdapter struct {
 	vs *core.VirtualStore
 }
 
+// errSessionAdapterWrite is the refusal WriteFile returns.
+var errSessionAdapterWrite = errors.New("session VirtualStore adapter does not write files: route the write through the executive (/write_file) so policy, Dreamer preflight and validation apply")
+
+// containedRead reads path after resolving it inside the workspace root.
+func (a *sessionVirtualStoreAdapter) containedRead(path string) ([]byte, error) {
+	resolved, err := tools.ResolveWorkspacePath(context.Background(), "", path)
+	if err != nil {
+		return nil, fmt.Errorf("session read of %q refused: %w", path, err)
+	}
+	return os.ReadFile(resolved)
+}
+
 func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
-	// Fallback: use os.ReadFile directly
-	data, err := os.ReadFile(path)
+	data, err := a.containedRead(path)
 	if err != nil {
 		return nil, err
 	}
@@ -434,8 +455,7 @@ func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
 }
 
 func (a *sessionVirtualStoreAdapter) WriteFile(path string, content []string) error {
-	// Fallback: use os.WriteFile directly
-	return os.WriteFile(path, []byte(strings.Join(content, "\n")), 0644)
+	return errSessionAdapterWrite
 }
 
 func (a *sessionVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
@@ -443,11 +463,7 @@ func (a *sessionVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env [
 }
 
 func (a *sessionVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
-	// Route through VirtualStore if available, else fallback to os.ReadFile
-	if a.vs != nil {
-		return a.vs.ReadRaw(path)
-	}
-	return os.ReadFile(path)
+	return a.containedRead(path)
 }
 
 // Compile-time assertion that the production adapter exposes the Dreamer
@@ -557,16 +573,59 @@ func (a *sessionLLMAdapter) meteredContext(ctx context.Context) context.Context 
 	return usage.NewContext(ctx, a.tracker)
 }
 
+// auditLLMCall records one call the session executor made in the audit trail
+// (llm_response events; `nerd audit facts` exports them). Every model call a
+// session makes passes through this adapter, which is why the record is made
+// here: the audit trail carried turns, intents, tools, files and safety checks
+// but no model call, so a forensic replay could see what the agent did and not
+// what it asked. tokens is 0 for the text-only methods, whose clients do not
+// return a count.
+func (a *sessionLLMAdapter) auditLLMCall(start time.Time, tokens int, err error) {
+	model := "unknown"
+	if identifier, ok := broker.Base(a.client).(types.ModelIdentifier); ok {
+		if provider, name := identifier.ModelIdentity(); name != "" {
+			model = name
+			if provider != "" {
+				model = provider + "/" + name
+			}
+		}
+	}
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	logging.Audit().LLMCall(model, tokens, time.Since(start).Milliseconds(), err == nil, errMsg)
+}
+
+func responseTokens(resp *types.LLMToolResponse) int {
+	if resp == nil {
+		return 0
+	}
+	if resp.Usage.TotalTokens > 0 {
+		return resp.Usage.TotalTokens
+	}
+	return resp.Usage.InputTokens + resp.Usage.OutputTokens
+}
+
 func (a *sessionLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {
-	return a.client.Complete(a.meteredContext(ctx), prompt)
+	start := time.Now()
+	out, err := a.client.Complete(a.meteredContext(ctx), prompt)
+	a.auditLLMCall(start, 0, err)
+	return out, err
 }
 
 func (a *sessionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	return a.client.CompleteWithSystem(a.meteredContext(ctx), systemPrompt, userPrompt)
+	start := time.Now()
+	out, err := a.client.CompleteWithSystem(a.meteredContext(ctx), systemPrompt, userPrompt)
+	a.auditLLMCall(start, 0, err)
+	return out, err
 }
 
 func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return a.client.CompleteWithTools(a.meteredContext(ctx), systemPrompt, userPrompt, tools)
+	start := time.Now()
+	resp, err := a.client.CompleteWithTools(a.meteredContext(ctx), systemPrompt, userPrompt, tools)
+	a.auditLLMCall(start, responseTokens(resp), err)
+	return resp, err
 }
 
 // ShouldUsePiggybackTools forwards types.PiggybackToolProvider. This adapter
@@ -591,14 +650,20 @@ func (a *sessionLLMAdapter) ShouldUsePiggybackTools() bool {
 func (a *sessionLLMAdapter) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	ctx = a.meteredContext(ctx)
 	if trp, ok := a.client.(types.ToolResultsProvider); ok {
-		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		start := time.Now()
+		resp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		a.auditLLMCall(start, responseTokens(resp), err)
+		return resp, err
 	}
 	// perception clients may implement the interface with perception-local aliases
 	type perceptionTRP interface {
 		CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
 	}
 	if trp, ok := a.client.(perceptionTRP); ok {
-		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		start := time.Now()
+		resp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		a.auditLLMCall(start, responseTokens(resp), err)
+		return resp, err
 	}
 	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", a.client)
 }
@@ -616,7 +681,9 @@ func (a *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPro
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
+		start := time.Now()
 		res, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		a.auditLLMCall(start, 0, err)
 		if err != nil {
 			errorChan <- err
 			return

@@ -25,7 +25,7 @@ func TestClassifyError_WhenBoundaryError_ShouldUseDeclaredCategory(t *testing.T)
 		t.Fatalf("precondition changed: heuristic now returns %s for the ambiguous message", got)
 	}
 
-	typed := NewBoundaryError(ErrorCategoryFilesystem, "/read_file", "/srv/data/report.txt", raw)
+	typed := &BoundaryError{Category: ErrorCategoryFilesystem, Op: "/read_file", Target: "/srv/data/report.txt", Err: raw}
 	classified := ClassifyError(typed)
 	if classified.Category != ErrorCategoryFilesystem {
 		t.Fatalf("expected declared filesystem category, got %s", classified.Category)

@@ -175,6 +175,24 @@ func (o *Orchestrator) updateCampaignStatus(status CampaignStatus) {
 		Predicate: "campaign",
 		Args:      []any{campaignID, cType, title, source, string(status)},
 	})
+	auditCampaignStatus(campaignID, status)
+}
+
+// auditCampaignStatus records a campaign's lifecycle in the audit trail
+// (campaign_event facts in `nerd audit facts`). Every status change passes
+// through updateCampaignStatus, so the trail sees each start, completion and
+// failure; before this it recorded no campaign event at all, so a forensic
+// read of a run could not say when a campaign began or how it ended. Planning
+// and pausing are not lifecycle ends and are not recorded.
+func auditCampaignStatus(campaignID string, status CampaignStatus) {
+	switch status {
+	case StatusActive:
+		logging.Audit().CampaignEvent(logging.AuditCampaignStart, campaignID, "", true)
+	case StatusCompleted:
+		logging.Audit().CampaignEvent(logging.AuditCampaignComplete, campaignID, "", true)
+	case StatusFailed:
+		logging.Audit().CampaignEvent(logging.AuditCampaignAbort, campaignID, "", false)
+	}
 }
 
 // failCampaign centralizes every path that marks a campaign failed on a block.

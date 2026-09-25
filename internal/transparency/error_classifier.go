@@ -165,11 +165,6 @@ func NewSafetyError(op, target, rule string, err error) *BoundaryError {
 	}
 }
 
-// NewBoundaryError tags err with an explicit category.
-func NewBoundaryError(category ErrorCategory, op, target string, err error) *BoundaryError {
-	return &BoundaryError{Category: category, Op: op, Target: target, Err: err}
-}
-
 // ClassifyError analyzes an error and returns a classified version.
 func ClassifyError(err error) *ClassifiedError {
 	if err == nil {
@@ -220,7 +215,7 @@ func ClassifyError(err error) *ClassifiedError {
 		classified.Remediation = []string{
 			"Check your API key is valid",
 			"Verify you haven't exceeded rate limits",
-			"Try a different model with /config set-model",
+			"Try a different model with /model",
 			"Check your account balance/quota",
 		}
 
@@ -324,7 +319,7 @@ func GetRecoveryGuide(category ErrorCategory) []string {
 		ErrorCategoryAPI: {
 			"Verify your API key with /config show",
 			"Check provider status page for outages",
-			"Try a fallback model with /config set-model",
+			"Try a fallback model with /model",
 		},
 		ErrorCategoryKernel: {
 			"Run /query * to see all facts",
@@ -334,7 +329,7 @@ func GetRecoveryGuide(category ErrorCategory) []string {
 		ErrorCategoryShard: {
 			"Check /status for system state",
 			"Try /spawn <type> with a simple task",
-			"Review logs with /logs",
+			"Review the logs under .nerd/logs",
 		},
 		ErrorCategoryFilesystem: {
 			"Run /scan to refresh file index",

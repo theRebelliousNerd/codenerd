@@ -218,24 +218,6 @@ func (i *PromptInspector) InspectPrompt(snapshot *PromptSnapshot) {
 	i.writer.Write([]byte(sb.String()))
 }
 
-// ResponseSnapshot captures an LLM response with Piggyback protocol parsing.
-type ResponseSnapshot struct {
-	TurnNumber      int
-	Timestamp       time.Time
-	ResponseTokens  int
-	ResponseLatency time.Duration
-
-	// Piggyback Protocol
-	SurfaceText   string
-	ControlPacket *ControlPacket
-
-	// Kernel State Changes
-	StateBefore  []core.Fact
-	StateAfter   []core.Fact
-	AddedFacts   []core.Fact
-	RemovedFacts []core.Fact
-}
-
 // ControlPacket represents the hidden control channel in Piggyback protocol.
 type ControlPacket struct {
 	IntentClassification IntentClassification
@@ -262,105 +244,6 @@ type IntentClassification struct {
 	Target     string
 	Constraint string
 	Confidence float64
-}
-
-// InspectResponse logs a complete snapshot of an LLM response.
-func (i *PromptInspector) InspectResponse(snapshot *ResponseSnapshot) {
-	var sb strings.Builder
-
-	// Header
-	sb.WriteString("═══════════════════════════════════════════════════════════════\n")
-	sb.WriteString(fmt.Sprintf("TURN %d - LLM RESPONSE (Piggyback Protocol)\n", snapshot.TurnNumber))
-	sb.WriteString("═══════════════════════════════════════════════════════════════\n")
-	sb.WriteString(fmt.Sprintf("Tokens: %s | Latency: %v\n",
-		formatNumber(snapshot.ResponseTokens),
-		snapshot.ResponseLatency.Round(time.Millisecond)))
-	sb.WriteString(fmt.Sprintf("Timestamp: %s\n\n", snapshot.Timestamp.Format("2006-01-02 15:04:05")))
-
-	// Surface Text (visible to user)
-	sb.WriteString("SURFACE (visible to user):\n")
-	sb.WriteString("───────────────────────────────────────────────────────────────\n")
-	sb.WriteString(truncate(snapshot.SurfaceText, 500))
-	if len(snapshot.SurfaceText) > 500 {
-		sb.WriteString("\n... (truncated)")
-	}
-	sb.WriteString("\n\n")
-
-	// Control Packet (hidden from user)
-	if snapshot.ControlPacket != nil {
-		sb.WriteString("CONTROL PACKET (hidden from user):\n")
-		sb.WriteString("───────────────────────────────────────────────────────────────\n")
-
-		cp := snapshot.ControlPacket
-
-		sb.WriteString("Intent Classification:\n")
-		sb.WriteString(fmt.Sprintf("  Category:   %s\n", cp.IntentClassification.Category))
-		sb.WriteString(fmt.Sprintf("  Verb:       %s\n", cp.IntentClassification.Verb))
-		sb.WriteString(fmt.Sprintf("  Target:     %s\n", cp.IntentClassification.Target))
-		sb.WriteString(fmt.Sprintf("  Confidence: %.2f\n\n", cp.IntentClassification.Confidence))
-
-		if len(cp.MangleUpdates) > 0 {
-			sb.WriteString("Mangle Updates:\n")
-			for _, update := range cp.MangleUpdates {
-				sb.WriteString(fmt.Sprintf("  - %s\n", update))
-			}
-			sb.WriteString("\n")
-		}
-
-		if cp.NextPhase != "" {
-			sb.WriteString(fmt.Sprintf("Next Phase: %s\n\n", cp.NextPhase))
-		}
-
-		if len(cp.ToolCalls) > 0 {
-			sb.WriteString("Tool Calls:\n")
-			for _, tool := range cp.ToolCalls {
-				sb.WriteString(fmt.Sprintf("  - %s\n", tool))
-			}
-			sb.WriteString("\n")
-		}
-	}
-
-	// Kernel State Changes
-	if len(snapshot.AddedFacts) > 0 || len(snapshot.RemovedFacts) > 0 {
-		sb.WriteString("KERNEL STATE CHANGES:\n")
-		sb.WriteString("───────────────────────────────────────────────────────────────\n")
-
-		if i.verbose && len(snapshot.StateBefore) > 0 {
-			sb.WriteString("Before:\n")
-			for _, fact := range snapshot.StateBefore {
-				sb.WriteString(fmt.Sprintf("  %s\n", fact.String()))
-			}
-			sb.WriteString("\n")
-		}
-
-		if len(snapshot.AddedFacts) > 0 {
-			sb.WriteString(fmt.Sprintf("Added Facts (%d):\n", len(snapshot.AddedFacts)))
-			for _, fact := range snapshot.AddedFacts {
-				sb.WriteString(fmt.Sprintf("  + %s\n", fact.String()))
-			}
-			sb.WriteString("\n")
-		}
-
-		if len(snapshot.RemovedFacts) > 0 {
-			sb.WriteString(fmt.Sprintf("Removed Facts (%d):\n", len(snapshot.RemovedFacts)))
-			for _, fact := range snapshot.RemovedFacts {
-				sb.WriteString(fmt.Sprintf("  - %s\n", fact.String()))
-			}
-			sb.WriteString("\n")
-		}
-
-		if i.verbose && len(snapshot.StateAfter) > 0 {
-			sb.WriteString("After:\n")
-			for _, fact := range snapshot.StateAfter {
-				sb.WriteString(fmt.Sprintf("  %s\n", fact.String()))
-			}
-			sb.WriteString("\n")
-		}
-	}
-
-	sb.WriteString("═══════════════════════════════════════════════════════════════\n\n")
-
-	i.writer.Write([]byte(sb.String()))
 }
 
 // Summary prints a summary of the inspection session.

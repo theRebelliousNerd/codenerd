@@ -39,10 +39,41 @@
   `ReadRecentAuditEvents` at `cmd/nerd/cmd_transparency.go:265`.
 - `ClearInjectedConfig` (`logger.go:299`) and `resetLLMIOLogger`
   (`llm_io_logger.go:96`) are test seams by design.
-- `ContextLogger` (`WithContext`) and `RequestLogger` (`WithRequestID`) are
-  exported scoped variants with no production callers. Decided, not a wiring
-  gap: adopting a request ID for correlation is the maintainer's call
-  (`Docs/architecture/logging/TODO.md`, "Decided, not built").
+- `ContextLogger` (`WithContext`) has no production caller; it is the one
+  scoped decorator kept. `RequestLogger` (`WithRequestID`) was **removed
+  2026-09-25**: a second decorator for one field, never adopted, while the one
+  client that mints request IDs (ZAI) logs them as structured fields.
+
+## Dead-code inventory, lane B wave 3 (2026-09-25)
+
+The package had 68 entries on `scripts/testdata/deadcode-baseline.txt`. Each
+was decided:
+
+- **Removed** (no production caller, superseded): 46 category x level
+  convenience wrappers (`logger_convenience.go` now says a wrapper comes back
+  with its first caller; the idiom is `Get(CategoryX).Warn`); the
+  `RequestLogger` family and `formatMsg`; `Timer.StopWithThreshold` (`Stop`
+  honours `performance_thresholds_ms`); `AuditWithShard` (`AuditWithContext`
+  covers it).
+- **Moved to test code**: `ReloadConfig` -- production has no runtime reload
+  path; boot injects the parsed config once.
+- **Wired**: `BoundWorkspace`, `PerformanceSamplingStats` and
+  `IsLLMIOTracingEnabled` feed the chat `/status` Diagnostics block
+  (`cmd/nerd/chat/diagnostics.go`). `RedactForLog` is how `internal/mcp` logs
+  server payloads (its copy of the pattern table is gone). The audit trail
+  gained the events it declared and never received: `AuditWithSession`,
+  `SessionStart` / `SessionEnd` and `Error` from the chat session
+  (`cmd/nerd/chat/ux_journey.go`, `model_update.go`); `LLMCall` from every
+  session model call (`internal/system/factory_adapters.go`
+  `sessionLLMAdapter.auditLLMCall`); `CampaignEvent` from the campaign
+  lifecycle (`internal/campaign/orchestrator_utils.go` `auditCampaignStatus`,
+  phase completion in `orchestrator_phases.go`); `LearningEvent` from the
+  unattended Ouroboros loop and the maintenance evolution cycle
+  (`internal/system/factory_learning.go`).
+- **Kept**: `ClearInjectedConfig`, a test seam used by tests in four packages.
+- **Fixed on the way**: a workspace rebind wiped a config `ApplyConfig` had
+  injected while the pin stayed set, so logging went silent in the new
+  workspace (`TestInitialize_WhenRebindingAfterApplyConfig_ShouldKeepTheInjectedConfig`).
 
 ## Assumed by the design, not done by the code
 

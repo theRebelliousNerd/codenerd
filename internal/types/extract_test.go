@@ -127,45 +127,6 @@ func TestExtractBool(t *testing.T) {
 	}
 }
 
-func TestExtractTime(t *testing.T) {
-	now := time.Now().UTC()
-	nanos := now.UnixNano()
-
-	got1, ok1 := ExtractTime(now)
-	if !ok1 || !got1.Equal(now) {
-		t.Errorf("ExtractTime(time.Time) = (%v, %v), want (%v, true)", got1, ok1, now)
-	}
-
-	got2, ok2 := ExtractTime(nanos)
-	if !ok2 || got2.UnixNano() != nanos {
-		t.Errorf("ExtractTime(int64) = (%v, %v), want UnixNano=%d", got2, ok2, nanos)
-	}
-
-	_, ok3 := ExtractTime("not a time")
-	if ok3 {
-		t.Error("ExtractTime(string) should return false")
-	}
-}
-
-func TestExtractDuration(t *testing.T) {
-	dur := 5 * time.Second
-
-	got1, ok1 := ExtractDuration(dur)
-	if !ok1 || got1 != dur {
-		t.Errorf("ExtractDuration(Duration) = (%v, %v), want (%v, true)", got1, ok1, dur)
-	}
-
-	got2, ok2 := ExtractDuration(int64(dur))
-	if !ok2 || got2 != dur {
-		t.Errorf("ExtractDuration(int64) = (%v, %v), want (%v, true)", got2, ok2, dur)
-	}
-
-	_, ok3 := ExtractDuration("5s")
-	if ok3 {
-		t.Error("ExtractDuration(string) should return false")
-	}
-}
-
 func TestArgString(t *testing.T) {
 	f := Fact{Predicate: "test", Args: []any{"hello", int64(42)}}
 

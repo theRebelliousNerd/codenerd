@@ -316,12 +316,6 @@ func TestRegisterGroundedWebSearchIfSupported(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nil registry")
 	}
-	// Alias
-	reg3 := tools.NewRegistry()
-	ok, err = RegisterGroundedWebSearch(reg3, supported)
-	if err != nil || !ok {
-		t.Fatalf("alias failed ok=%v err=%v", ok, err)
-	}
 }
 
 func TestGroundedWebSearchTool_NilContext(t *testing.T) {
@@ -329,7 +323,7 @@ func TestGroundedWebSearchTool_NilContext(t *testing.T) {
 	m := &groundedSearcherMock{supports: true}
 	tool := GroundedWebSearchTool(m)
 	// Pass nil ctx via direct ExecuteFunc call with nil context
-	// tools.Execute will substitute Background for nil context, but our ExecuteFunc itself guards.
+	// Registry.Execute will substitute Background for nil context, but our ExecuteFunc itself guards.
 	// Here we call the closure directly: the handler receives a non-nil context after guard.
 	res, err := tool.Execute(nil, map[string]any{"query": "hello"})
 	if err != nil {

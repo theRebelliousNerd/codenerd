@@ -92,15 +92,40 @@ and `/verify`, so any meaningful scoping leaves a configured server unreachable
 from whole regions of the taxonomy, and unreachable-by-routing fails silently.
 If that trade should go the other way, the change is two files.
 
+## Closed 2026-09-25 (lane B wave 3)
+
+- `ToolSelectionConfig` knobs. Resolved by deletion, not by wiring:
+  `LogicWeight`, `VectorWeight` and `SkeletonThreshold` are gone from
+  `internal/mcp/types.go`, and so are `MCPClientManager.SetToolSelectionConfig`
+  and the manager's never-read `selection` field. The weights and the skeleton
+  rule are `policy_mcp.mg`'s (50.6-50.8), and the Go path in `compiler.go` is
+  its fallback mirror; a Go knob that moved only the fallback would have made
+  the two selection paths rank the same tools differently. Wiring them to
+  `.nerd/config.json` for real would mean EDB weight facts the policy reads,
+  which no one has asked for. The fallback now mirrors the policy for real:
+  logic-only relevance when a tool has no vector score, and each weighted term
+  floored before the sum (`fallbackSelect`, `policyLogicWeightTenths`). Before,
+  an affinity-50 tool with no embedding was `/condensed` to the policy and
+  `/minimal` to the fallback. Proof:
+  `TestFallbackSelection_ShouldScoreLikeThePolicyRelevanceRules` (fails
+  without the change) and `TestFallbackSelection_ShouldMirrorPolicyWeightsAndTiers`,
+  which reads the policy file and fails if its weights or tiers drift from the
+  Go constants.
+- Dead constructors and a duplicate type, removed: `NewHTTPTransport` /
+  `NewSSETransport` (superseded by the `*WithHeaders` pair, which the manager
+  calls; nil headers is the no-header case) and `ToolAvailableEntry` (a copy of
+  `init.ToolDefinition`, which is the type that actually loads
+  `available_tools.json`).
+- Redaction: `redact.go` no longer carries its own copy of the secret patterns;
+  it logs through `logging.RedactForLog`.
+
 ## Still open
 
-- `ToolSelectionConfig` (`types.go`) is not reachable from `.nerd/config.json`.
-  `SetToolSelectionConfig` and `SetConfig` exist and nothing calls them, so every
-  runtime uses the hardcoded defaults. `LogicWeight`, `VectorWeight` and
-  `SkeletonThreshold` are declared and never read — the compiler hardcodes
-  `*7/10` and `*3/10`. Either wire them or delete the dead fields; carrying a
-  knob that does nothing is worse than not having one.
 - Campaign-side `MCPToolStore` injection remains optional.
+- The remaining `ToolSelectionConfig` fields (tier thresholds, `MaxFullTools`,
+  `MaxCondensedTools`, `TokenBudget`) are still not reachable from
+  `.nerd/config.json`. Declined for now: the tiers mirror policy constants (see
+  above), and the budget fields have no reported need.
 
 ## Non-goals (do not TODO as defects)
 

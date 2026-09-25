@@ -22,7 +22,7 @@ func probeTool(name string, ran *bool) *Tool {
 // The contract: an absent capability envelope is not a grant of every
 // capability. session.Executor.isToolAllowed already fails closed on an empty
 // AllowedTools; the registry is the layer underneath it, reachable
-// process-globally via tools.Execute, and it used to run anything registered.
+// process-globally via tools.Global().Execute, and it used to run anything registered.
 
 func TestAllowlist_WhenEnforcedAndEmpty_ShouldDenyEveryTool(t *testing.T) {
 	t.Parallel()

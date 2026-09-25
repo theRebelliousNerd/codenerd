@@ -151,8 +151,8 @@ Usage never injects `user_intent`, never queries the kernel, never routes action
 
 | Hook | Status |
 |------|--------|
-| `UsageEvent` / Events slice | Live bounded ring, opt-in via `WithEventLog` |
-| `Cost` field | Populated from `pricing.go`; `UnpricedTokens` covers table misses |
+| `UsageEvent` / Events slice | Live bounded ring, opt-in via config `usage.event_log` (boot passes `WithEventLog` through `system.UsageOptions`); read by `nerd usage --events N` |
+| `Cost` field | Populated from `pricing.go`; `UnpricedTokens` covers table misses; config `usage.prices` adds/overrides entries via `RegisterPrice` at boot |
 | `autoSaveTimer` | Live, cancelable, re-arms after a failed flush |
 | Chat vs Cortex tracker | Unified: both call `usage.Shared`, refcounted, last `Close` wins |
 | `LineHeader`-style reserved values | none remaining in this package |

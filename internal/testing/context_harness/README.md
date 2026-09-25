@@ -15,14 +15,28 @@ The Context Test Harness stress-tests codeNERD's core context management capabil
 
 ```
 internal/testing/context_harness/
-├── types.go           # Core data structures (Scenario, Turn, Checkpoint, Metrics)
-├── simulator.go       # Session simulator (executes scenarios, validates checkpoints)
-├── scenarios.go       # Pre-built test scenarios
-├── metrics.go         # Metrics collection (compression, retrieval, performance)
-├── reporter.go        # Results reporting (console, JSON)
-├── harness.go         # Main orchestrator
-└── integration.go     # Integration with real codeNERD compression/retrieval
+├── types.go                  # Scenario, Turn, Checkpoint, Metrics, SimulatorConfig
+├── scenarios.go              # The registry (AllScenarios, ScenariosByCategory) + mock scenarios
+├── scenarios_integration.go  # Integration scenarios (need --mode=real)
+├── simulator.go              # Turn loop; checkpoints fire by TurnID; validators enforced
+├── fact_seeder.go            # Parses Scenario.InitialFacts for the engine's SeedFacts
+├── engine_interface.go       # ContextEngine (mock | real) + activation validation
+├── mock_engine.go            # Fast mock engine (simplified scoring)
+├── real_engine.go            # Production ActivationEngine; optional live LLM turns
+├── harness.go                # Orchestrator: category selection, registry-order RunAll, engine reset
+├── metrics.go                # Compression, retrieval, budget violations, peak heap
+├── reporter.go               # Results reporting (console, JSON)
+├── file_logger.go            # .nerd/context-tests/session-*/ log files
+└── *_tracer.go, inspector.go, compression_viz.go  # Observability channels
 ```
+
+Honesty rules the simulator keeps (2026-09-25): a checkpoint fires after the
+turn whose TurnID it names, and one that never fires fails the scenario; an
+empty or failed retrieval scores zero (it used to be replaced by the
+checkpoint's own expected list); declared activation / compression / feedback
+validators are enforced, and what the engines cannot show (the Compressor
+firing, its summary, a feedback sample count) fails as unverified; a
+`--mode=real` scenario is refused on the mock engine.
 
 ## Pre-Built Scenarios
 
@@ -253,7 +267,7 @@ Add to CI pipeline to catch context system regressions:
 - name: Test Context System
   run: |
     go build -o nerd ./cmd/nerd
-    ./nerd test-context --all --format json > context-test-results.json
+    ./nerd test-context --category=mock --format json > context-test-results.json
 
 - name: Upload Results
   uses: actions/upload-artifact@v3

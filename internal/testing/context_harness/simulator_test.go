@@ -67,7 +67,10 @@ func TestCalculateRetrievalMetrics(t *testing.T) {
 	}
 
 	sim := &SessionSimulator{}
-	precision, recall := sim.calculateRetrievalMetrics(retrieved, turn)
+	precision, recall, measured := sim.calculateRetrievalMetrics(retrieved, turn)
+	if !measured {
+		t.Fatal("a turn with ground truth was not measured")
+	}
 	if precision != 1.0 {
 		t.Fatalf("precision = %.2f, want 1.0", precision)
 	}
@@ -76,7 +79,11 @@ func TestCalculateRetrievalMetrics(t *testing.T) {
 	}
 }
 
-func TestCalculateRetrievalMetricsFloors(t *testing.T) {
+// An engine that retrieves nothing scores zero, and a turn that names nothing
+// to retrieve is not measured. Mock mode used to floor the first at 0.5/0.5
+// and score the second 0.95/0.95, both numbers nothing measured. (This test
+// pinned the floor; it now pins its removal.)
+func TestCalculateRetrievalMetrics_ShouldNotScoreWhatWasNotMeasured(t *testing.T) {
 	turn := &Turn{
 		TurnID:  1,
 		Speaker: "user",
@@ -88,19 +95,21 @@ func TestCalculateRetrievalMetricsFloors(t *testing.T) {
 	}
 
 	sim := &SessionSimulator{}
-	precision, recall := sim.calculateRetrievalMetrics(nil, turn)
-	if precision != 0.5 {
-		t.Fatalf("precision = %.2f, want 0.5", precision)
+	precision, recall, measured := sim.calculateRetrievalMetrics(nil, turn)
+	if !measured || precision != 0 || recall != 0 {
+		t.Fatalf("nothing retrieved: precision %.2f recall %.2f measured %v, want 0, 0, true", precision, recall, measured)
 	}
-	if recall != 0.5 {
-		t.Fatalf("recall = %.2f, want 0.5", recall)
+
+	if _, _, measured := sim.calculateRetrievalMetrics(nil, &Turn{TurnID: 2, Speaker: "user"}); measured {
+		t.Fatal("a turn with no ground truth was scored")
 	}
 }
 
-func TestValidateCheckpointFallback(t *testing.T) {
-	sim := &SessionSimulator{
-		config: SimulatorConfig{TokenBudget: 100},
-	}
+// A checkpoint is never passed on retrieval that did not happen. It used to
+// substitute its own MustRetrieve list for an empty retrieval, so no engine at
+// all scored perfect recall. (This test was TestValidateCheckpointFallback and
+// pinned that soft pass.)
+func TestValidateCheckpoint_WhenNothingIsRetrieved_ShouldFail(t *testing.T) {
 	checkpoint := &Checkpoint{
 		AfterTurn:    0,
 		Query:        "what happened",
@@ -108,18 +117,19 @@ func TestValidateCheckpointFallback(t *testing.T) {
 		ShouldAvoid:  []string{"fact-x"},
 		MinRecall:    0.9,
 		MinPrecision: 0.9,
-		Description:  "fallback",
+		Description:  "no soft pass",
 	}
 
-	result := sim.validateCheckpoint(context.Background(), checkpoint)
-	if !result.Passed {
-		t.Fatalf("expected checkpoint to pass, got %s", result.FailureReason)
+	noEngine := &SessionSimulator{config: SimulatorConfig{TokenBudget: 100}, metrics: NewMetricsCollector()}
+	if result := noEngine.validateCheckpoint(context.Background(), checkpoint); result.Passed || len(result.MissingRequired) != 2 {
+		t.Fatalf("no engine: passed=%v missing=%v, want a failure missing both facts", result.Passed, result.MissingRequired)
 	}
-	if len(result.MissingRequired) != 0 {
-		t.Fatalf("expected no missing required facts")
-	}
-	if len(result.UnwantedNoise) != 0 {
-		t.Fatalf("expected no unwanted noise")
+
+	empty := &SessionSimulator{config: SimulatorConfig{TokenBudget: 100}, metrics: NewMetricsCollector()}
+	empty.SetContextEngine(NewMockContextEngine(nil))
+	result := empty.validateCheckpoint(context.Background(), checkpoint)
+	if result.Passed || result.Recall != 0 {
+		t.Fatalf("empty retrieval: passed=%v recall=%.2f, want a failure at recall 0", result.Passed, result.Recall)
 	}
 }
 

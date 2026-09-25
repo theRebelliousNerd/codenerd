@@ -11,9 +11,9 @@
 | Non-blocking | Never block OODA | True | No | — |
 | Existing user skip wizard | Productive + complete | Implemented + tested | No | — |
 | Feature-flag skip | CI / automation | `NERD_SKIP_ONBOARDING` | No | — |
-| Session metrics | Drive transitions | `RecordSessionStart` unwired | **Yes** | P1 |
+| Session metrics | Drive transitions | wired 2026-09-25 (`openSessionRecord`, `recordUXMetric`) | Closed | P1 |
 | Command/success/error metrics | Populate counters | `IncrementMetric` only tested | **Yes** | P1 |
-| Auto journey transition | Promote learning→productive→power | `CheckJourneyTransition` unwired | **Yes** | P1 |
+| Auto journey transition | Promote learning→productive→power | wired 2026-09-25 (`closeSessionRecord`) | Closed | P1 |
 | Onboarding→learning on first command | `ShouldTransition(new)` | No chat call increments `commands_executed` | **Yes** | P1 |
 | Progressive disclosure helper | `GetDisclosureLevel` | Tests only; help reimplements | **Yes** | P2 |
 | Experience helper reuse | Single map | Chat inlines switch in help/tips | **Yes** | P2 |

@@ -91,23 +91,6 @@ func TestNewMCPClientManager_WhenConfigProvided_ShouldStoreConfig(t *testing.T) 
 
 // --- Callbacks ---
 
-func TestSetToolSelectionConfig_ShouldUpdate(t *testing.T) {
-	mgr := NewMCPClientManager(nil, nil, nil)
-	custom := ToolSelectionConfig{
-		SkeletonThreshold: 50,
-		FullThreshold:     30,
-		LogicWeight:       0.5,
-		VectorWeight:      0.5,
-	}
-	mgr.SetToolSelectionConfig(custom)
-
-	mgr.mu.RLock()
-	defer mgr.mu.RUnlock()
-	if mgr.selection.SkeletonThreshold != 50 {
-		t.Errorf("expected SkeletonThreshold=50, got %d", mgr.selection.SkeletonThreshold)
-	}
-}
-
 func TestSetOnToolDiscovered_ShouldSetCallback(t *testing.T) {
 	mgr := NewMCPClientManager(nil, nil, nil)
 	called := false
@@ -613,42 +596,14 @@ func TestUpdateServerStatus_WhenNoCallback_ShouldNotPanic(t *testing.T) {
 
 func TestDefaultToolSelectionConfig_ShouldReturnSensibleDefaults(t *testing.T) {
 	cfg := DefaultToolSelectionConfig()
-	if cfg.SkeletonThreshold != 90 {
-		t.Errorf("expected SkeletonThreshold=90, got %d", cfg.SkeletonThreshold)
-	}
 	if cfg.FullThreshold != 70 {
 		t.Errorf("expected FullThreshold=70, got %d", cfg.FullThreshold)
-	}
-	if cfg.LogicWeight != 0.7 {
-		t.Errorf("expected LogicWeight=0.7, got %f", cfg.LogicWeight)
-	}
-	if cfg.VectorWeight != 0.3 {
-		t.Errorf("expected VectorWeight=0.3, got %f", cfg.VectorWeight)
 	}
 	if cfg.MaxFullTools != 10 {
 		t.Errorf("expected MaxFullTools=10, got %d", cfg.MaxFullTools)
 	}
 	if cfg.TokenBudget != 4000 {
 		t.Errorf("expected TokenBudget=4000, got %d", cfg.TokenBudget)
-	}
-}
-
-// --- ToolAvailableEntry ---
-
-func TestToolAvailableEntry_IsMCPTool(t *testing.T) {
-	entry := ToolAvailableEntry{Type: "mcp"}
-	if !entry.IsMCPTool() {
-		t.Error("expected IsMCPTool() == true for type 'mcp'")
-	}
-
-	entry2 := ToolAvailableEntry{Type: "static"}
-	if entry2.IsMCPTool() {
-		t.Error("expected IsMCPTool() == false for type 'static'")
-	}
-
-	entry3 := ToolAvailableEntry{}
-	if entry3.IsMCPTool() {
-		t.Error("expected IsMCPTool() == false for empty type")
 	}
 }
 

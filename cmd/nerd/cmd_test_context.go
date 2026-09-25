@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	internalcontext "codenerd/internal/context"
@@ -41,34 +42,8 @@ var (
 var testContextCmd = &cobra.Command{
 	Use:   "test-context",
 	Short: "Test the infinite context system with realistic simulations",
-	Long: `Stress-tests codeNERD's infinite context system (compression, retrieval, paging)
-with realistic coding session simulations.
-
-Modes:
-  --mode=mock    Fast mock implementations for CI (default)
-  --mode=real    Real ActivationEngine, Compressor, and Kernel (slower, LLM required)
-
-Mock Scenarios (category: mock):
-  - debugging-marathon      50-turn debugging session testing context retention
-  - feature-implementation  75-turn feature implementation testing multi-phase paging
-  - refactoring-campaign   100-turn refactoring testing long-term stability
-  - research-and-build      80-turn research + implementation testing cross-phase retrieval
-
-Integration Scenarios (category: integration, requires --mode=real):
-  - campaign-phase-transition  Phase reset and context paging
-  - swebench-issue-resolution  Issue context with tiered file boosting
-  - token-budget-overflow      Compression triggering at 60% utilization
-  - dependency-spreading       Symbol graph spreading with depth decay
-  - verb-specific-boosting     8 intent verb boost validation
-  - ephemeral-filtering        Boot guard and fact category filtering
-
-Examples:
-  nerd test-context --scenario debugging-marathon
-  nerd test-context --all
-  nerd test-context --scenario campaign-phase-transition --mode=real
-  nerd test-context --category=integration --mode=real
-  nerd test-context --scenario debugging-marathon --format json > results.json`,
-	RunE: runTestContext,
+	Long:  testContextLongHelp(),
+	RunE:  runTestContext,
 }
 
 func init() {
@@ -99,12 +74,70 @@ func init() {
 	rootCmd.AddCommand(testContextCmd)
 }
 
+// testContextLongHelp is the command's help, with the scenario list drawn
+// from the registry. It was a hand-written list that named four of the eight
+// mock scenarios and six of the seven integration ones.
+func testContextLongHelp() string {
+	var sb strings.Builder
+	sb.WriteString(`Stress-tests codeNERD's infinite context system (compression, retrieval, paging)
+with realistic coding session simulations.
+
+Modes:
+  --mode=mock    Fast mock engine on a fresh in-memory kernel; boots no Cortex (default)
+  --mode=real    Real ActivationEngine on the workspace Cortex (slower)
+`)
+	for _, group := range []struct {
+		category context_harness.ScenarioCategory
+		title    string
+	}{
+		{context_harness.CategoryMock, "Mock scenarios (--category=mock)"},
+		{context_harness.CategoryIntegration, "Integration scenarios (--category=integration, need --mode=real)"},
+	} {
+		fmt.Fprintf(&sb, "\n%s:\n", group.title)
+		for _, sc := range context_harness.ScenariosByCategory(group.category) {
+			fmt.Fprintf(&sb, "  %-26s %s\n", sc.ScenarioID, sc.Description)
+		}
+	}
+	sb.WriteString(`
+Examples:
+  nerd test-context --scenario debugging-marathon
+  nerd test-context --all
+  nerd test-context --category=mock
+  nerd test-context --category=integration --mode=real
+  nerd test-context --scenario debugging-marathon --format json > results.json`)
+	return sb.String()
+}
+
+// selectTestContextRun applies --category to the harness and says whether the
+// invocation runs every selected scenario (--all, or --category without
+// --scenario). --category used to be parsed and never read.
+func selectTestContextRun(harness *context_harness.Harness, scenario string, all bool, category string) (bool, error) {
+	if category != "" {
+		if err := harness.SelectCategory(context_harness.ScenarioCategory(category)); err != nil {
+			return false, err
+		}
+	}
+	return all || (category != "" && scenario == ""), nil
+}
+
 func runTestContext(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	// Resolve API key
-	key := resolveAPIKey(apiKey, workspace)
+	var engineMode context_harness.EngineMode
+	switch testContextMode {
+	case "mock", "":
+		engineMode = context_harness.MockMode
+	case "real":
+		engineMode = context_harness.RealMode
+	default:
+		return fmt.Errorf("unknown --mode %q (mock or real)", testContextMode)
+	}
+	// Live LLM mode requires real mode
+	if testContextLiveLLM && engineMode != context_harness.RealMode {
+		fmt.Println("⚠️  --live requires --mode=real, enabling real mode")
+		engineMode = context_harness.RealMode
+	}
 
 	// Set up file logging
 	var consoleWriter io.Writer = os.Stdout
@@ -174,8 +207,6 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		)
 	}
 
-	// Boot Cortex (need kernel + compression system)
-	fmt.Println("🚀 Booting codeNERD Cortex...")
 	fmt.Printf("📊 Observability Enabled:\n")
 	if testContextInspectPrompts {
 		fmt.Println("  ✓ Prompt Inspection")
@@ -197,18 +228,6 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
-	if err != nil {
-		return fmt.Errorf("failed to boot cortex: %w", err)
-	}
-	defer cortex.Close()
-
-	// Determine engine mode
-	engineMode := context_harness.MockMode
-	if testContextMode == "real" {
-		engineMode = context_harness.RealMode
-	}
-
 	// Configure simulator
 	simConfig := context_harness.SimulatorConfig{
 		MaxTurns:           testContextMaxTurns,
@@ -219,57 +238,54 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		Mode:               engineMode,
 		UseLiveLLM:         testContextLiveLLM,
 	}
-
-	// Live LLM mode requires real mode
-	if testContextLiveLLM && engineMode != context_harness.RealMode {
-		fmt.Println("⚠️  --live requires --mode=real, enabling real mode")
-		simConfig.Mode = context_harness.RealMode
-		engineMode = context_harness.RealMode
-	}
-
 	if testContextLiveLLM {
 		fmt.Println("🔴 LIVE LLM MODE: Assistant responses will be generated by real Gemini API")
 	}
 
-	// Resolve the concrete *core.RealKernel the harness needs. Bail out loudly
-	// rather than passing a nil kernel into it: the RealIntegrationEngine
-	// branch below dereferences this pointer for every fact-seeder call, and
-	// an earlier silent fallback masked the configuration error with a
-	// downstream nil-panic.
-	//
-	// The assertion used to accept only *core.RealKernel. Cortex.Kernel is a
-	// *core.CortexKernel now — a sharded kernel that routes predicates to
-	// per-domain RealKernels — so the assertion always failed and
-	// `nerd test-context` could not run at all:
-	//
-	//   test-context: cortex.Kernel is *core.CortexKernel, expected *core.RealKernel
-	//
-	// CortexKernel exposes GetPrimaryRealKernel() for exactly this case.
 	var realKernel *core.RealKernel
-	switch k := cortex.Kernel.(type) {
-	case *core.RealKernel:
-		realKernel = k
-	case *core.CortexKernel:
-		realKernel = k.GetPrimaryRealKernel()
-	}
-	if realKernel == nil {
-		return fmt.Errorf("test-context: could not resolve a *core.RealKernel from cortex.Kernel (%T)", cortex.Kernel)
-	}
-
-	// Create context engine based on mode
 	var contextEngine context_harness.ContextEngine
 	if engineMode == context_harness.RealMode {
-		// Real mode: use actual ActivationEngine with 7-component scoring
-		fmt.Println("🔬 Using RealIntegrationEngine with 7-component activation scoring")
-		config := internalcontext.DefaultConfig()
+		// Real mode runs the production activation engine and needs the
+		// Cortex's store and LLM client.
+		fmt.Println("🚀 Booting codeNERD Cortex...")
+		cortex, err := coresys.GetOrBootCortex(ctx, workspace, resolveAPIKey(apiKey, workspace), nil)
+		if err != nil {
+			return fmt.Errorf("failed to boot cortex: %w", err)
+		}
+		defer cortex.Close()
+
+		// Resolve the concrete *core.RealKernel the harness needs. Bail out
+		// loudly rather than passing a nil kernel into it: the engine
+		// dereferences this pointer for every fact it loads.
+		//
+		// Cortex.Kernel is a *core.CortexKernel -- a sharded kernel that routes
+		// predicates to per-domain RealKernels -- and GetPrimaryRealKernel
+		// exposes the primary one for exactly this case.
+		switch k := cortex.Kernel.(type) {
+		case *core.RealKernel:
+			realKernel = k
+		case *core.CortexKernel:
+			realKernel = k.GetPrimaryRealKernel()
+		}
+		if realKernel == nil {
+			return fmt.Errorf("test-context: could not resolve a *core.RealKernel from cortex.Kernel (%T)", cortex.Kernel)
+		}
+		fmt.Println("🔬 Using RealIntegrationEngine with 9-component activation scoring")
 		contextEngine = context_harness.NewRealIntegrationEngine(
 			realKernel,
 			cortex.LocalDB,
 			cortex.LLMClient,
-			config,
+			internalcontext.DefaultConfig(),
 		)
 	} else {
-		// Mock mode: fast mock implementations for CI
+		// Mock mode needs no Cortex, and must not borrow the workspace's
+		// kernel: scenario facts would be asserted into the kernel a chat
+		// session on this workspace is using. A fresh kernel isolates it.
+		k, err := core.NewRealKernel()
+		if err != nil {
+			return fmt.Errorf("test-context: fresh kernel: %w", err)
+		}
+		realKernel = k
 		contextEngine = context_harness.NewMockContextEngine(realKernel)
 	}
 
@@ -289,8 +305,13 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		contextEngine,
 	)
 
+	runAll, err := selectTestContextRun(harness, testContextScenario, testContextAll, testContextCategory)
+	if err != nil {
+		return err
+	}
+
 	// List scenarios if requested
-	if testContextScenario == "" && !testContextAll {
+	if testContextScenario == "" && !runAll {
 		fmt.Println("📋 Available Test Scenarios:")
 		scenarios := harness.ListScenarios()
 		for i, name := range scenarios {
@@ -311,7 +332,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run scenarios
-	if testContextAll {
+	if runAll {
 		logger.Info("Running all context test scenarios")
 		fmt.Println("🧪 Running All Context Test Scenarios")
 		fmt.Println("This may take several minutes...")
@@ -338,7 +359,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("%d scenarios failed", failures)
 		}
 
-		fmt.Println("\n✅ All scenarios passed!")
+		fmt.Printf("\n✅ All %d scenarios run passed!\n", len(results))
 		return nil
 
 	} else {

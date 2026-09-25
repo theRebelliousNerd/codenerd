@@ -513,16 +513,28 @@ func (m *Model) queryFocusResolutions() []string {
 	}
 	var resolutions []string
 	for _, fact := range results {
-		// focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence)
-		if len(fact.Args) >= 4 {
-			rawRef, _ := fact.Args[0].(string)
-			resolved, _ := fact.Args[1].(string)
-			confidence, _ := fact.Args[3].(float64)
-			resolutions = append(resolutions,
-				fmt.Sprintf("'%s' -> %s (%.0f%%)", rawRef, resolved, confidence*100))
+		if line, ok := formatFocusResolution(fact); ok {
+			resolutions = append(resolutions, line)
 		}
 	}
 	return resolutions
+}
+
+// formatFocusResolution renders focus_resolution(RawReference, ResolvedPath,
+// SymbolName, Confidence) for the session context.
+//
+// The Decl is /number and perception asserts an int64 percent
+// (FocusResolution.ConfidencePercent). A float64 assertion never matched it,
+// and the old *100 was for a ratio this never was: every resolution rendered
+// as 0%.
+func formatFocusResolution(fact core.Fact) (string, bool) {
+	if len(fact.Args) < 4 {
+		return "", false
+	}
+	rawRef := types.ArgString(fact, 0)
+	resolved := types.ArgString(fact, 1)
+	confidence, _ := types.ArgFloat64(fact, 3)
+	return fmt.Sprintf("'%s' -> %s (%.0f%%)", rawRef, resolved, confidence), true
 }
 
 // getCurrentPhaseName derives the current phase name from campaign phases.

@@ -100,7 +100,11 @@ func TestShouldShowOnboarding(t *testing.T) {
 
 func TestRecordSessionStart(t *testing.T) {
 	workspace := t.TempDir()
-	if err := RecordSessionStart(workspace); err != nil {
+	recorder := NewPreferencesManager(workspace)
+	if err := recorder.Load(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	if err := recorder.RecordSessionStart(); err != nil {
 		t.Fatalf("record session start failed: %v", err)
 	}
 	pm := NewPreferencesManager(workspace)
@@ -129,7 +133,7 @@ func TestCheckJourneyTransition(t *testing.T) {
 		t.Fatalf("save failed: %v", err)
 	}
 
-	newState, transitioned, err := CheckJourneyTransition(workspace)
+	newState, transitioned, err := pm.CheckJourneyTransition()
 	if err != nil {
 		t.Fatalf("check transition failed: %v", err)
 	}

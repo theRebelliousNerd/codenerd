@@ -126,8 +126,6 @@ See [README.md](README.md) document map for 00–12 + governance files.
 | `GetOrBootCortex` | Preferred process entry; cache + maintenance |
 | `BootCortex` | Thin wrapper → WithConfig |
 | `BootCortexWithConfig` | Full DI boot |
-| `ResetGlobalCortex` | Clear map; no Close |
-| `ResetCortexForWorkspace` | Evict by Workspace path |
 | `IngestHybridPrompts` | Hybrid PROMPT → corpus.db |
 | `DiscoverAgentsOnDisk` | Scan agents dirs |
 | `SyncAgentRegistryFromDisk` / `FromDiscovered` | Upsert agents.json |
@@ -186,8 +184,6 @@ key = SHA256_hex(length_delimited(workspace, provider, apiKey, model, disabled..
 
 | API | Behavior |
 |-----|----------|
-| `ResetGlobalCortex` | New empty map |
-| `ResetCortexForWorkspace` | Delete entries where `c.Workspace == resolved ws` |
 | `Cortex.Close` | `evictCortexByKey(cortexKey)` if non-empty |
 
 **Important:** Reset APIs do **not** call Close. Holding references after Reset can leak SQLite handles.

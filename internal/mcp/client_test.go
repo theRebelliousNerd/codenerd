@@ -29,15 +29,6 @@ func TestMCPClientManager_BasicInitialization(t *testing.T) {
 func TestMCPClientManager_SettersBasic(t *testing.T) {
 	manager := NewMCPClientManager(nil, nil, nil)
 
-	// Test SetToolSelectionConfig
-	selectionConfig := ToolSelectionConfig{
-		MaxFullTools: 10,
-	}
-	manager.SetToolSelectionConfig(selectionConfig)
-	if manager.selection.MaxFullTools != 10 {
-		t.Errorf("Expected MaxFullTools to be 10, got %d", manager.selection.MaxFullTools)
-	}
-
 	// Test SetOnToolDiscovered
 	toolDiscoveredCalled := false
 	manager.SetOnToolDiscovered(func(tool *MCPTool) {

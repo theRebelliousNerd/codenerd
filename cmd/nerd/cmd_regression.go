@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"codenerd/internal/core"
 	"codenerd/internal/regression"
+	"codenerd/internal/types"
 
 	"github.com/spf13/cobra"
 )
@@ -50,6 +53,15 @@ var regressionRunCmd = &cobra.Command{
 				return fmt.Errorf("no battery at %s — run `nerd regression init` to create one", path)
 			}
 			return err
+		}
+
+		// What the constitution would say to an agent that submitted this
+		// battery. Informational: the operator asked for the run, and runs it.
+		if reasons, perr := batteryPolicyRefusals(path, battery); perr != nil {
+			fmt.Fprintf(os.Stderr, "note: the battery policy could not be evaluated: %v\n", perr)
+		} else if len(reasons) > 0 {
+			fmt.Fprintf(os.Stderr, "note: the constitution would refuse this battery to an agent (%s); it runs because you asked for it\n",
+				strings.Join(reasons, "; "))
 		}
 
 		summary, err := regression.RunBatteryWithOptions(context.Background(), battery, regression.RunOptions{
@@ -174,4 +186,34 @@ func init() {
 		"do not persist a run record under .nerd/regression/runs/")
 
 	regressionCmd.AddCommand(regressionRunCmd, regressionInitCmd, regressionListCmd)
+}
+
+// batteryPolicyRefusals asks the kernel whether the constitution would let an
+// agent run this battery, and returns the reasons it would not.
+//
+// policy/regression_battery.mg derives regression_battery_refused from a
+// battery's projected commands (regression.PolicyFacts), because a battery is a
+// file of shell commands the content gate cannot otherwise see. No agent-facing
+// host submits batteries -- that was decided against -- so the rules had no
+// producer and decided nothing. The operator's own run is where a battery is
+// written and edited, so that is where its verdict is shown.
+func batteryPolicyRefusals(path string, battery *regression.Battery) ([]string, error) {
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return nil, err
+	}
+	if err := kernel.LoadFacts(regression.PolicyFacts(path, battery)); err != nil {
+		return nil, err
+	}
+	rows, err := kernel.Query(regression.PredBatteryRefused)
+	if err != nil {
+		return nil, err
+	}
+	var reasons []string
+	for _, row := range rows {
+		if types.ArgString(row, 0) == path {
+			reasons = append(reasons, types.ArgString(row, 1))
+		}
+	}
+	return reasons, nil
 }

@@ -127,18 +127,19 @@ to `go build` / `go test` subprocesses, and
 `internal/build/go_invocation_inventory_test.go` fails when a new `go`
 invocation appears that neither uses it nor carries a written exemption.
 
-**`internal/tools/shell` is exempt.** It executes arbitrary operator- and
-agent-supplied commands, not the Go toolchain; its environment assembly is an
-allowlist decision governed by the execution policy above (rule 3: do not log
-full secrets from env maps). Narrowing it to a Go-toolchain env would break
-every non-Go command, and widening the Go env into it would leak toolchain
-paths into unrelated processes.
+**`run_command` and `bash` in `internal/tools/shell` are outside it.** They
+execute arbitrary commands, not the Go toolchain; their environment assembly is
+an allowlist decision governed by the execution policy above (rule 3: do not log
+full secrets from env maps). Narrowing them to a Go-toolchain env would break
+every non-Go command.
 
-**`internal/tools/codedom/run_impacted_tests.go` is *not* exempt** — it is
-recorded as `pending adoption` in `goSpawnExemptions`. It spawns `go test` in
-the user's project root with no `cmd.Env`, so a project needing CGO headers
-fails there with a compile error reported as a test failure. It should call
-`build.GetBuildEnvForTest(userCfg, projectRoot)` and build its argv with
-`build.AppendGoFlags`.
+**The typed Go runners are inside it (2026-09-25).** `run_build` / `run_tests`
+(`internal/tools/shell/verification.go`) and `run_impacted_tests`
+(`internal/tools/codedom/run_impacted_tests.go`) take their environment and
+argv from `build.GoInvocation`, which is the same env the session's
+verification gate compiles under, plus the workspace's `build.go_flags`. A
+non-Go runner (pytest, cargo, npm) still inherits the process environment.
+`TestTypedVerification_GoTestRunsUnderTheBuildEnv` pins that the parent's
+secrets no longer reach a model-run test binary.
 
 See `Docs/architecture/build/WIRING-AND-NOT-BUILT.md`.

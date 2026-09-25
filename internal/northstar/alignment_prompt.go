@@ -1,10 +1,5 @@
 package northstar
 
-import (
-	"strings"
-	"sync"
-)
-
 // =============================================================================
 // ALIGNMENT PROMPT ATOMS
 // =============================================================================
@@ -27,9 +22,13 @@ import (
 // entire prompt/core/tools tree in here to read five strings would make the
 // vision guardian un-buildable whenever any of those packages is mid-edit.
 //
-// A host that already has the corpus loaded can override the resolution with
-// SetAlignmentAtomResolver, which is how a running session serves evolved atoms
-// to the guardian without this package growing a dependency.
+// There used to be a SetAlignmentAtomResolver hook "so a running session serves
+// evolved atoms to the guardian". It had no caller, and could not have had a
+// useful one: the JIT compiler makes the embedded corpus authoritative for any
+// ID it defines (collectAtomsWithStats: embedded wins duplicates, evolved atoms
+// never shadow a built-in), and the parity test pins this copy to that corpus
+// byte for byte, so a resolver could only ever return the text below. It was
+// removed rather than wired.
 
 const (
 	atomGuardianRole             = "northstar/guardian/role"
@@ -79,46 +78,7 @@ SUGGESTIONS: <comma-separated suggestions, or 'none'>`,
 	atomGuardianUserInstruction: `Evaluate alignment with the project vision.`,
 }
 
-// AlignmentAtomResolver resolves an atom ID to its content. Returning false
-// falls back to the built-in copy.
-type AlignmentAtomResolver func(id string) (string, bool)
-
-var (
-	alignmentResolverMu sync.RWMutex
-	alignmentResolver   AlignmentAtomResolver
-)
-
-// SetAlignmentAtomResolver installs a host-provided atom source (typically the
-// live prompt corpus, so evolved atoms reach the guardian). Passing nil
-// restores the built-in copies.
-func SetAlignmentAtomResolver(r AlignmentAtomResolver) {
-	alignmentResolverMu.Lock()
-	defer alignmentResolverMu.Unlock()
-	alignmentResolver = r
-}
-
 // AlignmentAtom returns the content of a guardian alignment atom.
 func AlignmentAtom(id string) string {
-	alignmentResolverMu.RLock()
-	resolver := alignmentResolver
-	alignmentResolverMu.RUnlock()
-
-	if resolver != nil {
-		if text, ok := resolver(id); ok && strings.TrimSpace(text) != "" {
-			return strings.TrimSpace(text)
-		}
-	}
 	return alignmentAtomText[id]
-}
-
-// AlignmentAtomIDs lists the atoms the Guardian composes its prompt from, in
-// composition order.
-func AlignmentAtomIDs() []string {
-	return []string{
-		atomGuardianRole,
-		atomGuardianModuleRefinement,
-		atomGuardianTask,
-		atomGuardianOutputContract,
-		atomGuardianUserInstruction,
-	}
 }

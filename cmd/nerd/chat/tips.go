@@ -41,20 +41,10 @@ type TipGenerator struct {
 
 // NewTipGenerator creates a new tip generator.
 func NewTipGenerator(workspace string) *TipGenerator {
-	pm := ux.NewPreferencesManager(workspace)
-	level := config.ExperienceBeginner
-	state := ux.StateNew
-	if err := pm.Load(); err == nil {
-		state = pm.GetJourneyState()
-		switch state {
-		case ux.StatePower:
-			level = config.ExperienceExpert
-		case ux.StateProductive:
-			level = config.ExperienceAdvanced
-		case ux.StateLearning:
-			level = config.ExperienceIntermediate
-		}
-	}
+	// The journey state and the experience level it implies, from the ux
+	// package that owns the mapping (this was a private copy of the switch).
+	state := ux.GetUserJourneyState(workspace)
+	level := ux.GetExperienceLevelFromPreferences(workspace)
 
 	return &TipGenerator{
 		workspace:       workspace,

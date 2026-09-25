@@ -120,6 +120,8 @@ func (m Model) buildStatusReport() string {
 		}
 	}
 
+	sb.WriteString(renderDiagnostics(m.workspace))
+
 	return sb.String()
 }
 

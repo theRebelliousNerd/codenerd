@@ -1,30 +1,10 @@
 package context_harness
 
-// GetScenario returns a pre-built test scenario by name.
-func GetScenario(name string) *Scenario {
-	scenarios := map[string]*Scenario{
-		// Mock scenarios (fast, for CI)
-		"debugging-marathon":     DebuggingMarathonScenario(),
-		"feature-implementation": FeatureImplementationScenario(),
-		"refactoring-campaign":   RefactoringCampaignScenario(),
-		"research-and-build":     ResearchAndBuildScenario(),
-		"tdd-loop":               TDDLoopScenario(),
-		"campaign-execution":     CampaignExecutionScenario(),
-		"shard-collaboration":    ShardCollaborationScenario(),
-		"mangle-policy-debug":    ManglePolicyDebugScenario(),
-		// Integration scenarios (requires --mode=real)
-		"campaign-phase-transition": CampaignPhaseTransitionScenario(),
-		"swebench-issue-resolution": SWEBenchIssueResolutionScenario(),
-		"token-budget-overflow":     TokenBudgetOverflowScenario(),
-		"dependency-spreading":      DependencySpreadingScenario(),
-		"verb-specific-boosting":    VerbSpecificBoostingScenario(),
-		"ephemeral-filtering":       EphemeralFilteringScenario(),
-	}
-
-	return scenarios[name]
-}
-
-// AllScenarios returns all available test scenarios.
+// AllScenarios returns every scenario, mock first, in a fixed order. It is the
+// one registry: the harness, the CLI's --category filter and its help text are
+// all derived from it (there used to be a GetScenario map and a MockScenarios
+// list beside it, and both drifted -- GetScenario never learned
+// context-feedback-learning, and nothing called either).
 func AllScenarios() []*Scenario {
 	// Mock scenarios (default)
 	scenarios := []*Scenario{
@@ -40,20 +20,6 @@ func AllScenarios() []*Scenario {
 	// Add integration scenarios
 	scenarios = append(scenarios, IntegrationScenarios()...)
 	return scenarios
-}
-
-// MockScenarios returns only mock scenarios (for fast CI testing).
-func MockScenarios() []*Scenario {
-	return []*Scenario{
-		DebuggingMarathonScenario(),
-		FeatureImplementationScenario(),
-		RefactoringCampaignScenario(),
-		ResearchAndBuildScenario(),
-		TDDLoopScenario(),
-		CampaignExecutionScenario(),
-		ShardCollaborationScenario(),
-		ManglePolicyDebugScenario(),
-	}
 }
 
 // ScenariosByCategory returns scenarios filtered by category.
@@ -72,6 +38,8 @@ func ScenariosByCategory(category ScenarioCategory) []*Scenario {
 func DebuggingMarathonScenario() *Scenario {
 	return &Scenario{
 		ScenarioID:  "debugging-marathon",
+		Mode:        MockMode,
+		Category:    CategoryMock,
 		Name:        "Debugging Marathon",
 		Description: "50-turn debugging session testing context retention and solution tracking",
 		Turns:       generateIntermediateTurns(getDebuggingMarathonTurns(), 50),
@@ -216,6 +184,8 @@ func getDebuggingMarathonCheckpoints() []Checkpoint {
 func FeatureImplementationScenario() *Scenario {
 	return &Scenario{
 		ScenarioID:  "feature-implementation",
+		Mode:        MockMode,
+		Category:    CategoryMock,
 		Name:        "Feature Implementation",
 		Description: "75-turn feature implementation testing multi-phase context paging",
 		Turns: []Turn{
@@ -295,6 +265,8 @@ func FeatureImplementationScenario() *Scenario {
 func RefactoringCampaignScenario() *Scenario {
 	return &Scenario{
 		ScenarioID:  "refactoring-campaign",
+		Mode:        MockMode,
+		Category:    CategoryMock,
 		Name:        "Refactoring Campaign",
 		Description: "100-turn refactoring campaign testing long-term stability",
 		Turns: []Turn{
@@ -352,6 +324,8 @@ func RefactoringCampaignScenario() *Scenario {
 func ResearchAndBuildScenario() *Scenario {
 	return &Scenario{
 		ScenarioID:  "research-and-build",
+		Mode:        MockMode,
+		Category:    CategoryMock,
 		Name:        "Research and Build",
 		Description: "80-turn research and implementation testing cross-phase knowledge retrieval",
 		Turns: []Turn{
@@ -410,13 +384,6 @@ func ResearchAndBuildScenario() *Scenario {
 			TokenBudgetViolations: 0,
 		},
 	}
-}
-
-// Helper function to create int pointers
-//
-//go:fix inline
-func intPtr(i int) *int {
-	return new(i)
 }
 
 // generateIntermediateTurns creates filler turns between key turns for realistic testing.
@@ -494,6 +461,8 @@ func generateIntermediateTurns(keyTurns []Turn, totalTurns int) []Turn {
 func TDDLoopScenario() *Scenario {
 	return &Scenario{
 		ScenarioID:  "tdd-loop",
+		Mode:        MockMode,
+		Category:    CategoryMock,
 		Name:        "TDD Loop",
 		Description: "40-turn TDD repair loop testing compression across test-fix cycles",
 		Turns: []Turn{
@@ -571,6 +540,8 @@ func TDDLoopScenario() *Scenario {
 func CampaignExecutionScenario() *Scenario {
 	return &Scenario{
 		ScenarioID:  "campaign-execution",
+		Mode:        MockMode,
+		Category:    CategoryMock,
 		Name:        "Campaign Execution",
 		Description: "60-turn multi-phase campaign testing context paging and phase transitions",
 		Turns: []Turn{
@@ -661,6 +632,8 @@ func CampaignExecutionScenario() *Scenario {
 func ShardCollaborationScenario() *Scenario {
 	return &Scenario{
 		ScenarioID:  "shard-collaboration",
+		Mode:        MockMode,
+		Category:    CategoryMock,
 		Name:        "Shard Collaboration",
 		Description: "50-turn multi-shard workflow testing Piggyback protocol and cross-shard context",
 		Turns: []Turn{
@@ -753,6 +726,8 @@ func ShardCollaborationScenario() *Scenario {
 func ManglePolicyDebugScenario() *Scenario {
 	return &Scenario{
 		ScenarioID:  "mangle-policy-debug",
+		Mode:        MockMode,
+		Category:    CategoryMock,
 		Name:        "Mangle Policy Debug",
 		Description: "45-turn Mangle policy debugging testing logic-specific context retrieval",
 		Turns: []Turn{

@@ -14,7 +14,7 @@ func TestBrowserEvidenceToolReadsAndExportsBoundedTrace(t *testing.T) {
 	cfg := browser.DefaultConfig()
 	cfg.WorkspaceRoot = t.TempDir()
 	manager := browser.NewSessionManagerWithSink(cfg, nil)
-	SetBrowserManager(manager)
+	SetBrowserRuntime(manager, nil)
 	defer ClearBrowserManager(manager)
 
 	for i := 0; i < 3; i++ {

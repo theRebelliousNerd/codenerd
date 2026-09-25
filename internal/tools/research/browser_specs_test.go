@@ -37,7 +37,7 @@ Successful authentication reaches the dashboard at https://example.test/callback
 	cfg := browser.DefaultConfig()
 	cfg.WorkspaceRoot = root
 	manager := browser.NewSessionManagerWithSink(cfg, nil)
-	SetBrowserManager(manager)
+	SetBrowserRuntime(manager, nil)
 	defer ClearBrowserManager(manager)
 
 	listed, err := BrowserSpecsTool().Execute(context.Background(), map[string]any{"operation": "list"})
@@ -63,7 +63,7 @@ func TestBrowserSpecsRejectsUnboundedInputs(t *testing.T) {
 	cfg := browser.DefaultConfig()
 	cfg.WorkspaceRoot = t.TempDir()
 	manager := browser.NewSessionManagerWithSink(cfg, nil)
-	SetBrowserManager(manager)
+	SetBrowserRuntime(manager, nil)
 	defer ClearBrowserManager(manager)
 
 	terms := make([]any, 21)

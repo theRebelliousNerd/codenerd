@@ -25,11 +25,6 @@ type HTTPTransport struct {
 	headers    map[string]string
 }
 
-// NewHTTPTransport creates a new HTTP transport for MCP communication.
-func NewHTTPTransport(baseURL string, timeout time.Duration) *HTTPTransport {
-	return NewHTTPTransportWithHeaders(baseURL, timeout, nil)
-}
-
 // NewHTTPTransportWithHeaders creates an HTTP transport that attaches static
 // headers (auth tokens, tenant IDs) to every request. Header values are
 // environment-expanded at construction time so a secret never has to be stored

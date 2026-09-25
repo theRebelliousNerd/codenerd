@@ -471,6 +471,8 @@ func (o *Orchestrator) closePhaseUnverified(phase *Phase, failedSummary string) 
 	if !found {
 		return
 	}
+	// A phase that ends unverified is a phase event that did not succeed.
+	logging.Audit().CampaignEvent(logging.AuditCampaignPhase, campaignID, phase.Name, false)
 
 	o.observePhaseDuration(phase.ID)
 	_ = o.kernel.RetractFact(core.Fact{
@@ -545,6 +547,7 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 	o.mu.Unlock()
 
 	if found {
+		logging.Audit().CampaignEvent(logging.AuditCampaignPhase, campaignID, phase.Name, true)
 		o.observePhaseDuration(phase.ID)
 		// Update kernel
 		_ = o.kernel.RetractFact(core.Fact{

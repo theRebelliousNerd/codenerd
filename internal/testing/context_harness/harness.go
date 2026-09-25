@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"codenerd/internal/core"
 )
@@ -13,7 +14,9 @@ type Harness struct {
 	kernel    *core.RealKernel
 	config    SimulatorConfig
 	reporter  *Reporter
+	output    io.Writer
 	scenarios map[string]*Scenario
+	order     []string // scenario IDs in registry order
 
 	// Engine (mock or real) - implements ContextEngine interface
 	contextEngine ContextEngine
@@ -31,8 +34,10 @@ type Harness struct {
 func NewHarness(kernel *core.RealKernel, config SimulatorConfig, output io.Writer, outputFormat string) *Harness {
 	// Load all scenarios - use ScenarioID (kebab-case) as key, not Name
 	scenarios := make(map[string]*Scenario)
+	var order []string
 	for _, scenario := range AllScenarios() {
 		scenarios[scenario.ScenarioID] = scenario
+		order = append(order, scenario.ScenarioID)
 	}
 
 	// Create engine based on mode
@@ -49,14 +54,27 @@ func NewHarness(kernel *core.RealKernel, config SimulatorConfig, output io.Write
 		kernel:        kernel,
 		config:        config,
 		reporter:      NewReporter(output, outputFormat),
+		output:        output,
 		scenarios:     scenarios,
+		order:         order,
 		contextEngine: engine,
 	}
 }
 
-// SetContextEngine sets the context engine (for real mode injection).
-func (h *Harness) SetContextEngine(engine ContextEngine) {
-	h.contextEngine = engine
+// SelectCategory narrows the harness to one scenario category ("mock" or
+// "integration"). The CLI's --category flag was parsed and then ignored.
+func (h *Harness) SelectCategory(category ScenarioCategory) error {
+	selected := ScenariosByCategory(category)
+	if len(selected) == 0 {
+		return fmt.Errorf("no scenarios in category %q (known: %s, %s)", category, CategoryMock, CategoryIntegration)
+	}
+	h.scenarios = make(map[string]*Scenario, len(selected))
+	h.order = h.order[:0]
+	for _, sc := range selected {
+		h.scenarios[sc.ScenarioID] = sc
+		h.order = append(h.order, sc.ScenarioID)
+	}
+	return nil
 }
 
 // NewHarnessWithObservability creates a harness with full observability wired in.
@@ -130,16 +148,33 @@ func (h *Harness) RunScenario(ctx context.Context, scenarioName string) (*TestRe
 	return result, nil
 }
 
-// RunAll runs all available scenarios.
+// RunAll runs every selected scenario the engine can run, in registry order,
+// resetting the engine before each so one scenario's facts cannot answer the
+// next one's checkpoints (it used to run them in map order on one engine that
+// kept every fact). Scenarios that need the real engine are skipped on the
+// mock one, and the skip is written to the output, not passed over.
 func (h *Harness) RunAll(ctx context.Context) ([]*TestResult, error) {
 	results := make([]*TestResult, 0, len(h.scenarios))
 
-	for name := range h.scenarios {
+	var skipped []string
+	for _, name := range h.order {
+		if h.scenarios[name].Mode == RealMode && (h.contextEngine == nil || h.contextEngine.GetMode() != RealMode) {
+			skipped = append(skipped, name)
+			continue
+		}
+		if h.contextEngine != nil {
+			if err := h.contextEngine.Reset(); err != nil {
+				return nil, fmt.Errorf("resetting the engine before %s: %w", name, err)
+			}
+		}
 		result, err := h.RunScenario(ctx, name)
 		if err != nil {
 			return nil, fmt.Errorf("scenario %s failed: %w", name, err)
 		}
 		results = append(results, result)
+	}
+	if len(skipped) > 0 && h.output != nil {
+		fmt.Fprintf(h.output, "Skipped %d scenario(s) that need --mode=real: %s\n", len(skipped), strings.Join(skipped, ", "))
 	}
 
 	// Report summary
@@ -150,11 +185,7 @@ func (h *Harness) RunAll(ctx context.Context) ([]*TestResult, error) {
 	return results, nil
 }
 
-// ListScenarios returns the names of all available scenarios.
+// ListScenarios returns the IDs of the selected scenarios, in registry order.
 func (h *Harness) ListScenarios() []string {
-	names := make([]string, 0, len(h.scenarios))
-	for name := range h.scenarios {
-		names = append(names, name)
-	}
-	return names
+	return append([]string(nil), h.order...)
 }

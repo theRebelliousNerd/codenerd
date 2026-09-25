@@ -73,31 +73,6 @@ var (
 )
 
 // =============================================================================
-// int32Ptr Tests
-// =============================================================================
-
-func TestInt32Ptr_ShouldReturnPointerToValue(t *testing.T) {
-	tests := []struct {
-		name  string
-		input int32
-	}{
-		{"zero", 0},
-		{"positive", 3072},
-		{"negative", -1},
-		{"max", 2147483647},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ptr := new(tt.input)
-			if *ptr != tt.input {
-				t.Errorf("*int32Ptr(%d) = %d", tt.input, *ptr)
-			}
-		})
-	}
-}
-
-// =============================================================================
 // maxBatchSize Tests
 // =============================================================================
 

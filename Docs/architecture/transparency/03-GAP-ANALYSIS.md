@@ -35,7 +35,7 @@
 | JIT explain mode | Category + config only | No (elsewhere/partial) |
 | Proof trees | Explainer over traces | Yes via `/why` + traces |
 | Operation summaries | Format helper | Sparse producers |
-| Error categorization | Yes | Via FormatError when used |
+| Error categorization | Yes | Chat error panel via `ExplainError` when `/transparency on` + `verbose_errors` (2026-09-25) |
 
 ### 2.2 Config flags vs Manager behavior
 
@@ -44,7 +44,7 @@
 | `Enabled` | Yes | Master |
 | `ShardPhases` | Yes | Gates Start/Update/End shard + Enable cascade |
 | `SafetyExplanations` | Yes | Gates ReportSafetyViolation |
-| `VerboseErrors` | Yes | FormatError verbosity |
+| `VerboseErrors` | Yes | Read by the chat error panel (`presentError` → `ExplainError`) |
 | `StreamReasoning` | Display only in GetStatus | No branch in Manager |
 | `JITExplain` | Display only | No branch |
 | `OperationSummaries` | Display only | No branch |

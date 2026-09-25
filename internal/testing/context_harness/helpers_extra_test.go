@@ -17,12 +17,14 @@ func TestEstimateFactTokens(t *testing.T) {
 	}
 }
 
+// formatFloat used to add the integer part to '0' as a rune: single digits
+// happened to print, 20 printed as "D" and 1.5 as "1". Validation errors carry
+// boost floors such as 20, so the message named the wrong number.
 func TestFormatFloat(t *testing.T) {
-	if got := formatFloat(5.0); got != "5" {
-		t.Errorf("formatFloat(5.0)=%q, want 5", got)
-	}
-	if got := formatFloat(3.0); got != "3" {
-		t.Errorf("formatFloat(3.0)=%q, want 3", got)
+	for in, want := range map[float64]string{5: "5.00", 3: "3.00", 20: "20.00", 1.5: "1.50"} {
+		if got := formatFloat(in); got != want {
+			t.Errorf("formatFloat(%g)=%q, want %q", in, got, want)
+		}
 	}
 }
 

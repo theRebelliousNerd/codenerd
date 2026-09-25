@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -14,9 +15,10 @@ import (
 )
 
 var (
-	usageJSON  bool
-	usageTopN  int
-	usageGroup string
+	usageJSON   bool
+	usageTopN   int
+	usageGroup  string
+	usageEvents int
 )
 
 // usageGroups maps the --group flag to a stats accessor, so the command has one
@@ -55,6 +57,17 @@ is never mistaken for a cheap one.`,
 			return fmt.Errorf("read usage data: %w", err)
 		}
 		stats := tracker.Stats()
+
+		if usageEvents > 0 {
+			events := lastUsageEvents(tracker.Events(), usageEvents)
+			if usageJSON {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(events)
+			}
+			renderUsageEvents(os.Stdout, events)
+			return nil
+		}
 
 		if usageJSON {
 			enc := json.NewEncoder(os.Stdout)
@@ -133,6 +146,36 @@ func renderUsageGroup(out *os.File, title string, data map[string]usage.TokenCou
 	fmt.Fprintln(out)
 }
 
+// lastUsageEvents is the newest n events of the ring, oldest first.
+func lastUsageEvents(events []usage.UsageEvent, n int) []usage.UsageEvent {
+	if n > 0 && len(events) > n {
+		return events[len(events)-n:]
+	}
+	return events
+}
+
+// renderUsageEvents prints the recorded calls, oldest first. An empty ring
+// says how to fill it: the ring is off unless usage.event_log is set.
+func renderUsageEvents(out io.Writer, events []usage.UsageEvent) {
+	if len(events) == 0 {
+		fmt.Fprintln(out, "No usage events recorded. The event log is off unless .nerd/config.json sets usage.event_log to true.")
+		return
+	}
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "TIME\tMODEL\tPROVIDER\tINPUT\tOUTPUT\tCOST\tSHARD\tOPERATION")
+	for _, ev := range events {
+		shard := ev.ShardName
+		if shard == "" {
+			shard = ev.ShardType
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			ev.Timestamp.Local().Format("2006-01-02 15:04:05"), truncateName(ev.Model, 32), ev.Provider,
+			humanInt(int64(ev.InputTokens)), humanInt(int64(ev.OutputTokens)), formatUSD(ev.CostUSD),
+			truncateName(shard, 24), ev.OperationType)
+	}
+	w.Flush()
+}
+
 // formatUSD renders an estimated cost, keeping sub-cent amounts visible.
 func formatUSD(cost float64) string {
 	switch {
@@ -180,4 +223,6 @@ func init() {
 	usageCmd.Flags().IntVar(&usageTopN, "top", 10, "rows per breakdown table (0 for all)")
 	usageCmd.Flags().StringVar(&usageGroup, "group", "",
 		"show only one breakdown: provider, model, shard-type, shard-name, operation, session")
+	usageCmd.Flags().IntVar(&usageEvents, "events", 0,
+		"list the last N metered calls from the event log instead of the totals (needs usage.event_log)")
 }

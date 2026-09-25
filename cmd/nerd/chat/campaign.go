@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
 	"context"
@@ -338,7 +339,7 @@ func (m *Model) captureCampaignIntent(goal, clarifierAnswers string) {
 			campaignID,
 			goal,
 			clarifierAnswers,
-			"hands_free",
+			types.Atom("hands_free"),
 			"{}",
 		},
 	}); err != nil {

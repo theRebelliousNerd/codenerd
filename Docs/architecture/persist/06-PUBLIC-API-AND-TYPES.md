@@ -44,16 +44,11 @@ Match with `errors.Is`.
 
 | Signature | Location | Notes |
 |-----------|----------|-------|
-| `Write(path string, facts []types.Fact) error` | `factsnap.go:100` | gzip + sidecar |
-| `WriteCodec(path string, facts []types.Fact, codec Codec) error` | `factsnap.go:106` | codec + sidecar |
-| `WriteOptions(path string, facts []types.Fact, opts Options) error` | `factsnap.go:112` | full control |
 | `WritePath(path string, facts []types.Fact, opts Options) (string, error)` | `factsnap.go:120` | returns the file actually written; use this when reporting a location |
 | `Read(path string) ([]types.Fact, error)` | `factsnap.go:299` | verifies sidecar, then suffix + magic-byte detection |
-| `Verify(path string) error` | `factsnap.go:341` | nil when no sidecar exists |
+| `Verify(path string) error` | `factsnap.go` | nil when no sidecar exists; `snapshot.Verify` (below) is the operator form, which refuses a missing sidecar |
 | `HasSidecar(path string) bool` | `factsnap.go:350` | |
 | `CodecName(c Codec) string` | `factsnap.go:281` | `"gzip"`, `"zstd"`, `"auto"`, `"json"` |
-| `LegacyJSON(path string) ([]types.Fact, error)` | `factsnap.go:410` | migration helper, ignores suffix |
-| `CanonicalPath(path string, codec Codec) string` | `factsnap.go:424` | pure path transform |
 
 Empty `facts` is allowed and round-trips to an empty slice.
 
@@ -160,8 +155,19 @@ path, err := factsnap.WritePath("/tmp/report", facts, factsnap.Options{Codec: fa
 **Migrate JSON:**
 
 ```go
-facts, err := factsnap.LegacyJSON(oldPath)
+facts, err := factsnap.Read(oldPath) // a .json snapshot decodes as JSON []types.Fact
 if err == nil {
     _, err = factsnap.WritePath(newBase, facts, factsnap.Options{})
 }
 ```
+
+
+## 2026-09-25 (lane B wave 3)
+
+- One writer: `WritePath`. `Write`, `WriteCodec` and `WriteOptions` had no
+  production caller and moved into the package's tests
+  (`factsnap/writers_test.go`) with `CanonicalPath`; `LegacyJSON` was removed
+  because `Read` already decodes a `.json` snapshot.
+- `snapshot.Verify(root, ref) (string, error)` resolves a reference and checks
+  it against its sidecar without decoding it; `ErrNoSidecar` when there is no
+  sidecar. Backs `nerd snapshot verify`.
