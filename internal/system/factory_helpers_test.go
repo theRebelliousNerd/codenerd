@@ -8,21 +8,22 @@ import (
 )
 
 func TestCortexKey(t *testing.T) {
-	base := cortexKey("/ws", "zai", "key123", "glm-4", []string{"tactile_router"})
+	base := cortexKey("/ws", "api", "zai", "key123", "glm-4", []string{"tactile_router"})
 	if len(base) != 64 {
 		t.Fatalf("cortexKey length=%d, want 64 (hex sha256)", len(base))
 	}
 	// Deterministic: identical inputs hash identically.
-	if again := cortexKey("/ws", "zai", "key123", "glm-4", []string{"tactile_router"}); again != base {
+	if again := cortexKey("/ws", "api", "zai", "key123", "glm-4", []string{"tactile_router"}); again != base {
 		t.Error("cortexKey is not deterministic for identical inputs")
 	}
 	// Each component independently changes the key (no field collisions).
 	variants := map[string]string{
-		"workspace":      cortexKey("/other", "zai", "key123", "glm-4", []string{"tactile_router"}),
-		"provider":       cortexKey("/ws", "gemini", "key123", "glm-4", []string{"tactile_router"}),
-		"apiKey":         cortexKey("/ws", "zai", "different", "glm-4", []string{"tactile_router"}),
-		"model":          cortexKey("/ws", "zai", "key123", "gpt", []string{"tactile_router"}),
-		"disabledShards": cortexKey("/ws", "zai", "key123", "glm-4", []string{"campaign_runner"}),
+		"workspace":      cortexKey("/other", "api", "zai", "key123", "glm-4", []string{"tactile_router"}),
+		"provider":       cortexKey("/ws", "api", "gemini", "key123", "glm-4", []string{"tactile_router"}),
+		"apiKey":         cortexKey("/ws", "api", "zai", "different", "glm-4", []string{"tactile_router"}),
+		"model":          cortexKey("/ws", "api", "zai", "key123", "gpt", []string{"tactile_router"}),
+		"disabledShards": cortexKey("/ws", "api", "zai", "key123", "glm-4", []string{"campaign_runner"}),
+		"engine":         cortexKey("/ws", "claude-cli", "zai", "key123", "glm-4", []string{"tactile_router"}),
 	}
 	for field, k := range variants {
 		if k == base {
@@ -35,8 +36,8 @@ func TestCortexKey(t *testing.T) {
 }
 
 func TestCortexKeyNormalizesDisabledShardSet(t *testing.T) {
-	want := cortexKey("/ws", "zai", "secret", "glm-4", []string{"campaign_runner", "tactile_router"})
-	got := cortexKey("/ws", "zai", "secret", "glm-4", []string{
+	want := cortexKey("/ws", "api", "zai", "secret", "glm-4", []string{"campaign_runner", "tactile_router"})
+	got := cortexKey("/ws", "api", "zai", "secret", "glm-4", []string{
 		" tactile_router ",
 		"campaign_runner",
 		"tactile_router",
@@ -81,14 +82,14 @@ func TestResolveProviderModelForKey(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nerd, "config.json"), []byte(cfgJSON), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	provider, model := resolveProviderModelForKey(dir)
-	if provider != "zai" || model != "glm-4.6" {
-		t.Errorf("resolveProviderModelForKey=(%q,%q), want (zai, glm-4.6)", provider, model)
+	engine, provider, model := resolveProviderModelForKey(dir)
+	if engine != "api" || provider != "zai" || model != "glm-4.6" {
+		t.Errorf("resolveProviderModelForKey=(%q,%q,%q), want (api, zai, glm-4.6)", engine, provider, model)
 	}
 
-	// Workspace without a config falls back to empty strings (no error path).
+	// Workspace without a config: the default engine, no provider/model.
 	empty := t.TempDir()
-	if p, m := resolveProviderModelForKey(empty); p != "" || m != "" {
-		t.Errorf("missing config should yield empty provider/model, got (%q,%q)", p, m)
+	if e, p, m := resolveProviderModelForKey(empty); e != "api" || p != "" || m != "" {
+		t.Errorf("missing config should yield (api, \"\", \"\"), got (%q,%q,%q)", e, p, m)
 	}
 }

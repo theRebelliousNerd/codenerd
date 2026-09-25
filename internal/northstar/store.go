@@ -1,6 +1,7 @@
 package northstar
 
 import (
+	"codenerd/internal/logging"
 	"codenerd/internal/sqlpragmas"
 	"database/sql"
 	"encoding/json"
@@ -49,9 +50,15 @@ func NewStore(nerdDir string) (*Store, error) {
 	}
 	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 	// Northstar schema declares FOREIGN KEYs; enable enforcement here
-	// (the previous DSN _foreign_keys=on baked this in).
-	if _, fkErr := db.Exec("PRAGMA foreign_keys = ON"); fkErr != nil {
-		_ = fkErr // best-effort; tracked by store debug logs
+	// (the previous DSN _foreign_keys=on baked this in). EnableForeignKeys
+	// verifies the read-back, because SQLite silently ignores the pragma on a
+	// build without FK support. A failure used to be discarded with a comment
+	// claiming the debug logs tracked it; nothing logged it. It stays
+	// non-fatal -- the store works unenforced, as it always could -- but it is
+	// said.
+	if fkErr := sqlpragmas.EnableForeignKeys(db); fkErr != nil {
+		logging.Get(logging.CategoryNorthstar).Warn(
+			"northstar store %s runs without foreign-key enforcement: %v", dbPath, fkErr)
 	}
 
 	s := &Store{

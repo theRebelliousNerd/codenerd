@@ -1,6 +1,6 @@
 # usage — TODO
 
-> Last verified: **2026-08-16**  
+> Last verified: **2026-09-25**  
 > Docs-only backlog derived from code. No commitment that items are scheduled.
 
 ## P0 — Metering completeness
@@ -42,7 +42,9 @@
   Closed 2026-08-16. The blocker was not that the CLI withholds token counts - it reports them and always has. A probe of `claude -p --output-format json` returns a result object carrying "usage": {"input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"} plus "total_cost_usd" and a per-model "modelUsage" breakdown. internal/perception/claude_cli_client.go's claudeCLIResponse simply never declared the field, so the decoder discarded them, which is why the CLI engine showed no spend while the API engines did.
   parseResponse now takes a context and calls trackUsage on a successful turn only, so an errored turn is not metered as a good one. Provider is recorded as Anthropic, which usageProviderID already treats as canonical.
   Only input_tokens and output_tokens are metered. The cache counters are parsed but deliberately not folded into the input total, because internal/perception/client_anthropic.go:240 meters the API path with the plain input/output pair - folding them in on one path only would make the two engines' rows unreconcilable in the same breakdown.
-- [ ] Meter the `codex-cli` engine.
+- [ ] Meter the `codex-cli` engine. **Declined again 2026-09-25**: the probe
+  below still needs the codex CLI run, and this environment has neither the
+  CLI nor a key; the operator's instruction not to invoke it also stands.
   Not blocked by the decoder in the way the original note assumed, but not yet confirmed either. The client already runs `codex exec - --json`, so it receives a JSONL event stream; internal/perception/codex_cli_client.go handles only `item.completed` events (line 543) and its codexExecJSONLEvent struct (line 514) declares no usage field. Whether codex emits a usage-bearing event - and under which event type - can only be established by running the CLI and inspecting the stream.
   That probe has not been run because the operator's standing instruction records Codex as down and directs that the codex CLI not be invoked. When Codex is back, the work is: probe `codex exec - --json` on a trivial prompt, add the usage-bearing event to codexExecJSONLEvent, and call trackUsage with ProviderOpenAI on turn completion, mirroring what claude_cli_client.go now does.
 - [x] Cross-process coordination of `usage.json` (two `nerd` processes on one
@@ -60,6 +62,22 @@
   > degrades to the previous behaviour and still writes, because losing the merge
   > is survivable and losing the save is not. Covered by `crossprocess_test.go`,
   > including a double-count test that catches a shallow baseline copy.
+
+## Dead-code inventory — 2026-09-25 (lane B wave 3)
+
+- `RegisterPrice`: **wired**. Config `usage.prices` (model-name prefix →
+  `input_per_mtok` / `output_per_mtok`, validated by `UsageConfig.Check`) is
+  registered at boot by `system.UsageOptions` before the shared tracker meters
+  anything, so a negotiated rate or a model the built-in table lacks is priced
+  instead of reported as unpriced.
+- `WithEventLog`: **wired**. Config `usage.event_log` turns the bounded ring on
+  for the shared tracker (both acquirers, Cortex boot and chat, pass
+  `system.UsageOptions`); `nerd usage --events N` lists the newest N calls.
+  The Cortex boot now acquires the tracker after the config loads.
+- Tests: `TestInitCoreComponents_ShouldMeterWithTheConfigsUsageSection`
+  (fails without the wiring: unpriced, cost 0, empty ring),
+  `TestUsageSection_ShouldLoadAndRefuseNegativePrices`,
+  `TestUsageEvents_ShouldListTheNewestCallsFromUsageJSON`.
 
 ## Explicit non-todos (unless product asks)
 

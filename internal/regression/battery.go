@@ -48,6 +48,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 
 	"gopkg.in/yaml.v3"
 )
@@ -200,19 +201,6 @@ func LoadBattery(path string) (*Battery, error) {
 		return nil, fmt.Errorf("invalid battery %s: %w", path, err)
 	}
 	return &b, nil
-}
-
-// RunBattery executes all tasks in order using the local shell.
-// workdir is used as the subprocess working directory when non-empty.
-func RunBattery(ctx context.Context, b *Battery, workdir string) ([]Result, error) {
-	summary, err := RunBatteryWithOptions(ctx, b, RunOptions{Workdir: workdir})
-	if err != nil {
-		return nil, err
-	}
-	if summary.Total == 0 {
-		return nil, nil
-	}
-	return summary.Results, nil
 }
 
 // RequiredShell names the interpreter every shell task is executed with on
@@ -475,10 +463,30 @@ func FormatSummary(summary Summary) string {
 		fmt.Fprintf(&sb, "%-*s  %-7s  %9dms  %s\n", widest, r.TaskID, status, r.DurationMs, firstLine(detail))
 	}
 
+	// A failed task's output under the table. The table alone said "FAIL,
+	// expected exit 0, got 1" and nothing about why, though the output that
+	// says why was already in the Result -- a failing battery sent the
+	// operator to the JSON run record to find the compiler error. The
+	// excerpt is line-clamped head and tail, because a build log's framing is
+	// at the top and a test run's verdict (FAIL, the package list) is at the
+	// bottom; a cut mid-line would hand them a half-record.
+	for _, r := range summary.Results {
+		if r.Success || r.Skipped || strings.TrimSpace(r.Output) == "" {
+			continue
+		}
+		fmt.Fprintf(&sb, "\n--- %s output ---\n%s\n", r.TaskID,
+			strings.TrimRight(types.ClampLines(strings.TrimRight(r.Output, "\n"), failedOutputLines, r.TaskID+" output"), "\n"))
+	}
+
 	fmt.Fprintf(&sb, "\n%d passed, %d failed, %d skipped in %dms\n",
 		summary.Passed, summary.Failed, summary.Skipped, summary.DurationMs)
 	return sb.String()
 }
+
+// failedOutputLines bounds the output excerpt FormatSummary prints under a
+// failed task: enough for a compiler's error list or a test run's FAIL block.
+// The run record keeps the whole output.
+const failedOutputLines = 40
 
 // firstLine keeps a multi-line error from breaking table alignment.
 func firstLine(s string) string {

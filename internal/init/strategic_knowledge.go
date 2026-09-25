@@ -127,13 +127,7 @@ IMPORTANT: Be specific to THIS project, not generic. Extract real insights from 
 	var err error
 	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
 		// Get documentation URLs for the project's tech stack
-		var docURLs []string
-		if profile.Language != "" {
-			docURLs = append(docURLs, research.GetDocURLsForTech(profile.Language)...)
-		}
-		if profile.Framework != "" {
-			docURLs = append(docURLs, research.GetDocURLsForTech(profile.Framework)...)
-		}
+		docURLs := strategicDocURLs(profile)
 
 		// Enable URL context if we have relevant doc URLs
 		if len(docURLs) > 0 {
@@ -830,4 +824,20 @@ func truncateString(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// strategicDocURLs is the URL-context set for grounding the strategic
+// knowledge pass: the documentation of the project's language and framework,
+// deduplicated and capped at Gemini's 20-URL limit by
+// research.GetDocURLsForTechs. It used to append each technology's list by
+// hand, so a language that is also named as the framework sent its URLs twice
+// and the duplicates spent slots of the 20-URL budget.
+func strategicDocURLs(profile ProjectProfile) []string {
+	var techs []string
+	for _, tech := range []string{profile.Language, profile.Framework} {
+		if tech != "" {
+			techs = append(techs, tech)
+		}
+	}
+	return research.GetDocURLsForTechs(techs)
 }

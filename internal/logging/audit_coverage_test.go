@@ -282,13 +282,6 @@ func TestAuditWithSession_ShouldSetSessionID_Coverage(t *testing.T) {
 	}
 }
 
-func TestAuditWithShard_ShouldSetShardID_Coverage(t *testing.T) {
-	logger := AuditWithShard("shard-789")
-	if logger.shardID != "shard-789" {
-		t.Errorf("expected shardID='shard-789', got %q", logger.shardID)
-	}
-}
-
 func TestAuditWithContext_ShouldSetAll_Coverage(t *testing.T) {
 	logger := AuditWithContext("sess", "shard", CategoryKernel)
 	if logger.sessionID != "sess" {

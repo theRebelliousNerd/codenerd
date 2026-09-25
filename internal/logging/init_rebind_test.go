@@ -114,3 +114,32 @@ func TestApplyConfig_WhenInjectedBeforeInitialize_ShouldWinOverDiskConfig(t *tes
 		t.Error("after ClearInjectedConfig the on-disk config must apply again")
 	}
 }
+
+// A Cortex applies the config it parsed and then binds its workspace. When that
+// workspace is not the one the process first bound, the rebind used to wipe the
+// injected config to its zero value while the pin stayed set, so loadConfig
+// would not re-read disk either: the new workspace ran with debug_mode false
+// and every sink silent, though both the injected config and its own file said
+// otherwise.
+func TestInitialize_WhenRebindingAfterApplyConfig_ShouldKeepTheInjectedConfig(t *testing.T) {
+	first := newWorkspace(t, `"debug_mode": false`)
+	second := newWorkspace(t, `"debug_mode": true, "level": "debug"`)
+	resetAllLoggingState(t)
+	defer resetAllLoggingState(t)
+
+	if err := Initialize(first); err != nil {
+		t.Fatalf("first Initialize: %v", err)
+	}
+	ApplyConfig(Config{DebugMode: true, Level: "debug"})
+	if err := Initialize(second); err != nil {
+		t.Fatalf("rebind Initialize: %v", err)
+	}
+	if !IsDebugMode() {
+		t.Fatal("the rebind discarded the config boot injected; logging is off in the new workspace")
+	}
+	Get(CategoryKernel).Info("logged after the rebind")
+	CloseAll()
+	if !strings.Contains(readLog(t, second, "kernel"), "logged after the rebind") {
+		t.Error("expected the post-rebind line in the new workspace's kernel log")
+	}
+}

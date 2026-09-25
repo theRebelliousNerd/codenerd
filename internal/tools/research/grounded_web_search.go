@@ -152,9 +152,3 @@ func RegisterGroundedWebSearchIfSupported(registry *tools.Registry, searcher typ
 	}
 	return true, nil
 }
-
-// RegisterGroundedWebSearch is an alias for RegisterGroundedWebSearchIfSupported
-// for callers that prefer the shorter name.
-func RegisterGroundedWebSearch(registry *tools.Registry, searcher types.GroundedWebSearcher) (bool, error) {
-	return RegisterGroundedWebSearchIfSupported(registry, searcher)
-}

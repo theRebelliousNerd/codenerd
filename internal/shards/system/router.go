@@ -264,7 +264,7 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 				if errStr != lastErr {
 					_ = r.Kernel.Assert(types.Fact{
 						Predicate: "routing_error",
-						Args:      []any{"internal_error", errStr, time.Now().Unix()},
+						Args:      []any{types.Atom("internal_error"), errStr, time.Now().Unix()},
 					})
 					lastErr = errStr
 				}
@@ -277,7 +277,7 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 				if errStr != lastErr {
 					_ = r.Kernel.Assert(types.Fact{
 						Predicate: "routing_error",
-						Args:      []any{"internal_error", errStr, time.Now().Unix()},
+						Args:      []any{types.Atom("internal_error"), errStr, time.Now().Unix()},
 					})
 					lastErr = errStr
 				}

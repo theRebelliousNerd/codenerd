@@ -43,7 +43,7 @@ cmd/nerd/
 | `factsnap_test.go` | Behavioral core | sampleFacts, equalishFacts, size comparison |
 | `codec_parity_test.go` | Cross-codec contract | magic bytes, 10k scale |
 | `factsnap_codec_test.go` | Edge codecs | Auto, unknown cleanup |
-| `legacy_test.go` | Migration helper | LegacyJSON errors |
+| `legacy_test.go` | Legacy JSON through `Read` | errors on missing / malformed |
 | `factsnap_robustness_test.go` | Hardening | sniffing, sidecar, contention, empty/bool/float/name hops |
 | `snapshot_test.go` | Workspace store | containment, listing, resolution |
 | `kernel_roundtrip_test.go` | Integration | real kernel on both ends |
@@ -54,7 +54,7 @@ cmd/nerd/
 
 `factsnap` types and vars: `Codec`, `Options`, `ErrIntegrity`.
 
-`factsnap` funcs: `Write`, `WriteCodec`, `WriteOptions`, `WritePath`, `Read`, `Verify`, `HasSidecar`, `CodecName`, `LegacyJSON`, `CanonicalPath`.
+`factsnap` funcs: `WritePath`, `Read`, `Verify`, `HasSidecar`, `CodecName` (2026-09-25: `Write`/`WriteCodec`/`WriteOptions`/`CanonicalPath` moved to tests, `LegacyJSON` removed).
 
 `snapshot` constants and types: `DirName`, `Entry`, `PredicateCount`.
 
@@ -70,7 +70,7 @@ Nothing else is exported.
 | Zstd write | Yes | klauspost |
 | Auto codec on write | Yes | → gzip |
 | Suffix detect on read | Yes | No magic sniff |
-| Legacy JSON read | Yes | Via `Read` fallback + `LegacyJSON` |
+| Legacy JSON read | Yes | Via `Read` fallback |
 | Atomic publish | Yes | tmp/sync/rename |
 | Dir create | Yes | `MkdirAll` 0o755 |
 | Deterministic columns | Yes | flag on SimpleColumn |

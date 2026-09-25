@@ -369,9 +369,9 @@ func TestConvenienceFunctions_WhenDebugEnabled_ShouldNotPanic(t *testing.T) {
 	Tools("tools message %d", 8)
 	VirtualStore("virtualstore message %d", 9)
 	Shards("shards message %d", 10)
-	Coder("coder message %d", 11)
-	Tester("tester message %d", 12)
-	Reviewer("reviewer message %d", 13)
+	Get(CategoryCoder).Info("coder message %d", 11)
+	Get(CategoryTester).Info("tester message %d", 12)
+	Get(CategoryReviewer).Info("reviewer message %d", 13)
 	Researcher("researcher message %d", 14)
 	SystemShards("systemshards message %d", 15)
 	Dream("dream message %d", 16)
@@ -474,13 +474,6 @@ func TestAuditWithSession_ShouldSetSessionID(t *testing.T) {
 	a := AuditWithSession("sess-123")
 	if a.sessionID != "sess-123" {
 		t.Errorf("expected sessionID='sess-123', got %q", a.sessionID)
-	}
-}
-
-func TestAuditWithShard_ShouldSetShardID(t *testing.T) {
-	a := AuditWithShard("shard-abc")
-	if a.shardID != "shard-abc" {
-		t.Errorf("expected shardID='shard-abc', got %q", a.shardID)
 	}
 }
 

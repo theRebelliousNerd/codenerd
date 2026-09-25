@@ -278,9 +278,9 @@ func (m Model) skipOnboarding() (tea.Model, tea.Cmd) {
 	}
 	m.setInputMode(InputModeNormal)
 
-	// Save skip state to preferences
-	pm := ux.NewPreferencesManager(m.workspace)
-	if err := pm.Load(); err == nil {
+	// Save skip state to preferences, through the session's manager so a
+	// later metrics save does not write the pre-onboarding journey back.
+	if pm := m.uxPrefs(); pm != nil {
 		_ = pm.SkipOnboarding()
 		_ = pm.Save()
 	}
@@ -308,9 +308,8 @@ func (m Model) completeOnboarding() (tea.Model, tea.Cmd) {
 	}
 	m.setInputMode(InputModeNormal)
 
-	// Save preferences
-	pm := ux.NewPreferencesManager(m.workspace)
-	if err := pm.Load(); err == nil {
+	// Save preferences, through the session's manager (see skipOnboarding).
+	if pm := m.uxPrefs(); pm != nil {
 		_ = pm.MarkOnboardingComplete()
 
 		// Set experience level if selected

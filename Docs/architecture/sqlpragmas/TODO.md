@@ -86,6 +86,32 @@ The doc entry below records *which test owns it* — the test is the authority.
       `NERD_SQL_PRAGMA_METRICS`. Per-profile and per-statement; the
       per-statement view is the driver reject-set view.
 
+## Closed 2026-09-25 (lane B wave 3) — the P4 knobs had no caller
+
+The P4 items above were implemented as package API and never reached from a
+production path: `SetHostClass`, `ClearHostClass`, `SetMetricsEnabled`, every
+metrics reader, `HostClass.String` and `EnableForeignKeys` were on the
+dead-code baseline.
+
+- Host class from config: `core_limits.sql_host_class`
+  (`internal/config/limits.go`, validated by `ParseHostClass` at load, so an
+  unknown class is a load error) is pushed down at boot by
+  `internal/system/sql_pragmas_boot.go` `configureSQLPragmas`, before any store
+  opens. `NERD_SQL_HOST_CLASS` still wins; an empty key clears a class an
+  earlier Cortex pushed. Tests:
+  `TestConfigureSQLPragmas_WhenConfigDeclaresAClass_ShouldApplyIt`,
+  `..._WhenEnvironmentSetsAClass_ShouldLeaveItAlone`,
+  `TestCoreLimits_SQLHostClass_ShouldLoadAndRefuseUnknownClasses`.
+- Failure metrics: recorded whenever `logging.debug_mode` is on (the system's
+  observability switch), and read by chat `/status` ("### Diagnostics",
+  `cmd/nerd/chat/diagnostics.go`), which lists the rejected statements and the
+  per-profile counts. `TestRenderDiagnostics_ShouldReportLoggingPragmasAndTheRecorder`.
+- `EnableForeignKeys`: `internal/northstar/store.go` did the same thing by
+  hand and discarded the error under a comment claiming the debug logs tracked
+  it; it now calls `EnableForeignKeys` (which verifies the read-back) and logs
+  a failure. Enforcement is still per-connection on an unpinned pool, exactly
+  as before.
+
 ## Still open
 
 - Adoption of `OpenWithPragmas` at the 32 existing call sites. Not urgent:
@@ -93,8 +119,8 @@ The doc entry below records *which test owns it* — the test is the authority.
   apply-once pattern has held. Any site that raises `MaxOpenConns` must switch.
 - Automatic host-class detection from available RAM. Deliberately not done —
   a declared host class keeps behavior reproducible across machines.
-- Which schemas opt into `EnableForeignKeys`, and after what orphan-repair
-  migration (OPEN-QUESTIONS Q3).
+- Which other schemas opt into `EnableForeignKeys`, and after what
+  orphan-repair migration (OPEN-QUESTIONS Q3). Northstar is the one opted in.
 
 ## Explicitly not planned
 

@@ -8,7 +8,7 @@
 |--|--|
 | **Symptom** | Commands use wrong provider/model/workspace after mid-process change |
 | **Cause** | Historical unkeyed singleton; current key still omits separately configured engine/provider mode |
-| **Mitigation** | Keyed cache by workspace+provider+apiKey+model+normalized disabled-shard set; `ResetCortexForWorkspace` |
+| **Mitigation** | Keyed cache by workspace+provider+apiKey+model+normalized disabled-shard set (a config change is a different key) |
 | **Residual** | Engine/provider-mode aliases remain possible; Reset is not wired from auth/config UI; TUI bypasses cache entirely |
 
 ## FM2 — Failed boot poison (prevented)
@@ -99,7 +99,7 @@
 
 | | |
 |--|--|
-| **Symptom** | SQLite locks / leaked goroutines after ResetGlobalCortex |
+| **Symptom** | SQLite locks / leaked goroutines after an evict-without-close (the evict-only resets were removed 2026-09-25; `Cortex.Close` is the only eviction) |
 | **Cause** | Reset only deletes map entries |
 | **Mitigation** | Document; prefer Close then Reset; tests must Close |
 

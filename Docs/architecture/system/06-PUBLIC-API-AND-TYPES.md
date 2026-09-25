@@ -67,8 +67,6 @@ perception ownership; and a mutex/idempotent closed bit.
 | `GetOrBootCortex(ctx, workspace, apiKey, disableSystemShards)` | factory.go | Cache get-or-create; normalizes and keys the disabled set; starts owned maintenance. Engine/provider-mode identity remains partial |
 | `BootCortex(ctx, workspace, apiKey, disableSystemShards)` | factory.go | → BootCortexWithConfig |
 | `BootCortexWithConfig(ctx, BootConfig)` | factory.go | Full DI boot through named transactional steps and aggregate rollback |
-| `ResetGlobalCortex()` | factory.go | Clear entire cache; does **not** Close |
-| `ResetCortexForWorkspace(workspace)` | factory.go | Evict by Workspace path |
 | `IngestHybridPrompts(ctx, workspace, kernel, atomLoader)` | factory.go | Hybrid PROMPT → corpus.db |
 
 ## 3. Cortex methods

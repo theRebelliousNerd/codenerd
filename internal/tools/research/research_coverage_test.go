@@ -2,7 +2,6 @@ package research
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -530,15 +529,6 @@ func TestResearchCache_WhenExpired_ShouldReturnNotFound(t *testing.T) {
 	}
 }
 
-func TestResearchCache_WhenDeleteNonexistent_ShouldNotPanic(t *testing.T) {
-	t.Parallel()
-	cache := NewResearchCache(100, time.Hour)
-	cache.Delete("nonexistent-key") // Should not panic
-	if cache.Size() != 0 {
-		t.Errorf("expected 0 size, got %d", cache.Size())
-	}
-}
-
 func TestResearchCache_WhenOverwrite_ShouldUpdateValue(t *testing.T) {
 	t.Parallel()
 	cache := NewResearchCache(100, time.Hour)
@@ -956,37 +946,6 @@ func TestGroundingHelper_GetStats(t *testing.T) {
 	}
 	if stats.LastSourcesCount != 1 {
 		t.Errorf("expected 1 last source, got %d", stats.LastSourcesCount)
-	}
-}
-
-// =============================================================================
-// GROUNDING: FormatSourcesMarkdown
-// =============================================================================
-
-func TestFormatSourcesMarkdown_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
-	t.Parallel()
-	result := FormatSourcesMarkdown(nil)
-	if result != "" {
-		t.Errorf("expected empty string, got %q", result)
-	}
-
-	result = FormatSourcesMarkdown([]string{})
-	if result != "" {
-		t.Errorf("expected empty string for empty slice, got %q", result)
-	}
-}
-
-func TestFormatSourcesMarkdown_WhenHasSources_ShouldFormatAsList(t *testing.T) {
-	t.Parallel()
-	result := FormatSourcesMarkdown([]string{"https://src1.com", "https://src2.com"})
-	if !strings.Contains(result, "**Sources:**") {
-		t.Error("expected Sources header")
-	}
-	if !strings.Contains(result, "- https://src1.com") {
-		t.Error("expected src1 in list")
-	}
-	if !strings.Contains(result, "- https://src2.com") {
-		t.Error("expected src2 in list")
 	}
 }
 
@@ -1643,45 +1602,6 @@ func TestParseDuckDuckGoResults_WhenMaxResultsReached_ShouldStop(t *testing.T) {
 	}
 	if len(results) > 2 {
 		t.Errorf("expected at most 2 results, got %d", len(results))
-	}
-}
-
-// =============================================================================
-// WEB_SEARCH: SearchResultsToJSON
-// =============================================================================
-
-func TestSearchResultsToJSON_WhenResults_ShouldReturnValidJSON(t *testing.T) {
-	t.Parallel()
-	results := []SearchResult{
-		{Title: "Title 1", URL: "https://url1.com", Snippet: "Snippet 1"},
-		{Title: "Title 2", URL: "https://url2.com", Snippet: "Snippet 2"},
-	}
-
-	jsonStr, err := SearchResultsToJSON(results)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var parsed []SearchResult
-	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
-		t.Fatalf("failed to parse JSON: %v", err)
-	}
-	if len(parsed) != 2 {
-		t.Errorf("expected 2 results, got %d", len(parsed))
-	}
-	if parsed[0].Title != "Title 1" {
-		t.Errorf("unexpected title: %q", parsed[0].Title)
-	}
-}
-
-func TestSearchResultsToJSON_WhenEmpty_ShouldReturnEmptyArray(t *testing.T) {
-	t.Parallel()
-	jsonStr, err := SearchResultsToJSON([]SearchResult{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(jsonStr, "[]") {
-		t.Errorf("expected empty JSON array, got %q", jsonStr)
 	}
 }
 

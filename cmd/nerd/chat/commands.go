@@ -85,6 +85,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/status":
 		return m.handleCmdStatus(input, parts)
 
+	case "/flightrec":
+		return m.handleCmdFlightrec(input, parts)
+
 	case "/reflection":
 		return m.handleCmdReflection(input, parts)
 

@@ -9,7 +9,7 @@
 | Compact fact file format | SimpleColumn + gzip/zstd implemented | **No** |
 | Round-trip fidelity for common facts | Tests at 1k–10k with equalish compare | **No** |
 | Atomic writes | unique temp + sync + chmod + rename + dir fsync | **No** |
-| Legacy JSON migration | `Read` + `LegacyJSON` | **No** |
+| Legacy JSON migration | `Read` | **No** |
 | Production export path | `nerd snapshot export` via `snapshot.Export` | **Closed 2026-08-15** |
 | Production import / rehydrate | `nerd snapshot import` (summary / `--assert` / `--to-mangle`) | **Closed 2026-08-15** |
 | CLI operator surface (`nerd snapshot …`) | `export`, `import`, `list` | **Closed 2026-08-15** |

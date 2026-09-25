@@ -34,59 +34,6 @@ func TestContextLogger_WhenJSONFormat_ShouldWriteStructuredEntryWithFields(t *te
 	}
 }
 
-func TestRequestLogger_WhenJSONFormat_ShouldCarryRequestIDAsField(t *testing.T) {
-	ws := newWorkspace(t, `"debug_mode": true, "level": "debug", "format": "json"`)
-	resetAllLoggingState(t)
-	defer resetAllLoggingState(t)
-
-	if err := Initialize(ws); err != nil {
-		t.Fatalf("Initialize: %v", err)
-	}
-	WithRequestID(CategoryKernel, "req-42").WithField("op", "read").Info("request line")
-	CloseAll()
-
-	entry := findJSONEntry(t, readLog(t, ws, "kernel"), "request line")
-	if entry["req"] != "req-42" {
-		t.Errorf("request id not carried structurally: %v", entry)
-	}
-	fields, ok := entry["fields"].(map[string]any)
-	if !ok || fields["op"] != "read" {
-		t.Errorf("request fields not carried: %v", entry)
-	}
-}
-
-func TestRequestLogger_WhenTextFormat_ShouldKeepLegacyLineShape(t *testing.T) {
-	ws := newWorkspace(t, `"debug_mode": true, "level": "debug"`)
-	resetAllLoggingState(t)
-	defer resetAllLoggingState(t)
-
-	if err := Initialize(ws); err != nil {
-		t.Fatalf("Initialize: %v", err)
-	}
-	WithRequestID(CategoryKernel, "req-7").Info("plain request")
-	CloseAll()
-
-	if got := readLog(t, ws, "kernel"); !strings.Contains(got, "[INFO] [req:req-7] plain request") {
-		t.Errorf("text output shape changed:\n%s", got)
-	}
-}
-
-func TestRequestLogger_WhenErrorLogged_ShouldMirrorToProblemsLog(t *testing.T) {
-	ws := newWorkspace(t, `"debug_mode": true, "level": "debug"`)
-	resetAllLoggingState(t)
-	defer resetAllLoggingState(t)
-
-	if err := Initialize(ws); err != nil {
-		t.Fatalf("Initialize: %v", err)
-	}
-	WithRequestID(CategoryKernel, "req-9").Error("request blew up")
-	CloseAll()
-
-	if got := readLog(t, ws, "problems"); !strings.Contains(got, "request blew up") {
-		t.Errorf("request-scoped errors must reach the aggregated problems log:\n%s", got)
-	}
-}
-
 func TestStructuredEntry_WhenJSONFormat_ShouldCarryCallerFileAndLine(t *testing.T) {
 	ws := newWorkspace(t, `"debug_mode": true, "level": "debug", "format": "json"`)
 	resetAllLoggingState(t)

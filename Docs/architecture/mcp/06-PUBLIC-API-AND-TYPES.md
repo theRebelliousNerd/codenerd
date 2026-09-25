@@ -13,9 +13,9 @@
 | `NewToolAnalyzer(llm, embedder)` | `analyzer.go` | Metadata analysis |
 | `NewJITToolCompiler(store, embedder, kernel)` | `compiler.go` | Selection pipeline |
 | `NewToolRenderer()` | `renderer.go` | LLM formatting |
-| `NewHTTPTransport(baseURL, timeout)` | `transport_http.go` | HTTP |
+| `NewHTTPTransportWithHeaders(baseURL, timeout, headers)` | `transport_http.go` | HTTP (nil headers for none) |
 | `NewStdioTransport(endpoint)` | `transport_stdio.go` | Command line split on whitespace |
-| `NewSSETransport(baseURL, timeout)` | `transport_sse.go` | SSE |
+| `NewSSETransportWithHeaders(baseURL, timeout, headers)` | `transport_sse.go` | SSE (nil headers for none) |
 | `NewIntegrationAdapter(manager, serverID)` | `integration.go` | Per-server VS adapter |
 | `DefaultToolSelectionConfig()` | `types.go` | Thresholds |
 
@@ -81,7 +81,6 @@ Mirrored by `core.IntegrationClient` for VirtualStore.
 | `ToolSelectionConfig` | Thresholds and weights |
 | `SelectedTool` | Intermediate selection record |
 | `MCPCallResult` | Success, output, error, latency |
-| `ToolAvailableEntry` | Hybrid available_tools.json entry (`Type=="mcp"`) |
 | `ToolSearchResult` | Semantic search hit |
 | `ToolJSONEntry` | Renderer JSON projection |
 
@@ -96,7 +95,6 @@ Mirrored by `core.IntegrationClient` for VirtualStore.
 | `CallTool` | Route by toolID, safety checks, usage stats |
 | `GetServer` / `GetConnectedServers` / `GetAllTools` / `ListTools` | Inspection |
 | `SetOnToolDiscovered` / `SetOnServerStatus` | Callbacks |
-| `SetToolSelectionConfig` | Manager-held selection config (compiler has own SetConfig) |
 
 ## 5. Store API (behavioral)
 
@@ -140,7 +138,6 @@ Mirrored by `core.IntegrationClient` for VirtualStore.
 
 | Symbol | Role |
 |--------|------|
-| `ToolAvailableEntry.IsMCPTool` | `Type == "mcp"` |
 | `parseToolID` | Last-slash split (unexported; tested via export_test / coverage) |
 | Default shard affinities | coder/tester/reviewer/researcher maps in analyzer |
 

@@ -71,19 +71,45 @@
 - [x] `TransparencyManager` / `ShardPhase` / `OperationRecord` moved here so ShardManager can report
       operator visibility without importing `internal/transparency` (`transparency.go`)
 
-## Reported to other packages (found by the P0 sweep, not fixed here)
+## Reported to other packages — status 2026-09-25 (lane B wave 3)
 
-These are live findings from the enforced audit. They are baselined in
-`fact_conventions_guard_test.go` with the same reasons, so they cannot silently grow.
+The findings the P0 sweep baselined in `fact_conventions_guard_test.go`, re-checked:
 
-| Site | Finding |
-|---|---|
-| `internal/core/kernel_query.go` | `git_state(Attribute, …)` is declared `/name`; all four attributes are asserted as quoted strings. The reader (`cmd/nerd/chat/model_session_context.go`) matches the string, so **writer and reader must be fixed together**. |
-| `internal/core/virtual_store_file_actions.go` | `edit_failed` / `delete_blocked` reason arg declared `/name`, asserted as `"pattern_not_found"` / `"no_confirmation"`. No policy reads them yet — the first one written would never fire. |
-| `cmd/nerd/chat/campaign.go` | `campaign_intent_capture` autonomy arg declared `/name`, asserted as `"hands_free"`. |
-| `internal/campaign/types.go` | `task_error` ErrorType declared `/name`, asserted as `"execution_error"`. |
-| `internal/shards/system/router.go` | `routing_error` ActionType declared `/name`, asserted as `"internal_error"` (×2). |
-| `cmd/nerd/chat/model_update.go` | `continuation_step` / `max_continuation_steps` are `/number` but passed `float64`; survives only because `RealKernel.coerceAtomToDeclLocked` narrows whole floats. |
-| `internal/core/shadow_mode.go` | `simulated_effect` arg 2 built with `fmt.Sprintf("%v", effect.Args)` — renders a `[]any` as `[a b c]`. Should use the JSON container path. |
-| `cmd/nerd/chat/helpers.go`, `helpers_scan.go`, `cmd/nerd/cmd_init_scan.go`, `internal/world/incremental_scan.go`, `internal/world/persist.go` | `fact.Args[i].(MangleAtom)` on **kernel query results**, which never carry `MangleAtom` (both readback paths return `NameType` as a plain `string`). These branches can never be taken: the workspace summary renders with no language/framework and `/scan --deep` finds no Go files. Use `ExtractName` / `ArgName`. |
-| `cmd/nerd/chat`, `cmd/nerd`, `internal/system` | `sessionKernelAdapter` / `campaignKernelAdapter` wrap a `*core.RealKernel` and forward 13 Kernel methods but not `Transaction()`, so `types.NewKernelTx` reached through them panics. |
+| Site | Finding | Status |
+|---|---|---|
+| `internal/core/virtual_store_file_actions.go` | `edit_failed` / `delete_blocked` reason declared `/name`, asserted as strings | **Fixed**: `types.Atom("pattern_not_found")`, `types.Atom("no_confirmation")`; baseline entries removed. `TestFileActionReasons_ShouldBeNameConstantsTheKernelKeeps` reads them back through a real kernel |
+| `cmd/nerd/chat/campaign.go` | `campaign_intent_capture` autonomy `/name` asserted as `"hands_free"` | **Fixed**: `types.Atom("hands_free")`; baseline entry removed |
+| `cmd/nerd/chat/model_update.go` | `continuation_step` `/number` passed `float64` | **Fixed**: `int64`; `max_continuation_steps` is no longer asserted at all; baseline entries removed |
+| `internal/core/shadow_mode.go` | `simulated_effect` arg rendered with `%v` | **Fixed**: `effectArgsJSON`; baseline entries removed. `TestEffectArgsJSON_ShouldKeepArgumentBoundaries` |
+| `cmd/nerd/chat`, `cmd/nerd`, `internal/world` | `Args[i].(MangleAtom)` on query results | **Already fixed** (the sites now use `ExtractName`/`ExtractString`; their comments record it). The baseline entries are stale; the guard does not fail on stale entries |
+| `internal/core/kernel_query.go` / chat `git_state` | attribute `/name` asserted as string | **Already fixed on the reader side**: the chat reads with `ExtractName` and tolerates both spellings |
+| `internal/campaign/types.go` | `task_error` ErrorType | Open: the producer now writes the attempt's first signal; left for the campaign owner |
+| `internal/shards/system/router.go` | `routing_error` ActionType | Open: lane A's package this wave |
+| adapters without `Transaction()` | `NewKernelTx` panics through them | Open |
+
+Found on the way, same class (a read-back shape the reader did not expect):
+
+- `cmd/nerd/chat/process_dream_parsing.go` `parseBool`: `execution_result`
+  declares Success `/name`, which reads back as the string `"/true"`; the
+  function compared against `"true"`, so every delegated execution the chat
+  summarised read as a failure. It uses `types.ExtractBool` now.
+  `TestParseExecutionResults_WhenSuccessReadsBackAsName_ShouldBeTrue`.
+- `cmd/nerd/chat/model_session_context.go`: `focus_resolution` confidence is
+  an int64 percent; a `float64` assertion read it as 0 and multiplied by 100.
+  It uses `types.ArgFloat64` now (`formatFocusResolution`).
+
+## Dead-code inventory — 2026-09-25
+
+- Wired: `Atom` (above), `ExtractBool`, `ExtractFloat64` / `ArgFloat64`
+  (above), `ClampLines` (`internal/regression` `FormatSummary` prints a failed
+  task's output line-clamped head and tail), `KernelTx.RetractPredicateSet`
+  (`internal/core` `HydrateSessionContext` retracts its three predicates as one
+  set).
+- Removed: `ExtractTime` / `ExtractDuration`. The kernel reads `TimeType` and
+  `DurationType` back as their `String()` rendering, which neither parsed, and
+  no Go producer asserts either type.
+- Kept: `IsClamped`, a cross-package test helper (session, tactile, chat and
+  regression tests assert on it); `WithSessionContext`, the write half of a
+  context key read in four places -- production feeds the stateful
+  `SetSessionContext` on a per-task executor clone instead, and retiring the
+  read path is a session-owned change.

@@ -63,7 +63,7 @@ func TestHTTPTransport_Lifecycle(t *testing.T) {
 	srv := mcpTestServer(t)
 	defer srv.Close()
 
-	tr := NewHTTPTransport(srv.URL, 5*time.Second)
+	tr := NewHTTPTransportWithHeaders(srv.URL, 5*time.Second, nil)
 	ctx := context.Background()
 
 	if tr.IsConnected() {
@@ -125,7 +125,7 @@ func TestHTTPTransport_ConnectFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tr := NewHTTPTransport(srv.URL, 2*time.Second)
+	tr := NewHTTPTransportWithHeaders(srv.URL, 2*time.Second, nil)
 	if err := tr.Connect(context.Background()); err == nil {
 		t.Error("Connect to a failing server should error")
 	}

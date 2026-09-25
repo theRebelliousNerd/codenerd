@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/config"
 )
 
@@ -129,6 +130,17 @@ func (pm *PreferencesManager) Load() error {
 }
 
 // Save writes preferences to disk.
+//
+// preferences.json has three writers -- this package, `nerd init`
+// (internal/init savePreferences) and the agent-selection prompt
+// (SaveAgentPreferences) -- and each owns different keys. Save used to write
+// this package's struct over the whole file, which deleted every key init had
+// written the first time a UX metric changed, and it wrote in place, so a crash
+// mid-write left a half file that init then refused to parse. It now
+// read-modify-writes: the keys UserPreferences declares are replaced, every
+// other key already in the file is kept, and the result lands atomically. An
+// existing file that does not parse is moved aside to preferences.json.corrupt
+// rather than silently discarded.
 func (pm *PreferencesManager) Save() error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -143,19 +155,45 @@ func (pm *PreferencesManager) Save() error {
 		return fmt.Errorf("failed to create preferences directory: %w", err)
 	}
 
-	data, err := json.MarshalIndent(pm.preferences, "", "  ")
+	merged := make(map[string]json.RawMessage)
+	if existing, err := os.ReadFile(pm.path); err == nil && len(existing) > 0 {
+		if jerr := json.Unmarshal(existing, &merged); jerr != nil {
+			merged = make(map[string]json.RawMessage)
+			if rerr := os.Rename(pm.path, pm.path+".corrupt"); rerr != nil {
+				return fmt.Errorf("preferences.json does not parse (%v) and could not be moved aside: %w", jerr, rerr)
+			}
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read preferences before saving: %w", err)
+	}
+
+	owned, err := json.Marshal(pm.preferences)
+	if err != nil {
+		return fmt.Errorf("failed to marshal preferences: %w", err)
+	}
+	var ownedKeys map[string]json.RawMessage
+	if err := json.Unmarshal(owned, &ownedKeys); err != nil {
+		return fmt.Errorf("failed to marshal preferences: %w", err)
+	}
+	for key, value := range ownedKeys {
+		merged[key] = value
+	}
+
+	data, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal preferences: %w", err)
 	}
 
-	if err := os.WriteFile(pm.path, data, 0644); err != nil {
+	if err := atomicfile.WriteFile(pm.path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write preferences: %w", err)
 	}
 
 	return nil
 }
 
-// Get returns the current preferences (thread-safe).
+// Get returns a copy of the current preferences (thread-safe). The copy is
+// shallow: callers read it; they change preferences through the setters, which
+// hold the lock.
 func (pm *PreferencesManager) Get() *UserPreferences {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -163,7 +201,49 @@ func (pm *PreferencesManager) Get() *UserPreferences {
 	if pm.preferences == nil {
 		return DefaultUserPreferences()
 	}
-	return pm.preferences
+	cp := *pm.preferences
+	return &cp
+}
+
+// RecordSessionStart counts a session and stamps its start, then saves. The
+// chat calls it once per session open, on the manager it loaded at boot, so
+// one in-process writer owns the metrics.
+func (pm *PreferencesManager) RecordSessionStart() error {
+	if err := pm.IncrementMetric("sessions_count"); err != nil {
+		return err
+	}
+	pm.mu.Lock()
+	pm.preferences.Metrics.LastSession = time.Now().Format(time.RFC3339)
+	pm.mu.Unlock()
+	return pm.Save()
+}
+
+// RecordMetric increments one UserMetrics counter and saves.
+func (pm *PreferencesManager) RecordMetric(metric string) error {
+	if err := pm.IncrementMetric(metric); err != nil {
+		return err
+	}
+	return pm.Save()
+}
+
+// CheckJourneyTransition moves the user to the next journey state when their
+// metrics warrant it (UserMetrics.ShouldTransition), saving the change. It
+// reports the state the user is in afterwards and whether it changed.
+func (pm *PreferencesManager) CheckJourneyTransition() (UserJourneyState, bool, error) {
+	prefs := pm.Get()
+	currentState := prefs.UserJourney.State
+
+	newState, shouldTransition := prefs.Metrics.ShouldTransition(currentState)
+	if !shouldTransition {
+		return currentState, false, nil
+	}
+	if err := pm.SetJourneyState(newState); err != nil {
+		return currentState, false, err
+	}
+	if err := pm.Save(); err != nil {
+		return currentState, false, err
+	}
+	return newState, true, nil
 }
 
 // GetJourneyState returns the current journey state.

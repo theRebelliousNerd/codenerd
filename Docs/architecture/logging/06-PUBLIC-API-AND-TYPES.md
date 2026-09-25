@@ -53,8 +53,7 @@ Constants listed in [02-CURRENT-STATE.md](02-CURRENT-STATE.md) / `logger.go` (~l
 | Type | Construction | Methods |
 |------|--------------|---------|
 | `ContextLogger` | `Logger.WithContext(map)` | Debug/Info/Warn/Error |
-| `RequestLogger` | `WithRequestID(cat, id)` | WithField, Debug/Info/Warn/Error |
-| `Timer` | `StartTimer(cat, op)` | Stop, StopWithInfo, StopWithThreshold |
+| `Timer` | `StartTimer(cat, op)` | Stop, StopWithInfo |
 
 ### AuditEventType / AuditEvent / AuditLogger
 
@@ -83,7 +82,6 @@ Constants listed in [02-CURRENT-STATE.md](02-CURRENT-STATE.md) / `logger.go` (~l
 | `BoundWorkspace` | `() string` | Workspace the sinks are attached to ("" before first init) |
 | `ApplyConfig` | `(Config)` | Install a boot-parsed config and pin it against disk reads |
 | `ClearInjectedConfig` | `()` | Release that pin |
-| `ReloadConfig` | `() error` | Re-read config.json (no-op while a config is pinned) |
 | `IsDebugMode` | `() bool` | |
 | `IsCategoryEnabled` | `(Category) bool` | |
 | `IsJSONFormat` | `() bool` | |
@@ -93,9 +91,7 @@ Constants listed in [02-CURRENT-STATE.md](02-CURRENT-STATE.md) / `logger.go` (~l
 | `CloseAudit` | `()` | |
 | `Audit` | `() *AuditLogger` | Global singleton lazy |
 | `AuditWithSession` | `(sessionID string) *AuditLogger` | |
-| `AuditWithShard` | `(shardID string) *AuditLogger` | |
 | `AuditWithContext` | `(session, shard string, cat Category) *AuditLogger` | |
-| `WithRequestID` | `(Category, string) *RequestLogger` | |
 | `StartTimer` | `(Category, string) *Timer` | |
 | `IsLLMIOTracingEnabled` | `() bool` | Lazy init |
 | `LogLLMRequest` | `(callsite, system, user string, history []LLMMessage, model string, temp float64)` | |
@@ -184,7 +180,7 @@ logging.Kernel("facts loaded: %d", n)
 
 ```go
 t := logging.StartTimer(logging.CategoryWorld, "Scan")
-defer t.StopWithThreshold(2 * time.Second)
+defer t.Stop() // slow-operation threshold: logging.performance_thresholds_ms
 ```
 
 ### Audit

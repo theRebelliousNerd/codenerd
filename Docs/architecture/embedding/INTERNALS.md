@@ -64,11 +64,6 @@ see `WIRING-AND-NOT-BUILT.md`.
 
 ## Ranking and validation (`internal/embedding/engine.go:145`)
 
-- `FindTopK` (`engine.go:147`) scores every corpus vector with
-  `CosineSimilarity` (`engine.go:162`), skips mismatches with a warning
-  (`engine.go:161`, `:175`), partially orders the head (`engine.go:181` — the
-  comment at `:179` calls it a bubble sort; the loop is a head-selection), and
-  truncates to K (`engine.go:191`).
 - `validateEmbeddingVector` (`engine.go:219`) and
   `validateEmbeddingBatchResponse` (`engine.go:231`, also enforcing uniform
   dimensionality at `:244`) are the shared gates both engines call.

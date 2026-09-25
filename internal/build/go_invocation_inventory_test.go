@@ -44,11 +44,6 @@ var goSpawnExemptions = map[string]string{
 	// .netrc, GOPRIVATE), and it links nothing, so CGO flags are irrelevant.
 	// The compile and test steps in the same file do use GetBuildEnvForCompile.
 	"internal/autopoiesis/tool_compiler.go": "exempt: `go mod tidy` needs the ambient module-resolution credentials the build env filter drops; the build/test steps in this file do use internal/build",
-
-	// Runs the user's own tests in the user's own project root as a tool call.
-	// Pending adoption: it should take the session's UserConfig and route
-	// through GetBuildEnvForTest. Tracked in Docs/architecture/build/WIRING-AND-NOT-BUILT.md.
-	"internal/tools/codedom/run_impacted_tests.go": "pending adoption: should route through GetBuildEnvForTest with the session UserConfig (Docs/architecture/build/WIRING-AND-NOT-BUILT.md)",
 }
 
 type goSpawnSite struct {
@@ -143,11 +138,13 @@ func TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented(t *testing.T) 
 	root := repoRoot(t)
 
 	documented := map[string]bool{
-		"internal/autopoiesis": true, // tool_compiler.go, thunderdome.go
-		"internal/session":     true, // build_verify.go, test_verify.go, coverage_profile.go, lsp_diagnostics.go
-		"internal/core":        true, // virtual_store_actions.go (shell-run go test/build)
-		"internal/system":      true, // factory_execution.go (tactile ExecutorConfig.BaseEnvironment)
-		"internal/campaign":    true, // checkpoint.go, orchestrator_task_handlers.go (tags + gate env)
+		"internal/autopoiesis":   true, // tool_compiler.go, thunderdome.go
+		"internal/session":       true, // build_verify.go, test_verify.go, coverage_profile.go, lsp_diagnostics.go
+		"internal/core":          true, // virtual_store_actions.go (shell-run go test/build)
+		"internal/system":        true, // factory_execution.go (tactile ExecutorConfig.BaseEnvironment)
+		"internal/campaign":      true, // checkpoint.go, orchestrator_task_handlers.go (tags + gate env)
+		"internal/tools/shell":   true, // verification.go (run_build / run_tests via GoInvocation)
+		"internal/tools/codedom": true, // run_impacted_tests.go (run_impacted_tests via GoInvocation)
 	}
 
 	seen := map[string][]string{}
@@ -325,8 +322,25 @@ func scanFuncForGoSpawns(fset *token.FileSet, rel string, fn *ast.FuncDecl) []go
 		return nil
 	}
 
+	// Identifiers bound from a build.* call anywhere in this function:
+	// `env, argv := build.GoInvocation(...)` followed by `cmd.Env = env` is the
+	// build env reaching the command through one variable, and must count.
+	buildDerived := map[string]bool{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok || len(assign.Rhs) != 1 || !mentionsBuildPackage(assign.Rhs[0]) {
+			return true
+		}
+		for _, lhs := range assign.Lhs {
+			if id, ok := lhs.(*ast.Ident); ok && id.Name != "_" {
+				buildDerived[id.Name] = true
+			}
+		}
+		return true
+	})
+
 	// Collect variables whose .Env is assigned from an expression mentioning the
-	// build package, anywhere in this function.
+	// build package, or from a variable bound from one, anywhere in this function.
 	envFromBuild := map[string]bool{}
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		assign, ok := n.(*ast.AssignStmt)
@@ -342,6 +356,9 @@ func scanFuncForGoSpawns(fset *token.FileSet, rel string, fn *ast.FuncDecl) []go
 			return true
 		}
 		if mentionsBuildPackage(assign.Rhs[0]) {
+			envFromBuild[base.Name] = true
+		}
+		if id, ok := assign.Rhs[0].(*ast.Ident); ok && buildDerived[id.Name] {
 			envFromBuild[base.Name] = true
 		}
 		return true

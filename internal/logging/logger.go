@@ -111,7 +111,6 @@ type StructuredLogEntry struct {
 	Message   string         `json:"msg"`              // Log message
 	File      string         `json:"file"`             // Source file (optional)
 	Line      int            `json:"line"`             // Source line (optional)
-	RequestID string         `json:"req,omitempty"`    // Request correlation ID
 	Fields    map[string]any `json:"fields,omitempty"` // Additional structured fields
 }
 
@@ -211,9 +210,18 @@ func Initialize(ws string) error {
 	previous := boundWorkspace
 	closeAllSinks()
 	resetLLMIOLogger()
+	// A config boot injected (ApplyConfig) is pinned, and a rebind honours the
+	// pin: loadConfig will not re-read disk while it holds, so wiping the
+	// injected values here left the new workspace running on a zero config --
+	// debug_mode false, every sink silent -- which is exactly the case of a
+	// Cortex that applies its parsed config and then binds a workspace other
+	// than the one the process started in. An uninjected config is reset so
+	// the new workspace's file is read.
 	configMu.Lock()
-	configLoaded = false
-	config = loggingConfig{}
+	if !configInjected {
+		configLoaded = false
+		config = loggingConfig{}
+	}
 	configMu.Unlock()
 
 	initErr = initializeInternal(target)
@@ -415,12 +423,6 @@ func applyLevelLocked(level string) {
 	default:
 		logLevel = LevelInfo
 	}
-}
-
-// ReloadConfig reloads the config from disk.
-// Call this if config changes at runtime.
-func ReloadConfig() error {
-	return loadConfig()
 }
 
 // IsDebugMode returns whether debug logging is enabled
@@ -726,25 +728,17 @@ type ContextLogger struct {
 	context map[string]any
 }
 
-// emit writes one line for a Context/Request logger, honouring json_format.
+// emit writes one line for a ContextLogger, honouring json_format.
 //
-// The two decorated loggers used to hardcode text output, so switching the
+// The decorated loggers used to hardcode text output, so switching the
 // package to JSON produced a file that was *mostly* parseable — every plain
 // logger line was an object and every request-scoped or context-scoped line was
 // `[INFO] msg | ctx=map[...]`. Anything consuming the file as JSONL (the Mangle
 // fact path this format exists for) silently dropped exactly the lines that
 // carry correlation IDs. Structured mode now carries the context as fields
 // instead of stringifying it into the message.
-func emit(l *Logger, level, levelTag, msg, requestID string, fields map[string]any) string {
-	suffix := ""
-	switch {
-	case requestID != "" && len(fields) > 0:
-		suffix = fmt.Sprintf("[req:%s] %s | %v", requestID, msg, fields)
-	case requestID != "":
-		suffix = fmt.Sprintf("[req:%s] %s", requestID, msg)
-	default:
-		suffix = fmt.Sprintf("%s | ctx=%v", msg, fields)
-	}
+func emit(l *Logger, level, levelTag, msg string, fields map[string]any) string {
+	suffix := fmt.Sprintf("%s | ctx=%v", msg, fields)
 
 	if IsJSONFormat() {
 		entry := StructuredLogEntry{
@@ -752,7 +746,6 @@ func emit(l *Logger, level, levelTag, msg, requestID string, fields map[string]a
 			Category:  string(l.category),
 			Level:     level,
 			Message:   msg,
-			RequestID: requestID,
 			Fields:    fields,
 		}
 		entry.File, entry.Line = callerSite()
@@ -769,21 +762,21 @@ func (c *ContextLogger) Debug(format string, args ...any) {
 	if c.logger.logger == nil || logLevel > LevelDebug {
 		return
 	}
-	emit(c.logger, "debug", "DEBUG", fmt.Sprintf(format, args...), "", c.context)
+	emit(c.logger, "debug", "DEBUG", fmt.Sprintf(format, args...), c.context)
 }
 
 func (c *ContextLogger) Info(format string, args ...any) {
 	if c.logger.logger == nil || logLevel > LevelInfo {
 		return
 	}
-	emit(c.logger, "info", "INFO", fmt.Sprintf(format, args...), "", c.context)
+	emit(c.logger, "info", "INFO", fmt.Sprintf(format, args...), c.context)
 }
 
 func (c *ContextLogger) Warn(format string, args ...any) {
 	if c.logger.logger == nil || logLevel > LevelWarn {
 		return
 	}
-	line := emit(c.logger, "warn", "WARN", fmt.Sprintf(format, args...), "", c.context)
+	line := emit(c.logger, "warn", "WARN", fmt.Sprintf(format, args...), c.context)
 	mirrorToProblems(c.logger.category, "WARN", line)
 }
 
@@ -791,7 +784,7 @@ func (c *ContextLogger) Error(format string, args ...any) {
 	if c.logger.logger == nil {
 		return
 	}
-	line := emit(c.logger, "error", "ERROR", fmt.Sprintf(format, args...), "", c.context)
+	line := emit(c.logger, "error", "ERROR", fmt.Sprintf(format, args...), c.context)
 	mirrorToProblems(c.logger.category, "ERROR", line)
 }
 
@@ -825,87 +818,6 @@ func closeAllSinks() {
 	closeProblemsLog()
 	CloseAudit()
 	CloseLLMIOLogger()
-}
-
-// =============================================================================
-// REQUEST ID TRACING - For distributed request tracing
-// =============================================================================
-
-// RequestLogger provides request-scoped logging with a correlation ID
-type RequestLogger struct {
-	logger    *Logger
-	requestID string
-	fields    map[string]any
-}
-
-// WithRequestID creates a request-scoped logger for distributed tracing
-func WithRequestID(category Category, requestID string) *RequestLogger {
-	return &RequestLogger{
-		logger:    Get(category),
-		requestID: requestID,
-		fields:    make(map[string]any),
-	}
-}
-
-// WithField returns a NEW RequestLogger carrying the extra field.
-//
-// It deliberately does not mutate the receiver. The With* shape promises a
-// derived logger, and returning the receiver made every derivation alias
-// its parent - sibling calls saw each other's fields, and concurrent ones
-// raced on a plain map.
-func (r *RequestLogger) WithField(key string, value any) *RequestLogger {
-	fields := make(map[string]any, len(r.fields)+1)
-	for k, v := range r.fields {
-		fields[k] = v
-	}
-	fields[key] = value
-	return &RequestLogger{
-		logger:    r.logger,
-		requestID: r.requestID,
-		fields:    fields,
-	}
-}
-
-func (r *RequestLogger) formatMsg(format string, args ...any) string {
-	msg := fmt.Sprintf(format, args...)
-	if len(r.fields) > 0 {
-		return fmt.Sprintf("[req:%s] %s | %v", r.requestID, msg, r.fields)
-	}
-	return fmt.Sprintf("[req:%s] %s", r.requestID, msg)
-}
-
-func (r *RequestLogger) Debug(format string, args ...any) {
-	if r.logger.logger == nil || logLevel > LevelDebug {
-		return
-	}
-	emit(r.logger, "debug", "DEBUG", fmt.Sprintf(format, args...), r.requestID, r.fields)
-}
-
-func (r *RequestLogger) Info(format string, args ...any) {
-	if r.logger.logger == nil || logLevel > LevelInfo {
-		return
-	}
-	emit(r.logger, "info", "INFO", fmt.Sprintf(format, args...), r.requestID, r.fields)
-}
-
-// Warn mirrors to the problems log like every other WARN in the package. The
-// request-scoped logger was the one path that did not, which would have made a
-// correlated failure the single kind of failure invisible in the one file
-// triage actually reads.
-func (r *RequestLogger) Warn(format string, args ...any) {
-	if r.logger.logger == nil || logLevel > LevelWarn {
-		return
-	}
-	line := emit(r.logger, "warn", "WARN", fmt.Sprintf(format, args...), r.requestID, r.fields)
-	mirrorToProblems(r.logger.category, "WARN", line)
-}
-
-func (r *RequestLogger) Error(format string, args ...any) {
-	if r.logger.logger == nil {
-		return
-	}
-	line := emit(r.logger, "error", "ERROR", fmt.Sprintf(format, args...), r.requestID, r.fields)
-	mirrorToProblems(r.logger.category, "ERROR", line)
 }
 
 // =============================================================================
@@ -1075,19 +987,6 @@ func (t *Timer) StopWithInfo() time.Duration {
 	elapsed := time.Since(t.start)
 	Get(t.category).Info("%s completed in %v", t.op, elapsed)
 	logPerformance(t.category, t.op, elapsed, nil)
-	return elapsed
-}
-
-// StopWithThreshold logs warning if duration exceeds threshold
-func (t *Timer) StopWithThreshold(threshold time.Duration) time.Duration {
-	elapsed := time.Since(t.start)
-	if elapsed > threshold {
-		Get(t.category).Warn("%s took %v (threshold: %v)", t.op, elapsed, threshold)
-		logPerformance(t.category, t.op, elapsed, &threshold)
-	} else {
-		Get(t.category).Debug("%s completed in %v", t.op, elapsed)
-		logPerformance(t.category, t.op, elapsed, &threshold)
-	}
 	return elapsed
 }
 

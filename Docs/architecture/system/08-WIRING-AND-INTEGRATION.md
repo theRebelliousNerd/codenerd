@@ -148,8 +148,6 @@ system ──boots──► core.CortexKernel
 
 | API | Callers today | Intended use |
 |-----|---------------|--------------|
-| `ResetGlobalCortex` | tests only (no prod grep hits outside factory) | test isolation |
-| `ResetCortexForWorkspace` | none outside factory | after config/provider switch |
 | `Cortex.Close` | CLI handlers and tests | cancel maintenance, release covered handles, evict if cached |
 
 **Gaps:** config reload still needs an explicit reset-and-close contract; current

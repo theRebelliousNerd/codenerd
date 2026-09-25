@@ -59,19 +59,14 @@ func TestAlignmentAtoms_ShouldMatchTheCorpusYAML(t *testing.T) {
 	}
 }
 
-func TestAlignmentAtom_WhenResolverInstalled_ShouldPreferHostContent(t *testing.T) {
-	t.Cleanup(func() { SetAlignmentAtomResolver(nil) })
-	SetAlignmentAtomResolver(func(id string) (string, bool) {
-		if id == atomGuardianUserInstruction {
-			return "  evolved instruction  ", true
-		}
-		return "", false
-	})
-
-	if got := AlignmentAtom(atomGuardianUserInstruction); got != "evolved instruction" {
-		t.Errorf("resolver content ignored: got %q", got)
-	}
-	if got := AlignmentAtom(atomGuardianRole); !strings.HasPrefix(got, "You are the Northstar Alignment Guardian") {
-		t.Errorf("unresolved atom did not fall back to the built-in copy: %q", got)
+// AlignmentAtomIDs lists the atoms the Guardian composes its prompt from, in
+// composition order. The parity tests are its only reader.
+func AlignmentAtomIDs() []string {
+	return []string{
+		atomGuardianRole,
+		atomGuardianModuleRefinement,
+		atomGuardianTask,
+		atomGuardianOutputContract,
+		atomGuardianUserInstruction,
 	}
 }

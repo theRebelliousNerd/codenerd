@@ -160,7 +160,7 @@ func (f *fakeMCPServer) observedMethods() []string {
 
 func TestHTTPTransport_WhenServerLive_ShouldListToolsOverJSONRPC(t *testing.T) {
 	server := newFakeMCPServer(t)
-	transport := NewHTTPTransport(server.URL, 5*time.Second)
+	transport := NewHTTPTransportWithHeaders(server.URL, 5*time.Second, nil)
 
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
@@ -189,7 +189,7 @@ func TestHTTPTransport_WhenServerLive_ShouldListToolsOverJSONRPC(t *testing.T) {
 
 func TestHTTPTransport_WhenToolCalled_ShouldForwardArgumentsAndReturnOutput(t *testing.T) {
 	server := newFakeMCPServer(t)
-	transport := NewHTTPTransport(server.URL, 5*time.Second)
+	transport := NewHTTPTransportWithHeaders(server.URL, 5*time.Second, nil)
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -221,7 +221,7 @@ func TestHTTPTransport_WhenServerReturnsRPCError_ShouldSurfaceSoftFailure(t *tes
 	server.toolErrCode = -32000
 	server.mu.Unlock()
 
-	transport := NewHTTPTransport(server.URL, 5*time.Second)
+	transport := NewHTTPTransportWithHeaders(server.URL, 5*time.Second, nil)
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
 		t.Fatalf("Connect: %v", err)

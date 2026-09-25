@@ -18,6 +18,7 @@ import (
 	"codenerd/internal/observation/precondition"
 	"codenerd/internal/tools"
 	toolscore "codenerd/internal/tools/core"
+	"codenerd/internal/types"
 )
 
 // handleReadFile reads a file from disk.
@@ -333,7 +334,7 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 			Success: false,
 			Error:   "old content not found in file",
 			FactsToAdd: []Fact{
-				{Predicate: "edit_failed", Args: []any{path, "pattern_not_found"}},
+				{Predicate: "edit_failed", Args: []any{path, types.Atom("pattern_not_found")}},
 			},
 		}, nil
 	}
@@ -382,7 +383,7 @@ func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) 
 			Success: false,
 			Error:   "delete_file requires 'confirmed: true' in payload",
 			FactsToAdd: []Fact{
-				{Predicate: "delete_blocked", Args: []any{path, "no_confirmation"}},
+				{Predicate: "delete_blocked", Args: []any{path, types.Atom("no_confirmation")}},
 			},
 		}, nil
 	}

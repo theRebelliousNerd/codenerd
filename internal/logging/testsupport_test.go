@@ -80,3 +80,10 @@ func globLogs(t *testing.T, ws, suffix string) []string {
 	}
 	return matches
 }
+
+// ReloadConfig re-reads the logging config from disk. Production has no runtime
+// config-reload path -- boot injects the parsed config once (ApplyConfig) --
+// so this lives with the tests that exercise loadConfig directly.
+func ReloadConfig() error {
+	return loadConfig()
+}

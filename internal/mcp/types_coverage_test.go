@@ -9,9 +9,6 @@ import (
 func TestDefaultToolSelectionConfig_ShouldReturnDefaults(t *testing.T) {
 	cfg := DefaultToolSelectionConfig()
 
-	if cfg.SkeletonThreshold != 90 {
-		t.Errorf("SkeletonThreshold = %d, want 90", cfg.SkeletonThreshold)
-	}
 	if cfg.FullThreshold != 70 {
 		t.Errorf("FullThreshold = %d, want 70", cfg.FullThreshold)
 	}
@@ -21,12 +18,6 @@ func TestDefaultToolSelectionConfig_ShouldReturnDefaults(t *testing.T) {
 	if cfg.MinimalThreshold != 20 {
 		t.Errorf("MinimalThreshold = %d, want 20", cfg.MinimalThreshold)
 	}
-	if cfg.LogicWeight != 0.7 {
-		t.Errorf("LogicWeight = %v, want 0.7", cfg.LogicWeight)
-	}
-	if cfg.VectorWeight != 0.3 {
-		t.Errorf("VectorWeight = %v, want 0.3", cfg.VectorWeight)
-	}
 	if cfg.MaxFullTools != 10 {
 		t.Errorf("MaxFullTools = %d, want 10", cfg.MaxFullTools)
 	}
@@ -35,29 +26,6 @@ func TestDefaultToolSelectionConfig_ShouldReturnDefaults(t *testing.T) {
 	}
 	if cfg.TokenBudget != 4000 {
 		t.Errorf("TokenBudget = %d, want 4000", cfg.TokenBudget)
-	}
-}
-
-// --- ToolAvailableEntry.IsMCPTool ---
-
-func TestIsMCPTool_WhenTypeMCP_ShouldReturnTrue(t *testing.T) {
-	entry := &ToolAvailableEntry{Type: "mcp"}
-	if !entry.IsMCPTool() {
-		t.Error("expected true for type='mcp'")
-	}
-}
-
-func TestIsMCPTool_WhenTypeStatic_ShouldReturnFalse(t *testing.T) {
-	entry := &ToolAvailableEntry{Type: "static"}
-	if entry.IsMCPTool() {
-		t.Error("expected false for type='static'")
-	}
-}
-
-func TestIsMCPTool_WhenTypeEmpty_ShouldReturnFalse(t *testing.T) {
-	entry := &ToolAvailableEntry{}
-	if entry.IsMCPTool() {
-		t.Error("expected false for empty type")
 	}
 }
 

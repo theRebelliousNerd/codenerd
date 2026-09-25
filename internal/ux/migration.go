@@ -163,6 +163,30 @@ func migrateFromOldVersion(workspace string, oldPrefs map[string]any) (*Migratio
 		}
 	}
 
+	// Learned patterns and metrics are the user's history; a schema bump must
+	// not reset them to zero. Only well-formed sections are carried over.
+	if raw, ok := oldPrefs["learned_patterns"]; ok {
+		if data, err := json.Marshal(raw); err == nil {
+			var lp LearnedPatterns
+			if json.Unmarshal(data, &lp) == nil {
+				if lp.CommandPreferences == nil {
+					lp.CommandPreferences = make(map[string]CommandPrefs)
+				}
+				prefs.LearnedPatterns = lp
+				result.PreservedData = append(result.PreservedData, "learned_patterns")
+			}
+		}
+	}
+	if raw, ok := oldPrefs["metrics"]; ok {
+		if data, err := json.Marshal(raw); err == nil {
+			var m UserMetrics
+			if json.Unmarshal(data, &m) == nil {
+				prefs.Metrics = m
+				result.PreservedData = append(result.PreservedData, "metrics")
+			}
+		}
+	}
+
 	// Existing users with old prefs are definitely not new
 	prefs.UserJourney.State = StateProductive
 	prefs.UserJourney.OnboardingCompleted = true
@@ -216,58 +240,15 @@ func GetUserJourneyState(workspace string) UserJourneyState {
 	return pm.GetJourneyState()
 }
 
-// RecordSessionStart should be called when a new session begins.
-func RecordSessionStart(workspace string) error {
-	pm := NewPreferencesManager(workspace)
-	if err := pm.Load(); err != nil {
-		return err
-	}
-
-	if err := pm.IncrementMetric("sessions_count"); err != nil {
-		return err
-	}
-
-	pm.mu.Lock()
-	pm.preferences.Metrics.LastSession = time.Now().Format(time.RFC3339)
-	pm.mu.Unlock()
-
-	return pm.Save()
-}
-
-// CheckJourneyTransition checks if the user should transition to a new state.
-func CheckJourneyTransition(workspace string) (UserJourneyState, bool, error) {
-	pm := NewPreferencesManager(workspace)
-	if err := pm.Load(); err != nil {
-		return StateNew, false, err
-	}
-
-	prefs := pm.Get()
-	currentState := prefs.UserJourney.State
-
-	newState, shouldTransition := prefs.Metrics.ShouldTransition(currentState)
-	if shouldTransition {
-		if err := pm.SetJourneyState(newState); err != nil {
-			return currentState, false, err
-		}
-		if err := pm.Save(); err != nil {
-			return currentState, false, err
-		}
-		return newState, true, nil
-	}
-
-	return currentState, false, nil
-}
-
-// GetExperienceLevelFromPreferences returns the configured experience level.
+// GetExperienceLevelFromPreferences returns the experience level the
+// workspace's journey state implies.
 func GetExperienceLevelFromPreferences(workspace string) config.ExperienceLevel {
-	pm := NewPreferencesManager(workspace)
-	if err := pm.Load(); err != nil {
-		return config.ExperienceBeginner
-	}
+	return ExperienceLevelForState(GetUserJourneyState(workspace))
+}
 
-	state := pm.GetJourneyState()
-
-	// Map journey state to experience level
+// ExperienceLevelForState maps a journey state to an experience level. The
+// help renderer and the tip generator each carried a copy of this switch.
+func ExperienceLevelForState(state UserJourneyState) config.ExperienceLevel {
 	switch state {
 	case StatePower:
 		return config.ExperienceExpert

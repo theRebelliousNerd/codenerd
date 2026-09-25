@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"time"
+
+	"codenerd/internal/sqlpragmas"
 )
 
 // CoreLimits enforces system-wide resource constraints.
@@ -12,6 +14,16 @@ type CoreLimits struct {
 	MaxConcurrentAPICalls int `yaml:"max_concurrent_api_calls" json:"max_concurrent_api_calls"` // Max simultaneous LLM API calls
 	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel"`           // EDB size limit
 	MaxDerivedFactsLimit  int `yaml:"max_derived_facts_limit" json:"max_derived_facts_limit"`   // Mangle gas limit (Bug #17)
+
+	// SQLHostClass declares the machine class SQLite's page cache and mmap
+	// window are sized for: "workstation" (the default), "laptop" (1/4) or
+	// "micro" (1/16; containers, CI). internal/sqlpragmas owns the scaling and
+	// does not import config, so boot pushes this value down
+	// (internal/system configureSQLPragmas). The NERD_SQL_HOST_CLASS
+	// environment variable, when set, wins over this key. A declared class
+	// rather than one detected from free RAM keeps SQLite's behaviour the same
+	// on every machine that shares a config.
+	SQLHostClass string `yaml:"sql_host_class,omitempty" json:"sql_host_class,omitempty"`
 
 	// There is deliberately no tool-call, tool-round or session-time limit
 	// here. Until 2026-09-18 this struct carried max_tool_calls,
@@ -94,6 +106,11 @@ func (c *CoreLimits) ValidateCoreLimits() error {
 	}
 	if c.MaxDerivedFactsLimit < 1000 {
 		return fmt.Errorf("max_derived_facts_limit must be >= 1000")
+	}
+	if c.SQLHostClass != "" {
+		if _, ok := sqlpragmas.ParseHostClass(c.SQLHostClass); !ok {
+			return fmt.Errorf("sql_host_class %q is not a host class (workstation, laptop or micro)", c.SQLHostClass)
+		}
 	}
 	return nil
 }

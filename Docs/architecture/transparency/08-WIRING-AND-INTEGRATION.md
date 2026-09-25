@@ -45,7 +45,7 @@ CortexConfig duplicates manager + both buses for handoff after async boot.
 | `/glassbox ...` | glass_box / command categories | Filter/status/verbose on bus |
 | `/why <fact>` | evolution handlers + model_update | `NewExplainer().ExplainTrace` |
 | `/explain` | `cmd_explain.go` | Provenance (kernel); complementary |
-| (safety-related) | may use `ExplainSafetyAction` / FormatViolation | UX |
+| (error panel) | `model_helpers.go` `presentError` | `TransparencyManager.ExplainError`: category + remediation when `/transparency on` and `verbose_errors` |
 
 Command registry: `commands.go` routes; `command_categories.go` documents usage strings.
 

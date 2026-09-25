@@ -428,11 +428,12 @@ func inheritRepair(freshVerdict VerifyOutcome, prior *RepairRecord) *RepairRecor
 	return nil
 }
 
+// excerpt bounds an older attempt's failing output for the give-up record.
+// It keeps the head and the tail -- a test run's summary ("FAIL pkg", the
+// count) is at the end -- and never cuts a UTF-8 character in half, which a
+// byte slice at max did.
 func excerpt(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "…[truncated]"
+	return types.ClampText(s, max, "failing output")
 }
 
 // repairFollowups builds actionable next commands for the give-up record:
