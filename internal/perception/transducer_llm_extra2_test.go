@@ -33,46 +33,6 @@ func (m *mockRoutingKernel2) RetractRoutingPredicate(predicate string) error {
 	return nil
 }
 
-func TestLLMTransducer_validate(t *testing.T) {
-	ctx := context.Background()
-	rk := &mockRoutingKernel2{
-		valid: map[string]bool{
-			"semantic_type:valid_sem": true,
-			"action_type:valid_act":   true,
-			"domain:valid_dom":        true,
-			"scope_level:valid_scope": true,
-			"mode:valid_mode":         true,
-		},
-	}
-	tr := NewLLMTransducer(nil, rk, "prompt")
-
-	uValid := &Understanding{
-		SemanticType:      "valid_sem",
-		ActionType:        "valid_act",
-		Domain:            "valid_dom",
-		Scope:             Scope{Level: "valid_scope"},
-		SuggestedApproach: SuggestedApproach{Mode: "valid_mode"},
-	}
-
-	err := tr.validate(ctx, uValid)
-	if err != nil {
-		t.Errorf("expected valid understanding, got error: %v", err)
-	}
-
-	uInvalid := &Understanding{
-		SemanticType:      "invalid_sem",
-		ActionType:        "invalid_act",
-		Domain:            "invalid_dom",
-		Scope:             Scope{Level: "invalid_scope"},
-		SuggestedApproach: SuggestedApproach{Mode: "invalid_mode"},
-	}
-
-	err = tr.validate(ctx, uInvalid)
-	if err == nil {
-		t.Errorf("expected invalid understanding to fail")
-	}
-}
-
 func TestLLMTransducer_assertRoutingFacts(t *testing.T) {
 	rk := &mockRoutingKernel2{}
 	tr := NewLLMTransducer(nil, rk, "prompt")
@@ -165,8 +125,8 @@ func TestNewRealKernelRouter(t *testing.T) {
 		t.Errorf("expected nil/nil on nil kernel QueryRouting")
 	}
 
-	if r.ValidateField(context.Background(), "field", "value") != true {
-		t.Errorf("expected true on nil kernel ValidateField")
+	if misses, err := r.VocabularyMisses(); err != nil || misses != nil {
+		t.Errorf("expected nil/nil on nil kernel VocabularyMisses, got %v, %v", misses, err)
 	}
 
 	if err := r.AssertRoutingFact("pred", "arg"); err != nil {

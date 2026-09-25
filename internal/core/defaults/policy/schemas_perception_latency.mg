@@ -44,4 +44,22 @@ Decl derived_context_priority(Category, Priority).
 # Per-tool priorities derived from routing affinity rules.
 Decl derived_tool_priority(Tool, Priority).
 
+# understanding_vocab_miss(Field, Value)
+# Derived (perception_routing.mg): a field of this turn's understanding holds a
+# value outside the routing vocabulary (valid_* in schema/intent_routing.mg).
+# Such a value joins no routing-table row, so routing for that field falls back
+# to the LLM's own suggestion. Field is one of /semantic_type, /action_type,
+# /domain, /scope_level, /mode. Read by the perception transducer, which
+# surfaces the degrade on Routing.VocabularyMisses.
+Decl understanding_vocab_miss(Field, Value) bound [/name, /name].
+
+# Projections of the valid_* vocabulary to one column. A negated literal with an
+# anonymous wildcard excludes nothing in this Mangle build
+# (internal/core/bound_negation_test.go), so the audit negates these instead.
+Decl vocab_semantic_type(Value) bound [/name].
+Decl vocab_action_type(Value) bound [/name].
+Decl vocab_domain(Value) bound [/name].
+Decl vocab_scope_level(Value) bound [/name].
+Decl vocab_mode(Value) bound [/name].
+
 # NERD-EVOLVE-END: P3_schema_decls

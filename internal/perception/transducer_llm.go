@@ -33,10 +33,15 @@ type RoutingKernel interface {
 	// arg is the semantic type, action type, or domain.
 	// Returns a list of (target, weight) pairs.
 	QueryRouting(ctx context.Context, predicate string, arg string) ([]RoutingMatch, error)
+}
 
-	// ValidateField checks if a value is valid for a given field.
-	// field is one of: semantic_type, action_type, domain, scope_level, mode
-	ValidateField(ctx context.Context, field, value string) bool
+// VocabularyAuditor is implemented by RoutingKernel adapters that can read the
+// kernel-derived vocabulary audit: understanding_vocab_miss(Field, Value) from
+// perception_routing.mg, computed over the current_understanding and
+// llm_suggested_mode facts this transducer asserts. Each miss is returned as
+// "field=value", sorted.
+type VocabularyAuditor interface {
+	VocabularyMisses() ([]string, error)
 }
 
 // NERD-EVOLVE-START: P3_routing_assertion
@@ -165,11 +170,10 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 		understanding.SuggestedApproach.SupportingShards, understanding.SuggestedApproach.ToolsNeeded,
 		understanding.SuggestedApproach.ContextNeeded)
 
-	// NERD-EVOLVE-START: P3_dead_work_elimination
-	// Phase A: validate() was dead work — it made 5 kernel queries whose error
-	// return was always discarded. The LLM understanding is used as-is and the
-	// harness falls back to defaults for any out-of-vocabulary terms.
-	// NERD-EVOLVE-END: P3_dead_work_elimination
+	// Vocabulary: the harness does not check the fields in Go. deriveRouting
+	// asserts them and the kernel derives understanding_vocab_miss for any
+	// value outside the routing vocabulary; the misses land on
+	// Routing.VocabularyMisses.
 
 	// 5. Derive routing from understanding
 	routeStart := time.Now()
@@ -523,41 +527,6 @@ func ExtractCleanJSON(response string) string {
 	return ""
 }
 
-// validate checks Understanding against the routing vocabulary.
-func (t *LLMTransducer) validate(ctx context.Context, u *Understanding) error {
-	if t.kernel == nil {
-		return nil // No kernel, skip validation
-	}
-
-	var errors []string
-
-	if !t.kernel.ValidateField(ctx, "semantic_type", u.SemanticType) {
-		errors = append(errors, fmt.Sprintf("invalid semantic_type: %s", u.SemanticType))
-	}
-
-	if !t.kernel.ValidateField(ctx, "action_type", u.ActionType) {
-		errors = append(errors, fmt.Sprintf("invalid action_type: %s", u.ActionType))
-	}
-
-	if !t.kernel.ValidateField(ctx, "domain", u.Domain) {
-		errors = append(errors, fmt.Sprintf("invalid domain: %s", u.Domain))
-	}
-
-	if u.Scope.Level != "" && !t.kernel.ValidateField(ctx, "scope_level", u.Scope.Level) {
-		errors = append(errors, fmt.Sprintf("invalid scope_level: %s", u.Scope.Level))
-	}
-
-	if u.SuggestedApproach.Mode != "" && !t.kernel.ValidateField(ctx, "mode", u.SuggestedApproach.Mode) {
-		errors = append(errors, fmt.Sprintf("invalid mode: %s", u.SuggestedApproach.Mode))
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("validation errors: %s", strings.Join(errors, "; "))
-	}
-
-	return nil
-}
-
 // deriveRouting uses Mangle rules to derive routing from understanding.
 func (t *LLMTransducer) deriveRouting(ctx context.Context, u *Understanding) {
 	if t.kernel == nil {
@@ -600,6 +569,22 @@ func (t *LLMTransducer) deriveRouting(ctx context.Context, u *Understanding) {
 		t.assertRoutingFacts(asserter, u, routing)
 	}
 	// NERD-EVOLVE-END: P3_routing_assertion
+
+	// A field outside the routing vocabulary joins no routing table, so its
+	// routing silently came from the LLM's suggestion instead. The kernel
+	// derives which fields those are; surface them rather than let the
+	// degrade pass as a normal turn.
+	if auditor, ok := t.kernel.(VocabularyAuditor); ok {
+		misses, err := auditor.VocabularyMisses()
+		if err != nil {
+			logging.Get(logging.CategoryPerception).Warn("vocabulary audit unavailable: %v", err)
+		} else if len(misses) > 0 {
+			routing.VocabularyMisses = misses
+			logging.Get(logging.CategoryPerception).Warn(
+				"understanding outside the routing vocabulary (%s): routing for those fields falls back to the LLM suggestion",
+				strings.Join(misses, ", "))
+		}
+	}
 }
 
 // NERD-EVOLVE-START: P3_routing_assertion
@@ -634,6 +619,13 @@ func (t *LLMTransducer) assertRoutingFacts(asserter KernelAsserter, u *Understan
 	}
 	if sem, act, dom, lvl := cleanRoutingAtom(u.SemanticType), cleanRoutingAtom(u.ActionType), cleanRoutingAtom(u.Domain), cleanRoutingAtom(scopeLevel); sem != "" && act != "" && dom != "" && lvl != "" {
 		_ = asserter.AssertRoutingFact("current_understanding", sem, act, dom, lvl)
+	} else {
+		// A field that cannot be a name atom joins no routing table and
+		// escapes the kernel's vocabulary audit; say so instead of
+		// dropping the turn's understanding silently.
+		logging.Get(logging.CategoryPerception).Warn(
+			"understanding not assertable as routing atoms (semantic=%q action=%q domain=%q scope=%q); routing tables and the vocabulary audit cannot see it",
+			u.SemanticType, u.ActionType, u.Domain, scopeLevel)
 	}
 
 	// llm_suggested_mode(Mode) — the raw LLM suggestion before Mangle override
@@ -915,46 +907,27 @@ func (k *RealKernelRouter) QueryRouting(ctx context.Context, predicate string, a
 	return matches, nil
 }
 
-// ValidateField checks if a value is valid for a field.
-func (k *RealKernelRouter) ValidateField(ctx context.Context, field, value string) bool {
+// VocabularyMisses implements VocabularyAuditor by reading the derived
+// understanding_vocab_miss relation.
+func (k *RealKernelRouter) VocabularyMisses() ([]string, error) {
 	if k.kernel == nil {
-		return true // No kernel = assume valid
+		return nil, nil
 	}
-
-	// Build the validation predicate
-	var predicate string
-	switch field {
-	case "semantic_type":
-		predicate = "valid_semantic_type"
-	case "action_type":
-		predicate = "valid_action_type"
-	case "domain":
-		predicate = "valid_domain"
-	case "scope_level":
-		predicate = "valid_scope_level"
-	case "mode":
-		predicate = "valid_mode"
-	default:
-		return true // Unknown field, assume valid
-	}
-
-	// Query for validation facts
-	facts, err := k.kernel.Query(predicate)
+	facts, err := k.kernel.Query("understanding_vocab_miss")
 	if err != nil {
-		return false
+		return nil, err
 	}
-
-	// Check if any fact matches the value
+	misses := make([]string, 0, len(facts))
 	for _, fact := range facts {
-		if len(fact.Args) >= 1 {
-			factValue := types.StripAtomPrefix(types.ExtractString(fact.Args[0]))
-			if factValue == value {
-				return true
-			}
+		if len(fact.Args) < 2 {
+			continue
 		}
+		field := types.StripAtomPrefix(types.ExtractString(fact.Args[0]))
+		value := types.StripAtomPrefix(types.ExtractString(fact.Args[1]))
+		misses = append(misses, field+"="+value)
 	}
-
-	return false
+	sort.Strings(misses)
+	return misses, nil
 }
 
 // NERD-EVOLVE-START: P3_routing_assertion
