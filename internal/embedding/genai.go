@@ -2,7 +2,10 @@ package embedding
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"strings"
 	"time"
 
@@ -37,6 +40,62 @@ type GenAIEngine struct {
 	client   *genai.Client
 	model    string
 	taskType string // Task type as string for API flexibility
+
+	// embed is the provider call (client.Models.EmbedContent); a field so a
+	// test can stand in for the API.
+	embed embedContentFunc
+}
+
+// embedContentFunc is the shape of genai's Models.EmbedContent.
+type embedContentFunc func(ctx context.Context, model string, contents []*genai.Content, cfg *genai.EmbedContentConfig) (*genai.EmbedContentResponse, error)
+
+// A transient Gemini failure -- 429, a 5xx, a dropped connection -- is retried,
+// the wait observing the caller's context. The SDK retries uploads only, and
+// both embed paths made one call and wrapped the failure, so one rate-limit
+// response failed the whole embed (or a whole 100-text chunk of a batch).
+const genaiMaxAttempts = 3
+
+// genaiRetryBackoff is the first wait; it doubles per attempt. A var so tests
+// need not sleep.
+var genaiRetryBackoff = 500 * time.Millisecond
+
+// embedContent calls the provider, retrying a transient failure.
+func (e *GenAIEngine) embedContent(ctx context.Context, contents []*genai.Content, cfg *genai.EmbedContentConfig) (*genai.EmbedContentResponse, error) {
+	call := e.embed
+	if call == nil {
+		call = e.client.Models.EmbedContent
+	}
+	backoff := genaiRetryBackoff
+	for attempt := 1; ; attempt++ {
+		resp, err := call(ctx, e.model, contents, cfg)
+		if err == nil {
+			return resp, nil
+		}
+		if attempt >= genaiMaxAttempts || ctx.Err() != nil || !retryableGenAIError(err) {
+			return nil, err
+		}
+		logging.Get(logging.CategoryEmbedding).Warn(
+			"GenAI.EmbedContent: transient failure (attempt %d/%d): %v; retrying in %v", attempt, genaiMaxAttempts, err, backoff)
+		if werr := waitForRetry(ctx, backoff); werr != nil {
+			return nil, fmt.Errorf("GenAI embed retry cancelled: %w (last failure: %v)", werr, err)
+		}
+		backoff *= 2
+	}
+}
+
+// retryableGenAIError reports a failure worth another attempt: rate limiting,
+// a server error, or a transport failure. A 4xx other than 429 is the request,
+// not the server, and fails the same way every time.
+func retryableGenAIError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var apiErr genai.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == http.StatusTooManyRequests || apiErr.Code >= http.StatusInternalServerError
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
 }
 
 // NewGenAIEngine creates a new GenAI embedding engine.
@@ -61,6 +120,11 @@ func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
 		taskType = "SEMANTIC_SIMILARITY"
 		logging.EmbeddingDebug("GenAI taskType defaulted to: %s", taskType)
 	}
+	// At construction, where the config is: every embed would otherwise fail
+	// server-side on it.
+	if err := checkTaskType(taskType); err != nil {
+		return nil, err
+	}
 
 	logging.Embedding("Initializing GenAI client: model=%s, task_type=%s", model, taskType)
 
@@ -82,6 +146,7 @@ func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
 		client:   client,
 		model:    model,
 		taskType: taskType,
+		embed:    client.Models.EmbedContent,
 	}, nil
 }
 
@@ -103,6 +168,12 @@ func (e *GenAIEngine) embedWithTask(ctx context.Context, text string, taskType s
 		taskType = e.taskType
 	}
 	taskType = normalizeTaskType(taskType)
+	if err := checkTaskType(taskType); err != nil {
+		return nil, err
+	}
+	if err := checkEmbeddable(text); err != nil {
+		return nil, err
+	}
 
 	textLen := len(text)
 	logging.EmbeddingDebug("GenAI.Embed: starting embed request, text_length=%d chars, model=%s, task_type=%s", textLen, e.model, taskType)
@@ -121,7 +192,7 @@ func (e *GenAIEngine) embedWithTask(ctx context.Context, text string, taskType s
 	logging.EmbeddingDebug("GenAI.Embed: calling EmbedContent API")
 	apiStart := time.Now()
 
-	result, err := e.client.Models.EmbedContent(ctx, e.model, contents, cfg)
+	result, err := e.embedContent(ctx, contents, cfg)
 	apiLatency := time.Since(apiStart)
 
 	if err != nil {
@@ -169,12 +240,18 @@ func (e *GenAIEngine) embedBatchWithTask(ctx context.Context, texts []string, ta
 		taskType = e.taskType
 	}
 	taskType = normalizeTaskType(taskType)
+	if err := checkTaskType(taskType); err != nil {
+		return nil, err
+	}
 
 	logging.Embedding("GenAI.EmbedBatch: starting native batch embed for %d texts (task_type=%s)", len(texts), taskType)
 
 	if len(texts) == 0 {
 		logging.EmbeddingDebug("GenAI.EmbedBatch: empty input, returning nil")
 		return nil, nil
+	}
+	if err := checkEmbeddableBatch(texts); err != nil {
+		return nil, err
 	}
 
 	// Calculate total text size for logging
@@ -266,11 +343,7 @@ func (e *GenAIEngine) embedBatchChunk(ctx context.Context, texts []string, taskT
 	logging.EmbeddingDebug("GenAI.embedBatchChunk: calling EmbedContent API with %d contents", len(contents))
 	apiStart := time.Now()
 
-	result, err := e.client.Models.EmbedContent(ctx,
-		e.model,
-		contents,
-		cfg,
-	)
+	result, err := e.embedContent(ctx, contents, cfg)
 	apiLatency := time.Since(apiStart)
 
 	if err != nil {
