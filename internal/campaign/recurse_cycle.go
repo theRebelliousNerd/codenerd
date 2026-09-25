@@ -707,6 +707,9 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	targetUnverified := false
 	for _, k := range keys {
 		b, a := r.state[k], after[k]
+		if a.result.Gate.Kind == gates.Test && !a.result.Unverified() {
+			in.Tested = true
+		}
 		in.Gates = append(in.Gates, ratchetGate{
 			Gate: k, Before: b.verdict(), After: a.verdict(),
 			BeforeCount: len(b.findings), AfterCount: len(a.findings),

@@ -33,6 +33,8 @@
 #   recurse_node_measures(Node, Metric)          a metric measurable at Node
 #   recurse_improve(Cycle, Angle)                Cycle is an improvement attempt
 #   recurse_metric(Cycle, Metric, Before, After) a metric around an attempt
+#   recurse_ratchet_tested(Cycle)                a test gate gave a verdict on
+#                                                the attempt's result
 
 Decl recurse_visit(Node) bound [/string].
 Decl recurse_visit_attempted(ID) bound [/string].
@@ -48,6 +50,7 @@ Decl recurse_current_pass(Pass) bound [/number].
 Decl recurse_node_measures(Node, Metric) bound [/string, /name].
 Decl recurse_improve(Cycle, Angle) bound [/number, /name].
 Decl recurse_metric(Cycle, Metric, Before, After) bound [/number, /name, /number, /number].
+Decl recurse_ratchet_tested(Cycle) bound [/number].
 
 Decl recurse_kind_rank(Kind, Rank) bound [/name, /number].
 Decl recurse_ratchet_kind(Kind) bound [/name].
@@ -186,8 +189,12 @@ recurse_cycle_refused(Cycle) :-
 recurse_cycle_succeeds(Cycle) :-
     recurse_ratchet_target(Cycle, ID, /resolved).
 
+# An improvement also needs a test gate to have run on its result: counting
+# test functions says tests were added, not that they pass, and in a
+# workspace with no test gate nothing would ever run them.
 recurse_cycle_succeeds(Cycle) :-
-    recurse_improved(Cycle).
+    recurse_improved(Cycle),
+    recurse_ratchet_tested(Cycle).
 
 recurse_cycle_keeps(Cycle) :-
     recurse_ratchet_changed(Cycle, /yes),

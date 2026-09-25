@@ -228,6 +228,8 @@ type ratchetInput struct {
 	Before, After map[string]int
 	Changed       bool // the attempt changed the tree at all
 	Forbidden     []string
+	// Tested: a test gate gave a verdict on the attempt's result.
+	Tested bool
 }
 
 // ratchet asserts the re-measurement and returns the kernel's verdict. Exactly
@@ -250,6 +252,9 @@ func (p *recursePolicy) ratchet(in ratchetInput) (string, error) {
 	}
 	if in.Improve != "" {
 		facts = append(facts, core.Fact{Predicate: "recurse_improve", Args: []interface{}{in.Cycle, "/" + in.Improve}})
+	}
+	if in.Tested {
+		facts = append(facts, core.Fact{Predicate: "recurse_ratchet_tested", Args: []interface{}{in.Cycle}})
 	}
 	for _, m := range sortedMetricNames(in.Before) {
 		if after, ok := in.After[m]; ok {
@@ -287,6 +292,7 @@ func (p *recursePolicy) ratchet(in ratchetInput) (string, error) {
 var ratchetInputs = map[string]struct{}{
 	"recurse_ratchet_changed": {}, "recurse_ratchet_target": {}, "recurse_ratchet_gate": {},
 	"recurse_ratchet_forbidden": {}, "recurse_improve": {}, "recurse_metric": {},
+	"recurse_ratchet_tested": {},
 }
 
 // endCycle retires a judged cycle's inputs. Its verdict is in the journal and

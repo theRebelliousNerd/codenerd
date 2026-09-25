@@ -200,6 +200,7 @@ func TestRecursePolicy_ImprovementKeptOnlyOnAMeasuredMove(t *testing.T) {
 	}
 	for i, tc := range cases {
 		tc.in.Cycle = 200 + i
+		tc.in.Tested = true
 		got, err := p.ratchet(tc.in)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
@@ -267,5 +268,22 @@ func TestRecursePolicy_AttemptMemoryIsBounded(t *testing.T) {
 	}
 	if len(kept) != 1 || len(kept2) != 1 {
 		t.Fatalf("only a node's latest kept change is kept: %d then %d", len(kept), len(kept2))
+	}
+}
+
+// An improvement no test gate ran on is not kept, whatever its metrics say:
+// counting test functions says tests were added, not that they pass.
+func TestRecursePolicy_AnImprovementNeedsATestVerdict(t *testing.T) {
+	p := newRecursePolicy(t)
+	in := ratchetInput{
+		Cycle: 300, Improve: "stabilize", Changed: true,
+		Before: map[string]int{gates.MetricTests: 10}, After: map[string]int{gates.MetricTests: 12},
+	}
+	if got, err := p.ratchet(in); err != nil || got != ratchetRevert {
+		t.Fatalf("untested improvement = %q, %v; want revert", got, err)
+	}
+	in.Cycle, in.Tested = 301, true
+	if got, err := p.ratchet(in); err != nil || got != ratchetKeep {
+		t.Fatalf("tested improvement = %q, %v; want keep", got, err)
 	}
 }
