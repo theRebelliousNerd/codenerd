@@ -203,19 +203,6 @@ func LoadBattery(path string) (*Battery, error) {
 	return &b, nil
 }
 
-// RunBattery executes all tasks in order using the local shell.
-// workdir is used as the subprocess working directory when non-empty.
-func RunBattery(ctx context.Context, b *Battery, workdir string) ([]Result, error) {
-	summary, err := RunBatteryWithOptions(ctx, b, RunOptions{Workdir: workdir})
-	if err != nil {
-		return nil, err
-	}
-	if summary.Total == 0 {
-		return nil, nil
-	}
-	return summary.Results, nil
-}
-
 // RequiredShell names the interpreter every shell task is executed with on
 // this platform. Exported so a host can state the dependency in a preflight or
 // a doctor command instead of discovering it one failed task at a time.

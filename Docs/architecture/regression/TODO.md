@@ -59,6 +59,24 @@
 
 ---
 
+## Dead-code inventory — 2026-09-25 (lane B wave 3)
+
+- `PolicyFacts` / `taskSlice`: **wired**. The battery policy
+  (`policy/regression_battery.mg`) had no producer for the facts it reads, so
+  `regression_battery_refused` decided nothing for anyone. `nerd regression run`
+  now projects the battery into a local kernel before running it and prints the
+  constitution's verdict on stderr (`batteryPolicyRefusals`,
+  `cmd/nerd/cmd_regression.go`). Informational: the operator asked for the run,
+  and the run proceeds; what changes is that a battery an agent could never be
+  allowed to run is flagged where it is written. The P3 decision stands: no
+  agent-facing action routes a battery.
+  `TestBatteryPolicyRefusals_ShouldNameWhatTheConstitutionRefuses`.
+- `RunBattery`: moved into the package's tests, its only callers; production
+  runs `RunBatteryWithOptions`.
+- `FormatSummary` prints a failed task's output under the table, line-clamped
+  head and tail with `types.ClampLines`
+  (`TestFormatSummary_WhenATaskFails_ShouldShowItsOutputClampedByLine`).
+
 ## Explicit non-goals (near term)
 
 These are recorded as plain bullets, not checkboxes, because a checkbox reads as unfinished work and these are decisions not to act.
