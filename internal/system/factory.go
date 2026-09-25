@@ -899,6 +899,8 @@ func initCoreComponents(bctx *bootContext) error {
 	// max_derived_facts_limit bound nothing and the kernels ran on constants.
 	bootLimits := appCfg.GetCoreLimits()
 	core.ConfigureFactLimits(bootLimits.MaxFactsInKernel, bootLimits.MaxDerivedFactsLimit)
+	// Before any store opens: pragmas are applied at open, sized by the class.
+	configureSQLPragmas(bootLimits.SQLHostClass)
 	bctx.jitCfg = appCfg.GetEffectiveJITConfig()
 
 	// LLM API scheduler policy is fully driven by config.json (api_scheduler +

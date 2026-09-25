@@ -19,12 +19,12 @@ Compare **vision** ([01-VISION.md](01-VISION.md)) and **comments/claims in sourc
 | Feature gate | Config + env | `IsFlightRecorderEnabled` / `NERD_FLIGHTREC` | **Closed** |
 | Panic dump | Persist ring on crash | `main` defer recover + `DumpFlightRecord` | **Partial** — main goroutine only |
 | Dump keeps recorder running | Multiple dumps OK | Lifecycle tests + implementation | **Closed** |
-| On-demand dump | `/diag flightrec` (features comment) | No caller outside panic path | **Open** — high product value |
+| On-demand dump | `/flightrec` chat command | `cmd/nerd/chat/diagnostics.go` calls `DumpFlightRecord` | **Closed 2026-09-25** |
 | Tunable ring size/age | Config/flags | Hardcoded `64<<20`, `30s` in main | **Open** — low urgency |
 | Workspace-aware dump dir | Dump under active `--workspace` | Uses `ws` from `Getwd` at main start | **Open** — edge-case |
-| Graceful-shutdown dump | Optional final snapshot | Not wired | **Open** — optional |
-| Mid-session metrics | Status/runtime sample | Not exported as second API | **Open** — optional |
-| Trace retention | Rotate/clean `.nerd/traces` | None | **Open** — ops hygiene |
+| Graceful-shutdown dump | Optional final snapshot | main stops the recorder on return; no final dump | **Stop closed; dump declined** |
+| Mid-session metrics | Status/runtime sample | `/status` Diagnostics block | **Closed 2026-09-25** |
+| Trace retention | Rotate/clean `.nerd/traces` | newest 10 kept (`pruneFlightTraces`) | **Closed 2026-09-25** |
 | Chat-recovered panic dump | All panics dump | Chat often recovers without re-panic | **Open** — design choice |
 | OTEL export | Sometimes requested generically | Out of scope | **Non-gap** |
 | Mangle facts for metrics | N/A | Correctly absent | **Non-gap** |

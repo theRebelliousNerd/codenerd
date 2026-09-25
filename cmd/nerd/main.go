@@ -406,6 +406,10 @@ func main() {
 		if err := observability.StartFlightRecorder(64<<20, 30*time.Second); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: flight recorder failed to start: %v\n", err)
 		} else {
+			// Stop the recorder and its memory watchdog on a normal return.
+			// Deferred before the panic handler below so it runs after it:
+			// a panic dumps the ring first, then the recorder stops.
+			defer func() { _ = observability.StopFlightRecorder() }()
 			// On panic in the root command, persist the trace ring to
 			// disk before unwinding so post-mortem analysis is possible.
 			defer func() {

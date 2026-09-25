@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime/metrics"
 	"runtime/trace"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -285,5 +286,29 @@ func DumpFlightRecord(nerdDir string) (string, error) {
 	logging.Get(logging.CategoryBoot).Info(
 		"flight recorder dumped: path=%s bytes=%d", path, buf.Len(),
 	)
+	pruneFlightTraces(tracesDir, maxFlightTraces)
 	return path, nil
+}
+
+// maxFlightTraces bounds how many dumps .nerd/traces keeps. Each dump is up to
+// the ring size (64 MiB in production), and until /flightrec existed the only
+// writer was a panic; an on-demand command makes an unbounded directory a
+// matter of time.
+const maxFlightTraces = 10
+
+// pruneFlightTraces deletes the oldest flight_*.trace files in dir beyond keep.
+// Names sort chronologically (UTC timestamp, then per-process sequence), so the
+// lexical order is the age order. Best-effort: a file that cannot be removed is
+// logged and left.
+func pruneFlightTraces(dir string, keep int) {
+	matches, err := filepath.Glob(filepath.Join(dir, "flight_*.trace"))
+	if err != nil || len(matches) <= keep {
+		return
+	}
+	sort.Strings(matches)
+	for _, old := range matches[:len(matches)-keep] {
+		if err := os.Remove(old); err != nil {
+			logging.Get(logging.CategoryBoot).Warn("flight recorder: could not prune %s: %v", old, err)
+		}
+	}
 }
