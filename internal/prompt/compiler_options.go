@@ -66,24 +66,3 @@ func WithConfig(config CompilerConfig) CompilerOption {
 		return nil
 	}
 }
-
-// WithDefaultTokenBudget sets the default token budget for prompt compilation.
-// Use this to pass config.ContextWindow.MaxTokens from the application config.
-func WithDefaultTokenBudget(budget int) CompilerOption {
-	return func(c *JITPromptCompiler) error {
-		if budget > 0 {
-			c.config.DefaultTokenBudget = budget
-		}
-		return nil
-	}
-}
-
-// WithConfigFactory sets the config factory for generating AgentConfigs.
-func WithConfigFactory(factory *ConfigFactory) CompilerOption {
-	return func(c *JITPromptCompiler) error {
-		c.configFactory = factory
-		return nil
-	}
-}
-
-// Compile generates a system prompt for the given context.

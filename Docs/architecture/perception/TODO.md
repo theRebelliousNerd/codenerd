@@ -48,7 +48,7 @@ a stronger typed non-nil constructor contract.
 <!-- NERD_FEATURE
 id: perception-provider-failure-contract-v1
 owner: perception
-status: proposed
+status: in_progress
 kind: truth-gap
 depends_on: []
 affects: [perception, session, observability]
@@ -84,6 +84,23 @@ keys/tokens/provider bodies in surfaced messages.
 **Rollback.** Retain provider-specific errors behind an adapter while consumers
 migrate; remove the compatibility layer only after all session paths use typed
 classification.
+
+**Progress (2026-09-25).** Built for every HTTP adapter:
+`internal/perception/provider_failure.go` defines `ProviderFailureClass`
+(transient, rate_limited, auth, invalid_request, canceled, permanent) with
+`Retryable`, `ClassifyProviderFailure`, `IsTransientProviderFailure` and
+`SafeProviderFailureMessage` (class and status, never the provider body). The
+degraded classification turn (`understanding_adapter.go#degradedClassificationIntent`)
+reads the class, so a non-Gemini outage is now reported as an outage and an
+auth failure no longer shows the provider body. The adapters' own retry loops
+now honour `llm_timeouts` (they hardcoded 3 x 1s/2s/4s).
+`provider_failure_conformance_test.go#TestProviderFailureConformance` drives
+anthropic, openai, openrouter, xai, gemini, ollama, zai and openai-compat
+through 401/403/400/503/429 and cancellation: same class, retries for exactly
+the retryable classes, no body in the surfaced message.
+Remaining for `verified`: the subscription CLI engines (claude-cli,
+codex-cli) and streaming paths are not in the conformance suite, and session
+surfaces outside perception still print raw adapter errors.
 
 ## P1: Publish a typed capability and ownership receipt
 
@@ -126,6 +143,12 @@ one workspace cannot close another's stores.
 **Rollback.** Keep optional interface assertions as a compatibility adapter until
 receipt parity is proven, then remove the duplicate discovery path.
 
+**Open (2026-09-25).** Not built. The factory now has a single table-driven
+dispatch for OpenAI-compatible vendors (`IsOpenAICompatProvider`) and a shared
+failure contract, which a receipt would report, but the receipt itself -- its
+storage, versioning and the workspace-ownership split of `SharedTaxonomy` /
+`SharedSemanticClassifier` -- is unbuilt.
+
 ## P2: Persist a perception decision receipt
 
 <!-- NERD_FEATURE
@@ -167,6 +190,11 @@ distinct turns.
 **Rollback.** Disable durable storage while retaining ephemeral correlation and
 existing tracing; receipt absence remains observable.
 
+**Open (2026-09-25).** Not built; depends on the capability receipt above. One
+input now exists as a kernel fact: `understanding_vocab_miss(Field, Value)`
+records which understanding fields fell outside the routing vocabulary
+(surfaced on `Routing.VocabularyMisses`).
+
 ## P3: Side-effect-free shadow transduction lab
 
 <!-- NERD_FEATURE
@@ -203,3 +231,7 @@ failures do not alter production routing; redaction runs before persistence.
 
 **Rollback.** Delete lab artifacts and disable shadow dispatch; production
 transduction remains unchanged.
+
+
+**Deferred (2026-09-25).** DECLINE for this pass: moonshot, depends on the
+decision receipt.

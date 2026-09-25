@@ -2432,7 +2432,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		SessionExecutor:       bctx.sessionExecutor,
 		SessionSpawner:        bctx.sessionSpawner,
 		VirtualStore:          bctx.virtualStore,
-		Executor:              bctx.executor,
+		Executor:              bctx.virtualStore.AuditedExecutor(),
 		Transducer:            bctx.transducer,
 		Orchestrator:          bctx.poiesis,
 		BrowserManager:        bctx.browserMgr,

@@ -290,7 +290,7 @@ func (i *Initializer) createJITCompiler() (*prompt.JITPromptCompiler, error) {
 
 	// Restore the JIT kernel in the init path: wire the initializer's live
 	// Mangle kernel through the adapter so rule-based skeleton selection
-	// (selector.go loadSkeletonAtoms) has a kernel to query. Without this,
+	// (selector.go runSelection/querySkeletonAtoms) has a kernel to query. Without this,
 	// every init compile runs without Mangle rules and silently degrades.
 	opts := []prompt.CompilerOption{
 		prompt.WithEmbeddedCorpus(corpus),

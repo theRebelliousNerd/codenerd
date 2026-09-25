@@ -437,11 +437,43 @@ func TestAtomSelector_FallbackFleshSelection(t *testing.T) {
 }
 
 // =========================================================================
-// LoadSkeletonAtoms Tests
+// Skeleton / flesh tiers through the live selection path
 // =========================================================================
+//
+// These used to call loadSkeletonAtoms / loadFleshAtoms, a sequential
+// build+assert+query path that runSelection replaced (both fact sets now land
+// before either query runs). The behaviours they pinned are asserted here
+// through SelectAtoms, the entry point the compiler actually uses.
 
-func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
-	t.Run("filters to skeleton categories", func(t *testing.T) {
+// failNthAssertKernel wraps mockKernel and fails exactly one AssertBatch call
+// (1-based), so a test can make the flesh assert fail while the skeleton
+// assert, which always runs first, succeeds.
+type failNthAssertKernel struct {
+	*mockKernel
+	failOn int
+	calls  int
+}
+
+func (k *failNthAssertKernel) AssertBatch(facts []any) error {
+	k.calls++
+	if k.calls == k.failOn {
+		return errors.New("kernel rejected flesh facts")
+	}
+	return k.mockKernel.AssertBatch(facts)
+}
+
+func scoredBySource(atoms []*ScoredAtom, source string) []*ScoredAtom {
+	var out []*ScoredAtom
+	for _, sa := range atoms {
+		if sa.Source == source {
+			out = append(out, sa)
+		}
+	}
+	return out
+}
+
+func TestAtomSelector_SkeletonTier(t *testing.T) {
+	t.Run("only skeleton categories are selected by the skeleton tier", func(t *testing.T) {
 		selector := NewAtomSelector()
 
 		atoms := []*PromptAtom{
@@ -456,12 +488,13 @@ func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
 		}
 		selector.SetKernel(kernel)
 
-		result, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext(), nil)
+		result, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
 		require.NoError(t, err)
 
-		// Should only include skeleton atoms
-		for _, sa := range result {
-			assert.True(t, isSkeletonCategory(sa.Atom.Category))
+		skeleton := scoredBySource(result, "skeleton")
+		require.NotEmpty(t, skeleton)
+		for _, sa := range skeleton {
+			assert.True(t, isSkeletonCategory(sa.Atom.Category), "skeleton tier selected %s (%s)", sa.Atom.ID, sa.Atom.Category)
 		}
 	})
 
@@ -473,22 +506,21 @@ func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
 			{ID: "identity-1", Category: CategoryIdentity, Content: "content"},
 		}
 
-		_, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext(), nil)
+		_, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "CRITICAL")
 	})
 
 	t.Run("returns error when no skeleton atoms in corpus", func(t *testing.T) {
 		selector := NewAtomSelector()
-		kernel := &mockKernel{}
-		selector.SetKernel(kernel)
+		selector.SetKernel(&mockKernel{})
 
 		// Only flesh atoms
 		atoms := []*PromptAtom{
 			{ID: "domain-1", Category: CategoryDomain, Content: "content"},
 		}
 
-		_, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext(), nil)
+		_, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no skeleton atoms")
 	})
@@ -500,129 +532,127 @@ func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
 			{ID: "identity-1", Category: CategoryIdentity, Content: "content"},
 		}
 
-		kernel := &mockKernel{
+		selector.SetKernel(&mockKernel{
 			facts: []any{
 				Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "mandatory"}},
 			},
-		}
-		selector.SetKernel(kernel)
+		})
 
-		result, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext(), nil)
+		result, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
 		require.NoError(t, err)
 		require.Len(t, result, 1)
 		assert.Equal(t, "skeleton", result[0].Source)
 	})
 }
 
-// =========================================================================
-// LoadFleshAtoms Tests
-// =========================================================================
+func TestAtomSelector_FleshTier(t *testing.T) {
+	skeletonAnchor := func() *PromptAtom {
+		return &PromptAtom{ID: "identity-anchor", Category: CategoryIdentity, IsMandatory: true, Content: "anchor"}
+	}
 
-func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
-	t.Run("filters to flesh categories", func(t *testing.T) {
+	t.Run("only flesh-eligible atoms are selected by the flesh tier", func(t *testing.T) {
 		selector := NewAtomSelector()
 
 		atoms := []*PromptAtom{
-			{ID: "identity-1", Category: CategoryIdentity, Content: "content"},
+			skeletonAnchor(),
 			{ID: "domain-1", Category: CategoryDomain, Content: "content"},
 		}
 
-		kernel := &mockKernel{
+		selector.SetKernel(&mockKernel{
 			facts: []any{
 				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "context_match"}},
 			},
-		}
-		selector.SetKernel(kernel)
+		})
 
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext(), nil)
+		result, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
 		require.NoError(t, err)
 
-		// Should only include flesh atoms
-		for _, sa := range result {
-			assert.False(t, isSkeletonCategory(sa.Atom.Category))
+		flesh := scoredBySource(result, "flesh")
+		require.Len(t, flesh, 1)
+		assert.Equal(t, "domain-1", flesh[0].Atom.ID)
+		for _, sa := range flesh {
+			assert.False(t, isSkeletonCategory(sa.Atom.Category) && sa.Atom.IsMandatory,
+				"a mandatory skeleton atom competed in the flesh tier: %s", sa.Atom.ID)
 		}
 	})
 
-	t.Run("returns nil for empty flesh corpus", func(t *testing.T) {
+	t.Run("no flesh when the corpus has no flesh-eligible atoms", func(t *testing.T) {
 		selector := NewAtomSelector()
-		kernel := &mockKernel{}
-		selector.SetKernel(kernel)
+		selector.SetKernel(&mockKernel{})
 
-		// Only skeleton atoms
-		atoms := []*PromptAtom{
-			{ID: "identity-1", Category: CategoryIdentity, Content: "content"},
-		}
+		// Only a mandatory skeleton atom: never a flesh candidate.
+		atoms := []*PromptAtom{skeletonAnchor()}
 
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext(), nil)
+		result, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
 		require.NoError(t, err)
-		assert.Nil(t, result)
+		assert.Empty(t, scoredBySource(result, "flesh"))
 	})
 
-	t.Run("falls back on kernel error", func(t *testing.T) {
+	t.Run("falls back to context matching when the kernel rejects flesh facts", func(t *testing.T) {
 		selector := NewAtomSelector()
 
 		atoms := []*PromptAtom{
+			skeletonAnchor(),
 			{ID: "domain-1", Category: CategoryDomain, Content: "content"},
 		}
 
-		kernel := &mockKernel{
-			queryErr: errors.New("kernel error"),
-		}
-		selector.SetKernel(kernel)
+		// Call 1 is the skeleton assert, call 2 the flesh assert.
+		selector.SetKernel(&failNthAssertKernel{mockKernel: &mockKernel{}, failOn: 2})
 
-		// Should not return error - falls back to context matching
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext(), nil)
+		// Must not return an error: flesh failure degrades to fallback.
+		result, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
 		require.NoError(t, err)
-		// Falls back to context matching
-		assert.NotNil(t, result)
+
+		flesh := scoredBySource(result, "flesh")
+		require.Len(t, flesh, 1, "fallback context matching should still admit the unselectored flesh atom")
+		assert.Equal(t, "domain-1", flesh[0].Atom.ID)
 	})
 
 	t.Run("integrates vector scores", func(t *testing.T) {
 		selector := NewAtomSelector()
 
 		atoms := []*PromptAtom{
+			skeletonAnchor(),
 			{ID: "domain-1", Category: CategoryDomain, Content: "content"},
 		}
 
-		kernel := &mockKernel{
+		selector.SetKernel(&mockKernel{
 			facts: []any{
 				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "vector_match"}},
 			},
-		}
-		selector.SetKernel(kernel)
-
-		vectorSearcher := &mockVectorSearcher{
+		})
+		selector.SetVectorSearcher(&mockVectorSearcher{
 			results: map[string]float64{"domain-1": 0.8},
-		}
-		selector.SetVectorSearcher(vectorSearcher)
+		})
 
 		cc := NewCompilationContext().WithSemanticQuery("test query", 10)
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, cc, nil)
+		result, err := selector.SelectAtoms(context.Background(), atoms, cc)
 		require.NoError(t, err)
-		require.Len(t, result, 1)
 
-		// Should have vector score integrated
-		assert.Equal(t, 0.8, result[0].VectorScore)
+		flesh := scoredBySource(result, "flesh")
+		require.Len(t, flesh, 1)
+		assert.Equal(t, 0.8, flesh[0].VectorScore)
 	})
 
 	t.Run("sets source to flesh", func(t *testing.T) {
 		selector := NewAtomSelector()
 
 		atoms := []*PromptAtom{
+			skeletonAnchor(),
 			{ID: "domain-1", Category: CategoryDomain, Content: "content"},
 		}
 
-		kernel := &mockKernel{
+		selector.SetKernel(&mockKernel{
 			facts: []any{
 				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "context_match"}},
 			},
-		}
-		selector.SetKernel(kernel)
+		})
 
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext(), nil)
+		result, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
 		require.NoError(t, err)
-		require.Len(t, result, 1)
-		assert.Equal(t, "flesh", result[0].Source)
+		flesh := scoredBySource(result, "flesh")
+		require.Len(t, flesh, 1)
+		assert.Equal(t, "domain-1", flesh[0].Atom.ID)
 	})
 }
 

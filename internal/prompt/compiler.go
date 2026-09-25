@@ -13,7 +13,6 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/transparency"
@@ -285,9 +284,6 @@ type CompilationResult struct {
 	// Compilation manifest (Flight Recorder)
 	Manifest *PromptManifest
 
-	// JIT-generated Agent Config
-	EffectiveAgentRuntimeConfig *config.EffectiveAgentRuntimeConfig
-
 	// Comprehensive compilation statistics
 	Stats *CompilationStats
 }
@@ -404,9 +400,6 @@ type JITPromptCompiler struct {
 	// Configuration
 	config CompilerConfig
 
-	// ConfigFactory for generating AgentConfigs
-	configFactory *ConfigFactory
-
 	// LocalDB for semantic knowledge atom queries (Semantic Knowledge Bridge)
 	localDB *store.LocalStore
 
@@ -486,7 +479,8 @@ type CompilerConfig struct {
 }
 
 // DefaultCompilerConfig returns a sensible default configuration.
-// Note: DefaultTokenBudget should be overridden via WithDefaultTokenBudget() from config.ContextWindow.MaxTokens.
+// DefaultTokenBudget is a fallback: production boot (internal/system) overrides
+// it from the configured JIT token budget through WithConfig.
 func DefaultCompilerConfig() CompilerConfig {
 	return CompilerConfig{
 		DefaultTokenBudget: 200000, // 200k tokens default - callers should override from config
@@ -851,27 +845,6 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		result := c.buildResultWithStats(candidates, scored, fitted, prompt, budget, stats)
 		if result.Manifest != nil {
 			result.Manifest.ContextHash = cacheKey
-		}
-
-		// Step 6: Generate Agent Config if factory is present
-		if c.configFactory != nil {
-			intents := []string{}
-			if cc.IntentVerb != "" {
-				intents = append(intents, cc.IntentVerb)
-			}
-			if cc.ShardType != "" {
-				intents = append(intents, cc.ShardType)
-			}
-
-			if len(intents) > 0 {
-				agentCfg, err := c.configFactory.Generate(ctx, result, intents...)
-				if err != nil {
-					logging.Get(logging.CategoryJIT).Warn("Failed to generate agent config: %v", err)
-				} else {
-					result.EffectiveAgentRuntimeConfig = agentCfg
-					logging.Get(logging.CategoryJIT).Debug("Generated JIT Agent Config for intents: %v", intents)
-				}
-			}
 		}
 
 		// Update observability state

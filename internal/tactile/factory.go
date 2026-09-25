@@ -3,6 +3,7 @@ package tactile
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"codenerd/internal/logging"
@@ -23,12 +24,12 @@ type CompositeExecutor struct {
 
 	// auditCallback is called for execution events
 	auditCallback func(AuditEvent)
-}
 
-// NewCompositeExecutor creates a new composite executor with default configuration.
-func NewCompositeExecutor() *CompositeExecutor {
-	logging.TactileDebug("Creating new CompositeExecutor with default config")
-	return NewCompositeExecutorWithConfig(DefaultExecutorConfig())
+	// limitsExecutor, when the platform provides one, enforces resource
+	// limits DirectExecutor cannot (memory, process count, CPU time). A
+	// command that asks for such a limit is routed to it; one that does not
+	// keeps the plain direct path.
+	limitsExecutor Executor
 }
 
 // NewCompositeExecutorWithConfig creates a new composite executor with custom configuration.
@@ -53,6 +54,12 @@ func NewCompositeExecutorWithConfig(config ExecutorConfig) *CompositeExecutor {
 	} else {
 		logging.TactileDebug("Docker not available, skipping DockerExecutor registration")
 	}
+
+	// Register the isolation backends this host can actually provide
+	// (platform_*.go). An explicit request for one then runs isolated
+	// instead of failing closed for want of a registered backend; a mode
+	// the host cannot provide stays unregistered and still fails closed.
+	registerPlatformIsolation(ce, config)
 
 	logging.Tactile("CompositeExecutor initialized with %d executors", len(ce.executors))
 	return ce
@@ -81,6 +88,9 @@ func (ce *CompositeExecutor) SetAuditCallback(callback func(AuditEvent)) {
 			audited.SetAuditCallback(callback)
 		}
 	}
+	if audited, ok := ce.limitsExecutor.(interface{ SetAuditCallback(func(AuditEvent)) }); ok {
+		audited.SetAuditCallback(callback)
+	}
 }
 
 // Capabilities returns the combined capabilities of all registered executors.
@@ -100,9 +110,19 @@ func (ce *CompositeExecutor) Capabilities() ExecutorCapabilities {
 	for mode := range ce.executors {
 		caps.SupportedSandboxModes = append(caps.SupportedSandboxModes, mode)
 	}
+	sort.Slice(caps.SupportedSandboxModes, func(i, j int) bool {
+		return caps.SupportedSandboxModes[i] < caps.SupportedSandboxModes[j]
+	})
 
 	// Check if any executor supports resource limits/usage
+	backends := make([]Executor, 0, len(ce.executors)+1)
 	for _, exec := range ce.executors {
+		backends = append(backends, exec)
+	}
+	if ce.limitsExecutor != nil {
+		backends = append(backends, ce.limitsExecutor)
+	}
+	for _, exec := range backends {
 		execCaps := exec.Capabilities()
 		if execCaps.SupportsResourceLimits {
 			caps.SupportsResourceLimits = true
@@ -157,6 +177,10 @@ func (ce *CompositeExecutor) selectExecutor(cmd Command) Executor {
 		mode = cmd.Sandbox.Mode
 	}
 
+	if mode == SandboxNone && ce.limitsExecutor != nil && requestsEnforcedLimits(cmd) {
+		return ce.limitsExecutor
+	}
+
 	if executor, exists := ce.executors[mode]; exists {
 		return executor
 	}
@@ -170,282 +194,11 @@ func (ce *CompositeExecutor) selectExecutor(cmd Command) Executor {
 	return nil
 }
 
-// ExecutorFactory creates executors based on configuration and environment.
-type ExecutorFactory struct {
-	config ExecutorConfig
-}
-
-// NewExecutorFactory creates a new executor factory.
-func NewExecutorFactory(config ExecutorConfig) *ExecutorFactory {
-	return &ExecutorFactory{config: config}
-}
-
-// NewDefaultFactory creates a factory with default configuration.
-func NewDefaultFactory() *ExecutorFactory {
-	return NewExecutorFactory(DefaultExecutorConfig())
-}
-
-// CreateDirect creates a direct executor (no sandboxing).
-func (f *ExecutorFactory) CreateDirect() *DirectExecutor {
-	return NewDirectExecutorWithConfig(f.config)
-}
-
-// CreateDocker creates a Docker executor if available.
-func (f *ExecutorFactory) CreateDocker() (*DockerExecutor, error) {
-	logging.TactileDebug("Factory: creating DockerExecutor")
-	docker := NewDockerExecutorWithConfig(f.config)
-	if !docker.IsAvailable() {
-		logging.TactileWarn("Factory: Docker is not available on this system")
-		return nil, fmt.Errorf("Docker is not available on this system")
-	}
-	return docker, nil
-}
-
-// CreateComposite creates a composite executor with all available backends.
-func (f *ExecutorFactory) CreateComposite() *CompositeExecutor {
-	return NewCompositeExecutorWithConfig(f.config)
-}
-
-// CreateBest creates the best available executor for the current platform.
-func (f *ExecutorFactory) CreateBest() Executor {
-	logging.TactileDebug("Factory: creating best available executor for platform")
-	return GetPlatformExecutor(f.config)
-}
-
-// CreateAudited wraps an executor with audit logging.
-func (f *ExecutorFactory) CreateAudited(executor Executor) *AuditedExecutorWrapper {
-	logger := NewAuditLogger()
-	return NewAuditedExecutor(executor, logger)
-}
-
-// CreateFromConfig creates an executor based on explicit configuration.
-func (f *ExecutorFactory) CreateFromConfig(sandboxMode SandboxMode) (Executor, error) {
-	switch sandboxMode {
-	case SandboxNone:
-		return f.CreateDirect(), nil
-
-	case SandboxDocker:
-		return f.CreateDocker()
-
-	case SandboxFirejail:
-		// Firejail is Linux-only, handled by platform file
-		return nil, fmt.Errorf("Firejail executor must be created on Linux")
-
-	case SandboxNamespace:
-		// Namespace is Linux-only, handled by platform file
-		return nil, fmt.Errorf("Namespace executor must be created on Linux")
-
-	default:
-		return nil, fmt.Errorf("unknown sandbox mode: %s", sandboxMode)
-	}
-}
-
-// PooledExecutor manages a pool of executors for concurrent command execution.
-type PooledExecutor struct {
-	mu sync.RWMutex
-
-	factory *ExecutorFactory
-	pool    chan Executor
-	maxSize int
-	config  ExecutorConfig
-
-	// stats
-	created  int
-	borrowed int
-	returned int
-}
-
-// NewPooledExecutor creates a new pooled executor.
-func NewPooledExecutor(config ExecutorConfig, poolSize int) *PooledExecutor {
-	return &PooledExecutor{
-		factory: NewExecutorFactory(config),
-		pool:    make(chan Executor, poolSize),
-		maxSize: poolSize,
-		config:  config,
-	}
-}
-
-// Borrow gets an executor from the pool or creates a new one.
-func (p *PooledExecutor) Borrow() Executor {
-	p.mu.Lock()
-	p.borrowed++
-	p.mu.Unlock()
-
-	select {
-	case executor := <-p.pool:
-		logging.TactileDebug("PooledExecutor: borrowed executor from pool")
-		return executor
-	default:
-		p.mu.Lock()
-		p.created++
-		p.mu.Unlock()
-		logging.TactileDebug("PooledExecutor: pool empty, creating new executor")
-		return p.factory.CreateDirect()
-	}
-}
-
-// Return puts an executor back in the pool.
-func (p *PooledExecutor) Return(executor Executor) {
-	p.mu.Lock()
-	p.returned++
-	p.mu.Unlock()
-
-	select {
-	case p.pool <- executor:
-		logging.TactileDebug("PooledExecutor: returned executor to pool")
-	default:
-		logging.TactileDebug("PooledExecutor: pool full, discarding executor")
-	}
-}
-
-// Execute borrows an executor, runs the command, and returns the executor.
-func (p *PooledExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
-	executor := p.Borrow()
-	defer p.Return(executor)
-	return executor.Execute(ctx, cmd)
-}
-
-// Capabilities returns capabilities of the pooled executor.
-func (p *PooledExecutor) Capabilities() ExecutorCapabilities {
-	return p.factory.CreateDirect().Capabilities()
-}
-
-// Validate validates a command.
-func (p *PooledExecutor) Validate(cmd Command) error {
-	return p.factory.CreateDirect().Validate(cmd)
-}
-
-// Stats returns pool statistics.
-func (p *PooledExecutor) Stats() map[string]int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	return map[string]int{
-		"created":   p.created,
-		"borrowed":  p.borrowed,
-		"returned":  p.returned,
-		"pool_size": len(p.pool),
-		"max_size":  p.maxSize,
-	}
-}
-
-// RetryExecutor wraps an executor with automatic retry logic.
-type RetryExecutor struct {
-	executor   Executor
-	maxRetries int
-	retryDelay func(attempt int) int // Returns delay in milliseconds
-}
-
-// NewRetryExecutor creates a new retry executor.
-func NewRetryExecutor(executor Executor, maxRetries int) *RetryExecutor {
-	return &RetryExecutor{
-		executor:   executor,
-		maxRetries: maxRetries,
-		retryDelay: func(attempt int) int {
-			// Exponential backoff: 100ms, 200ms, 400ms, ...
-			return 100 * (1 << attempt)
-		},
-	}
-}
-
-// SetRetryDelay sets a custom retry delay function.
-func (r *RetryExecutor) SetRetryDelay(delayFunc func(attempt int) int) {
-	r.retryDelay = delayFunc
-}
-
-// Execute runs a command with automatic retries on transient failures.
-func (r *RetryExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
-	var lastResult *ExecutionResult
-	var lastErr error
-
-	for attempt := 0; attempt <= r.maxRetries; attempt++ {
-		if attempt > 0 {
-			logging.TactileDebug("RetryExecutor: attempt %d of %d for command: %s", attempt+1, r.maxRetries+1, cmd.Binary)
-		}
-
-		result, err := r.executor.Execute(ctx, cmd)
-		if err == nil && result.Success {
-			if attempt > 0 {
-				logging.TactileDebug("RetryExecutor: succeeded on attempt %d", attempt+1)
-			}
-			return result, nil
-		}
-
-		lastResult = result
-		lastErr = err
-
-		// Check if we should retry
-		if !r.shouldRetry(result, err) {
-			logging.TactileDebug("RetryExecutor: not retrying (condition not met)")
-			break
-		}
-
-		// Check if context is still valid
-		if ctx.Err() != nil {
-			logging.TactileDebug("RetryExecutor: context canceled, stopping retries")
-			break
-		}
-
-		// Wait before retrying (if not the last attempt)
-		if attempt < r.maxRetries {
-			delay := r.retryDelay(attempt)
-			logging.TactileDebug("RetryExecutor: waiting %dms before retry", delay)
-			select {
-			case <-ctx.Done():
-				break
-			case <-context.Background().Done():
-				// This shouldn't happen, but handle it
-				break
-			default:
-				// Simple sleep - in production, use time.After with context
-				for range delay {
-					if ctx.Err() != nil {
-						break
-					}
-				}
-			}
-		}
-	}
-
-	if lastResult != nil {
-		logging.TactileWarn("RetryExecutor: all retries exhausted for command: %s", cmd.Binary)
-		return lastResult, lastErr
-	}
-
-	logging.TactileError("RetryExecutor: max retries exceeded for command: %s", cmd.Binary)
-	return &ExecutionResult{
-		Success: false,
-		Error:   "max retries exceeded",
-	}, lastErr
-}
-
-// shouldRetry determines if a failed execution should be retried.
-func (r *RetryExecutor) shouldRetry(result *ExecutionResult, err error) bool {
-	// Don't retry if infrastructure error (executor itself failed)
-	if err != nil {
+// requestsEnforcedLimits reports whether cmd asks for a limit the plain direct
+// executor does not enforce (it bounds time and output only).
+func requestsEnforcedLimits(cmd Command) bool {
+	if cmd.Limits == nil {
 		return false
 	}
-
-	// Don't retry if command was killed (timeout, canceled)
-	if result != nil && result.Killed {
-		return false
-	}
-
-	// Retry on non-zero exit codes that might be transient
-	// (this is conservative - most non-zero exits shouldn't be retried)
-	if result != nil && !result.Success && result.ExitCode == -1 {
-		return true // Infrastructure failure
-	}
-
-	return false
-}
-
-// Capabilities returns the wrapped executor's capabilities.
-func (r *RetryExecutor) Capabilities() ExecutorCapabilities {
-	return r.executor.Capabilities()
-}
-
-// Validate validates a command.
-func (r *RetryExecutor) Validate(cmd Command) error {
-	return r.executor.Validate(cmd)
+	return cmd.Limits.MaxMemoryBytes > 0 || cmd.Limits.MaxProcesses > 0 || cmd.Limits.MaxCPUTimeMs > 0
 }

@@ -1,7 +1,6 @@
 package perception
 
 import (
-	"codenerd/internal/mangle"
 	"context"
 	"testing"
 )
@@ -32,46 +31,6 @@ func (m *mockRoutingKernel2) AssertRoutingFact(predicate string, args ...any) er
 
 func (m *mockRoutingKernel2) RetractRoutingPredicate(predicate string) error {
 	return nil
-}
-
-func TestLLMTransducer_validate(t *testing.T) {
-	ctx := context.Background()
-	rk := &mockRoutingKernel2{
-		valid: map[string]bool{
-			"semantic_type:valid_sem": true,
-			"action_type:valid_act":   true,
-			"domain:valid_dom":        true,
-			"scope_level:valid_scope": true,
-			"mode:valid_mode":         true,
-		},
-	}
-	tr := NewLLMTransducer(nil, rk, "prompt")
-
-	uValid := &Understanding{
-		SemanticType:      "valid_sem",
-		ActionType:        "valid_act",
-		Domain:            "valid_dom",
-		Scope:             Scope{Level: "valid_scope"},
-		SuggestedApproach: SuggestedApproach{Mode: "valid_mode"},
-	}
-
-	err := tr.validate(ctx, uValid)
-	if err != nil {
-		t.Errorf("expected valid understanding, got error: %v", err)
-	}
-
-	uInvalid := &Understanding{
-		SemanticType:      "invalid_sem",
-		ActionType:        "invalid_act",
-		Domain:            "invalid_dom",
-		Scope:             Scope{Level: "invalid_scope"},
-		SuggestedApproach: SuggestedApproach{Mode: "invalid_mode"},
-	}
-
-	err = tr.validate(ctx, uInvalid)
-	if err == nil {
-		t.Errorf("expected invalid understanding to fail")
-	}
 }
 
 func TestLLMTransducer_assertRoutingFacts(t *testing.T) {
@@ -166,8 +125,8 @@ func TestNewRealKernelRouter(t *testing.T) {
 		t.Errorf("expected nil/nil on nil kernel QueryRouting")
 	}
 
-	if r.ValidateField(context.Background(), "field", "value") != true {
-		t.Errorf("expected true on nil kernel ValidateField")
+	if misses, err := r.VocabularyMisses(); err != nil || misses != nil {
+		t.Errorf("expected nil/nil on nil kernel VocabularyMisses, got %v, %v", misses, err)
 	}
 
 	if err := r.AssertRoutingFact("pred", "arg"); err != nil {
@@ -176,130 +135,5 @@ func TestNewRealKernelRouter(t *testing.T) {
 
 	if err := r.RetractRoutingPredicate("pred"); err != nil {
 		t.Errorf("expected nil on nil kernel RetractRoutingPredicate")
-	}
-}
-
-func TestNewMangleRoutingKernel(t *testing.T) {
-	m := NewMangleRoutingKernel(nil)
-	if m.engine != nil {
-		t.Errorf("expected nil engine")
-	}
-
-	// Create an empty mangle engine to test QueryRouting and ValidateField
-	// Note: We don't have direct access to mangle.NewEngine here without importing it.
-	// We'll test the string formatting by passing nil and catching the panic, or just ignore for now since
-	// testing these without a real engine is mostly testing the string formatter.
-	// Let's at least test the unknown predicate branch which doesn't panic.
-	_, err := m.QueryRouting(context.Background(), "unknown_predicate", "test")
-	if err == nil || err.Error() != "unknown predicate: unknown_predicate" {
-		t.Errorf("expected unknown predicate error, got %v", err)
-	}
-
-	// Test ValidateField unknown field
-	if m.ValidateField(context.Background(), "unknown_field", "test") != true {
-		t.Errorf("expected true for unknown field")
-	}
-
-	// Test QueryRouting with panic recovery for known fields
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("expected panic due to nil engine")
-			}
-		}()
-		m.QueryRouting(context.Background(), "mode_from_", "test")
-	}()
-	func() {
-		defer func() { recover() }()
-		m.QueryRouting(context.Background(), "context_affinity_", "test")
-	}()
-	func() {
-		defer func() { recover() }()
-		m.QueryRouting(context.Background(), "shard_affinity_", "test")
-	}()
-	func() {
-		defer func() { recover() }()
-		m.QueryRouting(context.Background(), "tool_affinity_", "test")
-	}()
-	func() {
-		defer func() { recover() }()
-		m.QueryRouting(context.Background(), "constraint_blocks_tool", "test")
-	}()
-
-	// Test ValidateField with panic recovery for known field
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("expected panic due to nil engine")
-			}
-		}()
-		m.ValidateField(context.Background(), "semantic_type", "test")
-	}()
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("expected panic due to nil engine")
-			}
-		}()
-		m.ValidateField(context.Background(), "action_type", "test")
-	}()
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("expected panic due to nil engine")
-			}
-		}()
-		m.ValidateField(context.Background(), "domain", "test")
-	}()
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("expected panic due to nil engine")
-			}
-		}()
-		m.ValidateField(context.Background(), "scope_level", "test")
-	}()
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("expected panic due to nil engine")
-			}
-		}()
-		m.ValidateField(context.Background(), "mode", "test")
-	}()
-}
-
-func TestMangleRoutingKernel_ValidateField(t *testing.T) {
-	cfg := mangle.DefaultConfig()
-	eng, err := mangle.NewEngine(cfg, nil)
-	if err != nil {
-		t.Fatalf("failed to create engine: %v", err)
-	}
-	m := NewMangleRoutingKernel(eng)
-
-	tests := []struct {
-		field string
-		value string
-	}{
-		{"semantic_type", "test"},
-		{"action_type", "test"},
-		{"domain", "test"},
-		{"scope_level", "test"},
-		{"mode", "test"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.field, func(t *testing.T) {
-			// Engine is empty, so Query will return 0 bindings, returning false.
-			valid := m.ValidateField(context.Background(), tt.field, tt.value)
-			if valid {
-				t.Errorf("expected false for empty engine %s, got true", tt.field)
-			}
-		})
-	}
-
-	// Test unknown field
-	if m.ValidateField(context.Background(), "unknown_field", "test") != true {
-		t.Errorf("expected true for unknown field")
 	}
 }

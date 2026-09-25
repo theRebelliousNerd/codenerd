@@ -139,7 +139,7 @@ func TestProseTurnIsOfferedTheNarrowedCatalog(t *testing.T) {
 		mu.Unlock()
 		return &types.LLMToolResponse{Text: "done"}, nil
 	}}
-	e := NewExecutor(k, &MockVirtualStore{}, llm, jit, prompt.NewDefaultConfigFactory(), &MockTransducer{})
+	e := NewExecutor(k, &MockVirtualStore{}, llm, jit, prompt.NewConfigFactory(prompt.NewDefaultConfigAtomProvider()), &MockTransducer{})
 	preset := &perception.Intent{Verb: "/create", Category: "/mutation", Target: "Docs/architecture/features/03-GAP-ANALYSIS.md", Confidence: 1}
 	_, _ = e.ProcessWithIntent(t.Context(), "Create the gap analysis document", preset)
 
@@ -174,7 +174,7 @@ func TestTurnCatalogSize(t *testing.T) {
 		t.Fatalf("NewRealKernel: %v", err)
 	}
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
-	envelope, err := prompt.NewDefaultConfigFactory().ResolveAllowedTools(t.Context(), "/create")
+	envelope, err := prompt.NewConfigFactory(prompt.NewDefaultConfigAtomProvider()).ResolveAllowedTools(t.Context(), "/create")
 	if err != nil {
 		t.Fatalf("ResolveAllowedTools: %v", err)
 	}

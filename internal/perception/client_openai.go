@@ -126,14 +126,14 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	}
 
 	// Retry loop for rate limits
-	maxRetries := 3
+	maxRetries := llmMaxRetries()
 	var lastErr error
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			// Context-aware backoff: a cancelled turn must exit during
 			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			backoff := llmRetryBackoff(i)
 			select {
 			case <-ctx.Done():
 				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
@@ -279,14 +279,14 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 		}
 
 		// Retry loop for initial request setup / rate limits (before streaming begins).
-		maxRetries := 3
+		maxRetries := llmMaxRetries()
 		var lastErr error
 
 		for attempt := 0; attempt <= maxRetries; attempt++ {
 			if attempt > 0 {
 				// Context-aware backoff: a cancelled turn must exit during
 				// the sleep, not after it (matches ExecuteOpenAIRequest).
-				backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+				backoff := llmRetryBackoff(attempt)
 				select {
 				case <-ctx.Done():
 					errorChan <- fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())

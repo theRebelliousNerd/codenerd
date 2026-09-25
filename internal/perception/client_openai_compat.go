@@ -521,7 +521,7 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 
 	c.throttle()
 
-	const maxRetries = 3
+	maxRetries := llmMaxRetries()
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -818,7 +818,7 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 
 		c.throttle()
 
-		const maxRetries = 3
+		maxRetries := llmMaxRetries()
 		var lastErr error
 
 		for attempt := 0; attempt <= maxRetries; attempt++ {

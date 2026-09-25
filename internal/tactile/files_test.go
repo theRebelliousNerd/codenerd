@@ -150,7 +150,8 @@ func TestFileEditor_DeleteLines(t *testing.T) {
 
 func TestFileEditor_AuditCallback(t *testing.T) {
 	tmpDir := t.TempDir()
-	editor := NewFileEditorWithSession("sess-123")
+	editor := NewFileEditor()
+	editor.sessionID = "sess-123"
 	editor.SetWorkingDir(tmpDir)
 
 	var capturedEvent FileAuditEvent

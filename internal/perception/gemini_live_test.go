@@ -79,7 +79,7 @@ func liveProviderConfig(t *testing.T) (*ProviderConfig, *config.UserConfig) {
 		t.Skipf("skipping live LLM test: load %s: %v", configPath, err)
 	}
 
-	providerCfg, err := LoadConfigJSON(configPath)
+	providerCfg, err := ProviderConfigFromUserConfig(userCfg)
 	if err != nil {
 		t.Skipf("skipping live LLM test: build provider config: %v", err)
 	}

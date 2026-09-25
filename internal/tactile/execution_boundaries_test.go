@@ -63,7 +63,7 @@ func TestDirectOutputTruncationCap(t *testing.T) {
 // Firejail is never auto-registered by the factory, so it is a deterministic
 // missing-backend probe on every platform.
 func TestCompositeFailClosedOnMissingSandboxBackend(t *testing.T) {
-	ce := NewCompositeExecutor()
+	ce := NewCompositeExecutorWithConfig(DefaultExecutorConfig())
 	executed := false
 	ce.SetAuditCallback(func(ev AuditEvent) {
 		if ev.Type == AuditEventStart {

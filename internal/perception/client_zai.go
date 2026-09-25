@@ -964,7 +964,7 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 		if attempt > 0 {
 			// Cancel-aware like the chat paths: a cancelled turn must
 			// exit during the sleep, not after it.
-			if err := sleepWithContext(ctx, time.Duration(1<<uint(attempt-1))*time.Second); err != nil {
+			if err := sleepWithContext(ctx, llmRetryBackoff(attempt)); err != nil {
 				return nil, err
 			}
 		}

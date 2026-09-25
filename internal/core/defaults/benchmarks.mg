@@ -41,9 +41,41 @@ Decl swebench_teardown_complete(InstanceID, Timestamp).
 # SECTION 2: SWE-BENCH DERIVED RULES
 # =============================================================================
 
-# Check if instance is resolved (all FAIL_TO_PASS now pass, no PASS_TO_PASS regressions)
+# Resolution is the kernel's verdict, not the harness's: an evaluated instance
+# is resolved when every expected test (FAIL_TO_PASS and PASS_TO_PASS) has a
+# passing swebench_test_result. The Go harness reports its own summary in
+# swebench_evaluation_result; that is a record, not the decision. A patch that
+# failed to apply records no test results, so every expectation is unmet.
+Decl swebench_expected_test(InstanceID, TestName).
+swebench_expected_test(InstanceID, TestName) :-
+    swebench_expected_fail_to_pass(InstanceID, TestName).
+swebench_expected_test(InstanceID, TestName) :-
+    swebench_expected_pass_to_pass(InstanceID, TestName).
+
+Decl swebench_test_passed(InstanceID, TestName).
+swebench_test_passed(InstanceID, TestName) :-
+    swebench_test_result(InstanceID, TestName, /true, _).
+
+# unmet expectation: an expected test with no passing result.
+Decl swebench_unmet_expectation(InstanceID, TestName).
+swebench_unmet_expectation(InstanceID, TestName) :-
+    swebench_expected_test(InstanceID, TestName),
+    !swebench_test_passed(InstanceID, TestName).
+
+# Projection for bound negation (a wildcard in a negated literal excludes
+# nothing in this Mangle build).
+Decl swebench_has_unmet_expectation(InstanceID).
+swebench_has_unmet_expectation(InstanceID) :-
+    swebench_unmet_expectation(InstanceID, _).
+
+Decl swebench_evaluated(InstanceID).
+swebench_evaluated(InstanceID) :-
+    swebench_evaluation_result(InstanceID, _, _, _).
+
+Decl swebench_resolved(InstanceID).
 swebench_resolved(InstanceID) :-
-    swebench_evaluation_result(InstanceID, /true, _, _).
+    swebench_evaluated(InstanceID),
+    !swebench_has_unmet_expectation(InstanceID).
 
 # Helper for safe negation
 Decl has_patch_applied(InstanceID).
@@ -51,6 +83,7 @@ has_patch_applied(InstanceID) :-
     swebench_patch_applied(InstanceID, _, _).
 
 # Check if instance had patch failure
+Decl swebench_patch_failed(InstanceID).
 swebench_patch_failed(InstanceID) :-
     swebench_environment(InstanceID, _, /error, _),
     !has_patch_applied(InstanceID).

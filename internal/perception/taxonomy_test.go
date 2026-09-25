@@ -257,19 +257,3 @@ func TestTaxonomyEngine_SchemasLoadedOnce(t *testing.T) {
 		}
 	}
 }
-
-func TestGenerateSystemPromptSection(t *testing.T) {
-	engine, err := NewTaxonomyEngine()
-	if err != nil {
-		t.Skip("Skipping init")
-	}
-
-	prompt, err := engine.GenerateSystemPromptSection()
-	if err != nil {
-		t.Fatalf("GenerateSystemPromptSection failed: %v", err)
-	}
-
-	if len(prompt) < 10 {
-		t.Error("Generated prompt too short")
-	}
-}

@@ -32,46 +32,6 @@ func getProcessResourceUsage(cmd *exec.Cmd) *ResourceUsage {
 // applyPlatformAttrs is a no-op on Unix; Command.CommandLine only affects Windows.
 func applyPlatformAttrs(execCmd *exec.Cmd, cmd Command) {}
 
-// createRlimitsCommon generates rlimit values that work on both Linux and macOS.
-// Returns a map of resource type to rlimit struct.
-func createRlimitsCommon(limits *ResourceLimits) map[int]syscall.Rlimit {
-	rlimits := make(map[int]syscall.Rlimit)
-
-	if limits == nil {
-		return rlimits
-	}
-
-	// Memory limit (RLIMIT_AS - address space) - works on both Linux and macOS
-	if limits.MaxMemoryBytes > 0 {
-		rlimits[syscall.RLIMIT_AS] = syscall.Rlimit{
-			Cur: uint64(limits.MaxMemoryBytes),
-			Max: uint64(limits.MaxMemoryBytes),
-		}
-	}
-
-	// CPU time limit (RLIMIT_CPU - in seconds) - works on both Linux and macOS
-	if limits.MaxCPUTimeMs > 0 {
-		cpuSeconds := uint64(limits.MaxCPUTimeMs / 1000)
-		if cpuSeconds == 0 {
-			cpuSeconds = 1 // Minimum 1 second
-		}
-		rlimits[syscall.RLIMIT_CPU] = syscall.Rlimit{
-			Cur: cpuSeconds,
-			Max: cpuSeconds,
-		}
-	}
-
-	// File size limit (RLIMIT_FSIZE) - works on both Linux and macOS
-	if limits.MaxFileSize > 0 {
-		rlimits[syscall.RLIMIT_FSIZE] = syscall.Rlimit{
-			Cur: uint64(limits.MaxFileSize),
-			Max: uint64(limits.MaxFileSize),
-		}
-	}
-
-	return rlimits
-}
-
 // BindMount represents a bind mount configuration.
 type BindMount struct {
 	Source   string

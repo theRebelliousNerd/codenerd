@@ -1036,13 +1036,13 @@ func (i *Initializer) initializePromptDatabase(ctx context.Context, nerdDir stri
 
 	// Best-effort: restore the canonical embedded atom set while preserving
 	// project-owned rows. Runtime collection still gives embedded atoms
-	// precedence if reconciliation cannot complete.
-	if embedded, err := prompt.LoadEmbeddedCorpus(); err == nil {
-		if counts, err := prompt.ReconcilePromptCorpus(ctx, db, embedded.All()); err != nil {
-			logging.Boot("Warning: failed to reconcile prompt corpus: %v", err)
-		} else {
-			logging.Boot("Reconciled prompt corpus: upserted=%d deleted=%d retained_embeddings=%d cleared_embeddings=%d", counts.Upserted, counts.Deleted, counts.RetainedEmbeddings, counts.ClearedEmbeddings)
-		}
+	// precedence if reconciliation cannot complete. An embedded-corpus load
+	// failure is reported here too; it used to skip reconciliation without a
+	// word, leaving stale built-in rows in corpus.db as current truth.
+	if counts, err := prompt.ReconcileEmbeddedCorpus(ctx, db); err != nil {
+		logging.Boot("Warning: failed to reconcile prompt corpus: %v", err)
+	} else {
+		logging.Boot("Reconciled prompt corpus: upserted=%d deleted=%d retained_embeddings=%d cleared_embeddings=%d", counts.Upserted, counts.Deleted, counts.RetainedEmbeddings, counts.ClearedEmbeddings)
 	}
 
 	// Project atoms land after reconciliation so the sweep cannot race them.

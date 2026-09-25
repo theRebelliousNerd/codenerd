@@ -22,3 +22,9 @@
   tests for shared corpus/taxonomy/tracing changes.
 - Reconcile `Docs/architecture/perception/` after changing public contracts,
   fact flow, provider behavior, lifecycle, or feature-card status.
+- Provider failures have one contract (`provider_failure.go`): classify with
+  `ClassifyProviderFailure`, surface with `SafeProviderFailureMessage`, never the
+  raw provider body. A new adapter joins `TestProviderFailureConformance`, and
+  its retry loop reads `llmMaxRetries`/`llmRetryBackoff`, not a constant.
+- The routing vocabulary check is the kernel's (`understanding_vocab_miss` in
+  `perception_routing.mg`); do not reintroduce a Go validator.

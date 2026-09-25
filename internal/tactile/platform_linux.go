@@ -18,38 +18,15 @@ import (
 	"time"
 )
 
-// Linux-specific rlimit that isn't available on macOS
-const (
-	RLIMIT_NPROC = 6 // Linux-specific
-)
-
 // getMaxRSSBytes converts Maxrss to bytes (Linux uses KB).
 func getMaxRSSBytes(rusage *syscall.Rusage) int64 {
 	return int64(rusage.Maxrss) * 1024
 }
 
-// createRlimits generates rlimit values from ResourceLimits (Linux version).
-// Returns a map of resource type to rlimit struct.
-func createRlimits(limits *ResourceLimits) map[int]syscall.Rlimit {
-	rlimits := createRlimitsCommon(limits)
-
-	if limits == nil {
-		return rlimits
-	}
-
-	// Process limit (RLIMIT_NPROC) - Linux only
-	if limits.MaxProcesses > 0 {
-		rlimits[RLIMIT_NPROC] = syscall.Rlimit{
-			Cur: uint64(limits.MaxProcesses),
-			Max: uint64(limits.MaxProcesses),
-		}
-	}
-
-	return rlimits
-}
-
-// LimitedExecutorLinux provides resource-limited execution on Linux systems.
-// It uses setrlimit and cgroups where available.
+// LimitedExecutorLinux provides resource-limited execution on Linux systems
+// through a per-command cgroup. The composite routes to it only commands that
+// ask for a memory, process-count or CPU-time limit, and only when the cgroup
+// probe found a writable hierarchy.
 type LimitedExecutorLinux struct {
 	*DirectExecutor
 	mu sync.RWMutex
@@ -152,7 +129,9 @@ func (e *LimitedExecutorLinux) Execute(ctx context.Context, cmd Command) (*Execu
 
 	// Set up the cgroup with limits
 	if err := cgroup.Setup(cmd.Limits); err != nil {
-		// Fall back to non-cgroup execution
+		// Fall back to non-cgroup execution, visibly: the requested
+		// memory/process/CPU limit is not enforced for this command.
+		logging.TactileWarn("cgroup setup failed, requested limits NOT enforced for %s: %v", cmd.Binary, err)
 		return e.DirectExecutor.Execute(ctx, cmd)
 	}
 	defer cgroup.Cleanup()
@@ -644,6 +623,9 @@ func NewNamespaceExecutor(config ExecutorConfig) *NamespaceExecutor {
 			NewMount: true,
 			NewUTS:   true,
 			NewIPC:   true,
+			// Without CAP_SYS_ADMIN the other namespaces can only be
+			// created inside a new user namespace; root does not need one.
+			NewUser:  os.Getuid() != 0,
 			Hostname: "sandbox",
 		},
 	}
@@ -849,34 +831,73 @@ func buildCloneFlags(nsConfig NamespaceConfig) uintptr {
 	return flags
 }
 
-// GetPlatformExecutor returns the best executor for this Linux system.
-func GetPlatformExecutor(config ExecutorConfig) Executor {
-	// Try in order of preference: Firejail, Namespace, Limited, Direct
+// linuxIsolationProbe records what this host can provide. Probing spawns a
+// process (namespaces, firejail) and touches cgroupfs, so it runs once per
+// process: a composite is built per VirtualStore and must not repeat it.
+type linuxIsolationProbe struct {
+	firejailPath  string
+	namespaces    bool
+	cgroupVersion int
+}
 
-	// Check for Firejail
-	fj := NewFirejailExecutor(config)
-	if fj.IsAvailable() {
-		return fj
-	}
+var (
+	linuxIsolationOnce   sync.Once
+	linuxIsolationResult linuxIsolationProbe
+)
 
-	// Check if we can use namespaces (need CAP_SYS_ADMIN or user namespaces)
+func probeLinuxIsolation() linuxIsolationProbe {
+	linuxIsolationOnce.Do(func() {
+		var probe linuxIsolationProbe
+		fj := NewFirejailExecutor(DefaultExecutorConfig())
+		if fj.IsAvailable() {
+			probe.firejailPath = fj.firejailPath
+		}
+		probe.namespaces = namespaceIsolationUsable()
+		limited := NewLimitedExecutorLinux(DefaultExecutorConfig())
+		probe.cgroupVersion = limited.CgroupVersion()
+		linuxIsolationResult = probe
+		logging.Tactile("Linux isolation probe: firejail=%v namespaces=%v cgroups=v%d",
+			probe.firejailPath != "", probe.namespaces, probe.cgroupVersion)
+	})
+	return linuxIsolationResult
+}
+
+// namespaceIsolationUsable reports whether the namespace executor's clone
+// flags can succeed here: root may create them directly; anyone else needs a
+// working user namespace, which is tested by actually creating one (a sysctl
+// can say yes while an LSM policy still refuses).
+func namespaceIsolationUsable() bool {
 	if os.Getuid() == 0 {
-		return NewNamespaceExecutor(config)
+		return true
 	}
+	return canUseUserNamespaces()
+}
 
-	// Check if user namespaces are enabled
-	if canUseUserNamespaces() {
-		return NewNamespaceExecutor(config)
+// registerPlatformIsolation registers the Linux backends the probe found:
+// Firejail for SandboxFirejail, namespaces for SandboxNamespace, and the
+// cgroup-limited executor for commands that request enforced limits. A
+// backend the host lacks is simply not registered, so a request for it keeps
+// failing closed in selectExecutor.
+func registerPlatformIsolation(ce *CompositeExecutor, config ExecutorConfig) {
+	probe := probeLinuxIsolation()
+	if probe.firejailPath != "" {
+		ce.executors[SandboxFirejail] = &FirejailExecutor{
+			DirectExecutor: NewDirectExecutorWithConfig(config),
+			firejailPath:   probe.firejailPath,
+			available:      true,
+		}
 	}
-
-	// Fall back to cgroup-limited executor
-	limited := NewLimitedExecutorLinux(config)
-	if limited.UsesCgroups() {
-		return limited
+	if probe.namespaces {
+		ce.executors[SandboxNamespace] = NewNamespaceExecutor(config)
 	}
-
-	// Ultimate fallback: direct execution
-	return NewDirectExecutorWithConfig(config)
+	if probe.cgroupVersion != 0 {
+		ce.limitsExecutor = &LimitedExecutorLinux{
+			DirectExecutor: NewDirectExecutorWithConfig(config),
+			useCgroups:     true,
+			cgroupPath:     "/sys/fs/cgroup",
+			cgroupVersion:  probe.cgroupVersion,
+		}
+	}
 }
 
 // canUseUserNamespaces checks if unprivileged user namespaces are enabled.

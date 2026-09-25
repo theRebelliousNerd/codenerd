@@ -175,17 +175,6 @@ func TestAssembler_MalformedCategoryStrings(t *testing.T) {
 	t.Logf("Result with malformed categories: %q", result[:min(len(result), 200)])
 }
 
-func TestMinifyWhitespace_WindowsCRLF(t *testing.T) {
-	// GAP B5: CRLF line endings should be handled.
-	input := "Line1\r\n\r\n\r\nLine2\r\nLine3"
-	result := minifyWhitespace(input)
-
-	// Should not have excessive newlines
-	if strings.Count(result, "\n") > 4 {
-		t.Errorf("CRLF not properly reduced: %q", result)
-	}
-}
-
 // Vector C: User Request Extremes
 
 func TestTemplate_NestedTemplates(t *testing.T) {

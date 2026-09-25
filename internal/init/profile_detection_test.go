@@ -325,6 +325,76 @@ func TestInitializePromptDatabase_WhenProjectAtomsPending_ShouldIngestThemIntoCo
 	}
 }
 
+// A corpus.db left behind by an older build holds built-in rows the embedded
+// corpus no longer ships. Init must reconcile it to the canonical embedded set
+// (stale built-ins gone, every embedded ID present) while leaving project-owned
+// rows (NULL source_file) alone.
+func TestInitializePromptDatabase_ReconcilesStaleBuiltinsAndKeepsProjectRows(t *testing.T) {
+	workspace := t.TempDir()
+	nerdDir := filepath.Join(workspace, ".nerd")
+	dbPath := filepath.Join(nerdDir, "prompts", "corpus.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if _, err := prompt.MaterializeDefaultPromptCorpus(dbPath); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+
+	ctx := context.Background()
+	seed, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open seed db: %v", err)
+	}
+	if err := prompt.NewAtomLoader(nil).EnsureSchema(ctx, seed); err != nil {
+		t.Fatalf("ensure schema: %v", err)
+	}
+	for _, row := range []struct {
+		id, source string
+		owned      bool
+	}{
+		{"stale/builtin/retired", "atoms/stale/retired.yaml", true},
+		{"project/custom/keep", "", false},
+	} {
+		var source any
+		if row.owned {
+			source = row.source
+		}
+		if _, err := seed.ExecContext(ctx,
+			`INSERT INTO prompt_atoms (atom_id, content, token_count, content_hash, category, source_file) VALUES (?, ?, ?, ?, ?, ?)`,
+			row.id, "body of "+row.id, 3, "hash-"+row.id, "domain", source); err != nil {
+			t.Fatalf("seed %s: %v", row.id, err)
+		}
+	}
+	_ = seed.Close()
+
+	ini := &Initializer{config: InitConfig{Workspace: workspace}}
+	if err := ini.initializePromptDatabase(ctx, nerdDir); err != nil {
+		t.Fatalf("initializePromptDatabase: %v", err)
+	}
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open corpus db: %v", err)
+	}
+	defer db.Close()
+
+	if got := countCorpusAtom(t, db, "stale/builtin/retired"); got != 0 {
+		t.Errorf("stale built-in row survived init reconciliation (rows = %d)", got)
+	}
+	if got := countCorpusAtom(t, db, "project/custom/keep"); got != 1 {
+		t.Errorf("project-owned row was swept by init reconciliation (rows = %d)", got)
+	}
+	embedded, err := prompt.LoadEmbeddedCorpus()
+	if err != nil {
+		t.Fatalf("LoadEmbeddedCorpus: %v", err)
+	}
+	for _, atom := range embedded.All() {
+		if got := countCorpusAtom(t, db, atom.ID); got != 1 {
+			t.Fatalf("embedded atom %s missing after init reconciliation (rows = %d)", atom.ID, got)
+		}
+	}
+}
+
 func countCorpusAtom(t *testing.T, db *sql.DB, atomID string) int {
 	t.Helper()
 	var count int
