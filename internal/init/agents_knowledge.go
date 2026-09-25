@@ -46,6 +46,7 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 
 	// In upgrade mode, get existing atoms for deduplication
 	var existingHashes map[string]bool
+	topics := agent.Topics
 	if upgradeMode {
 		existingAtoms, err := agentDB.GetAllKnowledgeAtoms()
 		if err != nil {
@@ -54,6 +55,13 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 		existingHashes = buildAtomHashSet(existingAtoms)
 		stats.ExistingAtoms = len(existingAtoms)
 		logging.Boot("Upgrade mode: found %d existing atoms in %s", stats.ExistingAtoms, agent.Name)
+		// An upgrade researches only what the KB does not already cover.
+		// filterTopicsNeedingResearch was written and tested for exactly this
+		// and never called, so every `init --force` re-fetched every topic of
+		// every agent -- the atoms deduplicated on hash, the Context7 calls
+		// and the two-minute budget did not.
+		topics = filterTopicsNeedingResearch(existingAtoms, topics, minAtomsPerCoveredTopic)
+		stats.SkippedTopics = len(agent.Topics) - len(topics)
 	} else {
 		existingHashes = make(map[string]bool)
 
@@ -92,28 +100,30 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 	// Research uses the modular tool registry (internal/tools/research/)
 	// Context7 provides LLM-optimized documentation for libraries/frameworks
 	// =========================================================================
-	if !i.config.SkipResearch && len(agent.Topics) > 0 {
-		fmt.Printf("     Researching %d topics for %s...\n", len(agent.Topics), agent.Name)
+	if stats.SkippedTopics > 0 {
+		fmt.Printf("     %d of %d topics already covered in %s's KB; not researched again\n", stats.SkippedTopics, len(agent.Topics), agent.Name)
+	}
+	if !i.config.SkipResearch && len(topics) > 0 {
+		fmt.Printf("     Researching %d topics for %s...\n", len(topics), agent.Name)
 
-		// Create a temporary tool registry for research
-		registry := tools.NewRegistry()
-		if err := research.RegisterAll(registry); err != nil {
+		fetch, err := i.topicFetcher()
+		if err != nil {
 			logging.Boot("Warning: failed to register research tools: %v", err)
 		} else {
 			researchCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel()
 
-			for _, topic := range agent.Topics {
+			for _, topic := range topics {
 				// Try Context7 for documentation
-				result, err := registry.Execute(researchCtx, "context7_fetch", map[string]any{"topic": topic})
+				result, err := fetch(researchCtx, topic)
 				if err != nil {
 					logging.Boot("Research failed for topic %s: %v", topic, err)
 					continue
 				}
 
-				if result.Result != "" && len(result.Result) > 100 {
+				if result != "" && len(result) > 100 {
 					// Parse research result into knowledge atoms
-					atoms := i.parseResearchResult(topic, result.Result)
+					atoms := i.parseResearchResult(topic, result)
 					for _, atom := range atoms {
 						added, err := appendKnowledgeAtom(agentDB, atom.Concept, atom.Content, atom.Confidence, existingHashes)
 						if err != nil {
@@ -217,6 +227,32 @@ func appendKnowledgeAtom(db *store.LocalStore, concept, content string, confiden
 	// Add to hash set to prevent duplicates within this session
 	existingHashes[hash] = true
 	return true, nil
+}
+
+// minAtomsPerCoveredTopic is how many genuine atoms (not inherited, not the
+// identity boilerplate) a topic needs in an agent's KB before an upgrade stops
+// researching it again. Two sections of one fetched page are already more
+// than a hash-duplicate refetch would add.
+const minAtomsPerCoveredTopic = 2
+
+// topicFetcher returns the function one topic's documentation is fetched
+// with: Initializer.fetchTopic when set (tests), otherwise Context7 through a
+// fresh modular research registry.
+func (i *Initializer) topicFetcher() (func(ctx context.Context, topic string) (string, error), error) {
+	if i.fetchTopic != nil {
+		return i.fetchTopic, nil
+	}
+	registry := tools.NewRegistry()
+	if err := research.RegisterAll(registry); err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context, topic string) (string, error) {
+		result, err := registry.Execute(ctx, "context7_fetch", map[string]any{"topic": topic})
+		if err != nil {
+			return "", err
+		}
+		return result.Result, nil
+	}, nil
 }
 
 // filterTopicsNeedingResearch checks existing atoms and returns only topics that lack coverage.
