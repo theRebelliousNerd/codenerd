@@ -146,7 +146,7 @@ and boot's `Cortex.Executor` -- what chat and `nerd campaign` run on -- is
 <!-- NERD_FEATURE
 id: tactile-effect-receipt-v1
 owner: tactile
-status: proposed
+status: verified
 kind: leverage
 depends_on: [tactile-direct-bypass-registry-v1]
 affects: [tactile, core, observability, transparency, articulation]
@@ -183,13 +183,18 @@ effect.
 **Rollback.** Dual-write existing facts and the receipt until parity is proven;
 disable receipt persistence without weakening execution bounds.
 
-**Open (2026-09-25).** Not built in wave 3. Prerequisites that are now in
-place: every production execution path emits lifecycle events (composite,
-registered bypasses via `NewFactAuditedExecutor`, persistent containers via
-`ExecInContainer` audit events). What remains is a design decision the card
-leaves open -- where receipts persist and for how long (JSONL audit sink vs.
-kernel fact vs. store table) and how fact-injection status is reported back
-through `AuditLogger` (its fact callback returns nothing today).
+**Closed (2026-09-25).** `internal/tactile/receipt.go#ExecutionReceipt`
+(`tactile-execution-receipt-v1`) is built by `AuditLogger.Log` on every
+terminal event: IDs, executor and backend, effective limits, timing, outcome
+class, exit/kill, truncation, output digests with 512-byte redacted previews,
+facts emitted/rejected (`SetFactSink`), idempotency key. Receipts are retained
+(last 256, deduplicated by key) and appended to the audit file when file
+logging is on; a write failure is a metric, never a re-execution. VirtualStore
+attaches the receipt to the exec action's result, correlated by action ID --
+the key of the permission the kernel granted (no separate permission digest).
+Proofs: `receipt_test.go` (all outcome classes, bounds/redaction, idempotency,
+rejected facts, persistence) and
+`internal/core/virtual_store_executor_config_test.go#TestExecActionCarriesItsReceiptAndDeniedActionHasNone`.
 
 ## P2: Derive backend admission from typed requirements
 
@@ -236,4 +241,4 @@ rollback removes derived admission but never restores isolation downgrade.
 between are now registered from host probes (`registerPlatformIsolation`), but
 no production command requests isolation yet, and which actions *require*
 which isolation is a policy decision for the owner, not something to derive
-from nothing. Depends on the receipt card above.
+from nothing. The execution receipt it depends on now exists.
