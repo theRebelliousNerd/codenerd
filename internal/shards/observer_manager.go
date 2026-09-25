@@ -6,11 +6,16 @@ package shards
 import (
 	"context"
 	"fmt"
+	"maps"
+	"math/bits"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -108,6 +113,9 @@ type BackgroundObserverManager struct {
 	// eventsSinceCheck counts the events that arrived since the last periodic
 	// check was emitted, excluding periodic checks themselves. Atomic.
 	eventsSinceCheck int64
+	// droppedEvents counts the events SendEvent could not queue because the
+	// channel was full. Atomic; read with DroppedEvents.
+	droppedEvents    int64
 	assessmentBuffer []ObserverAssessment
 
 	// Spawner for creating observer tasks
@@ -286,8 +294,25 @@ func (m *BackgroundObserverManager) SendEvent(event ObserverEvent) {
 			atomic.AddInt64(&m.eventsSinceCheck, 1)
 		}
 	default:
-		// Channel full, drop event (could log this)
+		// The queue is full, so this event is not assessed. It used to vanish
+		// here with nothing but a comment: an observer asked to watch for
+		// drift silently missed whatever arrived during a burst, and nothing
+		// could tell a quiet session from a saturated one. The count is kept,
+		// and the first drop and every doubling after it are logged, so a
+		// sustained overflow is visible without a line per event.
+		dropped := atomic.AddInt64(&m.droppedEvents, 1)
+		if bits.OnesCount64(uint64(dropped)) == 1 {
+			logging.Get(logging.CategoryShards).Warn(
+				"Observer event queue full: dropped %s event from %s (%d dropped so far); observers will not assess it",
+				event.Type, event.Source, dropped)
+		}
 	}
+}
+
+// DroppedEvents reports how many events SendEvent could not queue because the
+// observers' queue was full.
+func (m *BackgroundObserverManager) DroppedEvents() int64 {
+	return atomic.LoadInt64(&m.droppedEvents)
 }
 
 // AddCallback registers a callback for assessment notifications.
@@ -321,16 +346,23 @@ func (m *BackgroundObserverManager) GetRecentAssessments(limit int) []ObserverAs
 	return result
 }
 
-// GetLastAssessment returns the most recent assessment from a specific observer.
+// GetLastAssessment returns a copy of the most recent assessment from a
+// specific observer. A copy, not the manager's own record: the pointer it used
+// to return let a caller rewrite what the observer said, and let the manager's
+// next assessment change a value the caller was still reading.
 func (m *BackgroundObserverManager) GetLastAssessment(observerName string) *ObserverAssessment {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	state, ok := m.observers[strings.ToLower(observerName)]
-	if !ok {
+	if !ok || state.LastAssessment == nil {
 		return nil
 	}
-	return state.LastAssessment
+	snapshot := *state.LastAssessment
+	snapshot.Deviations = slices.Clone(state.LastAssessment.Deviations)
+	snapshot.Suggestions = slices.Clone(state.LastAssessment.Suggestions)
+	snapshot.Metadata = maps.Clone(state.LastAssessment.Metadata)
+	return &snapshot
 }
 
 // eventLoop processes events and dispatches to observers.
