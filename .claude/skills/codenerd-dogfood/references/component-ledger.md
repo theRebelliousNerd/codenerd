@@ -5769,3 +5769,41 @@ hands out, and file paths; `run_tests` is offered to turns that wrote no Go; the
 two-minute clock is shorter than one atom-generation call, so it starves; a hardcoded 365-day
 purge and a 49,152-byte artifact injection; token counts drift ~25% from the provider's receipts;
 `.nerd/context/` still grows unpruned.
+
+
+## 2026-09-26 -- campaign 7b853890 (R6, internal/features docs), runs 5-6: phase 6 passes; three defects the runs forced
+
+**Run 5** (13:28-13:54, stopped). The phase-6 remediation, briefed with the reviewer's report
+(78f29988), fixed the four named defects. `corpus.toml` is `.toml`, so the turn was `/other` and owed a
+green `go test ./...`: the suite ran (passed; tree peak 20.8 GiB), the report said prose cannot be
+verified by `run_tests`, the admission audit read INCOMPLETE, and the edits were rolled back. Fixed
+by nerd.md `docs:` + `turn_doc_write` (3c551b3b): a non-code file under a declared docs path is `/doc`.
+
+**Run 6** (14:17-14:57, stopped by me; 102 model calls, tree peak 3.6 GiB, `-tags sqlite_vec` build of 3c551b3b).
+- Round-7 remediation: `done=true missing=[]`, no test run owed; 30 tools, 2.31 M prompt / 27.9 k
+  completion tokens (~77 k per round). Landed INTERNALS/WIRING front-matter, README/INDEX negations, corpus.toml.
+- Round-8 checkpoint: the reviewer's `/fail` verdict (confidence 92) was refused -- "shell
+  metacharacters in a string argument of checkpoint_verdict, which is not prose_only" -- for a `;` in
+  its prose; the checkpoint failed closed as undetermined (failure 2/3). **Cause:** the session layer
+  held `sessionKernelAdapter`, which forwarded 13 methods but not `ExecSinksReachedBy`, so `proseOnly`
+  never granted the exemption in production (and `Transaction()` was hidden too). The sharded-kernel
+  test for exactly this ran on a `CortexKernel` directly. Adapter deleted; boot test now asserts the
+  executor and spawner hold the booted kernel.
+- Round-8 remediation: `done`, 32 tools, 2.90 M prompt / 30.9 k. IMPLEMENTED_SPEC and ADR-001 reconciled.
+- Round-9 checkpoint: **PASS** (18 tools, 364 k prompt). Every phase of the campaign done.
+- Acceptance round 1: `r6_structcheck.py features` -> 1 problem, `adr/ADR-001-features-scope.md: no
+  **Witness:** line`. Two attempts each fixed it correctly (8-9 tools, 450-500 k prompt) and each
+  report said, truthfully, that the checker was not run this turn; the audit read INCOMPLETE and
+  rolled both back. **Cause:** the audit's question also asked whether the work "was not verified".
+  Replayed live (`TestAuditFinalReport_Live`, CODENERD_LIVE_LLM=1): old question INCOMPLETE on every
+  replay; new question COMPLETE on both, N41 still INCOMPLETE.
+
+**Open, found by run 6:**
+- A1: the acceptance-fix task's target file is `.nerd/campaigns/7b853890/artifacts/task_7b853890_5_0.md`
+  -- the first entry of a scope that is the union of every write set, with `.nerd/` reports and each doc
+  twice (real case and lower-cased). The same normalization phaseWriteScope got in 78f29988 is due here.
+- A2: the audit saw no task text for the acceptance fix (`Task:` absent; the working loop's task was empty).
+- A3: the model has no typed tool to run the campaign's acceptance command, which is why an honest
+  report must caveat it; a bounded "run this campaign's check" tool would let the turn verify itself.
+- The migrations hunk of stash@{0} was a live bug (a failed migration's columns survived the restore);
+  ported. Both stashes dropped after.
