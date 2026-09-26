@@ -1,7 +1,8 @@
 # 11: Idea corpus: token economy and code quality (2026-09-26)
 
-**Status: proposals, not decisions.** Nothing in this folder is built. It is a ranked backlog
-to choose from.
+**Status:** the ideas that need no Jev and fit one change each were built on 2026-09-26. The
+[Implementation status](#implementation-status-2026-09-26) section below says which, what was
+decided against and why, and what remains. The rest of this folder is still a backlog.
 
 **The ask:**
 - the biggest bang for token efficiency;
@@ -175,3 +176,43 @@ check out.
 - https://en.wikipedia.org/wiki/Jev_(AI_model)
 
 Each lane's own sources are listed at the end of its file.
+
+## Implementation status (2026-09-26)
+
+### Built
+None of these needs Jev. Each has a test that fails without it.
+
+| Idea | What changed |
+|---|---|
+| T-01 | The Anthropic tool loop places two cache breakpoints: one on the system block, which caches tools and system together, and one on the newest turn. Metered input is now uncached + cache write + cache read, on the API (sync and streaming) and the Claude CLI. Cache writes are a new sub-count through the broker to `nerd meter`. |
+| T-05 | The critic's call is tagged `PurposeCritic`, and chat's shard interpretation `PurposeArticulation`. Stale exemptions were removed. Receipts carry a `Phase` (repair, uplift, step_plan, forced_final, no_tool_retry, admission_audit, survivors), and `nerd meter` lists the named rounds. |
+| T-03 / Q-11 | The critic reviews the change: each changed region is widened to its enclosing element, and files over the cap show only those regions. It is handed the request. Findings on untouched lines buy no uplift round. |
+| Q-10 | A pin gate that passes with surviving condition mutants owes an advisory `/survivors` round (round 6). The round names them and asks for a test that takes the other side of each real decision. |
+| Q-14 | One small model call reads a writing turn's final report. An admission of unfinished work asserts `turn_self_reported_incomplete`, which withholds `/done` and names why (N41). |
+| Q-17 | A reverted recurse attempt's bounded patch and the reason it was reverted are kept in the journal and handed to the next attempt at the same work, across restarts. |
+| T-11 | Taxonomy learning reads every consecutive pair of exchanges once, with about a quarter of the calls, instead of re-reading each exchange up to five times. |
+| T-13 | The context ledger holds current observations of the focus file and of written files past the age cut. The hold lasts while those pinned results fit in half the ceiling. |
+| Q-09 | Two edits that leave the same failure restart the repair episode once: its edits are undone, and the next attempt must name a different cause. It gives up after that, as before. |
+| T-14 (reduced) | A failed test run drops the summary lines of packages that passed. The failing output is kept whole. |
+| T-06 (the part that needs no Jev) | The classifier is no longer asked for `implicit_assumptions`, which nothing read. |
+
+### Decided against, with the reason from the code
+| Idea | Why not |
+|---|---|
+| T-02 (freeze the tool catalog) | Withholding tools is load-bearing. The commit regime withholds read tools because a repair round once spent 20 reads and made no edit (`build_repair_regime_test.go`). A tool that is offered and then refused brings that failure back. Removing tools from the forced final call is what makes it answer instead of calling tools. |
+| T-07 (whole-file rewrite guard) | The coder atoms already make line-range edits mandatory for existing code. A refusal cannot recover output the model already generated. Compacting old write payloads edits assistant turns, which preserved thinking on Opus 5.5 and Fable 5.1 rejects. |
+| T-03's skip for trivial changes | The critic also checks that comments match the code, so even a comment-only change is not safe to skip. |
+| T-12 (interpret shard output only when owed) | A UX choice. For a coder shard the interpretation repeats prose that was already written for the user. For reports it adds a summary and next steps. Left to the owner. |
+| T-15(a) (order findings by keep rate) | The kernel keeps only a finding's last two attempts. Keep-rate ordering needs history the loop has not produced yet. |
+| T-20 (diff instead of "read again") | A stored observation is the tool's projected output, not the file's text, so there is no clean diff to show. The edit tools already report how lines moved. |
+
+### Remaining (each its own change)
+- Q-22, the defect-replay bench: the defective diffs were not preserved, so the fixtures need
+  rebuilding.
+- Q-01 requirement ledger, Q-02 reproduce-first, Q-12 counterexample critic.
+- Q-18 mutants-killed recurse metric. The mutation machinery is Go-only and lives in the
+  session pin gate.
+- Q-06 impact context, Q-07 mined conventions, Q-15 polyglot pinning, Q-16 input classes,
+  Q-19 observed-failure atoms.
+- T-04, T-08, T-16, T-17, T-18, T-21.
+- Everything that needs Jev.

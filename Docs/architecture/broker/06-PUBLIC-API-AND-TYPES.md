@@ -25,6 +25,16 @@ ctx = broker.WithRequireExact(ctx)                     // refuse rather than est
 account rather than a discard — unattributed spend is a wiring bug and should be
 a growing number somebody notices.
 
+```go
+ctx = broker.WithPhase(ctx, broker.PhaseRepair)        // which round of the purpose's work
+```
+
+A phase names a round within a purpose: `repair`, `uplift`, `step_plan`,
+`forced_final`, `no_tool_retry`, `admission_audit`, `survivors`. `PhaseFromContext` returns
+`""` for an ordinary round. The session purpose covers the whole tool loop, so
+the phase is what lets a change aimed at one of those rounds be measured on its
+own. `nerd meter` lists the named rounds under "Named rounds within a purpose".
+
 ## Counting
 
 | Type | Role |
@@ -95,6 +105,7 @@ state.
 ```go
 type Receipt struct {
 	Purpose  Purpose
+	Phase    Phase    // "" for an ordinary round
 	Provider, Model, Method string
 	Started  time.Time
 	Duration time.Duration
@@ -107,6 +118,12 @@ type Receipt struct {
 	Err      string
 }
 ```
+
+`Spend` counts input, output, calls, and two sub-counts of input: `CachedTokens`
+(read from a prompt cache) and `CacheWriteTokens` (written to one, billed at a
+premium). Input always includes both. Anthropic reports `input_tokens` as the
+uncached remainder only, so its API and CLI clients add the cache read and
+write back in (`anthropicUsage.promptTokens`).
 
 Sinks: `RingSink` (bounded, in-memory), `LogSink` (debug line per call, warn on
 refusal), `MultiSink`, and `ReceiptFunc` for an inline closure.
