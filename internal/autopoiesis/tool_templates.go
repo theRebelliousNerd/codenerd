@@ -300,20 +300,6 @@ var (
 // HELPER FUNCTIONS
 // =============================================================================
 
-// extractJSONFromTemplate extracts a JSON object from text
-// Note: Renamed to avoid duplicate with autopoiesis_helpers.go
-func extractJSONFromTemplate(text string) string {
-	// Find first { and last }
-	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-
-	if start == -1 || end == -1 || end <= start {
-		return "{}"
-	}
-
-	return text[start : end+1]
-}
-
 // extractCodeBlock extracts a code block from markdown-style response
 func extractCodeBlock(text, lang string) string {
 	// Look for ```go or ``` blocks

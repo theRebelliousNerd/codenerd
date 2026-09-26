@@ -88,3 +88,22 @@ func TestBuildCompilationContext_LanguageAndFrameworksFromKernel(t *testing.T) {
 		t.Fatalf("nil kernel Frameworks=%v, want empty", ccNil.Frameworks)
 	}
 }
+
+// The executor's stored session context reaches the layers that read it only
+// from ctx; a caller's own attachment is left alone.
+func TestExecutor_WithSessionContext(t *testing.T) {
+	e := &Executor{}
+	if got := types.GetSessionContext(e.withSessionContext(context.Background())); got != nil {
+		t.Fatalf("an executor with no session context attached %+v", got)
+	}
+	stored := &types.SessionContext{DreamMode: true}
+	e.SetSessionContext(stored)
+	if got := types.GetSessionContext(e.withSessionContext(context.Background())); got != stored {
+		t.Fatalf("the stored session context did not reach ctx: %+v", got)
+	}
+	caller := &types.SessionContext{}
+	ctx := types.WithSessionContext(context.Background(), caller)
+	if got := types.GetSessionContext(e.withSessionContext(ctx)); got != caller {
+		t.Fatal("the caller's session context was replaced")
+	}
+}

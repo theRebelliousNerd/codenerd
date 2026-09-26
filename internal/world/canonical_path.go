@@ -21,7 +21,7 @@ import (
 //
 //	full scan       (Scanner.ScanDirectory)
 //	incremental     (Scanner.ScanWorkspaceIncremental)
-//	deep scan       (EnsureDeepFacts / Cartographer)
+//	deep scan       (EnsureDeepFactsInRoot / Cartographer)
 //	chat scans      (/scan-path, /scan-dir via ASTParser.ParseAs)
 //	CodeDOM scope   (FileScope.ScopeFacts)
 //

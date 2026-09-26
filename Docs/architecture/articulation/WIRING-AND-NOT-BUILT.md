@@ -54,12 +54,13 @@ another, worse way. Deleting them is a maintainer call; they are listed in
 - `Emitter.CreateEnvelope` (`emitter.go:793`) and `Emitter.MarshalEnvelope`
   (`emitter.go:812`): tests only. `cmd_instruction.go` builds the envelope
   literally and `Emit` marshals it itself.
-- `GetKernelContext` / `PromptAssembler.BuildContextSection`
-  (`kernel_context.go:20`, `:35`): no production callers (baseline).
-- `AssembleQuickPrompt` (`prompt_assembler.go:1160`): tests only (baseline).
+- `PromptAssembler.BuildContextSection` (`kernel_context.go`): no production
+  callers. `GetKernelContext` and `AssembleQuickPrompt`, the other two
+  entries listed here, were deleted on 2026-09-25 (the JIT compiler
+  assembles prompts; nothing called either).
 - `GetStats` / `ResetStats` (`emitter.go:686`, `:697`): tests only.
-- `MustExtractSurface` (`emitter.go:1091`), `ExtractSurfaceOnly`
-  (`emitter.go:906`): no production callers (baseline).
+- `MustExtractSurface` and `ExtractSurfaceOnly`: deleted 2026-09-25 (no
+  production callers).
 - `AppendReasoningDirective` and its two directive constants, listed here on
   2026-09-20, are gone: deleted in `a5e12f0` ("the model's reasoning trace is
   kept whole; the dead directive is gone"). The deadcode baseline still names

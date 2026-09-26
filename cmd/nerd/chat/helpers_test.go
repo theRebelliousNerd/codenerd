@@ -1566,3 +1566,22 @@ func TestOnboardingWizardState(t *testing.T) {
 		t.Error("Initial step should be OnboardingStepWelcome")
 	}
 }
+
+// The boot screen's title is the embedded ASCII logo when the terminal has
+// room for it, and the one-line title when it does not.
+func TestRenderBootScreen_LogoWhenItFits(t *testing.T) {
+	logoLine := `| (__/ _ \/ _`
+
+	roomy := NewTestModel(WithSize(100, 50))
+	roomy.isBooting = true
+	if got := roomy.renderBootScreen(); !strings.Contains(got, logoLine) {
+		t.Fatalf("a 100x50 boot screen has no logo:\n%s", got)
+	}
+
+	small := NewTestModel(WithSize(30, 10))
+	small.isBooting = true
+	got := small.renderBootScreen()
+	if strings.Contains(got, logoLine) || !strings.Contains(got, "codeNERD") {
+		t.Fatalf("a 30x10 boot screen should keep the one-line title:\n%s", got)
+	}
+}

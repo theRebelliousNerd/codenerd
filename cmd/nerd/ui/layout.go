@@ -87,13 +87,6 @@ func ViewportHeight(containerHeight int) int {
 	return containerHeight - ViewportVerticalPadding
 }
 
-// SplitPaneWidths calculates left and right pane widths for a split view
-func SplitPaneWidths(totalWidth int) (leftWidth, rightWidth int) {
-	leftWidth = int(float64(totalWidth) * SplitPaneLeftRatio)
-	rightWidth = totalWidth - leftWidth - SplitPaneDivider
-	return
-}
-
 // PanelContentWidth returns the content width inside a bordered panel
 func PanelContentWidth(panelWidth int) int {
 	return panelWidth - (PanelBorderWidth * 2) - (PanelPaddingH * 2)
@@ -102,11 +95,6 @@ func PanelContentWidth(panelWidth int) int {
 // PanelContentHeight returns the content height inside a bordered panel
 func PanelContentHeight(panelHeight int) int {
 	return panelHeight - (PanelBorderWidth * 2) - (PanelPaddingV * 2)
-}
-
-// TableContentHeight calculates available height for table rows
-func TableContentHeight(totalHeight int) int {
-	return totalHeight - TableHeaderHeight - ControlsHeight - TablePadding
 }
 
 // WarningBoxWidth calculates the width for warning boxes

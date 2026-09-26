@@ -859,20 +859,6 @@ func TestNormalizePayload_WhenString_ShouldDelegateToDecode(t *testing.T) {
 	}
 }
 
-func TestExtractIntentIDFromPayloadString_ShouldExtractID(t *testing.T) {
-	id := extractIntentIDFromPayloadString(`{"intent_id":"test_id"}`)
-	if id != "test_id" {
-		t.Errorf("extractIntentIDFromPayloadString = %q, want %q", id, "test_id")
-	}
-}
-
-func TestExtractIntentIDFromPayloadString_WhenNoID_ShouldReturnEmpty(t *testing.T) {
-	id := extractIntentIDFromPayloadString(`{"key":"val"}`)
-	if id != "" {
-		t.Errorf("extractIntentIDFromPayloadString = %q, want empty", id)
-	}
-}
-
 // ─── unixSecondsArg ──────────────────────────────────────────────────────────
 
 func TestUnixSecondsArg_WhenInt64_ShouldReturn(t *testing.T) {

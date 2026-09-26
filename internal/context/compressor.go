@@ -1,7 +1,6 @@
 package context
 
 import (
-	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -618,30 +617,6 @@ func (c *Compressor) GetFeedbackStats(topN int) FeedbackStats {
 	store := c.feedbackStore
 	c.mu.RUnlock()
 	return CollectFeedbackStats(store, topN)
-}
-
-// NewCompressorWithConfig creates a compressor with custom configuration.
-func NewCompressorWithConfig(kernel *core.RealKernel, localStorage *store.LocalStore, llmClient perception.LLMClient, cfg config.ContextWindowConfig) *Compressor {
-	// Convert config.ContextWindowConfig to context.CompressorConfig
-	compCfg := CompressorConfig{
-		TotalBudget:            cfg.MaxTokens,
-		CoreReserve:            cfg.MaxTokens * cfg.CoreReservePercent / 100,
-		AtomReserve:            cfg.MaxTokens * cfg.AtomReservePercent / 100,
-		HistoryReserve:         cfg.MaxTokens * cfg.HistoryReservePercent / 100,
-		WorkingReserve:         cfg.MaxTokens * cfg.WorkingReservePercent / 100,
-		RecentTurnWindow:       cfg.RecentTurnWindow,
-		CompressionThreshold:   cfg.CompressionThreshold,
-		TargetCompressionRatio: cfg.TargetCompressionRatio,
-		ActivationThreshold:    cfg.ActivationThreshold,
-		PredicatePriorities:    DefaultConfig().PredicatePriorities,
-	}
-
-	logging.Context("Compressor initialized with custom config: budget=%d tokens, threshold=%.0f%%, window=%d turns",
-		compCfg.TotalBudget, compCfg.CompressionThreshold*100, compCfg.RecentTurnWindow)
-	logging.ContextDebug("Token allocation: core=%d, atoms=%d, history=%d, working=%d",
-		compCfg.CoreReserve, compCfg.AtomReserve, compCfg.HistoryReserve, compCfg.WorkingReserve)
-
-	return newCompressorWithCompressorConfig(kernel, localStorage, llmClient, compCfg)
 }
 
 // NewCompressorWithParams creates a compressor with explicit parameters.

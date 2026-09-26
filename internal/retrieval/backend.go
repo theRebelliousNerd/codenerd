@@ -8,8 +8,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-
-	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -70,19 +68,6 @@ func NewRipgrepBackend() (*RipgrepBackend, error) {
 		return nil, fmt.Errorf("ripgrep backend unavailable: %w", err)
 	}
 	return &RipgrepBackend{Binary: path}, nil
-}
-
-// AutoBackend returns a ripgrep backend when rg is installed, or nil to mean
-// "use the native scan". A nil ScanBackend is the documented native selector, so
-// callers can assign the result straight into SparseRetrieverConfig.Backend.
-func AutoBackend() ScanBackend {
-	rg, err := NewRipgrepBackend()
-	if err != nil {
-		logging.Context("SparseRetriever: ripgrep not found, using native scan (%v)", err)
-		return nil
-	}
-	logging.Context("SparseRetriever: using ripgrep backend at %s", rg.Binary)
-	return rg
 }
 
 // Name implements ScanBackend.

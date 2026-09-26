@@ -3,9 +3,10 @@ package world
 import (
 	"testing"
 
-	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codenerd/internal/core"
 	"codenerd/internal/types"
+
+	"codeberg.org/TauCeti/mangle-go/analysis"
 )
 
 type mockKernel struct {

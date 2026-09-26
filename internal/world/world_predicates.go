@@ -105,11 +105,6 @@ var WorldPredicates = concatPredicates(
 	GitPredicates,
 )
 
-// WorldPredicateSet returns a map form for fast membership checks.
-func WorldPredicateSet() map[string]struct{} {
-	return predicateSet(WorldPredicates)
-}
-
 // ScannerReplaceSet is the set a full scan may clear before loading its
 // results: exactly the predicates that scan re-derives.
 func ScannerReplaceSet() map[string]struct{} {

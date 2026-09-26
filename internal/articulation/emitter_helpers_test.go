@@ -53,17 +53,6 @@ func TestEnvelopeStateHelpers(t *testing.T) {
 	}
 }
 
-func TestExtractSurfaceOnly(t *testing.T) {
-	raw := `{"control_packet":{"intent_classification":{"category":"/x","verb":"/y","confidence":1.0}},"surface_response":"the answer"}`
-	if got := ExtractSurfaceOnly(raw); got != "the answer" {
-		t.Errorf("ExtractSurfaceOnly(valid)=%q, want 'the answer'", got)
-	}
-	// Non-envelope input falls back to the trimmed raw text.
-	if got := ExtractSurfaceOnly("  just text  "); got != "just text" {
-		t.Errorf("ExtractSurfaceOnly(plain)=%q, want 'just text'", got)
-	}
-}
-
 func TestExtractStringField(t *testing.T) {
 	raw := `{"reasoning_trace":"thinking about it","other":"x"}`
 	if got := extractStringField(raw, "reasoning_trace"); got != "thinking about it" {

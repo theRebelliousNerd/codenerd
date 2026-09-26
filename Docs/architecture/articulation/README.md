@@ -26,8 +26,7 @@ kernel context, and session state.
   (`prompt_assembler.go:367-519`) over a `PromptContext`
   (`prompt_assembler.go:32-42`). How it works: INTERNALS.md.
 - Kernel augmentation without an import cycle:
-  `GetKernelContext` (`kernel_context.go:20-31`) and
-  `PromptAssembler.BuildContextSection` (`kernel_context.go:35-59`).
+  `PromptAssembler.BuildContextSection` (`kernel_context.go`).
 - Cycle-breaking entry for perception: `NewPromptAssemblerAdapter`
   (`prompt_assembler_adapter.go:22-24`); map-form contexts convert via
   `mapToPromptContext` (`prompt_assembler_adapter.go:51-137`).

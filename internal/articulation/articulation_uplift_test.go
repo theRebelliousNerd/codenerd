@@ -49,25 +49,6 @@ func TestStreamParser_DecodesUnicodeEscapes(t *testing.T) {
 	}
 }
 
-// A multi-byte rune split across chunks emits whole or not at all: every
-// incremental return is valid UTF-8 (asserted by feed) and the whole
-// reassembles exactly.
-func TestStreamParser_HoldsSplitRune(t *testing.T) {
-	raw := "界日常"
-	var chunks []string
-	for i := 0; i < len(raw); i++ {
-		chunks = append(chunks, raw[i:i+1])
-	}
-	full := append([]string{`{"surface_response":"`}, append(chunks, `"}`)...)
-	out, p := feed(t, full)
-	if out != raw {
-		t.Errorf("streamed = %q, want %q", out, raw)
-	}
-	if !p.IsComplete() {
-		t.Error("parser should be complete after the closing quote")
-	}
-}
-
 // A non-string surface value releases the match instead of streaming some
 // later field's string under its name.
 func TestStreamParser_NonStringValueStreamsNothing(t *testing.T) {
@@ -215,5 +196,17 @@ func TestToCompilationContext_ToleratesPrefixedShardType(t *testing.T) {
 		if cc.ShardType != "/coder" {
 			t.Errorf("input %q -> ShardType %q, want /coder", in, cc.ShardType)
 		}
+	}
+}
+
+func TestStreamParser_HoldsSplitRune(t *testing.T) {
+	raw := "界日常"
+	var chunks []string
+	for i := 0; i < len(raw); i++ {
+		chunks = append(chunks, raw[i:i+1])
+	}
+	full := append([]string{`{"surface_response":"`}, append(chunks, `"}`)...)
+	if out, _ := feed(t, full); out != raw {
+		t.Errorf("streamed = %q, want %q", out, raw)
 	}
 }

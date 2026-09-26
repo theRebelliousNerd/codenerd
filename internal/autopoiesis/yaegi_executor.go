@@ -36,39 +36,6 @@ type YaegiExecutor struct {
 	allowedPackages map[string]bool
 }
 
-// NewYaegiExecutor creates a new Yaegi-based tool executor with the default
-// standalone allowlist.
-//
-// Prefer NewYaegiExecutorForPolicy inside the Ouroboros loop: this list is a
-// second, independent answer to "what may a generated tool import", and a tool
-// that passed the SafetyChecker could still be refused here (the old list had
-// no "context", which every tool the compiler accepts must import).
-func NewYaegiExecutor() *YaegiExecutor {
-	return NewYaegiExecutorForPolicy([]string{
-		"bytes",
-		"context",
-		"encoding/base64",
-		"encoding/json",
-		"errors",
-		"fmt",
-		"math",
-		"path",
-		"path/filepath",
-		"regexp",
-		"sort",
-		"strconv",
-		"strings",
-		"time",
-		// EXPLICITLY BLOCKED (unsafe packages):
-		// "os" - filesystem access
-		// "os/exec" - command execution
-		// "net" - network access
-		// "net/http" - HTTP client
-		// "syscall" - system calls
-		// "unsafe" - unsafe operations
-	})
-}
-
 // NewYaegiExecutorForPolicy builds an executor whose import allowlist is the
 // one the SafetyChecker already enforced, so the interpreter and the compiler
 // answer to a single policy instead of drifting apart.

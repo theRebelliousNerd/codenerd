@@ -175,31 +175,6 @@ func SkipDir(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
-// IsParsed is the one definition of "a file CodeDOM parses": a language it
-// models, at a workspace-relative path the walk does not skip. The structure
-// index, the element tools and the repository test that keeps raw-text code
-// access gone all read this predicate, so the three cannot disagree about
-// which files are in scope.
-func IsParsed(rel string) bool {
-	if LanguageOf(rel) == "" {
-		return false
-	}
-	rel = filepath.ToSlash(rel)
-	if filepath.IsAbs(filepath.FromSlash(rel)) || strings.HasPrefix(rel, "../") {
-		return false
-	}
-	dir := filepath.ToSlash(filepath.Dir(rel))
-	for seg := range strings.SplitSeq(dir, "/") {
-		if seg == "." || seg == "" {
-			continue
-		}
-		if SkipDir(seg) {
-			return false
-		}
-	}
-	return true
-}
-
 // Normalize returns src with CRLF and lone CR line endings rewritten to LF.
 // The model works on LF text; the edit verbs restore the file's own ending on
 // write.

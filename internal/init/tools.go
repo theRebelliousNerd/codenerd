@@ -342,47 +342,6 @@ func GetFrameworkTools(framework string) []ToolDefinition {
 	return tools
 }
 
-// GetDependencyTools returns tool definitions based on dependencies
-func GetDependencyTools(dependencies []string) []ToolDefinition {
-	tools := make([]ToolDefinition, 0)
-
-	for _, dep := range dependencies {
-		switch dep {
-		case "rod":
-			tools = append(tools, ToolDefinition{
-				Name:        "rod_download_browser",
-				Category:    "setup",
-				Description: "Download browser for Rod",
-				Command:     "go run github.com/go-rod/rod/lib/launcher/setup",
-				WorkingDir:  ".",
-				InputType:   "none",
-				OutputType:  "stdout",
-			})
-		case "docker":
-			tools = append(tools, ToolDefinition{
-				Name:        "docker_compose_up",
-				Category:    "docker",
-				Description: "Start Docker Compose services",
-				Command:     "docker-compose up -d",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			})
-			tools = append(tools, ToolDefinition{
-				Name:        "docker_compose_down",
-				Category:    "docker",
-				Description: "Stop Docker Compose services",
-				Command:     "docker-compose down",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			})
-		}
-	}
-
-	return tools
-}
-
 // GenerateToolsForProject generates all relevant tools for the project
 func GenerateToolsForProject(detectedTech []string) []ToolDefinition {
 	tools := make([]ToolDefinition, 0)

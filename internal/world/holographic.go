@@ -708,11 +708,6 @@ func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath s
 	return hc, nil
 }
 
-// buildGoContext builds package-level context for Go files.
-func (h *HolographicProvider) buildGoContext(ctx *HolographicContext, filePath string) error {
-	return h.buildGoContextWithContext(context.Background(), ctx, filePath)
-}
-
 // maxPackageFilesToParse caps how many sibling files one directory contributes
 // to a holographic context. A package with more files than this is already past
 // the point where listing its symbols helps the model, and parsing all of them
@@ -938,31 +933,6 @@ func narrowLocalRefs(p *packageParse) {
 	}
 }
 
-// extractGoSignatures parses one Go file directly into a HolographicContext.
-//
-// Kept as the single-file entry point for callers that hold a context rather
-// than a package parse; it is a thin adapter over parseGoFileInto so the two
-// paths cannot drift in what they extract.
-func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset *token.FileSet, filePath string) error {
-	p := &packageParse{
-		imports: make(map[string][]string, 1),
-		pkgName: make(map[string]string, 1),
-	}
-	if err := h.parseGoFileInto(p, fset, filePath); err != nil {
-		return err
-	}
-	ctx.PackageSignatures = append(ctx.PackageSignatures, p.signatures...)
-	ctx.PackageTypes = append(ctx.PackageTypes, p.types...)
-	ctx.PackageConstants = append(ctx.PackageConstants, p.constants...)
-	if ctx.PackageImports == nil {
-		ctx.PackageImports = make(map[string][]string, len(p.imports))
-	}
-	for k, v := range p.imports {
-		ctx.PackageImports[k] = v
-	}
-	return nil
-}
-
 // extractFuncSignature extracts a function's signature.
 func (h *HolographicProvider) extractFuncSignature(fset *token.FileSet, fn *ast.FuncDecl, fileName string) SymbolSignature {
 	sig := SymbolSignature{
@@ -1110,11 +1080,6 @@ func (h *HolographicProvider) analyzeArchitecture(ctx *HolographicContext, fileP
 	}
 }
 
-// queryRelationships queries the kernel for semantic relationships.
-func (h *HolographicProvider) queryRelationships(ctx *HolographicContext, filePath string) {
-	h.queryRelationshipsWithContext(context.Background(), ctx, filePath)
-}
-
 // queryRelationshipsWithContext queries the kernel with context support and graph edge caps.
 func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context, hc *HolographicContext, filePath string) {
 	if h.kernel == nil {
@@ -1210,11 +1175,6 @@ func (h *HolographicProvider) checkTestCoverage(ctx *HolographicContext, filePat
 	if _, err := os.Stat(testFile); err == nil {
 		ctx.HasTests = true
 	}
-}
-
-// buildBasicContext provides minimal context for non-Go files.
-func (h *HolographicProvider) buildBasicContext(ctx *HolographicContext, filePath string) {
-	h.buildBasicContextWithContext(context.Background(), ctx, filePath)
 }
 
 // buildBasicContextWithContext provides minimal context with cancellation support.

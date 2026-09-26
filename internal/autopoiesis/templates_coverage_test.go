@@ -147,20 +147,6 @@ func TestGetTestValue_WhenInt_ShouldReturn42(t *testing.T) {
 
 // --- extractJSONFromTemplate ---
 
-func TestExtractJSONFromTemplate_WhenWrapped_ShouldExtract(t *testing.T) {
-	got := extractJSONFromTemplate(`prefix {"key": "val"} suffix`)
-	if got != `{"key": "val"}` {
-		t.Errorf("extractJSONFromTemplate() = %q", got)
-	}
-}
-
-func TestExtractJSONFromTemplate_WhenNoJSON_ShouldReturnEmpty(t *testing.T) {
-	got := extractJSONFromTemplate("no json")
-	if got != "{}" {
-		t.Errorf("extractJSONFromTemplate() = %q, want '{}'", got)
-	}
-}
-
 // --- extractFunctionSignatures ---
 
 func TestExtractFunctionSignatures_WhenValidGo_ShouldExtract(t *testing.T) {

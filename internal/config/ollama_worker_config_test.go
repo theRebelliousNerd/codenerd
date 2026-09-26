@@ -34,24 +34,6 @@ func TestGetActiveProvider_Ollama(t *testing.T) {
 	}
 }
 
-func TestIsImageGenerationModel_NanoBanana2(t *testing.T) {
-	if !IsImageGenerationModel("gemini-3.1-flash-image") {
-		t.Fatal("expected Nano Banana 2 API id")
-	}
-	if !IsImageGenerationModel("gemini-3.1-flash-lite-image") {
-		t.Fatal("expected Nano Banana 2 Lite")
-	}
-	if IsImageGenerationModel("gemma4:12b") {
-		t.Fatal("ollama chat is not image gen")
-	}
-	if !IsImageShardType("image_generator") {
-		t.Fatal("image_generator shard type")
-	}
-	if IsImageShardType("coder") {
-		t.Fatal("coder is not image")
-	}
-}
-
 func TestGetImageLLMConfig_Defaults(t *testing.T) {
 	cfg := &UserConfig{}
 	img := cfg.GetImageLLMConfig()

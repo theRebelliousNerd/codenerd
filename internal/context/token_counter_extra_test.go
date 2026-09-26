@@ -57,22 +57,6 @@ func TestCountCompressedContext(t *testing.T) {
 	}
 }
 
-// TestEstimateCompressionRatio covers the zero-facts identity, the
-// incompressible case (compressed >= original), and a genuine reduction.
-func TestEstimateCompressionRatio(t *testing.T) {
-	if r := EstimateCompressionRatio(1000, 0); r != 1.0 {
-		t.Errorf("ratio with 0 facts=%v, want 1.0", r)
-	}
-	// 5 facts -> ~50 compressed tokens, but original is only 20: not compressible.
-	if r := EstimateCompressionRatio(20, 5); r != 1.0 {
-		t.Errorf("ratio when compressed>=original=%v, want 1.0", r)
-	}
-	// 1000 original / (10 facts * 10) = 10x reduction.
-	if r := EstimateCompressionRatio(1000, 10); r != 10.0 {
-		t.Errorf("ratio=%v, want 10.0", r)
-	}
-}
-
 // TestTruncateFact verifies long arguments are clipped to the display width and
 // the predicate/args are rendered in Datalog form.
 func TestTruncateFact(t *testing.T) {

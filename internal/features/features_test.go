@@ -241,17 +241,3 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 		}
 	})
 }
-
-// TestBoolPtrString covers the helper used by Summary.
-func TestBoolPtrString(t *testing.T) {
-	if got := boolPtrString(nil); got != "unset" {
-		t.Errorf("nil → unset, got %q", got)
-	}
-	tr, fa := true, false
-	if got := boolPtrString(&tr); got != "true" {
-		t.Errorf("true → true, got %q", got)
-	}
-	if got := boolPtrString(&fa); got != "false" {
-		t.Errorf("false → false, got %q", got)
-	}
-}

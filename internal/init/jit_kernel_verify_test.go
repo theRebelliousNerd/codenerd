@@ -117,3 +117,30 @@ func TestVerifyJITKernelLoaded_NilKernelFails(t *testing.T) {
 		t.Error("expected error for nil kernel, got nil")
 	}
 }
+
+// An expert phase that cannot use the JIT kernel still gets a prompt, but the
+// fallback is recorded for the init result instead of logged at debug; a
+// routine phase's fallback is not.
+func TestAssembleJITPrompt_ExpertFallbackIsReported(t *testing.T) {
+	cfg := DefaultInitConfig(t.TempDir())
+	cfg.LLMClient = &MockLLMClient{}
+	cfg.Interactive = false
+	init, err := NewInitializer(cfg)
+	if err != nil {
+		t.Fatalf("NewInitializer failed: %v", err)
+	}
+	defer init.Close()
+	live := init.kernel
+	init.kernel = nil // the regression the check exists for
+	defer func() { init.kernel = live }()
+
+	for _, phase := range []string{"analysis", "agents"} {
+		prompt, err := init.assembleJITPrompt(t.Context(), phase, "build the team", nil)
+		if err != nil || prompt != init.buildFallbackPrompt(phase, "build the team") {
+			t.Fatalf("phase %s: got %q, %v; want the static fallback", phase, prompt, err)
+		}
+	}
+	if got := init.snapshotLLMMetrics().StaticPromptPhases; len(got) != 1 || got[0] != "agents" {
+		t.Fatalf("StaticPromptPhases = %v, want [agents]", got)
+	}
+}

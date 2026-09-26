@@ -185,28 +185,3 @@ loop:
 	p.lastDetectionIndex = end
 	return out.String()
 }
-
-// GetFullBuffer returns everything fed so far: the input to the final
-// authoritative parse.
-func (p *StreamParser) GetFullBuffer() string {
-	return p.buffer.String()
-}
-
-// IsComplete reports whether the surface value's closing quote arrived.
-func (p *StreamParser) IsComplete() bool {
-	return p.completed
-}
-
-// Reset clears all state for reuse on a new stream.
-func (p *StreamParser) Reset() {
-	p.buffer.Reset()
-	p.markerFound = false
-	p.colonFound = false
-	p.inSurface = false
-	p.escape = false
-	p.completed = false
-	p.lastDetectionIndex = 0
-	p.depth = 0
-	p.inString = false
-	p.strEsc = false
-}

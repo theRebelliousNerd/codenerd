@@ -337,18 +337,3 @@ q(X) :- r(X), !s(X).
 		t.Fatalf("body predicates %v", got)
 	}
 }
-
-func TestIsParsed_OneClassification(t *testing.T) {
-	for path, want := range map[string]bool{
-		"internal/world/x.go":          true,
-		"internal/core/policy/a.mg":    true,
-		"internal/world/testdata/x.go": false,
-		".nerd/x.go":                   false,
-		"vendor/a/b.go":                false,
-		"README.md":                    false,
-	} {
-		if IsParsed(path) != want {
-			t.Errorf("IsParsed(%q) != %v", path, want)
-		}
-	}
-}

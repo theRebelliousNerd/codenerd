@@ -5,53 +5,6 @@ import (
 	"testing"
 )
 
-func TestIsExecutorSpecialist(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{"executor specialist (lowercase)", "mangleexpert", true},
-		{"executor specialist (mixed case)", " MangleExpert ", true},
-		{"observer specialist", "northstar", false},
-		{"advisor specialist", "securityauditor", false},
-		{"unknown specialist", "unknown", false},
-		{"empty string", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsExecutorSpecialist(tt.input)
-			if result != tt.expected {
-				t.Errorf("IsExecutorSpecialist(%q) = %v, want %v", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestIsStrategicAdvisor(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{"strategic advisor (lowercase)", "securityauditor", true},
-		{"strategic advisor (mixed case)", " SecurityAuditor ", true},
-		{"technical expert", "goexpert", false},
-		{"unknown specialist", "unknown", false},
-		{"empty string", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsStrategicAdvisor(tt.input)
-			if result != tt.expected {
-				t.Errorf("IsStrategicAdvisor(%q) = %v, want %v", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestShouldSpecialistExecuteTask(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -101,13 +54,6 @@ func TestShouldSpecialistExecuteTask(t *testing.T) {
 	}
 }
 
-func TestGetAllPatterns(t *testing.T) {
-	patterns := GetAllPatterns()
-	if len(patterns) == 0 {
-		t.Error("GetAllPatterns should return the core technology patterns")
-	}
-}
-
 func TestShouldIncludeGenericShard_UnknownVerbDefaultsTrue(t *testing.T) {
 	if !ShouldIncludeGenericShard("a-verb-with-no-config") {
 		t.Error("an unconfigured verb should default to including the generic shard")
@@ -139,23 +85,5 @@ func TestGetSpecialistClassification(t *testing.T) {
 				t.Errorf("GetSpecialistClassification(%q) got = %+v, want %+v", tt.nameInput, got, tt.expected)
 			}
 		})
-	}
-}
-
-func TestCanSpecialistExecute(t *testing.T) {
-	// goexpert is an executor and can execute; case/space-insensitive lookup.
-	if !CanSpecialistExecute("goexpert") {
-		t.Error("goexpert should be able to execute")
-	}
-	if !CanSpecialistExecute("  GoExpert  ") {
-		t.Error("specialist lookup should normalize case and whitespace")
-	}
-	// securityauditor is advisory and cannot execute.
-	if CanSpecialistExecute("securityauditor") {
-		t.Error("securityauditor is advisory and should not execute")
-	}
-	// Unknown specialists default to advisory (no execution).
-	if CanSpecialistExecute("totally-unknown") {
-		t.Error("unknown specialists should default to non-executing")
 	}
 }

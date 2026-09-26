@@ -24,7 +24,7 @@ import (
 // system shard the registry does not define.
 func TestSystemShardStartupModesAgreeWithTheKernel(t *testing.T) {
 	sm := coreshards.NewShardManager()
-	RegisterSystemShardProfiles(sm)
+	defineSystemShardProfiles(sm)
 
 	kernel, err := core.NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {

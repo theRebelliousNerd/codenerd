@@ -262,63 +262,6 @@ func ValidateAllAgentDBs(nerdDir string) (*ValidationSummary, error) {
 	return summary, nil
 }
 
-// PrintValidationSummary prints a human-readable validation summary.
-func PrintValidationSummary(summary *ValidationSummary) {
-	fmt.Println("\n" + strings.Repeat("─", 60))
-	fmt.Println("📋 KNOWLEDGE BASE VALIDATION")
-	fmt.Println(strings.Repeat("─", 60))
-
-	if summary.TotalDBs == 0 {
-		fmt.Println("No agent databases found.")
-		return
-	}
-
-	// Print individual results
-	for name, result := range summary.Results {
-		status := "✓"
-		if !result.Valid {
-			status = "✗"
-		}
-
-		hashStatus := ""
-		if result.TotalAtoms > 0 {
-			if result.MissingHashes == 0 {
-				hashStatus = fmt.Sprintf(" (hashes: %d/%d)", result.HashesPopulated, result.TotalAtoms)
-			} else {
-				hashStatus = fmt.Sprintf(" (hashes: %d/%d, %d missing)", result.HashesPopulated, result.TotalAtoms, result.MissingHashes)
-			}
-		}
-
-		fmt.Printf("%s %s: %d atoms, schema v%d%s\n",
-			status, name, result.TotalAtoms, result.SchemaVersion, hashStatus)
-
-		// Print warnings
-		for _, warn := range result.Warnings {
-			fmt.Printf("  ⚠ %s\n", warn)
-		}
-
-		// Print errors
-		for _, err := range result.Errors {
-			fmt.Printf("  ✗ %s\n", err)
-		}
-	}
-
-	// Print summary
-	fmt.Println(strings.Repeat("─", 60))
-	if summary.OverallValid {
-		fmt.Printf("✓ All %d databases structurally validated\n", summary.TotalDBs)
-	} else {
-		fmt.Printf("✗ %d/%d databases have issues\n", summary.InvalidDBs, summary.TotalDBs)
-	}
-
-	// Print backup notification
-	if len(summary.BackupFiles) > 0 {
-		fmt.Printf("\n📦 Found %d backup files from migration\n", len(summary.BackupFiles))
-		fmt.Println("   After verifying your data, you can clean them up with:")
-		fmt.Println("   nerd init --cleanup-backups")
-	}
-}
-
 // Helper functions
 
 func extractAgentName(dbPath string) string {

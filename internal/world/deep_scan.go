@@ -22,17 +22,6 @@ type DeepResult struct {
 	Duration     time.Duration
 }
 
-// EnsureDeepFacts ensures deep world facts for the given file paths.
-// Cached deep facts (depth="deep") are reused when fingerprints match.
-//
-// Paths are resolved against the process working directory. Callers that know
-// the workspace root should use EnsureDeepFactsInRoot: deep facts must carry the
-// same canonical file identity as the fast scan or code_defines/code_calls join
-// against no file_topology row at all.
-func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, workers int) (*DeepResult, error) {
-	return EnsureDeepFactsInRoot(ctx, "", paths, db, workers)
-}
-
 // EnsureDeepFactsInRoot ensures deep world facts for paths under root.
 // paths may be absolute or already canonical; both produce the same facts and
 // the same deep-cache keys.

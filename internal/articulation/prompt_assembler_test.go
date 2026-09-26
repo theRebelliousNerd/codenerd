@@ -379,27 +379,6 @@ func TestGetFallbackTemplate(t *testing.T) {
 	}
 }
 
-func TestAssembleQuickPrompt(t *testing.T) {
-	mk := newMockKernel()
-	mk.addFact("injectable_context", "quick-test", "Quick context")
-
-	result, err := AssembleQuickPrompt(context.Background(), mk, "quick-test", "coder")
-	if err != nil {
-		t.Fatalf("AssembleQuickPrompt() error = %v", err)
-	}
-
-	// Without an intent verb, the piggyback protocol atoms are included
-	// (they're mandatory and match any context), but coder identity atoms
-	// require an intent verb to match.
-	if !containsString(result, "PIGGYBACK ENVELOPE") && !containsString(result, "control_packet") {
-		t.Error("AssembleQuickPrompt() missing baseline prompt content")
-	}
-
-	if !containsString(result, "Quick context") {
-		t.Error("AssembleQuickPrompt() missing injectable context")
-	}
-}
-
 func TestPromptContextBuilders(t *testing.T) {
 	pc := &PromptContext{
 		ShardID:   "test-shard",

@@ -118,14 +118,3 @@ func TestTieredContextFacts_KeywordHitsOrdered(t *testing.T) {
 		}
 	}
 }
-
-func TestGetTopFiles_TiesBreakByPath(t *testing.T) {
-	tc := &TieredContext{Files: []ContextFile{
-		{FilePath: "z.go", RelevanceScore: 0.5},
-		{FilePath: "a.go", RelevanceScore: 0.5},
-	}}
-	top := tc.GetTopFiles(1)
-	if len(top) != 1 || top[0].FilePath != "a.go" {
-		t.Errorf("top-1 = %v, want [a.go]", top)
-	}
-}

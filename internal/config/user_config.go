@@ -763,25 +763,6 @@ type ImageLLMConfig struct {
 // an alias target, not a default: image.model must be set.
 const NanoBanana2ImageModel = "gemini-3.1-flash-image"
 
-// IsImageGenerationModel reports whether model is a Gemini image / Nano Banana model.
-func IsImageGenerationModel(model string) bool {
-	m := strings.ToLower(strings.TrimSpace(model))
-	switch {
-	case m == "":
-		return false
-	case strings.Contains(m, "flash-image"):
-		return true
-	case strings.Contains(m, "flash-lite-image"):
-		return true
-	case strings.Contains(m, "image-preview") && strings.Contains(m, "gemini"):
-		return true
-	case m == "nano-banana" || m == "nano-banana-2" || m == "nano_banana" || m == "nano_banana_2":
-		return true
-	default:
-		return false
-	}
-}
-
 // IsImageShardType reports shard type names reserved for image generation.
 func IsImageShardType(typeName string) bool {
 	t := strings.ToLower(strings.TrimSpace(typeName))

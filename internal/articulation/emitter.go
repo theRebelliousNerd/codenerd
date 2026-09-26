@@ -901,28 +901,6 @@ func ApplyConstitutionalOverride(envelope *PiggybackEnvelope, blocked []string, 
 // UTILITY FUNCTIONS
 // =============================================================================
 
-// ExtractSurfaceOnly extracts just the surface response, ignoring control packet.
-// Useful for display purposes when only the user-facing text is needed.
-func ExtractSurfaceOnly(rawResponse string) string {
-	timer := logging.StartTimer(logging.CategoryArticulation, "ExtractSurfaceOnly")
-	defer timer.Stop()
-
-	logging.ArticulationDebug("ExtractSurfaceOnly: extracting surface from %d bytes", len(rawResponse))
-
-	processor := NewResponseProcessor()
-	processor.RequireValidJSON = false
-
-	result, err := processor.Process(rawResponse)
-	if err != nil {
-		logging.ArticulationDebug("ExtractSurfaceOnly: processing failed, returning raw response")
-		return strings.TrimSpace(rawResponse)
-	}
-
-	logging.ArticulationDebug("ExtractSurfaceOnly: extracted surface (length=%d, method=%s)",
-		len(result.Surface), result.ParseMethod)
-	return result.Surface
-}
-
 // HasSelfCorrection checks if the response indicates self-correction was triggered.
 func HasSelfCorrection(envelope PiggybackEnvelope) bool {
 	triggered := envelope.Control.SelfCorrection != nil && envelope.Control.SelfCorrection.Triggered
@@ -1084,13 +1062,6 @@ func processLLMResponse(name, rawResponse string, logFallbackAsError bool) *Proc
 	}
 
 	return processed
-}
-
-// MustExtractSurface extracts only the surface response, returning raw on failure.
-// Use this when you only need the user-facing text and don't care about control.
-func MustExtractSurface(rawResponse string) string {
-	processed := ProcessLLMResponse(rawResponse)
-	return processed.Surface
 }
 
 // shellCheckedText returns the part of a mangle update the emitter's

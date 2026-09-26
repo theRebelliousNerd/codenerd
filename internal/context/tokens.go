@@ -434,16 +434,3 @@ func (tb *TokenBudget) SetUsage(core, atoms, history, recent, working int) {
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-// EstimateCompressionRatio estimates the compression ratio achievable.
-func EstimateCompressionRatio(originalTokens, factsCount int) float64 {
-	if factsCount == 0 {
-		return 1.0
-	}
-	// Estimate: each fact compresses to ~10 tokens average
-	compressedTokens := factsCount * 10
-	if compressedTokens >= originalTokens {
-		return 1.0
-	}
-	return float64(originalTokens) / float64(compressedTokens)
-}

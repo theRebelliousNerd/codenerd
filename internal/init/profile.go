@@ -747,22 +747,6 @@ func LoadProjectProfile(workspace string) (*ProjectProfile, error) {
 	return &profile, nil
 }
 
-// LoadPreferences loads user preferences from .nerd/preferences.json
-func LoadPreferences(workspace string) (*UserPreferences, error) {
-	path := filepath.Join(workspace, ".nerd", "preferences.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var prefs UserPreferences
-	if err := json.Unmarshal(data, &prefs); err != nil {
-		return nil, err
-	}
-
-	return &prefs, nil
-}
-
 // ListSessionHistories returns all available session histories.
 func ListSessionHistories(workspace string) ([]string, error) {
 	sessionsDir := filepath.Join(workspace, ".nerd", "sessions")
@@ -952,14 +936,6 @@ func generateProjectID(workspace string) string {
 
 func generateSessionID() string {
 	return fmt.Sprintf("sess_%d", time.Now().UnixNano())
-}
-
-func cleanNameConstant(s string) string {
-	// Remove leading "/" from Mangle name constants
-	if len(s) > 0 && s[0] == '/' {
-		return s[1:]
-	}
-	return s
 }
 
 // sanitizeForMangle converts a string to a valid Mangle name constant.

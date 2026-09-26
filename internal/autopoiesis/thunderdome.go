@@ -83,11 +83,6 @@ type BattleResult struct {
 	FatalAttack  *AttackVector // The attack that killed the tool (if any)
 }
 
-// NewThunderdome creates a new Thunderdome arena.
-func NewThunderdome() *Thunderdome {
-	return NewThunderdomeWithConfig(DefaultThunderdomeConfig())
-}
-
 // NewThunderdomeWithConfig creates a new Thunderdome with custom configuration.
 func NewThunderdomeWithConfig(config ThunderdomeConfig) *Thunderdome {
 	logging.Autopoiesis("Initializing Thunderdome: timeout=%v, maxMemory=%dMB, parallel=%d",
@@ -251,14 +246,6 @@ go 1.21
 
 	logging.AutopoiesisDebug("Arena binary compiled successfully")
 	return arenaDir, binaryPath, nil
-}
-
-// generateTestHarness creates Go test code that wraps the tool for attack execution.
-// FIX: Now accepts entryPoint parameter to actually call the tool's function with attack input.
-// This fixes the "Phantom Punch" bug where attack inputs were being discarded.
-// NOTE: Verified "Phantom Punch" bug fix (see thunderdome_harness_test.go).
-func (t *Thunderdome) generateTestHarness(_ *GeneratedTool, entryPoint string) string {
-	return t.generateTestHarnessWithCall(nil, fmt.Sprintf("_, toolErr = %s(ctx, input)", entryPoint))
 }
 
 // generateTestHarnessWithCall creates Go test code with an explicit invocation statement.

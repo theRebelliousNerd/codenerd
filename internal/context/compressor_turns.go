@@ -10,7 +10,6 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
-	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
 
@@ -395,47 +394,6 @@ func (c *Compressor) compress(ctx context.Context) error {
 	return nil
 }
 
-// generateSummary uses LLM to create a compressed summary.
-func (c *Compressor) generateSummary(ctx context.Context, turns []CompressedTurn) (string, error) {
-	if c.llmClient == nil {
-		logging.ContextDebug("No LLM client, using simple summary")
-		return c.generateSimpleSummary(turns), nil
-	}
-
-	// Build prompt
-	var sb strings.Builder
-	sb.WriteString("Summarize these conversation turns concisely (max 100 words). Focus on:\n")
-	sb.WriteString("1. User intents and goals\n")
-	sb.WriteString("2. Actions taken\n")
-	sb.WriteString("3. Results and state changes\n\n")
-
-	for _, turn := range turns {
-		sb.WriteString(fmt.Sprintf("Turn %d (%s):\n", turn.TurnNumber, turn.Role))
-		if turn.IntentAtom != nil {
-			sb.WriteString(fmt.Sprintf("  Intent: %s\n", turn.IntentAtom.String()))
-		}
-		for _, atom := range turn.ResultAtoms {
-			sb.WriteString(fmt.Sprintf("  Result: %s\n", atom.String()))
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("\nSummary:")
-
-	logging.ContextDebug("Generating LLM summary for %d turns", len(turns))
-
-	// Set system context for trace attribution (routes through shard infrastructure)
-	sysCtx := perception.NewSystemLLMContext(c.llmClient, "compressor", "context-compression")
-	defer sysCtx.Clear()
-
-	resp, err := sysCtx.Complete(ctx, sb.String())
-	if err != nil {
-		return "", err
-	}
-
-	return strings.TrimSpace(resp), nil
-}
-
 // generateObservationMaskedSummary builds the segment summary under the
 // kernel's C3 masking decision (masked = should_mask_observation(TurnID)).
 //
@@ -490,25 +448,6 @@ func (c *Compressor) generateObservationMaskedSummary(turns []CompressedTurn, ma
 		logging.Context("C3 observation masking applied to %d/%d compressed turns", maskedCount, len(turns))
 	}
 	return sb.String(), maskedCount
-}
-
-// generateSimpleSummary creates a basic summary without LLM.
-func (c *Compressor) generateSimpleSummary(turns []CompressedTurn) string {
-	if len(turns) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# Compressed History (Turns %d-%d)\n", turns[0].TurnNumber, turns[len(turns)-1].TurnNumber))
-
-	for _, turn := range turns {
-		if turn.IntentAtom != nil {
-			sb.WriteString(turn.IntentAtom.String())
-			sb.WriteString("\n")
-		}
-		writeCappedResultAtoms(&sb, turn)
-	}
-
-	return sb.String()
 }
 
 // maxSummaryResultAtoms is how many of a turn's result atoms a compressed
