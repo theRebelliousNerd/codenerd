@@ -2,8 +2,10 @@ package session
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"codenerd/internal/core"
@@ -99,6 +101,36 @@ func TestAssertTurnEvidence_NamesEveryWrittenPathWithItsExtension(t *testing.T) 
 	want := []string{"Docs/Guide.MD .md", "internal/core/defaults/policy/x.mg .mg"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("turn_written = %v, want %v", got, want)
+	}
+}
+
+// A write under a path the workspace's nerd.md declares as docs is marked
+// turn_doc_write, which is how the corpus tells a docs corpus.toml from a
+// config file of the same extension; a write outside it is not marked.
+func TestAssertTurnEvidence_MarksWritesUnderADeclaredDocsPath(t *testing.T) {
+	root := t.TempDir()
+	nerdmd := "---\nschema: nerd/v1\nproject: probe\nlanguage: go\ndocs:\n  - Docs\n---\n"
+	if err := os.WriteFile(filepath.Join(root, "nerd.md"), []byte(nerdmd), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kernel := &MockKernel{}
+	e := NewExecutor(kernel, &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	e.SetConfig(ExecutorConfig{WorkspaceRoot: root})
+	turn := types.MangleAtom("/turn_doc_probe")
+	e.assertTurnEvidence(turn, "/fix", &ExecutionResult{
+		SuccessfulWriteTools: 2,
+		WrittenPaths: []string{
+			filepath.Join(root, "Docs", "architecture", "corpus.toml"),
+			filepath.Join(root, "config", "corpus.toml"),
+		},
+	})
+
+	facts, err := kernel.Query("turn_doc_write")
+	if err != nil {
+		t.Fatalf("query turn_doc_write: %v", err)
+	}
+	if len(facts) != 1 || !strings.Contains(filepath.ToSlash(types.ExtractString(facts[0].Args[1])), "Docs/architecture/corpus.toml") {
+		t.Fatalf("turn_doc_write = %v, want only the write under Docs", facts)
 	}
 }
 

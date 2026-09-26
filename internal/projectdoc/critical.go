@@ -18,17 +18,28 @@ func CriticalPaths(workspace string) ([]string, error) {
 	return append([]string(nil), doc.Spec.Critical...), nil
 }
 
-// MatchCritical reports which entry of critical covers p. An entry is a
-// workspace-relative directory or file ("internal/core") that covers
-// everything under it, matched on whole path segments so "internal/corex"
-// is not "internal/core"; or a glob ("*.mg") matched against the base name
-// and the whole path. Matching ignores case and separator style: a safety
-// list a different spelling walks past is not a safety list. p may be
-// absolute; a directory entry matches wherever its segments appear.
-func MatchCritical(critical []string, p string) (string, bool) {
+// DocPaths returns the docs: list of the workspace's root nerd.md: the paths
+// whose files are documentation. A workspace without nerd.md declares none.
+func DocPaths(workspace string) ([]string, error) {
+	doc, err := Load(workspace)
+	if err != nil || doc == nil {
+		return nil, err
+	}
+	return append([]string(nil), doc.Spec.Docs...), nil
+}
+
+// MatchPaths reports which entry of a nerd.md path list (critical:, docs:)
+// covers p. An entry is a workspace-relative directory or file
+// ("internal/core") that covers everything under it, matched on whole path
+// segments so "internal/corex" is not "internal/core"; or a glob ("*.mg")
+// matched against the base name and the whole path. Matching ignores case and
+// separator style: a safety list a different spelling walks past is not a
+// safety list. p may be absolute; a directory entry matches wherever its
+// segments appear.
+func MatchPaths(entries []string, p string) (string, bool) {
 	norm := "/" + strings.Trim(path.Clean(slashed(p)), "/") + "/"
 	base := strings.ToLower(path.Base(strings.TrimSuffix(norm, "/")))
-	for _, entry := range critical {
+	for _, entry := range entries {
 		e := strings.Trim(slashed(strings.TrimSpace(entry)), "/")
 		if e == "" {
 			continue

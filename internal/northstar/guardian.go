@@ -965,6 +965,6 @@ func matchesHighImpactPath(pattern, path string) bool {
 
 	// A nerd.md critical: entry ("internal/core") covers everything under it,
 	// on whole path segments.
-	_, ok := projectdoc.MatchCritical([]string{pattern}, path)
+	_, ok := projectdoc.MatchPaths([]string{pattern}, path)
 	return ok
 }

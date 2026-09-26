@@ -50,6 +50,11 @@ gates:
   - id: deadcode-budget
     kind: audit
     run: bash ./scripts/deadcode-budget.sh
+docs:
+  # The paths whose files are documentation: a write under one that is not
+  # source code (the corpus.toml beside a docs corpus) owes what a document
+  # owes -- no build, no test run. Source code keeps its class anywhere.
+  - Docs
 critical:
   # The paths whose loss or breakage is catastrophic for codeNERD: the risk
   # gate protects them, the Dreamer treats deleting them as catastrophic, and

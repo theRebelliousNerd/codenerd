@@ -799,6 +799,11 @@ type ExecutionResult struct {
 	// asserted for this turn (assertTurnWrites).
 	writtenAsserted map[string]bool
 
+	// docs is the workspace's nerd.md docs: list, read once per turn
+	// (docPaths) and set when docsLoaded is.
+	docs       []string
+	docsLoaded bool
+
 	// verbAsserted is set once turn_verb is asserted for this turn
 	// (assertTurnVerb).
 	verbAsserted bool
@@ -2480,23 +2485,45 @@ func (r *ExecutionResult) turnAtom() types.MangleAtom {
 }
 
 // assertTurnWrites asserts turn_written for each path the turn has written
-// and not yet asserted, with its lower-case extension: the corpus decides from
-// the extension what evidence the write owes (turn_owes_gate). A turn only
-// adds writes, so a fact asserted before a forcing round is still true at the
-// closure.
+// and not yet asserted, with its lower-case extension, and turn_doc_write for
+// each that lies under a path the workspace's nerd.md declares as docs: the
+// corpus decides from those what evidence the write owes (turn_owes_gate). A
+// turn only adds writes, so a fact asserted before a forcing round is still
+// true at the closure.
 func (e *Executor) assertTurnWrites(turn types.MangleAtom, result *ExecutionResult) {
 	if result.writtenAsserted == nil {
 		result.writtenAsserted = make(map[string]bool, len(result.WrittenPaths))
 	}
+	docs := e.docPaths(result)
 	for _, path := range result.WrittenPaths {
 		if result.writtenAsserted[path] {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(path))
+		if _, ok := projectdoc.MatchPaths(docs, path); ok {
+			if !e.assertTurnFact(types.Fact{Predicate: "turn_doc_write", Args: []any{turn, types.MangleString(path)}}) {
+				continue
+			}
+		}
 		if e.assertTurnFact(types.Fact{Predicate: "turn_written", Args: []any{turn, types.MangleString(path), types.MangleString(ext)}}) {
 			result.writtenAsserted[path] = true
 		}
 	}
+}
+
+// docPaths is the workspace's nerd.md docs: list, read once per turn. A
+// nerd.md that does not parse declares no docs, and the writes owe what any
+// file owes: the cautious side.
+func (e *Executor) docPaths(result *ExecutionResult) []string {
+	if !result.docsLoaded {
+		result.docsLoaded = true
+		docs, err := projectdoc.DocPaths(e.workspaceForVerification())
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn("nerd.md docs: list unreadable; every write owes what its extension owes: %v", err)
+		}
+		result.docs = docs
+	}
+	return result.docs
 }
 
 // assertTurnVerb asserts turn_verb, the intent the turn serves, once: what

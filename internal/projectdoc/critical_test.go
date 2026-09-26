@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestMatchCritical(t *testing.T) {
+func TestMatchPaths(t *testing.T) {
 	critical := []string{"internal/core", "cmd/nerd/", "*.mg"}
 	for p, want := range map[string]string{
 		"internal/core/kernel.go":                  "internal/core",
@@ -20,9 +20,9 @@ func TestMatchCritical(t *testing.T) {
 		"internal/session/executor.go":             "",
 		"docs/internal/core-notes.md":              "",
 	} {
-		got, ok := MatchCritical(critical, p)
+		got, ok := MatchPaths(critical, p)
 		if got != want || ok != (want != "") {
-			t.Errorf("MatchCritical(%q) = %q, %v; want %q", p, got, ok, want)
+			t.Errorf("MatchPaths(%q) = %q, %v; want %q", p, got, ok, want)
 		}
 	}
 }

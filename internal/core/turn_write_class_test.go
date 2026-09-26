@@ -23,6 +23,7 @@ func TestCorpus_AWriteOwesTheEvidenceItsClassOwes(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		written     []file
+		underDocs   []string // written paths under a path nerd.md declares as docs
 		gates       []gate
 		wantDone    bool
 		wantMissing []string
@@ -46,6 +47,14 @@ func TestCorpus_AWriteOwesTheEvidenceItsClassOwes(t *testing.T) {
 			wantMissing: []string{"/test_run_not_green"}},
 		{name: "a document beside code owes what the code owes", written: []file{{"Docs/guide.md", ".md"}, {"app/main.py", ".py"}},
 			wantMissing: []string{"/test_run_not_green"}},
+		{name: "a data file under a docs path is documentation", written: []file{{"Docs/architecture/features/corpus.toml", ".toml"}},
+			underDocs: []string{"Docs/architecture/features/corpus.toml"}, wantDone: true},
+		{name: "the same file outside a docs path owes a test run", written: []file{{"config/corpus.toml", ".toml"}},
+			wantMissing: []string{"/test_run_not_green"}},
+		{name: "Go under a docs path still owes the Go gates", written: []file{{"Docs/examples/main.go", ".go"}},
+			underDocs: []string{"Docs/examples/main.go"}, wantMissing: []string{"/build_not_green", "/tests_not_green"}},
+		{name: "a docs-path data file beside code owes what the code owes", written: []file{{"Docs/corpus.toml", ".toml"}, {"app/main.py", ".py"}},
+			underDocs: []string{"Docs/corpus.toml"}, wantMissing: []string{"/test_run_not_green"}},
 		{name: "a green test run does not stand in for the Go gates", written: []file{{"internal/a/a.go", ".go"}},
 			gates: []gate{{"/test_run", passing}}, wantMissing: []string{"/build_not_green", "/tests_not_green"}},
 		{name: "a gate that recorded both verdicts is red", written: []file{{"app/main.py", ".py"}},
@@ -62,6 +71,9 @@ func TestCorpus_AWriteOwesTheEvidenceItsClassOwes(t *testing.T) {
 			}}}
 			for _, f := range tc.written {
 				facts = append(facts, types.Fact{Predicate: "turn_written", Args: []any{turn, types.MangleString(f.path), types.MangleString(f.ext)}})
+			}
+			for _, p := range tc.underDocs {
+				facts = append(facts, types.Fact{Predicate: "turn_doc_write", Args: []any{turn, types.MangleString(p)}})
 			}
 			for _, g := range tc.gates {
 				facts = append(facts, types.Fact{Predicate: "turn_gate", Args: []any{turn, types.MangleAtom(g.name), g.verdict}})

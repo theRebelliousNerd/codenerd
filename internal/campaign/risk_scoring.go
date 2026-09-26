@@ -1027,7 +1027,7 @@ func detectProtectedCampaignRoots(critical, paths []string) []string {
 		for _, root := range critical {
 			if pathMatchesRiskRoot(path, root) {
 				matched[root] = struct{}{}
-			} else if _, ok := projectdoc.MatchCritical([]string{root}, path); ok {
+			} else if _, ok := projectdoc.MatchPaths([]string{root}, path); ok {
 				// A glob entry ("*.mg") names files, not a directory.
 				matched[root] = struct{}{}
 			}

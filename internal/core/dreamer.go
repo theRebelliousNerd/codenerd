@@ -684,7 +684,7 @@ func (d *Dreamer) criticalPrefix(path string) string {
 	if d == nil {
 		return ""
 	}
-	prefix, _ := projectdoc.MatchCritical(d.critical, path)
+	prefix, _ := projectdoc.MatchPaths(d.critical, path)
 	return prefix
 }
 

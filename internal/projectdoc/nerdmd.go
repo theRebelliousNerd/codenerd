@@ -117,6 +117,14 @@ type Spec struct {
 	// them. It replaces lists that used to be codeNERD's own packages written
 	// into Go. Optional, added without a schema bump (see Northstar).
 	Critical []string `yaml:"critical,omitempty"`
+
+	// Docs lists workspace-relative paths whose files are documentation: a
+	// write under one that is not source code (a corpus.toml beside the
+	// Markdown it indexes) owes what a document owes -- no build and no test
+	// run -- instead of what an unknown file owes. Source code stays source
+	// code wherever it sits. Optional, added without a schema bump (see
+	// Northstar).
+	Docs []string `yaml:"docs,omitempty"`
 }
 
 // GateSpec declares one project check.

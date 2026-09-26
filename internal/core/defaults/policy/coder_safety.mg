@@ -159,6 +159,9 @@ turn_vet_red(Turn) :- turn_gate(Turn, /vet, /failing).
 # whose path was not recorded -- owes both Go gates: the cautious side, as
 # before.
 Decl turn_written(Turn, Path, Ext) bound [/name, /string, /string].
+# turn_doc_write: the written path lies under a path the workspace's nerd.md
+# declares as docs (the executor measures it; assertTurnWrites).
+Decl turn_doc_write(Turn, Path) bound [/name, /string].
 Decl write_class(Ext, Class) bound [/string, /name].
 Decl known_write_ext(Ext) bound [/string].
 Decl has_turn_written(Turn) bound [/name].
@@ -178,7 +181,16 @@ known_write_ext(Ext) :- write_class(Ext, _).
 
 has_turn_written(Turn) :- turn_written(Turn, _, _).
 turn_write_class(Turn, Class) :- turn_written(Turn, _, Ext), write_class(Ext, Class).
-turn_write_class(Turn, /other) :- turn_written(Turn, _, Ext), !known_write_ext(Ext).
+turn_write_class(Turn, /other) :- turn_written(Turn, Path, Ext), !known_write_ext(Ext), !turn_doc_write(Turn, Path).
+# A file of no known class under a declared docs path is documentation: the
+# corpus.toml that indexes a docs directory owes what its Markdown owes. Until
+# 2026-09-26 it was /other and owed a passing `go test ./...`: on campaign
+# 7b853890 a remediation that fixed four documents and that corpus.toml ran the
+# whole Go suite, reported that the suite cannot verify prose, and the
+# admission audit read that as unfinished work -- its correct edits were rolled
+# back. Source code keeps its class wherever it sits (a .go file under docs/
+# still compiles into the module).
+turn_write_class(Turn, /doc) :- turn_written(Turn, Path, Ext), !known_write_ext(Ext), turn_doc_write(Turn, Path).
 
 turn_owes_gate(Turn, /build) :- turn_write_class(Turn, /go).
 turn_owes_gate(Turn, /test) :- turn_write_class(Turn, /go).
