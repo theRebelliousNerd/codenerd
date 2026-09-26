@@ -24,9 +24,13 @@ import (
 //   - Otherwise the campaign returns to StatusActive with BlockReason
 //     cleared, ResumeCount incremented, and lastError cleared.
 //
-// Locking follows SetCampaign: the whole transition holds o.mu. Kernel facts
-// are deliberately not touched here; the next Run reloads campaign facts via
-// SetCampaign/LoadCampaign before the execution loop queries them.
+// Locking follows SetCampaign: the whole transition holds o.mu. The resumed
+// state is synced into the kernel before returning: the kernel derives what
+// blocks a campaign from its facts, and Run does not reload them. Until
+// 2026-09-26 it said the next Run would, so a re-armed phase stayed
+// /unverified in the kernel, campaign_blocked(/phase_unverified) derived on
+// the first loop, and a campaign blocked on an unverified phase could never be
+// resumed (campaign 7b853890).
 func (o *Orchestrator) PrepareResume() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -43,12 +47,12 @@ func (o *Orchestrator) PrepareResume() error {
 		return fmt.Errorf("no campaign policy: campaign.max_task_attempts is %d", maxAttempts)
 	}
 
-	resetResumeTasks(o.campaign.Phases, maxAttempts)
-	for _, id := range rearmUnverifiedPhases(o.campaign.Phases) {
-		// The fresh budget is the kernel's too: phase_ckpt_failures counts
-		// the rows, and an old run left there would close the phase early.
-		o.syncCheckpointFailures(id, 0)
+	previous, err := cloneCampaign(o.campaign)
+	if err != nil {
+		return fmt.Errorf("resume: %w", err)
 	}
+	resetResumeTasks(o.campaign.Phases, maxAttempts)
+	rearmed := rearmUnverifiedPhases(o.campaign.Phases)
 
 	target := findResumeTargetPhase(o.campaign.Phases)
 	if target != nil && countResumableTasks(target) == 0 {
@@ -59,6 +63,18 @@ func (o *Orchestrator) PrepareResume() error {
 	o.campaign.BlockReason = ""
 	o.campaign.ResumeCount++
 	o.lastError = nil
+
+	if o.kernel == nil {
+		return nil
+	}
+	if err := syncCampaignFacts(o.kernel, previous, o.campaign, ""); err != nil {
+		return fmt.Errorf("resume: the kernel was not given the resumed campaign: %w", err)
+	}
+	for _, id := range rearmed {
+		// The fresh budget is the kernel's too: phase_ckpt_failures counts
+		// the rows, and an old run left there would close the phase early.
+		o.syncCheckpointFailures(id, 0)
+	}
 	return nil
 }
 

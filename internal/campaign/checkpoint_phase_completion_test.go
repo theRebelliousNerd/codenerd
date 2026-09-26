@@ -288,6 +288,31 @@ func TestPrepareResume_ReArmsAnUnverifiedPhase(t *testing.T) {
 	}
 }
 
+// A resume must reach the kernel: it derives what blocks a campaign from its
+// facts, and Run does not reload them. PrepareResume re-armed the phase in Go
+// only, the kernel still held it /unverified, and the resumed campaign blocked
+// on /phase_unverified before any work (campaign 7b853890, 2026-09-26).
+func TestPrepareResume_TheKernelNoLongerBlocksARearmedPhase(t *testing.T) {
+	orch, _ := newCheckpointRegressionOrchestrator(t, "FAIL: still broken")
+	exhaustCheckpoints(t, orch)
+	orch.campaign.Status = StatusFailed
+	orch.campaign.BlockReason = "/phase_unverified"
+	if got := orch.getCampaignBlockReason(); got != "/phase_unverified" {
+		t.Fatalf("precondition: the kernel's block reason is %q, want /phase_unverified", got)
+	}
+
+	if err := orch.PrepareResume(); err != nil {
+		t.Fatalf("PrepareResume: %v", err)
+	}
+	if got := orch.getCampaignBlockReason(); got != "" {
+		t.Fatalf("after resume the kernel still blocks the campaign: %q", got)
+	}
+	rows := phaseStatusRows(t, orch)
+	if !slices.Contains(rows, "/in_progress") || slices.Contains(rows, "/unverified") {
+		t.Fatalf("kernel campaign_phase statuses after resume = %v, want /in_progress", rows)
+	}
+}
+
 // How many failed checkpoints close a phase is the user's
 // (campaign.max_checkpoint_attempts), read by the policy: with 1, the first
 // failure closes it. A Go const of 3 decided this while the config key was
