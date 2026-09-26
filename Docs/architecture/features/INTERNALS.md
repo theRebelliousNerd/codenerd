@@ -1,3 +1,12 @@
+---
+doc-class: shipped
+subsystem: features
+implementation-status: shipped
+last-verified: 2026-09-26
+verified-against: 34634770970153e78c1e250fdab7abd888dcce6f
+supersedes: []
+---
+
 # features: internals
 
 Verified 2026-09-21 against commit `34634770970153e78c1e250fdab7abd888dcce6f` (`main`). Read from `internal/features/features.go`,

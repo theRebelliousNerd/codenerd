@@ -2,7 +2,7 @@
 doc-class: governance
 subsystem: features
 implementation-status: not-applicable
-last-verified: 2026-09-24
+last-verified: 2026-09-26
 verified-against: 34634770970153e78c1e250fdab7abd888dcce6f
 supersedes: []
 ---
@@ -44,8 +44,8 @@ queue. Do not read a hypothesized file as evidence that something is built.
 
 - `02-CURRENT-STATE.md` (`doc-class: shipped`, `implementation-status: shipped`) — every claim cited to code read this pass.
 - `IMPLEMENTED_SPEC.md` (`doc-class: shipped`, `implementation-status: shipped`) — authoritative. On any disagreement with another file about what `internal/features` does today, this file wins (`IMPLEMENTED_SPEC.md:12-15`).
-- `WIRING-AND-NOT-BUILT.md` — shipped-layer content: wired-and-reachable vs exists-but-uncalled, with caller evidence. Note: carries a `Verified 2026-09-21 against commit 3463477…` line (`WIRING-AND-NOT-BUILT.md:3-9`) instead of front-matter.
-- `INTERNALS.md` — shipped-layer explainer: how a flag resolves. Note: carries a `Verified 2026-09-21 against commit 3463477…` line (`INTERNALS.md:3-5`) instead of front-matter.
+- `WIRING-AND-NOT-BUILT.md` — shipped-layer content: wired-and-reachable vs exists-but-uncalled, with caller evidence. Note: carries a `Verified 2026-09-21 against commit 3463477…` line (`WIRING-AND-NOT-BUILT.md:3-9`) instead of front-matter — DEFECT per `Docs/journeys/09-architecture-doc-standard.md:25-36`: every markdown requires front-matter; must gain front-matter, not excused here.
+- `INTERNALS.md` — shipped-layer explainer: how a flag resolves. Note: carries a `Verified 2026-09-21 against commit 3463477…` line (`INTERNALS.md:3-5`) instead of front-matter — DEFECT per `Docs/journeys/09-architecture-doc-standard.md:25-36`: every markdown requires front-matter; must gain front-matter, not excused here.
 
 ### Hypothesized (plan — describes what is not built yet)
 
@@ -57,5 +57,5 @@ queue. Do not read a hypothesized file as evidence that something is built.
 ### Governance (process — neither shipped nor plan)
 
 - `README.md`, `00-INDEX.md`, `04-PRINCIPLES-AND-CONSTRAINTS.md`, `RISK-REGISTER-AND-DECISION-LOG.md`, `OPEN-QUESTIONS.md`, `TODO.md` (`doc-class: governance`, `implementation-status: not-applicable`).
-- `adr/ADR-001-features-scope.md` (`doc-class: governance`, `implementation-status: accepted-not-implemented`) — all five subjects never built; status derived from witnesses, never asserted.
-- `corpus.toml` — machine pointer (`entrypoint = "README.md"`). Note: its `implemented_spec = "README.md"` entry (`corpus.toml:6`) predates the shipped record; the authoritative record per the standard is `IMPLEMENTED_SPEC.md`.
+- `adr/ADR-001-features-scope.md` — scope-gate decisions D1-D5 (`GAP-FEAT-01..05`) with witnesses; history (true 2026-09-21 at `verified-against 3463477…`): the ADR read `doc-class: governance`, `implementation-status: accepted-not-implemented` with witnesses not resolving — preserved, not deleted. Current truth 2026-09-26, supersedes that reading for D1/D3/D5: lane B wired D1/D3/D5 since (`internal/system/factory.go:1223` provenance reader, `cmd/nerd/cmd_features.go:41` schema-keys reader, `internal/config/user_config.go:612` misconfiguration warn); do not cite the 2026-09-21 never-built reading as current for D1/D3/D5.
+- `corpus.toml` — machine pointer (`entrypoint = "README.md"`). History (true 2026-09-26 before fix): its `implemented_spec = "README.md"` entry (`corpus.toml:6`) predated the shipped record — preserved, not deleted. Fix 2026-09-26: `corpus.toml:6` reads `implemented_spec = "IMPLEMENTED_SPEC.md"`; the authoritative record per the standard is `IMPLEMENTED_SPEC.md` (`IMPLEMENTED_SPEC.md:12-15`); do not cite the pre-fix `README.md` value as current.

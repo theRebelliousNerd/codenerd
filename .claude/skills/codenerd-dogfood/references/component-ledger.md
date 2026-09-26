@@ -5807,3 +5807,13 @@ by nerd.md `docs:` + `turn_doc_write` (3c551b3b): a non-code file under a declar
   report must caveat it; a bounded "run this campaign's check" tool would let the turn verify itself.
 - The migrations hunk of stash@{0} was a live bug (a failed migration's columns survived the restore);
   ported. Both stashes dropped after.
+
+**Run 7** (15:20-15:37, 8e6f6a7f; 20 model calls, tree peak 15.7 GiB): **campaign completed.** The
+acceptance fix under the corrected audit: `done=true missing=[]`, 25 tools, 1.04 M prompt / 28.8 k
+completion; the ADR's decisions each carry a bold `**Witness:**`. Acceptance round 2 ran
+`r6_structcheck.py features` itself and passed (0 problems). Hand-checked before committing the
+output: the three line witnesses (`factory.go:1223`, `cmd_features.go:41`, `user_config.go:612`) say
+what the ADR claims and their tests exist; the two witnesses that do not resolve
+(`TestFreshBoot_UsesSingleSourceOfTruth`, `TestRegistryFence_ZeroUnmarked`) are planned tests on D2
+and D4, whose Status reads `accepted-not-implemented` -- honest, not a false claim. 2026-09-21
+history kept beside each current reading.

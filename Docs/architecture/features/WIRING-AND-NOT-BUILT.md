@@ -1,3 +1,12 @@
+---
+doc-class: shipped
+subsystem: features
+implementation-status: shipped
+last-verified: 2026-09-26
+verified-against: 34634770970153e78c1e250fdab7abd888dcce6f
+supersedes: []
+---
+
 # features: wiring and what is NOT built
 
 > Updated 2026-09-25 against `791e821` for the provenance, schema-key,

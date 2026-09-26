@@ -2,8 +2,8 @@
 doc-class: governance
 subsystem: features
 implementation-status: not-applicable
-last-verified: 2026-09-25
-verified-against: 791e821
+last-verified: 2026-09-26
+verified-against: 34634770970153e78c1e250fdab7abd888dcce6f
 supersedes: []
 ---
 
@@ -16,6 +16,7 @@ supersedes: []
 > Decisions were recorded in the commits and in this table rather than in
 > separate ADR files: each has a test as its witness, which is what the
 > exits ask for.
+> Correction 2026-09-26: the `rather than in separate ADR files` clause above is superseded — `Docs/architecture/features/adr/ADR-001-features-scope.md:1-175` exists with five decisions D1-D5 and witnesses per `Docs/journeys/09-architecture-doc-standard.md:82-88`; the commit-plus-table record above remains true, the ADR file is added, not substituted. Further correction 2026-09-26 per `Docs/architecture/features/00-INDEX.md:60`: lane B wired D1/D3/D5 since (`internal/system/factory.go:1207` provenance reader, `cmd/nerd/cmd_features.go:41` schema-keys reader, `internal/config/user_config.go:601` misconfiguration warn); the never-built / `accepted-not-implemented` clause is superseded — updated ADR text wins, history preserved, never deleted.
 >
 > | Item | Resolution | Evidence |
 > |---|---|---|

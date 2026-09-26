@@ -2,7 +2,7 @@
 doc-class: governance
 subsystem: features
 implementation-status: not-applicable
-last-verified: 2026-09-21
+last-verified: 2026-09-26
 verified-against: 34634770970153e78c1e250fdab7abd888dcce6f
 supersedes: []
 ---
@@ -20,7 +20,7 @@ evaluation are specced (those are
 `Docs/architecture/features/06-CAPABILITY-SPEC.md:10-21`). Risks and recorded
 decisions live in
 `Docs/architecture/features/RISK-REGISTER-AND-DECISION-LOG.md:30-64`, and
-nothing below is written as a risk.
+nothing below is written as a risk. Correction 2026-09-26: recorded decisions also live in `Docs/architecture/features/adr/ADR-001-features-scope.md:1-175` (observed 2026-09-21 true then as `accepted-not-implemented`, D1-D5 with witnesses — all five subjects never built at `34634770970153e78c1e250fdab7abd888dcce6f`, history preserved, never deleted); the RISK-REGISTER pointer above remains true, the ADR file is added, not substituted. Correction 2026-09-26: lane B wired D1/D3/D5 since (`internal/system/factory.go:1207` provenance reader, `cmd/nerd/cmd_features.go:41` schema-keys reader, `internal/config/user_config.go:601` misconfiguration warn); the never-built / `accepted-not-implemented` clause is superseded — updated ADR text wins, history preserved, never deleted.
 Each question below names exactly one primary scope file with symbol and
 line; related files appear only under "Traces to", never as additional
 scopes. Each question traces to a buildable gap ID fixed in

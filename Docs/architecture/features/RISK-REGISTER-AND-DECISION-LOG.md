@@ -2,7 +2,7 @@
 doc-class: governance
 subsystem: features
 implementation-status: not-applicable
-last-verified: 2026-09-21
+last-verified: 2026-09-26
 verified-against: 34634770970153e78c1e250fdab7abd888dcce6f
 supersedes: []
 ---
@@ -24,7 +24,7 @@ written as a design question: questions live in `OPEN-QUESTIONS.md`, gaps
 with exits live in `Docs/architecture/features/01-VISION.md:185-216`,
 and anything undecided about provenance wiring, boot constructors, schema
 keys, the reserved fence, or warn-only placement is deliberately absent
-here. Risks below are failures of shipped invariants; decisions below are
+here. Correction 2026-09-26: recorded scope decisions D1-D5 also live in `Docs/architecture/features/adr/ADR-001-features-scope.md:1-175` (accepted-not-implemented with witnesses); the absence claim above for those five topics is superseded — the ADR file is added, not substituted. Further correction 2026-09-26 per `Docs/architecture/features/00-INDEX.md:60`: lane B wired D1/D3/D5 since (`internal/system/factory.go:1223` provenance reader, `cmd/nerd/cmd_features.go:41` schema-keys reader, `internal/config/user_config.go:612` misconfiguration warn); the never-built / `accepted-not-implemented` clause is superseded — updated ADR text wins, history preserved, never deleted. Risks below are failures of shipped invariants; decisions below are
 already taken and fenced by tests.
 
 ## Risk register
@@ -47,7 +47,7 @@ is judged against the code read 2026-09-21; retirement is command-checkable.
 
 Recorded decisions — context, decision, witness. Status is derived from
 whether the witness resolves, never asserted. Undecided items are not here;
-see `Docs/architecture/features/OPEN-QUESTIONS.md:30-138` (Q1–Q5).
+see `Docs/architecture/features/OPEN-QUESTIONS.md:30-138` (Q1–Q5). Correction 2026-09-26: recorded scope decisions D1-D5 also live in `Docs/architecture/features/adr/ADR-001-features-scope.md:1-175` (accepted-not-implemented with witnesses); the OPEN-QUESTIONS pointer above remains true, the ADR file is added, not substituted. Further correction 2026-09-26 per `Docs/architecture/features/00-INDEX.md:60`: lane B wired D1/D3/D5 since (`internal/system/factory.go:1223` provenance reader, `cmd/nerd/cmd_features.go:41` schema-keys reader, `internal/config/user_config.go:612` misconfiguration warn); the never-built / `accepted-not-implemented` clause is superseded — updated ADR text wins, history preserved, never deleted.
 
 | Decision ID | Context and decision | Witness (resolves today) |
 |---|---|---|
@@ -57,7 +57,7 @@ see `Docs/architecture/features/OPEN-QUESTIONS.md:30-138` (Q1–Q5).
 | DEC-FEAT-04 | Absent is not false; zero is not a value: booleans are `*bool` (`internal/features/features.go:64-68`); tunables return `0` for call-site default, defaulted by func `world.DefaultScannerConfig` (`internal/world/scanner_config.go:29-38`; workers `internal/world/scanner_config.go:30-33`, cutoff `internal/world/scanner_config.go:35-38`). | `TestNumericAccessors` (`internal/features/features_test.go:131-152`); ruling `Docs/architecture/features/04-PRINCIPLES-AND-CONSTRAINTS.md:86-101`. |
 | DEC-FEAT-05 | Dangerous or expensive stays off: func `features.DefaultFeaturesConfig` (`internal/features/features.go:156-168`) is all-false except `SystemShards:true`; func `features.FullyEnabledFeaturesConfig` (`internal/features/features.go:202-215`) keeps `PerShardFacts:false` and `PromptEvolution:false` per the audit (`internal/features/features.go:175-196`). | `TestDefaultFeaturesConfig` (`internal/features/features_defaults_test.go:5-22`) plus the schema opt-in tests at `internal/features/schema_test.go:72-120`; ruling `Docs/architecture/features/04-PRINCIPLES-AND-CONSTRAINTS.md:103-136`. |
 | DEC-FEAT-06 | Report, don't log; show resolved, not raw: leaf returns strings, caller surfaces them (`internal/features/features.go:33-36`; caller-log contract `internal/features/features.go:227-232`); shadowed legacy still reported (`internal/features/features.go:338-340`). | `TestDeprecations_WhenALegacyVarIsSet_ShouldNameTheReplacement` (`internal/features/migration_test.go:91-105`) plus the summary tests at `internal/features/resolved_test.go:172-186`; ruling `Docs/architecture/features/04-PRINCIPLES-AND-CONSTRAINTS.md:138-154`. |
-| DEC-FEAT-07 | Schema is generated, not transcribed: func `features.ConfigSchemaJSON` (`internal/features/schema.go:21-52`) feeds `nerd features --schema` (`cmd/nerd/cmd_features.go:37`); func `features.ConfigSchemaKeys` (`internal/features/schema.go:56-65`) stays test-only today, so no machine surface is claimed here. | Schema tests `internal/features/schema_test.go:11-63`; ruling `Docs/architecture/features/04-PRINCIPLES-AND-CONSTRAINTS.md:172-183`. |
+| DEC-FEAT-07 | Schema is generated, not transcribed: func `features.ConfigSchemaJSON` (`internal/features/schema.go:21-52`) feeds `nerd features --schema` (`cmd/nerd/cmd_features.go:37`); func `features.ConfigSchemaKeys` (`internal/features/schema.go:56-65`) stays test-only today, so no machine surface is claimed here. Correction 2026-09-26: observed 2026-09-21 true then; lane B wired schema keys since (`cmd/nerd/cmd_features.go:41` reader, `internal/config/user_config.go:612` warn path); the stays-test-only clause is superseded — history preserved, never deleted. | Schema tests `internal/features/schema_test.go:11-63`; ruling `Docs/architecture/features/04-PRINCIPLES-AND-CONSTRAINTS.md:172-183`. |
 | DEC-FEAT-08 | `diff_eval` stays removed: the differential-evaluation path was deleted and the kernel always rebuilds from the EDB; configuring the key fails load with a named reason via var `config.removedFeatureKeys` (`internal/config/removed_keys.go:24-31`). | Configuring `diff_eval` fails load; recorded `Docs/architecture/features/WIRING-AND-NOT-BUILT.md:147-150` and `Docs/architecture/features/01-VISION.md:235-237`. Do not revive. |
 | DEC-FEAT-09 | Taxonomy fast stays wired-OFF: the tool reads the registry rather than raw env (func `main.main` at `cmd/tools/verify_taxonomy/main.go:17`) with default off (`internal/features/features.go:527-538`). | Tool plus accessor cited above; recorded `Docs/architecture/features/WIRING-AND-NOT-BUILT.md:151-155` and `Docs/architecture/features/01-VISION.md:242-245`. Do not revive the contradiction. |
 | DEC-FEAT-10 | `NERD_DISABLE_SYSTEM_SHARDS` stays absent: no such mechanism exists in any `.go` file per the comment preceding func `features.IsSystemShardsEnabled` (`internal/features/features.go:493-497`; accessor `internal/features/features.go:498-501`). | Absence per the cited comment; recorded `Docs/architecture/features/WIRING-AND-NOT-BUILT.md:156-158` and `Docs/architecture/features/01-VISION.md:238-241`. Do not revive. |

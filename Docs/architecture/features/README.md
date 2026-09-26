@@ -2,7 +2,7 @@
 doc-class: governance
 subsystem: features
 implementation-status: not-applicable
-last-verified: 2026-09-21
+last-verified: 2026-09-26
 verified-against: 34634770970153e78c1e250fdab7abd888dcce6f
 supersedes: []
 ---
@@ -39,4 +39,5 @@ Full read order lives in `00-INDEX.md`; when in doubt read in slot order:
 - `RISK-REGISTER-AND-DECISION-LOG.md` — risks with likelihood, consequence, and what would retire them.
 - `OPEN-QUESTIONS.md` — unresolved design questions and standing invariants a future author must preserve.
 - `TODO.md` — the build queue: leaf work only, each item traceable to a gap ID.
+- `adr/ADR-001-features-scope.md` — five scope decisions D1-D5 (`GAP-FEAT-01..05`), each with context, decision, consequence, and witness; history (true 2026-09-21 at `verified-against 3463477…`): the ADR read `accepted-not-implemented` with witnesses not resolving — preserved, not deleted. Current truth 2026-09-26, supersedes that reading for D1/D3/D5: lane B wired D1/D3/D5 since (`internal/system/factory.go:1223` provenance reader, `cmd/nerd/cmd_features.go:41` schema-keys reader, `internal/config/user_config.go:612` misconfiguration warn) per `TODO.md:21-27` closed log and `WIRING-AND-NOT-BUILT.md` "Wired since 2026-09-25"; do not cite the 2026-09-21 never-built reading as current for D1/D3/D5.
 - `corpus.toml` — machine-readable entrypoint (`entrypoint = "README.md"`) and source roots.

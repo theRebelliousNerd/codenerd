@@ -130,6 +130,8 @@ Shipped wiring: `FullyEnabledFeaturesConfig` is called by prod
   ones. Prod callers: `config.LoadUserConfig`
   (`internal/config/user_config.go:576`) and `chat.renderFeaturesReport`
   (`cmd/nerd/chat/commands_handlers_features.go:40`).
+- `func features.Misconfigurations` (`internal/features/features.go:379`) —
+  every feature env var set to a value the registry refuses (unparseable canonical value is no override, still reported). Warn-only: preserves the no-flip guarantee. Prod callers: `config.LoadUserConfig` warns with each at boot (`internal/config/user_config.go:612`), `nerd features` prints them (`cmd/nerd/cmd_features.go:52`), `/features` prints them (`cmd/nerd/chat/commands_handlers_features.go:46`). Lane-B wiring since 2026-09-25 (D5).
 - `func features.Summary` (`internal/features/features.go:374-391`) —
   single-line resolved values, `name=value(source)` for non-default +
   `fast_scan_workers`, `fast_ast_max_bytes`.
@@ -147,7 +149,7 @@ Shipped wiring: `FullyEnabledFeaturesConfig` is called by prod
 | Accessor | Default | Env | Prod caller(s) (exact) |
 |---|---|---|---|
 | `func features.IsFlightRecorderEnabled` (`internal/features/features.go:471-474`) | OFF | `CODENERD_FLIGHT_RECORDER` / `NERD_FLIGHTREC` | `main.main` (`cmd/nerd/main.go:395`) gates trace ring buffer + watchdog; only prod caller |
-| `func features.IsProvenanceEnabled` (`internal/features/features.go:479-482`) | OFF | `CODENERD_PROVENANCE` | **zero prod callers** — only `internal/features/*_test.go` + `config_roundtrip_test.go`. Different symbol from `(*RealKernel).IsProvenanceEnabled` method (`internal/core/kernel_provenance.go:49-54`). Exists-but-uncalled wiring gap |
+| `func features.IsProvenanceEnabled` (`internal/features/features.go:479-482`) | OFF | `CODENERD_PROVENANCE` | Wired: `system.NewDomainCortex` enables derivation recording in every shard when it holds, before the first evaluation (`internal/system/factory.go:1223` `if features.IsProvenanceEnabled()` → `cortex.EnableProvenance()`). Different symbol from `(*RealKernel).IsProvenanceEnabled` method (`internal/core/kernel_provenance.go:49-54`). History: observed 2026-09-21 true-then zero prod callers (only `internal/features/*_test.go` + `config_roundtrip_test.go`); lane-B wiring since 2026-09-25 supersedes that clause — history preserved, never deleted |
 | `func features.IsSystemShardsEnabled` (`internal/features/features.go:498-501`) | ON | `CODENERD_SYSTEM_SHARDS` | `system.initShardManagement` (`internal/system/factory.go:1895`); only prod caller. Per-shard disable is `--disable-system-shard` flag, not env (`internal/features/features.go:484-497`) |
 | `func features.IsPerShardFactsEnabled` (`internal/features/features.go:509-512`) | OFF | `CODENERD_PER_SHARD_FACTS` | `core.NewCortexKernel` (`internal/core/cortex_kernel.go:119`) + `system.initKernel` (`internal/system/factory.go:1180`) |
 | `func features.IsDarkModeEnabled` (`internal/features/features.go:516-519`) | OFF | `CODENERD_DARK_MODE` | `ui.detectTheme` (`cmd/nerd/ui/styles.go:293`) |
@@ -174,29 +176,28 @@ Behavioral notes that are load-bearing:
 - `LoadUserConfig` does `SetActive` → `Summary` → `Deprecations` loop
   (`internal/config/user_config.go:567`,
   `internal/config/user_config.go:571`,
-  `internal/config/user_config.go:576-578`).
+  `internal/config/user_config.go:576-578`) and warns refused env values via `Misconfigurations()` (`internal/config/user_config.go:612`, lane-B D5 since 2026-09-25).
 - `main` eager-loads before gates (`cmd/nerd/main.go:365-378`).
 - `nerd features` renders `Resolved()` + tunables + deprecations
-  (`cmd/nerd/cmd_features.go:44-83`).
-- Chat `/features` renders the same three surfaces
-  (`cmd/nerd/chat/commands_handlers_features.go:18-50`).
+  (`cmd/nerd/cmd_features.go:44-83`) and refused env values (`cmd/nerd/cmd_features.go:52`).
+- Chat `/features` renders the same surfaces plus refused env values
+  (`cmd/nerd/chat/commands_handlers_features.go:18-50`, misconfigurations at `:46`).
 
 ## 7. Schema (generated snippet, not valid JSON)
 
 - `func features.ConfigSchemaJSON` (`internal/features/schema.go:21-52`) —
   built from `boolFlags/intFlags` with `//` comments; documented snippet, not
-  parseable JSON.
+  parseable JSON. Wired: `nerd features --schema` prints it (`cmd/nerd/cmd_features.go:43`).
 - `func features.ConfigSchemaKeys` (`internal/features/schema.go:56-65`) —
-  every recognised key of the `features` block.
-- Shipped status: both are exists-but-uncalled in prod. Exact callers of
-  `ConfigSchemaJSON` are 3 test sites
+  every recognised key of the `features` block. Wired: `nerd features --schema --json` prints it as a JSON array (`cmd/nerd/cmd_features.go:41`).
+- Shipped status: both wired in prod (lane-B wiring since 2026-09-25 supersedes the prior exists-but-uncalled clause — history preserved, never deleted). History: observed 2026-09-21 true-then both test-only — exact callers of
+  `ConfigSchemaJSON` were 3 test sites
   (`cmd/nerd/cmd_features_test.go:49`,
   `internal/features/schema_test.go:12`,
   `internal/features/schema_test.go:25`); exact callers of
-  `ConfigSchemaKeys` are 2 test sites
+  `ConfigSchemaKeys` were 2 test sites
   (`internal/features/schema_test.go:14`,
-  `internal/features/schema_test.go:54`). Do not cite either as a prod wiring
-  path.
+  `internal/features/schema_test.go:54`).
 
 ## 8. Discarded claims (do not re-add without code)
 
@@ -215,26 +216,20 @@ Behavioral notes that are load-bearing:
 
 ## 9. Wired vs exists-but-uncalled vs assumed-but-not-done
 
-- **Wired/reachable:** `SetActive`, `Resolved`, `Summary`, `Deprecations`,
-  `IsFlightRecorderEnabled`, `IsSystemShardsEnabled`,
+- **Wired/reachable:** `SetActive`, `Resolved`, `Summary`, `Deprecations`, `Misconfigurations` (warned at boot `internal/config/user_config.go:612`, printed by `nerd features` `cmd/nerd/cmd_features.go:52` and `/features`),
+  `IsFlightRecorderEnabled`, `IsProvenanceEnabled` (via `internal/system/factory.go:1223`), `IsSystemShardsEnabled`,
   `IsPerShardFactsEnabled`, `IsDarkModeEnabled`, `IsOnboardingSkipped`,
   `IsTaxonomyFastEnabled`, `IsPromptEvolutionEnabled`, `FastScanWorkers`,
-  `FastASTMaxBytes`, `FullyEnabledFeaturesConfig` (via
+  `FastASTMaxBytes`, `ConfigSchemaJSON` (via `cmd/nerd/cmd_features.go:43`), `ConfigSchemaKeys` (via `cmd/nerd/cmd_features.go:41`), `FullyEnabledFeaturesConfig` (via
   `internal/config/user_config.go:1494`). Each row in §5 names its prod
-  caller.
+  caller; lane-B wiring since 2026-09-25 supersedes the prior exists-but-uncalled clauses for `IsProvenanceEnabled`, `ConfigSchemaJSON`, and `ConfigSchemaKeys` — history preserved, never deleted.
 - **Exists-but-uncalled:** `Active`
   (`internal/features/features.go:408`, 1 caller
   `internal/features/features_test.go:122`);
-  `IsProvenanceEnabled`
-  (`internal/features/features.go:479-482`, tests only);
   `DefaultFeaturesConfig`
   (`internal/features/features.go:156-168`, 1 caller
-  `internal/features/features_defaults_test.go:6`);
-  `ConfigSchemaJSON` / `ConfigSchemaKeys`
-  (`internal/features/schema.go:21-52`,
-  `internal/features/schema.go:56-65`, tests only).
-  These are deliberate (leaf read discipline, init-only defaults, doc
-  snippet) unless a gap ID promotes one to wired.
+  `internal/features/features_defaults_test.go:6`).
+  These are deliberate (leaf read discipline, init-only defaults) unless a gap ID promotes one to wired. History: `IsProvenanceEnabled`, `ConfigSchemaJSON`, and `ConfigSchemaKeys` were exists-but-uncalled observed 2026-09-21 true-then; that clause is superseded by the wired entries above.
 - **Assumed-but-not-done:** nothing in this package. Cross-package claims
   that `Docs/architecture/shards/07-DEPENDENCY-MAP.md:77` or
   `08-WIRING-AND-INTEGRATION.md:59` wire the master switch are doc claims,

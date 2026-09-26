@@ -2,12 +2,14 @@
 doc-class: shipped-with-future
 subsystem: features
 implementation-status: partial
-last-verified: 2026-09-21
+last-verified: 2026-09-26
 verified-against: 34634770970153e78c1e250fdab7abd888dcce6f
 supersedes: []
 ---
 
 # features: gap analysis (current vs target)
+
+> **Status, 2026-09-26 (lane B build-out).** The matrix rows below are kept as written — observed 2026-09-21 true-then against `34634770970153e78c1e250fdab7abd888dcce6f`; their `features.go` anchors predate `Misconfigurations` and have shifted (see `Docs/architecture/features/TODO.md:10-27` status for current anchors and closed log). History preserved, never deleted.
 
 This file answers the third question for `internal/features`: what the
 distance is between what runs today and the finished behaviour. Each row
@@ -19,12 +21,13 @@ exits are fixed in `Docs/architecture/features/01-VISION.md:176-216` —
 this file adds current/target/severity/phase/deps rows and cannot redefine
 them.
 
-ADR slot: no `adr/` directory and no `adr/ADR-NNN-*.md` files exist yet.
+ADR slot (observed 2026-09-21): no `adr/` directory and no `adr/ADR-NNN-*.md` files exist yet.
 `DEC-FEAT-01..10` in `Docs/architecture/features/RISK-REGISTER-AND-DECISION-LOG.md:52-63`
 are a decision log with witnesses, not `adr/` files. Creating the GAP-FEAT-01/02
 ADRs is the work itself, traced by `TODO-FEAT-01a/02a` via
 `test -f adr/ADR-NNN-*.md` exits in `Docs/architecture/features/TODO.md:49-101`;
 no ADR is claimed to exist here.
+Correction 2026-09-26: the `no adr/` clause above is superseded — `Docs/architecture/features/adr/ADR-001-features-scope.md:1-175` exists with five decisions D1-D5 and witnesses per `Docs/journeys/09-architecture-doc-standard.md:82-88`; `DEC-FEAT-01..10` remain decision log, not `adr/` files.
 
 Evidence base (all read 2026-09-21, verified against
 `34634770970153e78c1e250fdab7abd888dcce6f`):
