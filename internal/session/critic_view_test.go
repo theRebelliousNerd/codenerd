@@ -138,3 +138,24 @@ func TestBuildCriticPrompt_WhenGivenTheRequest_ShouldAskTheReviewToJudgeAgainstI
 		t.Error("with no request, the prompt must not ask to judge against one")
 	}
 }
+
+// The gate tests every importer of what the turn wrote; a failed run's page of
+// "ok" lines is dropped, and the failure is kept whole.
+func TestWithoutPassingPackages(t *testing.T) {
+	out := "ok  \tcodenerd/a\t0.12s\n--- FAIL: TestX (0.00s)\n    x_test.go:9: want 2, got 1\nFAIL\nFAIL\tcodenerd/b\t0.30s\n?   \tcodenerd/c\t[no test files]\nok  \tcodenerd/d\t(cached)"
+	got := withoutPassingPackages(out)
+	for _, want := range []string{"--- FAIL: TestX", "want 2, got 1", "FAIL\tcodenerd/b", "(3 other package(s) passed or have no tests)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("projection lost %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "codenerd/a") || strings.Contains(got, "codenerd/d") {
+		t.Errorf("a passing package's line survived:\n%s", got)
+	}
+	if names := topLevelFailedTests(got); len(names) != 1 || names[0] != "TestX" {
+		t.Errorf("the failing test is no longer parseable from the projection: %v", names)
+	}
+	if clean := "--- FAIL: TestY\nFAIL"; withoutPassingPackages(clean) != clean {
+		t.Error("output with no passing packages must come back unchanged")
+	}
+}

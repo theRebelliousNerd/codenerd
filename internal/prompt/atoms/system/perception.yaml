@@ -35,7 +35,6 @@
           "symbol": "<symbol name if known>"
         },
         "user_constraints": ["<explicit constraints>"],
-        "implicit_assumptions": ["<unstated assumptions>"],
         "confidence": 0.0-1.0,
         "signals": {
           "is_question": true,
