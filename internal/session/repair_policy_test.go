@@ -26,10 +26,12 @@ func TestRepairFailureDigest_DurationsDoNotMakeAFailureNew(t *testing.T) {
 }
 
 // An edit that leaves exactly the failure an earlier edit left has not moved
-// the episode: the policy gives up there, not at the count (sweep finding
-// F10, repair_not_converging). With a cap of five, a model that writes the
-// same broken file every attempt used to spend all five.
-func TestRepairLoop_TheSameFailureAfterTwoEditsGivesUpBeforeTheCap(t *testing.T) {
+// the episode (sweep finding F10, repair_not_converging). The first time, the
+// episode restarts: its edits are undone and the next attempt is told to name
+// a different cause. When the failure repeats after that, the policy gives up
+// -- still before the cap. With a cap of five, a model that writes the same
+// broken file every attempt used to spend all five.
+func TestRepairLoop_TheSameFailureRestartsOnceThenGivesUpBeforeTheCap(t *testing.T) {
 	h := newRepairHarness(t, func(e *Executor) { e.config.RepairMaxAttempts = 5 })
 	h.initial = func() *types.LLMToolResponse {
 		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
@@ -37,7 +39,11 @@ func TestRepairLoop_TheSameFailureAfterTwoEditsGivesUpBeforeTheCap(t *testing.T)
 			h.writeCall("c2", "write_file", filepath.Join(h.ws, "main_test.go"), repairTestBroken),
 		}}
 	}
+	sawRestart := false
 	h.onRepair = func(call int, history []types.Message) *types.LLMToolResponse {
+		for _, m := range history {
+			sawRestart = sawRestart || strings.Contains(m.Text, repairRestartNote)
+		}
 		return &types.LLMToolResponse{Text: "attempt", ToolCalls: []types.ToolCall{
 			h.writeCall(fmt.Sprintf("r%d", call), "write_file", filepath.Join(h.ws, "main_test.go"), repairTestBroken),
 		}}
@@ -46,8 +52,11 @@ func TestRepairLoop_TheSameFailureAfterTwoEditsGivesUpBeforeTheCap(t *testing.T)
 	if err == nil {
 		t.Fatal("expected the episode to give up")
 	}
-	if !strings.Contains(err.Error(), "after 2 attempts") || !strings.Contains(err.Error(), "the same failure survived two edits") {
-		t.Fatalf("want a give-up after 2 attempts for a repeated failure, got: %v", err)
+	if !sawRestart {
+		t.Error("the attempt after the restart was not told its edits were undone and to find a different cause")
+	}
+	if !strings.Contains(err.Error(), "after 4 attempts") || !strings.Contains(err.Error(), "before and after a restart") {
+		t.Fatalf("want a give-up after 4 attempts (two, a restart, two), got: %v", err)
 	}
 }
 

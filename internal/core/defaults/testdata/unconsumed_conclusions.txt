@@ -439,12 +439,6 @@ unconsumed related_context
 unconsumed related_failures
 unconsumed remediation_task_exists
 unconsumed remediation_task_needed
-unconsumed repair_attempt_count
-unconsumed repair_closed
-unconsumed repair_exhausted
-unconsumed repair_gives_up
-unconsumed repair_move
-unconsumed repair_not_converging
 unconsumed repeated_violation_pattern
 unconsumed replan_needed
 unconsumed require_tests

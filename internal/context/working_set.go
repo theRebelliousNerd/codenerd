@@ -219,7 +219,10 @@ type LedgerDecision struct {
 // harness restates. round is the latest round in the ledger; restated maps an
 // observation to the revision it was last restated at. Go measures (sizes,
 // rounds, file revisions); the policy decides.
-func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round int, restated map[string]string) (LedgerDecision, error) {
+//
+// hot are the files an observation of which is pinned past the age cut
+// (working_pinned): the loop's focus and the files it has written.
+func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round int, restated map[string]string, hot []string) (LedgerDecision, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -251,13 +254,21 @@ func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round in
 		if !seenEntity[r.Entity] {
 			seenEntity[r.Entity] = true
 			add("working_revision", r.Entity, w.Revision(r.Entity))
+			add("working_entity_file", r.Entity, EntityFile(r.Entity))
 		}
 	}
 	for id, revision := range restated {
 		add("working_restated", id, revision)
 	}
+	seenHot := map[string]bool{}
+	for _, file := range hot {
+		if file != "" && !seenHot[file] {
+			seenHot[file] = true
+			add("working_hot", file)
+		}
+	}
 	// Replace, not accumulate: every one of these describes this round only.
-	if err := w.engine.ReplaceControlFacts(facts, "working_round_now", "working_ledger", "working_observation", "working_digest", "working_span", "working_revision", "working_restated"); err != nil {
+	if err := w.engine.ReplaceControlFacts(facts, "working_round_now", "working_ledger", "working_observation", "working_digest", "working_span", "working_revision", "working_restated", "working_entity_file", "working_hot"); err != nil {
 		return LedgerDecision{}, err
 	}
 	var decision LedgerDecision

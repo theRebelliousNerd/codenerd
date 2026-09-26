@@ -21,6 +21,13 @@ Decl repair_not_converging(Episode) bound [/name].
 Decl repair_gives_up(Episode) bound [/name].
 Decl repair_move(Episode, Move) bound [/name, /name].
 Decl repair_closed(Episode) bound [/name].
+# repair_restart(Episode, Attempt): the episode restarted after attempt
+# Attempt -- its edits undone, the next attempt told to name a different cause.
+# Asserted by the executor when it carries out the /restart move.
+Decl repair_restart(Episode, Attempt) bound [/name, /number].
+Decl repair_has_restarted(Episode) bound [/name].
+Decl repair_should_restart(Episode) bound [/name].
+Decl repair_not_converging_since_restart(Episode) bound [/name].
 
 config_param_required(/session, /session_repair_max_attempts).
 
@@ -44,11 +51,28 @@ repair_not_converging(E) :-
     repair_attempt(E, A2, /true, D),
     A1 < A2.
 
+# A repeated failure first restarts the episode, once. Two edits that leave
+# exactly the same red run are two edits aimed at a cause that is not the
+# cause: grinding a third attempt from the same state repeats the mistake, and
+# giving up throws away an attempt the cap still allows. R1-12 spent 746.7k
+# input tokens across three attempts with no edit that moved the failure. The
+# restart undoes the episode's edits and asks for a different cause; a
+# failure that repeats again after it gives up, as before.
+repair_has_restarted(E) :- repair_restart(E, _).
+repair_should_restart(E) :-
+    repair_not_converging(E), !repair_has_restarted(E), !repair_exhausted(E).
+repair_not_converging_since_restart(E) :-
+    repair_restart(E, R),
+    repair_attempt(E, A1, _, D),
+    repair_attempt(E, A2, /true, D),
+    R < A1, A1 < A2.
+
 repair_gives_up(E) :- repair_exhausted(E).
-repair_gives_up(E) :- repair_not_converging(E).
+repair_gives_up(E) :- repair_not_converging_since_restart(E).
 
 repair_move(E, /give_up) :- repair_gives_up(E).
-repair_move(E, /retry) :- repair_attempt_count(E, _), !repair_gives_up(E).
+repair_move(E, /restart) :- repair_should_restart(E).
+repair_move(E, /retry) :- repair_attempt_count(E, _), !repair_gives_up(E), !repair_should_restart(E).
 
 # An attempt that made no edit read instead of repairing; every later attempt
 # of the episode runs with reading closed, carrying the failing output.

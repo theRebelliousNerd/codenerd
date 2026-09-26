@@ -34,16 +34,27 @@ func repairFailureDigest(output string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// repairNext is the policy's answer after a failed attempt.
+type repairNext struct {
+	// gaveUp is why the episode gives up; "" to go on.
+	gaveUp string
+	// closed runs the next attempt with reading closed.
+	closed bool
+	// restart undoes the episode's edits before the next attempt, which is
+	// told to name a different cause.
+	restart bool
+}
+
 // nextRepairMove records a failed attempt and asks the policy what the
-// episode does next (repair_episode.mg). It returns why the episode gives up
-// ("" to try again) and whether the next attempt runs with reading closed.
+// episode does next (repair_episode.mg): give up, retry (with reading closed
+// or not), or restart.
 //
 // No policy -- no kernel, a failed query, or no answer -- is giving up: an
 // episode nothing bounds is the failure the count used to paper over, so the
 // executor never continues on its own say.
-func (e *Executor) nextRepairMove(episode types.MangleAtom, attempt int, wrote bool, failureOutput string) (string, bool) {
+func (e *Executor) nextRepairMove(episode types.MangleAtom, attempt int, wrote bool, failureOutput string) repairNext {
 	if e.kernel == nil {
-		return "no repair policy (no kernel)", false
+		return repairNext{gaveUp: "no repair policy (no kernel)"}
 	}
 	e.ensureSessionParams()
 	wroteAtom := types.MangleAtom("/false")
@@ -53,7 +64,7 @@ func (e *Executor) nextRepairMove(episode types.MangleAtom, attempt int, wrote b
 	e.assertTurnFact(types.Fact{Predicate: "repair_attempt", Args: []any{
 		episode, int64(attempt), wroteAtom, types.MangleString(repairFailureDigest(failureOutput)),
 	}})
-	ours := func(predicate string) ([]types.Fact, error) {
+	episodeRows := func(predicate string) ([]types.Fact, error) {
 		rows, err := e.kernel.Query(predicate)
 		if err != nil {
 			return nil, err
@@ -66,38 +77,48 @@ func (e *Executor) nextRepairMove(episode types.MangleAtom, attempt int, wrote b
 		}
 		return out, nil
 	}
-	moves, err := ours("repair_move")
+	moves, err := episodeRows("repair_move")
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("repair_move query failed: %v; the episode gives up", err)
-		return fmt.Sprintf("the repair policy could not be asked (%v)", err), false
+		return repairNext{gaveUp: fmt.Sprintf("the repair policy could not be asked (%v)", err)}
 	}
-	retry := false
+	retry, restart := false, false
 	for _, f := range moves {
 		if len(f.Args) != 2 {
 			continue
 		}
 		switch types.ExtractString(f.Args[1]) {
 		case "/give_up":
-			return e.repairGiveUpReason(ours), false
+			return repairNext{gaveUp: e.repairGiveUpReason(episodeRows)}
 		case "/retry":
 			retry = true
+		case "/restart":
+			restart = true
 		}
 	}
-	if !retry {
-		return "the repair policy derived no next move", false
+	if restart {
+		// A restart reopens reading: the different cause may be in code no
+		// attempt has read yet.
+		if !e.assertTurnFact(types.Fact{Predicate: "repair_restart", Args: []any{episode, int64(attempt)}}) {
+			return repairNext{gaveUp: "the repair policy's restart could not be recorded"}
+		}
+		return repairNext{restart: true}
 	}
-	closed, err := ours("repair_closed")
+	if !retry {
+		return repairNext{gaveUp: "the repair policy derived no next move"}
+	}
+	closed, err := episodeRows("repair_closed")
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("repair_closed query failed: %v; the next attempt runs closed", err)
-		return "", true
+		return repairNext{closed: true}
 	}
-	return "", len(closed) > 0
+	return repairNext{closed: len(closed) > 0}
 }
 
 // repairGiveUpReason names the rule that ended the episode, for its error.
-func (e *Executor) repairGiveUpReason(ours func(string) ([]types.Fact, error)) string {
-	if rows, err := ours("repair_not_converging"); err == nil && len(rows) > 0 {
-		return "the same failure survived two edits"
+func (e *Executor) repairGiveUpReason(episodeRows func(string) ([]types.Fact, error)) string {
+	if rows, err := episodeRows("repair_not_converging_since_restart"); err == nil && len(rows) > 0 {
+		return "the same failure survived two edits, before and after a restart from a different cause"
 	}
 	return fmt.Sprintf("the attempt cap (session.repair_max_attempts=%d) is reached", e.configSnapshot().sessionRepairMaxAttempts())
 }

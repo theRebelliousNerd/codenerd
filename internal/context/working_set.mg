@@ -238,14 +238,44 @@ Decl working_compact() descr [doc("The ledger outgrew its ceiling: this request 
 working_compact() :-
     working_ledger_bytes(Total), working_ledger_ceiling(Ceiling), Total > Ceiling.
 
-# What a compaction moves out: every result older than the kept rounds, and any
-# stale or superseded observation -- stale evidence does not stand as current,
-# and a covered read is carried by the read that covers it.
+# Pinned observations. Age is a poor measure of what an edit still needs: the
+# file the loop is working on and the files it has written are read again
+# after their results age out, and each recall or re-read is a whole request
+# (working_context.go: "24 rounds reading the file, recalling a 2000-character
+# page of it and reading it again"; R1-9: eleven recalls, then a read-only
+# stall). An observation of a hot file -- the focus, or a file the loop wrote
+# -- that is still current is kept past the age cut, while the pinned results
+# together fit in half the ceiling; past that, age decides again, so pins can
+# never hold the ledger over its ceiling.
+#
+# working_hot(File): the loop's focus and the files it has written, measured
+# by the executor. working_entity_file(Entity, File): the file an observed
+# entity (a file, or an element in one) belongs to.
+Decl working_hot(File) bound [/string].
+Decl working_entity_file(Entity, File) bound [/string, /string].
+Decl working_pinned(ID) bound [/string].
+working_pinned(ID) :-
+    working_observation(ID, Entity, _, _, _), working_entity_file(Entity, File),
+    working_hot(File), !working_stale(ID), !working_superseded(ID).
+Decl working_pinned_bytes(Total) bound [/number].
+working_pinned_bytes(Total) :-
+    working_ledger(_, ID, Bytes, _), working_pinned(ID)
+    |> do fn:group_by(), let Total = fn:sum(Bytes).
+Decl working_pins_hold() bound [].
+working_pins_hold() :-
+    working_pinned_bytes(Total), working_ledger_ceiling(Ceiling),
+    Double = fn:mult(Total, 2), Double <= Ceiling.
+Decl working_held(ID) bound [/string].
+working_held(ID) :- working_pinned(ID), working_pins_hold().
+
+# What a compaction moves out: every result older than the kept rounds that is
+# not held, and any stale or superseded observation -- stale evidence does not
+# stand as current, and a covered read is carried by the read that covers it.
 Decl working_evict(Call) bound [/string].
 working_evict(Call) :-
-    working_compact(), working_ledger(Call, _, _, Round),
+    working_compact(), working_ledger(Call, ID, _, Round),
     working_round_now(Now), working_ledger_keep_rounds(Keep),
-    Cut = fn:minus(Now, Keep), Round <= Cut.
+    Cut = fn:minus(Now, Keep), Round <= Cut, !working_held(ID).
 working_evict(Call) :-
     working_compact(), working_ledger(Call, ID, _, _), working_stale(ID).
 working_evict(Call) :-
