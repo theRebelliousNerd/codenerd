@@ -40,6 +40,10 @@ func TestRecurseCycles_OnTheProductionKernel(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"init", "--quiet", "-b", "main"},
+		// Byte-for-byte: these tests read files back after a revert. Windows
+		// runners set core.autocrlf=true globally, which checks a reverted
+		// "v1\n" out as "v1\r\n".
+		{"config", "core.autocrlf", "false"},
 		{"add", "--all"},
 		{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "init"},
 	} {

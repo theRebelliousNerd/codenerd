@@ -220,6 +220,12 @@ func probeTemplate(t *testing.T) string {
 	write(probeSecond, probeSecondSource)
 	for _, args := range [][]string{
 		{"init", "-q"},
+		// No background maintenance: a detached "git maintenance run --auto"
+		// after the commit writes .git/objects while copyWorkspace walks it,
+		// and a lock file that vanishes between the listing and the open
+		// failed the copy.
+		{"config", "maintenance.auto", "false"},
+		{"config", "gc.auto", "0"},
 		{"-c", "core.autocrlf=false", "add", "-A"},
 		{"-c", "user.email=ratchet@example.invalid", "-c", "user.name=ratchet", "commit", "-q", "-m", "seed"},
 	} {

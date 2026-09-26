@@ -2,6 +2,7 @@ package gates
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -114,8 +115,21 @@ func TestFindings_IdentitySurvivesLineMovesAndMessageChanges(t *testing.T) {
 }
 
 func TestFindings_AbsolutePathsBecomeWorkspaceRelative(t *testing.T) {
-	fs := Findings("/ws", failed(Gate{ID: "lint", Kind: Lint}, "", "/ws/pkg/a.py:3:1: E999 SyntaxError at /ws/pkg/a.py\n"))
-	if len(fs) != 1 || fs[0].Target != "pkg/a.py" || strings.Contains(fs[0].Signature, "/ws") {
+	// A root that is absolute on this platform: "/ws" is not, on Windows, and
+	// there a linter prints "C:\...\pkg\a.py:3:1: ...".
+	root := filepath.Join(t.TempDir(), "ws")
+	file := filepath.Join(root, "pkg", "a.py")
+	fs := Findings(root, failed(Gate{ID: "lint", Kind: Lint}, "", file+":3:1: E999 SyntaxError at "+file+"\n"))
+	if len(fs) != 1 || fs[0].Target != "pkg/a.py" || strings.Contains(fs[0].Signature, root) {
+		t.Fatalf("finding = %+v", fs)
+	}
+}
+
+func TestFindings_ADrivePathParses(t *testing.T) {
+	fs := Findings("", failed(Gate{ID: "lint", Kind: Lint}, "", `C:\ws\pkg\a.py:3:1: E999 SyntaxError`+"\n"))
+	// Only Windows reads the backslashes as separators, so the spelling of
+	// Target is the platform's; that it parses at all is the point.
+	if len(fs) != 1 || !strings.HasPrefix(fs[0].Target, "C:") || !strings.HasSuffix(fs[0].Target, "a.py") {
 		t.Fatalf("finding = %+v", fs)
 	}
 }

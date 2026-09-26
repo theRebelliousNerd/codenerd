@@ -43,8 +43,9 @@ var (
 	// Go test: "--- FAIL: TestName (0.00s)"; subtests nest by indentation.
 	goTestFail = regexp.MustCompile(`^\s*--- FAIL: (\S+)`)
 	// Go, gcc, mypy, ruff, flake8, eslint -f unix:
-	// "path/file.ext:line[:col]: message".
-	fileLineMsg = regexp.MustCompile(`^(?:\./)?([^\s:()]+\.[A-Za-z0-9]+):(\d+)(?::(\d+))?:?\s+(.+)$`)
+	// "path/file.ext:line[:col]: message". The path may open with a Windows
+	// drive ("C:\ws\a.py:3:1: ..."), whose colon the path class excludes.
+	fileLineMsg = regexp.MustCompile(`^(?:\./)?((?:[A-Za-z]:)?[^\s:()]+\.[A-Za-z0-9]+):(\d+)(?::(\d+))?:?\s+(.+)$`)
 	// tsc: "src/a.ts(12,5): error TS2345: message".
 	tscError = regexp.MustCompile(`^(\S+?\.[A-Za-z]+)\((\d+),(\d+)\): (?:error|warning) (TS\d+: .+)$`)
 	// pytest short summary: "FAILED tests/test_x.py::test_y - AssertionError".
