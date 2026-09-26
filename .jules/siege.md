@@ -99,3 +99,14 @@
 ## 2024-10-27 - Testing Focus
 **Learning:** The delegation seam is the critical path. I will write a test suite targeting the boundary between `ShardManager` and `JITExecutor`, focusing on state isolation, context cancellation, ghost facts, and concurrent execution.
 **Action:** The test will be located at `tests/e2e/shardmanager_jitexecutor_delegation_integration_test.go`
+## 2026-09-25 - InteractiveGate Sandbox Isolation Leak
+**Learning:** `kernel.Clone()` is the primary security boundary for the `Dreamer`. If the clone is shallow, `projected_action` facts generated during a preflight simulation leak into the parent kernel. This poisons the agent's context, making it hallucinate that it has already executed tasks it only simulated.
+**Action:** When testing simulation boundaries, always query the parent kernel after the simulation completes to verify that no hypothetical facts have leaked across the boundary.
+
+## 2026-09-25 - Dreamer Cache Payload Ignorance
+**Learning:** The `Dreamer` uses caching to avoid expensive `kernel.Clone()` operations. If the cache key only includes `Target` and `ActionType` (ignoring the `Payload`), a benign payload can authorize a subsequent malicious payload targeting the same file.
+**Action:** When designing adversarial E2E tests, always simulate concurrent or rapid sequential actions targeting the identical file but with vastly different payloads (one safe, one malicious) to catch cache key collisions.
+
+## 2026-09-25 - Feedback Loop Schema Strictness
+**Learning:** When the `Dreamer` blocks an action, the `VirtualStore` must inject `security_violation` facts into the main kernel. If the main kernel's schema expects a different arity (e.g., 3 arguments instead of 2), the assertion fails silently. The `TDDLoop` never sees the rejection and loops infinitely trying the same bad action.
+**Action:** Always assert the presence of specific error facts (e.g., `security_violation`) in the Kernel after a VirtualStore tool execution is blocked, rather than relying solely on the return error from `PreflightDestructiveToolCall`.
