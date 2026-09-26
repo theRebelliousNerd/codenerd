@@ -1204,7 +1204,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// return for interactive chat compatibility; TaskExecutor still surfaces
 	// result.Error for SpawnTask callers.
 	e.closeAcceptanceEvidence(ctx, result)
-	e.auditFinalReport(ctx, result)
+	e.auditFinalReport(ctx, input, result)
 	hollowErr := e.checkHollowSuccess(result)
 	if result.Error == nil && hollowErr != nil {
 		result.Error = hollowErr

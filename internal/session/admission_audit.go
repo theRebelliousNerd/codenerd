@@ -54,11 +54,16 @@ func finalReportAuditPrompt(task, report string) string {
 
 // auditFinalReport asks the main model whether the turn's final report admits
 // the work is unfinished, and records a yes on the result for the verdict.
+// input is the turn's request: the question is whether the report admits the
+// *requested* work is unfinished, so the classifier reads both. It used to
+// look the request up on the working loop, which lives on a context the tool
+// loop derives and drops before the turn closes -- the audit never saw a task
+// (campaign 7b853890, 2026-09-26: no "Task:" in any of its prompts).
 //
 // Only turns that wrote, or whose intent owed a write, are read: the admission
 // is about requested work, and a question answered with "that cannot be
 // determined from the code" is an answer, not unfinished work.
-func (e *Executor) auditFinalReport(ctx context.Context, result *ExecutionResult) {
+func (e *Executor) auditFinalReport(ctx context.Context, input string, result *ExecutionResult) {
 	if result == nil || result.Error != nil || !e.configSnapshot().AuditFinalReport {
 		return
 	}
@@ -72,10 +77,7 @@ func (e *Executor) auditFinalReport(ctx context.Context, result *ExecutionResult
 	if client == nil {
 		return
 	}
-	task := ""
-	if loop := activeWorkingLoop(ctx); loop != nil {
-		task = loop.task
-	}
+	task := input
 	if len(task) > criticMaxFileBytes {
 		task = task[:criticMaxFileBytes]
 	}

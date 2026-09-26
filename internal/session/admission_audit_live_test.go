@@ -96,6 +96,26 @@ No content deleted, no statements weakened, checker untouched. Verified witness 
 Acceptance ` + "`" + `python scripts/r6_structcheck.py features` + "`" + ` was not run this turn; pass is derived from the checker source + symbol index, to be confirmed when the harness re-runs it.`,
 			incomplete: false,
 		},
+		{
+			name: "campaign 7b853890 acceptance fix, read beside its brief",
+			task: `Every phase of this campaign is done and its acceptance check still fails (round 1, exit 1).
+Acceptance command, run in the workspace root:
+    python scripts/r6_structcheck.py features
+
+Its output:
+
+    features          15 md    1 problems
+        adr/ADR-001-features-scope.md: no **Witness:** line
+
+Bring the check to a pass by changing .nerd/campaigns/7b853890/artifacts/task_7b853890_5_0.md, .nerd/campaigns/7b853890/artifacts/task_7b853890_5_3.md, .nerd/campaigns/7b853890/artifacts/task_7b853890_5_4.md, Docs/architecture/features/00-INDEX.md, Docs/architecture/features/README.md, c:/codeprojects/codenerd/docs/architecture, c:/codeprojects/codenerd/docs/architecture/features, c:/codeprojects/codenerd/docs/architecture/features/00-index.md, c:/codeprojects/codenerd/docs/architecture/features/01-vision.md, c:/codeprojects/codenerd/docs/architecture/features/02-current-state.md, c:/codeprojects/codenerd/docs/architecture/features/03-gap-analysis.md, c:/codeprojects/codenerd/docs/architecture/features/04-principles-and-constraints.md, c:/codeprojects/codenerd/docs/architecture/features/05-capability-spec.md, c:/codeprojects/codenerd/docs/architecture/features/06-capability-spec.md, c:/codeprojects/codenerd/docs/architecture/features/adr/adr-001-features-scope.md, c:/codeprojects/codenerd/docs/architecture/features/implemented_spec.md, c:/codeprojects/codenerd/docs/architecture/features/open-questions.md, c:/codeprojects/codenerd/docs/architecture/features/readme.md, c:/codeprojects/codenerd/docs/architecture/features/risk-register-and-decision-log.md, c:/codeprojects/codenerd/docs/architecture/features/todo.md, c:/codeprojects/codenerd/docs/architecture/features/wiring-and-not-built.md. The check is the judge: exit 0 is the only pass, and it runs again when this task is done. Do not delete content or weaken a true statement to get there, and do not touch the checker.`,
+			report: `Fixed the lone structcheck failure additively.
+
+- ` + "`" + `Docs/architecture/features/adr/ADR-001-features-scope.md` + "`" + `: added file-level ` + "`" + `**Witness:** test:TestNewDomainCortex_HonorsTheProvenanceFlag` + "`" + ` (with one context line noting D1/D3/D5 implemented, D2/D4 accepted-not-implemented). The file had plain ` + "`" + `Witness:` + "`" + ` blocks but no bold marker the checker regex requires. The witness resolves — test exists at ` + "`" + `internal/system/provenance_flag_test.go:9-40` + "`" + ` and passes.
+- ` + "`" + `.nerd/campaigns/7b853890/artifacts/task_7b853890_5_0.md` + "`" + `: appended correction note documenting the witness gap and fix, no history deleted.
+
+No content deleted, no statements weakened, checker untouched. Verified witness tests pass (` + "`" + `internal/system` + "`" + `, ` + "`" + `internal/features` + "`" + ` targeted run, exit 0). Checker itself was not runnable with available tools this turn, but the reported ` + "`" + `no **Witness:** line` + "`" + ` condition is now satisfied with a resolving test witness.`,
+			incomplete: false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			answer, err := client.CompleteWithSystem(context.Background(), finalReportAuditSystem, finalReportAuditPrompt(tc.task, tc.report))
