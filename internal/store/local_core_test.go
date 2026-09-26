@@ -48,55 +48,6 @@ func TestGetTraceStore(t *testing.T) {
 	}
 }
 
-func TestCosineSimilarity(t *testing.T) {
-	tests := []struct {
-		name string
-		a    []float64
-		b    []float64
-		want float64
-	}{
-		{
-			name: "Identical",
-			a:    []float64{1, 0, 0},
-			b:    []float64{1, 0, 0},
-			want: 1.0,
-		},
-		{
-			name: "Orthogonal",
-			a:    []float64{1, 0, 0},
-			b:    []float64{0, 1, 0},
-			want: 0.0,
-		},
-		{
-			name: "Opposite",
-			a:    []float64{1, 0, 0},
-			b:    []float64{-1, 0, 0},
-			want: -1.0,
-		},
-		{
-			name: "Length Mismatch",
-			a:    []float64{1, 0},
-			b:    []float64{1, 0, 0},
-			want: 0.0,
-		},
-		{
-			name: "Zero Vector",
-			a:    []float64{0, 0, 0},
-			b:    []float64{1, 1, 1},
-			want: 0.0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := CosineSimilarity(tt.a, tt.b)
-			if abs(got-tt.want) > 0.0001 {
-				t.Errorf("CosineSimilarity() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func abs(x float64) float64 {
 	if x < 0 {
 		return -x

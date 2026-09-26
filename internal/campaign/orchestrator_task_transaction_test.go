@@ -26,7 +26,7 @@ func TestWithTaskExecutionSnapshot_RollsBackOnError(t *testing.T) {
 	beforeOrder := append([]string(nil), orch.taskResultOrder...)
 
 	expectedErr := errors.New("forced mutation failure")
-	_, err = orch.withTaskExecutionSnapshot(&Task{ID: "/task_txn", Type: TaskTypeAssaultDiscover}, func() (any, error) {
+	_, err = orch.withTaskMutationSnapshot(&Task{ID: "/task_txn", Type: TaskTypeAssaultDiscover}, func() (any, error) {
 		orch.campaign.Phases[0].Tasks = append(orch.campaign.Phases[0].Tasks, Task{
 			ID:          "/task_added",
 			PhaseID:     "/phase_0",
@@ -60,7 +60,7 @@ func TestWithTaskExecutionSnapshot_RollsBackOnError(t *testing.T) {
 func TestWithTaskExecutionSnapshot_PersistsOnSuccess(t *testing.T) {
 	orch := newSnapshotTestOrchestrator()
 
-	res, err := orch.withTaskExecutionSnapshot(&Task{ID: "/task_txn", Type: TaskTypeAssaultDiscover}, func() (any, error) {
+	res, err := orch.withTaskMutationSnapshot(&Task{ID: "/task_txn", Type: TaskTypeAssaultDiscover}, func() (any, error) {
 		orch.campaign.Phases[0].Tasks = append(orch.campaign.Phases[0].Tasks, Task{
 			ID:          "/task_added",
 			PhaseID:     "/phase_0",
@@ -77,7 +77,7 @@ func TestWithTaskExecutionSnapshot_PersistsOnSuccess(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Fatalf("withTaskExecutionSnapshot() error = %v", err)
+		t.Fatalf("withTaskMutationSnapshot() error = %v", err)
 	}
 	if res != "ok" {
 		t.Fatalf("expected result 'ok', got %v", res)
@@ -93,7 +93,7 @@ func TestWithTaskExecutionSnapshot_PersistsOnSuccess(t *testing.T) {
 func TestWithTaskExecutionSnapshot_ScopedToMutatingTypes(t *testing.T) {
 	orch := newSnapshotTestOrchestrator()
 
-	_, err := orch.withTaskExecutionSnapshot(&Task{ID: "/task_non_mutating", Type: TaskTypeResearch}, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(&Task{ID: "/task_non_mutating", Type: TaskTypeResearch}, func() (any, error) {
 		orch.campaign.Phases[0].Tasks = append(orch.campaign.Phases[0].Tasks, Task{
 			ID:          "/task_added",
 			PhaseID:     "/phase_0",
@@ -123,7 +123,7 @@ func TestWithTaskExecutionSnapshot_RollsBackOnPanic(t *testing.T) {
 		t.Fatalf("cloneCampaignForTest() error = %v", err)
 	}
 
-	_, err = orch.withTaskExecutionSnapshot(&Task{ID: "/task_txn", Type: TaskTypeAssaultTriage}, func() (any, error) {
+	_, err = orch.withTaskMutationSnapshot(&Task{ID: "/task_txn", Type: TaskTypeAssaultTriage}, func() (any, error) {
 		orch.campaign.TotalTasks++
 		panic("simulated panic")
 	})
@@ -152,7 +152,7 @@ func TestWithTaskExecutionSnapshot_RiskGateBlocksMutatingTaskWithForceBlockMode(
 	}
 
 	ran := false
-	_, err := orch.withTaskExecutionSnapshot(&Task{ID: "/task_seed", Type: TaskTypeFileModify}, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(&Task{ID: "/task_seed", Type: TaskTypeFileModify}, func() (any, error) {
 		ran = true
 		return "ok", nil
 	})
@@ -489,7 +489,7 @@ func TestWithTaskExecutionSnapshot_FileModifyCreatingOnlyGlobMatchRollsBack(t *t
 	task.Type = TaskTypeFileModify
 	task.WriteSet = []string{filepath.Join(dir, "*.go")}
 
-	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		return "created orphan", os.WriteFile(created, []byte("package sample\n"), 0o644)
 	})
 	if err == nil || !strings.Contains(err.Error(), "broad glob") {
@@ -520,7 +520,7 @@ func TestWithTaskExecutionSnapshot_FileModifyExistingMatchSucceeds(t *testing.T)
 	task.Type = TaskTypeFileModify
 	task.WriteSet = []string{filepath.Join(dir, "*.go")}
 
-	result, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	result, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		return "updated", os.WriteFile(existing, []byte("package after\n"), 0o644)
 	})
 	if err != nil {
@@ -555,7 +555,7 @@ func TestWithTaskExecutionSnapshot_DirectoryWriteSetModifiedFileSucceeds(t *test
 	task.Type = TaskTypeFileModify
 	task.WriteSet = []string{pkg}
 
-	result, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	result, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		return "updated", os.WriteFile(target, []byte("package after\n"), 0o644)
 	})
 	if err != nil {
@@ -588,7 +588,7 @@ func TestWithTaskExecutionSnapshot_DirectoryWriteSetNothingModifiedFails(t *test
 	task.Type = TaskTypeFileModify
 	task.WriteSet = []string{pkg}
 
-	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		return "no-op", nil
 	})
 	if err == nil || !strings.Contains(err.Error(), "modified no pre-existing file") {
@@ -617,7 +617,7 @@ func TestWithTaskExecutionSnapshot_DirectoryWriteSetRollsBackNestedFile(t *testi
 	task.WriteSet = []string{pkg}
 
 	wantErr := errors.New("boom")
-	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		if writeErr := os.WriteFile(nested, []byte("package mutated\n"), 0o644); writeErr != nil {
 			return nil, writeErr
 		}
@@ -931,7 +931,7 @@ func TestWithTaskExecutionSnapshot_FileCreateExactNewPathRemainsAllowed(t *testi
 	task.Type = TaskTypeFileCreate
 	task.WriteSet = []string{created}
 
-	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		return "created", os.WriteFile(created, []byte("package sample\n"), 0o644)
 	})
 	if err != nil {
@@ -960,7 +960,7 @@ func TestWithTaskExecutionSnapshot_GlobRollbackPreservesPreExistingMatches(t *te
 	task.WriteSet = []string{filepath.Join(dir, "*.go")}
 	wantErr := errors.New("force rollback")
 
-	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		if writeErr := os.WriteFile(created, []byte("new\n"), 0o644); writeErr != nil {
 			return nil, writeErr
 		}
@@ -1002,7 +1002,7 @@ func TestWithTaskExecutionSnapshot_FileModifyExistingChangePlusNewGlobMatchFails
 	task.Type = TaskTypeFileModify
 	task.WriteSet = []string{filepath.Join(dir, "*.go")}
 
-	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		if writeErr := os.WriteFile(existing, []byte("after\n"), 0o644); writeErr != nil {
 			return nil, writeErr
 		}
@@ -1038,7 +1038,7 @@ func TestWithTaskExecutionSnapshot_FileModifyDeletesExistingViaGlobRollsBack(t *
 	task.Type = TaskTypeFileModify
 	task.WriteSet = []string{filepath.Join(dir, "*.go")}
 
-	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		if rmErr := os.Remove(existing); rmErr != nil {
 			return nil, rmErr
 		}
@@ -1075,7 +1075,7 @@ func TestWithTaskExecutionSnapshot_FileModify_ModifiedFirstDeletedSecondFailsAnd
 	task.Type = TaskTypeFileModify
 	task.WriteSet = []string{filepath.Join(dir, "*.go")}
 
-	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+	_, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
 		if writeErr := os.WriteFile(aPath, []byte("package sample\n// modified a\n"), 0o644); writeErr != nil {
 			return nil, writeErr
 		}
@@ -1104,4 +1104,15 @@ func TestWithTaskExecutionSnapshot_FileModify_ModifiedFirstDeletedSecondFailsAnd
 	if string(gotB) != string(originalB) {
 		t.Fatalf("second file not restored: want %q, got %q", originalB, gotB)
 	}
+}
+
+// computeCampaignRiskDecision is the risk decision for the orchestrator's
+// campaign as it stands, computed the way the preflight computes it.
+func (o *Orchestrator) computeCampaignRiskDecision() *CampaignRiskDecision {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.campaign == nil {
+		return nil
+	}
+	return buildCampaignRiskDecision(o.campaign, o.config, o.riskGateState, collectCampaignRiskPaths(o.campaign), nil)
 }

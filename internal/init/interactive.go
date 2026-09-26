@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"codenerd/internal/atomicfile"
-	"codenerd/internal/logging"
 	// researcher removed - JIT clean loop handles research
 )
 
@@ -402,57 +401,6 @@ type AgentSuggestion struct {
 	Reason      string   `json:"reason"`
 	Confidence  float64  `json:"confidence"`
 	SourceTopic string   `json:"source_topic"`
-}
-
-// GetContext7AgentSuggestions suggests agents based on detected frameworks.
-// NOTE: ResearchShard parameter removed as part of JIT refactor - uses static detection.
-func GetContext7AgentSuggestions(ctx context.Context, profile ProjectProfile) ([]AgentSuggestion, error) {
-	suggestions := make([]AgentSuggestion, 0)
-
-	// Collect topics to research based on dependencies
-	depNames := make(map[string]bool)
-	for _, dep := range profile.Dependencies {
-		depNames[strings.ToLower(dep.Name)] = true
-	}
-
-	// Check for specialized frameworks
-	specializedTopics := map[string]AgentSuggestion{
-		"htmx": {
-			Name:        "HTMXExpert",
-			Description: "Expert in HTMX hypermedia patterns and server-driven UI",
-			Topics:      []string{"htmx patterns", "htmx best practices", "htmx forms"},
-			Confidence:  0.85,
-		},
-		"graphql": {
-			Name:        "GraphQLExpert",
-			Description: "Expert in GraphQL schema design and resolvers",
-			Topics:      []string{"graphql schema", "graphql resolvers", "graphql mutations"},
-			Confidence:  0.85,
-		},
-		"redis": {
-			Name:        "RedisExpert",
-			Description: "Expert in Redis caching and data structures",
-			Topics:      []string{"redis patterns", "redis caching", "redis pub/sub"},
-			Confidence:  0.80,
-		},
-		"kubernetes": {
-			Name:        "K8sExpert",
-			Description: "Expert in Kubernetes deployments and orchestration",
-			Topics:      []string{"kubernetes patterns", "helm charts", "k8s operators"},
-			Confidence:  0.85,
-		},
-	}
-
-	for depName, suggestion := range specializedTopics {
-		if depNames[depName] {
-			suggestion.SourceTopic = depName
-			suggestion.Reason = fmt.Sprintf("Detected %s dependency", depName)
-			suggestions = append(suggestions, suggestion)
-			logging.Boot("Context7: Suggesting %s agent for %s", suggestion.Name, depName)
-		}
-	}
-
-	return suggestions, nil
 }
 
 // LoadAgentPreferences loads agent selection preferences from .nerd/preferences.json.

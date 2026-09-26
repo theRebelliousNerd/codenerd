@@ -110,7 +110,7 @@ Coverage never turns a passing turn into a failing one.
 | **Purpose** | Catch defects the compiler and test runner are silent about: logic errors, correctness bugs, security issues, data races, contract violations. Backed by an LLM reviewer, so it is inherently fallible. |
 | **Primary function** | `func (e *Executor) verifyAndUpliftWithCritic(ctx, trp, systemPrompt, history, toolDefs, cfg, result) (*LLMToolResponse, []string)` in `internal/session/build_verify.go` |
 | **Pure helpers** | `func buildCriticPrompt(writtenFiles map[string]string, uncoveredSummary string) string`, `func parseCriticFindings(response string) []CriticFinding`, `func findingsWorthUplift(findings []CriticFinding) []CriticFinding`, `func CriticSeverityRank(sev string) int`, `func readWrittenFilesForReview(workspace string, writtenPaths []string) map[string]string`, `func formatUpliftPrompt(findings []CriticFinding) string` in `internal/session/critic.go` |
-| **Grounding helper** | `func goplsDiagnostics(ctx, workspace, writtenPaths) string` and `func keepDiagnosticLines(raw string) string` in `internal/session/lsp_diagnostics.go` |
+| **Grounding helpers** | `func goplsDiagnostics(ctx, workspace, writtenPaths) string` and `func keepDiagnosticLines(raw string) string` (Go), and `func lspDiagnostics(ctx, workspace, writtenPaths) string` (Python via `pyright-langserver`, TypeScript/JavaScript via `typescript-language-server`, over `internal/world/lsp`'s client), all in `internal/session/lsp_diagnostics.go` |
 | **Outcome type** | `type CriticFinding struct { File string; Line int; Severity string; Claim string }` — Severity normalised to `high`/`medium`/`low` |
 | **Constants** | `criticMaxFileBytes = 24000`, `criticMaxFiles = 6`, `goplsTimeout = 90 * time.Second`, `goplsMaxOutput = 4000`, `goplsMaxFiles = 8`, `criticTimeout = 3 * time.Minute`, `criticUpliftTimeout = 5 * time.Minute`, `criticSystemPrompt` (rigorous adversarial reviewer prompt) |
 | **Can fail a turn** | **No — advisory only, by design** (`ExecutorConfig.CriticReviewAfterEdits` doc: "this gate can never fail a turn") |
@@ -118,8 +118,8 @@ Coverage never turns a passing turn into a failing one.
 **When it finds something:**
 
 1. `verifyAndUpliftWithCritic` checks a coherent config snapshot's `CriticReviewAfterEdits`; if false, returns immediately.
-2. Guard: same `SuccessfulWriteTools` / `touchedGoFiles` checks as above; also skips when `readWrittenFilesForReview` returns empty (no readable non-test `.go` files, caps applied).
-3. `readWrittenFilesForReview` loads at most `criticMaxFiles` written non-test `.go` files, newest-written first, truncating any file over `criticMaxFileBytes` with `// ... (truncated for review)`. Test files (`_test.go`) are intentionally excluded.
+2. Guard: the round is owed for a Go write or any other non-doc write (`turn_round_owed(Turn, /critic)` in `policy/turn_rounds.mg`); it returns without a call when `readWrittenFilesForReview` returns empty (no readable non-test source files, caps applied).
+3. `readWrittenFilesForReview` loads at most `criticMaxFiles` written non-test source files (`reviewableSource`: Go, Mangle, Python, TypeScript/JavaScript, Rust, Java, Kotlin, Ruby, PHP, C#, C/C++, Swift, Scala), truncating any file over `criticMaxFileBytes` with `// ... (truncated for review)`. Tests are excluded by each language's convention (`_test.go`, `test_*.py`, `*.test.ts`, `*.spec.*`, `tests/` directories, ...). Until 2026-09-25 only Go was reviewed.
 4. Optionally collects `goplsDiagnostics` — runs `gopls check` on at most `goplsMaxFiles` written files, filtered through `keepDiagnosticLines` (regex `^.+:\d+:\d+(-\d+)?: .+$`) to drop operational chatter like missing `%AppData%`. Absent `gopls` or timeout returns `""` (silence, not an error). Output is capped at `goplsMaxOutput` and handed to the critic prompt as grounding; the critic is explicitly told to treat tool output as evidence.
 5. Builds the prompt with `buildCriticPrompt` (files in fenced blocks, sorted keys, optional uncovered summary, instructions to emit `FINDING file.go:123 severity: claim` or `NO FINDINGS`, and to treat inventing a finding as worse than finding nothing). The uncovered-summary section instructs the reviewer to report uncovered blocks worth testing at `medium` severity.
 6. Calls the critic model via `e.criticClient().CompleteWithSystem` bounded by `criticTimeout` (3m). If the call times out or errors, the gate is abandoned and the turn proceeds without a review — a failed review is "a missing opinion, not a hard failure".
@@ -132,7 +132,9 @@ Coverage never turns a passing turn into a failing one.
 
     > **Provenance:** this step did not exist when this document was first written. The original draft asserted it did, which was a fabricated claim — and checking it exposed a real hole: the uplift round makes edits *after* gates 1 and 2 have already run, so its output was the only code in the loop shipping unverified. The code was changed to match the description rather than the description trimmed to match the code.
 
-`goplsDiagnostics` is not a separate numbered gate; it is the static-analysis grounding signal fed into Gate 4. Without `gopls` on `PATH` the critic runs without it and behaviour is identical to before the signal existed.
+`goplsDiagnostics` and `lspDiagnostics` are not separate numbered gates; they are the static-analysis grounding fed into Gate 4. Without the server on `PATH` the critic runs without it and behaviour is identical to before the signal existed. `lspDiagnostics` reports errors and warnings only, bounded by `goplsTimeout` and `goplsMaxFiles`; a server that never publishes for a file costs the rest of the budget, not the turn.
+
+`recheckUplift` re-verifies an uplift with the Go build and tests only when the turn wrote Go (`wroteGo`). A non-Go uplift is measured by the workspace's own test gate, `/test_run`, which the kernel orders after the critic; `go build ./...` in a workspace with no `go.mod` would fail and undo every uplift.
 
 ---
 

@@ -1,7 +1,6 @@
 package campaign
 
 import (
-	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
@@ -9,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"codeberg.org/TauCeti/mangle-go/analysis"
 )
 
 // --- MockKernel ---

@@ -1,8 +1,9 @@
 package campaign
 
 import (
-	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codenerd/internal/config"
+
+	"codeberg.org/TauCeti/mangle-go/analysis"
 
 	"context"
 	"os"

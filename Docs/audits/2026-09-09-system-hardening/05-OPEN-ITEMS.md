@@ -103,7 +103,7 @@ case:
 
 | Symbol | File | Note |
 |---|---|---|
-| `SelfHealer` (whole type) | `internal/core/self_healing.go:71` | `internal/session/build_verify.go:35-38` documents that it supersedes this. Two of its strategies are also stubs. Wire or delete — a maintainer's call. |
+| `SelfHealer` (whole type) | `internal/core/self_healing.go:71` | **Deleted** (2026-09-25): `internal/session/build_verify.go` and the test-run repair rounds supersede it, as does the recurse loop's ratchet; `TDDLoop` (`internal/core/tdd_loop.go`), the same design again, went with it. |
 | `LimitedExecutorInterface`, `SandboxedExecutorInterface`, `CompositeExecutorInterface` | `internal/tactile/executor_interface.go:31,39,50` | Whole file unreferenced. |
 | `NewPersistentDockerExecutor`, `DefaultContainerPoolConfig` | `internal/tactile/persistent_docker.go:92,149` | Container pool never constructed. |
 | `GetUserJourneyState`, `RecordSessionStart`, `CheckJourneyTransition`, `GetExperienceLevelFromPreferences`, `GetDisclosureLevel` | `internal/ux/migration.go:211,220,238,262`, `user_state.go:74` | Progressive disclosure: journey state is never recorded and disclosure level never computed. `ShouldShowOnboarding` in the same package **is** live. |

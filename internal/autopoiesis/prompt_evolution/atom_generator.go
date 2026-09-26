@@ -24,11 +24,6 @@ type AtomGenerator struct {
 	pinScope PinScope
 }
 
-// NewAtomGenerator creates a new atom generator pinning at the default scope.
-func NewAtomGenerator(llmClient LLMClient, strategyStore *StrategyStore) *AtomGenerator {
-	return NewAtomGeneratorWithPinScope(llmClient, strategyStore, PinScopeModelFamily)
-}
-
 // NewAtomGeneratorWithPinScope creates a new atom generator with an explicit
 // pin scope. An unrecognized scope falls back to PinScopeModelFamily rather
 // than silently generating unpinned atoms.

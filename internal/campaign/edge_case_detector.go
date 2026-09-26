@@ -291,16 +291,6 @@ func (d *EdgeCaseDetector) logDecisionSummary(decisions []FileDecision) {
 	}
 }
 
-// analyzeFile performs analysis on a single file.
-func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *IntelligenceReport) FileDecision {
-	return d.analyzeFileWithCache(ctx, path, intel, nil)
-}
-
-// gatherMetrics populates decision metrics from intelligence data.
-func (d *EdgeCaseDetector) gatherMetrics(ctx context.Context, decision *FileDecision, path string, intel *IntelligenceReport) {
-	d.gatherMetricsWithCache(ctx, decision, path, intel, nil)
-}
-
 // queryDependencies gets file dependencies from the kernel.
 func (d *EdgeCaseDetector) queryDependencies(ctx context.Context, decision *FileDecision, path string) {
 	if err := ctx.Err(); err != nil {

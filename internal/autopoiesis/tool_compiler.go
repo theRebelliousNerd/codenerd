@@ -421,18 +421,3 @@ func main() {
 
 	return os.WriteFile(filepath.Join(dir, "main.go"), []byte(content), 0644)
 }
-
-// extractFunctionBody extracts the body of the main tool function
-func extractFunctionBody(code, funcName string) string {
-	// Simple regex extraction - production code would use AST
-	pattern := regexp.MustCompile(
-		fmt.Sprintf(`func\s+%s\s*\([^)]*\)\s*\([^)]*\)\s*\{([^}]+)\}`,
-			regexp.QuoteMeta(toCamelCase(funcName))))
-
-	matches := pattern.FindStringSubmatch(code)
-	if len(matches) > 1 {
-		return strings.TrimSpace(matches[1])
-	}
-
-	return ""
-}

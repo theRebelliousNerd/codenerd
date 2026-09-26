@@ -110,6 +110,7 @@ Found on the way, same class (a read-back shape the reader did not expect):
   no Go producer asserts either type.
 - Kept: `IsClamped`, a cross-package test helper (session, tactile, chat and
   regression tests assert on it); `WithSessionContext`, the write half of a
-  context key read in four places -- production feeds the stateful
-  `SetSessionContext` on a per-task executor clone instead, and retiring the
-  read path is a session-owned change.
+  context key read in four places. Wired 2026-09-25: `Executor.ProcessWithIntent`
+  puts the executor's stored session context on the request context
+  (`Executor.withSessionContext`), so the transducer and prompt assembler, which
+  read it only from ctx, stopped seeing nil.

@@ -233,39 +233,6 @@ func GetElement(elements []CodeElement, ref string) *CodeElement {
 	return nil
 }
 
-// GetElementsByType returns elements of a specific type.
-func GetElementsByType(elements []CodeElement, elemType ElementType) []CodeElement {
-	var result []CodeElement
-	for _, e := range elements {
-		if e.Type == elemType {
-			result = append(result, e)
-		}
-	}
-	return result
-}
-
-// GetElementsInRange returns elements that overlap with a line range.
-func GetElementsInRange(elements []CodeElement, startLine, endLine int) []CodeElement {
-	var result []CodeElement
-	for _, e := range elements {
-		if e.EndLine >= startLine && e.StartLine <= endLine {
-			result = append(result, e)
-		}
-	}
-	return result
-}
-
-// GetMethodsOfStruct returns all methods belonging to a struct.
-func GetMethodsOfStruct(elements []CodeElement, structRef string) []CodeElement {
-	var result []CodeElement
-	for _, e := range elements {
-		if e.Type == ElementMethod && e.Parent == structRef {
-			result = append(result, e)
-		}
-	}
-	return result
-}
-
 // CodePatterns contains detected patterns in a file.
 type CodePatterns struct {
 	IsGenerated     bool
@@ -451,14 +418,5 @@ func (p *CodePatterns) ToPatternFacts(file string, elements []CodeElement) []cor
 		})
 	}
 
-	return facts
-}
-
-// ElementsToFacts converts a slice of CodeElements to Mangle facts.
-func ElementsToFacts(elements []CodeElement) []core.Fact {
-	facts := make([]core.Fact, 0, len(elements)*5)
-	for _, e := range elements {
-		facts = append(facts, e.ToFacts()...)
-	}
 	return facts
 }

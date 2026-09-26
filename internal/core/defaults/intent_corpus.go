@@ -23,18 +23,3 @@ import "embed"
 //go:embed intent_corpus.db*
 //go:embed intent_corpus.db.placeholder
 var IntentCorpusDB embed.FS
-
-// IntentCorpusAvailable returns true if the embedded corpus is available.
-// During development, the corpus may not exist until built.
-func IntentCorpusAvailable() bool {
-	entries, err := IntentCorpusDB.ReadDir(".")
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.Name() == "intent_corpus.db" {
-			return true
-		}
-	}
-	return false
-}

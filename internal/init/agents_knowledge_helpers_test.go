@@ -86,18 +86,6 @@ func TestFilterTopicsNeedingResearch_WhenCovered_ShouldSkip(t *testing.T) {
 	}
 }
 
-func TestConvertStoreAtomsToInitAtoms_ShouldCopyFields(t *testing.T) {
-	src := []store.KnowledgeAtom{{Concept: "c", Content: "body", Confidence: 0.7}}
-	got := convertStoreAtomsToInitAtoms(src)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 atom, got %d", len(got))
-	}
-	a := got[0]
-	if a.Concept != "c" || a.Content != "body" || a.Title != "c" || a.Confidence != 0.7 {
-		t.Errorf("field copy mismatch: %+v", a)
-	}
-}
-
 func TestGenerateBaseKnowledgeAtoms_ShouldIncludeIdentityAndTopics(t *testing.T) {
 	init := &Initializer{}
 	agent := RecommendedAgent{

@@ -493,15 +493,20 @@ func (m Model) renderBootScreen() string {
 	}
 	subtitle := m.styles.Components.Badge.Render(subtitleText)
 
-	content := lipgloss.JoinVertical(
+	body := lipgloss.JoinVertical(
 		lipgloss.Center,
-		title,
 		"\n",
 		spin,
 		"\n",
 		subtitle,
 		m.styles.Text.Muted.Render(detailText),
 	)
+	// The embedded ASCII logo is the title when the terminal has room for it
+	// above the status lines; a small terminal keeps the one-line title.
+	if logo := ui.Logo(m.styles); lipgloss.Width(logo) <= m.width && lipgloss.Height(logo)+lipgloss.Height(body) <= m.height {
+		title = logo
+	}
+	content := lipgloss.JoinVertical(lipgloss.Center, title, body)
 
 	return lipgloss.Place(
 		m.width,

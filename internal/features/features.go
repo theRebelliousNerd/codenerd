@@ -441,23 +441,6 @@ func Summary() string {
 	return "features: " + strings.Join(parts, " ")
 }
 
-// boolPtrString renders a *bool for human-readable logs.
-// nil → "unset", otherwise "true"/"false".
-func boolPtrString(p *bool) string {
-	if p == nil {
-		return "unset"
-	}
-	if *p {
-		return "true"
-	}
-	return "false"
-}
-
-// Active returns the currently-installed FeaturesConfig or nil if
-// none has been set. Reads are wait-free; callers must not mutate the
-// returned pointer.
-func Active() *FeaturesConfig { return active.Load() }
-
 // resolveBool implements the canonical-env → legacy-env → active → default
 // precedence for a boolean toggle. Both env vars are queried via os.Getenv and
 // accept "1" / "true" (case-insensitive) for true, "0" / "false" for false.

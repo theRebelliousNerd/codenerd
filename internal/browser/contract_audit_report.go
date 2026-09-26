@@ -54,7 +54,9 @@ var findingSectionSet = map[string]struct{}{
 	"execution_failures":  {},
 }
 
-func isFindingSection(name string) bool {
+// IsAuditFindingSection reports whether a report section holds findings, as
+// opposed to sources or backend logs.
+func IsAuditFindingSection(name string) bool {
 	_, ok := findingSectionSet[name]
 	return ok
 }
@@ -248,7 +250,7 @@ func truncateAuditSections(sections map[string][]string, alreadyTruncated bool) 
 		}
 		cutSection = k
 		if remaining < len(sec) {
-			if isFindingSection(k) {
+			if IsAuditFindingSection(k) {
 				if remaining == 0 {
 					sections[k] = []string{}
 				} else {
@@ -271,7 +273,7 @@ func truncateAuditSections(sections map[string][]string, alreadyTruncated bool) 
 			if _, exists := sections[later]; !exists {
 				continue
 			}
-			if isFindingSection(later) {
+			if IsAuditFindingSection(later) {
 				sections[later] = []string{}
 			} else {
 				delete(sections, later)

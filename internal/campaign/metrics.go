@@ -1,6 +1,10 @@
 package campaign
 
 import (
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -115,9 +119,10 @@ func (o *Orchestrator) campaignIDForMetrics() string {
 	return o.campaign.ID
 }
 
-// InMemoryMetrics is a dependency-free MetricsSink useful for tests and for
-// `nerd campaign status` style summaries. It keeps counts and totals only —
-// a real histogram belongs in a real backend.
+// InMemoryMetrics is a dependency-free MetricsSink. `nerd campaign start` and
+// `resume` install one and print its Summary when the run ends, so the numbers
+// the orchestrator measures reach the operator instead of a log line. It keeps
+// counts and totals only — a real histogram belongs in a real backend.
 type InMemoryMetrics struct {
 	mu sync.Mutex
 
@@ -186,50 +191,45 @@ func (m *InMemoryMetrics) ObserveRiskPreflight(_ string, score int, allowed bool
 	m.RiskSoft += soft
 }
 
-// Snapshot returns a copy safe to read without holding the sink's lock.
-func (m *InMemoryMetrics) Snapshot() map[string]any {
+// Summary renders the observations as report lines, sorted so two runs with
+// the same numbers print the same text. It is empty when nothing was observed.
+func (m *InMemoryMetrics) Summary() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	tasks := make(map[string]any, len(m.TaskCount))
-	for key, count := range m.TaskCount {
-		avg := time.Duration(0)
-		if count > 0 {
-			avg = m.TaskTotal[key] / time.Duration(count)
-		}
-		tasks[key] = map[string]any{
-			"count":    count,
-			"total_ms": m.TaskTotal[key].Milliseconds(),
-			"avg_ms":   avg.Milliseconds(),
-			"max_ms":   m.TaskMax[key].Milliseconds(),
+	var lines []string
+	if len(m.TaskCount) > 0 {
+		lines = append(lines, "tasks:")
+		for _, key := range slices.Sorted(maps.Keys(m.TaskCount)) {
+			taskType, outcome, _ := strings.Cut(key, "|")
+			count := m.TaskCount[key]
+			avg := m.TaskTotal[key] / time.Duration(count)
+			lines = append(lines, fmt.Sprintf("  %s %s: %d (avg %s, max %s)",
+				taskType, outcome, count, avg.Round(time.Millisecond), m.TaskMax[key].Round(time.Millisecond)))
 		}
 	}
-
-	phases := make(map[string]int64, len(m.PhaseTotal))
-	for id, d := range m.PhaseTotal {
-		phases[id] = d.Milliseconds()
+	methods := make(map[string]bool, len(m.CheckpointOK)+len(m.CheckpointBad))
+	for method := range m.CheckpointOK {
+		methods[method] = true
 	}
-
-	checkpoints := make(map[string]any, len(m.CheckpointOK)+len(m.CheckpointBad))
-	for method, ok := range m.CheckpointOK {
-		checkpoints[method] = map[string]int{"passed": ok, "failed": m.CheckpointBad[method]}
+	for method := range m.CheckpointBad {
+		methods[method] = true
 	}
-	for method, bad := range m.CheckpointBad {
-		if _, seen := checkpoints[method]; !seen {
-			checkpoints[method] = map[string]int{"passed": 0, "failed": bad}
+	if len(methods) > 0 {
+		lines = append(lines, "checkpoints:")
+		for _, method := range slices.Sorted(maps.Keys(methods)) {
+			lines = append(lines, fmt.Sprintf("  %s: %d passed, %d failed", method, m.CheckpointOK[method], m.CheckpointBad[method]))
 		}
 	}
-
-	return map[string]any{
-		"tasks":       tasks,
-		"phases_ms":   phases,
-		"checkpoints": checkpoints,
-		"risk": map[string]any{
-			"preflights":    m.RiskPreflights,
-			"blocked":       m.RiskBlocked,
-			"hard_findings": m.RiskHard,
-			"soft_findings": m.RiskSoft,
-			"last_score":    m.LastRiskScore,
-		},
+	if len(m.PhaseTotal) > 0 {
+		lines = append(lines, "phases:")
+		for _, id := range slices.Sorted(maps.Keys(m.PhaseTotal)) {
+			lines = append(lines, fmt.Sprintf("  %s: %s", id, m.PhaseTotal[id].Round(time.Second)))
+		}
 	}
+	if m.RiskPreflights > 0 {
+		lines = append(lines, fmt.Sprintf("risk preflight: score %d, %d blocked of %d (%d hard, %d soft findings)",
+			m.LastRiskScore, m.RiskBlocked, m.RiskPreflights, m.RiskHard, m.RiskSoft))
+	}
+	return lines
 }

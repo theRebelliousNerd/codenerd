@@ -10,16 +10,13 @@
 //   - process_dream.go      - handleDreamState(), formatDreamStateResponse(), system delegation
 //
 // Conversation Helpers:
-//   - process_follow_up.go  - getRecentTurns(), createAgentFromPrompt()
+//   - process_follow_up.go  - getRecentTurns()
 //
 // Continuation Protocol:
 //   - process_continuation.go - checkContinuation(), executeSubtask(), isMutationOperation()
 //
 // Knowledge Handling:
 //   - process_knowledge.go  - handleKnowledgeRequests(), synthesizeWithKnowledge(), matchSpecialistForQuery()
-//
-// Background Sync:
-//   - process_sync.go       - checkWorkspaceSync()
 package chat
 
 import (

@@ -16,9 +16,8 @@
 # nothing calls the functions that would fill them — triage them last.
 AmbientContext.CursorLine	internal/types/types.go:426	(dead file)
 AmbientContext.SelectedText	internal/types/types.go:427	(dead file)
-AuditReportInput.Discovery	internal/browser/contract_audit_report.go:16	(dead file)
-BindMount.ReadOnly	internal/tactile/platform_unix.go:39	(dead file)
-BootConfig.KernelOverride	internal/system/factory.go:81	(dead file)
+BindMount.ReadOnly	internal/tactile/platform_unix.go:39
+BootConfig.KernelOverride	internal/system/factory.go:81
 CompilationStats.FallbackUsed	internal/prompt/compiler.go:182
 CompilerConfig.VectorSearchTimeout	internal/prompt/compiler.go:445
 DecomposeRequest.UserHints	internal/campaign/decomposer.go:215
@@ -31,7 +30,7 @@ InitConfig.PreferenceHints	internal/init/initializer.go:99
 IntegrationPath.InputArity	internal/core/integration_path.go:10
 IntegrationPath.OutputArity	internal/core/integration_path.go:12
 IntegrationPath.Witness	internal/core/integration_path.go:13
-InteractiveConfig.PromptTimeout	internal/init/interactive.go:70	(dead file)
+InteractiveConfig.PromptTimeout	internal/init/interactive.go:71	(dead file)
 KernelShardConfig.ManglePath	internal/core/kernel_shard.go:55
 LogicPane.ScrollOffset	cmd/nerd/ui/splitpane.go:84	(dead file)
 MangleUpdatePolicy.AllowedPrefixes	internal/core/mangle_updates.go:15
@@ -44,7 +43,7 @@ Options.ContextLines	internal/diff/diff.go:166	(dead file)
 Options.DisableCache	internal/diff/diff.go:170	(dead file)
 Options.MaxCacheBytes	internal/diff/diff.go:177	(dead file)
 Options.MaxCacheEntries	internal/diff/diff.go:173	(dead file)
-Options.NoSidecar	internal/persist/factsnap/factsnap.go:84	(dead file)
+Options.NoSidecar	internal/persist/factsnap/factsnap.go:84
 Options.VerifyCacheContent	internal/diff/diff.go:190	(dead file)
 OrchestratorConfig.CampaignRiskOverride	internal/campaign/orchestrator_types.go:170
 OrchestratorConfig.CampaignTimeout	internal/campaign/orchestrator_types.go:151
@@ -54,11 +53,6 @@ OuroborosConfig.AllowCompilationFallback	internal/autopoiesis/ouroboros.go:147	(
 PendingMutation.Diff	cmd/nerd/ui/diffview.go:115	(dead file)
 RouterConfig.CustomRoutes	internal/shards/system/router.go:43	(dead file)
 SessionContext.Ambient	internal/types/types.go:452	(dead file)
-TipContext.ErrorOccurred	cmd/nerd/chat/tips.go:18	(dead file)
-TipContext.LastCommand	cmd/nerd/chat/tips.go:16	(dead file)
-TipContext.LastShardType	cmd/nerd/chat/tips.go:17	(dead file)
-TipContext.ReviewIssues	cmd/nerd/chat/tips.go:21	(dead file)
-TipContext.TestsFailed	cmd/nerd/chat/tips.go:20	(dead file)
 ToolTemplate.Template	internal/autopoiesis/tool_templates.go:17	(dead file)
 Turn.ExtractedAtoms	internal/context/types.go:338	(dead file)
 ZAIConfig.DisableSemaphore	internal/perception/client_types.go:105

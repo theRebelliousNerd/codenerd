@@ -131,24 +131,3 @@ func TestReflectionWorker_LearningStore_ManualProcess(t *testing.T) {
 		t.Errorf("syncLearningVectorIndex failed: %v", err)
 	}
 }
-
-func TestApplyRecencyWeight(t *testing.T) {
-	now := time.Now()
-
-	// age is 0 days -> same score (within tolerance)
-	val1 := applyRecencyWeight(0.8, now, 14)
-	if val1 < 0.79 || val1 > 0.8 {
-		t.Errorf("Expected close to 0.8, got %f", val1)
-	}
-
-	// age is 14 days -> score * 0.5 (within tolerance)
-	val2 := applyRecencyWeight(0.8, now.Add(-14*24*time.Hour), 14)
-	if val2 < 0.39 || val2 > 0.41 {
-		t.Errorf("Expected close to 0.4, got %f", val2)
-	}
-
-	// zero time -> same score
-	if applyRecencyWeight(0.8, time.Time{}, 14) != 0.8 {
-		t.Errorf("Expected 0.8")
-	}
-}

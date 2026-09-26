@@ -290,33 +290,6 @@ func GetSpecialistClassification(name string) (SpecialistClassification, bool) {
 	return class, ok
 }
 
-// CanSpecialistExecute returns whether a specialist can execute tasks directly
-func CanSpecialistExecute(name string) bool {
-	class, ok := GetSpecialistClassification(name)
-	if !ok {
-		return false // Unknown specialists default to advisory
-	}
-	return class.CanExecute
-}
-
-// IsExecutorSpecialist returns whether a specialist is an executor type
-func IsExecutorSpecialist(name string) bool {
-	class, ok := GetSpecialistClassification(name)
-	if !ok {
-		return false
-	}
-	return class.ExecutionMode == SpecialistModeExecutor
-}
-
-// IsStrategicAdvisor returns whether a specialist is a strategic advisor
-func IsStrategicAdvisor(name string) bool {
-	class, ok := GetSpecialistClassification(name)
-	if !ok {
-		return false
-	}
-	return class.KnowledgeTier == TierStrategic
-}
-
 // ShouldSpecialistExecuteTask determines if a specialist should execute directly
 // based on task confidence and specialist classification
 func ShouldSpecialistExecuteTask(name string, confidence float64) bool {
@@ -656,9 +629,4 @@ func ShouldIncludeGenericShard(verb string) bool {
 		return true // Default to including generic shard
 	}
 	return config.IncludeGeneric
-}
-
-// GetAllPatterns returns all technology patterns for external use
-func GetAllPatterns() []TechnologyPattern {
-	return CoreTechnologyPatterns
 }

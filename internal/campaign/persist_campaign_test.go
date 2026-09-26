@@ -3,6 +3,7 @@ package campaign
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -72,7 +73,7 @@ func TestPersistCampaign_StaysSilentOnSuccess(t *testing.T) {
 // EventSnapshotWriteFailed must be in the closed set, or every UI drops it
 // through a default branch and the fix above is decorative.
 func TestSnapshotWriteFailedIsAKnownEventType(t *testing.T) {
-	if !IsKnownOrchestratorEventType(EventSnapshotWriteFailed) {
+	if !slices.Contains(orchestratorEventTypes, EventSnapshotWriteFailed) {
 		t.Fatal("EventSnapshotWriteFailed is not in orchestratorEventTypes")
 	}
 }

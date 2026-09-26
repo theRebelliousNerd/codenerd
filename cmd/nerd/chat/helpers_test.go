@@ -3,7 +3,6 @@ package chat
 import (
 	pe "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/campaign"
-	"codenerd/internal/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/transparency"
 	"crypto/sha256"
@@ -1000,26 +999,6 @@ func TestFlattenForTask(t *testing.T) {
 // tips.go helper tests
 // ============================================================================
 
-func TestNewTipGenerator(t *testing.T) {
-	workspace := t.TempDir()
-	generator := NewTipGenerator(workspace)
-	if generator == nil {
-		t.Fatal("NewTipGenerator() returned nil")
-	}
-}
-
-func TestTipGenerator_ShouldShowTip(t *testing.T) {
-	workspace := t.TempDir()
-	generator := NewTipGenerator(workspace)
-	if generator == nil {
-		t.Skip("NewTipGenerator returned nil")
-	}
-
-	// Just verify it doesn't panic
-	result := generator.ShouldShowTip()
-	_ = result
-}
-
 // ============================================================================
 // command_categories.go tests
 // ============================================================================
@@ -1290,27 +1269,6 @@ func TestHelpRenderer_RenderHelp(t *testing.T) {
 	}
 }
 
-func TestHelpRenderer_GetCurrentLevel(t *testing.T) {
-	tmpDir := t.TempDir()
-	renderer := NewHelpRenderer(tmpDir)
-
-	level := renderer.GetCurrentLevel()
-	// Default should be beginner
-	if level != config.ExperienceBeginner {
-		t.Errorf("GetCurrentLevel() = %v, want %v", level, config.ExperienceBeginner)
-	}
-}
-
-func TestHelpRenderer_SetLevel(t *testing.T) {
-	tmpDir := t.TempDir()
-	renderer := NewHelpRenderer(tmpDir)
-
-	renderer.SetLevel(config.ExperienceExpert)
-	if renderer.GetCurrentLevel() != config.ExperienceExpert {
-		t.Error("SetLevel did not update level")
-	}
-}
-
 // =============================================================================
 // RENDER CAMPAIGN HELPERS TESTS
 // =============================================================================
@@ -1550,74 +1508,6 @@ func TestRenderCampaignStatus(t *testing.T) {
 // TIP FORMATTING TESTS
 // =============================================================================
 
-func TestFormatTip(t *testing.T) {
-	t.Run("nil_tip", func(t *testing.T) {
-		result := FormatTip(nil)
-		if result != "" {
-			t.Error("FormatTip(nil) should return empty string")
-		}
-	})
-
-	t.Run("tip_without_command", func(t *testing.T) {
-		tip := &ContextualTip{
-			Text: "This is a helpful tip",
-		}
-		result := FormatTip(tip)
-		if !strings.Contains(result, "Tip") {
-			t.Error("Result should contain 'Tip'")
-		}
-		if !strings.Contains(result, "helpful tip") {
-			t.Error("Result should contain tip text")
-		}
-	})
-
-	t.Run("tip_with_command", func(t *testing.T) {
-		tip := &ContextualTip{
-			Text:    "Try this command",
-			Command: "/help",
-		}
-		result := FormatTip(tip)
-		if !strings.Contains(result, "/help") {
-			t.Error("Result should contain the command")
-		}
-		if !strings.Contains(result, "Try:") {
-			t.Error("Result should have 'Try:' label")
-		}
-	})
-}
-
-func TestGetRandomGenericTip(t *testing.T) {
-	levels := []config.ExperienceLevel{
-		config.ExperienceBeginner,
-		config.ExperienceIntermediate,
-		config.ExperienceAdvanced,
-		config.ExperienceExpert,
-	}
-
-	for _, level := range levels {
-		t.Run(string(level), func(t *testing.T) {
-			tip := GetRandomGenericTip(level)
-			if tip == "" {
-				t.Errorf("GetRandomGenericTip(%s) returned empty", level)
-			}
-			if !strings.Contains(tip, "Tip") {
-				t.Errorf("Tip should contain 'Tip': %s", tip)
-			}
-		})
-	}
-}
-
-func TestTipGenerator_GenerateTip(t *testing.T) {
-	tmpDir := t.TempDir()
-	generator := NewTipGenerator(tmpDir)
-
-	// Test tip generation with empty context
-	ctx := TipContext{}
-	tip := generator.GenerateTip(ctx)
-	// May be nil if no tips apply
-	_ = tip
-}
-
 // =============================================================================
 // RENDER GLASS BOX MESSAGE TESTS
 // =============================================================================
@@ -1674,5 +1564,24 @@ func TestOnboardingWizardState(t *testing.T) {
 	}
 	if state.Step != OnboardingStepWelcome {
 		t.Error("Initial step should be OnboardingStepWelcome")
+	}
+}
+
+// The boot screen's title is the embedded ASCII logo when the terminal has
+// room for it, and the one-line title when it does not.
+func TestRenderBootScreen_LogoWhenItFits(t *testing.T) {
+	logoLine := `| (__/ _ \/ _`
+
+	roomy := NewTestModel(WithSize(100, 50))
+	roomy.isBooting = true
+	if got := roomy.renderBootScreen(); !strings.Contains(got, logoLine) {
+		t.Fatalf("a 100x50 boot screen has no logo:\n%s", got)
+	}
+
+	small := NewTestModel(WithSize(30, 10))
+	small.isBooting = true
+	got := small.renderBootScreen()
+	if strings.Contains(got, logoLine) || !strings.Contains(got, "codeNERD") {
+		t.Fatalf("a 30x10 boot screen should keep the one-line title:\n%s", got)
 	}
 }

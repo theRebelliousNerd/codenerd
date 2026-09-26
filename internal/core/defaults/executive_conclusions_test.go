@@ -61,6 +61,7 @@ var queryCalls = map[string]bool{
 	"askWithCampaignState": true,
 	"derivedColumn":        true,
 	"queryKernelStrings":   true,
+	"queryOrBlock":         true,
 }
 
 var predicateNameRe = regexp.MustCompile(`^\s*([a-z_][a-zA-Z0-9_]*)`)
@@ -222,9 +223,10 @@ func goQueryRoots(t *testing.T, root string) map[string]struct{} {
 					return true
 				}
 				// The predicate is the first argument that names one; a
-				// context or a kernel handle comes before it in some helpers.
+				// context, a kernel handle or an action ID comes before it in
+				// some helpers (queryOrBlock takes both of the last two).
 				for i, arg := range call.Args {
-					if i > 1 {
+					if i > 2 {
 						break
 					}
 					if preds := predicateFromExpr(arg, consts); len(preds) > 0 {

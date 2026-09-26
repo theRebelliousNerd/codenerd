@@ -54,7 +54,6 @@ Call sites (examples):
 
 - `internal/campaign/campaign_fact_sync.go` — `NewKernelTx`
 - `internal/campaign/context_pager.go`
-- `internal/core/tdd_loop.go`
 - `internal/core/cortex_kernel_transaction_test.go`
 
 ## 4. Shard wiring

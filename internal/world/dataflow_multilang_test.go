@@ -1,7 +1,6 @@
 package world
 
 import (
-	"codenerd/internal/core"
 	"os"
 	"path/filepath"
 	"slices"
@@ -367,61 +366,6 @@ func example() {
 	}
 
 	t.Logf("Go extraction summary: %v", factTypes)
-}
-
-func TestSummarizeMultiLangDataFlow(t *testing.T) {
-	facts := []core.Fact{
-		{Predicate: "assigns", Args: []any{core.MangleAtom("/x"), core.MangleAtom("/nullable"), "test.py", int64(1)}},
-		{Predicate: "assigns", Args: []any{core.MangleAtom("/y"), core.MangleAtom("/option"), "test.rs", int64(2)}},
-		{Predicate: "assigns", Args: []any{core.MangleAtom("/z"), core.MangleAtom("/result"), "test.rs", int64(3)}},
-		{Predicate: "guards_block", Args: []any{core.MangleAtom("/x"), core.MangleAtom("/nil_check"), "test.ts", int64(4), int64(10)}},
-		{Predicate: "guards_return", Args: []any{core.MangleAtom("/x"), core.MangleAtom("/none_check"), "test.py", int64(5)}},
-		{Predicate: "safe_access", Args: []any{core.MangleAtom("/x"), core.MangleAtom("/optional_chain"), "test.ts", int64(6)}},
-		{Predicate: "uses", Args: []any{"test.py", core.MangleAtom("/func"), core.MangleAtom("/x"), int64(7)}},
-		{Predicate: "call_arg", Args: []any{core.MangleAtom("/callsite"), int64(0), core.MangleAtom("/x"), "test.js", int64(8)}},
-	}
-
-	summary := SummarizeMultiLangDataFlow(facts)
-
-	if summary.TotalFacts != 8 {
-		t.Errorf("TotalFacts = %d, want 8", summary.TotalFacts)
-	}
-
-	if summary.AssignmentsFacts != 3 {
-		t.Errorf("AssignmentsFacts = %d, want 3", summary.AssignmentsFacts)
-	}
-
-	if summary.NullableFacts != 1 {
-		t.Errorf("NullableFacts = %d, want 1", summary.NullableFacts)
-	}
-
-	if summary.OptionFacts != 1 {
-		t.Errorf("OptionFacts = %d, want 1", summary.OptionFacts)
-	}
-
-	if summary.ResultFacts != 1 {
-		t.Errorf("ResultFacts = %d, want 1", summary.ResultFacts)
-	}
-
-	if summary.GuardBlockFacts != 1 {
-		t.Errorf("GuardBlockFacts = %d, want 1", summary.GuardBlockFacts)
-	}
-
-	if summary.GuardReturnFacts != 1 {
-		t.Errorf("GuardReturnFacts = %d, want 1", summary.GuardReturnFacts)
-	}
-
-	if summary.SafeAccessFacts != 1 {
-		t.Errorf("SafeAccessFacts = %d, want 1", summary.SafeAccessFacts)
-	}
-
-	if summary.UsesFacts != 1 {
-		t.Errorf("UsesFacts = %d, want 1", summary.UsesFacts)
-	}
-
-	if summary.CallArgFacts != 1 {
-		t.Errorf("CallArgFacts = %d, want 1", summary.CallArgFacts)
-	}
 }
 
 func TestCartographer_SupportedLanguages(t *testing.T) {

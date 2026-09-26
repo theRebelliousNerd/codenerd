@@ -248,29 +248,20 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		config.ToolsDir, config.AgentsDir, config.MinConfidence)
 	logging.AutopoiesisDebug("Target: OS=%s, Arch=%s", config.TargetOS, config.TargetArch)
 
-	// Create Ouroboros config from autopoiesis config
-	ouroborosConfig := OuroborosConfig{
-		ToolsDir:        config.ToolsDir,
-		CompiledDir:     filepath.Join(config.ToolsDir, ".compiled"),
-		MaxToolSize:     100 * 1024, // 100KB
-		CompileTimeout:  300 * time.Second,
-		ExecuteTimeout:  300 * time.Second,
-		AllowNetworking: false,
-		AllowFileSystem: true,
-		// Exec is opt-in per workspace, not a default grant. See the audit note
-		// on Config.AllowToolExec: an allowlisted os/exec is an unrestricted
-		// shell in the user's workspace, and the import allowlist is the only
-		// thing standing in front of it.
-		AllowExec:     config.AllowToolExec,
-		TargetOS:      config.TargetOS,
-		TargetArch:    config.TargetArch,
-		WorkspaceRoot: config.WorkspaceRoot,
-		UserConfig:    config.UserConfig,
-		// Adversarial Co-Evolution (Thunderdome)
-		EnableThunderdome: true,
-		ThunderdomeConfig: DefaultThunderdomeConfig(),
-		MaxPanicRetries:   2,
-	}
+	// Create Ouroboros config from autopoiesis config: the package defaults,
+	// with this workspace's directories, target and grants over them. (This
+	// used to restate every default by hand beside DefaultOuroborosConfig.)
+	ouroborosConfig := DefaultOuroborosConfig(config.WorkspaceRoot)
+	ouroborosConfig.ToolsDir = config.ToolsDir
+	ouroborosConfig.CompiledDir = filepath.Join(config.ToolsDir, ".compiled")
+	// Exec is opt-in per workspace, not a default grant. See the audit note
+	// on Config.AllowToolExec: an allowlisted os/exec is an unrestricted
+	// shell in the user's workspace, and the import allowlist is the only
+	// thing standing in front of it.
+	ouroborosConfig.AllowExec = config.AllowToolExec
+	ouroborosConfig.TargetOS = config.TargetOS
+	ouroborosConfig.TargetArch = config.TargetArch
+	ouroborosConfig.UserConfig = config.UserConfig
 
 	logging.AutopoiesisDebug("Creating ToolGenerator")
 	toolGen := NewToolGenerator(client, config.ToolsDir)

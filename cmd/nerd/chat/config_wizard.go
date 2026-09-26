@@ -3,8 +3,6 @@ package chat
 import (
 	internalconfig "codenerd/internal/config"
 	"fmt"
-	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -578,19 +576,6 @@ Enter your API key for %s:
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
-}
-
-func openBrowserURL(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	_ = cmd.Start()
 }
 
 // configWizardAPIKey handles API key input.

@@ -78,28 +78,6 @@ const (
 	ProblemResearch        ProblemType = "research"
 )
 
-// AllProblemTypes returns all defined problem types.
-func AllProblemTypes() []ProblemType {
-	return []ProblemType{
-		ProblemDebugging,
-		ProblemFeatureCreation,
-		ProblemRefactoring,
-		ProblemTesting,
-		ProblemDocumentation,
-		ProblemPerformance,
-		ProblemSecurity,
-		ProblemAPIIntegration,
-		ProblemDataMigration,
-		ProblemConfigSetup,
-		ProblemErrorHandling,
-		ProblemConcurrency,
-		ProblemTypeSystem,
-		ProblemDependencyMgmt,
-		ProblemCodeReview,
-		ProblemResearch,
-	}
-}
-
 // =============================================================================
 // EXECUTION RECORD - What happened during task execution
 // =============================================================================

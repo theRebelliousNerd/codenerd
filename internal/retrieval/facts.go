@@ -3,6 +3,7 @@ package retrieval
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -242,7 +243,25 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 		logging.Context("SeedIssueFacts: tiered build failed for %s: %v", issueID, err)
 	}
 
+	// A mention the build did not resolve (it ran out of budget, or never
+	// produced a context) is resolved here the way the build resolves one
+	// (ResolveFile is findFile), under the caller's context: the seed budget
+	// is what ran out. Until 2026-09-25 an expired budget asserted "alpha.go"
+	// as written, which joins no file_topology row.
+	resolved := make(map[string]string, len(keywords.MentionedFiles))
 	if tc != nil {
+		maps.Copy(resolved, tc.ResolvedMentions)
+	}
+	for _, mention := range keywords.MentionedFiles {
+		if resolved[mention] == "" {
+			if full := builder.ResolveFile(ctx, mention); full != "" {
+				resolved[mention] = full
+			}
+		}
+	}
+
+	if tc != nil {
+		tc.ResolvedMentions = resolved
 		facts = append(facts, TieredContextFacts(issueID, tc, workDir)...)
 		report.TierCounts = [4]int{tc.Tier1Count, tc.Tier2Count, tc.Tier3Count, tc.Tier4Count}
 		report.Candidates = len(tc.Candidates)
@@ -253,7 +272,7 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 	} else {
 		// No tiered context at all: the mentions still deserve to be resolved
 		// and asserted, otherwise a timeout costs the caller even the free half.
-		facts = append(facts, mentionFacts(issueID, workDir, keywords.MentionedFiles, nil)...)
+		facts = append(facts, mentionFacts(issueID, workDir, keywords.MentionedFiles, resolved)...)
 	}
 
 	if req.IssueScopedOnly {

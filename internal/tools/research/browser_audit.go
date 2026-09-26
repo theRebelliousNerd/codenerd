@@ -1,8 +1,9 @@
 package research
 
-// Browser audit is the passive discover phase of the contract audit system.
-// It reads page facts and searches a bounded, confined repository scan.
-// This tool navigates nothing, presses nothing and changes nothing.
+// Browser audit is the passive half of the contract audit system: discover,
+// report and resume. It reads page facts and searches a bounded, confined
+// repository scan. This tool navigates nothing, presses nothing and changes
+// nothing; the execute phase, which would, is not available.
 
 import (
 	"context"
@@ -19,18 +20,19 @@ import (
 
 const maxAuditDetailBytes = 300
 
-// BrowserAuditTool returns the passive discover phase of contract audits.
+// BrowserAuditTool returns the passive phases of contract audits.
 func BrowserAuditTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "browser_audit",
-		Description: `Passive discover phase of the contract audit. Reads page facts (request URLs, form field descriptors, current route) and searches a bounded, confined repository scan. It navigates nothing, presses nothing and changes nothing. Mutating controls are reported as requiring approval rather than exercised, and execute/report/resume phases are not yet available.`,
+		Description: `Passive phases of the contract audit. discover reads page facts (request URLs, form field descriptors, current route) and searches a bounded, confined repository scan. report synthesizes that evidence into bounded, redacted sections with evidence handles. resume reopens only the sections named by handles from a report. It navigates nothing, presses nothing and changes nothing. Mutating controls are reported as requiring approval rather than exercised; the execute phase is not available.`,
 		Category:    tools.CategoryResearch,
 		Priority:    70,
 		Execute:     executeBrowserAudit,
 		Schema: tools.ToolSchema{
 			Required: []string{"operation", "session_id"},
 			Properties: map[string]tools.Property{
-				"operation":      {Type: "string", Enum: []any{"discover"}, Description: "Only discover is available; execute/report/resume phases are not yet available"},
+				"operation":      {Type: "string", Enum: []any{"discover", "report", "resume"}, Description: "discover lists findings; report synthesizes them into sections with evidence handles; resume reopens the sections named by handles. The execute phase is not available"},
+				"handles":        {Type: "array", Description: "resume only: evidence handles from a report (audit:<session>:<section>)", Items: &tools.PropertyItems{Type: "string"}},
 				"session_id":     {Type: "string", Description: "Session scope enforced on every result"},
 				"repo_root":      {Type: "string", Description: "Optional repository root confined to the workspace; blank defaults to workspace root and is confined before use"},
 				"max_files":      {Type: "integer", Description: "Maximum files to open per scan; clamped down to the package ceiling (a caller cannot raise a limit)"},
@@ -53,7 +55,7 @@ func executeBrowserAudit(ctx context.Context, args map[string]any) (string, erro
 		return "", fmt.Errorf("browser audit: session_id is required")
 	}
 	operation := parseAuditOperation(args)
-	if operation != "discover" {
+	if operation != "discover" && operation != "report" && operation != "resume" {
 		return "", fmt.Errorf("browser audit: unsupported operation %q", operation)
 	}
 	view, err := parseAuditView(args)
@@ -71,7 +73,26 @@ func executeBrowserAudit(ctx context.Context, args map[string]any) (string, erro
 		return "", fmt.Errorf("browser audit: %w", err)
 	}
 	allNotes := mergeAuditNotes(discovery.Notes, auditNotes)
-	output := buildAuditOutput(sessionID, operation, view, discovery, allNotes)
+	var output map[string]any
+	switch operation {
+	case "discover":
+		output = buildAuditOutput(sessionID, operation, view, discovery, allNotes)
+	default:
+		// A report is pure over the evidence, and discovery over the same page
+		// facts and repository is deterministic, so resume rebuilds the report
+		// rather than keeping one between calls.
+		report := browser.BuildAuditReport(browser.AuditReportInput{SessionID: sessionID, Discovery: discovery})
+		report.Notes = mergeAuditNotes(report.Notes, auditNotes)
+		if operation == "report" {
+			output = buildAuditReportOutput(sessionID, view, report)
+		} else {
+			evidence, resumeNotes := browser.ResumeAuditEvidence(report, stringSliceArg(args["handles"]))
+			output = map[string]any{
+				"success": true, "session_id": sessionID, "operation": operation,
+				"repo_root_confined": true, "evidence": evidence, "notes": resumeNotes,
+			}
+		}
+	}
 	recordBrowserToolEvidence(sessionID, "audit", map[string]any{
 		"operation": operation, "view": view, "needles": len(discovery.Needles),
 		"matches": len(discovery.Matches), "truncated": discovery.Truncated,
@@ -204,6 +225,35 @@ func buildAuditOutput(sessionID, operation, view string, discovery browser.Contr
 			})
 		}
 		out["matches"] = matches
+	}
+	return out
+}
+
+// buildAuditReportOutput shapes a report for the view: summary carries counts
+// and handles, compact adds the finding sections, full adds every section.
+func buildAuditReportOutput(sessionID, view string, report browser.AuditReport) map[string]any {
+	out := map[string]any{
+		"success":            true,
+		"session_id":         sessionID,
+		"operation":          "report",
+		"repo_root_confined": true,
+		"view":               view,
+		"counts":             report.Counts,
+		"handles":            report.Handles,
+		"notes":              report.Notes,
+		"truncated":          report.Truncated,
+	}
+	switch view {
+	case "compact":
+		sections := make(map[string][]string)
+		for name, lines := range report.Sections {
+			if browser.IsAuditFindingSection(name) {
+				sections[name] = lines
+			}
+		}
+		out["sections"] = sections
+	case "full":
+		out["sections"] = report.Sections
 	}
 	return out
 }

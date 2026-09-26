@@ -47,9 +47,6 @@ func TestResponsePresentsTestRunnerOutput(t *testing.T) {
 			if got != c.want {
 				t.Errorf("responsePresentsTestRunnerOutput(%q)=%v want %v", c.text, got, c.want)
 			}
-			if got2 := ResponsePresentsTestRunnerOutput(c.text); got2 != c.want {
-				t.Errorf("ResponsePresentsTestRunnerOutput(%q)=%v want %v", c.text, got2, c.want)
-			}
 		})
 	}
 }

@@ -73,30 +73,6 @@ func TestLearnedStore_SearchWithoutVecFallsBack(t *testing.T) {
 	}
 }
 
-// Decaying a pattern out of existence must also evict it from the ANN index,
-// not leave a ghost row bloating vec_learned.
-func TestLearnedStore_DecayPurgesVecOrphans(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "learned.db")
-	s := openLearnedTestStore(t, dbPath)
-	ctx := context.Background()
-	if err := s.AddPattern(ctx, "fading pattern", "fade", "", "", 0.05); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DecayConfidence(0.0, -1); err != nil {
-		t.Fatalf("DecayConfidence: %v", err)
-	}
-	var vecCount, tblCount int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM vec_learned").Scan(&vecCount); err != nil {
-		t.Fatalf("vec count: %v", err)
-	}
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM learned_patterns").Scan(&tblCount); err != nil {
-		t.Fatalf("table count: %v", err)
-	}
-	if vecCount != 0 || tblCount != 0 {
-		t.Errorf("vec=%d table=%d after decay, want both 0", vecCount, tblCount)
-	}
-}
-
 // Learnings with big-int args must round-trip exactly: plain JSON decoding
 // turned every number into a float64, corrupting int64s past 2^53 and —
 // worse — forking the lexical handle, since Save hashes the caller's args

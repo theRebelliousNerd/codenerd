@@ -53,11 +53,6 @@ func responsePresentsTestRunnerOutput(text string) bool {
 	return false
 }
 
-// ResponsePresentsTestRunnerOutput is the exported wrapper for external callers and tests.
-func ResponsePresentsTestRunnerOutput(text string) bool {
-	return responsePresentsTestRunnerOutput(text)
-}
-
 var (
 	okLineRe       = regexp.MustCompile(`(?m)^ok  \s*\S+`)
 	passOnlyLineRe = regexp.MustCompile(`(?m)^\s*PASS\s*$`)

@@ -564,7 +564,7 @@ func (r *shardFactoryRegistrar) registerEphemeralShards() {
 	})
 
 	// Image generation (Gemini Nano Banana 2). Client is injected at spawn via
-	// ShardManager.clientForShardType — never the worker/Ollama LLM.
+	// ShardManager.clientForShardTypeLocked — never the worker/Ollama LLM.
 	registerImageGenerator := func(id string, cfg types.ShardConfig) types.ShardAgent {
 		return coreshards.NewImageGeneratorAgent(id, cfg)
 	}
@@ -720,13 +720,6 @@ func defineShardProfiles(sm *coreshards.ShardManager) {
 	}
 
 	// Define system shard profiles
-	defineSystemShardProfiles(sm)
-}
-
-// RegisterSystemShardProfiles registers Type 1 system shard profiles.
-// This is exported for use by session initialization when factories are
-// registered manually with dependency injection.
-func RegisterSystemShardProfiles(sm *coreshards.ShardManager) {
 	defineSystemShardProfiles(sm)
 }
 

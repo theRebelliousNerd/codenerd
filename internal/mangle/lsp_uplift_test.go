@@ -1,6 +1,8 @@
 package mangle
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -64,36 +66,6 @@ func TestLSPGettersCopy(t *testing.T) {
 	_ = diags
 }
 
-// Ad-hoc validation and document diagnostics are the same checks: they must
-// agree on every input.
-func TestLSPDiagnosticsParity(t *testing.T) {
-	s := NewLSPServer(nil)
-	inputs := []string{
-		"Decl ok(X).\nok(a).\n",
-		"broken(a.\n",
-		"head(X) :- .\n",
-		"noparens\n",
-		"rule(X) :-\n\tbody(X),\n\tother(X).\n",
-	}
-	for i, in := range inputs {
-		uri := "file:///test/parity.mg"
-		s.OpenDocument(uri, in, i+1)
-		docCodes := codes(s.GetDiagnostics(uri))
-		adhocCodes := codes(s.ValidateCode(uri, in))
-		if docCodes != adhocCodes {
-			t.Errorf("input %d: document=%v ad-hoc=%v (diagnostics diverged)", i, docCodes, adhocCodes)
-		}
-	}
-}
-
-func codes(ds []Diagnostic) string {
-	var out []string
-	for _, d := range ds {
-		out = append(out, d.Code)
-	}
-	return strings.Join(out, ",")
-}
-
 // The exit notification signals shutdown; it must not kill the host process.
 func TestLSPExitIsCooperative(t *testing.T) {
 	s := NewLSPServer(nil)
@@ -126,5 +98,57 @@ func TestLSPBodyColumnsOnRepeats(t *testing.T) {
 	}
 	if cols[0] > cols[1] {
 		t.Fatalf("columns out of order: %v", cols)
+	}
+}
+
+// An editor attached to `nerd mangle-lsp` sees what the server computes:
+// diagnostics are published after open and cleared on close, and references
+// and completion are answered instead of advertised and refused.
+func TestLSPServesDiagnosticsReferencesAndCompletion(t *testing.T) {
+	s := NewLSPServer(nil)
+	uri := "file:///ws/p.mg"
+	text := "Decl edge(X, Y).\nedge(/a, /b).\nreach(X, Y) :- edge(X, Y).\nbroken(a.\n"
+	open := LSPRequest{JSONRPC: "2.0", Method: "textDocument/didOpen", Params: json.RawMessage(
+		fmt.Sprintf(`{"textDocument":{"uri":%q,"text":%q,"version":1}}`, uri, text))}
+	if resp := s.handleRequest(open); resp != nil {
+		t.Fatalf("didOpen is a notification; got a response %+v", resp)
+	}
+	notes := s.notificationsFor(open)
+	if len(notes) != 1 {
+		t.Fatalf("didOpen owes one publishDiagnostics, got %d", len(notes))
+	}
+	body, _ := json.Marshal(notes[0])
+	if !strings.Contains(string(body), `"method":"textDocument/publishDiagnostics"`) || !strings.Contains(string(body), `"line":3`) {
+		t.Fatalf("the broken line 4 was not published: %s", body)
+	}
+
+	refs := s.handleRequest(LSPRequest{JSONRPC: "2.0", ID: 7, Method: "textDocument/references", Params: json.RawMessage(
+		fmt.Sprintf(`{"textDocument":{"uri":%q},"position":{"line":2,"character":16},"context":{"includeDeclaration":true}}`, uri))})
+	if refs == nil || refs.Error != nil {
+		t.Fatalf("references refused: %+v", refs)
+	}
+	if locs, _ := refs.Result.([]map[string]any); len(locs) == 0 {
+		t.Fatalf("no references to edge: %+v", refs.Result)
+	}
+
+	comp := s.handleRequest(LSPRequest{JSONRPC: "2.0", ID: 8, Method: "textDocument/completion", Params: json.RawMessage(
+		fmt.Sprintf(`{"textDocument":{"uri":%q},"position":{"line":2,"character":17}}`, uri))})
+	if comp == nil || comp.Error != nil {
+		t.Fatalf("completion refused: %+v", comp)
+	}
+	items, _ := comp.Result.([]map[string]any)
+	found := false
+	for _, it := range items {
+		found = found || it["label"] == "edge"
+	}
+	if !found {
+		t.Fatalf("completion at \"ed\" did not offer edge: %v", items)
+	}
+
+	closeReq := LSPRequest{JSONRPC: "2.0", Method: "textDocument/didClose", Params: json.RawMessage(fmt.Sprintf(`{"textDocument":{"uri":%q}}`, uri))}
+	s.handleRequest(closeReq)
+	body, _ = json.Marshal(s.notificationsFor(closeReq)[0])
+	if !strings.Contains(string(body), `"diagnostics":[]`) {
+		t.Fatalf("closing did not clear the document's diagnostics: %s", body)
 	}
 }

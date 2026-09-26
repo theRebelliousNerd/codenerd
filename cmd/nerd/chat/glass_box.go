@@ -128,23 +128,6 @@ func (m *Model) beginLiveTurn(label string) {
 	})
 }
 
-// isMilestoneEvent is retained for tests/callers that want a "big events only"
-// heuristic. Glass Box debug mode no longer uses it for scrollback gating —
-// everything streams.
-func isMilestoneEvent(e transparency.GlassBoxEvent) bool {
-	switch e.Category {
-	case transparency.CategoryShard, transparency.CategoryRouting:
-		return true
-	case transparency.CategoryKernel:
-		// Only completed decisions, not raw fact pings.
-		return e.Duration > 0 || strings.HasPrefix(e.Summary, "next_action") || strings.Contains(e.Summary, "denied")
-	case transparency.CategoryControl:
-		return true
-	default:
-		return e.Duration > 0
-	}
-}
-
 // glassBoxEventToMessage converts a GlassBoxEvent to a Message for display.
 func (m *Model) glassBoxEventToMessage(event transparency.GlassBoxEvent) Message {
 	content := event.Summary
@@ -373,22 +356,6 @@ func (m *Model) initGlassBox(bus *transparency.GlassBoxEventBus) {
 			}
 		}
 	}
-}
-
-// emitGlassBoxEvent is a helper to emit events from the chat package.
-// It's a convenience wrapper around the event bus.
-func (m *Model) emitGlassBoxEvent(category transparency.GlassBoxCategory, summary string, details string) {
-	if m.glassBoxEventBus == nil || !m.glassBoxEnabled {
-		return
-	}
-
-	m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
-		Timestamp: time.Now(),
-		Category:  category,
-		Summary:   summary,
-		Details:   details,
-		TurnID:    m.turnCount,
-	})
 }
 
 // =============================================================================

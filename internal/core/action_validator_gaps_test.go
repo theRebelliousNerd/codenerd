@@ -18,27 +18,6 @@ func TestActionValidator_NilRegister(t *testing.T) {
 	}
 }
 
-func TestActionValidator_EmptyResultsSlice(t *testing.T) {
-	var results []ValidationResult
-
-	if !ValidateAll(results) {
-		t.Error("ValidateAll should return true for empty results")
-	}
-
-	if ff := FirstFailure(results); ff != nil {
-		t.Error("FirstFailure should return nil for empty results")
-	}
-
-	if hc := HighestConfidence(results); hc != nil {
-		t.Error("HighestConfidence should return nil for empty results")
-	}
-
-	agg := Aggregate(results)
-	if !agg.AllVerified || agg.ValidatorCount != 0 {
-		t.Error("Aggregate failed for empty results")
-	}
-}
-
 func TestValidationResult_ToFacts_Empty(t *testing.T) {
 	vr := ValidationResult{
 		Verified: true,
@@ -48,35 +27,6 @@ func TestValidationResult_ToFacts_Empty(t *testing.T) {
 		t.Errorf("Expected 2 facts for empty fields, got %d", len(facts))
 	}
 	// ActionID and ActionType will just be empty strings, which is fine
-}
-
-// TEST_GAP: Type Coercion
-func TestActionValidator_ConfidenceExtremes(t *testing.T) {
-	results := []ValidationResult{
-		{Confidence: math.NaN()},
-		{Confidence: math.Inf(1)},
-		{Confidence: math.Inf(-1)},
-		{Confidence: 0.5},
-	}
-	hc := HighestConfidence(results)
-	// highest confidence will pick the first one that is > current highest.
-	// math.NaN() > x is always false. math.Inf(1) > x is true.
-	if hc == nil {
-		t.Fatal("Expected highest confidence")
-	}
-	if !math.IsInf(hc.Confidence, 1) {
-		t.Error("Expected +Inf to be highest if present in slice")
-	}
-
-	// ToFacts clamping
-	for _, c := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), 1.5, -0.5} {
-		vr := ValidationResult{Verified: true, Confidence: c}
-		facts := vr.ToFacts()
-		confVal := facts[0].Args[3].(int64)
-		if confVal < 0 || confVal > 100 {
-			t.Errorf("Confidence %v clamped incorrectly to %d", c, confVal)
-		}
-	}
 }
 
 type dummyValidator struct {
@@ -155,4 +105,27 @@ func TestActionValidator_PriorityStability(t *testing.T) {
 		t.Error("Expected 3 validators")
 	}
 	// just ensure it didn't panic or drop
+}
+
+func TestActionValidator_EmptyResultsSlice(t *testing.T) {
+	var results []ValidationResult
+
+	if !ValidateAll(results) {
+		t.Error("ValidateAll should return true for empty results")
+	}
+
+	if ff := FirstFailure(results); ff != nil {
+		t.Error("FirstFailure should return nil for empty results")
+	}
+}
+
+func TestValidationResult_ToFacts_ClampsConfidence(t *testing.T) {
+	for _, c := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), 1.5, -0.5} {
+		vr := ValidationResult{Verified: true, Confidence: c}
+		facts := vr.ToFacts()
+		confVal := facts[0].Args[3].(int64)
+		if confVal < 0 || confVal > 100 {
+			t.Errorf("Confidence %v clamped incorrectly to %d", c, confVal)
+		}
+	}
 }

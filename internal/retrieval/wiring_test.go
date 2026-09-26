@@ -175,27 +175,6 @@ func TestGoModulePath_ShouldReadAndCacheModuleDirective(t *testing.T) {
 	}
 }
 
-// TestBuildContext_ShouldPopulateTier3OnGoWorkspace is the end-to-end form: the
-// builder must reach the imported package, not just the mentioned file.
-func TestBuildContext_ShouldPopulateTier3OnGoWorkspace(t *testing.T) {
-	dir := goImportWorkspace(t)
-	b := NewTieredContextBuilder(DefaultTieredContextConfig(dir))
-
-	tc, err := b.BuildContext(context.Background(), "Run() misbehaves in internal/alpha/alpha.go")
-	if err != nil {
-		t.Fatalf("BuildContext: %v", err)
-	}
-	if tc.Tier3Count == 0 {
-		t.Fatalf("tier 3 empty; files=%v", tc.GetFilePaths())
-	}
-	for _, f := range tc.GetFilesByTier(3) {
-		if strings.HasSuffix(f.FilePath, "beta.go") {
-			return
-		}
-	}
-	t.Errorf("tier 3 did not include the imported package: %v", tc.GetFilesByTier(3))
-}
-
 // =============================================================================
 // Tier 4: semantic injection + fallback
 // =============================================================================
@@ -557,3 +536,30 @@ func itoa(i int) string {
 }
 
 func removeFile(path string) error { return os.Remove(path) }
+
+// TestBuildContext_ShouldPopulateTier3OnGoWorkspace is the end-to-end form: the
+// builder must reach the imported package, not just the mentioned file.
+func TestBuildContext_ShouldPopulateTier3OnGoWorkspace(t *testing.T) {
+	dir := goImportWorkspace(t)
+	b := NewTieredContextBuilder(DefaultTieredContextConfig(dir))
+
+	tc, err := b.BuildContext(context.Background(), "Run() misbehaves in internal/alpha/alpha.go")
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	var tier3 []string
+	for _, f := range tc.Files {
+		if f.Tier == 3 {
+			tier3 = append(tier3, f.FilePath)
+		}
+	}
+	if tc.Tier3Count == 0 {
+		t.Fatalf("tier 3 empty; files=%v", tc.Files)
+	}
+	for _, p := range tier3 {
+		if strings.HasSuffix(p, "beta.go") {
+			return
+		}
+	}
+	t.Errorf("tier 3 did not include the imported package: %v", tier3)
+}

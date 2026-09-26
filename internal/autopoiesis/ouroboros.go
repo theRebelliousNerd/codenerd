@@ -1295,43 +1295,6 @@ func (o *OuroborosLoop) GenerateToolFromCode(ctx context.Context, name, purpose,
 // =============================================================================
 // Generate Mangle facts for tool detection and management.
 
-// GenerateMissingToolFacts creates facts for Mangle missing_tool_for detection
-func GenerateMissingToolFacts(intentID, capability string) []string {
-	return []string{
-		fmt.Sprintf(`missing_tool_for(%q, %q).`, intentID, capability),
-	}
-}
-
-// GenerateToolCapabilityFacts creates facts for available tool capabilities
-func GenerateToolCapabilityFacts(toolName string, capabilities []string) []string {
-	facts := make([]string, 0, len(capabilities)+1)
-	facts = append(facts, fmt.Sprintf(`tool_exists(%q).`, toolName))
-
-	for _, cap := range capabilities {
-		facts = append(facts, fmt.Sprintf(`tool_capability(%q, %s).`, toolName, normalizeCapabilityName(cap)))
-	}
-	return facts
-}
-
-// GenerateToolRegistrationFacts creates facts when a tool is registered.
-// These facts enable Mangle-based tool discovery and routing.
-func GenerateToolRegistrationFacts(tool *RuntimeTool) []string {
-	facts := []string{
-		fmt.Sprintf(`tool_registered(%q, %d).`, tool.Name, tool.RegisteredAt.Unix()),
-		fmt.Sprintf(`tool_hash(%q, %q).`, tool.Name, tool.Hash),
-		fmt.Sprintf(`tool_capability(%q, %s).`, tool.Name, normalizeCapabilityName(tool.Name)),
-	}
-	// Add description if available (enables LLM tool discovery)
-	if tool.Description != "" {
-		facts = append(facts, fmt.Sprintf(`tool_description(%q, %q).`, tool.Name, tool.Description))
-	}
-	// Add binary path (enables direct execution)
-	if tool.BinaryPath != "" {
-		facts = append(facts, fmt.Sprintf(`tool_binary_path(%q, %q).`, tool.Name, tool.BinaryPath))
-	}
-	return facts
-}
-
 // stabilityScore converts a 0.0-1.0 stability/confidence into the integer basis
 // the kernel can actually compare.
 //

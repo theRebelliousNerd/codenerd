@@ -564,10 +564,23 @@ func TestReadWrittenFilesForReview(t *testing.T) {
 	mk("real_test.go", "package p\n")
 	mk("notes.md", "# hi\n")
 	mk("big.go", "package p\n"+strings.Repeat("// filler\n", 5000))
+	mk("app.py", "def f():\n    return 1\n")
+	mk("test_app.py", "def test_f():\n    pass\n")
+	mk("app.test.ts", "test('x', () => {})\n")
 
 	got := readWrittenFilesForReview(ws, []string{
 		"real.go", "real_test.go", "notes.md", "missing.go", "big.go", "  ",
+		"app.py", "test_app.py", "app.test.ts",
 	})
+
+	if _, ok := got["app.py"]; !ok {
+		t.Error("production Python file was not offered for review")
+	}
+	for _, test := range []string{"test_app.py", "app.test.ts"} {
+		if _, ok := got[test]; ok {
+			t.Errorf("%s is a test by its language's convention and was offered for review", test)
+		}
+	}
 
 	if _, ok := got["real.go"]; !ok {
 		t.Error("production Go file was not offered for review")
@@ -576,7 +589,7 @@ func TestReadWrittenFilesForReview(t *testing.T) {
 		t.Error("test file was offered for review; the critic should review code, not tests")
 	}
 	if _, ok := got["notes.md"]; ok {
-		t.Error("non-Go file was offered for review")
+		t.Error("a non-source file was offered for review")
 	}
 	if _, ok := got["missing.go"]; ok {
 		t.Error("unreadable file was offered for review")

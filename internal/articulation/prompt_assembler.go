@@ -1155,22 +1155,6 @@ You are a specialist shard of codeNERD. Execute your task precisely and efficien
 // UTILITY FUNCTIONS
 // =============================================================================
 
-// AssembleQuickPrompt is a convenience function for assembling a prompt with minimal context.
-// It creates a PromptAssembler, assembles the prompt, and returns the result.
-func AssembleQuickPrompt(ctx context.Context, kernel KernelQuerier, shardID, shardType string) (string, error) {
-	pa, err := NewPromptAssembler(kernel)
-	if err != nil {
-		return "", err
-	}
-
-	pc := &PromptContext{
-		ShardID:   shardID,
-		ShardType: shardType,
-	}
-
-	return pa.AssembleSystemPrompt(ctx, pc)
-}
-
 // WithSessionContext returns a new PromptContext with session context added.
 func (pc *PromptContext) WithSessionContext(ctx *types.SessionContext) *PromptContext {
 	pc.SessionCtx = ctx

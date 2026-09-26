@@ -74,25 +74,6 @@ line3 has error`
 	}
 }
 
-func TestExtractPredicateFromError(t *testing.T) {
-	tests := []struct {
-		errMsg   string
-		expected string
-	}{
-		{"undeclared predicate: foo_bar(", "foo_bar"},
-		{"error in 'my_pred('", "my_pred"},
-		{"no predicate here", ""},
-	}
-
-	for _, tt := range tests {
-		result := ExtractPredicateFromError(tt.errMsg)
-		if result != tt.expected {
-			t.Errorf("ExtractPredicateFromError(%q) = %q, want %q",
-				tt.errMsg, result, tt.expected)
-		}
-	}
-}
-
 // PromptBuilder Tests
 
 func TestPromptBuilder_BuildFeedbackPrompt(t *testing.T) {

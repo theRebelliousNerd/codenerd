@@ -188,7 +188,6 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		textarea.Blink,
 		m.spinner.Tick,
-		// m.checkWorkspaceSync(), // DEFERRED until boot complete
 		tea.EnableMouseCellMotion,
 		tea.EnableBracketedPaste, // Allow multi-line paste without sending early
 		m.waitForStatus(),        // Start status listener

@@ -1,14 +1,15 @@
 package core
 
 import (
+	"maps"
 	"slices"
 	"testing"
 )
 
 func TestDefaultAgentPolicySetsResolveToEmbeddedPolicyInventory(t *testing.T) {
-	ids := DefaultAgentPolicySetIDs()
+	ids := slices.Sorted(maps.Keys(defaultAgentPolicySetExtras))
 	if len(ids) == 0 {
-		t.Fatal("DefaultAgentPolicySetIDs() returned no policy sets")
+		t.Fatal("defaultAgentPolicySetExtras names no policy sets")
 	}
 	for _, id := range ids {
 		files, ok := DefaultAgentPolicySetFiles(id)

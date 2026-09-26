@@ -129,23 +129,6 @@ func DefaultConfig() CompressorConfig {
 	}
 }
 
-// NewConfigWithBudget creates a CompressorConfig with a specific total budget.
-// Use this to create a config from config.ContextWindow.MaxTokens.
-// The reserves are automatically calculated as percentages of the total budget.
-func NewConfigWithBudget(totalBudget int) CompressorConfig {
-	if totalBudget <= 0 {
-		totalBudget = 200000 // Default 200k tokens
-	}
-
-	cfg := DefaultConfig()
-	cfg.TotalBudget = totalBudget
-	cfg.CoreReserve = totalBudget * 5 / 100     // 5%
-	cfg.AtomReserve = totalBudget * 30 / 100    // 30%
-	cfg.HistoryReserve = totalBudget * 15 / 100 // 15%
-	cfg.WorkingReserve = totalBudget * 50 / 100 // 50%
-	return cfg
-}
-
 // =============================================================================
 // SECTION 2: Compressed Context Types
 // =============================================================================

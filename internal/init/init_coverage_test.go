@@ -1,7 +1,6 @@
 package init
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -120,27 +119,6 @@ func TestComputeContentHash_WhenCalled_ShouldReturnHexLength(t *testing.T) {
 	}
 }
 
-func TestCleanNameConstant_WhenVariousInputs_ShouldStripLeadingSlash(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{name: "with slash", input: "/go", expected: "go"},
-		{name: "no slash", input: "go", expected: "go"},
-		{name: "empty", input: "", expected: ""},
-		{name: "only slash", input: "/", expected: ""},
-		{name: "double slash", input: "//foo", expected: "/foo"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := cleanNameConstant(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestExtractAgentName_WhenDBPath_ShouldReturnName(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -231,33 +209,6 @@ func TestLoadProjectProfile_WhenInvalidJSON_ShouldReturnError(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(nerdDir, "profile.json"), []byte("not json"), 0644))
 
 	_, err := LoadProjectProfile(tmpDir)
-	assert.Error(t, err)
-}
-
-func TestLoadPreferences_WhenValidFile_ShouldUnmarshal(t *testing.T) {
-	tmpDir := t.TempDir()
-	nerdDir := filepath.Join(tmpDir, ".nerd")
-	require.NoError(t, os.MkdirAll(nerdDir, 0755))
-
-	prefs := UserPreferences{
-		Verbosity:        "concise",
-		ExplanationLevel: "expert",
-		RequireTests:     true,
-	}
-	data, err := json.MarshalIndent(prefs, "", "  ")
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(nerdDir, "preferences.json"), data, 0644))
-
-	loaded, err := LoadPreferences(tmpDir)
-	require.NoError(t, err)
-	assert.Equal(t, "concise", loaded.Verbosity)
-	assert.Equal(t, "expert", loaded.ExplanationLevel)
-	assert.True(t, loaded.RequireTests)
-}
-
-func TestLoadPreferences_WhenMissing_ShouldReturnError(t *testing.T) {
-	tmpDir := t.TempDir()
-	_, err := LoadPreferences(tmpDir)
 	assert.Error(t, err)
 }
 
@@ -455,21 +406,6 @@ func TestGetFrameworkTools_WhenKnownFramework_ShouldReturnTools(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestGetDependencyTools_WhenKnownDep_ShouldReturnTools(t *testing.T) {
-	tools := GetDependencyTools([]string{"rod"})
-	assert.Len(t, tools, 1)
-	assert.Equal(t, "rod_download_browser", tools[0].Name)
-
-	tools = GetDependencyTools([]string{"docker"})
-	assert.Len(t, tools, 2)
-
-	tools = GetDependencyTools([]string{"unknown_dep"})
-	assert.Empty(t, tools)
-
-	tools = GetDependencyTools(nil)
-	assert.Empty(t, tools)
 }
 
 func TestGenerateToolsForProject_WhenMixedTech_ShouldDedup(t *testing.T) {
@@ -1245,33 +1181,6 @@ func TestExtractGoModVersion_WhenEmptyContent_ShouldReturnEmpty(t *testing.T) {
 // ===========================================================================
 // Context7 agent suggestions
 // ===========================================================================
-
-func TestGetContext7AgentSuggestions_WhenNoDeps_ShouldReturnEmpty(t *testing.T) {
-	profile := ProjectProfile{}
-	suggestions, err := GetContext7AgentSuggestions(context.Background(), profile)
-	require.NoError(t, err)
-	assert.Empty(t, suggestions)
-}
-
-func TestGetContext7AgentSuggestions_WhenKnownDeps_ShouldSuggest(t *testing.T) {
-	profile := ProjectProfile{
-		Dependencies: []DependencyInfo{
-			{Name: "redis", Type: "direct"},
-			{Name: "kubernetes", Type: "direct"},
-		},
-	}
-	suggestions, err := GetContext7AgentSuggestions(context.Background(), profile)
-	require.NoError(t, err)
-
-	names := make(map[string]bool)
-	for _, s := range suggestions {
-		names[s.Name] = true
-		assert.NotEmpty(t, s.Reason)
-		assert.NotEmpty(t, s.SourceTopic)
-	}
-	assert.True(t, names["RedisExpert"])
-	assert.True(t, names["K8sExpert"])
-}
 
 // ===========================================================================
 // generateFactsFile via Initializer helper

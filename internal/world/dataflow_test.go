@@ -10,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
 )
 
 func TestDataFlowExtractor_BasicAssignments(t *testing.T) {
@@ -398,115 +396,6 @@ func withEarlyReturn(x *int) int {
 	}
 }
 
-func TestSummarizeDataFlow(t *testing.T) {
-	facts := []core.Fact{
-		{Predicate: "assigns", Args: []any{"/x", core.MangleAtom("/nullable"), "test.go", int64(1)}},
-		{Predicate: "assigns", Args: []any{"/err", core.MangleAtom("/error"), "test.go", int64(2)}},
-		{Predicate: "guards_block", Args: []any{"/x", "/nil_check", "test.go", int64(3), int64(5)}},
-		{Predicate: "guards_return", Args: []any{"/y", "/nil_check", "test.go", int64(6)}},
-		{Predicate: "error_checked_return", Args: []any{"/err", "test.go", int64(7)}},
-		{Predicate: "uses", Args: []any{"test.go", "/foo", "/x", int64(8)}},
-		{Predicate: "call_arg", Args: []any{"/callsite", int64(0), "/x", "test.go", int64(9)}},
-		{Predicate: "function_scope", Args: []any{"test.go", "/foo", int64(1), int64(10)}},
-		{Predicate: "guard_dominates", Args: []any{"test.go", "/foo", int64(4), int64(10)}},
-	}
-
-	summary := SummarizeDataFlow(facts)
-
-	tests := []struct {
-		name string
-		got  int
-		want int
-	}{
-		{"TotalFacts", summary.TotalFacts, 9},
-		{"AssignmentsFacts", summary.AssignmentsFacts, 2},
-		{"NullableAssignments", summary.NullableAssignments, 1},
-		{"ErrorAssignments", summary.ErrorAssignments, 1},
-		{"GuardsBlockFacts", summary.GuardsBlockFacts, 1},
-		{"GuardsReturnFacts", summary.GuardsReturnFacts, 1},
-		{"ErrorCheckedFacts", summary.ErrorCheckedFacts, 1},
-		{"UsesFacts", summary.UsesFacts, 1},
-		{"CallArgFacts", summary.CallArgFacts, 1},
-		{"FunctionScopeFacts", summary.FunctionScopeFacts, 1},
-		{"GuardDominatesFacts", summary.GuardDominatesFacts, 1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if diff := cmp.Diff(tt.want, tt.got); diff != "" {
-				t.Errorf("%s mismatch (-want +got):\n%s", tt.name, diff)
-			}
-		})
-	}
-}
-
-func TestDataFlowExtractor_ComplexFunction(t *testing.T) {
-
-	tmpDir := t.TempDir()
-	testFile := filepath.Join(tmpDir, "test_complex.go")
-
-	// A more realistic function with multiple patterns
-	testCode := `package test
-
-import (
-	"io"
-	"os"
-)
-
-type Config struct {
-	Path string
-}
-
-func LoadConfig(path string) (*Config, error) {
-	// Multiple assignment patterns
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	data, readErr := io.ReadAll(f)
-	if readErr != nil {
-		return nil, readErr
-	}
-
-	cfg := &Config{Path: path}
-	if cfg == nil {
-		return nil, nil
-	}
-
-	// Use data
-	processData(data)
-
-	return cfg, nil
-}
-
-func processData(data []byte) {}
-`
-	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	extractor := NewDataFlowExtractor()
-	facts, err := extractor.ExtractDataFlow(testFile)
-	if err != nil {
-		t.Fatalf("ExtractDataFlow failed: %v", err)
-	}
-
-	summary := SummarizeDataFlow(facts)
-
-	// Verify we extracted meaningful data
-	if summary.AssignmentsFacts < 3 {
-		t.Errorf("Expected at least 3 assignment facts, got %d", summary.AssignmentsFacts)
-	}
-	if summary.ErrorCheckedFacts < 2 {
-		t.Errorf("Expected at least 2 error check facts, got %d", summary.ErrorCheckedFacts)
-	}
-	if summary.FunctionScopeFacts < 2 {
-		t.Errorf("Expected at least 2 function scope facts (LoadConfig and processData), got %d", summary.FunctionScopeFacts)
-	}
-}
-
 func TestDataFlowExtractor_RaceCondition(t *testing.T) {
 	// Verifies that ExtractDataFlow handles file modifications during execution gracefully.
 	// Since we are fixing it to read once (or rely on parser), this test ensures no crashes occur
@@ -798,4 +687,74 @@ func TestDataFlowExtractor_Concurrency(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func TestDataFlowExtractor_ComplexFunction(t *testing.T) {
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_complex.go")
+
+	// A more realistic function with multiple patterns
+	testCode := `package test
+
+import (
+	"io"
+	"os"
+)
+
+type Config struct {
+	Path string
+}
+
+func LoadConfig(path string) (*Config, error) {
+	// Multiple assignment patterns
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	data, readErr := io.ReadAll(f)
+	if readErr != nil {
+		return nil, readErr
+	}
+
+	cfg := &Config{Path: path}
+	if cfg == nil {
+		return nil, nil
+	}
+
+	// Use data
+	processData(data)
+
+	return cfg, nil
+}
+
+func processData(data []byte) {}
+`
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed: %v", err)
+	}
+
+	count := make(map[string]int)
+	for _, f := range facts {
+		count[f.Predicate]++
+	}
+
+	// Verify we extracted meaningful data
+	if count["assigns"] < 3 {
+		t.Errorf("Expected at least 3 assignment facts, got %d", count["assigns"])
+	}
+	if checked := count["error_checked_block"] + count["error_checked_return"]; checked < 2 {
+		t.Errorf("Expected at least 2 error check facts, got %d", checked)
+	}
+	if count["function_scope"] < 2 {
+		t.Errorf("Expected at least 2 function scope facts (LoadConfig and processData), got %d", count["function_scope"])
+	}
 }

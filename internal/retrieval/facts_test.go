@@ -2,6 +2,7 @@ package retrieval
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -389,4 +390,33 @@ func containsString(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// When the tiered build produces nothing, the mentions are still resolved the
+// way a build resolves them, so "alpha.go" is asserted as the workspace file it
+// names and joins file_topology. The seed budget ran out; the caller's
+// context did not, and resolution runs under the caller's.
+func TestSeedIssueFacts_WhenBudgetExpires_ShouldStillResolveMentions(t *testing.T) {
+	dir := seedWorkspace(t)
+	k := newSeedKernel(t)
+
+	report, err := SeedIssueFacts(context.Background(), k, SeedRequest{
+		IssueID:   "/issue_expired_mention",
+		IssueText: "the panic is in alpha.go",
+		WorkDir:   dir,
+		Timeout:   time.Nanosecond,
+	})
+	if err != nil {
+		t.Fatalf("SeedIssueFacts: %v", err)
+	}
+	if !report.TimedOut {
+		t.Skip("the build finished inside a nanosecond budget; nothing to observe")
+	}
+	var paths []string
+	for _, f := range queryFacts(t, k, "file_mentioned") {
+		paths = append(paths, fmt.Sprint(f.Args[0]))
+	}
+	if len(paths) != 1 || paths[0] != "internal/alpha/alpha.go" {
+		t.Fatalf("file_mentioned = %v, want [internal/alpha/alpha.go]", paths)
+	}
 }

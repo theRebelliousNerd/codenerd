@@ -14,22 +14,6 @@ import (
 // These functions allow shards to query the kernel for injectable context
 // without fully replacing their existing prompt templates.
 
-// GetKernelContext queries the kernel for injectable context atoms for a specific shard.
-// This is used by shards that want to augment their existing prompts with kernel-derived context.
-// Returns the context as a formatted string ready for insertion into prompts.
-func GetKernelContext(kernel KernelQuerier, shardID string) (string, error) {
-	if kernel == nil {
-		return "", nil
-	}
-
-	pa, err := NewPromptAssembler(kernel)
-	if err != nil {
-		return "", err
-	}
-
-	return pa.BuildContextSection(shardID)
-}
-
 // BuildContextSection is a public wrapper around the context building logic.
 // Returns a formatted string with all injectable context atoms for the shard.
 func (pa *PromptAssembler) BuildContextSection(shardID string) (string, error) {

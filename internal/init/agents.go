@@ -61,16 +61,6 @@ func agentPromptGenerationTimeout() time.Duration {
 	return timeout
 }
 
-// generateAgentPromptsYAML generates a prompts.yaml template for a Type B (persistent) agent.
-// Creates .nerd/agents/{name}/prompts.yaml with identity, methodology, and domain knowledge atoms.
-// generateAgentPromptsYAML generates a prompts.yaml template for a Type B (persistent) agent.
-// Creates .nerd/agents/{name}/prompts.yaml with identity, methodology, and domain knowledge atoms.
-// This is a convenience wrapper that uses a background context; prefer generateAgentPromptsYAMLWithContext
-// when a caller context is available so LLM generation can be bounded and cancelled.
-func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
-	return i.generateAgentPromptsYAMLWithContext(context.Background(), agent)
-}
-
 // generateAgentPromptsYAMLWithContext generates prompts.yaml using LLM-generated methodology
 // and domain content when available, falling back to the static template on any failure.
 // LLM generation is bounded by a timeout derived from ctx so a slow model cannot stall init,

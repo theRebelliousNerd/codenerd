@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -20,6 +21,15 @@ func TestBackfill_SupersededGenerationNotCurrent(t *testing.T) {
 		t.Fatalf("NewLocalStore: %v", err)
 	}
 	defer s.Close()
+	// Hold both generations until they are inspected: an empty store's
+	// backfill finishes, and clears its token, as soon as it starts.
+	hold := make(chan struct{})
+	var release sync.Once
+	backfillStartHold = hold
+	defer func() {
+		release.Do(func() { close(hold) })
+		backfillStartHold = nil
+	}()
 
 	s.SetEmbeddingEngine(&mockSimpleEngine{})
 	s.backfillMu.Lock()
@@ -39,6 +49,7 @@ func TestBackfill_SupersededGenerationNotCurrent(t *testing.T) {
 	if !s.isCurrentBackfill(done2) {
 		t.Fatal("newest backfill generation does not report current")
 	}
+	release.Do(func() { close(hold) })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -67,14 +67,6 @@ func CampaignRoleAtomFamily(role CampaignRole) string {
 	}
 }
 
-// AllCampaignRoles returns every role the provider serves.
-func AllCampaignRoles() []CampaignRole {
-	return []CampaignRole{
-		RoleLibrarian, RoleExtractor, RoleTaxonomy,
-		RolePlanner, RoleReplanner, RoleAnalysis, RoleAssault,
-	}
-}
-
 // StaticPromptProvider is the LAST-RESORT fallback, not a peer of the JIT path.
 //
 // It returns a frozen ~1000-line prompt from prompts.go with no awareness of

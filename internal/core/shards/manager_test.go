@@ -42,19 +42,6 @@ func TestTrimToTokenBudget(t *testing.T) {
 	}
 }
 
-func TestCategorizeShardType(t *testing.T) {
-	sm := NewShardManager()
-	if got := sm.categorizeShardType("perception_firewall", types.ShardTypeEphemeral); got != "system" {
-		t.Fatalf("expected system classification, got %q", got)
-	}
-	if got := sm.categorizeShardType("coder", types.ShardTypeEphemeral); got != "ephemeral" {
-		t.Fatalf("expected ephemeral classification, got %q", got)
-	}
-	if got := sm.categorizeShardType("custom", types.ShardTypePersistent); got != "specialist" {
-		t.Fatalf("expected specialist classification, got %q", got)
-	}
-}
-
 func TestShardManagerGetBackpressureStatus(t *testing.T) {
 	sm := NewShardManager()
 	if sm.GetBackpressureStatus() != nil {

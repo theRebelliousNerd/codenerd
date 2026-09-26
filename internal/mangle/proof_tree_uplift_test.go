@@ -79,24 +79,6 @@ func TestTracerEvictionIsFIFO(t *testing.T) {
 	}
 }
 
-// ClearCache empties both the map and the order list, so the next fill
-// evicts from a clean slate.
-func TestTracerClearCacheResetsOrder(t *testing.T) {
-	tracer := NewProofTreeTracer(upliftTracerEngine(t))
-	tracer.IndexRules()
-	ctx, cancel := upliftTraceCtx()
-	defer cancel()
-	if _, err := tracer.TraceQuery(ctx, "impacted(X)"); err != nil {
-		t.Fatalf("trace failed: %v", err)
-	}
-	tracer.ClearCache()
-	if len(tracer.traces) != 0 || len(tracer.traceOrder) != 0 {
-		t.Fatalf("cache not empty after clear: %d traces, %d order entries",
-			len(tracer.traces), len(tracer.traceOrder))
-	}
-}
-
-// Nil tracer and nil engine fail closed with errors, never panics.
 func TestTracerNilHandling(t *testing.T) {
 	ctx, cancel := upliftTraceCtx()
 	defer cancel()
@@ -104,7 +86,6 @@ func TestTracerNilHandling(t *testing.T) {
 	if _, err := nilTracer.TraceQuery(ctx, "impacted(X)"); err == nil {
 		t.Fatal("nil tracer TraceQuery returned nil error")
 	}
-	nilTracer.ClearCache() // must not panic
 	nilTracer.IndexRules() // must not panic
 	empty := NewProofTreeTracer(nil)
 	empty.IndexRules() // must not panic

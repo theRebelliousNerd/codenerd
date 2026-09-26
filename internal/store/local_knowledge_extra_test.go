@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"testing"
-	"time"
 )
 
 func TestLocalStore_Knowledge_Extra(t *testing.T) {
@@ -56,35 +55,7 @@ func TestLocalStore_Knowledge_Extra(t *testing.T) {
 		t.Errorf("ensureContentHashes failed: %v", err)
 	}
 
-	// 6. KnowledgeStore wrapper
-	ks, err := NewKnowledgeStore(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create KnowledgeStore: %v", err)
-	}
-	defer ks.Close()
-
-	atom := KnowledgeAtom{
-		Concept:    "concept3",
-		Content:    "content3",
-		Source:     "test",
-		Confidence: 0.99,
-		Tags:       []string{"tag1"},
-		CreatedAt:  time.Now(),
-	}
-	err = ks.StoreAtom(atom)
-	if err != nil {
-		t.Errorf("KnowledgeStore.StoreAtom failed: %v", err)
-	}
-
-	// Ensure table existence check for prefix
-	emptyKs, _ := NewKnowledgeStore(":memory:")
-	emptyKs.db.Exec("DROP TABLE knowledge_atoms")
-	_, err = emptyKs.GetKnowledgeAtomsByPrefix("test")
-	if err != nil {
-		t.Errorf("Expected no error when table doesn't exist, got %v", err)
-	}
-
-	// 7. StoreKnowledgeAtomWithEmbedding / SearchKnowledgeAtomsSemantic (with nil embeddingEngine)
+	// 6. StoreKnowledgeAtomWithEmbedding / SearchKnowledgeAtomsSemantic (with nil embeddingEngine)
 	ctx := context.Background()
 	err = s.StoreKnowledgeAtomWithEmbedding(ctx, "concept-embed", "content-embed", 0.95)
 	if err != nil {

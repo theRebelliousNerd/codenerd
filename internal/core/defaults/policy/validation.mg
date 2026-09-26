@@ -282,29 +282,18 @@ validation_meets_threshold(ActionID) :-
     Confidence >= Threshold.
 
 # =============================================================================
-# SECTION 7: HEALING OUTCOMES
+# SECTION 7: RESOLUTION OUTCOMES
 # =============================================================================
-
-# An action has been healed if there's a successful healing attempt
-action_healed(ActionID) :-
-    healing_attempt(ActionID, _, /true, _, _).
-
-# Count healing attempts by type
-# healing_by_type(HealingType, N) :-
-#     healing_attempt(_, HealingType, _, _, _) |>
-#     do fn:group_by(HealingType),
-#     let N = fn:count().
 
 # An action requires user intervention if escalated
 requires_user_intervention(ActionID) :-
     action_escalated(ActionID, _, _).
 
-# An action is fully resolved if either validated or healed
+# An action is fully resolved once validated. (A second arm accepted a
+# successful healing_attempt; its only producer was internal/core's SelfHealer,
+# which nothing called and which is deleted.)
 action_resolved(ActionID) :-
     action_validated(ActionID).
-
-action_resolved(ActionID) :-
-    action_healed(ActionID).
 
 # Critical actions are only resolved if paranoid validation passed
 critical_action_resolved(ActionID) :-

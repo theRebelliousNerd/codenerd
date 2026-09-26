@@ -5,13 +5,6 @@ import (
 	"testing"
 )
 
-func TestIntentCorpusAvailableMatchesDisk(t *testing.T) {
-	expected := fileExists("intent_corpus.db")
-	if IntentCorpusAvailable() != expected {
-		t.Fatalf("intent corpus availability mismatch: expected %v", expected)
-	}
-}
-
 func TestPredicateCorpusAvailableMatchesDisk(t *testing.T) {
 	expected := fileExists("predicate_corpus.db")
 	if PredicateCorpusAvailable() != expected {

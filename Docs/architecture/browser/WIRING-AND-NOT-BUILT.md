@@ -77,7 +77,7 @@ unreachable function in the dead-code baseline was classified.
 | Browser CI integration job | DECLINE (environment) | CI has no Chrome; the live suites are gated tests. Not buildable without a browser runner. |
 | BPAR-5 live parity gate | DECLINE (unowned claim) | No code or spec in the tree defines BPAR-5; nothing to build against. |
 | Evidence privacy on append (`security.IsPrivatePath`) | REAL gap, WIRED | `FlightRecorder.Record` now re-verifies owner-only policy before appending to an existing trace, re-protects a loosened file and refuses one it cannot re-protect (`flight_recorder.go`, `ensurePrivateEvidence`). Proven by `TestFlightRecorderReprotectsLoosenedEvidenceBeforeAppend` (fails with the check removed). |
-| Contract-audit report/resume (`BuildAuditReport`, `ResumeAuditEvidence` and helpers) | REAL gap, cross-lane | Built and tested in `contract_audit_report.go`, but the only consumer surface, `internal/tools/research/browser_audit.go`, exposes `operation: discover` only. Wiring `report`/`resume` operations belongs to the tools lane; left in the dead-code baseline until then. |
+| Contract-audit report/resume (`BuildAuditReport`, `ResumeAuditEvidence` and helpers) | **Wired** (2026-09-25) | `browser_audit` exposes `operation: report` (sections, counts, evidence handles; `summary`/`compact`/`full` views) and `operation: resume` (reopens only the sections its `handles` name; another session's handle is reported, not served). Both rebuild from a fresh passive discovery, so nothing is kept between calls. `execute` stays unexposed. Pinned by `TestBrowserAuditTool_ReportThenResumeReopensOnlyNamedSections`. |
 
 ## Stubs
 

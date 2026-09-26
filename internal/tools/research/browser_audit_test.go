@@ -148,7 +148,7 @@ func writeAuditFile(t *testing.T, root, rel, content string) {
 	}
 }
 
-func TestBrowserAuditTool_ShouldDeclareOnlyDiscoverOperation(t *testing.T) {
+func TestBrowserAuditTool_ShouldDeclareOnlyPassiveOperations(t *testing.T) {
 	tool := BrowserAuditTool()
 	if tool.Name != "browser_audit" {
 		t.Fatalf("expected browser_audit, got %q", tool.Name)
@@ -157,11 +157,9 @@ func TestBrowserAuditTool_ShouldDeclareOnlyDiscoverOperation(t *testing.T) {
 	if !ok {
 		t.Fatal("operation property missing")
 	}
-	if len(prop.Enum) != 1 {
-		t.Fatalf("enum must have exactly one value, got %v", prop.Enum)
-	}
-	if fmt.Sprint(prop.Enum[0]) != "discover" {
-		t.Fatalf("enum must be [discover], got %v", prop.Enum)
+	// execute would press and navigate; it must not appear until it exists.
+	if got := fmt.Sprint(prop.Enum); got != "[discover report resume]" {
+		t.Fatalf("enum must be [discover report resume], got %v", got)
 	}
 	if tool.Category != tools.CategoryResearch {
 		t.Fatalf("expected CategoryResearch, got %v", tool.Category)
@@ -363,5 +361,71 @@ func TestBrowserAuditTool_ShouldRegisterInResearchTools(t *testing.T) {
 	tool := reg.Get("browser_audit")
 	if tool == nil || tool.Name != "browser_audit" {
 		t.Fatalf("expected browser_audit tool, got %+v", tool)
+	}
+}
+
+// report synthesizes discovery into sections with handles, and resume reopens
+// exactly the sections those handles name.
+func TestBrowserAuditTool_ReportThenResumeReopensOnlyNamedSections(t *testing.T) {
+	ws := t.TempDir()
+	writeAuditFile(t, ws, "src/orders.go", "package src\nfunc handleOrders() {}\n")
+	mgr := browser.NewSessionManagerWithSink(browser.Config{WorkspaceRoot: ws}, nil)
+	kernel := &auditTestKernel{facts: []types.Fact{
+		{Predicate: "navigation_event", Args: []any{"sess-a", "/orders/checkout", time.Now().UnixMilli()}},
+	}}
+	SetBrowserRuntime(mgr, kernel)
+	defer ClearBrowserManager(mgr)
+	tool := BrowserAuditTool()
+
+	outStr, err := tool.Execute(context.Background(), map[string]any{
+		"operation": "report", "session_id": "sess-a", "view": "summary",
+	})
+	if err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	checkNoAbsolutePath(t, ws, outStr)
+	var report struct {
+		Operation string         `json:"operation"`
+		Counts    map[string]int `json:"counts"`
+		Handles   []string       `json:"handles"`
+		Sections  map[string]any `json:"sections"`
+	}
+	if err := json.Unmarshal([]byte(outStr), &report); err != nil {
+		t.Fatalf("unmarshal report: %v", err)
+	}
+	if report.Operation != "report" || report.Counts["inference"] != 1 || report.Counts["observation"] != 1 {
+		t.Fatalf("report = %s", outStr)
+	}
+	if report.Sections != nil {
+		t.Fatalf("the summary view carries no sections: %s", outStr)
+	}
+	want := "audit:sess-a:inferences"
+	found := false
+	for _, h := range report.Handles {
+		found = found || h == want
+	}
+	if !found {
+		t.Fatalf("no %s handle in %v", want, report.Handles)
+	}
+
+	outStr, err = tool.Execute(context.Background(), map[string]any{
+		"operation": "resume", "session_id": "sess-a", "handles": []any{want, "audit:sess-b:inferences"},
+	})
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	checkNoAbsolutePath(t, ws, outStr)
+	var resumed struct {
+		Evidence map[string][]string `json:"evidence"`
+		Notes    []string            `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(outStr), &resumed); err != nil {
+		t.Fatalf("unmarshal resume: %v", err)
+	}
+	if len(resumed.Evidence) != 1 || len(resumed.Evidence["inferences"]) == 0 {
+		t.Fatalf("resume must reopen the inferences section and nothing else: %s", outStr)
+	}
+	if len(resumed.Notes) != 1 || !strings.Contains(resumed.Notes[0], "session mismatch") {
+		t.Fatalf("another session's handle must be reported, not served: %v", resumed.Notes)
 	}
 }

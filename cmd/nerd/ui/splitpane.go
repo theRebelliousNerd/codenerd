@@ -423,21 +423,6 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 	return result
 }
 
-func (p *LogicPane) flattenNodesFiltered(nodes []*DerivationNode, depth int) []*DerivationNode {
-	flat := p.flattenNodes(nodes, depth)
-	if p.ActivationThreshold <= MinActivationThreshold {
-		return flat
-	}
-
-	filtered := make([]*DerivationNode, 0, len(flat))
-	for _, node := range flat {
-		if node.Activation >= p.ActivationThreshold {
-			filtered = append(filtered, node)
-		}
-	}
-	return filtered
-}
-
 // renderContent renders the logic pane content with hash-based caching
 func (p *LogicPane) renderContent() string {
 	if p.CurrentTrace == nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -657,19 +656,4 @@ func rebuildLearningVecTable(db *sql.DB, dim int) error {
 		return err
 	}
 	return nil
-}
-
-func applyRecencyWeight(score float64, createdAt time.Time, halfLifeDays int) float64 {
-	if score <= 0 {
-		return score
-	}
-	if createdAt.IsZero() || halfLifeDays <= 0 {
-		return score
-	}
-	ageDays := time.Since(createdAt).Hours() / 24
-	if ageDays <= 0 {
-		return score
-	}
-	decay := math.Pow(0.5, ageDays/float64(halfLifeDays))
-	return clampScore(score * decay)
 }

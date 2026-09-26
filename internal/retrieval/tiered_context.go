@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 
@@ -650,65 +649,3 @@ var definitionModifiers = []string{
 // =============================================================================
 // CONTEXT HELPERS
 // =============================================================================
-
-// GetFilesByTier returns files filtered by tier.
-func (tc *TieredContext) GetFilesByTier(tier int) []ContextFile {
-	var files []ContextFile
-	for _, f := range tc.Files {
-		if f.Tier == tier {
-			files = append(files, f)
-		}
-	}
-	return files
-}
-
-// GetTopFiles returns the top N files by relevance score.
-func (tc *TieredContext) GetTopFiles(n int) []ContextFile {
-	// Sort by relevance score
-	sorted := make([]ContextFile, len(tc.Files))
-	copy(sorted, tc.Files)
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].RelevanceScore != sorted[j].RelevanceScore {
-			return sorted[i].RelevanceScore > sorted[j].RelevanceScore
-		}
-		return sorted[i].FilePath < sorted[j].FilePath
-	})
-
-	if n < 0 {
-		n = 0
-	}
-	if n > len(sorted) {
-		n = len(sorted)
-	}
-	return sorted[:n]
-}
-
-// GetFilePaths returns just the file paths for all context files.
-func (tc *TieredContext) GetFilePaths() []string {
-	paths := make([]string, len(tc.Files))
-	for i, f := range tc.Files {
-		paths[i] = f.FilePath
-	}
-	return paths
-}
-
-// LoadContent loads file content for all files up to maxBytes total.
-func (tc *TieredContext) LoadContent(maxBytes int64) error {
-	var totalBytes int64
-
-	for i := range tc.Files {
-		if totalBytes >= maxBytes {
-			break
-		}
-
-		content, err := os.ReadFile(tc.Files[i].FilePath)
-		if err != nil {
-			continue
-		}
-
-		tc.Files[i].Content = string(content)
-		totalBytes += int64(len(content))
-	}
-
-	return nil
-}

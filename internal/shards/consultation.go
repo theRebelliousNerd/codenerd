@@ -428,31 +428,3 @@ func (m *ConsultationManager) cacheResponse(key string, resp *ConsultationRespon
 
 	m.completed[key] = resp
 }
-
-// FormatConsultationAdvice formats consultation responses for injection into context.
-func FormatConsultationAdvice(responses []ConsultationResponse) string {
-	if len(responses) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.WriteString("## Specialist Consultation Results\n\n")
-
-	for _, resp := range responses {
-		sb.WriteString(fmt.Sprintf("### %s (Confidence: %.0f%%)\n\n", resp.FromSpec, resp.Confidence*100))
-		sb.WriteString(resp.Advice)
-		sb.WriteString("\n\n")
-
-		if len(resp.Caveats) > 0 {
-			sb.WriteString("**Caveats:**\n")
-			for _, c := range resp.Caveats {
-				if strings.TrimSpace(c) != "" {
-					sb.WriteString(fmt.Sprintf("- %s\n", c))
-				}
-			}
-			sb.WriteString("\n")
-		}
-	}
-
-	return sb.String()
-}

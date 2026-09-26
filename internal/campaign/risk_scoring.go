@@ -889,19 +889,6 @@ func (o *Orchestrator) emitRiskAudit(eventType OrchestratorEventType, message st
 	logging.Campaign("RISK_AUDIT %s: %s", eventType, message)
 }
 
-func (o *Orchestrator) computeCampaignRiskDecision() *CampaignRiskDecision {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-	c := o.campaign
-	cfg := o.config
-	gates := o.riskGateState
-	if c == nil {
-		return nil
-	}
-	paths := collectCampaignRiskPaths(c)
-	return buildCampaignRiskDecision(c, cfg, gates, paths, nil)
-}
-
 func (o *Orchestrator) shouldGateTask(taskID string) bool {
 	o.mu.RLock()
 	defer o.mu.RUnlock()

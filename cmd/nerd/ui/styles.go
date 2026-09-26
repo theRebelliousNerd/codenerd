@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/lucasb-eyer/go-colorful"
 	"github.com/muesli/termenv"
 
 	"codenerd/internal/features"
@@ -499,74 +498,4 @@ func Logo(s Styles) string {
 // Divider returns a horizontal divider
 func (s Styles) RenderDivider(width int) string {
 	return s.Components.Divider.Render(strings.Repeat("─", width))
-}
-
-// AdjustColor modifies the brightness and saturation of a lipgloss.Color.
-// Note: This utility only supports adjusting hex color strings. ANSI color codes (e.g. "212") will be returned unmodified.
-// Returns the original color if parsing fails.
-// Factors > 1.0 increase the property, < 1.0 decrease it.
-func AdjustColor(c lipgloss.Color, lightnessFactor float64, saturationFactor float64) lipgloss.Color {
-	colorStr := string(c)
-	if colorStr == "" {
-		return c
-	}
-
-	col, err := colorful.Hex(colorStr)
-	if err != nil {
-		return c
-	}
-
-	h, s, l := col.Hsl()
-
-	s = s * saturationFactor
-	if s > 1.0 {
-		s = 1.0
-	} else if s < 0.0 {
-		s = 0.0
-	}
-
-	l = l * lightnessFactor
-	if l > 1.0 {
-		l = 1.0
-	} else if l < 0.0 {
-		l = 0.0
-	}
-
-	newC := colorful.Hsl(h, s, l)
-	return lipgloss.Color(newC.Hex())
-}
-
-// WithApp configures the App style
-func WithApp(style lipgloss.Style) StyleOption {
-	return func(s *Styles) {
-		s.Layout.App = style
-	}
-}
-
-// WithHeader configures the Header style
-func WithHeader(style lipgloss.Style) StyleOption {
-	return func(s *Styles) {
-		s.Layout.Header = style
-	}
-}
-
-// WithFooter configures the Footer style
-func WithFooter(style lipgloss.Style) StyleOption {
-	return func(s *Styles) {
-		s.Layout.Footer = style
-	}
-}
-
-// WithContent configures the Content style
-func WithContent(style lipgloss.Style) StyleOption {
-	return func(s *Styles) {
-		s.Layout.Content = style
-	}
-}
-
-// WithSidebar configures the Sidebar style
-func WithSidebar(style lipgloss.Style) StyleOption {
-	return func(s *Styles) {
-		s.Layout.Sidebar = style
-	}
 }

@@ -309,35 +309,3 @@ func TestShouldConsultBeforeExecution(t *testing.T) {
 // =============================================================================
 // FORMAT ADVICE TESTS
 // =============================================================================
-
-func TestFormatConsultationAdvice(t *testing.T) {
-	t.Parallel()
-
-	responses := []ConsultationResponse{
-		{
-			FromSpec:   "architect",
-			Advice:     "Use layers",
-			Confidence: 0.9,
-			Caveats:    []string{"Consider scale"},
-		},
-		{
-			FromSpec:   "security",
-			Advice:     "Add auth",
-			Confidence: 0.85,
-			Caveats:    []string{},
-		},
-	}
-
-	result := FormatConsultationAdvice(responses)
-	if result == "" {
-		t.Error("expected non-empty formatted advice")
-	}
-}
-
-func TestFormatConsultationAdvice_Empty(t *testing.T) {
-	t.Parallel()
-
-	result := FormatConsultationAdvice(nil)
-	// Empty or contains "no advice" message
-	_ = result
-}

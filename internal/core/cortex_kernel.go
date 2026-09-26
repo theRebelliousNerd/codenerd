@@ -182,14 +182,6 @@ func (c *CortexKernel) SetDerivationMap(m *DerivationMap) {
 		predCount, narrowed, total)
 }
 
-// isShared reports whether a predicate (or a query pattern on it) is shared.
-func (c *CortexKernel) isShared(predicate string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	_, ok := c.sharedPredicates[barePredicate(predicate)]
-	return ok
-}
-
 // noteMutationFailure records and reports a kernel write that did not land.
 //
 // Warn, not Debug: this is never routine. A failed assert means the kernel's

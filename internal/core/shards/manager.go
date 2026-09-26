@@ -200,17 +200,6 @@ func (sm *ShardManager) SetImageLLMClient(client types.LLMClient) {
 	logging.ShardsDebug("Image LLM client attached to ShardManager")
 }
 
-// clientForShardType picks LLM for a shard: image family → imageLLMClient
-// (Gemini Nano Banana 2), everything else → default llmClient (worker Ollama).
-// Image shard types never fall back to the worker/main client — that would
-// silently send Nano Banana work to Ollama (FM15). When the image client is
-// unset, returns nil so spawn leaves the agent without a mis-wired client.
-func (sm *ShardManager) clientForShardType(typeName string) types.LLMClient {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.clientForShardTypeLocked(typeName)
-}
-
 // clientForShardTypeLocked is the lock-free body of clientForShardType.
 // Caller must hold sm.mu (R or W). Used from SpawnAsyncWithContext which
 // already holds the write lock — nested RLock would deadlock.
@@ -254,36 +243,6 @@ func (sm *ShardManager) SetJITUnregistrar(unregistrar types.JITDBUnregistrar) {
 	defer sm.mu.Unlock()
 	sm.jitUnregistrar = unregistrar
 	logging.ShardsDebug("JIT unregistrar callback set")
-}
-
-func (sm *ShardManager) categorizeShardType(typeName string, shardType types.ShardType) string {
-	// System shards (built-in, always-on)
-	systemShards := map[string]bool{
-		"perception_firewall":  true,
-		"constitution_gate":    true,
-		"executive_policy":     true,
-		"cost_guard":           true,
-		"tactile_router":       true,
-		"session_planner":      true,
-		"world_model_ingestor": true,
-	}
-	if systemShards[typeName] || shardType == types.ShardTypeSystem {
-		return "system"
-	}
-
-	// Ephemeral shards (built-in factories)
-	ephemeralShards := map[string]bool{
-		"coder":      true,
-		"tester":     true,
-		"reviewer":   true,
-		"researcher": true,
-	}
-	if ephemeralShards[typeName] || shardType == types.ShardTypeEphemeral {
-		return "ephemeral"
-	}
-
-	// Everything else is a specialist (LLM-created or user-created)
-	return "specialist"
 }
 
 func (sm *ShardManager) SetLearningStore(store types.LearningStore) {

@@ -133,7 +133,7 @@ func TestRegisterSystemShardProfiles(t *testing.T) {
 	t.Parallel()
 	sm := coreshards.NewShardManager()
 
-	RegisterSystemShardProfiles(sm)
+	defineSystemShardProfiles(sm)
 
 	// Check a few key profiles
 	checkProfile(t, sm, "perception_firewall", types.ShardTypeSystem)

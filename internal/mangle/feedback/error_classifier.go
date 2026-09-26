@@ -205,16 +205,6 @@ func extractLineCol(errMsg string) (line, col int) {
 	return 0, 0
 }
 
-// ExtractPredicateFromError attempts to extract a predicate name from an error.
-func ExtractPredicateFromError(errMsg string) string {
-	// Pattern: predicate name followed by (
-	matches := predPattern.FindStringSubmatch(errMsg)
-	if len(matches) >= 2 {
-		return matches[1]
-	}
-	return ""
-}
-
 // FormatErrorForFeedback formats a validation error for LLM feedback.
 func FormatErrorForFeedback(err ValidationError) string {
 	var sb strings.Builder

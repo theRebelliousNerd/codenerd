@@ -30,8 +30,8 @@ var exemptPurposes = map[Purpose]string{
 	PurposeUnattributed: "the fallback itself; tagging it would defeat its point",
 	PurposeArticulation: "articulation makes no LLM calls today — emitter.go's only Complete is commented out",
 	PurposeCritic:       "no critic subsystem issues inference of its own yet",
-	PurposeCompression: "compression makes no LLM calls today: Compressor.generateSummary is its " +
-		"only call site and is dead, replaced by the kernel-driven observation masking in " +
+	PurposeCompression: "compression makes no LLM calls today: Compressor.generateSummary was its " +
+		"only call site and is deleted, replaced by the kernel-driven observation masking in " +
 		"compressor_turns.go. Tag it again when summarization comes back.",
 }
 

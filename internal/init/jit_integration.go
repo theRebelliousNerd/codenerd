@@ -180,11 +180,18 @@ func (i *Initializer) assembleJITPrompt(ctx context.Context, phase, task string,
 		return "", fmt.Errorf("no LLM client available for prompt assembly")
 	}
 
+	// Expert phases re-check the kernel: a persistent specialist built from
+	// the static fallback is measurably worse, so it must not happen silently.
+	if isExpertInitPhase(phase) {
+		if err := i.verifyJITKernelLoaded(phase); err != nil {
+			return i.staticFallbackPrompt(phase, task, err), nil
+		}
+	}
+
 	// Try to create JIT compiler
 	jitCompiler, err := i.createJITCompiler()
 	if err != nil {
-		logging.Boot("Failed to create JIT compiler: %v, using fallback", err)
-		return i.buildFallbackPrompt(phase, task), nil
+		return i.staticFallbackPrompt(phase, task, fmt.Errorf("create JIT compiler: %w", err)), nil
 	}
 
 	// Build compilation context for this phase
@@ -193,8 +200,7 @@ func (i *Initializer) assembleJITPrompt(ctx context.Context, phase, task string,
 	// Compile the prompt
 	result, err := jitCompiler.Compile(ctx, cc)
 	if err != nil {
-		logging.Boot("JIT prompt compilation failed for phase %s: %v, using fallback", phase, err)
-		return i.buildFallbackPrompt(phase, task), nil
+		return i.staticFallbackPrompt(phase, task, fmt.Errorf("compile: %w", err)), nil
 	}
 
 	logging.Boot("JIT compiled prompt for init phase %s: %d bytes, %d atoms", phase, len(result.Prompt), result.AtomsIncluded)
@@ -202,6 +208,19 @@ func (i *Initializer) assembleJITPrompt(ctx context.Context, phase, task string,
 	// Combine compiled prompt with task
 	fullPrompt := fmt.Sprintf("%s\n\nTask: %s", result.Prompt, task)
 	return fullPrompt, nil
+}
+
+// staticFallbackPrompt returns the phase's static prompt. For an expert phase
+// the fallback is warned about and recorded for the init result; for the
+// others it is routine and stays at boot level.
+func (i *Initializer) staticFallbackPrompt(phase, task string, cause error) string {
+	if isExpertInitPhase(phase) {
+		logging.Get(logging.CategoryBoot).Warn("init phase %s is building experts from the static fallback prompt: %v", phase, cause)
+		i.recordStaticPrompt(phase)
+	} else {
+		logging.Boot("JIT prompt unavailable for init phase %s (%v), using fallback", phase, cause)
+	}
+	return i.buildFallbackPrompt(phase, task)
 }
 
 // createJITCompiler creates a JIT prompt compiler for init phases.

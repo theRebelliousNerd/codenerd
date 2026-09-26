@@ -159,10 +159,6 @@ Decl needs_self_healing(ActionID, HealingType) bound [/string, /name].
 # projecting the wildcard away makes the negation actually filter.
 Decl action_needs_self_healing(ActionID) bound [/string].
 
-# healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp)
-# Records a self-healing attempt and its outcome.
-Decl healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp) bound [/string, /name, /name, /string, /number].
-
 # action_escalated(ActionID, Reason, Timestamp)
 # Indicates an action was escalated to user for manual intervention.
 Decl action_escalated(ActionID, Reason, Timestamp) bound [/string, /name, /number].

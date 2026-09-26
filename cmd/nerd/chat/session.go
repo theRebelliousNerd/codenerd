@@ -166,6 +166,7 @@ func InitChat(cfg Config) Model {
 		jitPage:      ui.NewJITPageModel(),
 		autoPage:     ui.NewAutopoiesisPageModel(),
 		shardPage:    ui.NewShardPageModel(),
+		campaignPage: ui.NewCampaignPageModel(),
 		splitPane:    &splitPaneView,
 		logicPane:    splitPaneView.RightPane,
 		showLogic:    false,

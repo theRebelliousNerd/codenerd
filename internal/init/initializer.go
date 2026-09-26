@@ -27,6 +27,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/regression"
+	"slices"
 	"unicode"
 
 	// researcher removed - JIT clean loop handles research
@@ -250,6 +251,11 @@ type InitLLMMetrics struct {
 	Succeeded int    `json:"succeeded"`
 	Failed    int    `json:"failed"`
 	LastError string `json:"last_error,omitzero"`
+	// StaticPromptPhases are expert phases (persistent specialist agents)
+	// whose prompts came from the static fallback because the JIT kernel or
+	// compiler was unavailable. An expert built from a fallback prompt is
+	// measurably worse, so this is reported rather than logged at debug.
+	StaticPromptPhases []string `json:"static_prompt_phases,omitzero"`
 }
 
 // CreatedAgent represents a Type 3 agent that was created during init.
@@ -640,7 +646,18 @@ func (i *Initializer) recordLLMCall(err error) {
 func (i *Initializer) snapshotLLMMetrics() InitLLMMetrics {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
-	return i.llmMetrics
+	m := i.llmMetrics
+	m.StaticPromptPhases = append([]string(nil), i.llmMetrics.StaticPromptPhases...)
+	return m
+}
+
+// recordStaticPrompt notes an expert phase that fell back to a static prompt.
+func (i *Initializer) recordStaticPrompt(phase string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if !slices.Contains(i.llmMetrics.StaticPromptPhases, phase) {
+		i.llmMetrics.StaticPromptPhases = append(i.llmMetrics.StaticPromptPhases, phase)
+	}
 }
 
 func boundedInitError(err error, maxRunes int) string {
@@ -1114,6 +1131,11 @@ func (i *Initializer) runPhase12PromptSync(ctx context.Context, runner *phaseRun
 
 func (i *Initializer) finalizeInitialization(runner *phaseRunner, result *InitResult, startTime time.Time, profile ProjectProfile) (*InitResult, error) {
 	result.LLMMetrics = i.snapshotLLMMetrics()
+	if phases := result.LLMMetrics.StaticPromptPhases; len(phases) > 0 {
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"expert agents built from static fallback prompts in phase(s) %s: the JIT kernel or compiler was unavailable",
+			strings.Join(phases, ", ")))
+	}
 	if result.LLMMetrics.Failed > 0 {
 		result.Warnings = append(result.Warnings, fmt.Sprintf(
 			"LLM enrichment degraded: %d/%d calls failed (%s; last error: %s)",
@@ -1238,13 +1260,11 @@ func (i *Initializer) sendProgress(phase, message string, percent float64) {
 // createCodebaseKnowledgeBase - see profile.go
 // createCampaignKnowledgeBase - see profile.go
 // LoadProjectProfile - see profile.go
-// LoadPreferences - see profile.go
 // ListSessionHistories - see profile.go
 // GetLatestSession - see profile.go
 // IsInitialized - see profile.go
 // generateProjectID - see profile.go
 // generateSessionID - see profile.go
-// cleanNameConstant - see profile.go
 // sanitizeForMangle - see profile.go
 
 // createMangleTemplates creates placeholder files for user extensions.

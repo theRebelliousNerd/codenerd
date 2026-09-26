@@ -120,11 +120,6 @@ func (e *Executor) interactiveGate() (InteractiveExecutiveGate, bool) {
 	return nil, false
 }
 
-// MangleAtom wraps a string as a Mangle name constant (avoids core import).
-type MangleAtom string
-
-func (m MangleAtom) String() string { return string(m) }
-
 // catalogBuilderPool reuses strings.Builder instances across
 // buildToolCatalogForPiggyback calls. The Piggyback tool catalog is assembled
 // once per LLM turn for grounding-capable clients (e.g. Gemini), so the
@@ -881,6 +876,25 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 // taskIntentCounter feeds unique task-scoped intent IDs (see ProcessWithIntent).
 var taskIntentCounter uint64
 
+// withSessionContext puts the executor's session context on the request
+// context, unless the caller attached one. Perception and articulation read
+// session context only from ctx (types.GetSessionContext); until 2026-09-25
+// nothing in production attached it, so the transducer and the prompt
+// assembler always saw none, dream mode and blackboard included, while the
+// executor itself read its stored copy.
+func (e *Executor) withSessionContext(ctx context.Context) context.Context {
+	if types.GetSessionContext(ctx) != nil {
+		return ctx
+	}
+	e.mu.RLock()
+	sc := e.sessionContext
+	e.mu.RUnlock()
+	if sc == nil {
+		return ctx
+	}
+	return types.WithSessionContext(ctx, sc)
+}
+
 // wrapToolLoopError separates two error classes sharing one return path.
 // runToolLoop returns genuine LLM failures and post-edit verification gate
 // failures (build/test/critic re-verification, marked with
@@ -922,6 +936,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("context error before processing: %w", err)
 	}
+	ctx = e.withSessionContext(ctx)
 
 	result := &ExecutionResult{}
 	if contract, ok := evidence.ContractFromContext(ctx); ok {
@@ -1828,69 +1843,6 @@ func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.Piggy
 			logging.Session("Detected missing_tool_for: intent=%s capability=%s", intent, capability)
 		}
 	}
-}
-
-// parseMangleArgs parses comma-separated Mangle arguments.
-// Handles quoted strings and atom constants.
-func (e *Executor) parseMangleArgs(argsStr string) []any {
-	var args []any
-	var current strings.Builder
-	inString := false
-	escaped := false
-
-	for _, ch := range argsStr {
-		if escaped {
-			current.WriteRune(ch)
-			escaped = false
-			continue
-		}
-		if ch == '\\' {
-			escaped = true
-			continue
-		}
-		if ch == '"' {
-			inString = !inString
-			current.WriteRune(ch)
-			continue
-		}
-		if ch == ',' && !inString {
-			arg := strings.TrimSpace(current.String())
-			if arg != "" {
-				args = append(args, e.parseMangleArg(arg))
-			}
-			current.Reset()
-			continue
-		}
-		current.WriteRune(ch)
-	}
-
-	// Add final argument
-	arg := strings.TrimSpace(current.String())
-	if arg != "" {
-		args = append(args, e.parseMangleArg(arg))
-	}
-
-	return args
-}
-
-// parseMangleArg parses a single Mangle argument.
-func (e *Executor) parseMangleArg(arg string) any {
-	// String literal
-	if strings.HasPrefix(arg, "\"") && strings.HasSuffix(arg, "\"") {
-		return arg[1 : len(arg)-1] // Remove quotes
-	}
-	// Atom constant
-	if strings.HasPrefix(arg, "/") {
-		return types.MangleAtom(arg)
-	}
-	// Number
-	if n, err := fmt.Sscanf(arg, "%d", new(int)); n == 1 && err == nil {
-		var i int
-		fmt.Sscanf(arg, "%d", &i)
-		return i
-	}
-	// Default: treat as string
-	return arg
 }
 
 // buildToolDefinitions converts tool names from EffectiveAgentRuntimeConfig to ToolDefinition structs.

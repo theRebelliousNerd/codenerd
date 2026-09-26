@@ -4,143 +4,16 @@ package chat
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/core"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // =============================================================================
 // SHADOW MODE TESTS
 // =============================================================================
-
-func TestShadow_BuildDerivationTrace_FactNotFound(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	result := m.buildDerivationTrace("nonexistent_predicate")
-
-	if !strings.Contains(result, "Fact not found") {
-		t.Errorf("Expected 'Fact not found' message, got: %s", result)
-	}
-	if !strings.Contains(result, "Derivation Trace") {
-		t.Error("Expected header in trace")
-	}
-}
-
-func TestShadow_BuildDerivationTrace_WithFact(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	// Query for facts that might exist
-	result := m.buildDerivationTrace("config_value")
-
-	// Should have proper formatting
-	if !strings.Contains(result, "Derivation Trace") {
-		t.Error("Expected Derivation Trace header")
-	}
-	// Note: Derivation Tree only appears if fact exists
-	// The fact may not exist in a fresh test kernel, so we just check the header
-	t.Logf("Derivation trace result length: %d chars", len(result))
-}
-
-func TestShadow_GetRuleForPredicate_NotFound(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	result := getRuleForPredicate(m.kernel, "nonexistent_predicate")
-	if result != "" {
-		t.Errorf("Expected empty string for nonexistent predicate, got: %s", result)
-	}
-}
-
-func TestShadow_GetChildNodes_NextAction(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	fact := core.Fact{
-		Predicate: "next_action",
-		Args:      []any{"test"},
-	}
-
-	children := getChildNodes(m.kernel, fact)
-	// Should return user_intent facts (may be empty in test kernel)
-	t.Logf("Got %d children for next_action", len(children))
-}
-
-func TestShadow_GetChildNodes_Impacted(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	fact := core.Fact{
-		Predicate: "impacted",
-		Args:      []any{"test"},
-	}
-
-	children := getChildNodes(m.kernel, fact)
-	// Should look for dependency_link and modified facts
-	t.Logf("Got %d children for impacted", len(children))
-}
-
-func TestShadow_GetChildNodes_ClarificationNeeded(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	fact := core.Fact{
-		Predicate: "clarification_needed",
-		Args:      []any{"test"},
-	}
-
-	children := getChildNodes(m.kernel, fact)
-	// Should look for focus_resolution facts
-	t.Logf("Got %d children for clarification_needed", len(children))
-}
-
-func TestShadow_GetChildNodes_Limit(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	// Test with a predicate that might have many children
-	fact := core.Fact{
-		Predicate: "next_action",
-		Args:      []any{"test"},
-	}
-
-	children := getChildNodes(m.kernel, fact)
-	// Should be limited to 5
-	if len(children) > 5 {
-		t.Errorf("Expected at most 5 children, got %d", len(children))
-	}
-}
 
 func TestShadow_RenderLogicPane_NilPane(t *testing.T) {
 	if testing.Short() {
@@ -212,17 +85,6 @@ func TestShadow_UpdateLogicPane_WithPane(t *testing.T) {
 	if len(content) == 0 {
 		t.Log("Logic pane content is empty after update")
 	}
-}
-
-func TestShadow_GetStyles(t *testing.T) {
-	t.Parallel()
-	m := NewTestModel()
-
-	styles := m.getStyles()
-
-	// Should return valid styles (just verify it doesn't panic)
-	_ = styles
-	t.Log("getStyles returned successfully")
 }
 
 // =============================================================================
@@ -465,68 +327,9 @@ func TestShadow_SpecialCharactersInAction(t *testing.T) {
 // DERIVATION TRACE EDGE CASES
 // =============================================================================
 
-func TestShadow_BuildDerivationTrace_EmptyFact(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	result := m.buildDerivationTrace("")
-	if !strings.Contains(result, "Derivation Trace") {
-		t.Error("Expected header even for empty fact")
-	}
-}
-
-func TestShadow_BuildDerivationTrace_SpecialCharacters(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	result := m.buildDerivationTrace("test:with:colons")
-	if !strings.Contains(result, "Derivation Trace") {
-		t.Error("Expected header even for fact with special chars")
-	}
-}
-
-func TestShadow_BuildDerivationTrace_LongFactName(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping shadow test requiring kernel in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	longFact := strings.Repeat("a", 1000)
-	result := m.buildDerivationTrace(longFact)
-	if !strings.Contains(result, "Derivation Trace") {
-		t.Error("Expected header even for very long fact name")
-	}
-}
-
 // =============================================================================
 // PERFORMANCE TESTS
 // =============================================================================
-
-func TestShadow_Performance_BuildTrace(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping performance test in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	iterations := 100
-	perf.Track("build_trace_100x", func() {
-		for range iterations {
-			_ = m.buildDerivationTrace("config_value")
-		}
-	})
-}
 
 func TestShadow_Performance_RenderLogicPane(t *testing.T) {
 	if testing.Short() {
@@ -638,30 +441,3 @@ func TestShadow_WhatIfResultFormat(t *testing.T) {
 // =============================================================================
 // CONCURRENCY TESTS
 // =============================================================================
-
-func TestShadow_ConcurrentTraceBuilding(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping concurrent test in short mode")
-	}
-
-	m, perf := SetupLiveModel(t)
-	defer perf.Report(t)
-
-	done := make(chan bool)
-	perf.Track("concurrent_traces", func() {
-		for i := range 5 {
-			go func(idx int) {
-				_ = m.buildDerivationTrace("config_value")
-				done <- true
-			}(i)
-		}
-
-		for range 5 {
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				t.Error("Timeout waiting for goroutine")
-			}
-		}
-	})
-}

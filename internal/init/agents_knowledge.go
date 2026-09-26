@@ -323,22 +323,6 @@ func filterTopicsNeedingResearch(existingAtoms []store.KnowledgeAtom, topics []s
 	return needsResearch
 }
 
-// convertStoreAtomsToInitAtoms converts store.KnowledgeAtom to initKnowledgeAtom.
-// STUB: Research functionality removed as part of JIT refactor.
-func convertStoreAtomsToInitAtoms(storeAtoms []store.KnowledgeAtom) []initKnowledgeAtom {
-	atoms := make([]initKnowledgeAtom, 0, len(storeAtoms))
-	for _, sa := range storeAtoms {
-		atoms = append(atoms, initKnowledgeAtom{
-			Concept:    sa.Concept,
-			Content:    sa.Content,
-			Title:      sa.Concept,
-			Confidence: sa.Confidence,
-			SourceURL:  "",
-		})
-	}
-	return atoms
-}
-
 // generateBaseKnowledgeAtoms generates foundational knowledge for an agent.
 func (i *Initializer) generateBaseKnowledgeAtoms(agent RecommendedAgent) []struct {
 	Concept    string

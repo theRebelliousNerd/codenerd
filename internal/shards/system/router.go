@@ -922,11 +922,6 @@ func normalizePayload(arg any) (map[string]any, string) {
 	return decodeActionPayload(arg)
 }
 
-func extractIntentIDFromPayloadString(payload string) string {
-	_, intentID := decodeActionPayload(payload)
-	return intentID
-}
-
 // NOTE: Legacy routerAutopoiesisPrompt constant has been DELETED.
 // Router autopoiesis prompts are now JIT-compiled from:
 //   internal/prompt/atoms/system/autopoiesis.yaml (id: system/autopoiesis/router)

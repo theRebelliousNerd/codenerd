@@ -65,13 +65,6 @@ func waitForResult(res chan tea.Msg, errChan chan error) tea.Cmd {
 // ARTICULATION HELPERS
 // =============================================================================
 
-func formatResponse(intent perception.Intent, payload articulation.PiggybackEnvelope) string {
-	// Keep logic artifacts internal; return only the conversational surface text.
-	// Log intent for debugging if needed
-	_ = intent.Verb // Mark as used
-	return strings.TrimSpace(payload.Surface)
-}
-
 func payloadForArticulation(intent perception.Intent, mangleUpdates []string) articulation.PiggybackEnvelope {
 	return articulation.PiggybackEnvelope{
 		Surface: "",

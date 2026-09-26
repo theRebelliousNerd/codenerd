@@ -45,7 +45,6 @@ escalated_to_user
 exec_result
 generating_patch
 git_result
-hypothesis
 impact_radius
 interrogative_mode
 investigation_phase
