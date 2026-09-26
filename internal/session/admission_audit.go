@@ -30,7 +30,12 @@ const finalReportAuditSystem = "You read an agent's final report on a task and a
 
 // finalReportAuditPrompt asks whether the report itself admits unfinished work.
 // Caveats and suggested follow-ups are not admissions: the question is only
-// whether the report says the requested work was not all done.
+// whether the report says the requested work was not all done. Nor is "I
+// could not run the check": verification is what the gates and the
+// campaign's checks do after the turn. Until 2026-09-26 the question also
+// asked whether the work "was not verified", and campaign 7b853890's
+// acceptance fix, done and honest about the checker it had no tool for, was
+// read INCOMPLETE and rolled back.
 func finalReportAuditPrompt(task, report string) string {
 	var b strings.Builder
 	if strings.TrimSpace(task) != "" {
@@ -41,8 +46,9 @@ func finalReportAuditPrompt(task, report string) string {
 	b.WriteString("Final report:\n")
 	b.WriteString(report)
 	b.WriteString("\n\nDoes the report itself say that part of the requested work was not done, could not be finished, " +
-		"was left for another run, or was not verified? Answer INCOMPLETE if it says so. " +
-		"Answer COMPLETE if it reports the work as done, including when it adds caveats or suggests optional follow-up work.")
+		"or was left for another run? Answer INCOMPLETE if it says so. " +
+		"Answer COMPLETE if it reports the work as done, including when it adds caveats, says it could not run a check itself, " +
+		"or suggests optional follow-up work.")
 	return b.String()
 }
 
