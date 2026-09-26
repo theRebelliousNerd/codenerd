@@ -44,6 +44,7 @@ func ExecutorConfigFrom(p config.SessionPolicy, working config.WorkingConfig) Ex
 		VerifyBuildAfterEdits:  true,
 		VerifyTestsAfterEdits:  true,
 		CriticReviewAfterEdits: true,
+		AuditFinalReport:       true,
 	}
 }
 

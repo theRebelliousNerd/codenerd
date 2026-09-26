@@ -11,7 +11,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -723,27 +722,35 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		grounding += "Static analysis (language servers) reported:\n" + diags
 	}
 
+	// Each file is reviewed as the change this turn made to it: the changed
+	// regions, the lines it removed, and the windows a finding must fall in.
+	views := make(map[string]string, len(files))
 	removals := make(map[string]string, len(files))
-	// The review copy is truncated, so removals must diff the whole file.
-	for path := range files {
-		key := canonicalizeWrittenPath(path, workspace)
-		before, ok := result.PreWriteContents[key]
-		if !ok || before.Content == "" {
-			continue
+	windows := make(map[string][]criticSpan, len(files))
+	for path, content := range files {
+		before := ""
+		if pre, ok := result.PreWriteContents[canonicalizeWrittenPath(path, workspace)]; ok {
+			before = pre.Content
 		}
-		abs := path
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(workspace, filepath.FromSlash(NormalizeCoverPath(path)))
+		changed := changedSpans(before, content)
+		if len(changed) == 0 {
+			continue // written back as it was: nothing to review
 		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			continue
+		if before != "" {
+			if r := turnRemovals(before, content); r != "" {
+				removals[path] = r
+			}
 		}
-		if r := turnRemovals(before.Content, string(data)); r != "" {
-			removals[path] = r
-		}
+		views[path], windows[path] = criticFileView(path, content, changed)
 	}
-	prompt := buildCriticPrompt(files, removals, grounding)
+	if len(views) == 0 {
+		return nil, nil
+	}
+	request := ""
+	if loop := activeWorkingLoop(ctx); loop != nil {
+		request = loop.task
+	}
+	prompt := buildCriticPrompt(views, removals, grounding, request)
 
 	// The review is bounded as every request is: by the caller's context and
 	// the client's own request bound (the HTTP client each provider is built
@@ -778,7 +785,12 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		return nil, nil
 	}
 
-	worth := findingsWorthUplift(findings)
+	onChange, offChange := findingsOnChange(findings, windows)
+	if len(offChange) > 0 {
+		logging.Get(logging.CategorySession).Info(
+			"Adversarial review: %d finding(s) cite code this turn did not change; not charged to it", len(offChange))
+	}
+	worth := findingsWorthUplift(onChange)
 	logging.Get(logging.CategorySession).Warn(
 		"Adversarial review reported %d finding(s), %d worth acting on", len(findings), len(worth))
 	if len(worth) == 0 {

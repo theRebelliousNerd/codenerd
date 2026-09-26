@@ -486,6 +486,10 @@ func (e *Executor) verifyCompletedToolTurn(
 		"/pinned": func() (*types.LLMToolResponse, []string, error) {
 			return e.verifyAndRepairPinning(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 		},
+		"/survivors": func() (*types.LLMToolResponse, []string, error) {
+			errs, err := e.adviseOnSurvivors(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+			return nil, errs, err
+		},
 		"/vet": func() (*types.LLMToolResponse, []string, error) {
 			return e.verifyAndRepairVet(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 		},
@@ -569,6 +573,14 @@ func (e *Executor) nextPostEditRound(result *ExecutionResult) (string, error) {
 			return "", errors.New("assert turn_write_tools")
 		}
 		result.writeToolsAsserted = true
+	}
+	// Survivors of a pin gate that passed: what the /survivors round answers.
+	// A failed pin gate already handed them to its own repair prompt.
+	if !result.survivorsAsserted && result.PinCheck.Verdict() == VerifyPassed && len(result.PinAdvisory) > 0 {
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_pin_survivors", Args: []any{turn, int64(len(result.PinAdvisory))}}) {
+			return "", errors.New("assert turn_pin_survivors")
+		}
+		result.survivorsAsserted = true
 	}
 	rows, err := e.turnRows("turn_next_round", turn)
 	if err != nil {

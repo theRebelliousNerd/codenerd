@@ -525,3 +525,43 @@ func TestRecurseOpen_SkipsWholeTreeRepeatsOfPerNodeGates(t *testing.T) {
 		t.Fatalf("open = %v, want %v", got, want)
 	}
 }
+
+// A reverted attempt tells the next attempt at the same finding what it
+// changed and why it was not kept -- including across a restart, from the
+// journal. Before 2026-09-26 the diff was discarded at the revert and a retry
+// started from nothing.
+func TestRecurseCycles_ARevertedAttemptIsToldToTheNextOne(t *testing.T) {
+	root := recurseFixture(t, nil)
+	wrongFix := "package store\n\nfunc Get() int { return 3 }\n"
+	if _, err := runRecurse(t, context.Background(), root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
+		if len(a.Prior) != 0 {
+			t.Errorf("the first attempt was told of prior attempts: %+v", a.Prior)
+		}
+		write(t, root, "store/store.go", wrongFix)
+		return nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	r := ratchets(journalOf(t, root))
+	if len(r) != 1 || r[0].Outcome == outcomeKept || !strings.Contains(r[0].Tried, "return 3") || r[0].Why == "" {
+		t.Fatalf("the journal must keep the reverted attempt's patch and reason: %+v", r)
+	}
+
+	var second []RecurseAttempt
+	if _, err := runRecurse(t, context.Background(), root, 2, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
+		second = append(second, a)
+		write(t, root, "store/store.go", fixedStore)
+		return nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 1 || len(second[0].Prior) != 1 {
+		t.Fatalf("the retry after a restart was not told of the reverted attempt: %+v", second)
+	}
+	task := recurseAttemptTask(second[0], "store")
+	for _, want := range []string{"Earlier attempts at this were reverted", "return 3", second[0].Prior[0].Why} {
+		if !strings.Contains(task, want) {
+			t.Errorf("the task does not carry %q:\n%s", want, task)
+		}
+	}
+}

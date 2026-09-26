@@ -60,6 +60,12 @@ const (
 	PhaseStepPlan    Phase = "step_plan"
 	PhaseForcedFinal Phase = "forced_final"
 	PhaseNoToolRetry Phase = "no_tool_retry"
+	// PhaseAdmissionAudit is the one-word reading of a turn's final report
+	// for an admission that the work is unfinished.
+	PhaseAdmissionAudit Phase = "admission_audit"
+	// PhaseSurvivors is the advisory round on the pin gate's surviving
+	// condition mutants.
+	PhaseSurvivors Phase = "survivors"
 )
 
 // WithPhase tags ctx with the phase of the work under it. Like a purpose, the

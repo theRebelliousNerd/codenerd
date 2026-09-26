@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 
+	"codenerd/internal/observation"
+	"codenerd/internal/tools/codedom"
+
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -70,10 +73,22 @@ var criticFindingRe = regexp.MustCompile(`^FINDING\s+(\S+):(\d+)\s+(\w+):\s*(.+)
 // worse than finding nothing — without that, a reviewer rewarded for activity
 // will hallucinate defects in sound code, which is the failure mode this
 // gate exists to prevent.
-func buildCriticPrompt(writtenFiles map[string]string, removals map[string]string, uncoveredSummary string) string {
+func buildCriticPrompt(writtenFiles map[string]string, removals map[string]string, uncoveredSummary, request string) string {
 	var b strings.Builder
 
 	b.WriteString("You are an adversarial code reviewer. Review the following files for real, verifiable defects only.\n\n")
+
+	// The request is what the change is for. Without it the reviewer can only
+	// judge the code against itself, and a change that is sound but does not
+	// do what was asked -- or does more than was asked -- passes review.
+	if r := strings.TrimSpace(request); r != "" {
+		if len(r) > criticMaxFileBytes {
+			r = r[:criticMaxFileBytes] + "\n... (request truncated for review)"
+		}
+		b.WriteString("The change was made for this request:\n```\n")
+		b.WriteString(r)
+		b.WriteString("\n```\n\n")
+	}
 
 	// Embed each file path and its contents in a fenced code block. Sorted for
 	// determinism: map iteration is random and a prompt that shuffles every
@@ -125,6 +140,10 @@ func buildCriticPrompt(writtenFiles map[string]string, removals map[string]strin
 
 	b.WriteString("Instructions:\n")
 	b.WriteString("- Find real defects only: logic errors, correctness bugs, security issues, data races, and contract violations that are actually present in the code above.\n")
+	b.WriteString("- Lines are numbered; cite them as shown. Review what this turn changed: the files show the changed code with the functions around it, and a finding about code the change did not touch is not reviewed.\n")
+	if strings.TrimSpace(request) != "" {
+		b.WriteString("- Judge the change against the request too: code that does not do what was asked, or does something that was not asked for, is a defect.\n")
+	}
 	b.WriteString("- Output findings in the exact line format 'FINDING file.go:123 severity: claim text' one per line.\n")
 	b.WriteString("- Severity must be one of high, medium, or low.\n")
 	b.WriteString("- When the code is sound, output the single line 'NO FINDINGS' and nothing else.\n")
@@ -386,13 +405,201 @@ func readWrittenFilesForReview(workspace string, writtenPaths []string) map[stri
 			// correct; failing the turn over it is not.
 			continue
 		}
-		content := string(data)
-		if len(content) > criticMaxFileBytes {
-			content = content[:criticMaxFileBytes] + "\n// ... (truncated for review)"
-		}
-		out[trimmed] = content
+		// Whole: the view (criticFileView) bounds what is shown, and it has
+		// to see the whole file to find the changed regions in it.
+		out[trimmed] = string(data)
 	}
 	return out
+}
+
+// criticSpan is an inclusive, 1-indexed range of lines in a written file.
+type criticSpan struct{ start, end int }
+
+// changedSpans returns the ranges of after that this turn wrote, numbered as
+// in after. A deletion leaves nothing in after, so it is anchored at the line
+// that now stands where the removed lines were: the review looks there, and
+// the removed lines themselves are in the removals section. An empty before is
+// a new file, all of it written by this turn.
+func changedSpans(before, after string) []criticSpan {
+	total := len(splitReviewLines(after))
+	if total == 0 {
+		return nil
+	}
+	if before == "" {
+		return []criticSpan{{1, total}}
+	}
+	dmp := diffmatchpatch.New()
+	a, b, lineArray := dmp.DiffLinesToChars(before, after)
+	diffs := dmp.DiffCharsToLines(dmp.DiffMain(a, b, false), lineArray)
+
+	var spans []criticSpan
+	line := 1 // the next line of after
+	for _, d := range diffs {
+		n := len(splitReviewLines(d.Text))
+		switch d.Type {
+		case diffmatchpatch.DiffEqual:
+			line += n
+		case diffmatchpatch.DiffInsert:
+			if n > 0 {
+				spans = append(spans, criticSpan{line, line + n - 1})
+				line += n
+			}
+		case diffmatchpatch.DiffDelete:
+			at := min(max(line, 1), total)
+			spans = append(spans, criticSpan{at, at})
+		}
+	}
+	return mergeSpans(spans)
+}
+
+func splitReviewLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	lines := strings.Split(s, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// mergeSpans sorts spans and joins the ones that overlap or touch.
+func mergeSpans(spans []criticSpan) []criticSpan {
+	if len(spans) == 0 {
+		return nil
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+	out := []criticSpan{spans[0]}
+	for _, s := range spans[1:] {
+		last := &out[len(out)-1]
+		if s.start <= last.end+1 {
+			last.end = max(last.end, s.end)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// reviewWindows widens each changed span to the code element around it and
+// pads it, the way a file read is projected for an edit
+// (observation.ProjectRead): a change inside a function is reviewed with its
+// signature and its closing brace, and a change between elements with the
+// declarations on either side.
+func reviewWindows(path, content string, changed []criticSpan) []criticSpan {
+	total := len(splitReviewLines(content))
+	if total == 0 || len(changed) == 0 {
+		return nil
+	}
+	pad := observation.DefaultReadLimits().PadLines
+	elements := codedom.ElementsFromSource(path, content)
+	innermost := func(line int) (codedom.CodeElement, bool) {
+		var best codedom.CodeElement
+		found := false
+		for _, e := range elements {
+			if e.StartLine <= line && line <= e.EndLine &&
+				(!found || e.EndLine-e.StartLine < best.EndLine-best.StartLine) {
+				best, found = e, true
+			}
+		}
+		return best, found
+	}
+	windows := make([]criticSpan, 0, len(changed))
+	for _, s := range changed {
+		lo, hi := s.start, s.end
+		if e, ok := innermost(s.start); ok {
+			lo = min(lo, e.StartLine)
+		}
+		if e, ok := innermost(s.end); ok {
+			hi = max(hi, e.EndLine)
+		}
+		windows = append(windows, criticSpan{max(1, lo-pad), min(total, hi+pad)})
+	}
+	return mergeSpans(windows)
+}
+
+// criticFileView renders a written file for the critic and returns the
+// windows the review covers.
+//
+// A file within criticMaxFileBytes is shown whole, numbered: small enough to
+// read in full, and the context helps the review. A larger one is shown as its
+// changed windows only. Until 2026-09-26 every file was cut at its first
+// criticMaxFileBytes bytes, so an edit past that point -- about line 700 of a
+// Go file -- was reviewed by a critic that could not see it.
+func criticFileView(path, content string, changed []criticSpan) (string, []criticSpan) {
+	lines := splitReviewLines(content)
+	windows := reviewWindows(path, content, changed)
+	if len(content) <= criticMaxFileBytes {
+		return numberReviewLines(lines, 1, len(lines)), windows
+	}
+	var b strings.Builder
+	shown := 0
+	for i, w := range windows {
+		if b.Len() >= criticMaxFileBytes {
+			// Reviewed windows end here: a finding in a region not shown is
+			// one the critic could not have read.
+			fmt.Fprintf(&b, "... %d more changed region(s) not shown\n", len(windows)-i)
+			return b.String(), windows[:i]
+		}
+		if w.start > shown+1 {
+			fmt.Fprintf(&b, "... (lines %d-%d unchanged by this turn, not shown)\n", shown+1, w.start-1)
+		}
+		b.WriteString(numberReviewLines(lines, w.start, w.end))
+		shown = w.end
+	}
+	if shown < len(lines) {
+		fmt.Fprintf(&b, "... (lines %d-%d unchanged by this turn, not shown)\n", shown+1, len(lines))
+	}
+	return b.String(), windows
+}
+
+// numberReviewLines renders lines[from..to] (1-indexed, inclusive) in the
+// "%5d| text" form the removals section already uses.
+func numberReviewLines(lines []string, from, to int) string {
+	var b strings.Builder
+	for n := from; n <= to && n <= len(lines); n++ {
+		fmt.Fprintf(&b, "%5d| %s\n", n, lines[n-1])
+	}
+	return b.String()
+}
+
+// findingsOnChange keeps the findings that cite a line inside a reviewed
+// window of their file, and returns the rest separately. A finding about code
+// the turn did not touch asks the turn to fix what it did not write: R1-11's
+// review reported 3 of its 4 findings in untouched code, and each one worth
+// uplift costs a model round and invites an edit nobody asked for. A finding
+// whose file is not one of the reviewed files is kept: its path may just be
+// written differently, and dropping a real finding is the worse error.
+func findingsOnChange(findings []CriticFinding, windows map[string][]criticSpan) (kept, dropped []CriticFinding) {
+	for _, f := range findings {
+		spans, ok := windowsFor(f.File, windows)
+		if !ok || lineInSpans(f.Line, spans) {
+			kept = append(kept, f)
+			continue
+		}
+		dropped = append(dropped, f)
+	}
+	return kept, dropped
+}
+
+func windowsFor(file string, windows map[string][]criticSpan) ([]criticSpan, bool) {
+	want := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(file)), "./")
+	for path, spans := range windows {
+		have := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./")
+		if have == want || strings.HasSuffix(have, "/"+want) || strings.HasSuffix(want, "/"+have) {
+			return spans, true
+		}
+	}
+	return nil, false
+}
+
+func lineInSpans(line int, spans []criticSpan) bool {
+	for _, s := range spans {
+		if s.start <= line && line <= s.end {
+			return true
+		}
+	}
+	return false
 }
 
 // formatUpliftPrompt turns confirmed findings into the turn handed back to the

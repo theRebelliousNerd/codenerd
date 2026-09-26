@@ -24,9 +24,13 @@ import (
 
 type workingLoopKey struct{}
 type workingLoop struct {
-	set          *working.WorkingSet
-	focus        string
-	anchor       string
+	set    *working.WorkingSet
+	focus  string
+	anchor string
+	// task is the request as given, before the retrieval brief was appended
+	// to make the anchor: what the turn was asked to do, for the reviewers
+	// that judge the change against it.
+	task         string
 	prior        []types.Message
 	observations map[string]string // tool call ID -> the observation it produced or recalled
 	regime       string            // the policy's working_regime for the next round
@@ -209,7 +213,7 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 	// the window evicted behind recall_context for as long as it runs.
 	prior, evictedHistory := e.priorTurnWindow(true)
 	loop := &workingLoop{
-		set: set, focus: focus, anchor: withRetrievalBrief(ctx, input), prior: prior,
+		set: set, focus: focus, anchor: withRetrievalBrief(ctx, input), task: input, prior: prior,
 		observations: make(map[string]string),
 		evicted:      make(map[string]bool),
 		appended:     make(map[string]string),

@@ -112,3 +112,34 @@ func TestPostEditRounds_NoKernel(t *testing.T) {
 		t.Fatalf("a turn with no writes: %q, %v", next, err)
 	}
 }
+
+// A pin gate that passed with surviving conditions owes the /survivors round,
+// after /pinned and before /vet. Until 2026-09-26 those survivors reached the
+// model only when pinning FAILED.
+func TestPostEditRounds_SurvivorsOfAPassingPinGateOweAnAdvisoryRound(t *testing.T) {
+	e := roundsExecutor(t)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, SuccessfulWriteTools: 1, WrittenPaths: []string{"internal/x/x.go"}}
+	var got []string
+	for i := 0; i < 20; i++ {
+		next, err := e.nextPostEditRound(result)
+		if err != nil {
+			t.Fatalf("nextPostEditRound: %v", err)
+		}
+		if next == "" {
+			break
+		}
+		got = append(got, next)
+		if next == "/pinned" {
+			// What the pin round leaves behind on a passing gate with survivors.
+			result.PinCheck = BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed}
+			result.PinAdvisory = []string{"x.go line 12, isMethod forced false"}
+		}
+		if err := e.markRoundRan(result, next); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"/build", "/test", "/critic", "/coverage", "/pinned", "/survivors", "/vet", "/removed_tests"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("rounds = %v, want %v", got, want)
+	}
+}
