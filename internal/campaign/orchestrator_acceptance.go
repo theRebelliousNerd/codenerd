@@ -220,7 +220,7 @@ func (o *Orchestrator) appendAcceptanceRemediation() error {
 	}
 	suffix := strings.TrimPrefix(c.ID, "/campaign_")
 	phaseID := fmt.Sprintf("/phase_%s_accept_%d", suffix, last.Round)
-	writeSet := campaignWriteSet(c)
+	writeSet := campaignWriteSet(o.workspace, c)
 	scope := "the files this campaign wrote"
 	if len(writeSet) > 0 {
 		scope = strings.Join(writeSet, ", ")
@@ -273,23 +273,111 @@ func (o *Orchestrator) appendAcceptanceRemediation() error {
 	return nil
 }
 
-// campaignWriteSet is every path the campaign's tasks declared they write,
-// deduplicated and sorted: the remediation's scope.
-func campaignWriteSet(c *Campaign) []string {
-	seen := map[string]bool{}
+// campaignWriteSet is every workspace file the campaign's tasks declared they
+// write, normalized to one workspace-relative spelling each, deduplicated
+// case-insensitively and sorted: the remediation's scope. The campaign's own
+// reports under .nerd/ are never scope: the acceptance check judges the
+// repository documents the campaign wrote, not the task reports that describe
+// writing them. Without this, a sorted scope lists .nerd/ first ("." sorts
+// before letters), so the remediation file task resolves its target to a
+// report, and every document appears twice -- once as written and once as a
+// lower-cased absolute path.
+func campaignWriteSet(workspace string, c *Campaign) []string {
+	seen := map[string]int{}
+	fromAbsByKey := map[string]bool{}
 	var out []string
 	for i := range c.Phases {
 		for j := range c.Phases[i].Tasks {
 			for _, p := range c.Phases[i].Tasks[j].WriteSet {
-				if p = strings.TrimSpace(p); p != "" && !seen[p] {
-					seen[p] = true
-					out = append(out, p)
+				rel, fromAbs := canonicalRemediationPath(workspace, p)
+				if rel == "" {
+					continue
 				}
+				key := strings.ToLower(rel)
+				if idx, dup := seen[key]; dup {
+					// Keep one spelling: prefer a relative-as-written entry
+					// over an absolute-derived one, and a case-preserving
+					// entry over an all-lower one (absolute variants are
+					// lower-cased on windows), so 00-INDEX.md wins over
+					// 00-index.md.
+					prevFromAbs := fromAbsByKey[key]
+					replace := false
+					if prevFromAbs && !fromAbs {
+						replace = true
+					} else if prevFromAbs == fromAbs {
+						prev := out[idx]
+						if prev == strings.ToLower(prev) && rel != strings.ToLower(rel) {
+							replace = true
+						}
+					}
+					if replace {
+						out[idx] = rel
+						fromAbsByKey[key] = fromAbs
+					}
+					continue
+				}
+				seen[key] = len(out)
+				fromAbsByKey[key] = fromAbs
+				out = append(out, rel)
 			}
 		}
 	}
-	sort.Strings(out)
+	// The dedup above keys on the lower-cased path, so no two entries are
+	// equal ignoring case and this order is total.
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+	})
 	return out
+}
+
+// canonicalRemediationPath maps one declared write-set entry to its single
+// workspace-relative slash spelling, or "" when the entry is not remediation
+// scope (empty, a glob, outside the workspace, or the campaign's own reports
+// under .nerd/). fromAbs reports whether the entry was absolute, so callers
+// can prefer the as-written spelling when two entries collide.
+func canonicalRemediationPath(workspace, raw string) (string, bool) {
+	p := strings.TrimSpace(raw)
+	if p == "" || strings.ContainsRune(p, '\x00') {
+		return "", false
+	}
+	if containsGlobMeta(p) {
+		return "", false
+	}
+	fromAbs := filepath.IsAbs(filepath.FromSlash(p)) || isWindowsAbs(p)
+	var rel string
+	if fromAbs {
+		if strings.TrimSpace(workspace) == "" {
+			return "", true
+		}
+		relOS, err := filepath.Rel(filepath.Clean(workspace), filepath.Clean(filepath.FromSlash(p)))
+		if err != nil {
+			return "", true
+		}
+		rel = filepath.ToSlash(relOS)
+	} else {
+		rel = filepath.ToSlash(filepath.Clean(filepath.FromSlash(p)))
+	}
+	rel = strings.TrimSpace(rel)
+	if rel == "" || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", fromAbs
+	}
+	if lower := strings.ToLower(rel); lower == ".nerd" || strings.HasPrefix(lower, ".nerd/") {
+		return "", fromAbs
+	}
+	return rel, fromAbs
+}
+
+// isWindowsAbs reports a drive-letter absolute (c:/...) even when the host
+// is not windows, so lower-cased absolute duplicates unify on any platform.
+func isWindowsAbs(p string) bool {
+	if len(p) < 3 {
+		return false
+	}
+	c := p[0]
+	if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+		return false
+	}
+	return p[1] == ':' && (p[2] == '/' || p[2] == '\\')
 }
 
 func indentBlock(s string) string {
