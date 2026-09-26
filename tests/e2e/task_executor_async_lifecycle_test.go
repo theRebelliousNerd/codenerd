@@ -24,10 +24,41 @@ import (
 // =============================================================================
 
 // talMockLLMClient counts LLM invocations atomically so we can detect double-Run.
+//
+// workCount counts the task's own calls. A turn that owed a write also has its
+// final report read by the admission audit (session/admission_audit.go, since
+// 43789d6a) -- one more call per run, not a second run -- so a double Run shows
+// in workCount, and callCount counts both.
 type talMockLLMClient struct {
 	callCount int64         // atomic
+	workCount int64         // atomic: calls that are not the final-report audit
 	blockCh   chan struct{} // if non-nil, block until closed
 	delay     time.Duration
+
+	mu    sync.Mutex
+	calls []string // each call's system prompt head, so a count failure says what ran
+}
+
+// record counts one call and keeps the head of its system prompt.
+func (m *talMockLLMClient) record(systemPrompt string) {
+	atomic.AddInt64(&m.callCount, 1)
+	if !strings.HasPrefix(systemPrompt, "You read an agent's final report") {
+		atomic.AddInt64(&m.workCount, 1)
+	}
+	head, _, _ := strings.Cut(strings.TrimSpace(systemPrompt), "\n")
+	if len(head) > 120 {
+		head = head[:120]
+	}
+	m.mu.Lock()
+	m.calls = append(m.calls, head)
+	m.mu.Unlock()
+}
+
+// callHeads lists what each call was, for a failing count's message.
+func (m *talMockLLMClient) callHeads() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return strings.Join(m.calls, "\n  ")
 }
 
 func (m *talMockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -35,7 +66,7 @@ func (m *talMockLLMClient) Complete(ctx context.Context, prompt string) (string,
 }
 
 func (m *talMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userInput string) (string, error) {
-	atomic.AddInt64(&m.callCount, 1)
+	m.record(systemPrompt)
 
 	// If blockCh is set, block until it's closed or ctx expires
 	if m.blockCh != nil {
@@ -58,7 +89,7 @@ func (m *talMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 }
 
 func (m *talMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userInput string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	atomic.AddInt64(&m.callCount, 1)
+	m.record(systemPrompt)
 
 	if m.blockCh != nil {
 		select {
@@ -243,8 +274,8 @@ func TestE2E_TaskExecutor_ExecuteAsync_SingleRun(t *testing.T) {
 	// a second LLM call before pinning the count.
 	time.Sleep(500 * time.Millisecond)
 
-	if calls := atomic.LoadInt64(&env.llm.callCount); calls != 1 {
-		t.Fatalf("ExecuteAsync caused %d LLM calls, want exactly 1", calls)
+	if calls := atomic.LoadInt64(&env.llm.workCount); calls != 1 {
+		t.Fatalf("ExecuteAsync caused %d task LLM calls, want exactly 1:\n  %s", calls, env.llm.callHeads())
 	}
 }
 
@@ -571,8 +602,8 @@ func TestE2E_TaskExecutor_ExecuteAsync_Concurrent(t *testing.T) {
 		}
 	}
 
-	if calls := atomic.LoadInt64(&env.llm.callCount); calls != goroutines {
-		t.Fatalf("concurrent ExecuteAsync caused %d LLM calls, want exactly %d", calls, goroutines)
+	if calls := atomic.LoadInt64(&env.llm.workCount); calls != goroutines {
+		t.Fatalf("concurrent ExecuteAsync caused %d task LLM calls, want exactly %d:\n  %s", calls, goroutines, env.llm.callHeads())
 	}
 }
 
