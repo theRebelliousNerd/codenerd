@@ -482,3 +482,30 @@ func TestMeterToleratesATruncatedLog(t *testing.T) {
 		t.Fatalf("receipts = %d, want the 9 complete records before the cut", s.Receipts)
 	}
 }
+
+// A repair round and the critic's uplift round are session spend like any
+// other round; the phase label is what lets a change aimed at one of them be
+// measured on its own.
+func TestMeterSummary_WhenReceiptsCarryPhases_ShouldSplitThemOut(t *testing.T) {
+	spend := func(in, out, cached, write int64) broker.Spend {
+		return broker.Spend{InputTokens: in, OutputTokens: out, CachedTokens: cached, CacheWriteTokens: write, Calls: 1}
+	}
+	ok := broker.Decision{Allowed: true, Code: broker.DecisionAdmitted}
+	receipts := []broker.Receipt{
+		{Purpose: broker.PurposeSession, Actual: spend(1000, 10, 800, 100), Decision: ok},
+		{Purpose: broker.PurposeSession, Phase: broker.PhaseRepair, Actual: spend(500, 20, 0, 0), Decision: ok},
+		{Purpose: broker.PurposeSession, Phase: broker.PhaseRepair, Actual: spend(300, 5, 0, 0), Decision: ok},
+		{Purpose: broker.PurposeCritic, Actual: spend(200, 50, 0, 0), Decision: ok},
+	}
+	s := summarizeReceipts(receipts)
+
+	if len(s.ByPhase) != 1 {
+		t.Fatalf("ByPhase = %+v, want one (session, repair) row; ordinary rounds carry no phase", s.ByPhase)
+	}
+	if got := s.ByPhase[0]; got.Purpose != "session" || got.Phase != "repair" || got.Calls != 2 || got.Input != 800 {
+		t.Errorf("repair row = %+v, want 2 calls, 800 input", got)
+	}
+	if s.CacheWriteTokens != 100 {
+		t.Errorf("cache write = %d, want 100", s.CacheWriteTokens)
+	}
+}

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"codenerd/internal/broker"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -731,6 +732,7 @@ func (e *Executor) forceFinalAnswer(
 	if trp == nil {
 		return pending, nil, errors.New("client does not support tool-result follow-up")
 	}
+	ctx = broker.WithPhase(ctx, broker.PhaseForcedFinal)
 	if pending == nil {
 		return nil, nil, errors.New("cannot force a final answer from a nil pending response")
 	}
@@ -2192,6 +2194,7 @@ func (e *Executor) retryWithNoToolNudge(
 	if e.jitCompiler == nil || compilationCtx == nil {
 		return nil, errors.New("no-tool-retry path requires JIT compiler and compilation context")
 	}
+	ctx = broker.WithPhase(ctx, broker.PhaseNoToolRetry)
 
 	retryCtx := compilationCtx.Clone()
 	retryCtx.PreviousAttemptNoToolCall = true

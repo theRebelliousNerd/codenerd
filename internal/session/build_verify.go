@@ -1,6 +1,7 @@
 package session
 
 import (
+	"codenerd/internal/broker"
 	"codenerd/internal/build"
 	"codenerd/internal/config"
 	jitconfig "codenerd/internal/jit/config"
@@ -540,6 +541,7 @@ func (e *Executor) repairRound(
 	prompt string,
 	commit bool,
 ) (*types.LLMToolResponse, int, [][]types.ToolCall, []string, []types.ToolResult, bool, error) {
+	ctx = broker.WithPhase(ctx, broker.PhaseRepair)
 	loop := activeWorkingLoop(ctx)
 	if loop == nil {
 		return nil, 0, nil, nil, nil, false, errors.New(
@@ -752,7 +754,10 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	// review of a defective change was abandoned at 3 (06-unattended-hardening,
 	// H1). A review that fails for any reason is abandoned and the turn
 	// proceeds without it, which is what "advisory" means.
-	response, err := client.CompleteWithSystem(ctx, criticSystemPrompt, prompt)
+	// The review is the critic's own inference, not a round of the turn: its
+	// spend belongs in the critic account, where a change to the critic can
+	// be measured, not folded into the session total.
+	response, err := client.CompleteWithSystem(broker.WithPurpose(ctx, broker.PurposeCritic), criticSystemPrompt, prompt)
 	if err != nil {
 		// The critic is advisory. A failed review is a missing opinion, not a
 		// failed turn.
@@ -786,7 +791,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	}
 
 	history = append(history, types.Message{Role: "user", Text: formatUpliftPrompt(worth)})
-	uplifted, err := e.completeWithWorkingContext(ctx, trp, systemPrompt, history, toolDefs)
+	uplifted, err := e.completeWithWorkingContext(broker.WithPhase(ctx, broker.PhaseUplift), trp, systemPrompt, history, toolDefs)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("uplift round failed (%v); turn continues", err)
 		return nil, nil

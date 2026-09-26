@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"codenerd/internal/broker"
 	"context"
 	"fmt"
 	"sort"
@@ -404,6 +405,9 @@ func (m Model) interpretShardOutput(ctx context.Context, input, shardType, task,
 		return "", fmt.Errorf("LLM client not initialized")
 	}
 
+	// Rephrasing a shard's output for the user is articulation: its spend was
+	// booked as unattributed until it was tagged here.
+	ctx = broker.WithPurpose(ctx, broker.PurposeArticulation)
 	systemPrompt, userPrompt := m.buildShardInterpretationPrompt(ctx, input, shardType, task, result)
 	interpResp, err := m.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {

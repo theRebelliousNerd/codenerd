@@ -134,10 +134,6 @@ func anthropicToolResponse(resp *AnthropicResponse) *types.LLMToolResponse {
 		ToolCalls:  msg.ToolCalls,
 		Blocks:     blocks,
 		StopReason: resp.StopReason,
-		Usage: types.UsageMetadata{
-			InputTokens:  resp.Usage.InputTokens,
-			OutputTokens: resp.Usage.OutputTokens,
-			TotalTokens:  resp.Usage.InputTokens + resp.Usage.OutputTokens,
-		},
+		Usage:      resp.Usage.usageMetadata(),
 	}
 }

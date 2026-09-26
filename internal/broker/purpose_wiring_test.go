@@ -28,8 +28,6 @@ import (
 // wired, and a new purpose added without wiring fails the inventory below.
 var exemptPurposes = map[Purpose]string{
 	PurposeUnattributed: "the fallback itself; tagging it would defeat its point",
-	PurposeArticulation: "articulation makes no LLM calls today — emitter.go's only Complete is commented out",
-	PurposeCritic:       "no critic subsystem issues inference of its own yet",
 	PurposeCompression: "compression makes no LLM calls today: Compressor.generateSummary was its " +
 		"only call site and is deleted, replaced by the kernel-driven observation masking in " +
 		"compressor_turns.go. Tag it again when summarization comes back.",
@@ -45,6 +43,13 @@ var tagSitesByPurpose = map[Purpose]string{
 	PurposeSubagent:     "internal/core/shards/manager_spawn.go",
 	PurposeAutopoiesis:  "internal/perception/learning.go",
 	PurposeCampaign:     "cmd/nerd/chat/campaign.go",
+	// The critic's review call. Until 2026-09-26 it was exempt as "no critic
+	// subsystem issues inference of its own yet" while build_verify.go did,
+	// every write turn, so its spend was booked as session.
+	PurposeCritic: "internal/session/build_verify.go",
+	// Chat's rephrasing of a shard's output, booked as unattributed until
+	// 2026-09-26 under the same stale exemption.
+	PurposeArticulation: "cmd/nerd/chat/process_dream_delegation.go",
 }
 
 // declaredPurposes reads the Purpose constants out of types.go, so the
