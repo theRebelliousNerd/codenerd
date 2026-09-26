@@ -489,9 +489,15 @@ func Get(category Category) *Logger {
 	logPath := filepath.Join(logsDir, filename)
 	sink, err := openRotatingFile(logPath)
 	if err != nil {
-		// Fall back to no-op logger
+		// Say it once and keep the no-op logger for the category: uncached, the
+		// next Get re-opened the file and printed this again, on every log call
+		// (201,908 lines when a test left logging bound to its deleted temp
+		// dir). CloseAll and a workspace rebind clear the cache, so a new
+		// binding tries again.
 		fmt.Fprintf(os.Stderr, "[logging] Warning: could not open log file %s: %v\n", logPath, err)
-		return &Logger{category: category}
+		l := &Logger{category: category}
+		loggers[category] = l
+		return l
 	}
 
 	l := &Logger{

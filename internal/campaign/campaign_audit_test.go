@@ -15,7 +15,11 @@ func TestUpdateCampaignStatus_ShouldRecordTheLifecycleInTheAuditTrail(t *testing
 	ws := t.TempDir()
 	logging.ApplyConfig(logging.Config{DebugMode: true, Level: "debug"})
 	t.Cleanup(func() {
+		// Leave logging as the test found it: off. Left in debug mode and
+		// bound to this test's temp dir, every later test in the package
+		// logged into a deleted directory.
 		logging.CloseAll()
+		logging.ApplyConfig(logging.Config{})
 		logging.ClearInjectedConfig()
 	})
 	if err := logging.Initialize(ws); err != nil {
