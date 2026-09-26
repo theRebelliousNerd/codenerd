@@ -139,16 +139,25 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// build state their negations read.
 				"turn_evidence", "turn_acceptance", "turn_created_source", "build_state",
 				"turn_created_test", "turn_written", "turn_verb",
+				// The turn's own report admitting unfinished work
+				// (session/admission_audit.go), negated by turn_verified.
+				"turn_self_reported_incomplete",
 				// The edit sites a brief names, beside turn_verb:
 				// turn_needs_step_plan (turn_steps.mg) joins the two.
 				"turn_brief_site",
 				// A repair episode's attempts (repair_episode.mg), with the
 				// turn facts they are cleaned up with.
 				"repair_attempt",
+				// A repair episode's restart (repair_episode.mg /restart),
+				// joined against its attempts.
+				"repair_restart",
 				"turn_gate",
 				// The post-edit rounds a turn ran, and its write-tool count
 				// (turn_rounds.mg), beside the gates they schedule.
 				"turn_round_ran", "turn_write_tools",
+				// The pin gate's survivor count, which owes the /survivors
+				// round.
+				"turn_pin_survivors",
 				"turn_untested",
 				"turn_uncovered",
 			},
