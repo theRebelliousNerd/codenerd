@@ -133,6 +133,9 @@ var catalogBuilderPool = sync.Pool{
 // It replaces all hardcoded shard logic with JIT-driven behavior.
 type Executor struct {
 	mu sync.RWMutex
+	// unlearnedExchanges counts the turns finished since the taxonomy critic
+	// last read a window (learningWindowDue). Guarded by mu.
+	unlearnedExchanges int
 
 	// Core dependencies
 	kernel       types.Kernel
@@ -348,6 +351,12 @@ type ExecutorConfig struct {
 	// sometimes be confidently wrong — a critic that can fail a turn on a
 	// hallucinated defect costs more than it saves.
 	CriticReviewAfterEdits bool
+
+	// AuditFinalReport reads the final report of a turn that wrote for an
+	// admission that the work is unfinished (auditFinalReport). Like the
+	// critic it is a model's reading, and it can only withhold /done, never
+	// grant it.
+	AuditFinalReport bool
 
 	// WorkspaceRoot is the directory the verification build runs in. When empty
 	// the Executor resolves the workspace itself rather than silently skipping
@@ -757,6 +766,13 @@ type ExecutionResult struct {
 	// completed without error. Used to block hollow success on write-oriented
 	// intents that only produced prose or non-mutating tool calls.
 	SuccessfulWriteTools int
+	// SelfReportedIncomplete is set when the turn's own final report says
+	// part of the requested work was not done (auditFinalReport). A model's
+	// claim of success is not evidence; its admission of failure is.
+	SelfReportedIncomplete bool
+	// survivorsAsserted records that turn_pin_survivors was asserted for the
+	// round schedule, so it is asserted once.
+	survivorsAsserted bool
 
 	// TestRunCalls counts tool calls that started a test process, as the tool
 	// layer recorded it (tools.TestRun) -- whether its tests passed or failed.
@@ -1183,6 +1199,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// return for interactive chat compatibility; TaskExecutor still surfaces
 	// result.Error for SpawnTask callers.
 	e.closeAcceptanceEvidence(ctx, result)
+	e.auditFinalReport(ctx, result)
 	hollowErr := e.checkHollowSuccess(result)
 	if result.Error == nil && hollowErr != nil {
 		result.Error = hollowErr
@@ -2527,6 +2544,9 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 	if result.Acceptance != nil && result.Acceptance.Status == "verified" {
 		e.assertTurnFact(types.Fact{Predicate: "turn_acceptance", Args: []any{turn, result.Acceptance.ContractID, result.Acceptance.After}})
 	}
+	if result.SelfReportedIncomplete {
+		e.assertTurnFact(types.Fact{Predicate: "turn_self_reported_incomplete", Args: []any{turn}})
+	}
 	claimedOutput := types.MangleAtom("/false")
 	if responsePresentsTestRunnerOutput(result.Response) {
 		claimedOutput = types.MangleAtom("/true")
@@ -2887,6 +2907,8 @@ func missingEvidenceSentence(atom string) string {
 		return "no test run passed after this turn's last write"
 	case "/change_not_pinned":
 		return "a change this turn made is pinned by no test it wrote: the tests still pass with the change taken out"
+	case "/self_reported_incomplete":
+		return "the turn's own report says part of the requested work was not done"
 	default:
 		return strings.TrimPrefix(atom, "/")
 	}

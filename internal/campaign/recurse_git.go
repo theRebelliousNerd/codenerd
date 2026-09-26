@@ -145,6 +145,41 @@ func (g recurseGit) commit(ctx context.Context, paths []string, subject string, 
 	return strings.TrimSpace(head), err
 }
 
+// attemptDiff is what an attempt changed, for the next attempt at the same
+// work to read: the patch against HEAD for tracked paths and the head of each
+// new file, bounded to limit bytes. It is read before the revert erases it,
+// and a failure to read it costs only the note, never the revert.
+func (g recurseGit) attemptDiff(ctx context.Context, paths []string, limit int) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	patch, err := g.run(ctx, nil, append([]string{"diff", "--no-color", "HEAD", "--"}, paths...)...)
+	if err == nil {
+		b.WriteString(patch)
+	}
+	inHead, _ := g.run(ctx, nil, "ls-tree", "-r", "--name-only", "-z", "HEAD")
+	tracked := map[string]bool{}
+	for _, p := range strings.Split(inHead, "\x00") {
+		tracked[p] = true
+	}
+	for _, p := range paths {
+		if tracked[p] || b.Len() >= limit {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(g.root, filepath.FromSlash(p)))
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "new file %s:\n%s\n", p, data)
+	}
+	out := b.String()
+	if len(out) > limit {
+		out = out[:limit] + "\n... (truncated)"
+	}
+	return out
+}
+
 // revert puts paths back as HEAD has them: a tracked path is checked out, a
 // path HEAD does not have is removed. Nothing outside paths is touched.
 func (g recurseGit) revert(ctx context.Context, paths []string) error {

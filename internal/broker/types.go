@@ -121,11 +121,16 @@ const (
 // Spend is a set of token counters. Values come from provider usage reports and
 // are therefore exact.
 type Spend struct {
-	InputTokens    int64 `json:"input_tokens"`
-	OutputTokens   int64 `json:"output_tokens"`
-	CachedTokens   int64 `json:"cached_tokens,omitempty"`
-	ThinkingTokens int64 `json:"thinking_tokens,omitempty"`
-	Calls          int64 `json:"calls"`
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	CachedTokens int64 `json:"cached_tokens,omitempty"`
+	// CacheWriteTokens is the part of InputTokens written to a prompt cache,
+	// billed at a premium over plain input (1.25x for Anthropic's 5-minute
+	// entries). Reads are cheap and writes are not, so a loop whose writes
+	// stay near its whole prompt every round is a cache that never hits.
+	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
+	ThinkingTokens   int64 `json:"thinking_tokens,omitempty"`
+	Calls            int64 `json:"calls"`
 }
 
 // Add accumulates other into s.
@@ -133,6 +138,7 @@ func (s *Spend) Add(other Spend) {
 	s.InputTokens += other.InputTokens
 	s.OutputTokens += other.OutputTokens
 	s.CachedTokens += other.CachedTokens
+	s.CacheWriteTokens += other.CacheWriteTokens
 	s.ThinkingTokens += other.ThinkingTokens
 	s.Calls += other.Calls
 }
@@ -185,6 +191,9 @@ type Receipt struct {
 	// segmentation groups by it so two concurrent sessions are not spliced into
 	// one alternating run that reports every call as a singleton.
 	Scope string `json:"scope,omitempty"`
+	// Phase is the step within the purpose's work, or "" for an ordinary
+	// round (see WithPhase).
+	Phase Phase `json:"phase,omitempty"`
 	// Prefix fingerprints the cacheable head of the request -- the tool
 	// definitions and the system prompt, in wire order. Two consecutive calls
 	// with the same Prefix could have shared a provider cache entry; a change

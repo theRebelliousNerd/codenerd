@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -397,5 +398,39 @@ func TestManifestHash_MissingCompilationIsEmpty(t *testing.T) {
 	}
 	if got := manifestHash(turnTelemetry{compileResult: &prompt.CompilationResult{}}); got != "" {
 		t.Errorf("manifestHash with no manifest = %q, want empty", got)
+	}
+}
+
+// Every consecutive pair of exchanges is read once, with one call per four
+// turns once the window is full, instead of a call after every turn that
+// re-read each exchange up to five times.
+func TestLearningWindowDue_ReadsEveryPairOnceWithoutASlidingWindow(t *testing.T) {
+	e := NewExecutor(nil, nil, nil, nil, nil, nil)
+	var windows [][]string
+	for turn := 1; turn <= 14; turn++ {
+		e.appendToHistory(perception.ConversationTurn{Role: "user", Content: fmt.Sprintf("q%d", turn)})
+		e.appendToHistory(perception.ConversationTurn{Role: "assistant", Content: fmt.Sprintf("a%d", turn)})
+		if traces := e.learningWindowDue(&ExecutionResult{}, nil); traces != nil {
+			var w []string
+			for _, tr := range traces {
+				w = append(w, tr.UserPrompt)
+			}
+			windows = append(windows, w)
+		}
+	}
+	if len(windows) != 4 {
+		t.Fatalf("%d critic calls over 14 turns, want 4 (turns 2, 6, 10, 14): %v", len(windows), windows)
+	}
+	pairs := map[string]bool{}
+	for _, w := range windows {
+		for i := 1; i < len(w); i++ {
+			pairs[w[i-1]+">"+w[i]] = true
+		}
+	}
+	for turn := 2; turn <= 14; turn++ {
+		pair := fmt.Sprintf("q%d>q%d", turn-1, turn)
+		if !pairs[pair] {
+			t.Errorf("the pair %s was never read; a correction there goes unlearned", pair)
+		}
 	}
 }

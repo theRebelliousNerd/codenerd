@@ -134,6 +134,10 @@ type UsageMetadata struct {
 	TotalTokens         int `json:"total_tokens"`
 	ThinkingTokens      int `json:"thinking_tokens,omitempty"`       // Subset of OutputTokens used for thinking
 	CachedContentTokens int `json:"cached_content_tokens,omitempty"` // Tokens read from context cache
+	// CacheWriteTokens is the part of InputTokens written to a prompt cache on
+	// this request (Anthropic's cache_creation_input_tokens, billed at a
+	// premium). Zero on providers that cache implicitly.
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // LLMToolResponse contains both text response and tool calls from the LLM.

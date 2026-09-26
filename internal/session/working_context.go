@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -24,9 +25,16 @@ import (
 
 type workingLoopKey struct{}
 type workingLoop struct {
-	set          *working.WorkingSet
-	focus        string
-	anchor       string
+	set    *working.WorkingSet
+	focus  string
+	anchor string
+	// written are the files this loop's successful write tools changed: with
+	// the focus, the files whose observations the ledger pins (hotFiles).
+	written map[string]bool
+	// task is the request as given, before the retrieval brief was appended
+	// to make the anchor: what the turn was asked to do, for the reviewers
+	// that judge the change against it.
+	task         string
 	prior        []types.Message
 	observations map[string]string // tool call ID -> the observation it produced or recalled
 	regime       string            // the policy's working_regime for the next round
@@ -209,7 +217,7 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 	// the window evicted behind recall_context for as long as it runs.
 	prior, evictedHistory := e.priorTurnWindow(true)
 	loop := &workingLoop{
-		set: set, focus: focus, anchor: withRetrievalBrief(ctx, input), prior: prior,
+		set: set, focus: focus, anchor: withRetrievalBrief(ctx, input), task: input, prior: prior,
 		observations: make(map[string]string),
 		evicted:      make(map[string]bool),
 		appended:     make(map[string]string),
@@ -384,7 +392,33 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 		return fmt.Errorf("persist working observation: %w", err)
 	}
 	loop.remember(call.ID, id)
+	if toolErr == nil {
+		if effect, err := tools.LookupEffect(call.Name); err == nil && effect == tools.EffectWrite {
+			if loop.written == nil {
+				loop.written = make(map[string]bool)
+			}
+			loop.written[working.EntityFile(observed)] = true
+		}
+	}
 	return nil
+}
+
+// hotFiles are the files whose current observations the ledger keeps past the
+// age cut (working_pinned): the focus, and every file this loop has written.
+func (loop *workingLoop) hotFiles() []string {
+	// "." is where an observation lands when it names no file the workspace
+	// holds; it is not a file, and pinning it would pin all of them.
+	hot := make([]string, 0, len(loop.written)+1)
+	if file := working.EntityFile(loop.focus); file != "" && file != "." {
+		hot = append(hot, file)
+	}
+	for file := range loop.written {
+		if file != "." {
+			hot = append(hot, file)
+		}
+	}
+	sort.Strings(hot)
+	return slices.Compact(hot)
 }
 
 // remember maps a tool call to the observation it produced or recalled.
@@ -614,7 +648,7 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 			extra = 0
 		}
 	}
-	decision, err := loop.set.Ledger(ctx, entries, round, loop.restated)
+	decision, err := loop.set.Ledger(ctx, entries, round, loop.restated, loop.hotFiles())
 	if err != nil {
 		return fmt.Errorf("working ledger: %w", err)
 	}

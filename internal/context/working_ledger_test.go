@@ -48,12 +48,12 @@ func TestWorkingLedger_CompactsOnlyPastTheCeiling(t *testing.T) {
 	for i, name := range []string{"a_test.go", "b.go", "c.go", "d.go"} {
 		entries = append(entries, observe(t, w, name, name, "read_file/"+name, i+1, 1000, 0, 0))
 	}
-	decision, err := w.Ledger(t.Context(), entries, 4, nil)
+	decision, err := w.Ledger(t.Context(), entries, 4, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, decision.Evict, "4000 bytes is under a 4096-byte ceiling: nothing moves, whatever file it came from")
 
 	entries = append(entries, observe(t, w, "e", "d.go", "outline/d", 5, 1000, 0, 0))
-	decision, err = w.Ledger(t.Context(), entries, 5, nil)
+	decision, err = w.Ledger(t.Context(), entries, 5, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-a_test.go", "call-b.go", "call-c.go"}, decision.Evict, "past the ceiling, every round older than the two kept moves out")
 }
@@ -69,14 +69,14 @@ func TestWorkingLedger_CompactionMovesCoveredAndRepeatedReadsOut(t *testing.T) {
 		observe(t, w, "apart", "a.go", "read_file/apart", 3, 100, 1, 50),
 		observe(t, w, "b1", "b.go", "read_file/b-1-40", 4, 100, 0, 0),
 	}
-	decision, err := w.Ledger(t.Context(), entries, 4, nil)
+	decision, err := w.Ledger(t.Context(), entries, 4, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, decision.Evict, "under the ceiling a covered read stays in the ledger")
 
 	// The same body read again under another request: one observation.
 	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "b2", Entity: "b.go", Revision: w.Revision("b.go"), Kind: "read_file/b-2-40", Step: 5, Body: "body of b1"}))
 	entries = append(entries, LedgerEntry{Call: "call-b2", ID: "b2", Bytes: 5000, Round: 4})
-	decision, err = w.Ledger(t.Context(), entries, 4, nil)
+	decision, err = w.Ledger(t.Context(), entries, 4, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-b1", "call-narrow"}, decision.Evict, "within the kept rounds only the covered read and the earlier copy of a repeated body move out")
 }
@@ -90,23 +90,23 @@ func TestWorkingLedger_RestatesAStaleObservationOncePerRevision(t *testing.T) {
 	w, root := ledgerSet(t, 1<<20, 2, "a.go")
 	path := filepath.Join(root, "a.go")
 	entries := []LedgerEntry{observe(t, w, "before", "a.go", "read_file/x", 1, 100, 0, 0)}
-	decision, err := w.Ledger(t.Context(), entries, 1, nil)
+	decision, err := w.Ledger(t.Context(), entries, 1, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, decision.Restate, "a current observation is not restated")
 
 	require.NoError(t, os.WriteFile(path, []byte("package a // v2"), 0600))
 	entries = append(entries, observe(t, w, "after", "a.go", "read_file/y", 2, 100, 0, 0))
-	decision, err = w.Ledger(t.Context(), entries, 2, nil)
+	decision, err = w.Ledger(t.Context(), entries, 2, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"before"}, decision.Restate, "the pre-edit read is restated; the post-edit read is current")
 
 	restated := map[string]string{"before": w.Revision("a.go")}
-	decision, err = w.Ledger(t.Context(), entries, 2, restated)
+	decision, err = w.Ledger(t.Context(), entries, 2, restated, nil)
 	require.NoError(t, err)
 	require.Empty(t, decision.Restate, "restated at this revision: not again")
 
 	require.NoError(t, os.WriteFile(path, []byte("package a // v3"), 0600))
-	decision, err = w.Ledger(t.Context(), entries, 3, restated)
+	decision, err = w.Ledger(t.Context(), entries, 3, restated, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"after", "before"}, decision.Restate, "a later revision restates both")
 }
@@ -117,7 +117,7 @@ func TestWorkingLedger_AnEvictedStaleObservationIsNotRestated(t *testing.T) {
 	w, root := ledgerSet(t, 4096, 2, "a.go")
 	entries := []LedgerEntry{observe(t, w, "old", "a.go", "read_file/x", 3, 5000, 0, 0)}
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a // edited"), 0600))
-	decision, err := w.Ledger(t.Context(), entries, 3, nil)
+	decision, err := w.Ledger(t.Context(), entries, 3, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-old"}, decision.Evict, "past the ceiling a stale result moves out even within the kept rounds")
 	require.Empty(t, decision.Restate)
@@ -136,7 +136,7 @@ func TestWorkingLedger_ReadsTheConfiguredKnobs(t *testing.T) {
 		for round := 1; round <= 4; round++ {
 			entries = append(entries, observe(t, w, fmt.Sprint(round), "a.go", fmt.Sprintf("read_file/%d", round), round, 2000, 0, 0))
 		}
-		decision, err := w.Ledger(t.Context(), entries, 4, nil)
+		decision, err := w.Ledger(t.Context(), entries, 4, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, decision.Evict, 4-keep, "ledger_keep_rounds=%d", keep)
 	}
@@ -165,12 +165,12 @@ func TestWorkingLedger_AnEditToOneElementLeavesTheOthersCurrent(t *testing.T) {
 		observe(t, w, "read-b", b, "get_element/b", 2, 100, 0, 0),
 		observe(t, w, "read-file", "a.go", "read_file/x", 3, 100, 0, 0),
 	}
-	decision, err := w.Ledger(t.Context(), entries, 3, nil)
+	decision, err := w.Ledger(t.Context(), entries, 3, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, decision.Restate)
 
 	write("return 3")
-	decision, err = w.Ledger(t.Context(), entries, 3, nil)
+	decision, err = w.Ledger(t.Context(), entries, 3, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"read-a", "read-file"}, decision.Restate, "the edited element and the whole file changed; B did not")
 
@@ -178,4 +178,25 @@ func TestWorkingLedger_AnEditToOneElementLeavesTheOthersCurrent(t *testing.T) {
 	require.Equal(t, "absent", w.Revision(b), "a deleted element is absent, so what was read of it is stale")
 	require.Equal(t, "a.go", EntityFile(b))
 	require.Equal(t, "a.go", EntityFile("a.go"))
+}
+
+// An observation of a hot file -- the focus, or one the loop wrote -- that is
+// still current stays past the age cut, while the pinned results fit in half
+// the ceiling. Past that, age decides again.
+func TestWorkingLedger_PinsCurrentObservationsOfHotFiles(t *testing.T) {
+	w, _ := ledgerSet(t, 4096, 1, "edit.go", "other.go", "late.go")
+	entries := []LedgerEntry{
+		observe(t, w, "edit", "edit.go", "read_file/edit", 1, 1000, 0, 0),
+		observe(t, w, "other", "other.go", "read_file/other", 1, 1000, 0, 0),
+		observe(t, w, "late", "late.go", "read_file/late", 3, 2500, 0, 0),
+	}
+	decision, err := w.Ledger(t.Context(), entries, 3, nil, []string{"edit.go"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"call-other"}, decision.Evict, "the hot file's current read stays; the cold one of the same age goes")
+
+	// Pins past half the ceiling do not hold: age decides for them too.
+	entries[0].Bytes = 3000
+	decision, err = w.Ledger(t.Context(), entries, 3, nil, []string{"edit.go"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"call-edit", "call-other"}, decision.Evict, "pins that would hold the ledger over its ceiling give way")
 }

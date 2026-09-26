@@ -20,6 +20,10 @@ Decl turn_round_pending(Turn, Round, Order) bound [/name, /name, /number].
 Decl turn_next_round_order(Turn, Order) bound [/name, /number].
 Decl turn_next_round(Turn, Round) bound [/name, /name].
 Decl turn_write_tools(Turn, Count) bound [/name, /number].
+# turn_pin_survivors is the count of decisions the pin gate found no test
+# distinguishes (condition mutants that survived) on a turn whose pinning
+# passed. Asserted by the executor after the /pinned round.
+Decl turn_pin_survivors(Turn, Count) bound [/name, /number].
 
 # The order carries what the rounds depend on: the tests after the build
 # (compiler errors are a better repair signal than test output wrapped
@@ -33,9 +37,10 @@ round_order(/test, 2).
 round_order(/critic, 3).
 round_order(/coverage, 4).
 round_order(/pinned, 5).
-round_order(/vet, 6).
-round_order(/removed_tests, 7).
-round_order(/test_run, 8).
+round_order(/survivors, 6).
+round_order(/vet, 7).
+round_order(/removed_tests, 8).
+round_order(/test_run, 9).
 
 turn_round_owed(Turn, /build) :- turn_owes_gate(Turn, /build).
 turn_round_owed(Turn, /test) :- turn_owes_gate(Turn, /test).
@@ -48,6 +53,14 @@ turn_round_owed(Turn, /critic) :- turn_write_class(Turn, /go).
 turn_round_owed(Turn, /critic) :- turn_write_class(Turn, /other).
 turn_round_owed(Turn, /coverage) :- turn_owes_gate(Turn, /test).
 turn_round_owed(Turn, /pinned) :- turn_owes_gate(Turn, /pinned).
+# The pin gate's surviving condition mutants are the best defect locator the
+# harness has, and a passing pin gate used to throw them away: they reached the
+# model only inside the repair prompt for a FAILED pin gate. In R1-13 every
+# function was pinned, 12 conditions survived, and two of them sat on the two
+# lines where the review found both regressions (dogfood component ledger,
+# 5074-5078). A turn with survivors now owes one advisory round that hands
+# them to the model, after pinning and before vet, which vets what it writes.
+turn_round_owed(Turn, /survivors) :- turn_pin_survivors(Turn, Count), Count > 0.
 turn_round_owed(Turn, /vet) :- turn_write_class(Turn, /go).
 turn_round_owed(Turn, /removed_tests) :- turn_wrote(Turn).
 turn_round_owed(Turn, /test_run) :- turn_owes_gate(Turn, /test_run).

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -270,8 +271,12 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 		if text == "" {
 			text = reason
 		}
-		// The test output goes back whole; the failure that matters is usually
-		// the last thing printed, which a head cut dropped first.
+		// The failing output goes back whole; the failure that matters is
+		// usually the last thing printed, which a head cut dropped first. What
+		// is dropped is the one-line verdict of every package that passed:
+		// the gate tests every importer of what the turn wrote, and a repair
+		// round gains nothing from a page of "ok" lines above the failure.
+		text = withoutPassingPackages(text)
 		logging.Get(logging.CategorySession).Warn(
 			"test verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
 		return TestVerification{Ran: true, OK: false, Output: text, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed}
@@ -353,4 +358,25 @@ func untestedGoFiles(paths []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// withoutPassingPackages drops the summary line of each package that passed or
+// has no tests ("ok  \tpkg\t0.1s", "?   \tpkg\t[no test files]") from a failed
+// `go test` run, and says how many there were. Every other line is kept,
+// failing packages' output included, in order.
+func withoutPassingPackages(output string) string {
+	lines := strings.Split(output, "\n")
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "ok  \t") || strings.HasPrefix(line, "?   \t") {
+			passed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if passed == 0 {
+		return output
+	}
+	return strings.Join(kept, "\n") + fmt.Sprintf("\n(%d other package(s) passed or have no tests)", passed)
 }

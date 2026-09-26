@@ -272,6 +272,10 @@ type AnthropicContentBlock struct {
 	ToolUseID string         `json:"tool_use_id,omitzero"` // For tool_result blocks
 	Content   string         `json:"content,omitzero"`     // For tool_result blocks (result content)
 	IsError   bool           `json:"is_error,omitzero"`    // For tool_result blocks
+	// CacheControl marks the block as a prompt-cache breakpoint. The tool
+	// loop sets it on the last block of the newest turn only, never on a
+	// thinking block (the endpoint rejects it there).
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitzero"`
 }
 
 // AnthropicTool represents a tool definition for Anthropic API.
@@ -324,6 +328,38 @@ type anthropicCachedRequest struct {
 
 // NERD-EVOLVE-END: P1P2-prompt-caching
 
+// anthropicUsage is the usage block of a Messages response. Anthropic bills
+// the prompt in three parts: input_tokens is only the uncached remainder, and
+// the cache write and cache read are reported beside it.
+type anthropicUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitzero"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitzero"`
+}
+
+// promptTokens is the whole prompt the request carried: the uncached
+// remainder plus what was written to and read from the cache. The broker's
+// contract is that InputTokens includes cache reads (internal/broker/broker.go
+// settle), and Anthropic is the provider that reports them apart, so this is
+// the one place they are folded back together.
+func (u anthropicUsage) promptTokens() int {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
+// usageMetadata projects the usage block onto the neutral shape: input is the
+// whole prompt, with the cache read and write recorded as sub-counts of it.
+func (u anthropicUsage) usageMetadata() types.UsageMetadata {
+	in := u.promptTokens()
+	return types.UsageMetadata{
+		InputTokens:         in,
+		OutputTokens:        u.OutputTokens,
+		TotalTokens:         in + u.OutputTokens,
+		CachedContentTokens: u.CacheReadInputTokens,
+		CacheWriteTokens:    u.CacheCreationInputTokens,
+	}
+}
+
 // AnthropicResponse represents the API response.
 type AnthropicResponse struct {
 	ID      string                  `json:"id"`
@@ -332,13 +368,10 @@ type AnthropicResponse struct {
 	Content []AnthropicContentBlock `json:"content"`
 	Model   string                  `json:"model"`
 	// StopReason: "end_turn" for normal completion, "tool_use" when tools are invoked
-	StopReason   string `json:"stop_reason"`
-	StopSequence string `json:"stop_sequence"`
-	Usage        struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
-	Error *struct {
+	StopReason   string         `json:"stop_reason"`
+	StopSequence string         `json:"stop_sequence"`
+	Usage        anthropicUsage `json:"usage"`
+	Error        *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error,omitzero"`

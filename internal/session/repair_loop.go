@@ -216,6 +216,10 @@ func (e *Executor) repairLoop(
 	useCommitRegime := false
 	// Why the episode gave up, for its error: the policy's reason.
 	gaveUp := ""
+	// What the episode started from, for a restart to go back to.
+	workspace := e.workspaceForVerification()
+	start := snapshotTurnFiles(workspace, result)
+	restarted := false
 
 	for attempt := 1; gaveUp == ""; attempt++ {
 		if err := epCtx.Err(); err != nil {
@@ -234,6 +238,10 @@ func (e *Executor) repairLoop(
 
 		att := RepairAttempt{Index: attempt, Started: time.Now()}
 		prompt := spec.prompt(failure)
+		if restarted {
+			prompt = repairRestartNote + "\n\n" + prompt
+			restarted = false
+		}
 		if summary := repairHistorySummary(rec.Attempts); summary != "" {
 			prompt += "\n\nPrior repair attempts this episode (do not repeat what already failed):\n" + summary
 		}
@@ -298,11 +306,23 @@ func (e *Executor) repairLoop(
 			rec.Cost.Backtracks++
 			failure = rechecked
 			// What comes next is the policy's (repair_episode.mg): another
-			// attempt, under which regime, or giving up.
-			var closed bool
-			gaveUp, closed = e.nextRepairMove(episode, attempt, wrote, rechecked.Output)
-			useCommitRegime = useCommitRegime || closed
-			if gaveUp == "" {
+			// attempt, under which regime, a restart, or giving up.
+			next := e.nextRepairMove(episode, attempt, wrote, rechecked.Output)
+			gaveUp = next.gaveUp
+			useCommitRegime = useCommitRegime || next.closed
+			if next.restart {
+				if restored, err := start.restore(workspace, result); err != nil {
+					gaveUp = fmt.Sprintf("the same failure survived two edits, and the restart could not undo them (%v)", err)
+				} else {
+					logging.Get(logging.CategorySession).Warn(
+						"Repair episode (%s): the same failure survived two edits; restarted from the episode's start (undid %s) to look for a different cause",
+						spec.kind, strings.Join(restored, ", "))
+					failure = repairFailure{Output: seedOutput}
+					useCommitRegime = false
+					restarted = true
+				}
+			}
+			if gaveUp == "" && !next.restart {
 				logging.Get(logging.CategorySession).Warn(
 					"Repair attempt %d (%s) still failing; backtracking to retained error context",
 					attempt, spec.kind)
@@ -338,6 +358,11 @@ func (e *Executor) repairLoop(
 		ErrVerificationFailed, spec.brokenPhrase, rec.Cost.Attempts, gaveUp, rec.Cost.String(), restoredNote,
 		strings.Join(rec.Followups, "; "), failure.Output)
 }
+
+// repairRestartNote opens the first attempt after a restart.
+const repairRestartNote = "Two of your edits left exactly the same failure, so the cause they fixed is not the cause. " +
+	"They have been undone: the workspace is back where this repair started, and the failure below is the one it started from. " +
+	"Before editing, state in one sentence a different cause that the failing output supports, then fix that cause."
 
 // repairHistorySummary compacts prior attempts for the next prompt: what was
 // tried and what the recheck said. Full outputs stay in the transcript; the

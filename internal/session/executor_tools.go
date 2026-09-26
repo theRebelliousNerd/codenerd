@@ -1,6 +1,7 @@
 package session
 
 import (
+	"codenerd/internal/broker"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -485,6 +486,10 @@ func (e *Executor) verifyCompletedToolTurn(
 		"/pinned": func() (*types.LLMToolResponse, []string, error) {
 			return e.verifyAndRepairPinning(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 		},
+		"/survivors": func() (*types.LLMToolResponse, []string, error) {
+			errs, err := e.adviseOnSurvivors(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+			return nil, errs, err
+		},
 		"/vet": func() (*types.LLMToolResponse, []string, error) {
 			return e.verifyAndRepairVet(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 		},
@@ -568,6 +573,14 @@ func (e *Executor) nextPostEditRound(result *ExecutionResult) (string, error) {
 			return "", errors.New("assert turn_write_tools")
 		}
 		result.writeToolsAsserted = true
+	}
+	// Survivors of a pin gate that passed: what the /survivors round answers.
+	// A failed pin gate already handed them to its own repair prompt.
+	if !result.survivorsAsserted && result.PinCheck.Verdict() == VerifyPassed && len(result.PinAdvisory) > 0 {
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_pin_survivors", Args: []any{turn, int64(len(result.PinAdvisory))}}) {
+			return "", errors.New("assert turn_pin_survivors")
+		}
+		result.survivorsAsserted = true
 	}
 	rows, err := e.turnRows("turn_next_round", turn)
 	if err != nil {
@@ -731,6 +744,7 @@ func (e *Executor) forceFinalAnswer(
 	if trp == nil {
 		return pending, nil, errors.New("client does not support tool-result follow-up")
 	}
+	ctx = broker.WithPhase(ctx, broker.PhaseForcedFinal)
 	if pending == nil {
 		return nil, nil, errors.New("cannot force a final answer from a nil pending response")
 	}
@@ -2192,6 +2206,7 @@ func (e *Executor) retryWithNoToolNudge(
 	if e.jitCompiler == nil || compilationCtx == nil {
 		return nil, errors.New("no-tool-retry path requires JIT compiler and compilation context")
 	}
+	ctx = broker.WithPhase(ctx, broker.PhaseNoToolRetry)
 
 	retryCtx := compilationCtx.Clone()
 	retryCtx.PreviousAttemptNoToolCall = true

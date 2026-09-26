@@ -54,6 +54,24 @@ type RecurseAttempt struct {
 	// NorthStar is the node's (else the workspace's) north star from nerd.md,
 	// which the extend angle draws on. Empty when none is declared.
 	NorthStar string
+	// Prior are earlier attempts at the same work that the ratchet reverted,
+	// oldest first: what each changed and why it was not kept.
+	Prior []PriorAttempt
+}
+
+// PriorAttempt is a reverted attempt, as the next attempt at the same work is
+// told about it.
+//
+// Until 2026-09-26 a revert discarded the diff and kept only a failure
+// signature, so a retry in a later pass started from nothing and was stopped
+// after two identical failures instead of learning from the first.
+type PriorAttempt struct {
+	Cycle int
+	// Tried is the attempt's patch, bounded.
+	Tried string
+	// Why is the ratchet's reason: the outcome, the finding still open or the
+	// gates made worse, the metrics that did not move.
+	Why string
 }
 
 // RecurseExecutor runs one attempt to completion: a model turn or a one-task
@@ -152,6 +170,49 @@ type recurseRun struct {
 	// a finding absent last pass is a regression this pass.
 	seenLastPass map[string]bool
 	seenThisPass map[string]bool
+	// prior are the reverted attempts by the work they attempted (priorKey),
+	// rebuilt from the journal on resume.
+	prior map[string][]PriorAttempt
+}
+
+// priorKey names the work an attempt was for: the finding it fixed, or the
+// node and angle it improved.
+func priorKey(findingID, node, angle string) string {
+	if findingID != "" {
+		return findingID
+	}
+	return "improve:" + node + ":" + angle
+}
+
+// rememberRevert records a reverted attempt for the next one at the same work.
+func (r *recurseRun) rememberRevert(rec recurseRecord) {
+	if rec.Tried == "" && rec.Why == "" {
+		return
+	}
+	if r.prior == nil {
+		r.prior = map[string][]PriorAttempt{}
+	}
+	key := priorKey(rec.Finding, rec.Node, rec.Angle)
+	r.prior[key] = append(r.prior[key], PriorAttempt{Cycle: rec.Cycle, Tried: rec.Tried, Why: rec.Why})
+}
+
+// revertReason says why the ratchet did not keep an attempt, from what the
+// loop measured: the outcome, the finding's signature after the attempt, the
+// gates it made worse, the metrics and the executor's own error.
+func (r *recurseRun) revertReason(cycle int, rec recurseRecord) string {
+	parts := []string{strings.TrimPrefix(rec.Outcome, "/")}
+	if rec.Signature != "" {
+		parts = append(parts, rec.Signature)
+	} else if worse, err := r.policy.worseGates(cycle); err == nil && len(worse) > 0 {
+		parts = append(parts, "worse: "+strings.Join(worse, ", "))
+	}
+	if rec.Metrics != "" {
+		parts = append(parts, "metrics "+rec.Metrics)
+	}
+	if rec.Detail != "" {
+		parts = append(parts, rec.Detail)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func gateKey(gateID, node string) string { return gateID + "@" + node }
@@ -652,6 +713,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	a := RecurseAttempt{
 		Pass: v.pass, Cycle: cycle, Node: node, Evidence: spec.evidence, Check: spec.check,
 		Angle: spec.angle, Metrics: before, NorthStar: r.northStar(node),
+		Prior: r.prior[priorKey(findingID, node.ID, spec.angle)],
 	}
 	if spec.finding != nil {
 		a.Finding = *spec.finding
@@ -747,6 +809,8 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 			r.result.Improved++
 		}
 	case ratchetRefuse, ratchetRevert:
+		// Read what the attempt did before the revert erases it.
+		rec.Tried = r.git.attemptDiff(ctx, changed, recurseEvidenceLimit)
 		if err := r.git.revert(ctx, changed); err != nil {
 			return err
 		}
@@ -765,6 +829,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 		if spec.finding != nil {
 			rec.Signature = r.failureSignature(cycle, *spec.finding, after[spec.targetKey], len(changed) > 0)
 		}
+		rec.Why = r.revertReason(cycle, rec)
 	default:
 		return fmt.Errorf("recurse: unknown ratchet verdict %q", verdict)
 	}
@@ -782,6 +847,9 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	}
 	if err := r.journal.append(rec); err != nil {
 		return err
+	}
+	if rec.Outcome != outcomeKept {
+		r.rememberRevert(rec)
 	}
 	r.logf("recurse cycle %d: %s %s", cycle, strings.TrimPrefix(rec.Outcome, "/"), rec.Metrics)
 	return os.Remove(inFlightPath(r.root))
@@ -1048,6 +1116,9 @@ func (r *recurseRun) resume(history []recurseRecord) (int, map[string]bool, erro
 			}
 			if err != nil {
 				return 0, nil, err
+			}
+			if h.Outcome != outcomeKept {
+				r.rememberRevert(h)
 			}
 		}
 	}

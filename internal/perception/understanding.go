@@ -36,9 +36,9 @@ type Understanding struct {
 	// Examples: "don't break tests", "keep it simple", "no external deps"
 	UserConstraints []string `json:"user_constraints"`
 
-	// ImplicitAssumptions are things the user assumes but didn't say.
-	// Examples: "test was passing before", "using existing patterns"
-	ImplicitAssumptions []string `json:"implicit_assumptions"`
+	// There is no implicit_assumptions field. It was asked of the model on every
+	// turn and read by nothing (removed 2026-09-26, journey 11 T-06): every
+	// classification paid output tokens for a list no consumer saw.
 
 	// Confidence is the LLM's self-assessed confidence in this understanding.
 	// Range: 0.0 to 1.0

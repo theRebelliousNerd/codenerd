@@ -75,6 +75,11 @@ Decl turn_wrote(Turn) bound [/name].
 Decl turn_build_failed(Turn) bound [/name].
 Decl turn_missing_evidence(Turn, Missing) bound [/name, /name].
 Decl turn_acceptance(Turn, Contract, Snapshot) bound [/name, /string, /string].
+# turn_self_reported_incomplete is the turn's own final report admitting that
+# part of the requested work was not done (session/admission_audit.go). The
+# host asserts it from a model's one-word reading of the report; it can only
+# withhold verification, never supply it.
+Decl turn_self_reported_incomplete(Turn) bound [/name].
 Decl has_turn_acceptance(Turn) bound [/name].
 # turn_gate is THIS turn's post-edit gate as the session executor measured it
 # (recordBuildState): Gate is /build, /test, /vet, /test_run or /pinned;
@@ -293,8 +298,14 @@ turn_done(Turn) :- turn_executed(Turn), turn_verified(Turn).
 # the whole of what it can owe. A turn that wrote owes every gate its writes
 # owe (turn_owes_gate above), each green and none red, and no coverage debt or
 # vet finding of its own.
-turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), !turn_wrote(Turn).
-turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_wrote(Turn), !has_unmet_gate(Turn), !has_red_gate(Turn), !turn_has_untested(Turn), !turn_has_uncovered(Turn), !turn_vet_red(Turn).
+#
+# A turn whose own report says the work is unfinished is not verified by its
+# gates: green gates measure what was done, and the report says what was not
+# (N41: R5-3 closed /done after "I cannot execute the remaining 177 deletions").
+# A verified caller contract still verifies: it witnesses the requested
+# behaviour itself.
+turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), !turn_wrote(Turn), !turn_self_reported_incomplete(Turn).
+turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_wrote(Turn), !has_unmet_gate(Turn), !has_red_gate(Turn), !turn_has_untested(Turn), !turn_has_uncovered(Turn), !turn_vet_red(Turn), !turn_self_reported_incomplete(Turn).
 turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), has_turn_acceptance(Turn).
 
 # has_turn_acceptance projects turn_acceptance/3 to a single argument, matching
@@ -331,6 +342,7 @@ turn_missing_evidence(Turn, /changed_code_unexecuted) :- turn_unverified(Turn), 
 turn_missing_evidence(Turn, /vet_not_clean) :- turn_unverified(Turn), turn_vet_red(Turn).
 turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_unmet_gate(Turn, /pinned).
 turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_red_gate(Turn, /pinned).
+turn_missing_evidence(Turn, /self_reported_incomplete) :- turn_unverified(Turn), turn_self_reported_incomplete(Turn).
 
 # A red build is a failed turn, not merely an unverified one. turn_executed
 # already excludes it; this names it so the outcome can say /failed instead of

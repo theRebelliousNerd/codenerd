@@ -126,7 +126,6 @@ content: |
         "symbol": "<symbol name if known>"
       },
       "user_constraints": ["<explicit constraints>"],
-      "implicit_assumptions": ["<unstated assumptions>"],
       "confidence": <0.0 to 1.0>
     },
     "signals": {
@@ -168,7 +167,6 @@ content: |
         "symbol": "TestValidateToken"
       },
       "user_constraints": [],
-      "implicit_assumptions": ["test was passing before", "want to understand before fixing"],
       "confidence": 0.95
     },
     "signals": {
@@ -208,7 +206,6 @@ content: |
         "symbol": ""
       },
       "user_constraints": ["preserve existing test behavior"],
-      "implicit_assumptions": ["using existing patterns", "middleware-based approach"],
       "confidence": 0.88
     },
     "signals": {
@@ -248,7 +245,6 @@ content: |
         "symbol": "LocalStore"
       },
       "user_constraints": [],
-      "implicit_assumptions": ["want to understand implementation details", "seeking codebase navigation"],
       "confidence": 0.95
     },
     "signals": {
@@ -288,7 +284,6 @@ content: |
         "symbol": ""
       },
       "user_constraints": ["simulation only", "no actual changes"],
-      "implicit_assumptions": ["want to understand impact", "considering removal"],
       "confidence": 0.92
     },
     "signals": {
@@ -338,7 +333,6 @@ content: |
         "symbol": ""
       },
       "user_constraints": [],
-      "implicit_assumptions": [],
       "confidence": 0.99
     },
     "signals": {

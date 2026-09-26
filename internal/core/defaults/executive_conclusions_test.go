@@ -62,6 +62,8 @@ var queryCalls = map[string]bool{
 	"derivedColumn":        true,
 	"queryKernelStrings":   true,
 	"queryOrBlock":         true,
+	// The repair episode's rows (session/repair_policy.go nextRepairMove).
+	"episodeRows": true,
 }
 
 var predicateNameRe = regexp.MustCompile(`^\s*([a-z_][a-zA-Z0-9_]*)`)

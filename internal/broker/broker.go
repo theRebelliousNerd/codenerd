@@ -133,6 +133,7 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 		Method:   req.Method,
 		Started:  time.Now(),
 		Scope:    usage.SessionIDFromContext(ctx),
+		Phase:    PhaseFromContext(ctx),
 		Prefix:   prefixFingerprint(req),
 	}
 
@@ -189,6 +190,7 @@ func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported
 	// cache_read_input_tokens) must add them into InputTokens in its client.
 	if reported != nil {
 		actual.CachedTokens = int64(reported.CachedContentTokens)
+		actual.CacheWriteTokens = int64(reported.CacheWriteTokens)
 		actual.ThinkingTokens = int64(reported.ThinkingTokens)
 	}
 

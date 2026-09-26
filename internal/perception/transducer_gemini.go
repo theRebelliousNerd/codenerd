@@ -31,7 +31,6 @@ const understandingSchema = `{
           }
         },
         "user_constraints": {"type": "array", "items": {"type": "string"}},
-        "implicit_assumptions": {"type": "array", "items": {"type": "string"}},
         "confidence": {"type": "number"},
         "signals": {
           "type": "object",

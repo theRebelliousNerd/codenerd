@@ -43,3 +43,46 @@ func PurposeFromContext(ctx context.Context) Purpose {
 	}
 	return PurposeUnattributed
 }
+
+type phaseKey struct{}
+
+// Phase names the step within a purpose's work that a call belongs to. A
+// purpose says what kind of work spent the tokens; a phase says which round of
+// it. The session purpose covers the whole tool loop, so without phases a
+// repair round, the critic's uplift round and the forced final answer are one
+// number with the ordinary rounds, and a change that targets one of them
+// cannot be measured.
+type Phase string
+
+const (
+	PhaseRepair      Phase = "repair"
+	PhaseUplift      Phase = "uplift"
+	PhaseStepPlan    Phase = "step_plan"
+	PhaseForcedFinal Phase = "forced_final"
+	PhaseNoToolRetry Phase = "no_tool_retry"
+	// PhaseAdmissionAudit is the one-word reading of a turn's final report
+	// for an admission that the work is unfinished.
+	PhaseAdmissionAudit Phase = "admission_audit"
+	// PhaseSurvivors is the advisory round on the pin gate's surviving
+	// condition mutants.
+	PhaseSurvivors Phase = "survivors"
+)
+
+// WithPhase tags ctx with the phase of the work under it. Like a purpose, the
+// innermost tag wins.
+func WithPhase(ctx context.Context, p Phase) context.Context {
+	if ctx == nil || p == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, phaseKey{}, p)
+}
+
+// PhaseFromContext returns the phase tagged on ctx, or "" for an ordinary
+// round.
+func PhaseFromContext(ctx context.Context) Phase {
+	if ctx == nil {
+		return ""
+	}
+	p, _ := ctx.Value(phaseKey{}).(Phase)
+	return p
+}

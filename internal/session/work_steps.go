@@ -1,6 +1,7 @@
 package session
 
 import (
+	"codenerd/internal/broker"
 	"context"
 	"errors"
 	"fmt"
@@ -158,6 +159,7 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 	if !e.workingLoopAvailable() || result == nil {
 		return nil
 	}
+	ctx = broker.WithPhase(ctx, broker.PhaseStepPlan)
 	if !e.writeOrientedIntent(result.Intent.Verb) {
 		return nil
 	}

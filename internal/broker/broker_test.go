@@ -292,3 +292,29 @@ func TestUnderlyingErrorsPropagateAndStillSettle(t *testing.T) {
 		t.Error("a failed call still costs its input tokens and must be recorded")
 	}
 }
+
+// A phase rides the context like a purpose and lands on the receipt, so the
+// meter can split a repair round from the ordinary rounds of the same purpose.
+func TestReceipt_WhenTheContextCarriesAPhase_ShouldRecordIt(t *testing.T) {
+	meter := testMeter(200000, 8000)
+	sink := &captureSink{}
+	client := meteredClient(t, newFakeClient(), meter, sink)
+
+	ctx := WithPhase(WithPurpose(context.Background(), PurposeSession), PhaseRepair)
+	if _, err := client.CompleteWithSystem(ctx, "sys", "user"); err != nil {
+		t.Fatalf("CompleteWithSystem: %v", err)
+	}
+	r, ok := sink.last()
+	if !ok {
+		t.Fatal("no receipt emitted")
+	}
+	if r.Purpose != PurposeSession || r.Phase != PhaseRepair {
+		t.Errorf("receipt = (%q, %q), want (session, repair)", r.Purpose, r.Phase)
+	}
+	if _, err := client.CompleteWithSystem(context.Background(), "sys", "user"); err != nil {
+		t.Fatalf("CompleteWithSystem: %v", err)
+	}
+	if r, _ := sink.last(); r.Phase != "" {
+		t.Errorf("an untagged call recorded phase %q, want none", r.Phase)
+	}
+}

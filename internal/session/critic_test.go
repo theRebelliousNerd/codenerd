@@ -123,7 +123,7 @@ func TestBuildCriticPrompt(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := buildCriticPrompt(tc.writtenFiles, nil, tc.uncoveredSummary)
+			got := buildCriticPrompt(tc.writtenFiles, nil, tc.uncoveredSummary, "")
 			for _, want := range tc.wantContains {
 				if !strings.Contains(got, want) {
 					t.Errorf("buildCriticPrompt() missing %q\nprompt:\n%s", want, got)
@@ -451,7 +451,7 @@ func TestBuildCriticPrompt_RoundTripWithParser(t *testing.T) {
 	files := map[string]string{
 		"foo.go": "package foo\n",
 	}
-	prompt := buildCriticPrompt(files, nil, "")
+	prompt := buildCriticPrompt(files, nil, "", "")
 	if !strings.Contains(prompt, "FINDING file.go:123 severity: claim text") {
 		t.Fatal("prompt does not contain the documented finding format")
 	}
@@ -594,10 +594,12 @@ func TestReadWrittenFilesForReview(t *testing.T) {
 	if _, ok := got["missing.go"]; ok {
 		t.Error("unreadable file was offered for review")
 	}
+	// Offered whole: the review view bounds what the critic sees, and it needs
+	// the whole file to find the regions the turn changed.
 	if body, ok := got["big.go"]; !ok {
-		t.Error("large file was dropped entirely; it should be truncated instead")
-	} else if len(body) > criticMaxFileBytes+64 {
-		t.Errorf("large file was not truncated: %d bytes", len(body))
+		t.Error("large file was dropped entirely")
+	} else if !strings.HasSuffix(body, "// filler\n") {
+		t.Errorf("large file was cut before the view could find its changes: %d bytes", len(body))
 	}
 }
 
@@ -703,7 +705,7 @@ func (hangingLLM) CompleteWithTools(ctx context.Context, _, _ string, _ []types.
 func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 	files := map[string]string{"a.go": "package p\n"}
 
-	withEvidence := buildCriticPrompt(files, nil, "a.go:10-12")
+	withEvidence := buildCriticPrompt(files, nil, "a.go:10-12", "")
 	if !strings.Contains(withEvidence, "a.go:10-12") {
 		t.Error("uncovered summary is not embedded in the prompt")
 	}
@@ -721,7 +723,7 @@ func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 
 	// With no evidence, those instructions must not appear — an empty coverage
 	// section followed by "account for the evidence above" is incoherent.
-	without := buildCriticPrompt(files, nil, "")
+	without := buildCriticPrompt(files, nil, "", "")
 	if strings.Contains(without, "tool output, not opinion") {
 		t.Error("evidence instructions appear when there is no evidence")
 	}
@@ -732,7 +734,7 @@ func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 // F-DOC-1 recorded four real instances in two turns, so the reviewer is told to
 // look for them explicitly.
 func TestBuildCriticPrompt_AsksAboutCommentClaims(t *testing.T) {
-	p := buildCriticPrompt(map[string]string{"a.go": "package p\n"}, nil, "")
+	p := buildCriticPrompt(map[string]string{"a.go": "package p\n"}, nil, "", "")
 
 	for _, want := range []string{
 		"Check the comments against the code",
@@ -797,7 +799,7 @@ func TestTurnRemovals_LargeFileReportsOnlyRealRemoval(t *testing.T) {
 func TestBuildCriticPrompt_ShowsTurnRemovals(t *testing.T) {
 	files := map[string]string{"a.go": "package a\n"}
 	removals := map[string]string{"a.go": "    2| // gone\n"}
-	got := buildCriticPrompt(files, removals, "")
+	got := buildCriticPrompt(files, removals, "", "")
 
 	for _, want := range []string{
 		"Lines this turn removed from a.go",
@@ -809,7 +811,7 @@ func TestBuildCriticPrompt_ShowsTurnRemovals(t *testing.T) {
 		}
 	}
 
-	plain := buildCriticPrompt(files, nil, "")
+	plain := buildCriticPrompt(files, nil, "", "")
 	for _, notWant := range []string{
 		"Lines this turn removed from",
 		"// gone",
@@ -826,11 +828,13 @@ func TestBuildCriticPrompt_ShowsTurnRemovals(t *testing.T) {
 type scriptedCriticLLM struct {
 	review string
 	calls  int
+	prompt string // the last review prompt, as sent
 }
 
 func (s *scriptedCriticLLM) Complete(context.Context, string) (string, error) { return "", nil }
-func (s *scriptedCriticLLM) CompleteWithSystem(context.Context, string, string) (string, error) {
+func (s *scriptedCriticLLM) CompleteWithSystem(_ context.Context, _, prompt string) (string, error) {
 	s.calls++
+	s.prompt = prompt
 	return s.review, nil
 }
 func (s *scriptedCriticLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {

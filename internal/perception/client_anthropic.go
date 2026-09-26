@@ -76,10 +76,37 @@ func (c *AnthropicClient) EnableSystemCaching() {
 	c.enableSystemCaching = true
 }
 
-// buildCachedSystemRequest constructs an anthropicCachedRequest with cache_control
-// on the system message. This is used instead of the plain AnthropicRequest when
-// enableSystemCaching is true.
-func (c *AnthropicClient) buildCachedSystemRequest(base AnthropicRequest) ([]byte, error) {
+// anthropicCachePlan says where a request places its prompt-cache
+// breakpoints. The endpoint caches a prefix up to each breakpoint and serves
+// later requests that repeat that prefix at a tenth of the input price.
+type anthropicCachePlan struct {
+	// system puts one breakpoint on the system block. Tools render before
+	// system, so this one marker caches both: the part of every tool-loop
+	// request that never changes within a loop.
+	system bool
+	// tail puts one breakpoint on the last block of the newest turn, so the
+	// next round reads the whole conversation so far from the cache and pays
+	// full price only for what that round appended.
+	tail bool
+}
+
+// toolLoopCachePlan is the plan for a tool-loop round. The loop resends the
+// same tools, system prompt and growing transcript every round (about 45-55k
+// tokens per round, Docs/journeys/11-idea-corpus-2026-09-26/tokens.md), so
+// without breakpoints every round rebills the whole prefix at full price.
+var toolLoopCachePlan = anthropicCachePlan{system: true, tail: true}
+
+// ephemeral is the default 5-minute cache entry. A read refreshes it, and loop
+// rounds start well inside five minutes of each other.
+func ephemeral() *AnthropicCacheControl { return &AnthropicCacheControl{Type: "ephemeral"} }
+
+// marshalAnthropicRequest renders the request with the plan's breakpoints.
+// With no breakpoints it is the plain request, byte for byte what the client
+// always sent.
+func marshalAnthropicRequest(base AnthropicRequest, plan anthropicCachePlan) ([]byte, error) {
+	if !plan.system && !plan.tail {
+		return json.Marshal(base)
+	}
 	cached := anthropicCachedRequest{
 		Model:       base.Model,
 		MaxTokens:   base.MaxTokens,
@@ -89,17 +116,52 @@ func (c *AnthropicClient) buildCachedSystemRequest(base AnthropicRequest) ([]byt
 		Stream:      base.Stream,
 	}
 	if base.System != "" {
-		cached.System = []AnthropicSystemCacheBlock{
-			{
-				Type: "text",
-				Text: base.System,
-				CacheControl: &AnthropicCacheControl{
-					Type: "ephemeral",
-				},
-			},
+		block := AnthropicSystemCacheBlock{Type: "text", Text: base.System}
+		if plan.system {
+			block.CacheControl = ephemeral()
 		}
+		cached.System = []AnthropicSystemCacheBlock{block}
+	}
+	if plan.tail {
+		cached.Messages = withTailBreakpoint(base.Messages)
 	}
 	return json.Marshal(cached)
+}
+
+// withTailBreakpoint returns messages with a cache breakpoint on the last
+// block of the newest turn that can carry one. The caller's slice is not
+// modified: a retry marshals the same request again, and the history it came
+// from belongs to the executor.
+//
+// A bare-string turn becomes a single text block, which is the same content in
+// the structured form. A thinking block cannot carry a breakpoint, so the
+// marker goes on the nearest block before it.
+func withTailBreakpoint(messages []AnthropicMessage) []AnthropicMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := make([]AnthropicMessage, len(messages))
+	copy(out, messages)
+	last := &out[len(out)-1]
+	switch content := last.Content.(type) {
+	case string:
+		if content == "" {
+			return out
+		}
+		last.Content = []AnthropicContentBlock{{Type: "text", Text: content, CacheControl: ephemeral()}}
+	case []AnthropicContentBlock:
+		blocks := make([]AnthropicContentBlock, len(content))
+		copy(blocks, content)
+		for i := len(blocks) - 1; i >= 0; i-- {
+			if blocks[i].Type == "thinking" || blocks[i].Type == "redacted_thinking" {
+				continue
+			}
+			blocks[i].CacheControl = ephemeral()
+			break
+		}
+		last.Content = blocks
+	}
+	return out
 }
 
 // NERD-EVOLVE-END: P1P2-prompt-caching
@@ -160,13 +222,7 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 		}
 
 		// NERD-EVOLVE-START: P1P2-prompt-caching
-		var jsonData []byte
-		var marshalErr error
-		if c.enableSystemCaching {
-			jsonData, marshalErr = c.buildCachedSystemRequest(reqBody)
-		} else {
-			jsonData, marshalErr = json.Marshal(reqBody)
-		}
+		jsonData, marshalErr := marshalAnthropicRequest(reqBody, anthropicCachePlan{system: c.enableSystemCaching})
 		if marshalErr != nil {
 			logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to marshal request: %v", marshalErr)
 			return "", fmt.Errorf("failed to marshal request: %w", marshalErr)
@@ -182,12 +238,6 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("x-api-key", c.apiKey)
 		req.Header.Set("anthropic-version", "2023-06-01")
-		// NERD-EVOLVE-START: P1P2-prompt-caching
-		if c.enableSystemCaching {
-			// anthropic-beta header required for prompt caching (as of 2024-07)
-			req.Header.Set("anthropic-beta", "prompt-caching-2024-07-31")
-		}
-		// NERD-EVOLVE-END: P1P2-prompt-caching
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -240,7 +290,7 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 		}
 
 		trackUsage(ctx, c.model, ProviderAnthropic,
-			anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpChat)
+			anthropicResp.Usage.promptTokens(), anthropicResp.Usage.OutputTokens, usageOpChat)
 
 		response := strings.TrimSpace(result.String())
 		if types.LengthStop(anthropicResp.StopReason) {
@@ -361,10 +411,7 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 					// the running output_tokens. Both are captured and recorded
 					// once at the end rather than per event.
 					Message *struct {
-						Usage struct {
-							InputTokens  int `json:"input_tokens"`
-							OutputTokens int `json:"output_tokens"`
-						} `json:"usage"`
+						Usage anthropicUsage `json:"usage"`
 					} `json:"message,omitzero"`
 					Usage *struct {
 						InputTokens  int `json:"input_tokens"`
@@ -383,8 +430,8 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 					return
 				}
 				if evt.Message != nil {
-					if evt.Message.Usage.InputTokens > 0 {
-						billed.input = evt.Message.Usage.InputTokens
+					if in := evt.Message.Usage.promptTokens(); in > 0 {
+						billed.input = in
 					}
 					if evt.Message.Usage.OutputTokens > 0 {
 						billed.output = evt.Message.Usage.OutputTokens
@@ -439,7 +486,7 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 // transient server errors. Both tool-bearing paths share it; the chat path
 // keeps its own loop for prompt-caching headers. Callers map the parsed
 // response and record usage for their own op.
-func (c *AnthropicClient) postMessages(ctx context.Context, reqBody AnthropicRequest) (*AnthropicResponse, error) {
+func (c *AnthropicClient) postMessages(ctx context.Context, reqBody AnthropicRequest, plan anthropicCachePlan) (*AnthropicResponse, error) {
 	maxRetries := llmMaxRetries()
 	var lastErr error
 
@@ -455,7 +502,7 @@ func (c *AnthropicClient) postMessages(ctx context.Context, reqBody AnthropicReq
 			}
 		}
 
-		jsonData, err := json.Marshal(reqBody)
+		jsonData, err := marshalAnthropicRequest(reqBody, plan)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request: %w", err)
 		}
@@ -546,13 +593,16 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
-	anthropicResp, err := c.postMessages(ctx, reqBody)
+	// The first round of a loop: its tools and system prompt are what every
+	// later round repeats, so they are worth a cache entry; its one user
+	// message is the whole of the request's tail and is not.
+	anthropicResp, err := c.postMessages(ctx, reqBody, anthropicCachePlan{system: true})
 	if err != nil {
 		return nil, err
 	}
 
 	trackUsage(ctx, c.model, ProviderAnthropic,
-		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
+		anthropicResp.Usage.promptTokens(), anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
 
 	// Build the neutral response first, then refuse it if the provider cut it
 	// at its ceiling. main's restatement path needs the partial text, and the
@@ -612,13 +662,13 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPro
 		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
-	anthropicResp, err := c.postMessages(ctx, reqBody)
+	anthropicResp, err := c.postMessages(ctx, reqBody, toolLoopCachePlan)
 	if err != nil {
 		return nil, err
 	}
 
 	trackUsage(ctx, c.model, ProviderAnthropic,
-		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
+		anthropicResp.Usage.promptTokens(), anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
 
 	// Same composition as CompleteWithTools: build the neutral response, then
 	// refuse it if the provider cut it at its ceiling.

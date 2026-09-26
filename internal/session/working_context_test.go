@@ -3,13 +3,16 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"codenerd/internal/prompt"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -404,5 +407,43 @@ func TestCompleteWithWorkingContext_RendersTheRecalledFileUnderTheCommitRegime(t
 	}
 	if len(files.calls) == 0 || files.calls[len(files.calls)-1] != "fix.go" {
 		t.Fatalf("the request after recalling fix.go rendered the context of %v; want fix.go", files.calls)
+	}
+}
+
+// A file a successful write changed is hot, with the focus: the ledger keeps
+// its current observations past the age cut. A failed write changes nothing.
+func TestWorkingLoop_AWriteMakesItsFileHot(t *testing.T) {
+	registerTestTool(t, &tools.Tool{Effect: tools.EffectWrite, Name: "hot_write_probe", Category: tools.CategoryCode,
+		Execute: func(context.Context, map[string]any) (string, error) { return "ok", nil }})
+	e := newWorkingLoopExecutor(t, &MockLLMClient{})
+	for _, name := range []string{"a.go", "b.go", "failed.go"} {
+		if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, name), []byte("package p\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "edit a.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "a.go"})
+	if err != nil {
+		t.Fatalf("beginWorkingLoop: %v", err)
+	}
+	t.Cleanup(closeLoop)
+	loop := activeWorkingLoop(ctx)
+
+	failed := types.ToolCall{ID: "w0", Name: "hot_write_probe", Input: map[string]any{"path": "failed.go"}}
+	if err := e.recordWorkingResult(ctx, failed, "", errors.New("refused")); err != nil {
+		t.Fatal(err)
+	}
+	wrote := types.ToolCall{ID: "w1", Name: "hot_write_probe", Input: map[string]any{"path": "b.go"}}
+	if err := e.recordWorkingResult(ctx, wrote, "ok", nil); err != nil {
+		t.Fatal(err)
+	}
+	hot := loop.hotFiles()
+	if !slices.Contains(hot, "b.go") {
+		t.Errorf("hot = %v, want the written file", hot)
+	}
+	if loop.written["failed.go"] {
+		t.Errorf("a failed write made its file hot: %v", loop.written)
+	}
+	if slices.Contains(hot, ".") {
+		t.Errorf("hot = %v: \".\" is not a file", hot)
 	}
 }

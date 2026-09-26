@@ -50,6 +50,11 @@ type recurseRecord struct {
 	// Open counts the findings open after a measurement.
 	Open   int    `json:"open,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	// Tried is what a reverted attempt changed, as a bounded patch, and Why
+	// is the ratchet's reason for reverting it. The next attempt at the same
+	// work is handed both, so it does not repeat the attempt that failed.
+	Tried string `json:"tried,omitempty"`
+	Why   string `json:"why,omitempty"`
 }
 
 // RecurseJournalPath is where the journal lives in a workspace.

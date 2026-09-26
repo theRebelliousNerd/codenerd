@@ -128,14 +128,29 @@ Examples:
 
 // PurposeSpend aggregates one purpose's receipts.
 type PurposeSpend struct {
-	Purpose  string  `json:"purpose"`
-	Calls    int     `json:"calls"`
-	Input    int64   `json:"input_tokens"`
-	Output   int64   `json:"output_tokens"`
-	Cached   int64   `json:"cached_tokens"`
-	Refusals int     `json:"refusals"`
-	Errors   int     `json:"errors"`
-	Share    float64 `json:"share_of_total_tokens"`
+	Purpose string `json:"purpose"`
+	Calls   int    `json:"calls"`
+	Input   int64  `json:"input_tokens"`
+	Output  int64  `json:"output_tokens"`
+	Cached  int64  `json:"cached_tokens"`
+	// CacheWrite is the input written to a prompt cache. Beside Cached it
+	// says whether the cache pays: steady reads with small writes is a
+	// healthy loop, writes near the whole input every call is one that
+	// never hits.
+	CacheWrite int64   `json:"cache_write_tokens"`
+	Refusals   int     `json:"refusals"`
+	Errors     int     `json:"errors"`
+	Share      float64 `json:"share_of_total_tokens"`
+}
+
+// PhaseSpend is one (purpose, phase) account.
+type PhaseSpend struct {
+	Purpose string `json:"purpose"`
+	Phase   string `json:"phase"`
+	Calls   int    `json:"calls"`
+	Input   int64  `json:"input_tokens"`
+	Output  int64  `json:"output_tokens"`
+	Cached  int64  `json:"cached_tokens"`
 }
 
 // ModelAccuracy is one model's estimate-versus-bill record.
@@ -155,15 +170,22 @@ type ModelAccuracy struct {
 
 // MeterSummary is the `nerd meter` readout.
 type MeterSummary struct {
-	Receipts     int             `json:"receipts"`
-	Admitted     int             `json:"admitted"`
-	Refused      int             `json:"refused"`
-	Errored      int             `json:"errored"`
-	InputTokens  int64           `json:"input_tokens"`
-	OutputTokens int64           `json:"output_tokens"`
-	CachedTokens int64           `json:"cached_tokens"`
-	ByPurpose    []PurposeSpend  `json:"by_purpose"`
-	ByModel      []ModelAccuracy `json:"by_model"`
+	Receipts     int   `json:"receipts"`
+	Admitted     int   `json:"admitted"`
+	Refused      int   `json:"refused"`
+	Errored      int   `json:"errored"`
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	CachedTokens int64 `json:"cached_tokens"`
+	// CacheWriteTokens is the input written to a prompt cache (billed at a
+	// premium over plain input).
+	CacheWriteTokens int64          `json:"cache_write_tokens"`
+	ByPurpose        []PurposeSpend `json:"by_purpose"`
+	// ByPhase splits a purpose's spend by the round it went to (repair,
+	// uplift, forced final...). Ordinary rounds carry no phase and are not
+	// listed, so this is what the named rounds cost on top of them.
+	ByPhase []PhaseSpend    `json:"by_phase,omitempty"`
+	ByModel []ModelAccuracy `json:"by_model"`
 	// RefusalsByCode says why turns did not happen. A refusal is the receipt an
 	// operator must not have to go looking for: it means a turn did not happen,
 	// and the user saw something else instead.
@@ -177,6 +199,7 @@ func summarizeReceipts(receipts []broker.Receipt) MeterSummary {
 	s := MeterSummary{Receipts: len(receipts), RefusalsByCode: map[string]int{}}
 
 	purposes := map[string]*PurposeSpend{}
+	phases := map[[2]string]*PhaseSpend{}
 	type modelAcc struct {
 		calls      int
 		sumAbs     float64
@@ -211,9 +234,23 @@ func summarizeReceipts(receipts []broker.Receipt) MeterSummary {
 		ps.Input += r.Actual.InputTokens
 		ps.Output += r.Actual.OutputTokens
 		ps.Cached += r.Actual.CachedTokens
+		ps.CacheWrite += r.Actual.CacheWriteTokens
 		s.InputTokens += r.Actual.InputTokens
 		s.OutputTokens += r.Actual.OutputTokens
 		s.CachedTokens += r.Actual.CachedTokens
+		s.CacheWriteTokens += r.Actual.CacheWriteTokens
+		if r.Phase != "" {
+			key := [2]string{string(r.Purpose), string(r.Phase)}
+			ph, ok := phases[key]
+			if !ok {
+				ph = &PhaseSpend{Purpose: key[0], Phase: key[1]}
+				phases[key] = ph
+			}
+			ph.Calls++
+			ph.Input += r.Actual.InputTokens
+			ph.Output += r.Actual.OutputTokens
+			ph.Cached += r.Actual.CachedTokens
+		}
 
 		if r.Err != "" {
 			s.Errored++
@@ -261,6 +298,17 @@ func summarizeReceipts(receipts []broker.Receipt) MeterSummary {
 		return s.ByPurpose[i].Purpose < s.ByPurpose[j].Purpose
 	})
 
+	for _, ph := range phases {
+		s.ByPhase = append(s.ByPhase, *ph)
+	}
+	sort.Slice(s.ByPhase, func(i, j int) bool {
+		a, b := s.ByPhase[i], s.ByPhase[j]
+		if a.Input+a.Output != b.Input+b.Output {
+			return a.Input+a.Output > b.Input+b.Output
+		}
+		return a.Purpose+"/"+a.Phase < b.Purpose+"/"+b.Phase
+	})
+
 	for model, ma := range models {
 		acc := ModelAccuracy{Model: model, Calls: ma.calls, ExactCounts: ma.exact, WorstErrorPct: ma.worst}
 		if ma.errSamples > 0 {
@@ -282,17 +330,28 @@ func summarizeReceipts(receipts []broker.Receipt) MeterSummary {
 func printMeterSummary(w io.Writer, s MeterSummary) {
 	fmt.Fprintf(w, "\nInference meter — %d receipts (%d admitted, %d refused, %d errored)\n",
 		s.Receipts, s.Admitted, s.Refused, s.Errored)
-	fmt.Fprintf(w, "Billed: %s input, %s output, %s of the input read from cache\n\n",
-		humanTokens(s.InputTokens), humanTokens(s.OutputTokens), humanTokens(s.CachedTokens))
+	fmt.Fprintf(w, "Billed: %s input, %s output, %s of the input read from cache, %s written to it\n\n",
+		humanTokens(s.InputTokens), humanTokens(s.OutputTokens), humanTokens(s.CachedTokens), humanTokens(s.CacheWriteTokens))
 
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "PURPOSE\tCALLS\tINPUT\tOUTPUT\tCACHED\tSHARE\tREFUSED\tERRORS")
+	fmt.Fprintln(tw, "PURPOSE\tCALLS\tINPUT\tOUTPUT\tCACHED\tCACHE WRITE\tSHARE\tREFUSED\tERRORS")
 	for _, p := range s.ByPurpose {
-		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%.1f%%\t%d\t%d\n",
+		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%.1f%%\t%d\t%d\n",
 			p.Purpose, p.Calls, humanTokens(p.Input), humanTokens(p.Output),
-			humanTokens(p.Cached), p.Share, p.Refusals, p.Errors)
+			humanTokens(p.Cached), humanTokens(p.CacheWrite), p.Share, p.Refusals, p.Errors)
 	}
 	_ = tw.Flush()
+
+	if len(s.ByPhase) > 0 {
+		fmt.Fprintln(w, "\nNamed rounds within a purpose:")
+		tw = tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "PURPOSE\tPHASE\tCALLS\tINPUT\tOUTPUT\tCACHED")
+		for _, p := range s.ByPhase {
+			fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\n",
+				p.Purpose, p.Phase, p.Calls, humanTokens(p.Input), humanTokens(p.Output), humanTokens(p.Cached))
+		}
+		_ = tw.Flush()
+	}
 
 	fmt.Fprintln(w, "\nEstimate accuracy — mean absolute error, not net bias:")
 	tw = tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)

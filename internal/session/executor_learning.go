@@ -229,23 +229,44 @@ func (e *Executor) queueTaxonomyLearning(result *ExecutionResult, toolErrs []str
 	if e == nil || perception.SharedTaxonomy == nil || result == nil {
 		return
 	}
+	if traces := e.learningWindowDue(result, toolErrs); traces != nil {
+		perception.SharedTaxonomy.QueueForLearning(traces)
+	}
+}
 
+// learningWindowDue returns the exchanges the critic reads after this turn,
+// or nil when this turn does not complete a window.
+//
+// The critic looks for a relationship between consecutive exchanges, so what
+// it must see is every consecutive pair once. Until 2026-09-26 it was handed
+// the trailing window after every turn, a stride of one: each exchange was
+// re-read in up to five consecutive calls, and one background call was paid
+// per turn. Now a window is read once its exchanges are new but for the first,
+// which is the last of the previous window: every pair is still read, and a
+// long session pays one call per four turns instead of one per turn.
+func (e *Executor) learningWindowDue(result *ExecutionResult, toolErrs []string) []perception.ReasoningTrace {
 	history := e.GetHistory()
 	if len(history) > criticWindow {
 		history = history[len(history)-criticWindow:]
 	}
-
 	traces := tracesFromHistory(history)
-	if len(traces) < minCriticExchanges {
-		return
+
+	e.mu.Lock()
+	e.unlearnedExchanges++
+	due := len(traces) >= minCriticExchanges && e.unlearnedExchanges+1 >= len(traces)
+	if due {
+		e.unlearnedExchanges = 0
+	}
+	e.mu.Unlock()
+	if !due {
+		return nil
 	}
 
 	// The verdict describes the LAST exchange, which is the turn that just
 	// finished; earlier ones are context for spotting the correction.
 	last := &traces[len(traces)-1]
 	last.Success = e.resolveTurnOutcome(result) == types.MangleAtom("/done") && len(toolErrs) == 0
-
-	perception.SharedTaxonomy.QueueForLearning(traces)
+	return traces
 }
 
 // tracesFromHistory pairs each user entry with the assistant reply that

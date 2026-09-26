@@ -283,6 +283,12 @@ var hostWitnessPredicates = map[string]struct{}{
 	// What a behaviour change owes (N22): the turn's intent and the table
 	// of intents that owe /pinned.
 	"turn_verb": {}, "behavior_change_intent": {},
+	// The turn's own report admitting unfinished work (Q-14): a model able to
+	// retract or never assert it would decide its own verdict; asserting it
+	// only withholds, but it is the host's reading, not the model's.
+	"turn_self_reported_incomplete": {},
+	// The pin gate's survivor count schedules the /survivors round.
+	"turn_pin_survivors": {},
 	// What the planner is spent on: the sites the host measured in the
 	// brief, and the conclusion drawn from them.
 	"turn_brief_site": {}, "turn_brief_site_count": {}, "turn_needs_step_plan": {},

@@ -465,14 +465,21 @@ func (c *ClaudeCodeCLIClient) parseResponse(ctx context.Context, data []byte) (s
 		return "", fmt.Errorf("claude CLI returned error (type: %s, subtype: %s)", resp.Type, resp.Subtype)
 	}
 
-	// Record CLI token usage. Only InputTokens/OutputTokens are metered — do not
-	// fold the cache counters into the input total: internal/perception/client_anthropic.go:240
-	// meters the API path with the plain input/output pair, and the CLI path must match
-	// it or the two engines' rows become unreconcilable. The cache fields are parsed
-	// for future use rather than metered today.
+	// Record CLI token usage. The CLI reports Anthropic's usage block, in which
+	// input_tokens is only the uncached remainder; Claude Code caches heavily,
+	// so metering that field alone under-counted the prompt and taught the
+	// calibrator the wrong ratio. The broker's contract is that input includes
+	// cache reads (internal/broker/broker.go settle), and the API client folds
+	// them the same way (anthropicUsage.promptTokens), so the two engines' rows
+	// stay reconcilable.
 	if resp.Usage != nil {
-		trackUsage(ctx, c.model, ProviderAnthropic,
-			resp.Usage.InputTokens, resp.Usage.OutputTokens, usageOpChat)
+		u := anthropicUsage{
+			InputTokens:              resp.Usage.InputTokens,
+			OutputTokens:             resp.Usage.OutputTokens,
+			CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
+		}
+		trackUsage(ctx, c.model, ProviderAnthropic, u.promptTokens(), u.OutputTokens, usageOpChat)
 	}
 
 	// Priority 1: Check for structured_output (JSON Schema mode)

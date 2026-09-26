@@ -109,7 +109,33 @@ func recurseAttemptTask(a RecurseAttempt, scope string) string {
 	if evidence != "" {
 		fmt.Fprintf(&b, "\nGate output:\n```\n%s\n```\n", strings.TrimRight(evidence, "\n"))
 	}
+	writePriorAttempts(&b, a.Prior)
 	return b.String()
+}
+
+// writePriorAttempts tells an attempt what earlier attempts at the same work
+// tried and why each was reverted, newest first, within recurseEvidenceLimit.
+// A retry that is not told this makes the same change again: the loop then
+// stops the finding as stalled after two identical failures, which is the
+// cost of a memory the loop did not keep.
+func writePriorAttempts(b *strings.Builder, prior []PriorAttempt) {
+	if len(prior) == 0 {
+		return
+	}
+	b.WriteString("\nEarlier attempts at this were reverted. Do not repeat them; find a different approach, or the cause they missed.\n")
+	budget := recurseEvidenceLimit
+	for i := len(prior) - 1; i >= 0 && budget > 0; i-- {
+		p := prior[i]
+		fmt.Fprintf(b, "\nCycle %d, reverted: %s\n", p.Cycle, p.Why)
+		tried := p.Tried
+		if len(tried) > budget {
+			tried = tried[:budget] + "\n... (truncated)"
+		}
+		budget -= len(tried)
+		if strings.TrimSpace(tried) != "" {
+			fmt.Fprintf(b, "It changed:\n```diff\n%s\n```\n", strings.TrimRight(tried, "\n"))
+		}
+	}
 }
 
 // recurseImproveTask is an improvement attempt's task: the angle, what it must
@@ -144,6 +170,7 @@ func recurseImproveTask(a RecurseAttempt, scope string) string {
 	if a.NorthStar != "" && a.Angle == "extend" {
 		fmt.Fprintf(&b, "\nNorth star:\n%s\n", a.NorthStar)
 	}
+	writePriorAttempts(&b, a.Prior)
 	return b.String()
 }
 
