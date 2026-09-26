@@ -455,22 +455,12 @@ var sprintfVBaseline = map[string][]string{
 	},
 }
 
-// atomAssertBaseline: MangleAtom assertions on Args.
-var atomAssertBaseline = map[string][]string{
-	// Dead branches on kernel query results: the language/framework columns come
-	// back as plain strings, so the workspace summary renders without a language
-	// and --deep never finds a Go file.
-	"cmd/nerd/chat/helpers.go":           {atomAssertMsg, atomAssertMsg},
-	"cmd/nerd/chat/helpers_scan.go":      {atomAssertMsg},
-	"cmd/nerd/cmd_init_scan.go":          {atomAssertMsg},
-	"internal/world/incremental_scan.go": {atomAssertMsg, atomAssertMsg},
-	"internal/world/persist.go":          {atomAssertMsg},
-	// These two read facts built in-process by the dataflow extractor (which
-	// does construct MangleAtom args), not facts returned by a query, so the
-	// branch is reachable. Left alone deliberately.
-	"internal/world/dataflow.go":           {atomAssertMsg},
-	"internal/world/dataflow_multilang.go": {atomAssertMsg},
-}
+// atomAssertBaseline: MangleAtom assertions on Args. Empty since 2026-09-25:
+// the last two sites were the data-flow summaries, deleted as dead code, and
+// the chat, init-scan, incremental-scan and persist entries once recorded here
+// had already been fixed. The scan still runs; a new assertion fails
+// no_mangleatom_assert_on_args.
+var atomAssertBaseline = map[string][]string{}
 
 const atomAssertMsg = "Args[…].(MangleAtom) — kernel query results carry names as plain string; use ExtractName/ArgName"
 

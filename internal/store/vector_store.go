@@ -55,6 +55,9 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 		logging.Store("Spawning background goroutine for vector index backfill")
 		go func() {
 			defer close(done)
+			if hold := backfillStartHold; hold != nil {
+				<-hold
+			}
 			logging.Store("Background vector index backfill starting (dim=%d)", dim)
 			s.backfillVecIndex(dim, vecExt, done)
 			logging.Store("Background vector index backfill completed")
@@ -80,6 +83,12 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 		s.stopReflectionWorker()
 	}
 }
+
+// backfillStartHold, when set, holds each backfill goroutine before it starts,
+// so a test can inspect a generation that is still pending: on an empty store
+// the backfill otherwise finishes, and clears its token, before the caller
+// looks. Nil in production.
+var backfillStartHold chan struct{}
 
 // waitForVecBackfill blocks until no background vec backfill is pending. The
 // wait loops because a second SetEmbeddingEngine can start a new backfill
