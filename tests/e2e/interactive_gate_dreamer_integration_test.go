@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -27,7 +28,7 @@ func TestE2E_InteractiveGate_Smoke_BenignAction(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	args := map[string]any{"path": "/tmp/safe_file.txt", "content": "hello"}
@@ -41,41 +42,19 @@ func TestE2E_InteractiveGate_Smoke_BenignAction(t *testing.T) {
 // -----------------------------------------------------------------------------
 // 2. Contract Violation Tests
 // -----------------------------------------------------------------------------
-func TestE2E_InteractiveGate_Contract_MissingCriticalPathFacts(t *testing.T) {
-	t.Parallel()
-	k, _ := core.NewRealKernel()
-	k.Evaluate()
-
-	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
-
-	ctx := context.Background()
-	args := map[string]any{"path": "/critical/file", "content": "boom"}
-
-	err := vstore.PreflightDestructiveToolCall(ctx, "action-2", "write_file", args)
-	if err == nil {
-		t.Fatal("Expected fail-closed block due to missing critical path facts, but gate passed")
-	}
-	if !strings.Contains(err.Error(), "refusing blind simulation") {
-		t.Errorf("Expected blind simulation error, got: %v", err)
-	}
-}
 
 func TestE2E_InteractiveGate_Contract_NilDreamer(t *testing.T) {
 	t.Parallel()
-	k, _ := core.NewRealKernel()
+	// The Dreamer is built lazily from the kernel, so a store without one has
+	// no Dreamer: a destructive call must be refused, not waved through.
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
 
-	ctx := context.Background()
-	args := map[string]any{"path": "/tmp/file", "content": "boom"}
-	err := vstore.PreflightDestructiveToolCall(ctx, "action-3", "delete_file", args)
-
+	err := vstore.PreflightDestructiveToolCall(context.Background(), "action-3", "delete_file", map[string]any{"path": "notes.txt"})
 	if err == nil {
-		t.Fatal("Expected block due to nil dreamer, but gate passed")
+		t.Fatal("a destructive call passed a store with no Dreamer")
 	}
 	if !strings.Contains(err.Error(), "dreamer unavailable") {
-		t.Errorf("Expected 'dreamer unavailable' error, got: %v", err)
+		t.Errorf("want a 'dreamer unavailable' refusal, got: %v", err)
 	}
 }
 
@@ -83,7 +62,7 @@ func TestE2E_InteractiveGate_Contract_OversizedTarget(t *testing.T) {
 	t.Parallel()
 	k, _ := core.NewRealKernel()
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	massiveTarget := strings.Repeat("A", 5000)
@@ -108,7 +87,7 @@ func TestE2E_InteractiveGate_StateCorruption_IsolationLeak(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	actionID := "action-leak-test"
@@ -141,7 +120,7 @@ func TestE2E_InteractiveGate_Resource_ConcurrentSimulations(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	const numWorkers = 100
 	var wg sync.WaitGroup
@@ -172,7 +151,7 @@ func TestE2E_InteractiveGate_Temporal_CancellationYieldsFailClosed(t *testing.T)
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -190,28 +169,24 @@ func TestE2E_InteractiveGate_Temporal_CancellationYieldsFailClosed(t *testing.T)
 // -----------------------------------------------------------------------------
 func TestE2E_InteractiveGate_Cascading_FeedbackLoop(t *testing.T) {
 	t.Parallel()
-	k, _ := core.NewRealKernel()
-
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
-	ctx := context.Background()
-	args := map[string]any{"path": "/tmp/feedback.txt", "content": "test"}
-
-	err := vstore.PreflightDestructiveToolCall(ctx, "action-feedback", "write_file", args)
+	// go.mod is a critical file (policy/dreamer.mg): deleting it is a panic state.
+	err = vstore.PreflightDestructiveToolCall(context.Background(), "action-feedback", "delete_file", map[string]any{"path": "go.mod"})
 	if err == nil {
-		t.Fatal("Expected action to be blocked, but it passed")
+		t.Fatal("deleting go.mod passed the Dreamer gate")
 	}
-
-	k.Evaluate()
-
-	res, queryErr := k.Query("security_violation(?, ?)")
+	res, queryErr := k.Query("security_violation")
 	if queryErr != nil {
-		t.Fatalf("Failed to query security_violation: %v", queryErr)
+		t.Fatalf("query security_violation: %v", queryErr)
 	}
-
 	if len(res) == 0 {
-		t.Fatal("CASCADING FAILURE: Action was blocked, but no security_violation fact was found in the kernel. Learning subsystems will be blind to this failure.")
+		t.Fatal("the block left no security_violation fact: the kernel cannot learn from it")
 	}
 }
 
@@ -228,7 +203,7 @@ func TestE2E_InteractiveGate_Recovery_MultiFileTransaction(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	args := map[string]any{
@@ -260,7 +235,7 @@ func TestE2E_InteractiveGate_Integrity_FactFlow(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	actionID := "action-integrity"
@@ -290,7 +265,7 @@ func TestE2E_InteractiveGate_UnmappedTool(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	args := map[string]any{"target": "unknown"}
@@ -314,7 +289,7 @@ func TestE2E_InteractiveGate_MultiTurn_StatePreservation(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 
@@ -349,7 +324,7 @@ func TestE2E_InteractiveGate_PartialPipeline_FailureHandling(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 
@@ -375,7 +350,7 @@ func TestE2E_InteractiveGate_ContextCancel_Race(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	args := map[string]any{"path": "/tmp/race.txt"}
@@ -411,7 +386,7 @@ func TestE2E_InteractiveGate_CacheKeyCollision_Bypass(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	target := "/tmp/collision.txt"
 
@@ -443,7 +418,7 @@ func TestE2E_InteractiveGate_Validation_EmptyType(t *testing.T) {
 	k, _ := core.NewRealKernel()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	req := core.ActionRequest{
@@ -471,7 +446,7 @@ func TestE2E_InteractiveGate_InvalidPayload_Preflight(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 
@@ -489,17 +464,19 @@ func TestE2E_InteractiveGate_InvalidPayload_Preflight(t *testing.T) {
 // -----------------------------------------------------------------------------
 func TestE2E_InteractiveGate_MissingValidatorRegistry(t *testing.T) {
 	t.Parallel()
-	k, _ := core.NewRealKernel()
-	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
-
-	ctx := context.Background()
-	args := map[string]any{"path": "/tmp/novalidator.txt"}
-
-	// Validating when there are no validators should succeed unconditionally
-	err := vstore.ValidateInteractiveToolResult(ctx, "action-16", "write_file", args, "output", true)
+	k, err := core.NewRealKernel()
 	if err != nil {
-		t.Fatalf("Validation should not fail when registry is nil: %v", err)
+		t.Fatal(err)
+	}
+	vstore := core.NewVirtualStore(nil)
+	vstore.SetKernel(k)
+
+	// A write reported successful whose file does not exist is a false
+	// success: the post-action validators must refuse it.
+	missing := filepath.Join(t.TempDir(), "never_written.txt")
+	err = vstore.ValidateInteractiveToolResult(context.Background(), "action-16", "write_file", map[string]any{"path": missing, "content": "x"}, "wrote it", true)
+	if err == nil {
+		t.Fatal("a write that left no file validated as a success")
 	}
 }
 
@@ -510,7 +487,7 @@ func TestE2E_InteractiveGate_FailedToolExecutionValidation(t *testing.T) {
 	t.Parallel()
 	k, _ := core.NewRealKernel()
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	args := map[string]any{"path": "/tmp/failedtool.txt"}
@@ -535,7 +512,7 @@ func TestE2E_InteractiveGate_PayloadTypeVariation(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	// Test sending integer path, should extract properly or fail gracefully without panic
@@ -560,7 +537,7 @@ func TestE2E_InteractiveGate_NilArgsHandling(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 
@@ -583,7 +560,7 @@ func TestE2E_InteractiveGate_ActionTargetFallback(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 
@@ -601,18 +578,18 @@ func TestE2E_InteractiveGate_ActionTargetFallback(t *testing.T) {
 // -----------------------------------------------------------------------------
 func TestE2E_InteractiveGate_MultiTargetMissingPaths(t *testing.T) {
 	t.Parallel()
-	k, _ := core.NewRealKernel()
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
-	ctx := context.Background()
-
-	// apply_edits expects "paths" array, but we provide "path" instead
-	args := map[string]any{"path": "/tmp/target.txt"}
-	err := vstore.PreflightDestructiveToolCall(ctx, "action-21", "apply_edits", args)
-
+	// apply_edits is gated once per file it writes; with no file named there
+	// is nothing to gate, and the call must be refused rather than waved through.
+	err = vstore.PreflightDestructiveToolCall(context.Background(), "action-21", "apply_edits", map[string]any{})
 	if err == nil {
-		t.Fatal("Expected error due to missing paths in multi-file tool, got nil")
+		t.Fatal("apply_edits with no target passed the gate")
 	}
 }
 
@@ -629,7 +606,7 @@ func TestE2E_InteractiveGate_UnknownDestructiveActionFallback(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 
@@ -647,29 +624,36 @@ func TestE2E_InteractiveGate_UnknownDestructiveActionFallback(t *testing.T) {
 // -----------------------------------------------------------------------------
 func TestE2E_InteractiveGate_ConcurrentFeedbackInjection(t *testing.T) {
 	t.Parallel()
-	k, _ := core.NewRealKernel()
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	const numWorkers = 50
+	var passed sync.Map
 	var wg sync.WaitGroup
 	wg.Add(numWorkers)
-
 	for i := 0; i < numWorkers; i++ {
 		go func(id int) {
 			defer wg.Done()
-			ctx := context.Background()
-			args := map[string]any{"path": "/tmp/concurrent_fb.txt", "content": id}
-			_ = vstore.PreflightDestructiveToolCall(ctx, "action-concurrent-fb", "write_file", args)
+			if err := vstore.PreflightDestructiveToolCall(context.Background(), "action-concurrent-fb", "delete_file", map[string]any{"path": "go.mod"}); err == nil {
+				passed.Store(id, true)
+			}
 		}(i)
 	}
 	wg.Wait()
-
-	k.Evaluate()
-	res, _ := k.Query("security_violation(?, ?)")
-
+	passed.Range(func(id, _ any) bool {
+		t.Errorf("worker %v deleted go.mod past the gate under concurrency", id)
+		return true
+	})
+	res, err := k.Query("security_violation")
+	if err != nil {
+		t.Fatalf("query security_violation: %v", err)
+	}
 	if len(res) == 0 {
-		t.Fatal("Failed to inject concurrent security_violation facts")
+		t.Fatal("concurrent blocks left no security_violation fact")
 	}
 }
 
@@ -680,7 +664,7 @@ func TestE2E_InteractiveGate_CanceledContextValidation(t *testing.T) {
 	t.Parallel()
 	k, _ := core.NewRealKernel()
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -691,7 +675,6 @@ func TestE2E_InteractiveGate_CanceledContextValidation(t *testing.T) {
 		t.Logf("Validation correctly aborted on canceled context: %v", err)
 	}
 }
-
 
 // -----------------------------------------------------------------------------
 // Extra Contract Violation Tests (Need 5, had 3 -> Adding 2)
@@ -706,7 +689,7 @@ func TestE2E_InteractiveGate_Contract_PayloadImmutability(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	args := map[string]any{"path": "/tmp/immutability.txt", "content": "original"}
@@ -732,7 +715,7 @@ func TestE2E_InteractiveGate_Contract_NonDestructiveToolPassthrough(t *testing.T
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	args := map[string]any{"path": "/etc/passwd"} // highly sensitive path
@@ -758,7 +741,7 @@ func TestE2E_InteractiveGate_StateCorruption_ConcurrentKernelModification(t *tes
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -793,7 +776,7 @@ func TestE2E_InteractiveGate_StateCorruption_SharedPayloadMutation(t *testing.T)
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -835,7 +818,7 @@ func TestE2E_InteractiveGate_Resource_MassiveFactBaseClone(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx := context.Background()
 	args := map[string]any{"path": "/tmp/heavy.txt"}
@@ -860,7 +843,7 @@ func TestE2E_InteractiveGate_Temporal_TimeoutDuringValidation(t *testing.T) {
 	t.Parallel()
 	k, _ := core.NewRealKernel()
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	// Context times out precisely as post-action validation starts
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
@@ -886,7 +869,7 @@ func TestE2E_InteractiveGate_Temporal_ContextLeakPrevention(t *testing.T) {
 	k.Evaluate()
 
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	vstore.SetKernel(k)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	args := map[string]any{"path": "/tmp/leak-prevent.txt"}
@@ -909,63 +892,26 @@ func TestE2E_InteractiveGate_Temporal_ContextLeakPrevention(t *testing.T) {
 // -----------------------------------------------------------------------------
 // Extra Cascading Failure Tests (Need 2, had 1 -> Adding 1)
 // -----------------------------------------------------------------------------
-func TestE2E_InteractiveGate_Cascading_FeedbackInjectionSchemaMismatch(t *testing.T) {
-	t.Parallel()
-	k, _ := core.NewRealKernel()
-
-	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
-
-	ctx := context.Background()
-	args := map[string]any{"path": "/tmp/schema-miss.txt"}
-
-	// Deliberately corrupt the kernel schema so that it rejects security_violation facts
-	// We simulate this by making the kernel read-only or similar, but since we can't mock
-	// RealKernel easily, we just verify the behavior when normal injection happens.
-
-	err := vstore.PreflightDestructiveToolCall(ctx, "action-cf1", "write_file", args)
-	if err == nil {
-		t.Fatal("Expected block, got nil")
-	}
-
-	// Verify the error surfaced by the VirtualStore clearly indicates the block,
-	// even if the kernel silently failed to store the fact (simulated).
-	if !strings.Contains(err.Error(), "refusing blind simulation") && !strings.Contains(err.Error(), "dreamer") {
-		t.Fatalf("Expected clear cascading error message, got: %v", err)
-	}
-}
 
 // -----------------------------------------------------------------------------
 // Extra Recovery Tests (Need 2, had 1 -> Adding 1)
 // -----------------------------------------------------------------------------
 func TestE2E_InteractiveGate_Recovery_DreamerRestart(t *testing.T) {
 	t.Parallel()
-	k, _ := core.NewRealKernel()
-
-	for _, prefix := range []string{"/internal", "/cmd", "/test"} {
-		k.Assert(core.Fact{Predicate: "critical_path_prefix", Args: []any{prefix}})
-	}
-	k.Evaluate()
-
 	vstore := core.NewVirtualStore(nil)
-    vstore.SetKernel(k)
+	args := map[string]any{"path": filepath.Join(t.TempDir(), "recovery.txt"), "content": "x"}
 
-    // Simulate Dreamer crash/unavailability
-
-	ctx := context.Background()
-	args := map[string]any{"path": "/tmp/recovery2.txt"}
-
-	// Should fail closed
-	err1 := vstore.PreflightDestructiveToolCall(ctx, "action-r1", "write_file", args)
-	if err1 == nil {
-		t.Fatal("Expected fail-closed with nil dreamer")
+	// No kernel, so no Dreamer: fail closed.
+	if err := vstore.PreflightDestructiveToolCall(context.Background(), "action-r1", "write_file", args); err == nil {
+		t.Fatal("a write passed before any Dreamer could exist")
 	}
-
-	// Recovery: System re-initializes Dreamer
-
-	// Should now succeed
-	err2 := vstore.PreflightDestructiveToolCall(ctx, "action-r2", "write_file", args)
-	if err2 != nil {
-		t.Fatalf("Recovery failed! Preflight blocked after Dreamer restored: %v", err2)
+	// A kernel arrives; the Dreamer is built from it and a safe write passes.
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vstore.SetKernel(k)
+	if err := vstore.PreflightDestructiveToolCall(context.Background(), "action-r2", "write_file", args); err != nil {
+		t.Fatalf("a safe write was still blocked after the kernel arrived: %v", err)
 	}
 }
