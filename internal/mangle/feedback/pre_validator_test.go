@@ -391,3 +391,12 @@ func TestPreValidator_GetPatterns(t *testing.T) {
 		}
 	}
 }
+
+// TODO: Null/Undefined/Empty: Test empty string "" input.
+// TODO: Null/Undefined/Empty: Test string with only whitespace "    ".
+// TODO: Type Coercion: Test passing extremely large string literal that mimics an atom.
+// TODO: Type Coercion: Test string with null bytes \x00.
+// TODO: User Request Extremes: Test multi-megabyte string input to check for ReDoS vulnerabilities in pre-compiled regexes.
+// TODO: User Request Extremes: Test deeply nested parentheses e.g. "((((((((...))))))))" to test parser resilience.
+// TODO: State Conflicts: Test concurrent execution of Validate() across multiple goroutines.
+// TODO: State Conflicts: Test concurrent execution of QuickFix() across multiple goroutines.
