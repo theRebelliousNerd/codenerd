@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codenerd/internal/articulation"
+	"codenerd/internal/core"
 	"codenerd/internal/types"
 )
 
@@ -44,5 +45,47 @@ func TestProcessMangleUpdates_CheckpointVerdictReachesKernel(t *testing.T) {
 	blocked, _ := kernel.Query("permitted")
 	if len(blocked) != 0 {
 		t.Fatalf("permitted must never be assertable from mangle_updates, got %d facts", len(blocked))
+	}
+}
+
+// A verdict's reason is prose, and prose carries semicolons and slashes. On
+// campaign 7b853890 (2026-09-26) the reviewer's /fail verdict, "code shows
+// wired D1/D3/D5; ADR never-built negation retained", was refused as shell
+// metacharacters and the checkpoint failed closed as undetermined.
+// checkpoint_verdict is prose_only, and the exemption holds only on a kernel
+// that can say where the predicate's facts flow, so this runs on the sharded
+// kernel production boots, not a mock.
+func TestProcessMangleUpdates_AProseVerdictKeepsItsPunctuationOnTheShardedKernel(t *testing.T) {
+	cortex := core.NewCortexKernel("cortex")
+	for _, cfg := range []core.KernelShardConfig{
+		{Domain: "policy", OwnedPredicates: []string{"pending_action", "permitted"}},
+		{Domain: "cortex"},
+	} {
+		shard, err := core.NewKernelShard(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cortex.RegisterShard(shard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := &Executor{kernel: cortex, config: DefaultExecutorConfig()}
+
+	env := &articulation.PiggybackEnvelope{
+		Surface: "FAIL: see the verdict",
+		Control: articulation.ControlPacket{
+			MangleUpdates: []string{
+				`checkpoint_verdict("phase_x", /fail, "code shows wired D1/D3/D5; ADR never-built negation retained", 92).`,
+			},
+		},
+	}
+	e.processMangleUpdatesFromEnvelope(env)
+
+	verdicts, err := cortex.Query("checkpoint_verdict")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(verdicts) != 1 {
+		t.Fatalf("checkpoint_verdict facts = %d, want the reviewer's one; surface now %q", len(verdicts), env.Surface)
 	}
 }

@@ -1,8 +1,6 @@
 package system
 
 import (
-	"codeberg.org/TauCeti/mangle-go/analysis"
-
 	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -361,63 +359,13 @@ func (a *mcpKernelAdapter) Retract(fact string) error {
 
 // ============================================================================
 // Session Adapters for JITExecutor
-// These adapters bridge core types to types.Kernel, types.VirtualStore, and
+// These adapters bridge core types to the types.VirtualStore and
 // types.LLMClient interfaces required by session.Executor and session.Spawner.
-// Note: core.Kernel = types.Kernel and core.Fact = types.Fact (aliased).
+// The kernel needs none: core.Kernel is types.Kernel, and the session layer is
+// handed the kernel itself. A forwarding kernel adapter hides every capability
+// it does not forward; the one deleted 2026-09-26 hid ExecSinksReachedBy, so
+// no prose_only exemption held in production, and Transaction().
 // ============================================================================
-
-// sessionKernelAdapter adapts core.Kernel to types.Kernel for session package.
-type sessionKernelAdapter struct {
-	kernel types.Kernel
-}
-
-func (a *sessionKernelAdapter) LoadFacts(facts []types.Fact) error {
-	return a.kernel.LoadFacts(facts)
-}
-
-func (a *sessionKernelAdapter) Query(predicate string) ([]types.Fact, error) {
-	return a.kernel.Query(predicate)
-}
-
-func (a *sessionKernelAdapter) QueryAll() (map[string][]types.Fact, error) {
-	return a.kernel.QueryAll()
-}
-
-func (a *sessionKernelAdapter) Assert(fact types.Fact) error {
-	return a.kernel.Assert(fact)
-}
-
-func (a *sessionKernelAdapter) AssertBatch(facts []types.Fact) error {
-	return a.kernel.AssertBatch(facts)
-}
-
-func (a *sessionKernelAdapter) Retract(predicate string) error {
-	return a.kernel.Retract(predicate)
-}
-
-func (a *sessionKernelAdapter) RetractFact(fact types.Fact) error {
-	return a.kernel.RetractFact(fact)
-}
-
-func (a *sessionKernelAdapter) UpdateSystemFacts() error {
-	return a.kernel.UpdateSystemFacts()
-}
-
-func (a *sessionKernelAdapter) Reset() {
-	a.kernel.Reset()
-}
-
-func (a *sessionKernelAdapter) AppendPolicy(policy string) {
-	a.kernel.AppendPolicy(policy)
-}
-
-func (a *sessionKernelAdapter) RetractExactFactsBatch(facts []types.Fact) error {
-	return a.kernel.RetractExactFactsBatch(facts)
-}
-
-func (a *sessionKernelAdapter) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
-	return a.kernel.RemoveFactsByPredicateSet(predicates)
-}
 
 // sessionVirtualStoreAdapter adapts core.VirtualStore to types.VirtualStore.
 //
@@ -666,10 +614,6 @@ func (a *sessionLLMAdapter) CompleteWithToolResults(ctx context.Context, systemP
 		return resp, err
 	}
 	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", a.client)
-}
-
-func (a *sessionKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
-	return a.kernel.GetProgramInfo()
 }
 
 // missingLLMClient.CompleteWithStreaming is defined on the type in factory.go.

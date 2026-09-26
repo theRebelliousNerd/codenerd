@@ -148,21 +148,13 @@ func receiverTypeName(e ast.Expr) string {
 }
 
 // nonTransactorBaseline lists Kernel implementations that do not yet implement
-// KernelTransactor, keyed "package-dir:TypeName". Each is a real gap, not an
-// exemption: the three production entries are forwarding adapters that wrap a
-// *core.RealKernel, which DOES transact — they simply forward thirteen methods
-// and not the fourteenth, so any NewKernelTx reached through one of them
-// panics. The one-line fix, for every entry here:
-//
-//	func (a *T) Transaction() types.KernelTransaction { return a.kernel.Transaction() }
-//
-// and for mocks, embed or copy typestest.MockKernel, which already transacts.
+// KernelTransactor, keyed "package-dir:TypeName". Only test doubles remain;
+// embed or copy typestest.MockKernel, which already transacts. A production
+// type does not belong here. The forwarding kernel adapters once listed
+// (each wrapped a kernel that transacts and forwarded every method but
+// Transaction) are deleted, the last on 2026-09-26: an adapter hides every
+// capability it does not forward. Hand the kernel itself instead.
 var nonTransactorBaseline = map[string]string{
-	// --- production forwarding adapters (real risk) ---
-	"cmd/nerd/chat:sessionKernelAdapter":   "wraps *core.RealKernel for session.Executor; drops Transaction()",
-	"cmd/nerd:campaignKernelAdapter":       "wraps *core.RealKernel for session.Executor; drops Transaction()",
-	"internal/system:sessionKernelAdapter": "wraps *core.RealKernel for session.Executor; drops Transaction()",
-
 	// --- test doubles ---
 	"internal/campaign:safeKernel":                   "test double",
 	"internal/core:mockActionsKernel":                "test double",

@@ -2048,7 +2048,6 @@ func initFinalExecutors(bctx *bootContext) error {
 	// facts. A scan error is logged and never fails boot.
 	refreshWorldModelAtBoot(bctx)
 
-	sessionKernel := &sessionKernelAdapter{kernel: bctx.kernel}
 	sessionVS := &sessionVirtualStoreAdapter{vs: bctx.virtualStore}
 	// CLI spawn/create/TaskExecutor use the worker LLM when configured
 	// (local Ollama), not the main TUI Grok client.
@@ -2068,7 +2067,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	configFactory := prompt.NewConfigFactory(atomProvider)
 
 	bctx.sessionExecutor = session.NewExecutor(
-		sessionKernel,
+		bctx.kernel,
 		sessionVS,
 		sessionLLM,
 		bctx.jitCompiler,
@@ -2186,7 +2185,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	bctx.sessionExecutor.SetCodeElementSource(codeElements)
 
 	bctx.sessionSpawner = session.NewSpawner(
-		sessionKernel,
+		bctx.kernel,
 		sessionVS,
 		sessionLLM,
 		bctx.jitCompiler,
@@ -2207,7 +2206,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	// 2026-09-25 only the chat TUI built a retriever, and only for its
 	// compressor, so `nerd fix` and every delegated task started blind.
 	bctx.retriever = retrieval.NewSparseRetriever(retrieval.DefaultSparseRetrieverConfig(bctx.workspace))
-	if taskRetriever := retrieval.NewTaskRetriever(sessionKernel, retrieval.TaskRetrieverConfig{
+	if taskRetriever := retrieval.NewTaskRetriever(bctx.kernel, retrieval.TaskRetrieverConfig{
 		WorkDir:         bctx.workspace,
 		Retriever:       bctx.retriever,
 		EmbeddingEngine: bctx.embeddingEngine,

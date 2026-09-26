@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -75,8 +76,33 @@ func TestBootCortexWithConfig_Overrides(t *testing.T) {
 	// So `cortex.Kernel` should be `mockKernel` (pointer equality).
 	if cortex.Kernel != mockKernel {
 		// It might be wrapped if adapters are used, but factory assigns direct reference.
-		// Wait, factory uses `sessionKernelAdapter` for SessionExecutor, but `cortex.Kernel` is raw kernel.
 		t.Error("Kernel was not injected correctly")
+	}
+
+	// The session layer holds the booted kernel itself, not a wrapper. A
+	// forwarding adapter between them hid every capability it did not
+	// forward: ExecSinksReachedBy, so no prose_only exemption held in
+	// production (campaign 7b853890's reviewer verdict was refused for a
+	// semicolon, 2026-09-26), and Transaction().
+	for name, holder := range map[string]any{
+		"SessionExecutor": cortex.SessionExecutor,
+		"SessionSpawner":  cortex.SessionSpawner,
+	} {
+		v := reflect.ValueOf(holder)
+		if !v.IsValid() || v.IsNil() {
+			t.Fatalf("%s was not built", name)
+		}
+		field := v.Elem().FieldByName("kernel")
+		if !field.IsValid() {
+			t.Fatalf("%s has no kernel field to check", name)
+		}
+		if field.IsNil() {
+			t.Errorf("%s holds no kernel", name)
+			continue
+		}
+		if got := field.Elem(); got.Type() != reflect.TypeOf(mockKernel) || got.Pointer() != reflect.ValueOf(mockKernel).Pointer() {
+			t.Errorf("%s holds a %v, not the booted kernel", name, got.Type())
+		}
 	}
 
 	// Check LLM Client injection

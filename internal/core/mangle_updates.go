@@ -185,12 +185,20 @@ func shellEscapingArg(fact Fact) (string, bool) {
 // A declaration the rules contradict grants nothing, and anything the kernel
 // cannot answer is not prose.
 func proseOnly(kernel Kernel, predicate string) bool {
-	graph, ok := kernel.(execReachability)
-	if !ok || graph == nil {
+	if kernel == nil {
 		return false
 	}
 	declared, err := kernel.Query(fmt.Sprintf("prose_only(/%s)", predicate))
 	if err != nil || len(declared) == 0 {
+		return false
+	}
+	// Declared but untraceable is a wiring fault, not an answer: a kernel
+	// wrapper that did not forward ExecSinksReachedBy turned every prose_only
+	// exemption off in production, without a word, until 2026-09-26.
+	graph, ok := kernel.(execReachability)
+	if !ok || graph == nil {
+		logging.Get(logging.CategoryKernel).Warn(
+			"prose_only(/%s) not granted: kernel %T cannot say where its facts flow; its strings stay checked", predicate, kernel)
 		return false
 	}
 	sinks, err := graph.ExecSinksReachedBy(predicate)

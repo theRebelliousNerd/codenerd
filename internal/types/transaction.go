@@ -44,13 +44,9 @@ type KernelTx struct {
 // transactor when it can.
 //
 // It exists because the only other way to ask was NewKernelTx, which panics.
-// The kernels that fail this check are not exotic: the three hand-written
-// types.Kernel adapters in this repo (cmd/nerd/chat.sessionKernelAdapter,
-// cmd/nerd.campaignKernelAdapter, system.sessionKernelAdapter) each wrap a
-// *core.RealKernel — which does implement KernelTransactor — and forward
-// thirteen methods without forwarding Transaction(), so the capability is lost
-// at the adapter boundary. Code holding a Kernel of unknown provenance should
-// branch on this rather than gamble on the panic.
+// Both production kernels (RealKernel, CortexKernel) transact; a test double
+// may not. Code holding a Kernel of unknown provenance should branch on this
+// rather than gamble on the panic.
 func TransactorOf(k Kernel) (KernelTransactor, bool) {
 	t, ok := k.(KernelTransactor)
 	return t, ok
