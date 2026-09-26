@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +46,17 @@ type LearningStore struct {
 	embeddingEngine embedding.EmbeddingEngine
 	workerStop      chan struct{}
 	workerDone      chan struct{}
+	closed          bool // Close is terminal: nothing reopens a database after it
 }
+
+// learningShardName is what a shard type may be, since it names a file under
+// the learnings directory: a letter or digit, then letters, digits, "_" or
+// "-". No dot, separator, colon or space, so "../escape" or "C:\x" cannot
+// leave the directory. The name is folded to lower case for its file and its
+// handle: agents are named "MangleExpert", and on a case-insensitive
+// filesystem "MangleExpert" and "mangleexpert" are one file, so they must be
+// one database, not two handles on it.
+var learningShardName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 // NewLearningStore creates a new learning store at the specified base path.
 // Default path is ".nerd/shards" in the working directory.
@@ -57,6 +68,12 @@ func NewLearningStore(basePath string) (*LearningStore, error) {
 		}
 		basePath = filepath.Join(workspace, ".nerd", "shards")
 	}
+	// Absolute and clean, so a shard's file can be checked to sit directly in it.
+	absBasePath, err := filepath.Abs(basePath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve learnings directory: %w", err)
+	}
+	basePath = filepath.Clean(absBasePath)
 
 	logging.Store("Initializing LearningStore at path: %s", basePath)
 
@@ -73,17 +90,43 @@ func NewLearningStore(basePath string) (*LearningStore, error) {
 	}, nil
 }
 
+// shardDB resolves a shard type to its database handle key and file, refusing
+// a name that could leave the learnings directory.
+//
+// Until 2026-09-26 the path was filepath.Join(basePath, shardType+
+// "_learnings.db") unchecked, so a shard type of "../escape" -- and shard
+// types reach Save from Dream consultations, which a model shapes -- wrote a
+// database outside the directory. The fix was written in July and stashed,
+// never landed.
+func (ls *LearningStore) shardDB(shardType string) (key, path string, err error) {
+	if !learningShardName.MatchString(shardType) {
+		return "", "", fmt.Errorf("invalid shard type %q: want a letter or digit, then letters, digits, '_' or '-' (at most 64)", shardType)
+	}
+	key = strings.ToLower(shardType)
+	path = filepath.Join(ls.basePath, key+"_learnings.db")
+	if filepath.Dir(path) != ls.basePath {
+		return "", "", fmt.Errorf("learning database for %q escaped %s", shardType, ls.basePath)
+	}
+	return key, path, nil
+}
+
 // getDB returns the database connection for a shard type, creating it if needed.
 func (ls *LearningStore) getDB(shardType string) (*sql.DB, error) {
+	key, dbPath, err := ls.shardDB(shardType)
+	if err != nil {
+		return nil, err
+	}
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	if db, ok := ls.dbs[shardType]; ok {
+	if ls.closed {
+		return nil, fmt.Errorf("learning store is closed")
+	}
+	if db, ok := ls.dbs[key]; ok {
 		return db, nil
 	}
 
 	// Create new DB for this shard type
-	dbPath := filepath.Join(ls.basePath, fmt.Sprintf("%s_learnings.db", shardType))
 	logging.StoreDebug("Opening learning database for shard=%s at %s", shardType, dbPath)
 
 	db, err := sql.Open("sqlite3", dbPath)
@@ -106,7 +149,7 @@ func (ls *LearningStore) getDB(shardType string) (*sql.DB, error) {
 		logging.Get(logging.CategoryStore).Warn("LearningStore index ensure failed for %s: %v", shardType, err)
 	}
 
-	ls.dbs[shardType] = db
+	ls.dbs[key] = db
 	logging.StoreDebug("Learning database ready for shard=%s", shardType)
 	return db, nil
 }
@@ -549,5 +592,8 @@ func (ls *LearningStore) Close() error {
 		db.Close()
 	}
 	ls.dbs = make(map[string]*sql.DB)
+	// Terminal: a Save after Close used to reopen a database no one would
+	// close again.
+	ls.closed = true
 	return nil
 }

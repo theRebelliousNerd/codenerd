@@ -562,7 +562,15 @@ func (ts *TraceStore) GetTraceStatsForType(shardType string) (TraceTypeStats, er
 func (ts *TraceStore) GetFailurePatterns(limit int) (map[string]int, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
+	return ts.failurePatternsLocked(limit)
+}
 
+// failurePatternsLocked is GetFailurePatterns for a caller that already holds
+// ts.mu. GetLearningInsights holds the read lock and called GetFailurePatterns,
+// which took it again: a writer queued between the two RLocks blocks the
+// second, the writer waits on the first, and both hang (sync.RWMutex readers
+// must not recurse). The fix was written in July and stashed, never landed.
+func (ts *TraceStore) failurePatternsLocked(limit int) (map[string]int, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -659,7 +667,7 @@ func (ts *TraceStore) GetLearningInsights(shardType string, days int) (map[strin
 	}
 
 	// Common failure reasons
-	failurePatterns, err := ts.GetFailurePatterns(5)
+	failurePatterns, err := ts.failurePatternsLocked(5)
 	if err != nil {
 		return nil, fmt.Errorf("trace insights failure patterns: %w", err)
 	}
