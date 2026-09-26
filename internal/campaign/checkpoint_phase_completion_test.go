@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/observation"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 )
@@ -58,16 +59,24 @@ func newCheckpointPolicyOrchestrator(t *testing.T, review string, edit func(*con
 		Kernel:    kernel,
 		LLMClient: &MockLLMClient{},
 		// A failed checkpoint appends a remediation task the next attempt
-		// runs; the executor edits the phase's file, as the task asks.
+		// runs; the executor edits the phase's file, as the task asks, and
+		// reports the write as a production executor does.
 		TaskExecutor: &MockTaskExecutor{
-			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
-				f, err := os.OpenFile(filepath.Join(workspace, "Docs", "out.md"), os.O_APPEND|os.O_WRONLY, 0o644)
+			ExecuteObservedFunc: func(ctx context.Context, req session.TaskRequest) (observation.Return, error) {
+				out := filepath.Join(workspace, "Docs", "out.md")
+				before, err := os.ReadFile(out)
 				if err != nil {
-					return "", err
+					return observation.Return{}, err
 				}
-				defer f.Close()
-				_, err = f.WriteString("remediated\n")
-				return "remediated", err
+				after := string(before) + "remediated\n"
+				if err := os.WriteFile(out, []byte(after), 0o644); err != nil {
+					return observation.Return{}, err
+				}
+				return observation.Return{Output: "remediated", Outcome: "/done", Writes: []observation.FileWrite{{
+					Path:   out,
+					Before: observation.FileState{Known: true, Exists: true, Content: string(before)},
+					After:  observation.FileState{Known: true, Exists: true, Content: after},
+				}}}, nil
 			},
 		},
 		Executor:     tactile.NewDirectExecutor(),
@@ -332,6 +341,31 @@ func TestRunPhase_TheCheckpointCapIsTheUsersConfig(t *testing.T) {
 	}
 }
 
+// A structured /fail verdict's reason is one line; the reviewer's report names
+// the files. Until 2026-09-26 only the line reached the checkpoint, so the
+// remediation could not see what was at fault (campaign 7b853890: rounds 4
+// and 5 failed identically on files its brief never named).
+func TestRunPhase_AFailedVerdictBriefsTheRemediationWithTheReviewersReport(t *testing.T) {
+	review := `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"phase_ckpt_0\", /fail, \"missing front-matter\", 90)."]}, ` +
+		`"surface_response": "Verdict: FAIL. Docs/INTERNALS.md and Docs/WIRING.md lack the required front-matter."}`
+	orch, _ := newCheckpointRegressionOrchestrator(t, review)
+	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
+		t.Fatalf("runPhase: %v", err)
+	}
+	phase := orch.campaign.Phases[0]
+	if len(phase.Checkpoints) != 1 || phase.Checkpoints[0].Passed {
+		t.Fatalf("want one failed checkpoint, got %+v", phase.Checkpoints)
+	}
+	if len(phase.Tasks) != 2 {
+		t.Fatalf("the phase has %d tasks, want the remediation added", len(phase.Tasks))
+	}
+	for _, want := range []string{"missing front-matter", "Docs/INTERNALS.md and Docs/WIRING.md lack the required front-matter"} {
+		if !strings.Contains(phase.Tasks[1].Description, want) {
+			t.Errorf("the remediation brief lacks %q:\n%s", want, phase.Tasks[1].Description)
+		}
+	}
+}
+
 // Whether a failed checkpoint gives the phase remediation work is the user's
 // (campaign.replan_on_checkpoint_failure, read by phase_ckpt_move). Off, the
 // phase stays open for its checkpoint to run again over the same work.
@@ -390,6 +424,8 @@ func TestRunPhase_WhenCheckpointFails_ItsFindingsBecomeThePhasesWork(t *testing.
 	}
 	orch, _ := newCheckpointRegressionOrchestrator(t, findings)
 	orch.campaign.Phases[0].Tasks[0].WriteSet = []string{"Docs/b.md", "Docs/a.md"}
+	orch.campaign.Phases[0].Tasks[0].Artifacts = []TaskArtifact{{Type: "/doc", Path: ".nerd/campaigns/ckpt/artifacts/report.md"}}
+	docs := normalizeAbsolutePath(orch.workspace, "Docs")
 
 	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
 		t.Fatalf("runPhase: %v", err)
@@ -405,13 +441,15 @@ func TestRunPhase_WhenCheckpointFails_ItsFindingsBecomeThePhasesWork(t *testing.
 	if task.Status != TaskPending || task.Type != TaskTypeFileModify {
 		t.Fatalf("remediation task %+v: want a pending file modification", task)
 	}
-	for _, want := range []string{"(the last finding)", "Docs/a.md:22", "produce the thing", "Docs/a.md, Docs/b.md"} {
+	for _, want := range []string{"(the last finding)", "Docs/a.md:22", "produce the thing", docs} {
 		if !strings.Contains(task.Description, want) {
 			t.Errorf("the remediation brief lacks %q:\n%s", want, task.Description)
 		}
 	}
-	if !slices.Equal(task.WriteSet, []string{"Docs/a.md", "Docs/b.md"}) {
-		t.Errorf("write set %v, want the phase's own", task.WriteSet)
+	// The scope is the directory the phase wrote into -- a checkpoint judges
+	// files next to the declared ones -- and never a task's report under .nerd/.
+	if !slices.Equal(task.WriteSet, []string{docs}) {
+		t.Errorf("write set %v, want the phase's directory %s", task.WriteSet, docs)
 	}
 	rows, err := orch.kernel.Query("campaign_task")
 	if err != nil {

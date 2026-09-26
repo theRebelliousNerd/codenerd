@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -56,7 +57,7 @@ func (o *Orchestrator) appendCheckpointRemediation(phaseID string) error {
 		return fmt.Errorf("checkpoint remediation: %w", err)
 	}
 
-	writeSet := phaseWriteSet(phase)
+	writeSet := phaseWriteScope(o.workspace, phase)
 	if len(writeSet) == 0 {
 		// A file task with no declared target is refused before it runs
 		// (validateTaskEffect); appending one would block the phase.
@@ -96,21 +97,34 @@ func (o *Orchestrator) appendCheckpointRemediation(phaseID string) error {
 	return nil
 }
 
-// phaseWriteSet is every path the phase's tasks declared they write -- their
-// write sets and their artifacts, the targets validateTaskEffect accepts --
-// deduplicated and sorted: a checkpoint remediation's scope.
-func phaseWriteSet(p *Phase) []string {
+// phaseWriteScope is a checkpoint remediation's scope: the directories the
+// phase's tasks wrote into -- their write sets and artifacts, normalized,
+// deduplicated and sorted -- leaving out the reports tasks file under .nerd/.
+//
+// Until 2026-09-26 it was the declared files themselves. A checkpoint judges
+// the phase's outcome, not only the files its tasks listed: on campaign
+// 7b853890 the reviewer faulted INTERNALS.md and WIRING-AND-NOT-BUILT.md,
+// which no phase-6 task declared, while the scope held three task reports
+// under .nerd/ (and one file twice, relative and absolute). A directory scope
+// covers the files next to the phase's work; the write lock manager and the
+// attempt snapshot both treat a directory as covering what is under it.
+func phaseWriteScope(workspace string, p *Phase) []string {
+	nerdDir := normalizeAbsolutePath(workspace, ".nerd")
 	seen := map[string]bool{}
 	var out []string
-	add := func(path string) {
-		if path = strings.TrimSpace(path); path != "" && !seen[path] {
-			seen[path] = true
-			out = append(out, path)
+	add := func(raw string) {
+		file := normalizeAbsolutePath(workspace, raw)
+		if file == "" || (nerdDir != "" && (file == nerdDir || strings.HasPrefix(file, nerdDir+"/"))) {
+			return
+		}
+		if dir := path.Dir(file); !seen[dir] {
+			seen[dir] = true
+			out = append(out, dir)
 		}
 	}
 	for j := range p.Tasks {
-		for _, path := range p.Tasks[j].WriteSet {
-			add(path)
+		for _, file := range p.Tasks[j].WriteSet {
+			add(file)
 		}
 		for _, artifact := range p.Tasks[j].Artifacts {
 			add(artifact.Path)

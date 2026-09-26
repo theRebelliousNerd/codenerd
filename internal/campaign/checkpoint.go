@@ -333,7 +333,28 @@ func settledCheckpointResult(kernel core.Kernel, key, raw, label string) (bool, 
 		return false, fmt.Sprintf("%s verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): the reviewer's control packet carried no checkpoint_verdict/4 for this phase:\n%s", label, key, raw), nil
 	}
 	logging.Campaign("%s verdict for phase=%s: %s", label, key, verdict.outcome)
-	return verdict.passed(), verdict.describe(label), nil
+	details := verdict.describe(label)
+	if !verdict.passed() {
+		// The verdict's reason is one line; the reviewer's report names the
+		// files and lines. Until 2026-09-26 only the line was kept, so the
+		// remediation it briefs could not see which files were at fault
+		// (campaign 7b853890: "missing front-matter", in files it never named).
+		if report := reviewerReport(raw); report != "" {
+			details += "\n\nThe reviewer's report:\n" + report
+		}
+	}
+	return verdict.passed(), details, nil
+}
+
+// reviewerReport is what a checkpoint's reviewer said: the envelope's
+// surface_response when its reply is the control-packet envelope, the reply
+// itself otherwise.
+func reviewerReport(raw string) string {
+	var env checkpointEnvelope
+	if err := json.Unmarshal([]byte(raw), &env); err == nil {
+		return strings.TrimSpace(env.Surface)
+	}
+	return strings.TrimSpace(raw)
 }
 
 // runNemesisGauntletCheckpoint spawns the Nemesis shard to perform adversarial review.
