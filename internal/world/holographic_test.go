@@ -38,10 +38,17 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 	}
 }
 
-// TODO: Add TestHolographicContext_MalformedGoFile - Test parser.ParseFile behavior on malformed Go files to ensure we don't abort parsing the whole package due to a syntax error in one sibling file.
-// TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
-// TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
-// TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
+// TODO: TestHolographicContext_MalformedGoFile - Test parser.ParseFile behavior on malformed Go files to ensure we don't abort parsing the whole package due to a syntax error in one sibling file.
+// TODO: TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
+// TODO: TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
+// TODO: TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
+// TODO: TestHolographicContext_ExtremeSiblingCount - Add a benchmark/stress test that generates 10,000 empty .go files to test provider memory bounds.
+// TODO: TestHolographicContext_DeeplyNestedAST - Add a test with an AST depth of 500 to ensure extractTypeDefinition doesn't stack overflow.
+// TODO: TestHolographicContext_MangledBinaryInTextFiles - Test parsing behavior when a 2MB binary blob is disguised as a .go file.
+// TODO: TestHolographicContext_CGoInteropCoercion - Test extractFuncSignature with massive C-Go comments.
+// TODO: TestHolographicContext_MissingImports - Test narrowLocalRefs when a Go file uses a package but the import block is missing.
+// TODO: TestHolographicContext_EmptyPackageSiblingsList - Test behavior when a file is completely isolated and verify JSON marshaling handles nil slices.
+// TODO: TestHolographicContext_UnnamedPackage - Test parser behavior on 'package ' with no name.
 func TestHolographicContext_FormatWithEmptyCallers(t *testing.T) {
 	hc := &HolographicContext{
 		TargetFile:         "target.go",
