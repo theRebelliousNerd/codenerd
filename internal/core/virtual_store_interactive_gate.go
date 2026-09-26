@@ -195,18 +195,44 @@ func (v *VirtualStore) PreflightDestructiveToolCall(ctx context.Context, actionI
 			return &InteractiveGateError{Reason: toolName + " has no targets"}
 		}
 		for i, path := range paths {
-			payload := make(map[string]any, len(args)+1)
-			for k, val := range args {
-				payload[k] = val
-			}
-			payload["path"] = path
-			if err := v.PreflightDestructiveToolCall(ctx, fmt.Sprintf("%s:%d", actionID, i), "edit_file", payload); err != nil {
+			if err := v.preflightFile(ctx, fmt.Sprintf("%s:%d", actionID, i), path, args); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
+	return v.dreamGate(ctx, actionID, toolName, at, args)
+}
 
+// preflightFile gates one file of a multi-file call as an edit_file of that
+// file. Its payload keeps the call's arguments but not its other targets, and
+// it goes straight to the Dreamer: it can never be multi-file itself.
+//
+// Until 2026-09-26 each file re-entered PreflightDestructiveToolCall with the
+// call's "paths" still in its payload, so an edit_file naming two or more
+// paths was multi-file again and recursed without end. The action ID grew by
+// ":0" per level and every level kept its own alive, so memory grew
+// quadratically: a two-file repoint -- or any write naming "paths" --
+// committed 200+ GiB and starved the machine (found by
+// TestE2E_InteractiveGate_Recovery_MultiFileTransaction).
+func (v *VirtualStore) preflightFile(ctx context.Context, actionID, path string, args map[string]any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	payload := make(map[string]any, len(args)+1)
+	for k, val := range args {
+		if k == "paths" || k == "edits" {
+			continue
+		}
+		payload[k] = val
+	}
+	payload["path"] = path
+	return v.dreamGate(ctx, actionID, "edit_file", ActionEditFile, payload)
+}
+
+// dreamGate is the speculative gate for one target: fail closed without a
+// Dreamer, block what it simulates as unsafe.
+func (v *VirtualStore) dreamGate(ctx context.Context, actionID, toolName string, at ActionType, args map[string]any) error {
 	req := buildInteractiveActionRequest(actionID, at, args)
 	dreamer := v.getDreamer()
 	if dreamer == nil {
