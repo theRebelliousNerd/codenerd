@@ -2,11 +2,9 @@ package lsp
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -121,83 +119,16 @@ func (f *fakeServer) serve() {
 	}
 }
 
-func TestLSPClient_WhenServerPublishesDiagnostics_ShouldProjectCanonicalFacts(t *testing.T) {
-	root := t.TempDir()
-	file := filepath.Join(root, "internal", "svc", "run.go")
-	c, fs := startFakeServer(t, pathToURI(file))
-
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-
-	if err := c.Initialize(ctx, root); err != nil {
-		t.Fatalf("Initialize: %v", err)
+// TestStartServer_WhenBinaryMissing_ShouldReportItPlainly — the offline/no-tool
+// path must be a legible error, not a panic or a silent nil client, because
+// most environments have no language server installed.
+func TestStartServer_WhenBinaryMissing_ShouldReportItPlainly(t *testing.T) {
+	_, err := StartServer(t.Context(), "/go", "definitely-not-a-real-language-server-binary")
+	if err == nil {
+		t.Fatal("expected an error for a missing binary")
 	}
-	select {
-	case <-fs.gotInit:
-	case <-ctx.Done():
-		t.Fatal("server never saw initialize")
-	}
-
-	if err := c.DidOpen(file, "go", "package svc\n"); err != nil {
-		t.Fatalf("DidOpen: %v", err)
-	}
-	diags, err := c.WaitForDiagnostics(ctx, file)
-	if err != nil {
-		t.Fatalf("WaitForDiagnostics: %v", err)
-	}
-	if len(diags) != 1 {
-		t.Fatalf("got %d diagnostics, want 1", len(diags))
-	}
-	// LSP is 0-based; world facts are 1-based.
-	if diags[0].Line != 5 {
-		t.Errorf("diagnostic line = %d, want 5 (LSP line 4 is the fifth line)", diags[0].Line)
-	}
-
-	facts := c.DiagnosticFacts(root)
-	if len(facts) != 1 {
-		t.Fatalf("projected %d facts, want 1", len(facts))
-	}
-	path, _ := facts[0].Args[0].(string)
-	if path != "internal/svc/run.go" {
-		t.Errorf("code_diagnostic path = %q, want the canonical workspace-relative path; an absolute path joins no file_topology row", path)
-	}
-	if got := fmt.Sprint(facts[0].Args[2]); got != "/error" {
-		t.Errorf("severity atom = %q, want /error", got)
-	}
-}
-
-func TestLSPClient_WhenAskedForDefinitions_ShouldDecodeBothLocationShapes(t *testing.T) {
-	root := t.TempDir()
-	file := filepath.Join(root, "a.go")
-	c, _ := startFakeServer(t, pathToURI(file))
-
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-
-	defs, err := c.Definition(ctx, file, 0, 0)
-	if err != nil {
-		t.Fatalf("Definition: %v", err)
-	}
-	if len(defs) != 1 || defs[0].Line != 10 {
-		t.Fatalf("definitions = %+v, want one at line 10", defs)
-	}
-	refs, err := c.References(ctx, file, 0, 0, false)
-	if err != nil {
-		t.Fatalf("References: %v", err)
-	}
-	if len(refs) != 1 || refs[0].Line != 20 {
-		t.Fatalf("references = %+v, want one at line 20 (LocationLink shape)", refs)
-	}
-
-	facts := c.SymbolFacts(root, "Foo", defs, refs)
-	if len(facts) != 2 {
-		t.Fatalf("projected %d facts, want 2", len(facts))
-	}
-	if facts[0].Predicate != "symbol_defined" || facts[1].Predicate != "symbol_referenced" {
-		t.Errorf("unexpected predicates: %v", facts)
-	}
-	if p, _ := facts[0].Args[2].(string); p != "a.go" {
-		t.Errorf("symbol_defined path = %q, want canonical a.go", p)
+	if !strings.Contains(err.Error(), "not found on PATH") {
+		t.Errorf("error %q does not explain that the binary is missing", err)
 	}
 }
 
@@ -215,7 +146,7 @@ func TestLSPClient_WhenClosedWithRequestInFlight_ShouldNotBlockForever(t *testin
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := c.Definition(t.Context(), "a.go", 1, 1)
+		err := c.Initialize(t.Context(), "/ws")
 		done <- err
 	}()
 	select {
@@ -224,64 +155,7 @@ func TestLSPClient_WhenClosedWithRequestInFlight_ShouldNotBlockForever(t *testin
 			t.Error("expected an error when the server hung up")
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("Definition never returned after the server disconnected")
+		t.Fatal("Initialize never returned after the server disconnected")
 	}
 	_ = c.Close()
-}
-
-// TestStartServer_WhenBinaryMissing_ShouldReportItPlainly — the offline/no-tool
-// path must be a legible error, not a panic or a silent nil client, because
-// most environments have no language server installed.
-func TestStartServer_WhenBinaryMissing_ShouldReportItPlainly(t *testing.T) {
-	_, err := StartServer(t.Context(), "/go", "definitely-not-a-real-language-server-binary")
-	if err == nil {
-		t.Fatal("expected an error for a missing binary")
-	}
-	if !strings.Contains(err.Error(), "not found on PATH") {
-		t.Errorf("error %q does not explain that the binary is missing", err)
-	}
-}
-
-// TestManager_WhenExternalServerRegistered_ShouldIncludeItsDiagnostics proves
-// the Manager fans external servers into the same relations as the built-in
-// Mangle server.
-func TestManager_WhenExternalServerRegistered_ShouldIncludeItsDiagnostics(t *testing.T) {
-	root := t.TempDir()
-	file := filepath.Join(root, "x.go")
-	c, _ := startFakeServer(t, pathToURI(file))
-
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	if err := c.Initialize(ctx, root); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.DidOpen(file, "go", "package x\n"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.WaitForDiagnostics(ctx, file); err != nil {
-		t.Fatal(err)
-	}
-
-	m := NewManager(root)
-	m.AddLanguageServer("go", c)
-	if _, ok := m.LanguageServer("/go"); !ok {
-		t.Fatal("registered server not retrievable")
-	}
-	m.indexed = true // the Mangle half is exercised by manager_test.go
-
-	facts, err := m.ProjectToFacts()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, f := range facts {
-		if f.Predicate == "code_diagnostic" {
-			if p, _ := f.Args[0].(string); p == "x.go" {
-				found = true
-			}
-		}
-	}
-	if !found {
-		t.Errorf("external server diagnostics were not projected: %v", facts)
-	}
 }

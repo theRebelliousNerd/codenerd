@@ -11,7 +11,7 @@ package world
 //	------                     ----                                   -------
 //	Scanner (full/incremental) topology, symbols, imports, entry pts   every scan
 //	Cartographer / deep scan   code_defines/code_calls + data flow     on demand (/scan --deep)
-//	lsp.Manager                symbol_defined/referenced/diagnostics   on LSP index
+//	(reserved, no writer)      symbol_defined/referenced/diagnostics   never
 //	CodeDOM scope (session)    active_file, code_element, file_in_scope session lifetime
 //	session run (the focus)    code_element + element_* for the file a     per turn,
 //	                           turn is looking at (codedom_facts.go)        re-parsed on edit
@@ -68,10 +68,11 @@ var DeepPredicates = []string{
 	"function_scope",
 }
 
-// LSPPredicates are reserved for lsp.Manager projections from language
-// servers. No production caller constructs that manager today, so nothing
-// writes these predicates yet; the reservation still matters because a scan
-// cannot re-derive them, so a scan must not delete them.
+// LSPPredicates are reserved for language-server projections. The projection
+// that was meant to write them (lsp.Manager) was deleted unwired on
+// 2026-09-25; language-server diagnostics now reach the critic as text instead.
+// The reservation stays so a future writer's facts are not deleted by a scan,
+// which cannot re-derive them.
 var LSPPredicates = []string{
 	"symbol_defined",
 	"symbol_referenced",

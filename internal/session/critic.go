@@ -321,8 +321,46 @@ const criticMaxFileBytes = 24000
 // of them rather than a useful pass over any.
 const criticMaxFiles = 6
 
-// readWrittenFilesForReview loads the turn's written Go files for the critic,
-// skipping test files, anything unreadable, and anything past the caps.
+// reviewableSources are the extensions the critic reviews.
+var reviewableSources = map[string]bool{
+	".go": true, ".mg": true, ".py": true, ".ts": true, ".tsx": true, ".js": true,
+	".jsx": true, ".mjs": true, ".cjs": true, ".rs": true, ".java": true, ".kt": true,
+	".rb": true, ".php": true, ".cs": true, ".c": true, ".h": true, ".cc": true,
+	".cpp": true, ".hpp": true, ".swift": true, ".scala": true,
+}
+
+// testDirs hold tests by convention in the languages above.
+var testDirs = map[string]bool{"tests": true, "__tests__": true, "spec": true, "testdata": true}
+
+// reviewableSource reports whether path is source the critic reviews: a known
+// source extension, and not a test by its language's naming convention.
+func reviewableSource(path string) bool {
+	p := strings.ToLower(filepath.ToSlash(path))
+	if !reviewableSources[filepath.Ext(p)] {
+		return false
+	}
+	base := filepath.Base(p)
+	switch {
+	case strings.HasSuffix(base, "_test.go"),
+		strings.HasPrefix(base, "test_"), strings.HasSuffix(base, "_test.py"), base == "conftest.py",
+		strings.Contains(base, ".test."), strings.Contains(base, ".spec."),
+		strings.HasSuffix(base, "test.java"), strings.HasSuffix(base, "tests.java"), strings.HasSuffix(base, "test.kt"):
+		return false
+	}
+	for _, seg := range strings.Split(filepath.Dir(p), "/") {
+		if testDirs[seg] {
+			return false
+		}
+	}
+	return true
+}
+
+// readWrittenFilesForReview loads the turn's written source files for the
+// critic, skipping test files, anything unreadable, and anything past the caps.
+//
+// Source means any language the critic can read, not only Go: until
+// 2026-09-25 a Python or TypeScript turn got no review at all, and so none of
+// the language-server grounding either.
 //
 // Test files are excluded on purpose: the critic's job is to find defects in
 // the code, and including the tests invites it to review the tests instead —
@@ -335,8 +373,7 @@ func readWrittenFilesForReview(workspace string, writtenPaths []string) map[stri
 			break
 		}
 		trimmed := strings.TrimSpace(rel)
-		lower := strings.ToLower(trimmed)
-		if !strings.HasSuffix(lower, ".go") || strings.HasSuffix(lower, "_test.go") {
+		if !reviewableSource(trimmed) {
 			continue
 		}
 		abs := trimmed

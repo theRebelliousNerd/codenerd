@@ -709,6 +709,17 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		}
 		grounding += "Static analysis (gopls) reported:\n" + diags
 	}
+	if diags := lspDiagnostics(ctx, workspace, result.WrittenPaths); diags != "" {
+		if result.StaticDiagnostics != "" {
+			result.StaticDiagnostics += "\n"
+		}
+		result.StaticDiagnostics += diags
+		logging.Get(logging.CategorySession).Warn("language servers reported diagnostics on this turn's files:\n%s", diags)
+		if grounding != "" {
+			grounding += "\n\n"
+		}
+		grounding += "Static analysis (language servers) reported:\n" + diags
+	}
 
 	removals := make(map[string]string, len(files))
 	// The review copy is truncated, so removals must diff the whole file.
@@ -807,6 +818,14 @@ func (e *Executor) verifyAndUpliftWithCritic(
 // forcing rounds after it start from, so its own new code is covered, vetted
 // and inventoried like the rest of the turn's.
 func recheckUplift(ctx context.Context, workspace string, result *ExecutionResult, snap turnFiles) error {
+	// Only Go writes answer to the Go compiler and test runner. A turn that
+	// wrote other languages (the critic reviews those too) is measured after
+	// this round by its workspace's own test gate, /test_run, which the kernel
+	// orders after the critic; `go build ./...` in a workspace with no go.mod
+	// would fail and undo every uplift the review asked for.
+	if !wroteGo(result.WrittenPaths) {
+		return nil
+	}
 	build := verifyBuild(ctx, workspace, nil)
 	if build.Verdict() == VerifyCanceled {
 		return fmt.Errorf("uplift build re-verification canceled: %w", context.Canceled)
@@ -860,6 +879,16 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 			"Uplift test re-verification timed out; prior pass invalidated, recovery NOT verified")
 	}
 	return nil
+}
+
+// wroteGo reports whether any written path is a Go file.
+func wroteGo(paths []string) bool {
+	for _, p := range paths {
+		if strings.EqualFold(filepath.Ext(strings.TrimSpace(p)), ".go") {
+			return true
+		}
+	}
+	return false
 }
 
 // criticSystemPrompt keeps the reviewer in the one role that makes it useful.

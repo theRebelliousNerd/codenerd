@@ -2,13 +2,17 @@ package session
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"codenerd/internal/build"
 	"codenerd/internal/logging"
+	"codenerd/internal/world/lsp"
 )
 
 // Static analysis via gopls, used to ground the adversarial reviewer.
@@ -127,4 +131,103 @@ func keepDiagnosticLines(raw string) string {
 		}
 	}
 	return strings.Join(kept, "\n")
+}
+
+// Language servers for the files gopls does not check.
+//
+// gopls grounds the critic for Go. A Python or TypeScript turn had nothing:
+// the workspace's own gates run its tests, but a type error on a path no test
+// reaches, or a call with the wrong arity, fails no gate and is exactly what a
+// language server reports. internal/world/lsp's Client speaks LSP to any
+// server over stdio; this runs one per language the turn wrote, opens the
+// written files, and hands the errors and warnings to the critic beside
+// gopls's.
+//
+// The same rules as gopls: an absent server is silence, not a finding, and the
+// run is bounded by goplsTimeout and goplsMaxFiles. A server that never
+// publishes for a file costs the rest of the budget, not the turn.
+type languageServer struct {
+	lang   string   // Mangle atom the client is tagged with
+	binary string   // looked up on PATH
+	args   []string // stdio mode
+	ids    map[string]string
+}
+
+var languageServers = []languageServer{
+	{lang: "/python", binary: "pyright-langserver", args: []string{"--stdio"},
+		ids: map[string]string{".py": "python"}},
+	{lang: "/typescript", binary: "typescript-language-server", args: []string{"--stdio"},
+		ids: map[string]string{".ts": "typescript", ".tsx": "typescriptreact", ".js": "javascript", ".jsx": "javascriptreact"}},
+}
+
+// startLanguageServer is lsp.StartServer; tests substitute an in-memory server.
+var startLanguageServer = lsp.StartServer
+
+// lspDiagnostics runs each language server whose files the turn wrote and
+// returns their errors and warnings as "path:line: severity: message" lines,
+// or "" when there is nothing to report.
+func lspDiagnostics(ctx context.Context, workspace string, writtenPaths []string) string {
+	if strings.TrimSpace(workspace) == "" {
+		return ""
+	}
+	var out []string
+	for _, ls := range languageServers {
+		var files []string
+		for _, p := range writtenPaths {
+			if len(files) >= goplsMaxFiles {
+				break
+			}
+			if _, ok := ls.ids[strings.ToLower(filepath.Ext(p))]; ok {
+				files = append(files, p)
+			}
+		}
+		if len(files) > 0 {
+			out = append(out, serverDiagnostics(ctx, workspace, ls, files)...)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func serverDiagnostics(ctx context.Context, workspace string, ls languageServer, files []string) []string {
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), goplsTimeout)
+	defer cancel()
+	client, err := startLanguageServer(runCtx, ls.lang, ls.binary, ls.args...)
+	if err != nil {
+		logging.SessionDebug("%s unavailable; skipping its diagnostics (%v)", ls.binary, err)
+		return nil
+	}
+	defer func() { _ = client.Shutdown(context.WithoutCancel(ctx)) }()
+	if err := client.Initialize(runCtx, workspace); err != nil {
+		logging.SessionDebug("%s did not initialize; skipping its diagnostics (%v)", ls.binary, err)
+		return nil
+	}
+	var lines []string
+	for _, p := range files {
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workspace, p)
+		}
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			continue
+		}
+		if err := client.DidOpen(abs, ls.ids[strings.ToLower(filepath.Ext(p))], string(data)); err != nil {
+			break
+		}
+		diags, err := client.WaitForDiagnostics(runCtx, abs)
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn("%s published nothing for %s within %s; continuing without it", ls.binary, p, goplsTimeout)
+			break
+		}
+		rel := filepath.ToSlash(p)
+		if r, err := filepath.Rel(workspace, abs); err == nil {
+			rel = filepath.ToSlash(r)
+		}
+		for _, d := range diags {
+			if word, ok := lsp.SeverityWord(d.Severity); ok {
+				lines = append(lines, fmt.Sprintf("%s:%d: %s: %s", rel, d.Line, word, d.Message))
+			}
+		}
+	}
+	return lines
 }

@@ -74,6 +74,25 @@ rewritten; its anchors into that file are gone.
   zero with verification off, which both production engines are
   (TODO-DIFF-07b).
 
+## Exists with no host, and why it is kept
+
+- `DiffApprovalView` (`cmd/nerd/ui/diffview.go`, the whole type) and the
+  word-level API only it calls (`ComputeWordLevelDiff`, `Engine.Stats`,
+  `Engine.ClearCache`, `diffCache.clear/stats`, `hash`,
+  `WarningBoxWidth`): no chat screen constructs the view, and none ever did
+  (no commit called `NewDiffApprovalView` from `cmd/nerd/chat`). It is not a
+  viewer: each `PendingMutation` carries the `Reason` approval is needed and
+  its safety `Warnings`, and the view's verbs are approve, reject and
+  approve-all. It is the UI half of a human-approval flow that is not built:
+  `permitted/3`'s approval arm (`policy/constitution.mg`) wants
+  `signed_approval(Action)`, which nothing produces, and the action linter
+  reports that `/delete_file` is unreachable for exactly that reason.
+  Reviewed in the 2026-09-25 dead-code pass and kept in the baseline (55
+  entries): wiring it as a read-only diff screen would bury the approval
+  semantics, and deleting it discards the only design that exists for that
+  flow. Build the flow (who signs, what a signature binds, how a rejection
+  reaches the kernel) and host the view there.
+
 ## Assumed by the design, and the decision behind it
 
 - **Cache keys are trusted, not proven, by default.** `fingerprint`

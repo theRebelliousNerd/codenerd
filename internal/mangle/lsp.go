@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -592,82 +593,6 @@ func (s *LSPServer) GetCompletions(uri string, line, col int) []CompletionItem {
 // Batch Query API (for World Model Projection)
 // ============================================================================
 
-// GetDefinitions returns all definitions for a symbol.
-// Used by LSP Manager to project definitions into World Model facts.
-func (s *LSPServer) GetDefinitions(symbol string) []Definition {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return append([]Definition(nil), s.definitions[symbol]...)
-}
-
-// GetReferences returns all references to a symbol.
-// Used by LSP Manager to project references into World Model facts.
-func (s *LSPServer) GetReferences(symbol string) []Reference {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return append([]Reference(nil), s.references[symbol]...)
-}
-
-// GetAllDefinitions returns all definitions across all symbols.
-// Used by LSP Manager for full World Model fact projection.
-func (s *LSPServer) GetAllDefinitions() map[string][]Definition {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Return a copy to avoid race conditions
-	result := make(map[string][]Definition, len(s.definitions))
-	for symbol, defs := range s.definitions {
-		result[symbol] = append([]Definition(nil), defs...)
-	}
-	return result
-}
-
-// GetAllReferences returns all references across all symbols.
-// Used by LSP Manager for full World Model fact projection.
-func (s *LSPServer) GetAllReferences() map[string][]Reference {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Return a copy to avoid race conditions
-	result := make(map[string][]Reference, len(s.references))
-	for symbol, refs := range s.references {
-		result[symbol] = append([]Reference(nil), refs...)
-	}
-	return result
-}
-
-// GetAllDiagnostics returns all diagnostics across all documents.
-// Used by LSP Manager for full World Model fact projection.
-func (s *LSPServer) GetAllDiagnostics() map[string][]Diagnostic {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Return a copy to avoid race conditions
-	result := make(map[string][]Diagnostic, len(s.diagnostics))
-	for uri, diags := range s.diagnostics {
-		result[uri] = append([]Diagnostic(nil), diags...)
-	}
-	return result
-}
-
-// ValidateCode validates Mangle code without opening it as a document.
-// Returns diagnostics for the given code.
-// Used by CoderShard and LegislatorShard to validate generated code.
-func (s *LSPServer) ValidateCode(uri, content string) []Diagnostic {
-	var diags []Diagnostic
-	lines := strings.Split(content, "\n")
-
-	for lineNum, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		diags = append(diags, diagnoseLine(uriToPath(uri), lineNum+1, line)...)
-	}
-
-	return diags
-}
-
 // ============================================================================
 // Index Workspace
 // ============================================================================
@@ -798,7 +723,58 @@ func (s *LSPServer) ServeStdio(ctx context.Context) error {
 			responseBytes, _ := json.Marshal(response)
 			fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n%s", len(responseBytes), responseBytes)
 		}
+		for _, note := range s.notificationsFor(req) {
+			noteBytes, err := json.Marshal(note)
+			if err != nil {
+				// An empty frame is not a notification; skip it rather than
+				// send the editor a body it cannot parse.
+				continue
+			}
+			fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n%s", len(noteBytes), noteBytes)
+		}
 	}
+}
+
+// notificationsFor returns the notifications a request owes the client: a
+// document's diagnostics after it is opened, changed or closed (empty on
+// close, which clears the editor's markers). The server computed diagnostics
+// on every open and change and, until 2026-09-25, never published them, so an
+// editor attached to `nerd mangle-lsp` showed none.
+func (s *LSPServer) notificationsFor(req LSPRequest) []any {
+	switch req.Method {
+	case "textDocument/didOpen", "textDocument/didChange", "textDocument/didClose":
+	default:
+		return nil
+	}
+	var params struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.TextDocument.URI == "" {
+		return nil
+	}
+	uri := params.TextDocument.URI
+	diags := make([]map[string]any, 0)
+	if req.Method != "textDocument/didClose" {
+		for _, d := range s.GetDiagnostics(uri) {
+			// The line checks know a column, not an extent, so the range is a
+			// point; editors mark the position.
+			pos := map[string]int{"line": d.Line - 1, "character": d.Column}
+			diags = append(diags, map[string]any{
+				"range":    map[string]any{"start": pos, "end": pos},
+				"severity": int(d.Severity),
+				"code":     d.Code,
+				"source":   d.Source,
+				"message":  d.Message,
+			})
+		}
+	}
+	return []any{map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "textDocument/publishDiagnostics",
+		"params":  map[string]any{"uri": uri, "diagnostics": diags},
+	}}
 }
 
 // handleRequest processes an LSP request.
@@ -852,6 +828,71 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 			s.OpenDocument(params.TextDocument.URI, params.ContentChanges[0].Text, params.TextDocument.Version)
 		}
 		return nil
+
+	case "textDocument/didClose":
+		var params struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err == nil {
+			s.CloseDocument(params.TextDocument.URI)
+		}
+		return nil
+
+	case "textDocument/references":
+		var params struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+			Position struct {
+				Line      int `json:"line"`
+				Character int `json:"character"`
+			} `json:"position"`
+			Context struct {
+				IncludeDeclaration bool `json:"includeDeclaration"`
+			} `json:"context"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Error: &LSPError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}}
+		}
+		refs := s.FindReferences(params.TextDocument.URI, params.Position.Line+1, params.Position.Character, params.Context.IncludeDeclaration)
+		locations := make([]map[string]any, 0, len(refs))
+		for _, ref := range refs {
+			locations = append(locations, map[string]any{
+				"uri": pathToURI(ref.FilePath),
+				"range": map[string]any{
+					"start": map[string]int{"line": ref.Line - 1, "character": ref.Column},
+					"end":   map[string]int{"line": ref.Line - 1, "character": ref.Column + len(ref.Symbol)},
+				},
+			})
+		}
+		return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Result: locations}
+
+	case "textDocument/completion":
+		var params struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+			Position struct {
+				Line      int `json:"line"`
+				Character int `json:"character"`
+			} `json:"position"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Error: &LSPError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}}
+		}
+		items := s.GetCompletions(params.TextDocument.URI, params.Position.Line+1, params.Position.Character)
+		// The index is a map; an editor's list should not reshuffle per keystroke.
+		sort.SliceStable(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+		out := make([]map[string]any, 0, len(items))
+		for _, it := range items {
+			out = append(out, map[string]any{
+				"label": it.Label, "kind": int(it.Kind), "detail": it.Detail,
+				"insertText": it.InsertText,
+			})
+		}
+		return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Result: out}
 
 	case "textDocument/definition":
 		var params struct {

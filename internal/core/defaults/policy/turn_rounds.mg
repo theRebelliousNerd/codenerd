@@ -40,6 +40,12 @@ round_order(/test_run, 8).
 turn_round_owed(Turn, /build) :- turn_owes_gate(Turn, /build).
 turn_round_owed(Turn, /test) :- turn_owes_gate(Turn, /test).
 turn_round_owed(Turn, /critic) :- turn_write_class(Turn, /go).
+# Non-Go source is reviewed too, grounded by its language server's
+# diagnostics (session/lsp_diagnostics.go). Until 2026-09-25 only a Go write
+# owed the critic, so a Python or TypeScript turn was never reviewed. A write
+# the critic cannot read (a YAML file, say) costs nothing: it offers no file
+# and the round ends without a call.
+turn_round_owed(Turn, /critic) :- turn_write_class(Turn, /other).
 turn_round_owed(Turn, /coverage) :- turn_owes_gate(Turn, /test).
 turn_round_owed(Turn, /pinned) :- turn_owes_gate(Turn, /pinned).
 turn_round_owed(Turn, /vet) :- turn_write_class(Turn, /go).

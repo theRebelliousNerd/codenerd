@@ -2,8 +2,6 @@ package lsp
 
 import (
 	"testing"
-
-	"codenerd/internal/mangle"
 )
 
 // =============================================================================
@@ -75,22 +73,6 @@ func TestPathToURI(t *testing.T) {
 	}
 }
 
-func TestReferenceKindToAtom(t *testing.T) {
-	t.Parallel()
-
-	// Test that the function exists and handles basic input
-	result := referenceKindToAtom(mangle.RefInHead)
-	if result == "" {
-		t.Error("expected non-empty result")
-	}
-
-	// Test unknown kind
-	result = referenceKindToAtom(-1)
-	if result == "" {
-		t.Error("expected fallback result for unknown kind")
-	}
-}
-
 func TestDiagnosticSeverityToAtom(t *testing.T) {
 	t.Parallel()
 
@@ -116,59 +98,6 @@ func TestDiagnosticSeverityToAtom(t *testing.T) {
 // PROJECT TO FACTS TESTS
 // =============================================================================
 
-func TestManager_ProjectToFacts_NotInitialized(t *testing.T) {
-	t.Parallel()
-
-	mgr := NewManager("/test/workspace")
-
-	// Should handle not-initialized state gracefully
-	facts, err := mgr.ProjectToFacts()
-	if err != nil {
-		// Expected for uninitialized manager
-		t.Logf("ProjectToFacts error (expected): %v", err)
-	}
-	_ = facts
-}
-
 // =============================================================================
 // QUERY API TESTS
 // =============================================================================
-
-func TestManager_GetDefinitions_NotInitialized(t *testing.T) {
-	t.Parallel()
-
-	mgr := NewManager("/test/workspace")
-
-	facts, err := mgr.GetDefinitions("TestSymbol")
-	if err != nil {
-		// Expected for uninitialized manager
-		t.Logf("GetDefinitions error (expected): %v", err)
-	}
-	_ = facts
-}
-
-func TestManager_GetReferences_NotInitialized(t *testing.T) {
-	t.Parallel()
-
-	mgr := NewManager("/test/workspace")
-
-	facts, err := mgr.GetReferences("TestSymbol")
-	if err != nil {
-		// Expected for uninitialized manager
-		t.Logf("GetReferences error (expected): %v", err)
-	}
-	_ = facts
-}
-
-func TestManager_ValidateCode_NotInitialized(t *testing.T) {
-	t.Parallel()
-
-	mgr := NewManager("/test/workspace")
-
-	facts, err := mgr.ValidateCode("test.mangle", "test code")
-	if err != nil {
-		// Expected for uninitialized manager
-		t.Logf("ValidateCode error (expected): %v", err)
-	}
-	_ = facts
-}

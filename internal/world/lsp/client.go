@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
 )
 
@@ -23,8 +22,9 @@ import (
 // lsp/README.md sketched "Phase 3: gopls integration" as a GoplsClient type.
 // This is that, generalized: the protocol work (framing, request correlation,
 // notification fan-in) is language-agnostic, so a single Client drives gopls,
-// rust-analyzer, pyright or anything else that speaks LSP over stdio, and the
-// Manager keeps one per language.
+// rust-analyzer, pyright or anything else that speaks LSP over stdio. The
+// session's critic grounding starts one per language a turn wrote
+// (internal/session/lsp_diagnostics.go).
 //
 // The transport is an io.ReadWriteCloser rather than an *exec.Cmd so the client
 // is testable without any language server installed: a test drives it over an
@@ -108,7 +108,9 @@ func StartServer(ctx context.Context, lang, binary string, args ...string) (*Cli
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stderr = os.Stderr
+	// A server's stderr is its own chatter, not diagnostics, and a TUI owns
+	// the terminal it would otherwise write over.
+	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", binary, err)
 	}
@@ -350,31 +352,6 @@ func (c *Client) DidOpen(path, languageID, text string) error {
 	})
 }
 
-// Definition resolves the definition site(s) of the symbol at a position.
-func (c *Client) Definition(ctx context.Context, path string, line, col int) ([]Location, error) {
-	raw, err := c.call(ctx, "textDocument/definition", map[string]any{
-		"textDocument": map[string]any{"uri": pathToURI(path)},
-		"position":     map[string]any{"line": line, "character": col},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return decodeLocations(raw)
-}
-
-// References finds all reference sites of the symbol at a position.
-func (c *Client) References(ctx context.Context, path string, line, col int, includeDecl bool) ([]Location, error) {
-	raw, err := c.call(ctx, "textDocument/references", map[string]any{
-		"textDocument": map[string]any{"uri": pathToURI(path)},
-		"position":     map[string]any{"line": line, "character": col},
-		"context":      map[string]any{"includeDeclaration": includeDecl},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return decodeLocations(raw)
-}
-
 // Shutdown performs the polite LSP shutdown/exit sequence, then closes.
 func (c *Client) Shutdown(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -445,129 +422,16 @@ func (c *Client) handleDiagnostics(params json.RawMessage) {
 // Fact projection
 // ---------------------------------------------------------------------------
 
-// DiagnosticFacts projects the diagnostics collected so far, keyed by the
-// canonical (workspace-relative) path so they join file_topology.
-func (c *Client) DiagnosticFacts(root string) []core.Fact {
-	c.diagsMu.Lock()
-	defer c.diagsMu.Unlock()
-
-	var facts []core.Fact
-	for _, diags := range c.diags {
-		for _, d := range diags {
-			facts = append(facts, core.Fact{
-				Predicate: "code_diagnostic",
-				Args: []any{
-					canonicalFromURI(root, d.URI),
-					int64(d.Line),
-					core.MangleAtom(lspSeverityAtom(d.Severity)),
-					d.Message,
-				},
-			})
-		}
-	}
-	return facts
-}
-
-// SymbolFacts projects a resolved symbol's definition and references.
-func (c *Client) SymbolFacts(root, symbol string, defs, refs []Location) []core.Fact {
-	facts := make([]core.Fact, 0, len(defs)+len(refs))
-	for _, d := range defs {
-		facts = append(facts, core.Fact{
-			Predicate: "symbol_defined",
-			Args: []any{
-				core.MangleAtom(c.lang),
-				symbol,
-				canonicalFromURI(root, d.URI),
-				int64(d.Line),
-				int64(d.Col),
-			},
-		})
-	}
-	for _, r := range refs {
-		facts = append(facts, core.Fact{
-			Predicate: "symbol_referenced",
-			Args: []any{
-				core.MangleAtom(c.lang),
-				symbol,
-				canonicalFromURI(root, r.URI),
-				int64(r.Line),
-				int64(r.Col),
-				core.MangleAtom("/reference"),
-			},
-		})
-	}
-	return facts
-}
-
-func lspSeverityAtom(sev int) string {
+// SeverityWord names an LSP diagnostic severity worth reporting: an error or
+// a warning. Information and hints report false. An omitted severity (0) is
+// read as an error, which is how the protocol leaves it to the client.
+func SeverityWord(sev int) (string, bool) {
 	switch sev {
-	case 1:
-		return "/error"
+	case 0, 1:
+		return "error", true
 	case 2:
-		return "/warning"
-	case 3:
-		return "/info"
-	case 4:
-		return "/hint"
+		return "warning", true
 	default:
-		return "/info"
+		return "", false
 	}
-}
-
-func decodeLocations(raw json.RawMessage) ([]Location, error) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil
-	}
-	type lspLocation struct {
-		URI    string `json:"uri"`
-		Target string `json:"targetUri"`
-		Range  struct {
-			Start struct {
-				Line int `json:"line"`
-				Char int `json:"character"`
-			} `json:"start"`
-		} `json:"range"`
-		TargetRange struct {
-			Start struct {
-				Line int `json:"line"`
-				Char int `json:"character"`
-			} `json:"start"`
-		} `json:"targetSelectionRange"`
-	}
-	// The spec allows Location, Location[] or LocationLink[]; servers pick
-	// freely, so all three shapes are accepted rather than assuming one.
-	var many []lspLocation
-	if err := json.Unmarshal(raw, &many); err != nil {
-		var one lspLocation
-		if err2 := json.Unmarshal(raw, &one); err2 != nil {
-			return nil, fmt.Errorf("undecodable location payload: %w", err)
-		}
-		many = []lspLocation{one}
-	}
-	out := make([]Location, 0, len(many))
-	for _, l := range many {
-		uri, line, char := l.URI, l.Range.Start.Line, l.Range.Start.Char
-		if uri == "" && l.Target != "" {
-			uri, line, char = l.Target, l.TargetRange.Start.Line, l.TargetRange.Start.Char
-		}
-		out = append(out, Location{URI: uri, Line: line + 1, Col: char + 1})
-	}
-	return out, nil
-}
-
-// canonicalFromURI converts a file:// URI back to a workspace-relative path so
-// LSP facts share the identity the scanners use. A raw absolute path here would
-// make every join against file_topology fail.
-func canonicalFromURI(root, uri string) string {
-	p := strings.TrimPrefix(uri, "file://")
-	p = strings.ReplaceAll(p, `\`, "/")
-	if root == "" {
-		return p
-	}
-	rootSlash := strings.ReplaceAll(root, `\`, "/")
-	rootSlash = strings.TrimSuffix(rootSlash, "/")
-	if strings.HasPrefix(p, rootSlash+"/") {
-		return strings.TrimPrefix(p, rootSlash+"/")
-	}
-	return p
 }
