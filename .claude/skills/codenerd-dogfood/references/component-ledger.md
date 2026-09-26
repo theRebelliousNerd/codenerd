@@ -5817,3 +5817,48 @@ what the ADR claims and their tests exist; the two witnesses that do not resolve
 (`TestFreshBoot_UsesSingleSourceOfTruth`, `TestRegistryFence_ZeroUnmarked`) are planned tests on D2
 and D4, whose Status reads `accepted-not-implemented` -- honest, not a false claim. 2026-09-21
 history kept beside each current reading.
+
+
+## 2026-09-26 (evening) -- nerd fix A1: a logging flood ended a real fix /unverified; the first concurrent-edit run
+
+**Brief** (symptom-only, `scratchpad/brief_A1.txt`): the acceptance remediation task targets a
+`.nerd/` task report and its brief names every doc twice plus three reports. Binary 189311a9.
+
+**Attempt 1** (15:40-17:29, 1 h 49 m; 55 tools; 2.77 M prompt / 87 k completion; tree peak 23 GiB):
+`/unverified`, `missing=[/changed_code_unexecuted]`. It fixed the symptom in all three places it
+lives (`campaignWriteSet`, `resolveFileTaskTargetPath`, `writeSetBriefing`) -- but pasted the same
+drive-letter check / lower-cased prefix strip / `.nerd` filter three times instead of one helper or
+the package's `normalizeAbsolutePath`, and left an `if first := rel; true {` construct. Its own test
+(`acceptance_remediation_scope_test.go`, 16:10) was red; the coverage round's repair died on
+attempt 2 with `working request exceeds the input budget: ... about 12066618 tokens and the budget
+is 518288 ... the task, the instructions and the tool catalog are sent whole`, and the round's
+give-up undid the test (logged in a *rotated* session log: `*_session.log` held only the tail --
+search `*session*.log`). **Cause:** `logging.Get` did not cache a failed open, and
+`TestUpdateCampaignStatus_ShouldRecordTheLifecycleInTheAuditTrail` left logging bound to its deleted
+temp dir, so `internal/campaign`'s test output carried 101,144 warnings (46.5 MB) -- invisible when
+the package passes, embedded whole in the repair task when it fails. Fixed by hand `f0543dd3`
+(0 warnings, 124 KB). Attempt saved as `scratchpad/A1_attempt1.patch` and cleared from the tree.
+Then the pin-existing gate ran the whole repo once per unpinned unit (three 7-10 min runs).
+
+**Concurrent edits (Steve, 17:0x: "you can also do edits yourself while its working").** While
+attempt 1 ran I landed A2 (`62dc7db3`, the audit reads the turn's request; it never had one --
+it looked the request up on a working-loop context already dropped) in `internal/session`, disjoint
+from its `internal/campaign` change and compile-clean at each save. Its pinned, build, test and
+importer gates all passed with my change in the tree. It did not notice me; nothing required it to.
+
+**Open:** D2 -- a repair round embeds the failure output whole in its task, so any output past the
+budget kills repair; it belongs behind a recall handle. Attempt 2 (same brief, f0543dd3) from 17:46.
+
+**Attempt 2** (17:46-18:49, 1 h 03 m, binary f0543dd3, same brief, clean tree; 32 tools; 1.71 M prompt /
+68.7 k completion; tree peak 7.0 GiB): `/unverified`, `missing=[/changed_code_unexecuted]` -- on ONE
+block. A different change: one helper (`canonicalRemediationPath`) in one file, the root cause named
+in its comment (".nerd/ sorts before letters", so the sorted scope's first entry -- the file task's
+target -- was a report), and a 183-line test that survived (the symptom case, both spelling-preference
+orders, 17 edge branches). Coverage went 12 -> 1 unexecuted blocks in three repair attempts; the last
+was the sort's tie-break, unreachable because the dedup keys on the lower-cased path. Removed by hand
+(3 lines); committed `ee587bab` as codeNERD's work.
+
+**Attempt 1 vs 2** -- same brief, same model; the difference is whether the repair round could read
+its failure: 55 -> 32 tools, 2.77 M -> 1.71 M prompt tokens, 23 -> 7 GiB, three pasted normalizers ->
+one helper, test undone -> test kept. Fixing the blocker was worth more than any brief tweak.
+Verdict honesty held both times: the harness never called either attempt /done.
