@@ -631,7 +631,17 @@ func RunAllMigrations(dbPath string, targetVersion int) (*MigrationResult, error
 		logging.Get(logging.CategoryStore).Error("Failed to open database for migration: %v", err)
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
-	defer db.Close()
+	// closeDB is idempotent: a failed migration closes the handle before the
+	// restore overwrites the file under it (see the restore below).
+	dbClosed := false
+	closeDB := func() error {
+		if dbClosed {
+			return nil
+		}
+		dbClosed = true
+		return db.Close()
+	}
+	defer func() { _ = closeDB() }()
 	ApplyDefaultPragmas(db, ProfileBulkBuild)
 
 	currentVersion := GetSchemaVersion(db)
@@ -659,6 +669,14 @@ func RunAllMigrations(dbPath string, targetVersion int) (*MigrationResult, error
 	defer func() {
 		if !migrationSuccess {
 			logging.Get(logging.CategoryStore).Warn("Migration failed, restoring from backup")
+			// Close first. The bulk-build handle runs in WAL with a wide
+			// checkpoint window and a large mmap: while it is open the failed
+			// migration's pages sit in its WAL, Windows refuses to truncate a
+			// mapped file, and a later Close would checkpoint those pages over
+			// the restored bytes.
+			if closeErr := closeDB(); closeErr != nil {
+				logging.Get(logging.CategoryStore).Error("Failed to close database before restore: %v", closeErr)
+			}
 			if restoreErr := RestoreBackup(dbPath, backupPath); restoreErr != nil {
 				logging.Get(logging.CategoryStore).Error("Failed to restore backup after migration failure: %v", restoreErr)
 			} else {

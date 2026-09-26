@@ -102,3 +102,47 @@ func TestRestore_RewindsAndDropsSidecars(t *testing.T) {
 		t.Errorf("restored content = %q with %d rows, want exactly [before]", v, countRows(t, ro, "t"))
 	}
 }
+
+// A migration that fails part way restores the pre-migration database. The
+// migration's own handle is open when it fails; the restore must not run
+// under it, or the file keeps the failed migration's columns (the restore is
+// refused over the mapped file, or the handle's WAL is checkpointed over it).
+func TestRunAllMigrations_AFailedMigrationRestoresThePriorDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "knowledge.db")
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("CREATE TABLE knowledge_atoms (id INTEGER PRIMARY KEY, content TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO knowledge_atoms (content) VALUES ('kept')"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// v2 and v4 add columns; there is no v5, so the run fails after them.
+	if _, err := RunAllMigrations(path, 5); err == nil {
+		t.Fatal("RunAllMigrations to an unknown version succeeded")
+	}
+
+	ro, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+	var check string
+	if err := ro.QueryRow("PRAGMA integrity_check").Scan(&check); err != nil || check != "ok" {
+		t.Fatalf("integrity_check = %q (%v), want ok", check, err)
+	}
+	for _, col := range []string{"embedding", "content_hash"} {
+		if columnExists(ro, "knowledge_atoms", col) {
+			t.Errorf("column %s survived the restore of a failed migration", col)
+		}
+	}
+	if got := countRows(t, ro, "knowledge_atoms"); got != 1 {
+		t.Errorf("restored database holds %d rows, want 1", got)
+	}
+}
