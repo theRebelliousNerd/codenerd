@@ -552,3 +552,94 @@ func TestResponseProcessor_StrictSchemaUnknownFields(t *testing.T) {
 		t.Errorf("Expected error to mention unknown field, got: %v", err)
 	}
 }
+
+// TODO: Scenario: Explicit Null Surface Response
+// TODO: Scenario: Empty String Surface Response
+// TODO: Scenario: Missing Surface Response Key
+// TODO: Scenario: Null Control Packet
+// TODO: Scenario: Empty Object Control Packet
+// TODO: Scenario: Null Intent Classification
+// TODO: Scenario: Empty Intent Category
+// TODO: Scenario: Null Mangle Updates
+// TODO: Scenario: Empty Array Mangle Updates
+// TODO: Scenario: Empty String in Mangle Updates
+// TODO: Scenario: Null Memory Operations
+// TODO: Scenario: Empty String Payload
+// TODO: Scenario: Whitespace Only Payload
+// TODO: Scenario: Null Bytes Injection
+// TODO: Scenario: Undefined Fields
+// TODO: Scenario: Surface Response as Array
+// TODO: Scenario: Surface Response as Object
+// TODO: Scenario: Surface Response as Boolean
+// TODO: Scenario: Surface Response as Number
+// TODO: Scenario: Confidence as Array
+// TODO: Scenario: Confidence as String with Chars
+// TODO: Scenario: Confidence Overflow
+// TODO: Scenario: Category as Number
+// TODO: Scenario: Mangle Updates as String
+// TODO: Scenario: Mangle Updates containing Objects
+// TODO: Scenario: Memory Operations as String
+// TODO: Scenario: Control Packet as Array
+// TODO: Scenario: Nested Stringified JSON
+// TODO: Scenario: Mixed Type Array
+// TODO: Scenario: Scientific Notation in Strings
+// TODO: Scenario: Deeply Nested Decoy Envelopes
+// TODO: Scenario: Catastrophic Backtracking
+// TODO: Scenario: Extreme Payload Length
+// TODO: Scenario: Unbalanced Braces with Quotes
+// TODO: Scenario: Escaped Quote Injection
+// TODO: Scenario: Unicode Bomb
+// TODO: Scenario: Newline Injection
+// TODO: Scenario: Markdown Wrapped Decoy
+// TODO: Scenario: Language Evasion
+// TODO: Scenario: Control Character Flooding
+// TODO: Scenario: Extremely Long Keys
+// TODO: Scenario: Deep Recursion in Arrays
+// TODO: Scenario: Massive Mangle Updates
+// TODO: Scenario: Self-Correction Loop
+// TODO: Scenario: Reasoning Trace Bomb
+// TODO: Scenario: Mutex Contention on Stats
+// TODO: Scenario: Panic Under Lock
+// TODO: Scenario: Concurrent Map Writes
+// TODO: Scenario: Shared Buffer Corruption
+// TODO: Scenario: Race on Configuration
+// TODO: Scenario: Stale Stats Reads
+// TODO: Scenario: Context Cancellation Mid-Parse
+// TODO: Scenario: Goroutine Leaks
+// TODO: Scenario: Global State Mutation
+// TODO: Scenario: OOM Killer Race
+// TODO: Scenario: File Descriptor Exhaustion
+// TODO: Scenario: Cache Poisoning
+// TODO: Scenario: Init Race
+// TODO: Scenario: Stat Overflow
+// TODO: Scenario: Deadlock in Fallback
+// TODO: Scenario: Unclosed Atom
+// TODO: Scenario: Missing Period
+// TODO: Scenario: Invalid Characters in Predicate
+// TODO: Scenario: Excessive Arguments
+// TODO: Scenario: Deeply Nested Terms
+// TODO: Scenario: String Literal Escaping
+// TODO: Scenario: Unicode in Atoms
+// TODO: Scenario: Null Bytes in Atoms
+// TODO: Scenario: Empty Arguments
+// TODO: Scenario: Reserved Words
+// TODO: Scenario: Negative Numbers
+// TODO: Scenario: Floating Point Precision
+// TODO: Scenario: Boolean Values
+// TODO: Scenario: Variables in Updates
+// TODO: Scenario: Anonymous Variables
+// TODO: Scenario: Invalid Operation Type
+// TODO: Scenario: Missing Key
+// TODO: Scenario: Null Value
+// TODO: Scenario: Extreme Value Length
+// TODO: Scenario: Duplicate Keys in Same Payload
+// TODO: Scenario: Conflicting Operations
+// TODO: Scenario: Non-String Keys
+// TODO: Scenario: Complex Values
+// TODO: Scenario: Empty Key
+// TODO: Scenario: Reserved Keys
+// TODO: Scenario: Too Many Operations
+// TODO: Scenario: Cross-Session Memory Access
+// TODO: Scenario: Recursive Memory Values
+// TODO: Scenario: Encoding Issues in Values
+// TODO: Scenario: Concurrent Modifications
