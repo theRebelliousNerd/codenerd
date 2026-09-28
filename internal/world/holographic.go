@@ -1148,6 +1148,15 @@ func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context,
 		caller, _ := fact.Args[0].(string)
 		callee, _ := fact.Args[1].(string)
 
+		// Dual CodeDOM-ref rows (fn:pkg.Name, emitted for the test-impact
+		// joins) carry the same edge as a bare row this walk already
+		// matches: skipping them keeps the call graph from listing every
+		// edge twice and halves the pressure on the cap below. A bare
+		// cartographer ID never starts with "fn:".
+		if strings.HasPrefix(caller, "fn:") || strings.HasPrefix(callee, "fn:") {
+			continue
+		}
+
 		// Check if caller or callee is in our file
 		for _, sym := range fileSymbols {
 			if strings.Contains(caller, sym) || strings.Contains(callee, sym) {

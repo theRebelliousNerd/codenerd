@@ -13,6 +13,7 @@ package world
 //	Cartographer / deep scan   code_defines/code_calls + data flow     on demand (/scan --deep)
 //	(reserved, no writer)      symbol_defined/referenced/diagnostics   never
 //	CodeDOM scope (session)    active_file, code_element, file_in_scope session lifetime
+//	                             + is_test_function (rides with code_element)
 //	session run (the focus)    code_element + element_* for the file a     per turn,
 //	                           turn is looking at (codedom_facts.go)        re-parsed on edit
 //	git scanner                git_history, churn_rate                 on demand
@@ -87,6 +88,7 @@ var SessionScopePredicates = []string{
 	"active_file",
 	"file_in_scope",
 	"code_element",
+	"is_test_function",
 }
 
 // GitPredicates are emitted by the git scanner on demand.

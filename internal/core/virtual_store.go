@@ -997,6 +997,7 @@ var codeDOMScopePredicates = map[string]struct{}{
 	"element_visibility": {},
 	"element_parent":     {},
 	"code_interactable":  {},
+	"is_test_function":   {},
 
 	// Scope diagnostics/meta (emitted by world.FileScope)
 	"parse_error":          {},

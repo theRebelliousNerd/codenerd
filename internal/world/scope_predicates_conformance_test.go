@@ -19,6 +19,13 @@ var scopeFixtures = map[string]string{
 		"type I interface{ M() error }\n" +
 		"func (s *S) M() error { return nil }\n" +
 		"func Do(ctx context.Context) error { go func() {}(); return nil }\n",
+	// A test file, so the emitted set includes is_test_function and the guard
+	// below pins its retraction: scope asserts it on every open_file and
+	// clearCodeDOMFacts must retract it, or stale test marks keep deriving
+	// impacted_test for files that left scope.
+	"a_test.go": "package a\n" +
+		"import \"testing\"\n" +
+		"func TestDo(t *testing.T) {}\n",
 	"b.py": "import asyncio\n" +
 		"from pydantic import BaseModel\n" +
 		"class C(BaseModel):\n    x: int\n" +

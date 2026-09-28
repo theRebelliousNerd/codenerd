@@ -89,13 +89,25 @@ type CodeElement struct {
 
 // ToFacts converts a CodeElement to Mangle facts.
 func (e *CodeElement) ToFacts() []core.Fact {
-	facts := make([]core.Fact, 0, 5)
+	facts := make([]core.Fact, 0, 6)
 
 	// code_element(ref, elem_type, file, start_line, end_line)
 	facts = append(facts, core.Fact{
 		Predicate: "code_element",
 		Args:      []any{e.Ref, "/" + string(e.Type), e.File, int64(e.StartLine), int64(e.EndLine)},
 	})
+
+	// is_test_function(ref): the test-entrypoint marker test_impact.mg joins
+	// against code_element's first argument. It is emitted here -- where the
+	// ref is known exactly -- rather than reconstructed downstream, and rides
+	// the same ScopeFacts/FileFacts batch as the element facts, so scope
+	// replacement retracts it with them (core codeDOMScopePredicates).
+	if e.IsTestFunction() {
+		facts = append(facts, core.Fact{
+			Predicate: "is_test_function",
+			Args:      []any{e.Ref},
+		})
+	}
 
 	// element_signature(ref, signature)
 	facts = append(facts, core.Fact{
@@ -126,6 +138,44 @@ func (e *CodeElement) ToFacts() []core.Fact {
 	}
 
 	return facts
+}
+
+// IsTestFunction reports whether the element is a test entrypoint: a function
+// whose name matches the language's test convention in a test file. The file
+// rule is the scanner's (fs.go isTestFile); the name rules are the same
+// patterns TestDependencyBuilder identifies tests by (test_dependency.go), so
+// the Mangle test-impact path and the Go dependency graph agree on what a
+// test is. Methods are excluded with the builder: Go test entrypoints are
+// always functions, and the builder only keys testFuncs by /function.
+func (e *CodeElement) IsTestFunction() bool {
+	if e == nil || e.Type != ElementFunction {
+		return false
+	}
+	if !isTestFile(e.File) {
+		return false
+	}
+	return isTestFuncName(e.Name, filepath.Ext(e.File))
+}
+
+// isTestFuncName matches a bare symbol name against the test-entrypoint
+// convention for the file's language. Callers pass CodeElement.Name, which the
+// parsers set to the unqualified symbol; matching the raw ref instead would
+// reintroduce the prefix bug documented on goTestFuncPattern.
+func isTestFuncName(name, ext string) bool {
+	if name == "" {
+		return false
+	}
+	switch ext {
+	case ".go":
+		return goTestFuncPattern.MatchString(name)
+	case ".py":
+		return pyTestFuncPattern.MatchString(name)
+	case ".ts", ".tsx", ".js", ".jsx":
+		return tsTestFuncPattern.MatchString(name)
+	case ".rs":
+		return rsTestFuncPattern.MatchString(name)
+	}
+	return false
 }
 
 // CodeElementParser extracts semantic code elements with precise line ranges.

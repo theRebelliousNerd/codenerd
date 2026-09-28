@@ -114,12 +114,15 @@ func (c *Cartographer) mapGoFile(fsPath, path string) ([]core.Fact, error) {
 			start := fset.Position(x.Pos()).Line
 			end := fset.Position(x.End()).Line
 
-			// New Holographic Atom
+			// New Holographic Atom. The Symbol slot is declared /string
+			// (schemas_analysis.mg), so it is a plain string: a MangleAtom
+			// without a leading "/" falls back to a string in ToAtom
+			// anyway, and the atom form only lied about the slot's type.
 			facts = append(facts, core.Fact{
 				Predicate: "code_defines",
 				Args: []any{
 					path,
-					core.MangleAtom(id),
+					id,
 					core.MangleAtom("/function"),
 					int64(start),
 					int64(end),
@@ -140,12 +143,12 @@ func (c *Cartographer) mapGoFile(fsPath, path string) ([]core.Fact, error) {
 				typeType = "/interface"
 			}
 
-			// New Holographic Atom
+			// New Holographic Atom (Symbol is /string; see above).
 			facts = append(facts, core.Fact{
 				Predicate: "code_defines",
 				Args: []any{
 					path,
-					core.MangleAtom(id),
+					id,
 					core.MangleAtom(typeType),
 					int64(start),
 					int64(end),
@@ -172,13 +175,26 @@ func (c *Cartographer) mapGoFile(fsPath, path string) ([]core.Fact, error) {
 			}
 
 			if callee != "" {
-				// code_calls(Caller, Callee)
+				// code_calls(Caller, Callee) in bare cartographer IDs, the
+				// spelling impact.mg joins against modified_function (see
+				// core/codedom_modified_symbols.go symbolIDFromRef). Both
+				// slots are declared /string (schemas_analysis.mg:116), so
+				// both are plain strings, not MangleAtom.
 				facts = append(facts, core.Fact{
 					Predicate: "code_calls",
-					Args: []any{
-						core.MangleAtom(currentFunction),
-						core.MangleAtom(callee),
-					},
+					Args:      []any{currentFunction, callee},
+				})
+				// Dual CodeDOM-ref spelling for the test-impact joins.
+				// test_impact.mg binds the same variable against
+				// is_test_function/code_element (refs like fn:pkg.Name) and
+				// code_calls: with bare rows only, the call rule and the
+				// transitive call rule can never fire. Go refs share the fn
+				// prefix for functions and methods (go_parser.go buildRef),
+				// so "fn:"+id is exact here, not a guess. The bare row
+				// above stays: it is the documented impact.mg contract.
+				facts = append(facts, core.Fact{
+					Predicate: "code_calls",
+					Args:      []any{"fn:" + currentFunction, "fn:" + callee},
 				})
 			}
 		}

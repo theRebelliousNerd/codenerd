@@ -68,14 +68,14 @@ func (m *MyStruct) method() {
 	foundStruct := false
 	foundMethod := false
 	foundCall := false
+	foundDualCall := false
 
 	for _, f := range facts {
 		if f.Predicate == "code_defines" {
-			idAtom, ok1 := f.Args[1].(core.MangleAtom)
+			id, ok1 := f.Args[1].(string)
 			typeAtom, ok2 := f.Args[2].(core.MangleAtom)
 
 			if ok1 && ok2 {
-				id := string(idAtom)
 				typeStr := string(typeAtom)
 
 				if id == "main.hello" && typeStr == "/function" {
@@ -87,15 +87,15 @@ func (m *MyStruct) method() {
 				}
 			}
 		} else if f.Predicate == "code_calls" {
-			callerAtom, ok1 := f.Args[0].(core.MangleAtom)
-			calleeAtom, ok2 := f.Args[1].(core.MangleAtom)
+			caller, ok1 := f.Args[0].(string)
+			callee, ok2 := f.Args[1].(string)
 
 			if ok1 && ok2 {
-				caller := string(callerAtom)
-				callee := string(calleeAtom)
-
 				if caller == "main.MyStruct.method" && callee == "main.hello" {
 					foundCall = true
+				}
+				if caller == "fn:main.MyStruct.method" && callee == "fn:main.hello" {
+					foundDualCall = true
 				}
 			}
 		}
@@ -112,6 +112,9 @@ func (m *MyStruct) method() {
 	}
 	if !foundCall {
 		t.Error("Expected to find code_calls fact from main.MyStruct.method to main.hello")
+	}
+	if !foundDualCall {
+		t.Error("Expected to find dual code_calls fact from fn:main.MyStruct.method to fn:main.hello")
 	}
 }
 

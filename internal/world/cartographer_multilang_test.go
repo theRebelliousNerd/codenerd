@@ -2,6 +2,7 @@ package world
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"codenerd/internal/core"
@@ -28,7 +29,7 @@ func definitions(facts []core.Fact) map[string]string {
 		if f.Predicate != "code_defines" || len(f.Args) < 5 {
 			continue
 		}
-		id := string(f.Args[1].(core.MangleAtom))
+		id := f.Args[1].(string)
 		out[id] = string(f.Args[2].(core.MangleAtom))
 	}
 	return out
@@ -40,8 +41,8 @@ func calls(facts []core.Fact) map[string][]string {
 		if f.Predicate != "code_calls" || len(f.Args) < 2 {
 			continue
 		}
-		caller := string(f.Args[0].(core.MangleAtom))
-		callee := string(f.Args[1].(core.MangleAtom))
+		caller := f.Args[0].(string)
+		callee := f.Args[1].(string)
 		out[caller] = append(out[caller], callee)
 	}
 	return out
@@ -179,5 +180,37 @@ func TestCartographer_WhenMappedAs_ShouldLabelFactsWithCanonicalPath(t *testing.
 				t.Errorf("fact %s carries the filesystem path %q instead of the canonical identity", f.Predicate, s)
 			}
 		}
+	}
+}
+
+// TestCartographer_WhenNonGoFile_ShouldNotEmitRefSpelledCalls pins the Go-only
+// scope of the dual fn:-prefixed code_calls rows: module-qualified IDs cannot
+// reconstruct the py:/ts:/rs: refs (file path + parent qualification), so a
+// dual row there would be a guess that joins nothing. See deepMapper.call.
+func TestCartographer_WhenNonGoFile_ShouldNotEmitRefSpelledCalls(t *testing.T) {
+	fixtures := map[string]string{
+		"svc.py": "def f():\n    return g()\n\ndef g():\n    return 1\n",
+		"app.ts": "function f() { return g(); }\nfunction g() { return 1; }\n",
+		"lib.rs": "pub fn f() -> u32 { g() }\npub fn g() -> u32 { 1 }\n",
+	}
+	for name, src := range fixtures {
+		t.Run(name, func(t *testing.T) {
+			facts := mapFixture(t, name, src)
+			seen := false
+			for _, f := range facts {
+				if f.Predicate != "code_calls" || len(f.Args) < 2 {
+					continue
+				}
+				seen = true
+				for _, a := range f.Args[:2] {
+					if s, ok := a.(string); ok && strings.HasPrefix(s, "fn:") {
+						t.Errorf("non-Go code_calls carries a Go ref spelling: %v", f.Args)
+					}
+				}
+			}
+			if !seen {
+				t.Fatalf("no code_calls facts for %s; the pin is vacuous", name)
+			}
+		})
 	}
 }

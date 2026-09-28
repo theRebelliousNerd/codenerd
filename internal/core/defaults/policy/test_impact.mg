@@ -9,27 +9,44 @@
 # (internal/world/test_dependency.go) because Mangle doesn't have
 # string matching functions (fn:match, fn:basename, fn:dirname, etc.).
 #
-# THE SENTENCE THAT USED TO BE HERE SAID that Go code asserts is_test_file(File)
-# and is_test_function(Ref), "which these rules then consume". Verified
-# 2026-09-11 and it is not so, which matters because it is the difference
-# between a rule that fires and one that cannot:
+# NOTE (2026-09-28, W1): the inventory below was verified 2026-09-11 and
+# parts of it have since been wired. It is kept as the record of what was
+# starved, with the current state of each entry.
 #
-#   is_test_function   NO PRODUCER, in Go or Mangle. Declared below, named in
-#                      five rule bodies in this file, asserted by nobody.
-#                      internal/world/test_dependency.go -- the file named
-#                      above -- contains no Fact{}, no Assert and no
-#                      Predicate: at all. It is a CONSUMER: it queries the
-#                      kernel and builds a dependency graph in Go, which
-#                      run_impacted_tests reaches through the
-#                      TestDependencyAnalyzer interface.
+#   is_test_function   WAS: no producer. NOW: CodeElement.ToFacts
+#                      (internal/world/code_elements.go) asserts it for every
+#                      test entrypoint -- Test*/Benchmark*/Fuzz*/Example* in a
+#                      _test.go file (and the py/ts/rs equivalents) -- with
+#                      the element's own ref, the exact spelling these rules
+#                      join on. It rides the ScopeFacts/FileFacts batch, so
+#                      scope replacement retracts it with code_element.
 #
-#   file_imports       NO PRODUCER either (Decl in schemas_codedom_polyglot.mg
-#                      :200, joined by three rules here and aliased by
-#                      intent_routing_rules.mg:588 as imports/2). The live
-#                      file-to-file edge the scanners actually emit is
-#                      dependency_link(CallerID, CalleeID, ImportPath),
-#                      schemas_world.mg:54. Two names for one relation, and
-#                      the populated one is not the one these rules join.
+#   code_calls         The bare <pkg>.<Name> rows these rules join are now
+#                      accompanied by dual fn:-prefixed rows from the Go
+#                      Cartographer (internal/world/cartographer.go), because
+#                      the call rule and the transitive call rule bind the
+#                      same variable code_element does. The bare rows stay:
+#                      impact.mg joins them against modified_function, and
+#                      that contract is documented, not legacy. Non-Go
+#                      mappers emit bare rows only (their refs key on file
+#                      path + parentage the walker cannot reconstruct).
+#
+#   file_imports       STILL NO PRODUCER (Decl in
+#                      schemas_codedom_polyglot.mg:200). The live file-to-file
+#                      edge is dependency_link(CallerID, CalleeID, ImportPath).
+#                      Until one of them feeds these rules, the file-import
+#                      test_depends_on rule and the modified_file
+#                      impacted_test rule derive nothing.
+#
+#   same_package       STILL NO PRODUCER (Decl in schemas_shards.mg:242), so
+#                      the same-package test_depends_on rule derives nothing
+#                      and no test can be /low priority.
+#
+#   plan_edit          STILL NO PRODUCER (Decl in
+#                      schemas_codedom_polyglot.mg:206). The transaction
+#                      manager emits modified_file instead (see below), so
+#                      every impacted_test rule that reads plan_edit waits on
+#                      a fact nothing asserts.
 #
 #   modified_file      Its only Go producer is TransactionManager.ToFacts()
 #                      (internal/core/transaction_manager.go), and nothing in
@@ -38,25 +55,31 @@
 #                      production code calls Begin or AddEdit, so no
 #                      transaction is ever opened and ToFacts returns empty.
 #
-# So every impacted_test and test_depends_on rule below is starved, and has
-# been. This is recorded rather than fixed because fixing it is a design
-# decision, not a wire: somebody has to choose whether test identification
-# moves into the scanner, whether file_imports collapses into dependency_link,
-# and what drives the transaction manager. Wiring modified_file ALONE -- the
-# obvious-looking fix, and the one this note exists to stop -- derives exactly
-# nothing, because is_test_function still binds no rows.
+#   is_test_file       STILL NO PRODUCER (Decl in schemas_shards.mg:288).
+#                      coverage_gap negates it, so until it is wired the gap
+#                      rule accuses the tests themselves (pinned by
+#                      TestTestImpactChain_WhenNoTestFileMark_ShouldAccuseTheTests).
 #
-# The Go path is what carries test impact today and it works: run_impacted_tests
-# reads edited refs from element_modified and plan_edit and walks the graph in
-# Go. These rules are a parallel Mangle path that never came up.
+# What fires today, given the facts: the code_calls test_depends_on rule,
+# its transitive closure, the same-file impacted_test rule, coverage and
+# priority -- proven by internal/world/test_impact_chain_test.go against
+# the real corpus from real producer output. method_of needs no shard
+# attention: it is derived in-world from element_parent (codedom_core.mg),
+# so the transitive method rule fires on the production kernel; the
+# sharded-vs-single parity test guards the colocation.
+#
+# The Go path still carries production test impact (run_impacted_tests
+# reads edited refs from element_modified and walks the graph in Go).
+# These rules are the Mangle path coming up, one producer at a time.
 
 # =============================================================================
 # SECTION 1: TEST IDENTIFICATION PREDICATES
 # =============================================================================
-# These predicates were INTENDED to be asserted by Go code (test_dependency.go)
-# rather than derived. Declarations are in schemas_shards.mg (is_test_file,
-# same_package). is_test_function is not declared elsewhere, so we declare it
-# here -- and nothing asserts it; see the note at the top of this file.
+# is_test_function is asserted by CodeElement.ToFacts
+# (internal/world/code_elements.go), which runs wherever code_element facts
+# are produced. It is declared here because it is declared nowhere else;
+# the companion test-file/package predicates live in schemas_shards.mg
+# (is_test_file, same_package) and still await producers (see above).
 
 Decl is_test_function(Ref).
 

@@ -161,11 +161,14 @@ func (m *deepMapper) define(name, kind string, n *sitter.Node) string {
 		return ""
 	}
 	id := m.module + "." + name
+	// The Symbol slot is declared /string (schemas_analysis.mg): a plain
+	// string, not MangleAtom. kind keeps its atom form: it is always a
+	// /-prefixed name constant (/function, /class, ...).
 	m.facts = append(m.facts, core.Fact{
 		Predicate: "code_defines",
 		Args: []any{
 			m.file,
-			core.MangleAtom(id),
+			id,
 			core.MangleAtom(kind),
 			int64(n.StartPoint().Row) + 1,
 			int64(n.EndPoint().Row) + 1,
@@ -178,9 +181,15 @@ func (m *deepMapper) call(caller, callee string) {
 	if caller == "" || callee == "" {
 		return
 	}
+	// Plain strings: both slots are declared /string. Only the bare,
+	// module-qualified spelling is emitted here. The Go mapper also emits
+	// a dual fn:-prefixed row for the test-impact joins because Go refs
+	// are exactly "fn:"+id; the py:/ts:/rs: refs key on the file path and
+	// parent qualification this walker does not track, so a dual row
+	// would be a guess, and a wrong-spelled row joins nothing anyway.
 	m.facts = append(m.facts, core.Fact{
 		Predicate: "code_calls",
-		Args:      []any{core.MangleAtom(caller), core.MangleAtom(callee)},
+		Args:      []any{caller, callee},
 	})
 }
 
