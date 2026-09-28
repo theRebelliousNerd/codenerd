@@ -5,7 +5,7 @@
   priority: 88
   is_mandatory: true
   shard_types: [coder, reviewer, tester]
-  requires_tools: [find_symbol, package_outline, get_elements, get_element, edit_element, replace_element, insert_element]
+  requires_tools: [find_symbol, package_outline, get_elements, get_element, edit_element, replace_element, insert_element, delete_element, create_file, repoint]
   description: "Address Go and Mangle code by element ref and rev; every edit is parsed, gofmt'd and import-derived before it is written"
   content: |
     ## CodeDOM First: Address Code By Element, Not By Line

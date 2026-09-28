@@ -6,6 +6,7 @@
   priority: 89
   is_mandatory: false
   depends_on: ["capability/browser_reasoning", "capability/browser_evidence"]
+  requires_tools: [browser_test, browser_act]
   intent_verbs: ["/verify", "/validate", "/test", "/debug"]
   shard_types: ["/tester", "/researcher"]
   content: |

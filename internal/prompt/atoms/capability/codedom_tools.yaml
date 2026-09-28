@@ -9,7 +9,7 @@
   is_mandatory: true
   depends_on: ["capability/codedom_core"]
   shard_types: []  # Applies to all personas
-  requires_tools: [find_symbol, package_outline, callers_of, get_elements, get_element]
+  requires_tools: [find_symbol, package_outline, callers_of, get_elements, get_element, predicate_outline, find_text]
   content: |
     ## What The CodeDOM Tools Return
 

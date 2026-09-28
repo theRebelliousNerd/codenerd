@@ -34,9 +34,9 @@
 
     {{available_tools}}
 
-    If the request maps cleanly to one of the above (e.g. user asked for a
-    new file → `write_file`; user asked to edit a file → `edit_file`; user
-    asked to run a command → `run_command`), emit that tool_call now.
+    If the request maps cleanly to one of the above (e.g. a file creation,
+    edit, or build/test request matching a listed tool's purpose), emit
+    that tool_call now.
 
     If none of the above can satisfy the request, respond once with a
     single short sentence naming the missing capability — then stop.

@@ -7,7 +7,7 @@
   priority: 96  # Very high - guides tool selection before other CodeDOM atoms
   is_mandatory: true
   depends_on: []
-  requires_tools: [find_symbol, get_elements, get_element, callers_of, edit_element, edit_lines]
+  requires_tools: [find_symbol, get_elements, get_element, callers_of, edit_element, edit_lines, edit_file, write_file]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/debug", "/review", "/test"]
   content: |
     ## Worked Examples: One Edit, Done Right

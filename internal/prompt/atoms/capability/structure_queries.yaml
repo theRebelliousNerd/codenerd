@@ -6,7 +6,7 @@
   priority: 97  # Above codedom_selection: locating comes before editing
   is_mandatory: true
   depends_on: []
-  requires_tools: [find_symbol, package_outline, callers_of, callees_of, unreferenced_symbols, get_element]
+  requires_tools: [find_symbol, package_outline, callers_of, callees_of, unreferenced_symbols, get_element, importers_of, find_text, predicate_outline]
   content: |
     ## The Workspace Is Already Parsed: Ask, Do Not Search
 

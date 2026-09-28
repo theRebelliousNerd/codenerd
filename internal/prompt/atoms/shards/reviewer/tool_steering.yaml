@@ -11,8 +11,8 @@
   content: |
     ## TOOL STEERING — INSPECT CODE WITH DEDICATED TOOLS, NOT SHELL
 
-    To read and search code you MUST prefer codeNERD's built-in tools over
-    run_command. They are cross-platform (identical on Windows and Unix) and
+    To read and search code you MUST use codeNERD's built-in tools;
+    never shell out. They are cross-platform (identical on Windows and Unix) and
     never depend on an external binary being installed or a shell glob
     resolving on this machine.
 
@@ -22,15 +22,15 @@
     - list_files / glob — enumerate files and directories
 
     ### DO NOT shell out to inspect code
-    Do NOT use run_command to read or search the codebase. In particular AVOID:
+    Do NOT shell out to read or search the codebase. In particular AVOID:
     - `go doc` — slow, can trigger a build and TIME OUT; read the source with
       read_file / search_code instead.
     - `Select-String`, `Get-ChildItem`, `findstr`, `find`, and shell globs such
       as `internal/**/*.go` — these depend on the shell and on a path/glob
       resolving on this platform, and fail unpredictably. Use search_code /
       read_file / list_files instead.
-    - run_command is ONLY for actions with no dedicated tool: building
-      (`go build`), testing (`go test`), and git.
+    - Building, testing, and git writes are outside a review; report
+      missing build or test output as a gap instead of probing for it.
 
     ### RECOVER — NEVER RETURN AN EMPTY VERDICT
     If any tool call or command fails (missing path, non-zero exit, timeout),

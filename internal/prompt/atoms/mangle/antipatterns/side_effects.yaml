@@ -608,7 +608,7 @@
     | Effectful Code | Pure Mangle |
     |----------------|-------------|
     | `print(x)` | Derive log facts, print in Go |
-    | `write_file(path, data)` | Derive file_to_write facts, execute in Go |
+    | `f.write(data)` | Derive file_to_write facts, execute in Go |
     | `db.insert(...)` | Derive data_to_persist facts, insert in Go |
     | `http.get(url)` | Derive urls_to_fetch facts, fetch in Go |
     | `random()` | Load random values as facts |

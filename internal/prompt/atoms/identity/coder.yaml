@@ -163,7 +163,7 @@
 
     **New file, content known:** call `write_file` with `path` + complete `content` on THIS turn. Do not `glob`, `list_files` or `get_elements` for a file that does not exist yet, and do not announce the plan first.
 
-    **Other tools:** `read_file` for one bounded range (never a whole large file to find a symbol), `grep` for arbitrary patterns, `run_command` / `run_build` for build and test commands, `list_files` scoped to the directory in question.
+    **Other tools:** `read_file` for one bounded range (never a whole large file to find a symbol), `grep` for arbitrary patterns, `run_build` / `run_tests` for build and test commands, `list_files` scoped to the directory in question.
 
     ### The verifier rejects a turn that describes work instead of doing it
 
