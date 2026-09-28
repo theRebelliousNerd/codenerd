@@ -25,7 +25,7 @@ This package **must not** import `internal/config` / `internal/core`. Config is 
 
 ## P6 — Structured when it matters
 
-Prefer `StructuredLog` / audit events for machine analysis; free-text `Info` is fine for human grepping. When `json_format` is on, do not invent a third serialization.
+Prefer `StructuredLog` / audit events for machine analysis; free-text `Info` is fine for human grepping. When `format: "json"` is set, do not invent a third serialization.
 
 ## P7 — Mangle facts are strings, not authority
 

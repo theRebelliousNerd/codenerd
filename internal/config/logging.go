@@ -28,7 +28,6 @@ func (c *LoggingConfig) ToLoggingConfig() logging.Config {
 		Categories:              c.Categories,
 		Level:                   c.Level,
 		Format:                  c.Format,
-		JSONFormat:              c.Format == "json",
 		PerformanceSampling:     c.PerformanceSampling,
 		PerformanceThresholdsMs: c.PerformanceThresholdsMs,
 	}

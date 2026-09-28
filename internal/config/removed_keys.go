@@ -67,6 +67,14 @@ var (
 	removedShardProfileKeys = map[string]string{
 		"max_execution_time_sec": "a shard's task runs while it makes progress; the only wall clock on a run is the user's --timeout; delete the key",
 	}
+	// removedLoggingKeys: `logging`. `json_format` was the bool alias for
+	// `format: "json"`, removed 2026-09-28: two keys for one setting let two
+	// truths coexist, so `format` is now the only way to enable structured
+	// output. internal/logging's own loader names the same key with the same
+	// message (it cannot import this package; see P5).
+	removedLoggingKeys = map[string]string{
+		"json_format": `format: "json" is the only way to enable structured output; delete this key`,
+	}
 )
 
 // rejectRemovedKeys fails a config load that still carries a key this
@@ -83,6 +91,7 @@ func rejectRemovedKeys(data []byte) error {
 		DefaultShard  map[string]json.RawMessage            `json:"default_shard"`
 		Features      map[string]json.RawMessage            `json:"features"`
 		Working       map[string]json.RawMessage            `json:"working"`
+		Logging       map[string]json.RawMessage            `json:"logging"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return nil
@@ -102,6 +111,7 @@ func rejectRemovedKeys(data []byte) error {
 	reasons = append(reasons, removedIn("default_shard", envelope.DefaultShard, removedShardProfileKeys)...)
 	reasons = append(reasons, removedIn("features", envelope.Features, removedFeatureKeys)...)
 	reasons = append(reasons, removedIn("working", envelope.Working, removedWorkingKeys)...)
+	reasons = append(reasons, removedIn("logging", envelope.Logging, removedLoggingKeys)...)
 	if len(reasons) == 0 {
 		return nil
 	}

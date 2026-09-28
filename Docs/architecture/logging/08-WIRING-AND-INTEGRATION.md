@@ -50,7 +50,7 @@ Long-lived TUI sessions therefore depend on chat boot for file logging; process-
 
 Operators must ensure `debug_mode` appears in the JSON file this package reads.
 
-Example from live trees: `.nerd/config.json` may include `"json_format": false` under `logging`.
+Example from live trees: `.nerd/config.json` may include `"format": "text"` under `logging`.
 
 ## 3. Call-site wiring patterns
 
@@ -104,7 +104,7 @@ No registration table inside logging — **pull** model (callers invoke).
 | Auto-load audit.mg into kernel each turn | **Not wired** |
 | CloseAudit on CLI PersistentPostRun | **Not wired** |
 | CloseLLMIOLogger on chat exit | **Not wired** (OS FD close) |
-| Sync config.yaml format → json_format | **Not wired** |
+| Sync config.yaml format → logging.format | **Not wired** |
 | Prompt-atom selection based on log volume | **Not a goal** |
 
 ## 6. Wiring audit checklist for new features

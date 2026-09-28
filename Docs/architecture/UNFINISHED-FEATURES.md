@@ -132,7 +132,7 @@ The starting backlog was **306** actionable open items across 38 corpora.
 - **[init]** Wire `--define-agent` / Type U into CLI `runInit` merge path.
 - **[init]** Attach `ProgressChan` from chat `/init` if slash init exists.
 - **[init]** Ingest `populateProjectAtoms` into `prompts/corpus.db` for JIT visibility.
-- **[logging]** Align config schema: `json_format` bool vs `config.LoggingConfig.Format` string — pick one and document/load both
+- **[logging]** Align config schema: `format` is the one key; the `json_format` alias is removed and refused at load
 - **[logging]** Document (and optionally implement) loading from the same file the rest of the app treats as source of truth
 - **[logging]** LLM I/O redaction hooks for common secret patterns
 - **[mcp]** Retain `MCPIntegrationBridge` on boot/system context for compile access
@@ -263,7 +263,7 @@ The starting backlog was **306** actionable open items across 38 corpora.
 - **[init]** Relocate session persistence types to `internal/session` (breaking API care).
 - **[init]** Remove accidental `debug_program_ERROR.mg` from package tree / ignore dumps.
 - **[init]** Complete Ouroboros tool generation call site or delete dead `determineRequiredTools` UI noise.
-- **[logging]** ContextLogger / RequestLogger respect `json_format` via structured entries
+- **[logging]** ContextLogger / RequestLogger respect `format: "json"` via structured entries
 - **[logging]** Operator playbook snippet in root AGENTS or help command pointing at this corpus
 - **[logging]** Optional CLI offline: audit JSONL → `.mg` facts file
 - **[logging]** Size/time-based log rotation beyond daily name

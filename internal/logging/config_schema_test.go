@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// The package parsed `json_format` while config.LoggingConfig — the struct the
-// rest of the app loads from the same .nerd/config.json — writes `format`.
-// A config produced by the app could therefore never enable structured logging.
+// `format` is the one key that enables structured logging output. The
+// `json_format` bool alias was removed: a config still carrying it is refused
+// at load, naming `format` as the replacement.
 
 func TestLoadConfig_WhenFormatIsJSON_ShouldEnableStructuredOutput(t *testing.T) {
 	ws := newWorkspace(t, `"debug_mode": true, "level": "debug", "format": "json"`)
@@ -32,16 +32,19 @@ func TestLoadConfig_WhenFormatIsJSON_ShouldEnableStructuredOutput(t *testing.T) 
 	}
 }
 
-func TestLoadConfig_WhenLegacyJSONFormatFlag_ShouldStillEnableStructuredOutput(t *testing.T) {
+func TestLoadConfig_WhenRemovedJSONFormatKey_ShouldRefuseNamingFormat(t *testing.T) {
 	ws := newWorkspace(t, `"debug_mode": true, "level": "debug", "json_format": true`)
 	resetAllLoggingState(t)
 	defer resetAllLoggingState(t)
 
-	if err := Initialize(ws); err != nil {
-		t.Fatalf("Initialize: %v", err)
+	err := Initialize(ws)
+	if err == nil {
+		t.Fatal("Initialize accepted the removed json_format key")
 	}
-	if !IsJSONFormat() {
-		t.Fatal("legacy json_format alias stopped working")
+	for _, want := range []string{"logging.json_format", "no longer a supported key", `format: "json"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not contain %q: %v", want, err)
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -66,22 +67,17 @@ const (
 // loggingConfig mirrors the relevant parts of config.LoggingConfig
 // to avoid circular imports (config imports logging, never the reverse).
 //
-// Schema decision (TODO P1 "align json_format vs Format"): `format` is
-// canonical. config.LoggingConfig — the struct the rest of the app loads from
-// this same .nerd/config.json — carries `format: "json"|"text"` and has no
-// json_format field at all, so a config written by the app could never turn
-// this package's JSON mode on. `json_format` stays accepted as a legacy alias
-// because workspaces and the corpus README already document it; either key
-// enables structured output, and `format: "json"` wins nothing over
-// `json_format: true` — they are OR'd, not ranked, so neither loader can
-// silently disable what the other enabled.
+// Schema decision: `format` is the one key that enables structured output.
+// The `json_format` bool alias was removed (2026-09-28) because two keys for
+// one setting let two truths coexist — either loader could silently disable
+// what the other enabled. A config still carrying `json_format` is refused
+// at load by rejectRemovedLoggingKeys, naming `format` as the replacement.
 type loggingConfig struct {
 	DebugMode  bool            `json:"debug_mode"`
 	TraceLLMIO bool            `json:"trace_llm_io"` // Dump full LLM prompt/response to llm_io log
 	Categories map[string]bool `json:"categories"`
 	Level      string          `json:"level"`
-	Format     string          `json:"format"`      // "json" | "text" — canonical, matches config.LoggingConfig
-	JSONFormat bool            `json:"json_format"` // Legacy alias for format: "json"
+	Format     string          `json:"format"` // "json" | "text" — matches config.LoggingConfig
 	// TraceLLMIORaw disables secret redaction in the LLM I/O trace. Off by
 	// default: the trace is a full prompt dump and prompts carry credentials.
 	TraceLLMIORaw bool `json:"trace_llm_io_raw"`
@@ -269,7 +265,6 @@ type Config struct {
 	Categories              map[string]bool
 	Level                   string
 	Format                  string // "json" | "text"
-	JSONFormat              bool   // legacy alias for Format == "json"
 	PerformanceSampling     float64
 	PerformanceThresholdsMs map[string]int64
 	MaxLogFileMB            int64
@@ -290,7 +285,6 @@ func ApplyConfig(c Config) {
 		Categories:              c.Categories,
 		Level:                   c.Level,
 		Format:                  c.Format,
-		JSONFormat:              c.JSONFormat,
 		PerformanceSampling:     c.PerformanceSampling,
 		PerformanceThresholdsMs: c.PerformanceThresholdsMs,
 		MaxLogFileMB:            c.MaxLogFileMB,
@@ -319,6 +313,14 @@ func initializeInternal(ws string) error {
 
 	// Load config first to check if debug mode is enabled
 	if err := loadConfig(); err != nil {
+		// A removed key fails the boot instead of degrading to silence: an
+		// operator who believes json_format still enables structured output
+		// is worse off than one whose config will not start. Every other
+		// load failure degrades to disabled (production mode) as before.
+		var removed *removedKeyError
+		if errors.As(err, &removed) {
+			return err
+		}
 		// Log to stderr if we can't load config
 		fmt.Fprintf(os.Stderr, "[logging] Warning: could not load config: %v\n", err)
 		// Default to disabled (production mode)
@@ -396,6 +398,14 @@ func loadConfig() error {
 		return err
 	}
 
+	// Named rejection first: without it a removed key would either parse as
+	// nothing (silently dropping the operator's intent) or fail as a generic
+	// parse error. This mirrors internal/config's rejectRemovedKeys, which
+	// this package cannot call without a circular import (see P5).
+	if err := rejectRemovedLoggingKeys(data); err != nil {
+		return err
+	}
+
 	var cf configFile
 	if err := json.Unmarshal(data, &cf); err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
@@ -405,6 +415,38 @@ func loadConfig() error {
 	configLoaded = true
 	applyLevelLocked(config.Level)
 
+	return nil
+}
+
+// removedKeyError is returned when .nerd/config.json still carries a logging
+// key this package no longer honours. It is a distinct type (rather than a
+// plain fmt.Errorf) so initializeInternal can fail the boot on it while every
+// other load failure still degrades to silent production mode per P3.
+type removedKeyError struct{ msg string }
+
+func (e *removedKeyError) Error() string { return e.msg }
+
+// rejectRemovedLoggingKeys fails a config load that still carries a logging
+// key this package no longer honours. It mirrors internal/config's
+// rejectRemovedKeys — same message shape, same reason — because this package
+// parses the `logging` object of .nerd/config.json a second time, and P5
+// forbids importing internal/config to share the check. Keep the two messages
+// in sync: internal/config/removed_keys.go names the same key.
+//
+// Malformed JSON is not this function's problem: it returns nil and lets the
+// unmarshal in loadConfig produce the parse error.
+func rejectRemovedLoggingKeys(data []byte) error {
+	var envelope struct {
+		Logging map[string]json.RawMessage `json:"logging"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil
+	}
+	if _, gone := envelope.Logging["json_format"]; gone {
+		return &removedKeyError{msg: "remove from .nerd/config.json: " +
+			`logging.json_format is no longer a supported key: format: "json" is ` +
+			`the only way to enable structured output; delete this key`}
+	}
 	return nil
 }
 
@@ -701,18 +743,19 @@ func (l *Logger) StructuredLog(level string, msg string, fields map[string]any) 
 	l.logger.Printf("[%s] %s | fields=%v", level, msg, fields)
 }
 
-// IsJSONFormat returns whether structured JSON logging is enabled, honouring
-// both the canonical `format: "json"` and the legacy `json_format: true`.
+// IsJSONFormat reports whether structured JSON logging is enabled, derived
+// from `format` alone: `format: "json"` (any case, surrounding space ignored)
+// turns it on, anything else leaves it off.
 func IsJSONFormat() bool {
 	configMu.RLock()
 	defer configMu.RUnlock()
 	return jsonFormatEnabledLocked()
 }
 
-// jsonFormatEnabledLocked is the single place the two schema spellings are
-// reconciled. Caller holds configMu (read or write).
+// jsonFormatEnabledLocked is the single place JSON mode is derived from the
+// configured format. Caller holds configMu (read or write).
 func jsonFormatEnabledLocked() bool {
-	return config.JSONFormat || strings.EqualFold(strings.TrimSpace(config.Format), "json")
+	return strings.EqualFold(strings.TrimSpace(config.Format), "json")
 }
 
 // rawLLMTraceEnabled reports whether the operator opted out of LLM I/O
@@ -734,7 +777,7 @@ type ContextLogger struct {
 	context map[string]any
 }
 
-// emit writes one line for a ContextLogger, honouring json_format.
+// emit writes one line for a ContextLogger, honouring the configured format.
 //
 // The decorated loggers used to hardcode text output, so switching the
 // package to JSON produced a file that was *mostly* parseable — every plain

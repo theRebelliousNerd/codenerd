@@ -15,7 +15,7 @@
 | Deterministic observability for logic systems | **4** | Audit Mangle strings ready; not loaded into kernel |
 | Privacy / secret hygiene | **2** | Full prompt dump when `trace_llm_io`; no redaction |
 | Test grounding | **5** | ~141 tests; concurrency + fact formatting covered |
-| Config coherence with `internal/config` | **3** | Mirror struct; `json_format` vs `Format` drift |
+| Config coherence with `internal/config` | **3** | Mirror struct; single `format` key |
 | Scope discipline (not a kitchen-sink) | **5** | No browser/product terms; focused file telemetry |
 
 **Composite:** ~**4.0 / 5** — solid substrate aligned with north star; main risks are privacy of LLM dumps, config field drift, and incomplete unified shutdown.
@@ -54,7 +54,7 @@
 
 ### 6. Deterministic / Mangle-queryable observability — 4
 
-**Evidence:** `generateMangleFact` produces stable predicate-shaped strings; JSON audit lines include `mangle` field; `json_format` produces parseable category logs.
+**Evidence:** `generateMangleFact` produces stable predicate-shaped strings; JSON audit lines include `mangle` field; `format: "json"` produces parseable category logs.
 
 **Gap:** No in-repo consumer that asserts these facts into a Mangle program for live queries (offline only).
 
@@ -70,7 +70,7 @@
 
 **Evidence for:** Field names largely match `LoggingConfig` docs; dual helpers `IsCategoryEnabled` exist in both packages with same semantics.
 
-**Evidence against:** `json_format` (bool) vs `format` (string); logging reads **only** `config.json`; YAML-only workspaces may not drive this package as operators expect.
+**Evidence against:** logging reads **only** `config.json`; YAML-only workspaces may not drive this package as operators expect.
 
 ### 10. Scope discipline — 5
 

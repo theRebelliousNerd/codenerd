@@ -136,3 +136,27 @@ func TestLoadUserConfig_RejectsTheWindowKeysTheLedgerReplaced(t *testing.T) {
 		t.Fatalf("the ledger's keys did not load: %+v", got)
 	}
 }
+
+// `format: "json"` is the one way to enable structured logging output; the
+// `json_format` bool alias was removed on 2026-09-28 because two keys for one
+// setting let two truths coexist. A config still carrying it must fail naming
+// the key and its replacement, while the live `format` key loads.
+func TestLoadUserConfig_RejectsRemovedLoggingJSONFormatKey(t *testing.T) {
+	_, err := LoadUserConfig(writeCoreLimitsTestConfig(t, `{"provider":"gemini","logging": {"json_format": true}}`))
+	if err == nil {
+		t.Fatal("logging.json_format still loads; a removed key must not be silently ignored")
+	}
+	for _, want := range []string{"logging.json_format", "no longer a supported key", `format: "json"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not contain %q: %v", want, err)
+		}
+	}
+
+	cfg, err := LoadUserConfig(writeCoreLimitsTestConfig(t, `{"provider":"gemini","logging": {"format": "json"}}`))
+	if err != nil {
+		t.Fatalf("a config with the live logging.format key was refused: %v", err)
+	}
+	if cfg.GetLogging().Format != "json" {
+		t.Fatalf("logging.format did not load: %+v", cfg.GetLogging())
+	}
+}

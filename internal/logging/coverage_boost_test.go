@@ -38,7 +38,7 @@ func TestIsJSONFormat_WhenNotSet_ShouldReturnFalse(t *testing.T) {
 	defer resetLoggingState(t)
 
 	if IsJSONFormat() {
-		t.Error("expected JSONFormat to be false by default")
+		t.Error("expected JSON mode to be off by default")
 	}
 }
 
@@ -47,11 +47,11 @@ func TestIsJSONFormat_WhenEnabled_ShouldReturnTrue(t *testing.T) {
 	defer resetLoggingState(t)
 
 	configMu.Lock()
-	config.JSONFormat = true
+	config.Format = "json"
 	configMu.Unlock()
 
 	if !IsJSONFormat() {
-		t.Error("expected JSONFormat to be true")
+		t.Error(`expected format: "json" to enable JSON mode`)
 	}
 }
 
@@ -490,12 +490,12 @@ func TestLogger_WhenJSONFormat_ShouldWriteJSON(t *testing.T) {
 
 	// Enable JSON format
 	configMu.Lock()
-	origJSON := config.JSONFormat
-	config.JSONFormat = true
+	origFormat := config.Format
+	config.Format = "json"
 	configMu.Unlock()
 	defer func() {
 		configMu.Lock()
-		config.JSONFormat = origJSON
+		config.Format = origFormat
 		configMu.Unlock()
 	}()
 
@@ -529,12 +529,12 @@ func TestStructuredLog_WhenJSONFormat_ShouldOutputJSON(t *testing.T) {
 	logger := &Logger{category: CategoryKernel, logger: inner}
 
 	configMu.Lock()
-	origJSON := config.JSONFormat
-	config.JSONFormat = true
+	origFormat := config.Format
+	config.Format = "json"
 	configMu.Unlock()
 	defer func() {
 		configMu.Lock()
-		config.JSONFormat = origJSON
+		config.Format = origFormat
 		configMu.Unlock()
 	}()
 
@@ -555,12 +555,12 @@ func TestStructuredLog_WhenTextFormat_ShouldOutputText(t *testing.T) {
 	logger := &Logger{category: CategoryKernel, logger: inner}
 
 	configMu.Lock()
-	origJSON := config.JSONFormat
-	config.JSONFormat = false
+	origFormat := config.Format
+	config.Format = "text"
 	configMu.Unlock()
 	defer func() {
 		configMu.Lock()
-		config.JSONFormat = origJSON
+		config.Format = origFormat
 		configMu.Unlock()
 	}()
 

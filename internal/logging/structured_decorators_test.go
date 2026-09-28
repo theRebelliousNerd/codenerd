@@ -6,7 +6,7 @@ import (
 )
 
 // ContextLogger and RequestLogger hardcoded text output, so a workspace running
-// in json_format produced a file that was only mostly JSONL — and the lines
+// with `format: "json"` produced a file that was only mostly JSONL — and the lines
 // that were dropped by a JSON consumer were exactly the ones carrying
 // correlation IDs and context.
 

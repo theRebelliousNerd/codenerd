@@ -130,7 +130,7 @@ Master switch (.nerd/config.json, the same file every other subsystem reads):
     "logging": {
       "debug_mode": true,               // false = silent production, no files written
       "level": "debug",                 // debug | info | warn | error
-      "format": "text",                 // text | json  ("json_format": true is a legacy alias)
+      "format": "text",                 // text | json
       "trace_llm_io": false,            // full prompt/response dump
       "trace_llm_io_raw": false,        // disable secret redaction in that dump (unsafe)
       "categories": { "kernel": true, "session": true },

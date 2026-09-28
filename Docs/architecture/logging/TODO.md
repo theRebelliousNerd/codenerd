@@ -6,8 +6,9 @@
 ## P1
 
 - [x] Align config schema: `json_format` bool vs `config.LoggingConfig.Format` string
-      → `format` is canonical, `json_format` is a legacy alias, both OR'd in
-      `IsJSONFormat`. `config_schema_test.go` parses a `config.LoggingConfig`-shaped
+      → `format` is the one key; the `json_format` alias was removed and a
+      config still carrying it is refused at load naming `format`.
+      `config_schema_test.go` parses a `config.LoggingConfig`-shaped
       blob and fails if a key stops landing.
 - [x] Document (and optionally implement) loading from the same file the rest of
       the app treats as source of truth → it is already the same file
@@ -31,7 +32,7 @@
 
 ## P3
 
-- [x] ContextLogger / RequestLogger respect `json_format` via structured entries
+- [x] ContextLogger / RequestLogger respect `format: "json"` via structured entries
       → `emit(...)`; request ID lands in `req`, context in `fields`.
 - [x] Operator playbook → `nerd audit playbook` (`cmd/nerd/cmd_audit.go`) and the
       playbook section in this corpus README.
