@@ -16,6 +16,12 @@ func TestTracker_TrackAggregatesAndPersists(t *testing.T) {
 	// TODO: Test extreme concurrency (e.g., 1000 goroutines calling `Track`).
 	// TODO: Test the `maxSessions` pruning logic exactly at the boundary (500, 501 sessions).
 	// TODO: Test the `maxEvents` ring buffer wraparound.
+	// TODO: Test nil context passed to TrackFromContext to ensure fallback behavior.
+	// TODO: Test extreme string lengths (e.g., 100MB) for provider and model to verify memory stability.
+	// TODO: Test float64 precision loss when accumulating millions of small fractional costs.
+	// TODO: Test mutex contention and starvation with 10,000+ goroutines concurrently calling Track.
+	// TODO: Test O(N log N) performance degradation of pruneSessionsLocked under heavy concurrent load.
+	// TODO: Test slice shifting performance in recordTurnLocked under high throughput.
 	ws := t.TempDir()
 	tracker, err := NewTracker(ws)
 	if err != nil {
