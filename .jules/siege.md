@@ -110,3 +110,6 @@
 ## 2026-09-25 - Feedback Loop Schema Strictness
 **Learning:** When the `Dreamer` blocks an action, the `VirtualStore` must inject `security_violation` facts into the main kernel. If the main kernel's schema expects a different arity (e.g., 3 arguments instead of 2), the assertion fails silently. The `TDDLoop` never sees the rejection and loops infinitely trying the same bad action.
 **Action:** Always assert the presence of specific error facts (e.g., `security_violation`) in the Kernel after a VirtualStore tool execution is blocked, rather than relying solely on the return error from `PreflightDestructiveToolCall`.
+## 2026-09-28 - [Pipeline UserCommand Integration Vulnerabilities]
+**Learning:** The pipeline is susceptible to temporal failures and context loss when context paging limits are exceeded during deep Mangle evaluation.
+**Action:** Ensure strict budgeting and context preservation at the Mangle evaluation layer and handle timeouts aggressively.
