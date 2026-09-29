@@ -3,19 +3,20 @@ schema: nerd/v1
 project: codeNERD
 language: go
 commands:
-  build: go build -o nerd.exe ./cmd/nerd
-  test: go test ./...
-  lint: go vet ./...
+  build: go build ./...
+  test: go test -count=1 ./...
+  lint: go vet -tags sqlite_vec ./...
   env:
     CGO_CFLAGS: -IC:/CodeProjects/codeNERD/sqlite_headers
 gates:
   # Per-node gates: recurse measures each node of the derived DAG with these,
   # so a visit re-runs the node's own vet and tests, not the whole suite.
-  # commands.test (go test ./...) stays the workspace-wide gate every pass
-  # closes on.
+  # commands.test (go test -count=1 ./...) stays the workspace-wide gate every
+  # pass closes on. commands.build/lint/test are the elite ladder's G1-G3
+  # (Docs/journeys/05-elite-harness-ladder.md, "the gates").
   - id: go-vet
     kind: lint
-    run: go vet {pkg}
+    run: go vet -tags sqlite_vec {pkg}
     scope: node
   - id: go-test
     kind: test
@@ -47,6 +48,12 @@ gates:
   - id: predicate-corpus
     kind: audit
     run: go run ./cmd/tools/predicate_corpus_builder -check
+  # Ladder R6: every path, line and symbol Docs/architecture cites exists
+  # (1a39a3c1). Doc findings name no Go package, so recurse reports them as
+  # unattributed rather than sweeping them.
+  - id: doc-citations
+    kind: audit
+    run: go run ./cmd/tools/audit_doc_citations
   - id: deadcode-budget
     kind: audit
     run: bash ./scripts/deadcode-budget.sh
