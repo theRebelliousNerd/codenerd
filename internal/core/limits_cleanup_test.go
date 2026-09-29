@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -70,7 +71,10 @@ func TestValidateLearnedRulesContent_HealKeepsFileCommented(t *testing.T) {
 	k := setupMockKernel(t)
 	k.SetSchemas("Decl foo(Name).")
 	k.Evaluate()
-	res := k.validateLearnedRulesContent(`fact("`+strings.Repeat("y", 300)+"\n", "learned.mg", true)
+	// heal=true persists the healed text to the path given; a bare file name
+	// would land in the package directory the test runs in.
+	learnedPath := filepath.Join(t.TempDir(), "learned.mg")
+	res := k.validateLearnedRulesContent(`fact("`+strings.Repeat("y", 300)+"\n", learnedPath, true)
 	if res.stats.InvalidRules == 0 {
 		t.Fatalf("stats = %+v, want the malformed statement counted invalid", res.stats)
 	}

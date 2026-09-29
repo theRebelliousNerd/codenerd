@@ -785,6 +785,7 @@ type bootContext struct {
 	mcpCancel                    context.CancelFunc
 	mcpDone                      <-chan struct{}
 	toolStore                    *store.ToolStore
+	ouroborosCtx                 context.Context
 	ouroborosCancel              context.CancelFunc
 	ouroborosDone                <-chan struct{}
 	ouroborosQueue               chan core.ToolNeed
@@ -1763,7 +1764,10 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	}
 	// Executions go through the orchestrator's evaluate-and-refine path, not
 	// the bare loop, so tool quality is learned on every boot path.
-	bctx.virtualStore.SetToolExecutor(newOrchestratorToolExecutor(bctx.poiesis))
+	// Refinement outlives the tool call and stops when Cortex.Close cancels
+	// this context. Created here so the executor and the dream-queue loop
+	// share one lifetime.
+	bctx.virtualStore.SetToolExecutor(newOrchestratorToolExecutor(bctx.poiesis, ensureOuroborosLifetime(bctx)))
 
 	browserCfg := browser.DefaultConfig()
 	configuredBrowser := bctx.appCfg.GetBrowserConfig()
@@ -2480,6 +2484,49 @@ func initFactoryToolStore(bctx *bootContext) {
 	})
 }
 
+// ensureOuroborosLifetime is the autopoiesis context Cortex.Close cancels.
+// It is not the boot caller's context: GetOrBootCortex caches the cortex
+// under the first caller's ctx, which may already be done while the process
+// is still serving later commands.
+func ensureOuroborosLifetime(bctx *bootContext) context.Context {
+	if bctx == nil {
+		return context.Background()
+	}
+	if bctx.ouroborosCtx != nil {
+		return bctx.ouroborosCtx
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	bctx.ouroborosCtx = ctx
+	bctx.ouroborosCancel = cancel
+	return ctx
+}
+
+// serveDreamToolNeeds runs one Ouroboros generation per dream-router need.
+// Generation is a multi-stage job (propose, audit, simulate, commit, and
+// the retries between them). It stops when lifetime is cancelled
+// (Cortex.Close) or the queue closes. There is no wall clock around a
+// generation: each LLM call inside ExecuteOuroborosLoop keeps the client's
+// own request bound.
+func serveDreamToolNeeds(lifetime context.Context, needs <-chan core.ToolNeed, run func(context.Context, core.ToolNeed)) {
+	if lifetime == nil {
+		lifetime = context.Background()
+	}
+	if run == nil {
+		return
+	}
+	for {
+		select {
+		case <-lifetime.Done():
+			return
+		case need, ok := <-needs:
+			if !ok {
+				return
+			}
+			run(lifetime, need)
+		}
+	}
+}
+
 // initFactoryOuroborosWiring starts the kernel listener that reacts to
 // missing_tool_for facts and connects the DreamRouter to the Ouroboros tool
 // generation pipeline. It mirrors the TUI boot
@@ -2489,8 +2536,7 @@ func initFactoryOuroborosWiring(bctx *bootContext) {
 	if bctx == nil || bctx.poiesis == nil {
 		return
 	}
-	autoCtx, cancel := context.WithCancel(context.Background())
-	bctx.ouroborosCancel = cancel
+	autoCtx := ensureOuroborosLifetime(bctx)
 	listenerDone := bctx.poiesis.StartKernelListener(autoCtx, 2*time.Second)
 	ouroborosDone := make(chan struct{})
 	bctx.ouroborosDone = ouroborosDone
@@ -2511,27 +2557,17 @@ func initFactoryOuroborosWiring(bctx *bootContext) {
 			<-listenerDone
 			close(ouroborosDone)
 		}()
-		// Bound goroutine lifetime to autoCtx. dreamToolCh is fed by the
-		// DreamRouter; we don't own its close. Without a ctx.Done arm this
-		// goroutine would block forever on the receive after Close.
-		for {
-			select {
-			case <-autoCtx.Done():
-				return
-			case need, ok := <-dreamToolCh:
-				if !ok {
-					return
-				}
-				ctx, timeoutCancel := context.WithTimeout(autoCtx, 5*time.Minute)
-				autoNeed := &autopoiesis.ToolNeed{
-					Name:     need.Name,
-					Purpose:  need.Description,
-					Priority: need.Priority,
-				}
-				recordToolGeneration(need.Name, poiesis.ExecuteOuroborosLoop(ctx, autoNeed))
-				timeoutCancel()
+		// dreamToolCh is fed by the DreamRouter; we don't own its close.
+		// Without the lifetime.Done arm this goroutine would block forever
+		// on the receive after Close.
+		serveDreamToolNeeds(autoCtx, dreamToolCh, func(ctx context.Context, need core.ToolNeed) {
+			autoNeed := &autopoiesis.ToolNeed{
+				Name:     need.Name,
+				Purpose:  need.Description,
+				Priority: need.Priority,
 			}
-		}
+			recordToolGeneration(need.Name, poiesis.ExecuteOuroborosLoop(ctx, autoNeed))
+		})
 	}()
 }
 

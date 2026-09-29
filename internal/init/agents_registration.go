@@ -190,23 +190,15 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 		if i.config.LLMClient != nil && !i.config.SkipResearch && len(shard.Topics) > 0 {
 			registry := tools.NewRegistry()
 			if err := research.RegisterAll(registry); err == nil {
-				researchCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-				// Always release the timer goroutine; previously cancel was
-				// never called, leaking one timer per shard per init pass.
-				defer cancel()
-				for _, topic := range shard.Topics {
-					result, err := registry.Execute(researchCtx, "context7_fetch", map[string]any{"topic": topic})
-					if err == nil && result.Result != "" && len(result.Result) > 100 {
-						atoms := i.parseResearchResult(topic, result.Result)
-						for _, atom := range atoms {
-							added, err := appendKnowledgeAtom(shardDB, atom.Concept, atom.Content, atom.Confidence, existingHashes)
-							if err == nil && added {
-								newAtoms++
-							}
+				runShardTopicResearch(ctx, registry, shard.Topics, func(topic, body string) {
+					atoms := i.parseResearchResult(topic, body)
+					for _, atom := range atoms {
+						added, err := appendKnowledgeAtom(shardDB, atom.Concept, atom.Content, atom.Confidence, existingHashes)
+						if err == nil && added {
+							newAtoms++
 						}
 					}
-				}
-				cancel()
+				})
 			}
 		}
 
@@ -222,6 +214,28 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 	}
 
 	return results, nil
+}
+
+// runShardTopicResearch fetches one context7 topic at a time on ctx.
+// The pass is several requests, so it has no clock of its own: init
+// cancellation ends it, and each context7_fetch applies
+// research.context7_timeout to its own round trip.
+func runShardTopicResearch(ctx context.Context, registry *tools.Registry, topics []string, accept func(topic, body string)) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if registry == nil || accept == nil {
+		return
+	}
+	for _, topic := range topics {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		result, err := registry.Execute(ctx, "context7_fetch", map[string]any{"topic": topic})
+		if err == nil && result != nil && result.Result != "" && len(result.Result) > 100 {
+			accept(topic, result.Result)
+		}
+	}
 }
 
 // ToolGenerationRequest represents a tool to be generated during init using Ouroboros.

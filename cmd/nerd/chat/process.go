@@ -947,13 +947,12 @@ func (m Model) processInput(input string) tea.Cmd {
 					ControlPacket:   controlPacket,
 					Timestamp:       time.Now(),
 				}
-				baseCtx := m.shutdownCtx
-				if baseCtx == nil {
-					baseCtx = context.Background()
-				}
-				compressCtx, cancel := context.WithTimeout(baseCtx, 2*time.Minute)
-				defer cancel()
-				go m.compressor.ProcessTurn(compressCtx, turn)
+				// ProcessTurn is a multi-step job (atoms, kernel, summary, persist)
+				// started so the turn can answer without waiting. A child
+				// context cancelled when this goroutine returns — the old
+				// defer cancel — dropped the turn's compressed state as soon
+				// as the reply was sent. It stops when the session shuts down.
+				go m.compressor.ProcessTurn(dialogueCompressionContext(m.shutdownCtx), turn)
 			}
 
 			// These two kernel writes sit ABOVE the warnings render on
@@ -1030,4 +1029,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			errChan:      errChan,
 		}
 	}
+}
+
+// dialogueCompressionContext is the context for background turn compression.
+// The session's shutdownCtx is cancelled on quit. A nil shutdown context
+// (a partially built model) has nothing to cancel against.
+func dialogueCompressionContext(shutdownCtx context.Context) context.Context {
+	if shutdownCtx == nil {
+		return context.Background()
+	}
+	return shutdownCtx
 }

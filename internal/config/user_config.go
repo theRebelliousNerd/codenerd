@@ -404,6 +404,9 @@ func (c *UserConfig) GetEmbeddingConfig() EmbeddingConfig {
 		if cfg.TaskType == "" {
 			cfg.TaskType = "SEMANTIC_SIMILARITY"
 		}
+		if cfg.RequestTimeout == "" {
+			cfg.RequestTimeout = DefaultEmbeddingConfig().RequestTimeout
+		}
 		return cfg
 	}
 	// No embedding block in config.json: a provider and an endpoint, and no
@@ -412,6 +415,7 @@ func (c *UserConfig) GetEmbeddingConfig() EmbeddingConfig {
 		Provider:       "ollama",
 		OllamaEndpoint: "http://localhost:11434",
 		TaskType:       "SEMANTIC_SIMILARITY",
+		RequestTimeout: DefaultEmbeddingConfig().RequestTimeout,
 	}
 }
 
@@ -565,6 +569,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		if os.IsNotExist(err) {
 			SetExecutionFileLimits(*DefaultExecutionConfig())
 			SetResearchPolicy(mustResolveResearchDefaults())
+			installDefaultEmbeddingRequestTimeout()
 			SetObservationLimits(DefaultObservationConfig().Resolve())
 			if d, derr := DefaultIntegrationsConfig().ResolveDefaultTimeout(); derr == nil {
 				mcp.SetTransportTimeoutFallback(d)
@@ -651,6 +656,12 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		return nil, fmt.Errorf("failed to parse user config: %w", rerr)
 	}
 	SetResearchPolicy(researchPolicy)
+	embTimeout, eerr := cfg.GetEmbeddingConfig().ResolvedRequestTimeout()
+	if eerr != nil {
+		// Unreachable: Check refused the file above when this was wrong.
+		return nil, fmt.Errorf("failed to parse user config: %w", eerr)
+	}
+	SetEmbeddingRequestTimeout(embTimeout)
 	SetObservationLimits(cfg.GetObservationConfig().Resolve())
 	integFallback, ierr := cfg.GetIntegrations().ResolveDefaultTimeout()
 	if ierr != nil {

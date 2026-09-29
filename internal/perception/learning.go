@@ -7,18 +7,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"codenerd/internal/broker"
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 )
 
-// learnedPatternContext bounds embedding generation during pattern learning.
-// It intentionally does NOT derive from the consolidation worker's context:
-// the worker may be draining at shutdown while an embed is still useful.
+// learnedPatternContext bounds one embedding call while a learned pattern is
+// stored. It does not derive from the consolidation worker: Stop drains the
+// queue, and a pattern the critic already accepted is still worth embedding.
+// The worker has no context of its own (it stops on its quit channel); a
+// process-cancel parent would abort that drain. The deadline is
+// embedding.request_timeout — one HTTP call, not a job clock. The Ollama
+// engine's socket timeout is still a separate literal
+// (internal/embedding/ollama.go); a request_timeout above that cannot extend
+// an Ollama embed until that client reads it.
 // Kept as a var so tests can substitute a cancelled context.
 var learnedPatternContext = func() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 60*time.Second)
+	return context.WithTimeout(context.Background(), config.EmbeddingRequestTimeout())
 }
 
 // CriticSystemPrompt defines the persona for the Meta-Cognitive Supervisor.
@@ -199,7 +205,16 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 	// CompleteWithSystem treats empty as a vendor failure for chat, so this
 	// call must opt in or every successful "nothing to learn" turn logs
 	// ERROR and skips consolidation (live: Meta muse-spark empty critic).
-	resp, err := t.client.CompleteWithSystem(WithAllowEmptyCompletion(ctx), CriticSystemPrompt, criticInput)
+	// One completion. The bound is llm_timeouts.per_call_timeout; without it
+	// a CLI client (which waits on ctx, not an HTTP timeout) can hold the
+	// consolidation worker's Stop for as long as the process lives.
+	callCtx := ctx
+	if timeout := config.GetLLMTimeouts().PerCallTimeout; timeout > 0 {
+		var cancel context.CancelFunc
+		callCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	resp, err := t.client.CompleteWithSystem(WithAllowEmptyCompletion(callCtx), CriticSystemPrompt, criticInput)
 	llmTimer.Stop()
 
 	if err != nil {

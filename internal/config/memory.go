@@ -1,7 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"codenerd/internal/embedding"
 )
@@ -46,6 +49,14 @@ type EmbeddingConfig struct {
 	// RETRIEVAL_DOCUMENT, RETRIEVAL_QUERY, CODE_RETRIEVAL_QUERY,
 	// QUESTION_ANSWERING, FACT_VERIFICATION
 	TaskType string `yaml:"task_type" json:"task_type"` // Default: "SEMANTIC_SIMILARITY"
+
+	// RequestTimeout bounds one embedding HTTP call (a single Embed or
+	// EmbedWithTask). It is a request bound, not a run clock. Default 60s,
+	// the bound pattern-learning embeds carried as a literal. The Ollama
+	// engine's socket timeout is still its own 60s literal
+	// (internal/embedding/ollama.go) and will cap an Ollama embed at 60s
+	// until that client reads this field.
+	RequestTimeout string `yaml:"request_timeout" json:"request_timeout,omitempty"`
 }
 
 // ContextWindowConfig configures the semantic compression context window.
@@ -179,7 +190,65 @@ func DefaultEmbeddingConfig() *EmbeddingConfig {
 		GenAIAPIKey:    d.GenAIAPIKey,
 		GenAIModel:     d.GenAIModel,
 		TaskType:       d.TaskType,
+		RequestTimeout: "60s",
 	}
+}
+
+// ResolvedRequestTimeout parses RequestTimeout, filling the default when the
+// field is absent. Check refuses a value that does not parse; this is the
+// same parse for the process-wide install.
+func (c EmbeddingConfig) ResolvedRequestTimeout() (time.Duration, error) {
+	raw := strings.TrimSpace(c.RequestTimeout)
+	if raw == "" {
+		raw = DefaultEmbeddingConfig().RequestTimeout
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("embedding.request_timeout: %q is not a duration (want e.g. \"60s\", \"2m\"): %w", raw, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("embedding.request_timeout: %q must be positive", raw)
+	}
+	return d, nil
+}
+
+// activeEmbeddingRequestTimeout is the process-wide bound one embedding call
+// may take, installed by LoadUserConfig the same way LLM timeouts are.
+// Stored as nanoseconds.
+var activeEmbeddingRequestTimeout atomic.Int64
+
+func init() {
+	installDefaultEmbeddingRequestTimeout()
+}
+
+func installDefaultEmbeddingRequestTimeout() {
+	d, err := DefaultEmbeddingConfig().ResolvedRequestTimeout()
+	if err != nil {
+		panic("config: default embedding.request_timeout: " + err.Error())
+	}
+	SetEmbeddingRequestTimeout(d)
+}
+
+// SetEmbeddingRequestTimeout installs the process-wide embedding request bound.
+// LoadUserConfig is the production caller; tests install and restore.
+func SetEmbeddingRequestTimeout(d time.Duration) {
+	if d <= 0 {
+		panic("config: embedding request timeout must be positive")
+	}
+	activeEmbeddingRequestTimeout.Store(int64(d))
+}
+
+// EmbeddingRequestTimeout is the installed embedding request bound. Without a
+// load it is the default (60s).
+func EmbeddingRequestTimeout() time.Duration {
+	if n := activeEmbeddingRequestTimeout.Load(); n > 0 {
+		return time.Duration(n)
+	}
+	d, err := DefaultEmbeddingConfig().ResolvedRequestTimeout()
+	if err != nil {
+		panic("config: default embedding.request_timeout: " + err.Error())
+	}
+	return d
 }
 
 // EngineConfig is the embedding engine configuration for these settings. It is

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/shards"
 	"codenerd/internal/sqlpragmas"
@@ -113,8 +114,8 @@ type SpecialistTask struct {
 // rather than "the matcher is a stub". The matcher it deferred to is
 // shards.MatchSpecialistsForTask: real, tested, and already driving /fix,
 // /refactor and /create through spawnShardWithSpecialists. /review now uses the
-// same one, with the "/review" verb config (min confidence 0.3, at most 3
-// specialists, parallel).
+// same one, with the "/review" verb config (min confidence 0.3, parallel);
+// every match that clears the confidence bar reaches policy.
 func matchSpecialistsForReview(ctx context.Context, files []string, registry *AgentRegistry) []SpecialistMatch {
 	if registry == nil || len(registry.Agents) == 0 || len(files) == 0 {
 		return nil
@@ -621,9 +622,10 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 			}
 		}
 
-		// 7.5 Generate a natural-language narrative summary for the user
+		// 7.5 Generate a natural-language narrative summary for the user.
+		// One articulation call; the bound is llm_timeouts.articulation_timeout.
 		if m.client != nil {
-			narrativeCtx, cancel := context.WithTimeout(ctx, 3*time.Minute) // Extended for large context
+			narrativeCtx, cancel := reviewNarrativeContext(ctx)
 			agg.Narrative = m.generateReviewNarrative(narrativeCtx, &agg)
 			cancel()
 		}
@@ -703,6 +705,22 @@ func (m Model) aggregateReviewResults(results []ShardReviewResult, target string
 	agg.HolisticInsights = extractCrossShardInsights(agg.FindingsByShard)
 
 	return agg
+}
+
+// reviewNarrativeContext bounds the one articulation call that turns an
+// aggregated review into the user-facing narrative. The parent is the
+// review command's context, so shutdown still cancels it. The deadline is
+// llm_timeouts.articulation_timeout, the same request bound the other
+// articulation calls use.
+func reviewNarrativeContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	timeout := config.GetLLMTimeouts().ArticulationTimeout
+	if timeout <= 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
 }
 
 func (m Model) generateReviewNarrative(ctx context.Context, agg *AggregatedReview) string {

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Severity ranks what Check found.
@@ -230,6 +231,17 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		case "", "ollama", "genai":
 		default:
 			add(SeverityError, "embedding.provider", fmt.Sprintf("%q is not an embedding provider", c.Embedding.Provider), "ollama or genai")
+		}
+		// One embedding HTTP call. Absent takes the default; a present value
+		// that does not parse would otherwise install silently as 60s.
+		if raw := strings.TrimSpace(c.Embedding.RequestTimeout); raw != "" {
+			d, err := time.ParseDuration(raw)
+			switch {
+			case err != nil:
+				add(SeverityError, "embedding.request_timeout", fmt.Sprintf("%q is not a duration: %v", raw, err), `a Go duration such as "60s" or "2m"`)
+			case d <= 0:
+				add(SeverityError, "embedding.request_timeout", fmt.Sprintf("%q is not positive", raw), "a positive duration, or remove the key for the default (60s)")
+			}
 		}
 	}
 	emb := c.GetEmbeddingConfig()

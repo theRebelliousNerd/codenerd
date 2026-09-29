@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 )
 
@@ -431,9 +432,10 @@ func (m *BackgroundObserverManager) processEvent(runCtx context.Context, event O
 	m.mu.RUnlock()
 
 	// Dispatch to each observer. Each spawned goroutine is registered
-	// with m.taskWG so Stop() waits for them — previously they were fire-
-	// and-forget, leaking up to 2 minutes past Stop() while still
-	// writing into observer state.
+	// with m.taskWG so Stop() waits for them. runCtx is cancelled by Stop.
+	// A spawned observer task is a multi-step execution and inherits runCtx
+	// with no further clock. A Northstar check is one alignment completion
+	// and adds only llm_timeouts.per_call_timeout.
 	for _, obs := range observers {
 		atomic.AddInt64(&obs.EventsReceived, 1)
 
@@ -442,7 +444,7 @@ func (m *BackgroundObserverManager) processEvent(runCtx context.Context, event O
 			m.taskWG.Add(1)
 			go func(observerState *ObserverState) {
 				defer m.taskWG.Done()
-				ctx, cancel := context.WithTimeout(runCtx, 2*time.Minute)
+				ctx, cancel := northstarCheckContext(runCtx)
 				defer cancel()
 
 				assessment, err := northstarHandler.HandleEvent(ctx, event)
@@ -469,10 +471,7 @@ func (m *BackgroundObserverManager) processEvent(runCtx context.Context, event O
 		m.taskWG.Add(1)
 		go func(observerState *ObserverState, assessTask string) {
 			defer m.taskWG.Done()
-			ctx, cancel := context.WithTimeout(runCtx, 2*time.Minute)
-			defer cancel()
-
-			result, err := spawner.SpawnObserver(ctx, observerState.Name, assessTask)
+			result, err := spawner.SpawnObserver(runCtx, observerState.Name, assessTask)
 			if err != nil {
 				// Log error but continue
 				return
@@ -485,6 +484,22 @@ func (m *BackgroundObserverManager) processEvent(runCtx context.Context, event O
 			m.recordAssessment(observerState.Name, assessment)
 		}(obs, task)
 	}
+}
+
+// northstarCheckContext bounds one alignment completion. Stop cancels
+// parent, which cancels the call. The deadline is
+// llm_timeouts.per_call_timeout: the client's own HTTP timeout is applied
+// only when the context has no deadline, so the configured per-call bound
+// has to be installed here.
+func northstarCheckContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	timeout := config.GetLLMTimeouts().PerCallTimeout
+	if timeout <= 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
 }
 
 // buildAssessmentTask creates the task prompt for an observer.

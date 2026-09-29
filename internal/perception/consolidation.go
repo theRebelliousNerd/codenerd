@@ -3,7 +3,6 @@ package perception
 import (
 	"context"
 	"sync"
-	"time"
 
 	"codenerd/internal/logging"
 )
@@ -72,11 +71,13 @@ func (cw *ConsolidationWorker) process(traces []ReasoningTrace) {
 	if cw.engine == nil {
 		return // misconstructed worker; nothing to learn into
 	}
-	// Create a background context with timeout to ensure we don't leak resources
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	fact, err := cw.engine.LearnFromInteraction(ctx, traces)
+	// No clock around the batch. It is a critic call plus local persistence
+	// (and, when a pattern is found, one embed). The worker stops when Stop
+	// closes quit, after drain. The critic call applies
+	// llm_timeouts.per_call_timeout itself; the embed applies
+	// embedding.request_timeout. A cancelled context here would abort the
+	// drain Stop is waiting on, so this batch is not parented on one.
+	fact, err := cw.engine.LearnFromInteraction(context.Background(), traces)
 	if err != nil {
 		logging.Get(logging.CategoryPerception).Warn("ConsolidationWorker: learning failed: %v", err)
 		return

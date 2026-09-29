@@ -2,9 +2,9 @@ package system
 
 import (
 	"context"
-	"time"
 
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 )
@@ -18,10 +18,29 @@ import (
 // hand the VirtualStore the bare OuroborosLoop, which executes without it.
 type orchestratorToolExecutor struct {
 	orchestrator *autopoiesis.Orchestrator
+	// lifetime is cancelled when the autopoiesis context ends (Cortex.Close).
+	// Refinement is not a child of the tool-call context: ExecuteTool returns
+	// the tool output immediately, and that context ends with the call.
+	lifetime context.Context
 }
 
-func newOrchestratorToolExecutor(orch *autopoiesis.Orchestrator) *orchestratorToolExecutor {
-	return &orchestratorToolExecutor{orchestrator: orch}
+func newOrchestratorToolExecutor(orch *autopoiesis.Orchestrator, lifetime context.Context) *orchestratorToolExecutor {
+	return &orchestratorToolExecutor{orchestrator: orch, lifetime: lifetime}
+}
+
+// toolRefinementContext bounds one refinement completion. RefineTool is a
+// single LLM call (legacy or JIT). The deadline is llm_timeouts.per_call_timeout.
+// lifetime is the process shutdown context, so Close cancels an in-flight
+// refinement instead of letting a detached Background run out a wall clock.
+func toolRefinementContext(lifetime context.Context) (context.Context, context.CancelFunc) {
+	if lifetime == nil {
+		lifetime = context.Background()
+	}
+	timeout := config.GetLLMTimeouts().PerCallTimeout
+	if timeout <= 0 {
+		return context.WithCancel(lifetime)
+	}
+	return context.WithTimeout(lifetime, timeout)
 }
 
 // ExecuteTool runs a registered tool with the given input.
@@ -40,7 +59,7 @@ func (a *orchestratorToolExecutor) ExecuteTool(ctx context.Context, toolName str
 			return
 		}
 		log.Info("Tool '%s' needs refinement based on %d patterns", toolName, len(suggestions))
-		refinementCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		refinementCtx, cancel := toolRefinementContext(a.lifetime)
 		defer cancel()
 		result, err := a.orchestrator.RefineTool(refinementCtx, toolName, "")
 		if err != nil {

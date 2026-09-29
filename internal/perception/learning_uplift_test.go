@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"codenerd/internal/config"
 )
 
 // recordingCritic captures the critic prompt instead of calling a model.
@@ -187,12 +190,18 @@ func TestConsolidationWorker_NilEngine(t *testing.T) {
 	cw.Stop() // idempotent
 }
 
-// TestLearnedPatternContext_HasDeadline pins that pattern learning embeds
-// under a real timeout instead of context.Background.
+// TestLearnedPatternContext_HasDeadline pins that a pattern-learning embed
+// carries the installed embedding.request_timeout.
 func TestLearnedPatternContext_HasDeadline(t *testing.T) {
 	ctx, cancel := learnedPatternContext()
 	defer cancel()
-	if _, ok := ctx.Deadline(); !ok {
-		t.Error("learnedPatternContext has no deadline, want 60s timeout")
+	dl, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("learnedPatternContext has no deadline")
+	}
+	want := config.EmbeddingRequestTimeout()
+	rem := time.Until(dl)
+	if rem > want || rem < want-2*time.Second {
+		t.Fatalf("deadline remaining %s, want %s (embedding.request_timeout)", rem, want)
 	}
 }
