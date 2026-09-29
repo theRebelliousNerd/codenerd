@@ -11,13 +11,13 @@ func TestGeminiClientGettersSetters(t *testing.T) {
 		t.Error("SchemaCapable should be true for the Gemini client")
 	}
 
-	c.SetEnableGoogleSearch(true)
-	if !c.IsGoogleSearchEnabled() {
-		t.Error("Google search should be enabled after SetEnableGoogleSearch(true)")
+	c.SetEnableWebSearch(true)
+	if !c.IsWebSearchEnabled() {
+		t.Error("Google search should be enabled after SetEnableWebSearch(true)")
 	}
-	c.SetEnableGoogleSearch(false)
-	if c.IsGoogleSearchEnabled() {
-		t.Error("Google search should be disabled after SetEnableGoogleSearch(false)")
+	c.SetEnableWebSearch(false)
+	if c.IsWebSearchEnabled() {
+		t.Error("Google search should be disabled after SetEnableWebSearch(false)")
 	}
 
 	c.SetEnableURLContext(true)

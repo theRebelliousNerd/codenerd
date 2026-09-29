@@ -593,9 +593,9 @@ func (tc *TracingLLMClient) GetLastGroundingSources() []string {
 	return nil
 }
 
-func (tc *TracingLLMClient) IsGoogleSearchEnabled() bool {
-	if p, ok := tc.underlying.(interface{ IsGoogleSearchEnabled() bool }); ok {
-		return p.IsGoogleSearchEnabled()
+func (tc *TracingLLMClient) IsWebSearchEnabled() bool {
+	if p, ok := tc.underlying.(interface{ IsWebSearchEnabled() bool }); ok {
+		return p.IsWebSearchEnabled()
 	}
 	return false
 }

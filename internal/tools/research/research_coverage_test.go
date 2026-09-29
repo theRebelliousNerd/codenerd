@@ -59,10 +59,10 @@ type mockGroundingClient struct {
 	lastGroundingSrc    []string
 }
 
-func (m *mockGroundingClient) SetEnableGoogleSearch(enable bool) { m.googleSearchEnabled = enable }
+func (m *mockGroundingClient) SetEnableWebSearch(enable bool) { m.googleSearchEnabled = enable }
 func (m *mockGroundingClient) SetEnableURLContext(enable bool)   { m.urlContextEnabled = enable }
 func (m *mockGroundingClient) SetURLContextURLs(urls []string)   { m.urlContextURLs = urls }
-func (m *mockGroundingClient) IsGoogleSearchEnabled() bool       { return m.googleSearchEnabled }
+func (m *mockGroundingClient) IsWebSearchEnabled() bool       { return m.googleSearchEnabled }
 func (m *mockGroundingClient) IsURLContextEnabled() bool         { return m.urlContextEnabled }
 func (m *mockGroundingClient) GetLastGroundingSources() []string { return m.lastGroundingSrc }
 
@@ -667,8 +667,8 @@ func TestNewGroundingHelper_WhenBasicClient_ShouldNotBeGrounding(t *testing.T) {
 	if helper.IsGroundingAvailable() {
 		t.Error("expected IsGroundingAvailable=false for basic client")
 	}
-	if helper.IsGoogleSearchEnabled() {
-		t.Error("expected IsGoogleSearchEnabled=false for basic client")
+	if helper.IsWebSearchEnabled() {
+		t.Error("expected IsWebSearchEnabled=false for basic client")
 	}
 	if helper.IsURLContextEnabled() {
 		t.Error("expected IsURLContextEnabled=false for basic client")
@@ -699,8 +699,8 @@ func TestGroundingHelper_EnableDisableGoogleSearch(t *testing.T) {
 	if !client.googleSearchEnabled {
 		t.Error("expected Google Search to be enabled")
 	}
-	if !helper.IsGoogleSearchEnabled() {
-		t.Error("expected IsGoogleSearchEnabled=true")
+	if !helper.IsWebSearchEnabled() {
+		t.Error("expected IsWebSearchEnabled=true")
 	}
 
 	helper.DisableGoogleSearch()

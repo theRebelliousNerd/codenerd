@@ -116,7 +116,7 @@ func TestGroundedWebSearch_RetryAbsorbsPoisonedTransientBody(t *testing.T) {
 func TestGroundedWebSearch_NoneEffortOmitsReasoning(t *testing.T) {
 	var sawNil = false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req metaGroundedRequest
+		var req metaResponsesRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		sawNil = req.Reasoning == nil
 		w.Header().Set("Content-Type", "application/json")

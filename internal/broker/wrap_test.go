@@ -124,12 +124,12 @@ func TestGroundingForwardsToUnderlying(t *testing.T) {
 		t.Fatal("wrapper does not implement GroundingController")
 	}
 
-	gc.SetEnableGoogleSearch(true)
+	gc.SetEnableWebSearch(true)
 	if !grounding.searchEnabled {
-		t.Error("SetEnableGoogleSearch did not reach the underlying client")
+		t.Error("SetEnableWebSearch did not reach the underlying client")
 	}
-	if !gc.IsGoogleSearchEnabled() {
-		t.Error("IsGoogleSearchEnabled did not read through to the underlying client")
+	if !gc.IsWebSearchEnabled() {
+		t.Error("IsWebSearchEnabled did not read through to the underlying client")
 	}
 
 	gc.SetURLContextURLs([]string{"https://example.com"})
@@ -145,10 +145,10 @@ type fakeGrounding struct {
 	urls          []string
 }
 
-func (f *fakeGrounding) SetEnableGoogleSearch(v bool)      { f.searchEnabled = v }
+func (f *fakeGrounding) SetEnableWebSearch(v bool)      { f.searchEnabled = v }
 func (f *fakeGrounding) SetEnableURLContext(v bool)        { f.urlContext = v }
 func (f *fakeGrounding) SetURLContextURLs(u []string)      { f.urls = u }
-func (f *fakeGrounding) IsGoogleSearchEnabled() bool       { return f.searchEnabled }
+func (f *fakeGrounding) IsWebSearchEnabled() bool       { return f.searchEnabled }
 func (f *fakeGrounding) IsURLContextEnabled() bool         { return f.urlContext }
 func (f *fakeGrounding) GetLastGroundingSources() []string { return f.urls }
 

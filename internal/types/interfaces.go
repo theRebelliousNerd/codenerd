@@ -260,8 +260,8 @@ type GraphQuery interface {
 }
 
 // GroundingProvider is an optional interface for LLM clients that support
-// grounding (Google Search, URL Context, etc.). Use type assertion to check
-// if a client supports grounding:
+// grounding (web search, and on Gemini, URL Context). Use type assertion to
+// check if a client supports grounding:
 //
 //	if gp, ok := client.(types.GroundingProvider); ok {
 //	    sources := gp.GetLastGroundingSources()
@@ -271,8 +271,8 @@ type GroundingProvider interface {
 	// Returns nil if no grounding was used or client doesn't support grounding.
 	GetLastGroundingSources() []string
 
-	// IsGoogleSearchEnabled returns whether Google Search grounding is enabled.
-	IsGoogleSearchEnabled() bool
+	// IsWebSearchEnabled returns whether web-search grounding is enabled.
+	IsWebSearchEnabled() bool
 
 	// IsURLContextEnabled returns whether URL Context grounding is enabled.
 	IsURLContextEnabled() bool
@@ -282,7 +282,7 @@ type GroundingProvider interface {
 // Use this interface when you need to enable/disable grounding features:
 //
 //	if gc, ok := client.(types.GroundingController); ok {
-//	    gc.SetEnableGoogleSearch(true)
+//	    gc.SetEnableWebSearch(true)
 //	    gc.SetURLContextURLs([]string{"https://docs.example.com"})
 //	}
 //
@@ -292,8 +292,8 @@ type GroundingProvider interface {
 type GroundingController interface {
 	GroundingProvider
 
-	// SetEnableGoogleSearch enables or disables Google Search grounding.
-	SetEnableGoogleSearch(enable bool)
+	// SetEnableWebSearch enables or disables web-search grounding.
+	SetEnableWebSearch(enable bool)
 
 	// SetEnableURLContext enables or disables URL Context grounding.
 	SetEnableURLContext(enable bool)
@@ -491,11 +491,22 @@ type GroundedWebSearcher interface {
 	GroundedWebSearch(ctx context.Context, query string) (*GroundedWebSearchResult, error)
 }
 
-// GroundedWebSearchResult contains the grounded answer, citations, and token usage.
+// GroundedWebSearchResult contains the grounded answer, the citations the
+// answer annotated, the pages the search retrieved, and token usage.
 type GroundedWebSearchResult struct {
-	Text      string             `json:"text"`
-	Citations []GroundedCitation `json:"citations,omitempty"`
-	Usage     GroundedUsage      `json:"usage"`
+	Text      string                 `json:"text"`
+	Citations []GroundedCitation     `json:"citations,omitempty"`
+	Results   []GroundedSearchResult `json:"results,omitempty"`
+	Usage     GroundedUsage          `json:"usage"`
+}
+
+// GroundedSearchResult is one page the provider's web search retrieved.
+// It is the search hit itself, distinct from a citation the answer annotated.
+type GroundedSearchResult struct {
+	Type    string `json:"type,omitempty"`
+	Title   string `json:"title,omitempty"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // GroundedCitation represents a URL citation anchoring a segment of the grounded response.

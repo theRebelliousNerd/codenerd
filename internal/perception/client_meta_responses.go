@@ -39,6 +39,16 @@ package perception
 //
 // Meta only. DashScope and Moonshot share client_openai_compat.go and have no
 // equivalent surface, so they are untouched.
+//
+// WEB SEARCH
+//
+// Meta's web_search tool exists only on this surface. When the client has
+// search enabled, plain completions, streaming, and the first tool turn are
+// built by the same request function the later tool turns already use, with
+// the web_search tool appended and include set to web_search_call.results.
+// Search off leaves plain completions and the first tool turn on Chat
+// Completions. An explicit GroundedWebSearch always sends the tool, even
+// when the switch is off: the caller asked for a search.
 
 import (
 	"bytes"
@@ -49,6 +59,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -63,6 +74,10 @@ const metaResponsesPath = "/responses"
 // this client replays on the next turn. Documented as incompatible with
 // previous_response_id, which is why this client never sets that field.
 const metaReasoningInclude = "reasoning.encrypted_content"
+
+// metaWebSearchResultsInclude asks a web_search_call item to carry the pages
+// it retrieved. Without it the item is only a marker and the pages are lost.
+const metaWebSearchResultsInclude = "web_search_call.results"
 
 // =============================================================================
 // WIRE TYPES
@@ -115,6 +130,22 @@ type metaResponsesRequest struct {
 
 	// Truncation accepts only "disabled".
 	Truncation string `json:"truncation,omitempty"`
+
+	// Text carries JSON mode for a piggyback completion. Chat Completions
+	// uses response_format; this surface does not have that field. Meta's
+	// grounding doc does not mention text.format. The strict json_schema
+	// form is what Meta 400s on (additionalProperties), and json_object has
+	// no schema to reject.
+	Text *metaResponsesText `json:"text,omitempty"`
+}
+
+// metaResponsesText is the Responses structured-output envelope.
+type metaResponsesText struct {
+	Format *metaResponsesTextFormat `json:"format,omitempty"`
+}
+
+type metaResponsesTextFormat struct {
+	Type string `json:"type,omitempty"`
 }
 
 type metaReasoningConfig struct {
@@ -123,14 +154,16 @@ type metaReasoningConfig struct {
 	Effort string `json:"effort,omitempty"`
 }
 
-// metaResponsesTool is a function tool in the Responses shape. Note the flat
-// layout: name, description and parameters sit on the tool itself rather than
-// nested under a "function" key as they are in Chat Completions.
+// metaResponsesTool is one Responses tool. Function tools are flat: name,
+// description and parameters sit on the tool rather than under a "function"
+// key. A web_search tool sets Type and, when configured, SearchContextSize;
+// the function fields stay empty and omitempty drops them.
 type metaResponsesTool struct {
-	Type        string         `json:"type"`
-	Name        string         `json:"name,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
+	Type              string         `json:"type"`
+	Name              string         `json:"name,omitempty"`
+	Description       string         `json:"description,omitempty"`
+	Parameters        map[string]any `json:"parameters,omitempty"`
+	SearchContextSize string         `json:"search_context_size,omitempty"`
 }
 
 // metaResponsesReply is a POST /v1/responses response.
@@ -167,6 +200,40 @@ type metaResponsesUsage struct {
 	InputTokensDetails struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"input_tokens_details"`
+
+	// PromptTokens and CompletionTokens are the Chat Completions names. A
+	// response that uses them and leaves the Responses names at zero still
+	// has to be billed; GroundedWebSearch's usage fallback depends on it.
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+}
+
+// resolved returns input, output, and total tokens, preferring the Responses
+// names and falling back to the Chat Completions names when both of those
+// are zero.
+func (u *metaResponsesUsage) resolved() (in, out, total int) {
+	if u == nil {
+		return 0, 0, 0
+	}
+	in, out = u.InputTokens, u.OutputTokens
+	if in == 0 && out == 0 {
+		in, out = u.PromptTokens, u.CompletionTokens
+	}
+	total = u.TotalTokens
+	if total == 0 && (in != 0 || out != 0) {
+		total = in + out
+	}
+	return in, out, total
+}
+
+func (u *metaResponsesUsage) outputTokens() int {
+	_, out, _ := u.resolved()
+	return out
+}
+
+func (u *metaResponsesUsage) groundedUsage() types.GroundedUsage {
+	in, out, total := u.resolved()
+	return types.GroundedUsage{InputTokens: in, OutputTokens: out, TotalTokens: total}
 }
 
 // metaResponsesItem is one entry in the output array. The meaningful fields
@@ -177,6 +244,10 @@ type metaResponsesItem struct {
 	Type   string `json:"type"`
 	Role   string `json:"role,omitempty"`
 	Status string `json:"status,omitempty"`
+	// Phase is "commentary" on the progress notes a grounded run emits between
+	// searches ("I'll search for..."); the final answer carries no phase.
+	// Observed on muse-spark-1.3-contributor, 2026-09-29.
+	Phase string `json:"phase,omitempty"`
 
 	Content []metaResponsesContent `json:"content,omitempty"`
 
@@ -189,11 +260,34 @@ type metaResponsesItem struct {
 	Name      string `json:"name,omitempty"`
 	Arguments string `json:"arguments,omitempty"`
 	CallID    string `json:"call_id,omitempty"`
+
+	// web_search_call. Present only when the request included
+	// web_search_call.results. Reasoning items do not carry this.
+	Results []metaWebSearchResult `json:"results,omitempty"`
+}
+
+// metaWebSearchResult is one retrieved page. Type is documented as
+// "text_result"; a hit with a usable URL is kept whatever the type says,
+// because dropping it on a spelling would hide a page the model used.
+type metaWebSearchResult struct {
+	Type    string `json:"type"`
+	Title   string `json:"title,omitempty"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet,omitempty"`
 }
 
 type metaResponsesContent struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type        string                    `json:"type"`
+	Text        string                    `json:"text,omitempty"`
+	Annotations []metaResponsesAnnotation `json:"annotations,omitempty"`
+}
+
+type metaResponsesAnnotation struct {
+	Type       string `json:"type"`
+	URL        string `json:"url"`
+	Title      string `json:"title,omitempty"`
+	StartIndex int    `json:"start_index"`
+	EndIndex   int    `json:"end_index"`
 }
 
 // =============================================================================
@@ -375,7 +469,10 @@ func (c *OpenAICompatClient) supportsResponsesAPI() bool {
 }
 
 // executeResponses performs one POST to the Responses endpoint.
-func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaResponsesRequest) (*metaResponsesReply, error) {
+// op is the usage bucket for this one request (chat, tool_gen). A search
+// that keeps its own sanitized transport does not come through here, so it
+// is not counted twice.
+func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaResponsesRequest, op string) (*metaResponsesReply, error) {
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal responses request: %w", err)
@@ -461,8 +558,8 @@ func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaR
 	if reply.Usage != nil {
 		// Reasoning tokens are billed as output, so they are folded in here
 		// rather than dropped — Muse Spark turns are mostly reasoning.
-		trackUsage(ctx, c.model, c.vendor,
-			reply.Usage.InputTokens, reply.Usage.OutputTokens, usageOpToolGen)
+		in, out, _ := reply.Usage.resolved()
+		trackUsage(ctx, c.model, c.vendor, in, out, op)
 
 		logging.Get(logging.CategoryAPI).Debug(
 			"meta responses: in=%d out=%d reasoning=%d cached=%d status=%s in %v",
@@ -544,20 +641,39 @@ func (c *OpenAICompatClient) newResponsesRequest(ctx context.Context, input []an
 // RESPONSE PARSING
 // =============================================================================
 
-// metaTextFromReply concatenates the assistant text across message items.
+// metaTextFromReply is the answer text of a reply: every non-commentary
+// message item, in order, separated by a blank line.
 func metaTextFromReply(reply *metaResponsesReply) string {
-	var sb strings.Builder
+	return metaAnswerText(reply, false)
+}
+
+// metaAnswerText joins the output_text of the reply's answer messages.
+// Commentary-phase messages are progress notes between searches, not the
+// answer: concatenated in, they run into the answer mid-sentence. Separate
+// answer messages are kept whole and separated, never glued together.
+func metaAnswerText(reply *metaResponsesReply, assistantOnly bool) string {
+	if reply == nil {
+		return ""
+	}
+	var parts []string
 	for _, item := range reply.Output {
-		if item.Type != "message" {
+		if item.Type != "message" || item.Phase == "commentary" {
 			continue
 		}
+		if assistantOnly && item.Role != "" && item.Role != "assistant" {
+			continue
+		}
+		var sb strings.Builder
 		for _, block := range item.Content {
 			if block.Type == "output_text" && block.Text != "" {
 				sb.WriteString(block.Text)
 			}
 		}
+		if sb.Len() > 0 {
+			parts = append(parts, sb.String())
+		}
 	}
-	return sb.String()
+	return strings.Join(parts, "\n\n")
 }
 
 // completeWithToolResultsViaResponses runs one tool-loop turn on the Responses
@@ -579,6 +695,7 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 		return nil, err
 	}
 
+	c.clearGroundingSources()
 	input := metaInputFromHistory(systemPrompt, history)
 
 	req := c.newResponsesRequest(ctx, input, c.enableThinking)
@@ -586,35 +703,34 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	if len(req.Tools) > 0 {
 		req.ToolChoice = "auto"
 	}
+	// The cache key hashes the tool catalog, so the search tool has to be
+	// on the request before the key is computed. attachWebSearch is a no-op
+	// while search is off, which leaves this turn's body as it was.
+	if err := c.attachWebSearch(&req, tools); err != nil {
+		return nil, err
+	}
 	req.PromptCacheKey = promptCacheKey(req.Model, req.Tools)
 
-	reply, err := c.executeResponses(ctx, req)
+	reply, err := c.executeResponses(ctx, req, usageOpToolGen)
 	if err != nil {
 		return nil, err
 	}
 	// A failed or cancelled run carries no usable output. Returning it as a
 	// success would hand the executor an empty turn it mistakes for a final
 	// answer, so this is an error carrying the vendor's own message.
-	if metaTerminalFailure(reply.Status) {
-		detail := ""
-		if reply.Error != nil && strings.TrimSpace(reply.Error.Message) != "" {
-			detail = ": " + strings.TrimSpace(reply.Error.Message)
-		}
-		return nil, fmt.Errorf("meta responses run %s%s", reply.Status, detail)
+	// The same URLs Gemini puts on LLMToolResponse.GroundingSources. Callers
+	// that read the response, and callers that ask the client afterwards,
+	// see one list.
+	captured := metaGroundingFromReply(reply)
+	c.recordGroundingSources(captured.Sources)
+	if err := c.responsesTerminalError(reply, "CompleteWithToolResults"); err != nil {
+		return nil, err
 	}
-	if reply.Status == "incomplete" && reply.IncompleteDetails != nil && types.LengthStop(reply.IncompleteDetails.Reason) {
-		produced := 0
-		if reply.Usage != nil {
-			produced = reply.Usage.OutputTokens
-		}
-		// Reasoning is billed as output on this surface, so a turn that spent
-		// its budget thinking lands here too; the restatement the broker asks
-		// for is the right response either way.
-		return nil, outputTruncated(c.vendor, c.model, "CompleteWithToolResults",
-			reply.IncompleteDetails.Reason, metaTextFromReply(reply), c.maxOutputTokens, produced)
+	resp := metaToolResponseFromReply(reply)
+	if len(captured.Sources) > 0 {
+		resp.GroundingSources = append([]string(nil), captured.Sources...)
 	}
-
-	return metaToolResponseFromReply(reply), nil
+	return resp, nil
 }
 
 // validateMetaHistory guards the Responses path the way validateMetaTools
@@ -741,14 +857,367 @@ func metaToolResponseFromReply(reply *metaResponsesReply) *LLMToolResponse {
 		out.StopReason = "tool_use"
 	}
 	if reply.Usage != nil {
+		in, outTokens, total := reply.Usage.resolved()
 		out.Usage = types.UsageMetadata{
-			InputTokens:         reply.Usage.InputTokens,
-			OutputTokens:        reply.Usage.OutputTokens,
-			TotalTokens:         reply.Usage.TotalTokens,
+			InputTokens:         in,
+			OutputTokens:        outTokens,
+			TotalTokens:         total,
 			ThinkingTokens:      reply.Usage.OutputTokensDetails.ReasoningTokens,
 			CachedContentTokens: reply.Usage.InputTokensDetails.CachedTokens,
 		}
 		shareReasoningTokens(out.Blocks, reply.Usage.OutputTokensDetails.ReasoningTokens)
 	}
 	return out
+}
+
+// metaReservedSearchTools are the names Meta reserves for the web_search
+// tool. A function tool with one of these names is legal on its own and a
+// 400 once web_search is on the same request, so the check runs only when
+// the search tool is about to be attached.
+var metaReservedSearchTools = map[string]struct{}{
+	"browser.search": {},
+	"browser.open":   {},
+	"browser.find":   {},
+}
+
+func (c *OpenAICompatClient) metaWebSearchActive() bool {
+	if c == nil || c.vendor != ProviderMeta {
+		return false
+	}
+	c.mu.Lock()
+	on := c.enableWebSearch
+	c.mu.Unlock()
+	return on
+}
+
+// attachWebSearch adds the search tool when this client has grounding on.
+// It is a no-op otherwise, which is what keeps a search-off Meta request
+// byte-for-byte on its previous path.
+func (c *OpenAICompatClient) attachWebSearch(req *metaResponsesRequest, tools []ToolDefinition) error {
+	if !c.metaWebSearchActive() {
+		return nil
+	}
+	return c.forceWebSearch(req, tools)
+}
+
+// forceWebSearch attaches web_search whether or not the config switch is on.
+// GroundedWebSearch uses it: that call is a search even when ordinary
+// completions are not.
+func (c *OpenAICompatClient) forceWebSearch(req *metaResponsesRequest, tools []ToolDefinition) error {
+	if err := rejectReservedSearchTools(tools); err != nil {
+		return err
+	}
+	req.Tools = append(req.Tools, c.webSearchTool())
+	req.Include = appendWebSearchInclude(req.Include)
+	return nil
+}
+
+func rejectReservedSearchTools(tools []ToolDefinition) error {
+	for _, t := range tools {
+		if _, reserved := metaReservedSearchTools[t.Name]; reserved {
+			return fmt.Errorf("tool name %q is reserved by Meta web search (browser.search, browser.open, browser.find)", t.Name)
+		}
+	}
+	return nil
+}
+
+func (c *OpenAICompatClient) webSearchTool() metaResponsesTool {
+	tool := metaResponsesTool{Type: "web_search"}
+	if c != nil {
+		if size := strings.TrimSpace(c.searchContextSize); size != "" {
+			tool.SearchContextSize = size
+		}
+	}
+	return tool
+}
+
+func appendWebSearchInclude(include []string) []string {
+	for _, v := range include {
+		if v == metaWebSearchResultsInclude {
+			return include
+		}
+	}
+	return append(include, metaWebSearchResultsInclude)
+}
+
+// SupportsGrounding reports the capability, not the current switch. A Meta
+// client can ground; DashScope and Moonshot share this Go type and cannot.
+func (c *OpenAICompatClient) SupportsGrounding() bool {
+	return c != nil && c.vendor == ProviderMeta
+}
+
+// SetEnableWebSearch implements types.GroundingController. Non-Meta vendors
+// ignore it: the method set is shared, the wire is not.
+func (c *OpenAICompatClient) SetEnableWebSearch(enable bool) {
+	if c == nil || c.vendor != ProviderMeta {
+		return
+	}
+	c.mu.Lock()
+	c.enableWebSearch = enable
+	c.mu.Unlock()
+}
+
+// IsWebSearchEnabled implements types.GroundingController.
+func (c *OpenAICompatClient) IsWebSearchEnabled() bool {
+	if !c.SupportsGrounding() {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.enableWebSearch
+}
+
+// SetEnableURLContext is a no-op. Meta has no URL-context tool; the method
+// exists so this client satisfies the same controller Gemini does.
+func (c *OpenAICompatClient) SetEnableURLContext(bool) {}
+
+// SetURLContextURLs is a no-op. See SetEnableURLContext.
+func (c *OpenAICompatClient) SetURLContextURLs([]string) {}
+
+// IsURLContextEnabled is always false. Meta does not serve URL context.
+func (c *OpenAICompatClient) IsURLContextEnabled() bool { return false }
+
+// GetLastGroundingSources returns the URLs the previous completion cited or
+// retrieved. The slice is a copy.
+func (c *OpenAICompatClient) GetLastGroundingSources() []string {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.lastGroundingSources) == 0 {
+		return nil
+	}
+	return append([]string(nil), c.lastGroundingSources...)
+}
+
+func (c *OpenAICompatClient) clearGroundingSources() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.lastGroundingSources = nil
+	c.mu.Unlock()
+}
+
+func (c *OpenAICompatClient) recordGroundingSources(sources []string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if len(sources) == 0 {
+		c.lastGroundingSources = nil
+	} else {
+		c.lastGroundingSources = append([]string(nil), sources...)
+	}
+	c.mu.Unlock()
+}
+
+func metaHTTPURL(raw string) (string, bool) {
+	u := strings.TrimSpace(raw)
+	if u == "" {
+		return "", false
+	}
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Host == "" {
+		return "", false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", false
+	}
+	return u, true
+}
+
+// metaGroundingCapture is the citations, retrieved pages, and deduped source
+// URLs of one Responses reply. Sources list citation URLs first, then result
+// URLs, each URL once.
+type metaGroundingCapture struct {
+	Citations []types.GroundedCitation
+	Results   []types.GroundedSearchResult
+	Sources   []string
+}
+
+// metaGroundingFromReply reads url_citation annotations on assistant message
+// text and web_search_call results. Reasoning items are skipped: a URL in
+// the reasoning trace is not a source the caller is allowed to see.
+func metaGroundingFromReply(reply *metaResponsesReply) metaGroundingCapture {
+	g := metaGroundingCapture{
+		Citations: []types.GroundedCitation{},
+		Results:   []types.GroundedSearchResult{},
+	}
+	if reply == nil {
+		return g
+	}
+	seen := map[string]struct{}{}
+	addSource := func(raw string) {
+		u, ok := metaHTTPURL(raw)
+		if !ok {
+			return
+		}
+		if _, dup := seen[u]; dup {
+			return
+		}
+		seen[u] = struct{}{}
+		g.Sources = append(g.Sources, u)
+	}
+	for _, item := range reply.Output {
+		if item.Type != "message" {
+			continue
+		}
+		if item.Role != "" && item.Role != "assistant" {
+			continue
+		}
+		for _, content := range item.Content {
+			if content.Type != "output_text" {
+				continue
+			}
+			for _, ann := range content.Annotations {
+				if ann.Type != "url_citation" {
+					continue
+				}
+				u, ok := metaHTTPURL(ann.URL)
+				if !ok {
+					continue
+				}
+				g.Citations = append(g.Citations, types.GroundedCitation{
+					URL:        u,
+					Title:      ann.Title,
+					StartIndex: ann.StartIndex,
+					EndIndex:   ann.EndIndex,
+				})
+				addSource(u)
+			}
+		}
+	}
+	for _, item := range reply.Output {
+		if item.Type != "web_search_call" {
+			continue
+		}
+		for _, hit := range item.Results {
+			u, ok := metaHTTPURL(hit.URL)
+			if !ok {
+				continue
+			}
+			g.Results = append(g.Results, types.GroundedSearchResult{
+				Type:    hit.Type,
+				Title:   hit.Title,
+				URL:     u,
+				Snippet: hit.Snippet,
+			})
+			addSource(u)
+		}
+	}
+	return g
+}
+
+// metaAssistantText is the visible answer. Reasoning and search-call items
+// are not text, and a non-assistant message is not the answer.
+func metaAssistantText(reply *metaResponsesReply) string {
+	return metaAnswerText(reply, true)
+}
+
+// responsesTerminalError reports a run that did not finish as an answer.
+// A length stop carries the partial text on the truncation error; the broker
+// restates the request rather than accepting a cut answer.
+func (c *OpenAICompatClient) responsesTerminalError(reply *metaResponsesReply, method string) error {
+	if reply == nil {
+		return fmt.Errorf("no completion returned")
+	}
+	if metaTerminalFailure(reply.Status) {
+		detail := ""
+		if reply.Error != nil && strings.TrimSpace(reply.Error.Message) != "" {
+			detail = ": " + strings.TrimSpace(reply.Error.Message)
+		}
+		return fmt.Errorf("meta responses run %s%s", reply.Status, detail)
+	}
+	if reply.Status == "incomplete" && reply.IncompleteDetails != nil && types.LengthStop(reply.IncompleteDetails.Reason) {
+		produced := 0
+		if reply.Usage != nil {
+			produced = reply.Usage.outputTokens()
+		}
+		return outputTruncated(c.vendor, c.model, method, reply.IncompleteDetails.Reason, metaTextFromReply(reply), c.maxOutputTokens, produced)
+	}
+	return nil
+}
+
+// postResponsesCompletion is one plain (no function tools) Responses call.
+// forceEffort replaces the request's reasoning effort; "minimal" is the
+// empty-completion retry, and it wins over a configured override the same
+// way the Chat path overwrites reasoning_effort for that retry.
+func (c *OpenAICompatClient) postResponsesCompletion(ctx context.Context, systemPrompt, userPrompt string, thinking bool, forceEffort string) (string, *metaResponsesReply, error) {
+	req := c.newResponsesRequest(ctx, metaInputFromHistory(systemPrompt, []types.Message{{Role: "user", Text: userPrompt}}), thinking)
+	if forceEffort != "" {
+		if forceEffort == "none" {
+			req.Reasoning = nil
+		} else {
+			req.Reasoning = &metaReasoningConfig{Effort: forceEffort}
+		}
+	}
+	if isPiggybackPrompt(ctx, systemPrompt, userPrompt) {
+		req.Text = &metaResponsesText{Format: &metaResponsesTextFormat{Type: "json_object"}}
+	}
+	if err := c.attachWebSearch(&req, nil); err != nil {
+		return "", nil, err
+	}
+	req.PromptCacheKey = promptCacheKey(req.Model, req.Tools)
+	reply, err := c.executeResponses(ctx, req, usageOpChat)
+	if err != nil {
+		return "", nil, err
+	}
+	return metaTextFromReply(reply), reply, nil
+}
+
+// completeWithSystemGrounded is CompleteWithSystem for a Meta client that
+// has web search on. The retry stays on this surface: falling back to Chat
+// Completions would drop the search tool the caller turned on.
+func (c *OpenAICompatClient) completeWithSystemGrounded(ctx context.Context, systemPrompt, userPrompt string, thinking bool) (string, error) {
+	start := time.Now()
+	if strings.TrimSpace(systemPrompt) == "" {
+		systemPrompt = defaultSystemPrompt
+	}
+	c.clearGroundingSources()
+
+	text, reply, err := c.postResponsesCompletion(ctx, systemPrompt, userPrompt, thinking, "")
+	if err != nil {
+		logging.PerceptionError("[%s] CompleteWithSystem failed after %v: %v", c.vendor, time.Since(start), err)
+		return "", err
+	}
+	if term := c.responsesTerminalError(reply, "CompleteWithSystem"); term != nil {
+		c.recordGroundingSources(metaGroundingFromReply(reply).Sources)
+		return "", term
+	}
+	out := strings.TrimSpace(text)
+	billed := reply.Usage.outputTokens()
+	// Same shape as the Chat path's empty retry: tokens were billed and no
+	// text came back, so the budget went to reasoning. This surface does not
+	// return a readable reasoning trace, so the token count is the signal.
+	// A zero-token empty body is a real empty answer and is not retried.
+	if out == "" && !allowEmptyCompletion(ctx) && billed > 0 {
+		logging.PerceptionWarn(
+			"[%s] empty content (0 chars of reasoning, %d completion tokens); retrying once with minimal reasoning",
+			c.vendor, billed)
+		retryText, retryReply, retryErr := c.postResponsesCompletion(ctx, systemPrompt, userPrompt, false, "minimal")
+		if retryErr == nil && c.responsesTerminalError(retryReply, "CompleteWithSystem") == nil {
+			if retried := strings.TrimSpace(retryText); retried != "" {
+				c.recordGroundingSources(metaGroundingFromReply(retryReply).Sources)
+				logging.PerceptionWarn("[%s] retry with minimal reasoning recovered %d chars", c.vendor, len(retried))
+				return retried, nil
+			}
+		}
+	}
+	if out == "" {
+		if allowEmptyCompletion(ctx) {
+			c.recordGroundingSources(metaGroundingFromReply(reply).Sources)
+			logging.PerceptionDebug("[%s] empty completion allowed by caller (model=%s status=%q output_tokens=%d)",
+				c.vendor, c.model, reply.Status, billed)
+			return "", nil
+		}
+		return "", fmt.Errorf("%s returned an empty completion (model=%s status=%q reasoning_chars=0 output_tokens=%d); "+
+			"if status is \"completed\" with 0 content the completion budget was likely consumed by reasoning",
+			c.vendor, c.model, reply.Status, billed)
+	}
+	c.recordGroundingSources(metaGroundingFromReply(reply).Sources)
+	logging.Perception("[%s] CompleteWithSystem: model=%s completed in %v response_len=%d",
+		c.vendor, c.model, time.Since(start), len(out))
+	return out, nil
 }

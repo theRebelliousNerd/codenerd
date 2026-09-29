@@ -390,7 +390,7 @@ func (b *BaseShardAgent) GetThoughtSignatureProvider() types.ThoughtSignaturePro
 //
 //	if gp := b.GetGroundingProvider(); gp != nil {
 //	    sources := gp.GetLastGroundingSources()
-//	    if gp.IsGoogleSearchEnabled() { ... }
+//	    if gp.IsWebSearchEnabled() { ... }
 //	}
 func (b *BaseShardAgent) GetGroundingProvider() types.GroundingProvider {
 	b.mu.RLock()
@@ -409,7 +409,7 @@ func (b *BaseShardAgent) GetGroundingProvider() types.GroundingProvider {
 // Usage:
 //
 //	if gc := b.GetGroundingController(); gc != nil {
-//	    gc.SetEnableGoogleSearch(true)
+//	    gc.SetEnableWebSearch(true)
 //	    gc.SetURLContextURLs([]string{"https://docs.example.com"})
 //	}
 func (b *BaseShardAgent) GetGroundingController() types.GroundingController {

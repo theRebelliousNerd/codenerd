@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -20,6 +19,13 @@ import (
 // GroundedWebSearch exists on OpenAICompatClient for all vendors but fails closed unless vendor is Meta.
 var _ types.GroundedWebSearcher = (*OpenAICompatClient)(nil)
 
+// The controller is on the shared type. SupportsGrounding is what says only
+// Meta can actually ground; the broker asks that before it trusts the method set.
+var (
+	_ types.GroundingController = (*OpenAICompatClient)(nil)
+	_ types.GroundingCapable    = (*OpenAICompatClient)(nil)
+)
+
 // SupportsGroundedWebSearch reports whether this client can perform Meta grounded search.
 // It is deterministic: true only when the receiver is non-nil and its vendor is Meta.
 func (c *OpenAICompatClient) SupportsGroundedWebSearch() bool {
@@ -27,73 +33,6 @@ func (c *OpenAICompatClient) SupportsGroundedWebSearch() bool {
 		return false
 	}
 	return c.vendor == ProviderMeta
-}
-
-// metaGroundedRequest is the wire payload for POST /responses.
-type metaGroundedRequest struct {
-	Model     string                  `json:"model"`
-	Input     []metaGroundedInputItem `json:"input"`
-	Tools     []metaGroundedTool      `json:"tools"`
-	Reasoning *metaGroundedReasoning  `json:"reasoning,omitempty"`
-	Stream    bool                    `json:"stream"`
-}
-
-type metaGroundedInputItem struct {
-	Role    string                     `json:"role"`
-	Content []metaGroundedInputContent `json:"content"`
-}
-
-type metaGroundedInputContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-type metaGroundedTool struct {
-	Type string `json:"type"`
-}
-
-type metaGroundedReasoning struct {
-	Effort string `json:"effort"`
-}
-
-// metaGroundedResponse is the minimal shape we need to parse.
-type metaGroundedResponse struct {
-	Output []metaGroundedOutputItem `json:"output"`
-	Usage  *metaGroundedUsage       `json:"usage,omitempty"`
-	Error  *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    string `json:"code"`
-	} `json:"error,omitempty"`
-}
-
-type metaGroundedOutputItem struct {
-	Type    string                      `json:"type"`
-	Role    string                      `json:"role,omitempty"`
-	Content []metaGroundedOutputContent `json:"content,omitempty"`
-}
-
-type metaGroundedOutputContent struct {
-	Type        string                   `json:"type"`
-	Text        string                   `json:"text,omitempty"`
-	Annotations []metaGroundedAnnotation `json:"annotations,omitempty"`
-}
-
-type metaGroundedAnnotation struct {
-	Type       string `json:"type"`
-	URL        string `json:"url"`
-	Title      string `json:"title,omitempty"`
-	StartIndex int    `json:"start_index"`
-	EndIndex   int    `json:"end_index"`
-}
-
-type metaGroundedUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
-	// Also accept alternative naming that some vendors use; not marshalled, only for unmarshal fallback.
-	PromptTokens     int `json:"prompt_tokens,omitempty"`
-	CompletionTokens int `json:"completion_tokens,omitempty"`
 }
 
 const (
@@ -231,6 +170,7 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 	if c.vendor != ProviderMeta {
 		return nil, fmt.Errorf("grounded web search is only supported for provider %q (got %q)", ProviderMeta, c.vendor)
 	}
+	c.clearGroundingSources()
 	trimmed := strings.TrimSpace(query)
 	if trimmed == "" {
 		return nil, fmt.Errorf("grounded web search query must not be blank")
@@ -254,39 +194,20 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 		defer cancel()
 	}
 
-	// Determine reasoning effort: explicit override > per-shard capability > default xhigh.
-	effort := strings.TrimSpace(c.reasoningEffortOverride)
-	if effort == "" {
-		effort = strings.TrimSpace(c.reasoningEffortForContext(ctx))
+	// The same builder the tool loop uses. thinking=true so a capability hint
+	// is applied; an unhinted call still defaults to xhigh below, and an
+	// explicit "none" override stays omitted (Muse Spark rejects it).
+	reqBody := c.newResponsesRequest(ctx, []any{metaInputText("user", trimmed)}, true)
+	if reqBody.Reasoning == nil && c.reasoningEffortOverride != "none" {
+		reqBody.Reasoning = &metaReasoningConfig{Effort: "xhigh"}
 	}
-	if effort == "" {
-		effort = "xhigh"
+	// Always attach search. This call is a search even when the config
+	// switch that grounds ordinary completions is off.
+	if err := c.forceWebSearch(&reqBody, nil); err != nil {
+		return nil, err
 	}
-	// "none" is rejected by Muse Spark (see newResponsesRequest), so it is
-	// never forwarded; omit the field rather than fail the search.
-	if effort == "none" {
-		effort = ""
-	}
-
-	model := c.ModelForContext(ctx)
-
-	reqBody := metaGroundedRequest{
-		Model: model,
-		Input: []metaGroundedInputItem{
-			{
-				Role: "user",
-				Content: []metaGroundedInputContent{
-					{Type: "input_text", Text: trimmed},
-				},
-			},
-		},
-		Tools: []metaGroundedTool{
-			{Type: "web_search"},
-		},
-	}
-	if effort != "" {
-		reqBody.Reasoning = &metaGroundedReasoning{Effort: effort}
-	}
+	reqBody.PromptCacheKey = promptCacheKey(reqBody.Model, reqBody.Tools)
+	model := reqBody.Model
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -372,7 +293,7 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 		return nil, fmt.Errorf("%w (after %d attempts)", lastErr, maxRetries+1)
 	}
 
-	var parsed metaGroundedResponse
+	var parsed metaResponsesReply
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, fmt.Errorf("meta grounded search: failed to parse response: %w", err)
 	}
@@ -392,89 +313,26 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 		}
 	}
 
-	var textBuilder strings.Builder
-	var citations []types.GroundedCitation
-	for _, item := range parsed.Output {
-		// Ignore reasoning and web_search_call items entirely; never expose reasoning trace.
-		if item.Type == "reasoning" || item.Type == "web_search_call" {
-			continue
-		}
-		if item.Type != "message" {
-			continue
-		}
-		if item.Role != "" && item.Role != "assistant" {
-			continue
-		}
-		for _, content := range item.Content {
-			if content.Type != "output_text" {
-				continue
-			}
-			textBuilder.WriteString(content.Text)
-			for _, ann := range content.Annotations {
-				if ann.Type != "url_citation" {
-					continue
-				}
-				u := strings.TrimSpace(ann.URL)
-				if u == "" {
-					continue
-				}
-				parsedURL, uerr := url.Parse(u)
-				if uerr != nil {
-					continue
-				}
-				if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-					continue
-				}
-				if parsedURL.Host == "" {
-					continue
-				}
-				citations = append(citations, types.GroundedCitation{
-					URL:        u,
-					Title:      ann.Title,
-					StartIndex: ann.StartIndex,
-					EndIndex:   ann.EndIndex,
-				})
-			}
-		}
-	}
-
-	text := strings.TrimSpace(textBuilder.String())
+	// Reasoning items are not read. web_search_call contributes retrieved
+	// pages, not answer text.
+	captured := metaGroundingFromReply(&parsed)
+	text := strings.TrimSpace(metaAssistantText(&parsed))
 	if text == "" {
 		return nil, fmt.Errorf("meta grounded search: no output_text in response")
 	}
 
-	usage := types.GroundedUsage{}
-	if parsed.Usage != nil {
-		// Prefer native input/output naming; fallback to prompt/completion if the primary
-		// input/output counts are zero but alternative counts are present.
-		if parsed.Usage.InputTokens != 0 || parsed.Usage.OutputTokens != 0 {
-			usage.InputTokens = parsed.Usage.InputTokens
-			usage.OutputTokens = parsed.Usage.OutputTokens
-			usage.TotalTokens = parsed.Usage.TotalTokens
-		} else if parsed.Usage.PromptTokens != 0 || parsed.Usage.CompletionTokens != 0 {
-			usage.InputTokens = parsed.Usage.PromptTokens
-			usage.OutputTokens = parsed.Usage.CompletionTokens
-			usage.TotalTokens = parsed.Usage.TotalTokens
-			if usage.TotalTokens == 0 {
-				usage.TotalTokens = usage.InputTokens + usage.OutputTokens
-			}
-		} else {
-			usage.TotalTokens = parsed.Usage.TotalTokens
-		}
-	}
+	usage := parsed.Usage.groundedUsage()
 	// A grounded search is a billed model turn like any other; it just does not
-	// go through executeChat, so it needs its own Track.
+	// go through executeChat, so it needs its own Track. executeResponses is
+	// not used here: its errors include the response body, and this path must
+	// not.
 	trackUsage(ctx, model, c.vendor, usage.InputTokens, usage.OutputTokens, usageOpSearch)
-
-	// Ensure citations is non-nil vs nil consistency for tests; return empty slice vs nil both acceptable,
-	// but normalize to empty slice.
-	if citations == nil {
-		citations = []types.GroundedCitation{}
-	}
+	c.recordGroundingSources(captured.Sources)
 
 	result := &types.GroundedWebSearchResult{
 		Text:      text,
-		Citations: citations,
+		Citations: captured.Citations,
+		Results:   captured.Results,
 		Usage:     usage,
 	}
 	return result, nil

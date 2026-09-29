@@ -345,3 +345,31 @@ func TestGroundedWebSearchTool_NilContext(t *testing.T) {
 		t.Error("expected result for nil ctx")
 	}
 }
+
+// The pages the search retrieved reach the model beside the citations, so a
+// result the answer did not cite can still be read with web_fetch.
+func TestGroundedWebSearch_ReturnsRetrievedPages(t *testing.T) {
+	m := &groundedSearcherMock{supports: true, handler: func(ctx context.Context, q string) (*types.GroundedWebSearchResult, error) {
+		return &types.GroundedWebSearchResult{
+			Text:      "answer",
+			Citations: []types.GroundedCitation{{URL: "https://example.com/cited"}},
+			Results: []types.GroundedSearchResult{
+				{Type: "text_result", Title: "cited", URL: "https://example.com/cited", Snippet: "a"},
+				{Type: "text_result", Title: "uncited", URL: "https://example.com/uncited", Snippet: "b"},
+			},
+		}, nil
+	}}
+	res, err := GroundedWebSearchTool(m).Execute(context.Background(), map[string]any{"query": "q"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var parsed struct {
+		Results []types.GroundedSearchResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(res), &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(parsed.Results) != 2 || parsed.Results[1].URL != "https://example.com/uncited" || parsed.Results[1].Snippet != "b" {
+		t.Fatalf("results = %+v", parsed.Results)
+	}
+}

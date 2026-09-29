@@ -18,9 +18,9 @@ type groundingScriptedLLM struct {
 }
 
 func (g *groundingScriptedLLM) GetLastGroundingSources() []string { return nil }
-func (g *groundingScriptedLLM) IsGoogleSearchEnabled() bool       { return false }
+func (g *groundingScriptedLLM) IsWebSearchEnabled() bool       { return false }
 func (g *groundingScriptedLLM) IsURLContextEnabled() bool         { return len(g.urls) > 0 }
-func (g *groundingScriptedLLM) SetEnableGoogleSearch(bool)        {}
+func (g *groundingScriptedLLM) SetEnableWebSearch(bool)        {}
 func (g *groundingScriptedLLM) SetEnableURLContext(bool)          {}
 func (g *groundingScriptedLLM) SetURLContextURLs(u []string)      { g.urls = u }
 

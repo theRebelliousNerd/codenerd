@@ -108,9 +108,9 @@ func (w *llmClientWrapper) GetLastGroundingSources() []string {
 	return nil
 }
 
-func (w *llmClientWrapper) IsGoogleSearchEnabled() bool {
+func (w *llmClientWrapper) IsWebSearchEnabled() bool {
 	if gp, ok := w.client.(types.GroundingProvider); ok {
-		return gp.IsGoogleSearchEnabled()
+		return gp.IsWebSearchEnabled()
 	}
 	return false
 }
@@ -122,9 +122,9 @@ func (w *llmClientWrapper) IsURLContextEnabled() bool {
 	return false
 }
 
-func (w *llmClientWrapper) SetEnableGoogleSearch(enable bool) {
+func (w *llmClientWrapper) SetEnableWebSearch(enable bool) {
 	if gc, ok := w.client.(types.GroundingController); ok {
-		gc.SetEnableGoogleSearch(enable)
+		gc.SetEnableWebSearch(enable)
 	}
 }
 

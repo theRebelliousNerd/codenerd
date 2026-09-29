@@ -22,7 +22,7 @@ const (
 // GroundedWebSearchTool returns a provider-neutral tool that performs a
 // Meta-native grounded web search via the injected GroundedWebSearcher.
 // The tool takes a required string query, invokes the searcher with the exact
-// query, and returns the answer text, citations and usage whole as structured
+// query, and returns the answer text, citations, retrieved pages and usage whole as structured
 // JSON: since the working-context ledger (internal/context working_set.mg)
 // archives large tool results behind recall handles, this tool never cuts
 // what the ledger must size for the window. It never returns config or
@@ -32,7 +32,7 @@ func GroundedWebSearchTool(searcher types.GroundedWebSearcher) *tools.Tool {
 	// supported before this is registered, but Execute still defensively checks.
 	return &tools.Tool{
 		Name:        groundedWebSearchToolName,
-		Description: "Perform a grounded web search using the configured LLM provider (Meta). Returns grounded answer text with URL citations and token usage.",
+		Description: "Perform a grounded web search using the configured LLM provider (Meta). Returns the grounded answer text, the URL citations the answer rests on, every page the search retrieved (title, url, snippet), and token usage. Read a retrieved page in full with web_fetch.",
 		Category:    tools.CategoryResearch,
 		Priority:    75,
 		Execute:     executeGroundedWebSearch(searcher),
@@ -86,14 +86,22 @@ func executeGroundedWebSearch(searcher types.GroundedWebSearcher) tools.ExecuteF
 		if citations == nil {
 			citations = []types.GroundedCitation{}
 		}
-		// Structured JSON with only text, citations, usage.
+		// The retrieved pages ride along: citations are the subset the answer
+		// cites, results are everything the search found, and a model that
+		// wants to read a page in full needs its URL.
+		results := result.Results
+		if results == nil {
+			results = []types.GroundedSearchResult{}
+		}
 		out := struct {
-			Text      string                   `json:"text"`
-			Citations []types.GroundedCitation `json:"citations"`
-			Usage     types.GroundedUsage      `json:"usage"`
+			Text      string                       `json:"text"`
+			Citations []types.GroundedCitation     `json:"citations"`
+			Results   []types.GroundedSearchResult `json:"results"`
+			Usage     types.GroundedUsage          `json:"usage"`
 		}{
 			Text:      text,
 			Citations: citations,
+			Results:   results,
 			Usage:     result.Usage,
 		}
 		data, err := json.Marshal(out)

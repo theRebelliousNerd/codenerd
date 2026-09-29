@@ -1,11 +1,10 @@
-// Package research provides research tools including Gemini grounding support.
+// Package research provides research tools including provider grounding support.
 //
-// Gemini Grounding enables LLM responses to be grounded with real-time information:
-//   - Google Search: Ground responses with live search results
-//   - URL Context: Ground responses with specific documentation URLs (max 20)
+// Grounding attaches a provider's web search (Gemini's Google Search, Meta's
+// web_search tool) or, on Gemini, URL Context to a completion. Whether a
+// client can ground is the client's answer; this helper does not pick a vendor.
 //
-// This file provides helpers for any system (init, shards, campaigns) to use
-// Gemini's built-in grounding when available.
+// URL Context is Gemini's: at most 20 URLs, 34MB each.
 package research
 
 import (
@@ -91,16 +90,16 @@ func (h *GroundingHelper) IsGroundingAvailable() bool {
 // No-op if client doesn't support grounding control.
 func (h *GroundingHelper) EnableGoogleSearch() {
 	if h.controller != nil {
-		h.controller.SetEnableGoogleSearch(true)
-		logging.ResearcherDebug("Gemini grounding: Google Search enabled")
+		h.controller.SetEnableWebSearch(true)
+		logging.ResearcherDebug("grounding: web search enabled")
 	}
 }
 
 // DisableGoogleSearch disables Google Search grounding.
 func (h *GroundingHelper) DisableGoogleSearch() {
 	if h.controller != nil {
-		h.controller.SetEnableGoogleSearch(false)
-		logging.ResearcherDebug("Gemini grounding: Google Search disabled")
+		h.controller.SetEnableWebSearch(false)
+		logging.ResearcherDebug("grounding: web search disabled")
 	}
 }
 
@@ -117,17 +116,31 @@ func (h *GroundingHelper) EnableURLContext(urls []string) []string {
 		return nil
 	}
 	sent, dropped := splitURLContextURLs(urls)
-	if len(dropped) > 0 {
-		logging.ResearcherWarn("Gemini grounding: %d of %d URLs not sent (API limit %d); first dropped: %s", len(dropped), len(urls), maxURLContextURLs, dropped[0])
-	}
 	h.controller.SetEnableURLContext(true)
 	h.controller.SetURLContextURLs(sent)
+	// The setters are on every controller, including a provider that has no
+	// URL-context tool. If the flag did not stick, none of the URLs were
+	// grounded and the caller has to hear that.
+	if !h.controller.IsURLContextEnabled() {
+		if len(urls) > 0 {
+			logging.ResearcherDebug("grounding: URL context is not available on this provider; %d URLs not sent", len(urls))
+		}
+		all := append([]string(nil), urls...)
+		h.mu.Lock()
+		h.totalDropped += len(urls)
+		h.lastDropped = all
+		h.mu.Unlock()
+		return all
+	}
+	if len(dropped) > 0 {
+		logging.ResearcherWarn("grounding: %d of %d URLs not sent (API limit %d); first dropped: %s", len(dropped), len(urls), maxURLContextURLs, dropped[0])
+	}
 	h.mu.Lock()
 	h.totalURLs += len(sent)
 	h.totalDropped += len(dropped)
 	h.lastDropped = append([]string(nil), dropped...)
 	h.mu.Unlock()
-	logging.ResearcherDebug("Gemini grounding: URL Context enabled with %d URLs", len(sent))
+	logging.ResearcherDebug("grounding: URL context enabled with %d URLs", len(sent))
 	return dropped
 }
 
@@ -136,7 +149,7 @@ func (h *GroundingHelper) DisableURLContext() {
 	if h.controller != nil {
 		h.controller.SetEnableURLContext(false)
 		h.controller.SetURLContextURLs(nil)
-		logging.ResearcherDebug("Gemini grounding: URL Context disabled")
+		logging.ResearcherDebug("grounding: URL context disabled")
 	}
 }
 
@@ -149,7 +162,7 @@ func (h *GroundingHelper) SetURLContextURLs(urls []string) []string {
 	}
 	sent, dropped := splitURLContextURLs(urls)
 	if len(dropped) > 0 {
-		logging.ResearcherWarn("Gemini grounding: %d of %d URLs not sent (API limit %d); first dropped: %s", len(dropped), len(urls), maxURLContextURLs, dropped[0])
+		logging.ResearcherWarn("grounding: %d of %d URLs not sent (API limit %d); first dropped: %s", len(dropped), len(urls), maxURLContextURLs, dropped[0])
 	}
 	h.controller.SetURLContextURLs(sent)
 	h.mu.Lock()
@@ -179,10 +192,10 @@ func (h *GroundingHelper) GetLastDroppedURLs() []string {
 	return append([]string(nil), h.lastDropped...)
 }
 
-// IsGoogleSearchEnabled returns whether Google Search grounding is active.
-func (h *GroundingHelper) IsGoogleSearchEnabled() bool {
+// IsWebSearchEnabled returns whether Google Search grounding is active.
+func (h *GroundingHelper) IsWebSearchEnabled() bool {
 	if h.provider != nil {
-		return h.provider.IsGoogleSearchEnabled()
+		return h.provider.IsWebSearchEnabled()
 	}
 	return false
 }

@@ -43,7 +43,7 @@ func (m *mockThinkingProvider) GetLastThoughtSummary() string     { return m.tho
 func (m *mockThinkingProvider) GetLastThinkingTokens() int        { return m.thinkingTokens }
 func (m *mockThinkingProvider) GetLastThoughtSignature() string   { return m.thoughtSig }
 func (m *mockThinkingProvider) GetLastGroundingSources() []string { return m.groundingSrc }
-func (m *mockThinkingProvider) IsGoogleSearchEnabled() bool       { return m.googleSearch }
+func (m *mockThinkingProvider) IsWebSearchEnabled() bool       { return m.googleSearch }
 func (m *mockThinkingProvider) IsURLContextEnabled() bool         { return m.urlContext }
 
 func TestTracingLLMClient_PassThroughInterfaces(t *testing.T) {
@@ -79,8 +79,8 @@ func TestTracingLLMClient_PassThroughInterfaces(t *testing.T) {
 	if len(sources) != 2 || sources[0] != "src1" || sources[1] != "src2" {
 		t.Errorf("Expected GetLastGroundingSources to be [src1, src2], got %v", sources)
 	}
-	if !tc.IsGoogleSearchEnabled() {
-		t.Errorf("Expected IsGoogleSearchEnabled to be true")
+	if !tc.IsWebSearchEnabled() {
+		t.Errorf("Expected IsWebSearchEnabled to be true")
 	}
 	if !tc.IsURLContextEnabled() {
 		t.Errorf("Expected IsURLContextEnabled to be true")
@@ -212,8 +212,8 @@ func TestTracingLLMClient_MissingInterfaces(t *testing.T) {
 	if tc.GetLastGroundingSources() != nil {
 		t.Errorf("Expected GetLastGroundingSources to be nil")
 	}
-	if tc.IsGoogleSearchEnabled() != false {
-		t.Errorf("Expected IsGoogleSearchEnabled to be false")
+	if tc.IsWebSearchEnabled() != false {
+		t.Errorf("Expected IsWebSearchEnabled to be false")
 	}
 	if tc.IsURLContextEnabled() != false {
 		t.Errorf("Expected IsURLContextEnabled to be false")

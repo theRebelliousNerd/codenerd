@@ -149,6 +149,29 @@ func TestLive_Meta_ReasoningEffortTiers(t *testing.T) {
 	}
 }
 
+// TestLive_Meta_GroundedWebSearch hits the real Responses web_search tool.
+// It stays skipped unless a person opts in: each call is a billed search.
+// The answer and the key are not logged; a vendor error string can carry
+// either, so a failure is reported without it.
+func TestLive_Meta_GroundedWebSearch(t *testing.T) {
+	if os.Getenv("NERD_LIVE_META_GROUNDING") != "1" {
+		t.Skip("set NERD_LIVE_META_GROUNDING=1 to run the live Meta grounding test")
+	}
+	if strings.TrimSpace(os.Getenv("META_MODEL")) == "" {
+		t.Skip("set META_MODEL to the contributor-tier model this workspace uses")
+	}
+	c := liveClient(t, ProviderMeta, "META_API_KEY", "MODEL_API_KEY")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	res, err := c.GroundedWebSearch(ctx, "What is the capital of France?")
+	if err != nil || res == nil || strings.TrimSpace(res.Text) == "" {
+		t.Fatal("grounded web search failed")
+	}
+	t.Logf("citations=%d results=%d", len(res.Citations), len(res.Results))
+}
+
 func TestLive_Meta_ToolCalling(t *testing.T) {
 	c := liveClient(t, ProviderMeta, "META_API_KEY", "MODEL_API_KEY")
 

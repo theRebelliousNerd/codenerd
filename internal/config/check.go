@@ -341,6 +341,13 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Observation.Check("observation")...)
 	}
 
+	// --- meta ---
+	// A nil block is the default (search on, medium context). An explicit
+	// size outside low|medium|high is a contradiction and refuses the file.
+	if c.Meta != nil {
+		out = append(out, c.Meta.Check("meta")...)
+	}
+
 	// --- integrations ---
 	if c.Integrations != nil {
 		out = append(out, c.Integrations.Check("integrations")...)

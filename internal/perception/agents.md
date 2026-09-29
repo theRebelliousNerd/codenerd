@@ -28,3 +28,8 @@
   its retry loop reads `llmMaxRetries`/`llmRetryBackoff`, not a constant.
 - The routing vocabulary check is the kernel's (`understanding_vocab_miss` in
   `perception_routing.mg`); do not reintroduce a Go validator.
+- Meta grounding (2026-09-29): with `meta.enable_web_search` on, every Meta request goes to
+  `/responses` with `web_search` (Chat Completions cannot carry it). The answer is the
+  non-commentary message items only (`metaAnswerText`); citations and retrieved pages are both
+  kept. Grounding control is vendor-neutral (`SetEnableWebSearch`). Spec:
+  `Docs/architecture/perception/13-META-SEARCH-GROUNDING.md`.

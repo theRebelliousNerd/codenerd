@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,6 +35,10 @@ import (
 //   - Meta gates reasoning behind reasoning_effort, rejects "none" with HTTP 400,
 //     deprecates max_tokens in favour of max_completion_tokens, and is tuned to
 //     run at default sampling — so temperature and top_p are left unset.
+//     Web search exists only on the Responses surface. When it is enabled,
+//     every completion for that client is built by client_meta_responses.go
+//     and carries the web_search tool. With it off, plain completions and
+//     the first tool turn stay on Chat Completions.
 //
 // Adding a fourth OpenAI-compatible vendor needs only a vendorDefaults entry
 // unless it has its own field quirks.
@@ -66,6 +71,19 @@ type OpenAICompatClient struct {
 	// thinking is normally disabled.
 	reasoningEffortOverride string
 
+	// enableWebSearch routes a Meta client through /responses and attaches the
+	// web_search tool. Zero is off: NewOpenAICompatClient does not invent the
+	// config default, the factory does. Other vendors leave it false.
+	enableWebSearch bool
+	// searchContextSize is low|medium|high. Empty omits the field on the wire
+	// rather than substituting a Go constant at send time.
+	searchContextSize string
+
+	// lastGroundingSources is the URLs the previous completion cited or
+	// retrieved. Cleared at the start of every completion so a later call
+	// cannot report a page it did not use.
+	lastGroundingSources []string
+
 	mu          sync.Mutex
 	lastRequest time.Time
 }
@@ -83,6 +101,12 @@ type OpenAICompatConfig struct {
 	EnableThinking  bool
 	ThinkingBudget  int
 	ReasoningEffort string
+
+	// EnableWebSearch and SearchContextSize apply only to Meta. The factory
+	// fills them from MetaProviderConfig. A client built without them does
+	// not search, which is what the tests and the classification client want.
+	EnableWebSearch   bool
+	SearchContextSize string
 }
 
 // vendorDefault describes a vendor's endpoint. It names no model: the
@@ -162,6 +186,19 @@ func isValidMetaReasoningEffort(v string) bool {
 	}
 }
 
+// normalizeMetaSearchContextSize accepts the vendor's vocabulary and empty
+// (omit the field). Anything else is refused. The match is case-insensitive;
+// the wire value is lowercase.
+func normalizeMetaSearchContextSize(v string) (string, error) {
+	size := strings.ToLower(strings.TrimSpace(v))
+	switch size {
+	case "", "low", "medium", "high":
+		return size, nil
+	default:
+		return "", fmt.Errorf("invalid search_context_size %q for provider %q: must be one of low, medium, high", v, ProviderMeta)
+	}
+}
+
 // DefaultOpenAICompatConfig returns defaults for a vendor. An unknown vendor
 // yields an empty base URL, which NewOpenAICompatClient rejects — callers must
 // supply BaseURL explicitly for vendors codeNERD does not know by name.
@@ -230,6 +267,19 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 		}
 	}
 
+	// Search grounding is a Meta Responses tool. Another vendor cannot emit
+	// it, and an illegal size is a broken request, not something to clamp.
+	enableWebSearch := false
+	searchContextSize := ""
+	if cfg.Vendor == ProviderMeta {
+		var sizeErr error
+		searchContextSize, sizeErr = normalizeMetaSearchContextSize(cfg.SearchContextSize)
+		if sizeErr != nil {
+			return nil, sizeErr
+		}
+		enableWebSearch = cfg.EnableWebSearch
+	}
+
 	// Reasoning models spend the completion budget on thinking before emitting
 	// any visible content, so a small ceiling yields an EMPTY response rather
 	// than a truncated one. Verified against Muse Spark: max_completion_tokens
@@ -260,6 +310,8 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 		reasoningEffortBalanced:      "medium",
 		reasoningEffortHighSpeed:     "low",
 		reasoningEffortOverride:      reasoningOverride,
+		enableWebSearch:              enableWebSearch,
+		searchContextSize:            searchContextSize,
 	}
 	// Report the settings that actually took effect. Several of these have a
 	// non-obvious default applied when the config leaves them zero, so the only
@@ -270,8 +322,8 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 		effort = "per-call"
 	}
 	logging.Get(logging.CategoryPerception).Info(
-		"llm client ready: vendor=%s model=%s max_output_tokens=%d reasoning_effort=%s thinking=%v",
-		c.vendor, c.model, c.maxOutputTokens, effort, c.enableThinking)
+		"llm client ready: vendor=%s model=%s max_output_tokens=%d reasoning_effort=%s thinking=%v web_search=%v search_context_size=%s",
+		c.vendor, c.model, c.maxOutputTokens, effort, c.enableThinking, c.enableWebSearch, c.searchContextSize)
 	return c, nil
 }
 
@@ -666,6 +718,12 @@ func (c *OpenAICompatClient) Complete(ctx context.Context, prompt string) (strin
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Meta web search is not a Chat Completions feature. With it on, this
+	// call and every other completion share the Responses builder.
+	if c.metaWebSearchActive() {
+		return c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt, c.enableThinking)
+	}
+	c.clearGroundingSources()
 	start := time.Now()
 	if strings.TrimSpace(systemPrompt) == "" {
 		systemPrompt = defaultSystemPrompt
@@ -803,6 +861,35 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 		if strings.TrimSpace(systemPrompt) == "" {
 			systemPrompt = defaultSystemPrompt
 		}
+		// One non-streaming Responses completion, emitted as a single delta.
+		// There is no Responses SSE parser, and splitting the text here would
+		// pretend the vendor streamed something it did not.
+		if c.metaWebSearchActive() {
+			text, err := c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt, enableThinking || c.enableThinking)
+			if err != nil {
+				var truncated *types.OutputTruncated
+				if errors.As(err, &truncated) && truncated.Partial != "" {
+					select {
+					case contentChan <- truncated.Partial:
+					case <-ctx.Done():
+						errorChan <- ctx.Err()
+						return
+					}
+				}
+				errorChan <- err
+				return
+			}
+			if text != "" {
+				select {
+				case contentChan <- text:
+				case <-ctx.Done():
+					errorChan <- ctx.Err()
+					return
+				}
+			}
+			return
+		}
+		c.clearGroundingSources()
 
 		piggyback := isPiggybackPrompt(ctx, systemPrompt, userPrompt)
 
@@ -1011,6 +1098,13 @@ func (c *OpenAICompatClient) CompleteWithTools(ctx context.Context, systemPrompt
 	if err := c.validateMetaTools(tools, messages); err != nil {
 		return nil, err
 	}
+	// The first tool turn is the one that used to stay on Chat Completions.
+	// Search has to ride along, so it uses the same Responses builder as the
+	// later turns. Search off leaves this request where it was.
+	if c.metaWebSearchActive() {
+		return c.completeWithToolResultsViaResponses(ctx, systemPrompt, []types.Message{{Role: "user", Text: userPrompt}}, tools)
+	}
+	c.clearGroundingSources()
 
 	reqBody := c.buildRequest(ctx, messages, c.enableThinking)
 	reqBody.Tools = MapToolDefinitionsToOpenAI(tools)
@@ -1036,6 +1130,7 @@ func (c *OpenAICompatClient) CompleteWithToolResults(ctx context.Context, system
 	if c.supportsResponsesAPI() {
 		return c.completeWithToolResultsViaResponses(ctx, systemPrompt, history, tools)
 	}
+	c.clearGroundingSources()
 
 	messages, err := MapTypesHistoryToOpenAIMessages(systemPrompt, history)
 	if err != nil {

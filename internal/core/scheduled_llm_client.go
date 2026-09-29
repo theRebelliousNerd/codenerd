@@ -479,10 +479,10 @@ func (c *ScheduledLLMCall) GetLastGroundingSources() []string {
 	return nil
 }
 
-// IsGoogleSearchEnabled delegates to the underlying client.
-func (c *ScheduledLLMCall) IsGoogleSearchEnabled() bool {
-	if p, ok := c.Client.(interface{ IsGoogleSearchEnabled() bool }); ok {
-		return p.IsGoogleSearchEnabled()
+// IsWebSearchEnabled delegates to the underlying client.
+func (c *ScheduledLLMCall) IsWebSearchEnabled() bool {
+	if p, ok := c.Client.(interface{ IsWebSearchEnabled() bool }); ok {
+		return p.IsWebSearchEnabled()
 	}
 	return false
 }

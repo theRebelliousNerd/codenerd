@@ -45,6 +45,21 @@ func TestSupportsGroundingAnswersForTheUnderlyingClient(t *testing.T) {
 	// The wrapper must still satisfy the controller interface: the setters are
 	// unconditional by design, and removing them would change behaviour this
 	// package deliberately relies on.
+	// OpenAICompatClient implements the controller for every vendor that
+	// shares the type and answers GroundingCapable itself. The wrapper has
+	// to believe that answer: a method-set check would report DashScope and
+	// Moonshot as grounding.
+	t.Run("anExplicitCapabilityWins", func(t *testing.T) {
+		no := wrapCore(t, capableClient{richClient: newRichClient(), capable: false})
+		if no.SupportsGrounding() {
+			t.Fatal("GroundingCapable false was ignored; a non-grounding vendor would take the grounded path")
+		}
+		yes := wrapCore(t, capableClient{richClient: newRichClient(), capable: true})
+		if !yes.SupportsGrounding() {
+			t.Fatal("GroundingCapable true was ignored")
+		}
+	})
+
 	t.Run("theSetterInterfaceIsStillSatisfied", func(t *testing.T) {
 		var c types.LLMClient = wrapCore(t, newFakeClient())
 		if _, ok := c.(types.GroundingController); !ok {
@@ -55,3 +70,13 @@ func TestSupportsGroundingAnswersForTheUnderlyingClient(t *testing.T) {
 		}
 	})
 }
+
+// capableClient implements the controller (via richClient) and also answers
+// the capability question itself. The broker must prefer that answer over
+// the method set, which is true for every client it meters.
+type capableClient struct {
+	*richClient
+	capable bool
+}
+
+func (c capableClient) SupportsGrounding() bool { return c.capable }

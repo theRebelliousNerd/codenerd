@@ -31,9 +31,9 @@ type groundingClient struct {
 }
 
 func (g *groundingClient) GetLastGroundingSources() []string { return nil }
-func (g *groundingClient) IsGoogleSearchEnabled() bool       { return g.search }
+func (g *groundingClient) IsWebSearchEnabled() bool       { return g.search }
 func (g *groundingClient) IsURLContextEnabled() bool         { return len(g.urls) > 0 }
-func (g *groundingClient) SetEnableGoogleSearch(v bool)      { g.search = v }
+func (g *groundingClient) SetEnableWebSearch(v bool)      { g.search = v }
 func (g *groundingClient) SetEnableURLContext(bool)          {}
 func (g *groundingClient) SetURLContextURLs(u []string)      { g.urls = u }
 
@@ -46,9 +46,9 @@ type meteredPlain struct {
 }
 
 func (m meteredPlain) GetLastGroundingSources() []string { return nil }
-func (m meteredPlain) IsGoogleSearchEnabled() bool       { return false }
+func (m meteredPlain) IsWebSearchEnabled() bool       { return false }
 func (m meteredPlain) IsURLContextEnabled() bool         { return false }
-func (m meteredPlain) SetEnableGoogleSearch(bool)        {}
+func (m meteredPlain) SetEnableWebSearch(bool)        {}
 func (m meteredPlain) SetEnableURLContext(bool)          {}
 func (m meteredPlain) SetURLContextURLs([]string)        {}
 func (m meteredPlain) SupportsGrounding() bool           { return m.grounds }

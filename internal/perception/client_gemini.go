@@ -79,9 +79,9 @@ var (
 	_ interface{ GetThinkingLevel() string }          = (*GeminiClient)(nil) // ThinkingProvider
 	_ interface{ GetLastThoughtSignature() string }   = (*GeminiClient)(nil) // ThoughtSignatureProvider
 	_ interface{ GetLastGroundingSources() []string } = (*GeminiClient)(nil) // GroundingProvider
-	_ interface{ IsGoogleSearchEnabled() bool }       = (*GeminiClient)(nil) // GroundingProvider
+	_ interface{ IsWebSearchEnabled() bool }       = (*GeminiClient)(nil) // GroundingProvider
 	_ interface{ IsURLContextEnabled() bool }         = (*GeminiClient)(nil) // GroundingProvider
-	_ interface{ SetEnableGoogleSearch(bool) }        = (*GeminiClient)(nil) // GroundingController
+	_ interface{ SetEnableWebSearch(bool) }        = (*GeminiClient)(nil) // GroundingController
 	_ interface{ SetEnableURLContext(bool) }          = (*GeminiClient)(nil) // GroundingController
 	_ interface{ SetURLContextURLs([]string) }        = (*GeminiClient)(nil) // GroundingController
 	_ interface{ ShouldUsePiggybackTools() bool }     = (*GeminiClient)(nil) // PiggybackToolProvider
@@ -320,8 +320,8 @@ func (c *GeminiClient) GetWithheldURLContextURLs() []string {
 	return append([]string(nil), c.withheldURLContextURLs...)
 }
 
-// SetEnableGoogleSearch enables or disables Google Search grounding at runtime.
-func (c *GeminiClient) SetEnableGoogleSearch(enable bool) {
+// SetEnableWebSearch enables or disables Google Search grounding at runtime.
+func (c *GeminiClient) SetEnableWebSearch(enable bool) {
 	c.enableGoogleSearch = enable
 }
 
@@ -330,8 +330,8 @@ func (c *GeminiClient) SetEnableURLContext(enable bool) {
 	c.enableURLContext = enable
 }
 
-// IsGoogleSearchEnabled returns whether Google Search grounding is enabled.
-func (c *GeminiClient) IsGoogleSearchEnabled() bool {
+// IsWebSearchEnabled returns whether Google Search grounding is enabled.
+func (c *GeminiClient) IsWebSearchEnabled() bool {
 	return c.enableGoogleSearch
 }
 

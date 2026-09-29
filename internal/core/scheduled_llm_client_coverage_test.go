@@ -122,7 +122,7 @@ func (m *mockFullClient) GetLastGroundingSources() []string {
 	return []string{"source1"}
 }
 
-func (m *mockFullClient) IsGoogleSearchEnabled() bool {
+func (m *mockFullClient) IsWebSearchEnabled() bool {
 	return true
 }
 
@@ -249,8 +249,8 @@ func TestScheduledLLMCall_AllMethods(t *testing.T) {
 	if len(sources) != 1 || sources[0] != "source1" {
 		t.Errorf("GetLastGroundingSources got: %v", sources)
 	}
-	if !sc.IsGoogleSearchEnabled() {
-		t.Error("IsGoogleSearchEnabled should be true")
+	if !sc.IsWebSearchEnabled() {
+		t.Error("IsWebSearchEnabled should be true")
 	}
 	if !sc.IsURLContextEnabled() {
 		t.Error("IsURLContextEnabled should be true")
@@ -388,8 +388,8 @@ func TestScheduledLLMCall_Fallbacks(t *testing.T) {
 	if sc.GetLastGroundingSources() != nil {
 		t.Error("GetLastGroundingSources should be nil")
 	}
-	if sc.IsGoogleSearchEnabled() {
-		t.Error("IsGoogleSearchEnabled should be false")
+	if sc.IsWebSearchEnabled() {
+		t.Error("IsWebSearchEnabled should be false")
 	}
 	if sc.IsURLContextEnabled() {
 		t.Error("IsURLContextEnabled should be false")

@@ -43,9 +43,9 @@ func (r *richClient) GetLastThoughtSignature() string { return "sig-opaque-abc12
 func (r *richClient) GetLastGroundingSources() []string {
 	return []string{"https://example.test/a", "https://example.test/b"}
 }
-func (r *richClient) IsGoogleSearchEnabled() bool  { return r.searchEnabled }
+func (r *richClient) IsWebSearchEnabled() bool  { return r.searchEnabled }
 func (r *richClient) IsURLContextEnabled() bool    { return r.urlContextEnabled }
-func (r *richClient) SetEnableGoogleSearch(v bool) { r.searchEnabled = v }
+func (r *richClient) SetEnableWebSearch(v bool) { r.searchEnabled = v }
 func (r *richClient) SetEnableURLContext(v bool)   { r.urlContextEnabled = v }
 func (r *richClient) SetURLContextURLs(u []string) { r.urls = u }
 func (r *richClient) SetCachedContent(h string)    { r.model = "cached:" + h }
@@ -78,7 +78,7 @@ func TestPassthroughForwardsWhenTheUnderlyingImplements(t *testing.T) {
 	if got := c.GetLastGroundingSources(); len(got) != 2 || got[0] != "https://example.test/a" {
 		t.Errorf("GetLastGroundingSources = %v", got)
 	}
-	if !c.IsGoogleSearchEnabled() || !c.IsURLContextEnabled() {
+	if !c.IsWebSearchEnabled() || !c.IsURLContextEnabled() {
 		t.Error("grounding probes did not forward")
 	}
 	if c.SchemaCapable() {
@@ -107,7 +107,7 @@ func TestPassthroughReturnsTheUnwrappedZeroWhenNotImplemented(t *testing.T) {
 	if got := c.GetLastGroundingSources(); got != nil {
 		t.Errorf("GetLastGroundingSources = %v, want nil", got)
 	}
-	if c.IsGoogleSearchEnabled() || c.IsURLContextEnabled() {
+	if c.IsWebSearchEnabled() || c.IsURLContextEnabled() {
 		t.Error("grounding probes reported enabled on a client that has no grounding at all")
 	}
 	// SchemaCapable is the exception: the default is true, because a client
@@ -126,7 +126,7 @@ func TestSettersForwardAndAreInertWithoutSupport(t *testing.T) {
 	if !rich.semaphoreDisabled {
 		t.Error("DisableSemaphore did not reach the underlying client")
 	}
-	c.SetEnableGoogleSearch(false)
+	c.SetEnableWebSearch(false)
 	c.SetEnableURLContext(false)
 	if rich.searchEnabled || rich.urlContextEnabled {
 		t.Error("grounding setters did not reach the underlying client")
@@ -141,7 +141,7 @@ func TestSettersForwardAndAreInertWithoutSupport(t *testing.T) {
 	// is the whole argument for making these unconditional.
 	plain := wrapCore(t, newFakeClient())
 	plain.DisableSemaphore()
-	plain.SetEnableGoogleSearch(true)
+	plain.SetEnableWebSearch(true)
 	plain.SetEnableURLContext(true)
 	plain.SetURLContextURLs([]string{"ignored"})
 	plain.SetCachedContent("ignored")

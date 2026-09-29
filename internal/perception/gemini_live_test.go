@@ -475,8 +475,8 @@ func geminiThinkingEnabled(client LLMClient) bool {
 }
 
 func geminiGoogleSearch(client LLMClient) bool {
-	if p, ok := client.(interface{ IsGoogleSearchEnabled() bool }); ok {
-		return p.IsGoogleSearchEnabled()
+	if p, ok := client.(interface{ IsWebSearchEnabled() bool }); ok {
+		return p.IsWebSearchEnabled()
 	}
 	return false
 }

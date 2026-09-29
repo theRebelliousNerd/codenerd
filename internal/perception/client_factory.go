@@ -96,6 +96,7 @@ type ProviderConfig struct {
 
 	// Provider-specific configurations
 	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
+	Meta   *config.MetaProviderConfig   // Muse Spark web search grounding
 	Ollama *config.OllamaLLMConfig      // Local Ollama chat endpoint + model
 
 	// Worker is optional secondary LLM (e.g. ollama gemma for shards).
@@ -173,6 +174,7 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 		ClassificationModel: userCfg.ClassificationModel,
 		Context7APIKey:      context7Key,
 		Gemini:              userCfg.GetGeminiConfig(),
+		Meta:                userCfg.GetMetaConfig(),
 		Ollama:              &ollamaCfg,
 		Worker:              userCfg.GetWorkerLLMConfig(),
 		MaxOutputTokens:     userCfg.MaxOutputTokens,
@@ -283,6 +285,9 @@ func newCompatClassificationClient(cfg *ProviderConfig, model string) (LLMClient
 		} else {
 			compatCfg.ReasoningEffort = "minimal"
 		}
+		// Classification runs on every interactive turn. A web search on that
+		// call would bill a search per turn and ground a label, which is the
+		// wrong operation. EnableWebSearch stays at its zero value.
 	}
 	client, err := NewOpenAICompatClient(compatCfg)
 	if err != nil {
@@ -474,19 +479,30 @@ func resolveXAIAPIKey(pc *ProviderConfig) string {
 
 // newCompatClient builds the main client for any vendor in
 // openAICompatVendorDefaults (the one list of OpenAI-compatible vendors).
-func newCompatClient(config *ProviderConfig) (LLMClient, error) {
-	compatCfg := DefaultOpenAICompatConfig(config.Provider, config.APIKey)
-	if config.Model != "" {
-		compatCfg.Model = config.Model
+func newCompatClient(pc *ProviderConfig) (LLMClient, error) {
+	compatCfg := DefaultOpenAICompatConfig(pc.Provider, pc.APIKey)
+	if pc.Model != "" {
+		compatCfg.Model = pc.Model
 	}
-	if config.BaseURL != "" {
-		compatCfg.BaseURL = config.BaseURL
+	if pc.BaseURL != "" {
+		compatCfg.BaseURL = pc.BaseURL
 	}
-	if config.MaxOutputTokens > 0 {
-		compatCfg.MaxOutputTokens = config.MaxOutputTokens
+	if pc.MaxOutputTokens > 0 {
+		compatCfg.MaxOutputTokens = pc.MaxOutputTokens
 	}
-	if config.Provider == ProviderMeta && config.ReasoningEffort != "" {
-		compatCfg.ReasoningEffort = config.ReasoningEffort
+	if pc.Provider == ProviderMeta && pc.ReasoningEffort != "" {
+		compatCfg.ReasoningEffort = pc.ReasoningEffort
+	}
+	if pc.Provider == ProviderMeta {
+		metaCfg := pc.Meta
+		if metaCfg == nil {
+			// Env-only detection builds a ProviderConfig with no meta block.
+			// The default is still search on; an explicit false has to come
+			// through pc.Meta.
+			metaCfg = config.DefaultMetaProviderConfig()
+		}
+		compatCfg.EnableWebSearch = metaCfg.WebSearchEnabled()
+		compatCfg.SearchContextSize = metaCfg.ResolvedSearchContextSize()
 	}
 	client, err := NewOpenAICompatClient(compatCfg)
 	if err != nil {
@@ -701,6 +717,7 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 		Model:    w.Model,
 		BaseURL:  userCfg.BaseURL,
 		Gemini:   userCfg.GetGeminiConfig(),
+		Meta:     userCfg.GetMetaConfig(),
 	}
 	// For OpenAI-compatible vendors the slot's Endpoint doubles as a per-slot
 	// base-URL override, so slots can sit behind different gateways.

@@ -89,10 +89,10 @@ func (c *core) GetLastGroundingSources() []string {
 	return nil
 }
 
-// IsGoogleSearchEnabled implements types.GroundingProvider.
-func (c *core) IsGoogleSearchEnabled() bool {
-	if p, ok := c.underlying.(interface{ IsGoogleSearchEnabled() bool }); ok {
-		return p.IsGoogleSearchEnabled()
+// IsWebSearchEnabled implements types.GroundingProvider.
+func (c *core) IsWebSearchEnabled() bool {
+	if p, ok := c.underlying.(interface{ IsWebSearchEnabled() bool }); ok {
+		return p.IsWebSearchEnabled()
 	}
 	return false
 }
@@ -115,6 +115,13 @@ func (c *core) IsURLContextEnabled() bool {
 // fourteen call sites that branch on this answer took the grounded path against
 // a client that grounds nothing.
 func (c *core) SupportsGrounding() bool {
+	// A client that shares its Go type across vendors (the OpenAI-compatible
+	// client) implements the controller for every vendor and answers this
+	// itself. Believe that over the method set: the method set is true for
+	// every client this wrapper meters.
+	if cap, ok := c.underlying.(types.GroundingCapable); ok {
+		return cap.SupportsGrounding()
+	}
 	_, ok := c.underlying.(types.GroundingController)
 	return ok
 }
@@ -141,10 +148,10 @@ func (c *core) ShouldUsePiggybackTools() bool {
 	return false
 }
 
-// SetEnableGoogleSearch implements types.GroundingController.
-func (c *core) SetEnableGoogleSearch(enable bool) {
-	if p, ok := c.underlying.(interface{ SetEnableGoogleSearch(bool) }); ok {
-		p.SetEnableGoogleSearch(enable)
+// SetEnableWebSearch implements types.GroundingController.
+func (c *core) SetEnableWebSearch(enable bool) {
+	if p, ok := c.underlying.(interface{ SetEnableWebSearch(bool) }); ok {
+		p.SetEnableWebSearch(enable)
 	}
 }
 

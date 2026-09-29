@@ -15,7 +15,7 @@ import (
 )
 
 func TestGroundedWebSearch_ExactPayload(t *testing.T) {
-	var gotBody metaGroundedRequest
+	var raw []byte
 	var gotPath string
 	var gotMethod string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,8 +27,10 @@ func TestGroundedWebSearch_ExactPayload(t *testing.T) {
 		if auth := r.Header.Get("Authorization"); auth != "Bearer test-key" {
 			t.Errorf("Authorization = %q, want Bearer test-key", auth)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Fatalf("decode grounded request: %v", err)
+		var err error
+		raw, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read grounded request: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello","annotations":[]}]}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`))
@@ -51,32 +53,53 @@ func TestGroundedWebSearch_ExactPayload(t *testing.T) {
 	if gotPath != "/responses" {
 		t.Errorf("path = %q, want /responses", gotPath)
 	}
+	var gotBody metaResponsesRequest
+	if err := json.Unmarshal(raw, &gotBody); err != nil {
+		t.Fatalf("decode grounded request: %v", err)
+	}
 	// model
 	if gotBody.Model != metaContributorModel {
 		t.Errorf("model = %q, want %q", gotBody.Model, metaContributorModel)
 	}
-	// input one user item with input_text query
-	if len(gotBody.Input) != 1 {
-		t.Fatalf("input len = %d, want 1", len(gotBody.Input))
+	// input one user item with input_text query. The shared builder stores
+	// input as []any, so the item is read back off the raw JSON.
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decode raw: %v", err)
 	}
-	if gotBody.Input[0].Role != "user" {
-		t.Errorf("input role = %q, want user", gotBody.Input[0].Role)
+	input, _ := doc["input"].([]any)
+	if len(input) != 1 {
+		t.Fatalf("input len = %d, want 1", len(input))
 	}
-	if len(gotBody.Input[0].Content) != 1 {
-		t.Fatalf("input content len = %d, want 1", len(gotBody.Input[0].Content))
+	item, _ := input[0].(map[string]any)
+	if item["role"] != "user" {
+		t.Errorf("input role = %v, want user", item["role"])
 	}
-	if gotBody.Input[0].Content[0].Type != "input_text" {
-		t.Errorf("input content type = %q, want input_text", gotBody.Input[0].Content[0].Type)
+	content, _ := item["content"].([]any)
+	if len(content) != 1 {
+		t.Fatalf("input content len = %d, want 1", len(content))
 	}
-	if gotBody.Input[0].Content[0].Text != "what is codeNERD?" {
-		t.Errorf("input text = %q", gotBody.Input[0].Content[0].Text)
+	block, _ := content[0].(map[string]any)
+	if block["type"] != "input_text" {
+		t.Errorf("input content type = %v, want input_text", block["type"])
 	}
-	// tools one web_search
+	if block["text"] != "what is codeNERD?" {
+		t.Errorf("input text = %v", block["text"])
+	}
+	// tools one web_search. An unset search_context_size stays off the wire;
+	// the factory is what fills "medium", not the sender.
 	if len(gotBody.Tools) != 1 {
 		t.Fatalf("tools len = %d, want 1", len(gotBody.Tools))
 	}
 	if gotBody.Tools[0].Type != "web_search" {
 		t.Errorf("tool type = %q, want web_search", gotBody.Tools[0].Type)
+	}
+	if gotBody.Tools[0].SearchContextSize != "" {
+		t.Errorf("search_context_size = %q, want it omitted when the client has none", gotBody.Tools[0].SearchContextSize)
+	}
+	include, _ := doc["include"].([]any)
+	if !jsonStringListHas(include, "web_search_call.results") || !jsonStringListHas(include, "reasoning.encrypted_content") {
+		t.Errorf("include = %v, want reasoning.encrypted_content and web_search_call.results", include)
 	}
 	// reasoning.effort default xhigh when no override nor hint
 	if gotBody.Reasoning == nil {
@@ -85,20 +108,29 @@ func TestGroundedWebSearch_ExactPayload(t *testing.T) {
 	if gotBody.Reasoning.Effort != "xhigh" {
 		t.Errorf("reasoning.effort = %q, want xhigh", gotBody.Reasoning.Effort)
 	}
-	// stream false
-	if gotBody.Stream != false {
-		t.Errorf("stream = %v, want false", gotBody.Stream)
+	// The shared builder omits stream (the API default is false). Sending
+	// stream:true would be the regression.
+	if _, ok := doc["stream"]; ok {
+		t.Errorf("stream was sent (%v); a non-streaming search must omit it", doc["stream"])
 	}
-	encoded, _ := json.Marshal(gotBody)
-	if !strings.Contains(string(encoded), `"stream":false`) {
-		t.Errorf("payload must contain stream:false, got %s", encoded)
+	if strings.Contains(string(raw), `"stream":true`) {
+		t.Errorf("payload requested a stream: %s", raw)
 	}
+}
+
+func jsonStringListHas(list []any, want string) bool {
+	for _, v := range list {
+		if s, _ := v.(string); s == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGroundedWebSearch_ReasoningEffortOverride(t *testing.T) {
 	var gotEffort string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req metaGroundedRequest
+		var req metaResponsesRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req.Reasoning != nil {
 			gotEffort = req.Reasoning.Effort
@@ -138,7 +170,7 @@ func TestGroundedWebSearch_ReasoningEffortOverride(t *testing.T) {
 func TestGroundedWebSearch_ReasoningEffortFromContext(t *testing.T) {
 	var efforts []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req metaGroundedRequest
+		var req metaResponsesRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req.Reasoning != nil {
 			efforts = append(efforts, req.Reasoning.Effort)
@@ -461,7 +493,7 @@ func TestGroundedWebSearch_UsageFallback(t *testing.T) {
 func TestGroundedWebSearch_ModelFromContext(t *testing.T) {
 	var gotModel string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req metaGroundedRequest
+		var req metaResponsesRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		gotModel = req.Model
 		w.Header().Set("Content-Type", "application/json")

@@ -94,6 +94,9 @@ type UserConfig struct {
 	// Gemini-specific configuration (thinking mode, grounding tools)
 	Gemini *GeminiProviderConfig `json:"gemini,omitempty"`
 
+	// Meta-specific configuration (Muse Spark web search grounding).
+	Meta *MetaProviderConfig `json:"meta,omitempty"`
+
 	// Claude Code CLI configuration (used when Engine="claude-cli")
 	ClaudeCLI *ClaudeCLIConfig `json:"claude_cli,omitempty"`
 
@@ -1671,6 +1674,7 @@ func DefaultUserConfig() *UserConfig {
 		Reflection:                   &reflection,
 		ShardProfiles:                DefaultShardProfiles(),
 		DefaultShard:                 DefaultShardProfile(),
+		Meta:                         DefaultMetaProviderConfig(),
 		CoreLimits:                   DefaultCoreLimits(),
 		World:                        &w,
 		Integrations:                 DefaultIntegrationsConfig(),
@@ -1866,6 +1870,26 @@ func (c *UserConfig) IsOnboardingComplete() bool {
 		return false
 	}
 	return c.Onboarding.SetupComplete
+}
+
+// GetMetaConfig returns the Meta provider config with defaults applied.
+// A nil block is search on at medium context. The returned pointer is a copy:
+// changing it does not change the stored config.
+func (c *UserConfig) GetMetaConfig() *MetaProviderConfig {
+	if c != nil && c.Meta != nil {
+		cfg := *c.Meta
+		if cfg.EnableWebSearch != nil {
+			v := *cfg.EnableWebSearch
+			cfg.EnableWebSearch = &v
+		} else {
+			cfg.EnableWebSearch = boolConfigPointer(true)
+		}
+		if strings.TrimSpace(cfg.SearchContextSize) == "" {
+			cfg.SearchContextSize = "medium"
+		}
+		return &cfg
+	}
+	return DefaultMetaProviderConfig()
 }
 
 // GetExperienceLevel returns the user's experience level.
