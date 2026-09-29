@@ -29,6 +29,24 @@ func TestRecurseAttemptCampaign_CarriesItsCheckAsAcceptance(t *testing.T) {
 	}
 }
 
+// The gate's OK exits travel with the check. Mutating the attempt's slice
+// afterwards must not change the witness: the campaign outlives the attempt.
+func TestRecurseAttemptCampaign_CarriesTheGatesOKExits(t *testing.T) {
+	a := fixAttempt([]string{"python", "-m", "pytest", "-q", "pkg"})
+	a.OKExitCodes = []int{0, 5}
+	c := RecurseAttemptCampaign(t.TempDir(), a)
+	if c.Acceptance == nil {
+		t.Fatal("a fix attempt declares no acceptance witness")
+	}
+	if len(c.Acceptance.OKExitCodes) != 2 || c.Acceptance.OKExitCodes[0] != 0 || c.Acceptance.OKExitCodes[1] != 5 {
+		t.Fatalf("ok exits = %v, want [0 5]", c.Acceptance.OKExitCodes)
+	}
+	a.OKExitCodes[1] = 9
+	if c.Acceptance.OKExitCodes[1] != 5 {
+		t.Fatalf("the witness aliases the attempt's exit codes: %v", c.Acceptance.OKExitCodes)
+	}
+}
+
 // An improvement has no finding and no single gate to re-run -- only metrics
 // the ratchet reads afterwards -- so it declares no witness and completion
 // stays the phases', as before.

@@ -49,6 +49,11 @@ type RecurseAttempt struct {
 	Evidence string
 	// Check is that gate's command; the attempt is done when it passes.
 	Check []string
+	// OKExitCodes are the exits Check's gate counts as a pass (gates.Gate.Passed).
+	// Empty means only 0. They travel with Check onto the attempt's acceptance
+	// witness: a gate whose pass is not only exit 0 (pytest exits 5 when it
+	// collected no tests) must not be remediated for passing.
+	OKExitCodes []int
 	// Angle is an improvement attempt's angle ("stabilize", "harden",
 	// "simplify", "extend"); "" for a fix. An improvement has no Finding.
 	Angle string
@@ -786,6 +791,7 @@ type attemptSpec struct {
 	finding   *gates.Finding
 	evidence  string
 	check     []string
+	okExit    []int
 	targetKey string
 	angle     string
 	describe  string
@@ -811,6 +817,7 @@ func (r *recurseRun) attempt(ctx context.Context, v visitScope, id string, open 
 		finding:   &target,
 		evidence:  source.result.Output,
 		check:     source.result.Argv,
+		okExit:    append([]int(nil), source.result.Gate.OKExitCodes...),
 		targetKey: gateKey(target.Gate, sourceNode(target, v.node, v.set)),
 		describe:  fmt.Sprintf("%s (%s)", target.Message, target.Gate),
 		subject:   fmt.Sprintf("recurse: %s: %s", v.node.ID, oneLine(target.Message)),
@@ -867,7 +874,8 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 
 	a := RecurseAttempt{
 		Pass: v.pass, Cycle: cycle, Node: node, Evidence: spec.evidence, Check: spec.check,
-		Angle: spec.angle, Metrics: before, NorthStar: r.northStar(node),
+		OKExitCodes: spec.okExit,
+		Angle:       spec.angle, Metrics: before, NorthStar: r.northStar(node),
 		Prior: r.prior[priorKey(findingID, node.ID, spec.angle)],
 	}
 	if spec.finding != nil {

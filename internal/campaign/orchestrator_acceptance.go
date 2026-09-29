@@ -7,17 +7,21 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/gates"
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
 
 // Acceptance is a campaign's deterministic witness: a command the user named,
-// run once every phase is done. Exit 0 is the only pass.
+// run once every phase is done. With no OKExitCodes, exit 0 is the only pass.
+// A recurse attempt sets OKExitCodes from the gate that produced the finding,
+// and the round uses that gate's pass rule (gates.Gate.Passed).
 //
 // It exists because a campaign made of model-judged tasks can report success
 // over failing checks. Observed 2026-09-21: "Campaign completed successfully"
@@ -28,6 +32,11 @@ type Acceptance struct {
 	// Command is the argv, run in the workspace. It is never joined into a
 	// shell string: the executor's binary allowlist sees Command[0].
 	Command []string `json:"command"`
+	// OKExitCodes are the exits that pass, the same list the finding's gate
+	// declared. Empty means only 0. A user-declared witness leaves it empty;
+	// a recurse attempt copies the gate's list so pytest's exit 5 ("no tests
+	// collected") is a pass here too, not another remediation round.
+	OKExitCodes []int `json:"ok_exit_codes,omitempty"`
 	// Rounds is every run, in order. Its length is the round count the policy
 	// compares with config_param(/campaign_acceptance_rounds, _).
 	Rounds []AcceptanceRound `json:"rounds,omitempty"`
@@ -143,6 +152,7 @@ func (o *Orchestrator) runAcceptanceRound(ctx context.Context) error {
 	}
 	o.mu.RLock()
 	argv := append([]string(nil), o.campaign.Acceptance.Command...)
+	okCodes := append([]int(nil), o.campaign.Acceptance.OKExitCodes...)
 	round := len(o.campaign.Acceptance.Rounds) + 1
 	campaignID := o.campaign.ID
 	o.mu.RUnlock()
@@ -166,7 +176,11 @@ func (o *Orchestrator) runAcceptanceRound(ctx context.Context) error {
 		// witness nobody can run must not read as a pass, and must not loop.
 		output = fmt.Sprintf("the acceptance command could not be run: %v\n%s", execErr, output)
 	}
-	passed := execErr == nil && exitCode == 0
+	// Same rule as the gate that produced the finding. execErr is a command
+	// that did not run; a non-zero exit the executor reports with a nil error
+	// (DirectExecutor) is judged by the codes, and exit 5 is a pass when the
+	// gate says so.
+	passed := execErr == nil && gates.Gate{OKExitCodes: okCodes}.Passed(exitCode)
 
 	rel := path.Join(".nerd", "campaigns", strings.TrimPrefix(campaignID, "/"), "acceptance", fmt.Sprintf("round_%d.txt", round))
 	abs := filepath.Join(o.workspace, filepath.FromSlash(rel))
@@ -229,12 +243,13 @@ func (o *Orchestrator) appendAcceptanceRemediation() error {
 	if n := len(c.Phases); n > 0 {
 		profile = c.Phases[n-1].ContextProfile
 	}
+	judge := acceptanceJudge(c.Acceptance.OKExitCodes)
 	description := fmt.Sprintf(
 		"Every phase of this campaign is done and its acceptance check still fails (round %d, exit %d).\n\n"+
 			"Acceptance command, run in the workspace root:\n    %s\n\nIts output:\n\n%s\n\n"+
-			"Bring the check to a pass by changing %s. The check is the judge: exit 0 is the only pass, and it runs again when this task is done. "+
+			"Bring the check to a pass by changing %s. The check is the judge: %s, and it runs again when this task is done. "+
 			"Do not delete content or weaken a true statement to get there, and do not touch the checker.",
-		last.Round, last.ExitCode, strings.Join(c.Acceptance.Command, " "), indentBlock(string(output)), scope)
+		last.Round, last.ExitCode, strings.Join(c.Acceptance.Command, " "), indentBlock(string(output)), scope, judge)
 
 	c.Phases = append(c.Phases, Phase{
 		ID:             phaseID,
@@ -245,7 +260,7 @@ func (o *Orchestrator) appendAcceptanceRemediation() error {
 		ContextProfile: profile,
 		Objectives: []PhaseObjective{{
 			Type:        ObjectiveModify,
-			Description: fmt.Sprintf("the acceptance command exits 0: %s", strings.Join(c.Acceptance.Command, " ")),
+			Description: acceptanceObjective(c.Acceptance),
 			// The witness itself verifies this phase, the moment it is done.
 			VerificationMethod: VerifyNone,
 		}},
@@ -382,6 +397,33 @@ func isWindowsAbs(p string) bool {
 		return false
 	}
 	return p[1] == ':' && (p[2] == '/' || p[2] == '\\')
+}
+
+// acceptanceJudge names the exits the witness treats as a pass, for the
+// remediation task. No declared codes is exit 0, spelled the way that task
+// has always said it. A gate's own list (pytest exits 0 and 5) is named in
+// full: the remediation otherwise spends rounds chasing exit 0 after a check
+// the gate already counts as a pass.
+func acceptanceJudge(codes []int) string {
+	if len(codes) == 0 || (len(codes) == 1 && codes[0] == 0) {
+		return "exit 0 is the only pass"
+	}
+	parts := make([]string, len(codes))
+	for i, c := range codes {
+		parts[i] = strconv.Itoa(c)
+	}
+	return "a pass is exit " + strings.Join(parts, " or ")
+}
+
+// acceptanceObjective is the remediation phase's objective. The historical
+// spelling stays when the pass rule is exit 0; a wider rule names the exits.
+func acceptanceObjective(a *Acceptance) string {
+	cmd := strings.Join(a.Command, " ")
+	judge := acceptanceJudge(a.OKExitCodes)
+	if judge == "exit 0 is the only pass" {
+		return "the acceptance command exits 0: " + cmd
+	}
+	return "the acceptance command passes (" + judge + "): " + cmd
 }
 
 func indentBlock(s string) string {

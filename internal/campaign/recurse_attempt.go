@@ -92,10 +92,16 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 	}
 	// The finding's own check is the acceptance witness: a.Check is the gate
 	// command as run, placeholders expanded (recurse_cycle.sourceOf hands the
-	// reporting run's Argv to the attempt). Copied: the attempt outlives the
-	// loop's gate state, and the engine appends rounds beside the command.
+	// reporting run's Argv to the attempt). OKExitCodes is that gate's pass
+	// rule, copied beside the command: the acceptance engine and the gate
+	// that produced the finding then agree on which exits pass. Both slices
+	// are copied because the attempt outlives the loop's gate state, and the
+	// engine appends rounds beside the command.
 	if len(a.Check) > 0 {
-		c.Acceptance = &Acceptance{Command: append([]string(nil), a.Check...)}
+		c.Acceptance = &Acceptance{
+			Command:     append([]string(nil), a.Check...),
+			OKExitCodes: append([]int(nil), a.OKExitCodes...),
+		}
 	}
 	c.Phases = []Phase{{
 		ID:             phaseID,

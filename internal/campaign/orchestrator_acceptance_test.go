@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,6 +199,90 @@ func TestAcceptance_ExhaustedRoundsBlockByName(t *testing.T) {
 	}
 }
 
+// pytest exits 5 when it collected no tests, and the detector records that
+// as a pass (gates.Gate.OKExitCodes). The acceptance witness uses the same
+// rule when the finding's gate carried the codes: exit 5 is accepted, and
+// no remediation round is appended.
+func TestAcceptance_AGateOKExitIsAPass(t *testing.T) {
+	exec := &scriptedAcceptance{exits: []int{5}, output: "no tests ran in 0.01s"}
+	orch := acceptanceOrchestrator(t, &Acceptance{
+		Command:     []string{"python", "-m", "pytest", "-q", "pkg"},
+		OKExitCodes: []int{0, 5},
+	}, exec)
+
+	outcome, err := orch.settleAcceptance(context.Background())
+	if err != nil || outcome != acceptanceSatisfied {
+		t.Fatalf("outcome = %v, err = %v; want satisfied", outcome, err)
+	}
+	if !orch.acceptanceDerived("campaign_accepted") {
+		t.Fatal("campaign_accepted is not derived for an exit the gate counts as a pass")
+	}
+	if len(orch.campaign.Phases) != 1 {
+		t.Fatalf("phases = %d: a passing exit appended a remediation", len(orch.campaign.Phases))
+	}
+	round := orch.campaign.Acceptance.Rounds[0]
+	if !round.Passed || round.ExitCode != 5 {
+		t.Fatalf("round = %+v, want passed with exit 5", round)
+	}
+	rows, err := orch.kernel.Query("campaign_acceptance_result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || !strings.Contains(fmt.Sprint(rows[0].Args[2]), "pass") {
+		t.Fatalf("campaign_acceptance_result = %+v, want /pass", rows)
+	}
+}
+
+// An exit the gate did not list is still a failure, and the remediation is
+// told the gate's list rather than "exit 0 is the only pass".
+func TestAcceptance_AnExitOutsideTheGatesOKCodesRemediates(t *testing.T) {
+	exec := &scriptedAcceptance{exits: []int{2}, output: "2 failed"}
+	orch := acceptanceOrchestrator(t, &Acceptance{
+		Command:     []string{"python", "-m", "pytest", "-q", "pkg"},
+		OKExitCodes: []int{0, 5},
+	}, exec)
+
+	outcome, err := orch.settleAcceptance(context.Background())
+	if err != nil || outcome != acceptanceRemediating {
+		t.Fatalf("outcome = %v, err = %v; want remediating", outcome, err)
+	}
+	if orch.acceptanceDerived("campaign_accepted") {
+		t.Fatal("campaign_accepted is derived for an exit outside the gate's list")
+	}
+	task := orch.campaign.Phases[1].Tasks[0].Description
+	if strings.Contains(task, "exit 0 is the only pass") {
+		t.Fatalf("the remediation tells the model exit 0 is the only pass:\n%s", task)
+	}
+	if !strings.Contains(task, "a pass is exit 0 or 5") {
+		t.Fatalf("the remediation does not name the gate's exits:\n%s", task)
+	}
+	obj := orch.campaign.Phases[1].Objectives[0].Description
+	if !strings.Contains(obj, "a pass is exit 0 or 5") {
+		t.Fatalf("objective = %q", obj)
+	}
+}
+
+// A witness with no codes keeps the old rule: exit 5 is a failure. The
+// codes have to be carried with the check; they are not assumed.
+func TestAcceptance_ExitFiveWithoutOKCodesIsAFailure(t *testing.T) {
+	exec := &scriptedAcceptance{exits: []int{5}, output: "no tests ran"}
+	orch := acceptanceOrchestrator(t, &Acceptance{
+		Command: []string{"python", "-m", "pytest", "-q", "pkg"},
+	}, exec)
+
+	outcome, err := orch.settleAcceptance(context.Background())
+	if err != nil || outcome != acceptanceRemediating {
+		t.Fatalf("outcome = %v, err = %v; want remediating", outcome, err)
+	}
+	round := orch.campaign.Acceptance.Rounds[0]
+	if round.Passed {
+		t.Fatal("exit 5 with no OK codes was recorded as a pass")
+	}
+	if !strings.Contains(orch.campaign.Phases[1].Tasks[0].Description, "exit 0 is the only pass") {
+		t.Fatal("a witness with no codes lost its exit-0 judge line")
+	}
+}
+
 // A witness that cannot be run is a failed round with the reason as its
 // output. It must not read as a pass, and it must not spin.
 func TestAcceptance_ACommandThatCannotRunIsAFailedRound(t *testing.T) {
@@ -221,8 +306,9 @@ func TestAcceptance_ACommandThatCannotRunIsAFailedRound(t *testing.T) {
 // neither forgets the command nor restarts its count.
 func TestAcceptance_PersistsWithTheCampaign(t *testing.T) {
 	c := &Campaign{ID: "/campaign_x", Acceptance: &Acceptance{
-		Command: []string{"go", "vet", "./..."},
-		Rounds:  []AcceptanceRound{{Round: 1, Passed: false, ExitCode: 1}},
+		Command:     []string{"go", "vet", "./..."},
+		OKExitCodes: []int{0, 5},
+		Rounds:      []AcceptanceRound{{Round: 1, Passed: false, ExitCode: 1}},
 	}}
 	copied, err := cloneCampaign(c)
 	if err != nil {
@@ -230,6 +316,10 @@ func TestAcceptance_PersistsWithTheCampaign(t *testing.T) {
 	}
 	if copied.Acceptance == nil || strings.Join(copied.Acceptance.Command, " ") != "go vet ./..." || len(copied.Acceptance.Rounds) != 1 {
 		t.Fatalf("acceptance after a round trip = %+v", copied.Acceptance)
+	}
+	codes := copied.Acceptance.OKExitCodes
+	if len(codes) != 2 || codes[0] != 0 || codes[1] != 5 {
+		t.Fatalf("ok exit codes after a round trip = %v", codes)
 	}
 	facts := copied.Acceptance.ToFacts(c.ID)
 	if len(facts) != 2 || facts[0].Predicate != "campaign_acceptance" || facts[1].Predicate != "campaign_acceptance_result" {
