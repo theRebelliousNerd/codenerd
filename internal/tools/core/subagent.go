@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/tools"
@@ -37,6 +38,10 @@ const SubagentExpandToolName = "subagent_expand"
 // minted it, which is the same reasoning that put safe_action(/search_expand)
 // in the constitution.
 func SubagentExpandTool() *tools.Tool {
+	// The schema is what the model is shown. The numbers are the installed
+	// policy, not the leaf constants: a configured page that the description
+	// still calls 60/200 is a page the model cannot ask for accurately.
+	limits := config.ResolvedObservationLimits()
 	return &tools.Tool{
 		Name:          SubagentExpandToolName,
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryCode},
@@ -61,9 +66,11 @@ func SubagentExpandTool() *tools.Tool {
 					Default:     0,
 				},
 				"max_lines": {
-					Type:        "integer",
-					Description: "Maximum transcript lines to return (default 60, hard cap 200)",
-					Default:     60,
+					Type: "integer",
+					Description: fmt.Sprintf(
+						"Maximum transcript lines to return (default %d, hard cap %d)",
+						limits.SubagentHydrateDefaultLines, limits.SubagentHydrateMaxLines),
+					Default: limits.SubagentHydrateDefaultLines,
 				},
 			},
 		},
@@ -81,7 +88,14 @@ func executeSubagentExpand(_ context.Context, args map[string]any) (string, erro
 		return "", fmt.Errorf("handle is required; it is reported at the end of a subagent's return")
 	}
 
-	window := observation.ReturnWindow{}
+	// Read at the call, not from the schema built at registration.
+	// LoadUserConfig installs the policy and may run after the tool is
+	// built. An explicit max_lines is still clamped to MaxLines by the codec.
+	limits := config.ResolvedObservationLimits()
+	window := observation.ReturnWindow{
+		MaxLines:     limits.SubagentHydrateMaxLines,
+		DefaultLines: limits.SubagentHydrateDefaultLines,
+	}
 	if match, ok := args["match"].(string); ok {
 		window.Match = strings.TrimSpace(match)
 	}

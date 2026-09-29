@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
@@ -622,11 +623,27 @@ func evidenceProjection(r evidenceRow, data []byte) observation.ReturnResult {
 	codec := observation.SharedSubagents()
 	proj := codec.EncodeReturn(ret, observation.ReturnLimits{})
 	if proj.Handle != "" {
-		if _, err := codec.HydrateReturn(proj.Handle, observation.ReturnWindow{Limit: 1}); errors.Is(err, observation.ErrNotFound) {
+		// Limit 1 is a liveness probe, not the page the model is shown.
+		// The cap and the default still come from the installed policy so
+		// this path and subagent_expand cannot hydrate on different bounds.
+		if _, err := codec.HydrateReturn(proj.Handle, subagentHydrateWindow(1)); errors.Is(err, observation.ErrNotFound) {
 			proj = codec.EncodeReturn(ret, observation.ReturnLimits{})
 		}
 	}
 	return proj
+}
+
+// subagentHydrateWindow is the page a retained transcript is read through.
+// MaxLines and DefaultLines are observation.subagent_hydrate_max_lines and
+// observation.subagent_hydrate_default_lines. The leaf codec constants
+// apply only when a caller leaves them unset; this path always sets them.
+func subagentHydrateWindow(limit int) observation.ReturnWindow {
+	limits := config.ResolvedObservationLimits()
+	return observation.ReturnWindow{
+		Limit:        limit,
+		MaxLines:     limits.SubagentHydrateMaxLines,
+		DefaultLines: limits.SubagentHydrateDefaultLines,
+	}
 }
 
 // factArg is a derived row's argument i as a string, or "" when the row is

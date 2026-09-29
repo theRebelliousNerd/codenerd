@@ -1,12 +1,14 @@
 package observation_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"codenerd/internal/config"
 	"codenerd/internal/observation"
 	"codenerd/internal/observation/precondition"
+	"codenerd/internal/retain"
 )
 
 // DefaultReadLimits is the leaf safety net for direct API callers;
@@ -37,5 +39,39 @@ func TestProjectRead_MaxRegionBytesFieldBinds(t *testing.T) {
 	}
 	if r.RegionCut == 0 {
 		t.Error("a cut region that does not announce itself reads as the whole line")
+	}
+}
+
+// The leaf hydrate constants are the safety net for a ReturnWindow that
+// leaves MaxLines and DefaultLines unset. Production passes the config
+// defaults in, so the two have to be the same numbers: an unbounded
+// hydration and a configured one would otherwise page differently.
+func TestHydrateLeafBounds_MatchConfigDefaults(t *testing.T) {
+	cfg := config.DefaultObservationConfig()
+	c := observation.NewSubagents(retain.DefaultConfig())
+	n := cfg.SubagentHydrateMaxLines + 40
+	lines := make([]string, n)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("finding line %04d", i)
+	}
+	encoded := c.EncodeReturn(observation.Return{Agent: "coder", Output: strings.Join(lines, "\n")}, observation.ReturnLimits{})
+	if encoded.Handle == "" {
+		t.Fatal("the transcript was not retained, so the leaf page cannot be measured")
+	}
+
+	unbounded, err := c.HydrateReturn(encoded.Handle, observation.ReturnWindow{})
+	if err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	if len(unbounded.Lines) != cfg.SubagentHydrateDefaultLines {
+		t.Errorf("leaf default page = %d lines, config default = %d", len(unbounded.Lines), cfg.SubagentHydrateDefaultLines)
+	}
+
+	capped, err := c.HydrateReturn(encoded.Handle, observation.ReturnWindow{Limit: n})
+	if err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	if len(capped.Lines) != cfg.SubagentHydrateMaxLines {
+		t.Errorf("leaf cap = %d lines, config default = %d", len(capped.Lines), cfg.SubagentHydrateMaxLines)
 	}
 }
