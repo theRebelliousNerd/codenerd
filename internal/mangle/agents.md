@@ -17,7 +17,7 @@ Three instances were found in one audit (2026-09):
 |---|---|---|---|
 | `modified_function` | `<pkg>.<Name>`, joined to `code_calls` | *nothing at all* | the whole caller-impact chain, and the impact-ranked holographic context |
 | `modified_function` (after wiring) | `<pkg>.<Name>` | bare `Name` | same chain, still empty |
-| `plan_edit` (deleted 2026-09-28) | a `code_element` ref | `FileEdit.FilePath` | five rules in `test_impact.mg`; both impacted-test tools returning "none" on every call -- they now read `element_modified`, which the CodeDOM edit tools emit with the ref |
+| `plan_edit` (deleted 2026-09-28) | a `code_element` ref | `FileEdit.FilePath` | four rules in `test_impact.mg`; both impacted-test tools returning "none" on every call -- they now read `element_modified`, which the CodeDOM edit tools emit with the ref |
 
 Before adding or changing a producer:
 

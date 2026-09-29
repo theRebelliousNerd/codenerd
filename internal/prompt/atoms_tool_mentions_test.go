@@ -278,3 +278,30 @@ func TestAtomCorpus_OptionalToolsAreNamedOnlyByAtomsThatRequireThem(t *testing.T
 		t.Fatalf("matched only %d tool mentions across the corpus; the mention detection no longer sees the tool guidance", checked)
 	}
 }
+
+// TestAtomCorpus_TeachesNoPhantomTransactionTools pins the removal of the
+// explicit-transaction-control list capability/codedom_transaction used to
+// teach: begin_transaction, add_edit, prepare, commit and abort match no
+// registered tool (codedom/register.go lists the CodeDOM tools; grep finds
+// no begin_transaction or add_edit registration under internal/tools), so
+// the model must never be told to call them. Only the two multi-word names
+// are pinned: prepare, commit and abort are ordinary prose elsewhere, and a
+// bare backticked name is syntactically identical to a Mangle predicate
+// taught bare (deny_edit, edit_warning) or a schema field (intent_verbs),
+// so a general unknown-name rule cannot separate them without false
+// positives.
+func TestAtomCorpus_TeachesNoPhantomTransactionTools(t *testing.T) {
+	corpus, err := LoadEmbeddedCorpus()
+	if err != nil {
+		t.Fatalf("LoadEmbeddedCorpus: %v", err)
+	}
+	phantoms := []string{"`begin_transaction`", "`add_edit`"}
+	for _, a := range corpus.All() {
+		text := a.Content + "\n" + a.ContentConcise + "\n" + a.ContentMin
+		for _, phantom := range phantoms {
+			if strings.Contains(text, phantom) {
+				t.Errorf("%s teaches phantom tool %s, which matches no registered tool", a.ID, phantom)
+			}
+		}
+	}
+}

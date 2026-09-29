@@ -2,9 +2,11 @@ package session
 
 import (
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -38,7 +40,13 @@ func (e *Executor) assertTurnElements(turn types.MangleAtom, result *ExecutionRe
 		if !ok || !pre.Known() {
 			continue
 		}
-		data, err := os.ReadFile(turnFilePath(workspace, path))
+		// pinUnits skips the same files: a //go:build ignore or an
+		// other-GOOS/GOARCH file never compiles, so no witness is owed.
+		disk := turnFilePath(workspace, path)
+		if included, err := build.Default.MatchFile(filepath.Dir(disk), filepath.Base(disk)); err != nil || !included {
+			continue
+		}
+		data, err := os.ReadFile(disk)
 		if err != nil {
 			continue
 		}

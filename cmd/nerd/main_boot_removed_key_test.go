@@ -21,6 +21,8 @@ func TestWorkspaceFromArgs(t *testing.T) {
 		{name: "equals", args: []string{`--workspace=C:\ws`, "features"}, want: `C:\ws`},
 		{name: "short", args: []string{"features", "-w", `C:\ws`}, want: `C:\ws`},
 		{name: "short equals", args: []string{`-w=C:\ws`}, want: `C:\ws`},
+		{name: "short joined", args: []string{`-wC:\ws`, "features"}, want: `C:\ws`},
+		{name: "short joined relative", args: []string{"-wrel/ws"}, want: `rel/ws`},
 		{name: "end of flags", args: []string{"--", "--workspace", `C:\ws`}, want: ""},
 		{name: "missing value", args: []string{"--workspace"}, want: ""},
 	}

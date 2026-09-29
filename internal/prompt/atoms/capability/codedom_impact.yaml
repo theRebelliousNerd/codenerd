@@ -52,64 +52,29 @@
   priority: 89
   is_mandatory: false
   depends_on: ["capability/codedom_safety"]
-  # edit_element is named below. Safety no longer carries a tool gate, so this
-  # atom has to name the tool itself or the mention reaches catalogs that
-  # cannot call it.
-  requires_tools: [edit_element]
+  # edit_element and apply_edits are named below. Safety no longer carries a
+  # tool gate, so this atom has to name the tools itself or the mention
+  # reaches catalogs that cannot call them.
+  requires_tools: [edit_element, apply_edits]
   content: |
-    ## Transactional Editing: Two-Phase Commit
+    ## Transactional Editing: Staged, Validated, All-Or-Nothing
 
-    Multi-file refactors use a **Two-Phase Commit (2PC)** protocol to ensure
-    atomicity. Either all changes succeed, or none are applied.
+    Every CodeDOM edit call is staged and validated before anything is
+    written -- the candidate file must parse afterwards, gofmt-clean with
+    imports derived -- and only then does one serialized commit write the
+    files. The commit first re-checks that each file still holds exactly
+    what was read: a concurrent change is an optimistic conflict, not
+    something to overwrite. If a write then fails, the files the commit
+    already wrote are restored from their snapshots in reverse order; a
+    file the commit cannot restore is reported as a rollback conflict
+    rather than overwritten.
 
-    ### The 2PC Protocol
+    A single `edit_element` call commits this way on its own. For an atomic
+    change across files, put the line edits in one `apply_edits edits=[...]`
+    call (2-16 entries, one distinct existing file per entry): every entry
+    is staged and validated before the commit, and the commit writes all
+    files or rolls back to the snapshots.
 
-    **Phase 1: Prepare**
-    1. Create snapshots of all affected files
-    2. Apply proposed edits to shadow filesystem
-    3. Re-parse all modified files (syntax check)
-    4. Run Mangle safety rules on candidate state
-    5. If any `deny_edit` fires → ABORT
-    6. Mark transaction as READY
-
-    **Phase 2: Commit**
-    1. Write all changes to real filesystem atomically
-    2. If any write fails → ROLLBACK using snapshots
-    3. Emit `file_written` facts to kernel
-    4. Mark transaction as COMMITTED
-
-    ### Transaction States
-
-    - `pending` - Initial state, collecting edits
-    - `preparing` - Running shadow validation
-    - `ready` - All validations passed, safe to commit
-    - `committing` - Writing to filesystem
-    - `committed` - Successfully completed
-    - `aborted` - Rolled back due to failure
-
-    ### Why Transactions Matter
-
-    **Without Transactions:**
-    - Edit file A: SUCCESS
-    - Edit file B: PARSE ERROR
-    - Result: A is modified, B is not → **Inconsistent State**
-
-    **With Transactions:**
-    - Edit file A: (staged in shadow)
-    - Edit file B: PARSE ERROR detected in prepare phase
-    - Result: ABORT → Neither A nor B modified → **Consistent State**
-
-    ### Using Transactions
-
-    When using `edit_element` or similar tools:
-    1. All edits in a single request are automatically transactional
-    2. If you need multiple requests, use explicit transaction control:
-       - `begin_transaction` - Start a new transaction
-       - `add_edit` - Queue an edit
-       - `prepare` - Validate (returns validation result)
-       - `commit` or `abort` - Finalize
-
-    ### Rollback Capability
-
-    If commit fails mid-way (e.g., disk full), the system automatically
-    restores all files from their snapshots, ensuring no partial modifications.
+    There is no transaction handle across calls: each tool call commits on
+    its own. Keep dependent edits in one call, and re-read before retrying
+    a commit that reported an optimistic conflict.

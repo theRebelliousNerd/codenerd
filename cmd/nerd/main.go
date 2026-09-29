@@ -378,8 +378,9 @@ func isCampaignInvocation() bool {
 
 // workspaceFromArgs is the --workspace/-w value in args. main calls it
 // before cobra parses argv. args is os.Args[1:], the same slice
-// invokesConfigCommand walks. The value may be a separate argument or
-// joined with '='. A bare "--" ends the scan.
+// invokesConfigCommand walks. The value may be a separate argument, joined
+// with '=', or joined to the short flag the way pflag parses -wVALUE. A
+// bare "--" ends the scan.
 func workspaceFromArgs(args []string) string {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -396,6 +397,8 @@ func workspaceFromArgs(args []string) string {
 			return strings.TrimPrefix(arg, "--workspace=")
 		case strings.HasPrefix(arg, "-w="):
 			return strings.TrimPrefix(arg, "-w=")
+		case len(arg) > 2 && strings.HasPrefix(arg, "-w") && !strings.HasPrefix(arg, "-w="):
+			return arg[len("-w"):]
 		}
 	}
 	return ""

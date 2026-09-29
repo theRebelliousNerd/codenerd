@@ -480,13 +480,18 @@ func (c *Checker) witnessResolves(w string) (bool, error) {
 	return hit, nil
 }
 
-// fileWitnessPath is the workspace file a file: value may name. A trailing
-// :<line> is removed only when the suffix is all digits, so file:C:/x keeps
-// the drive colon and file:foo.go:120 keeps the path.
+// fileWitnessPath is the workspace file a file: value may name. Up to two
+// trailing :<digits> segments (Go's file:line:col) are removed, each only
+// when the suffix is all digits, so file:C:/x keeps the drive colon and
+// file:foo.go:120:5 keeps the path.
 func fileWitnessPath(root, val string) (string, bool) {
 	target := strings.TrimSpace(val)
-	if i := strings.LastIndex(target, ":"); i >= 0 && allDigits(target[i+1:]) {
-		target = strings.TrimSpace(target[:i])
+	for i := 0; i < 2; i++ {
+		j := strings.LastIndex(target, ":")
+		if j < 0 || !allDigits(target[j+1:]) {
+			break
+		}
+		target = strings.TrimSpace(target[:j])
 	}
 	return workspacePath(root, target)
 }

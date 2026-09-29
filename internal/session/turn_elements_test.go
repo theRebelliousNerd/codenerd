@@ -194,3 +194,27 @@ func TestTurnChangedElement_SkipsTestsFixturesAndInit(t *testing.T) {
 		t.Errorf("turn_changed_element = %d for test/fixture/init-only changes, want 0", got)
 	}
 }
+
+// A file the go tool excludes by build constraint owes no witness either,
+// the way the pin gate treats it (pinUnits in pin_gate.go skips what
+// build.Default.MatchFile excludes). //go:build ignore never compiles on
+// any platform, so the test holds on every GOOS.
+func TestTurnChangedElement_SkipsBuildExcludedFiles(t *testing.T) {
+	ignoredBefore := "//go:build ignore\n\npackage elemprobe\n\nfunc Greet() string { return \"hi\" }\n"
+	ignoredAfter := "//go:build ignore\n\npackage elemprobe\n\nfunc Greet() string { return \"hello\" }\n"
+	ws := writeBaselineModule(t, map[string]string{
+		"go.mod":     elemGoMod,
+		"ignored.go": ignoredAfter,
+	})
+	e := newObligationExec(t)
+	e.config.WorkspaceRoot = ws
+
+	result := writeTurnResult()
+	result.WrittenPaths = []string{"ignored.go"}
+	result.PreWriteContents = map[string]PreImage{"ignored.go": existed(ignoredBefore)}
+	e.assertTurnEvidence(testTurn, "/fix", result)
+
+	if got := queryCount(t, e, "turn_changed_element"); got != 0 {
+		t.Errorf("turn_changed_element = %d for a //go:build ignore change, want 0", got)
+	}
+}

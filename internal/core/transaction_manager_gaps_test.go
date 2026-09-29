@@ -549,7 +549,7 @@ func TestTransactionManagerGap_ManyEdits_Stress(t *testing.T) {
 	// TransactionManager.ToFacts reports edits as modified_file, not plan_edit.
 	// plan_edit was declared as plan_edit(Ref) — "Element is planned for
 	// editing" (deleted 2026-09-28; the edited ref lives on element_modified) —
-	// and all five of its consumers in test_impact.mg bound its argument from
+	// and all four of its consumers in test_impact.mg bound its argument from
 	// code_element's ref. FileEdit carries only a path, so
 	// emitting one into plan_edit produced a fact no rule could ever match.
 	// These assertions pinned the producer's behaviour, not the contract.
