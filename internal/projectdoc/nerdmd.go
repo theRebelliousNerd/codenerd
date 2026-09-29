@@ -140,6 +140,21 @@ type GateSpec struct {
 	// Scope is "all" (run once for the workspace; the default) or "node" (run
 	// per node; Run must name {node} or {pkg}).
 	Scope string `yaml:"scope,omitempty"`
+
+	// OKExitCodes are the process exits that count as a pass.
+	//
+	// Omitted (nil): exit 0 is the only pass. That default lives in
+	// gates.Gate.Passed, which treats an empty list as "only 0", so this
+	// field stays unset and 0 is implied rather than stored.
+	//
+	// Set: the list is the complete set of passing exits, and it must
+	// include 0. Passed does not add 0 back once any code is listed, so an
+	// explicit [5] would fail a clean exit. pytest's "no tests collected"
+	// is 5, written [0, 5] — the same pair the built-in python:pytest gate
+	// uses. Values are integers; a non-integer fails decoding. Negatives
+	// and duplicates are rejected. An empty list is rejected too: omit the
+	// field to mean "only 0".
+	OKExitCodes []int `yaml:"ok_exit_codes,omitempty"`
 }
 
 // Commands holds the project's canonical shell invocations.
@@ -482,6 +497,9 @@ func (s *Spec) validate() error {
 		default:
 			return fmt.Errorf("gates[%d] (id %q) has invalid %q %q; expected all or node", i, id, "scope", g.Scope)
 		}
+		if err := validateGateExitCodes(i, id, g.OKExitCodes); err != nil {
+			return err
+		}
 	}
 
 	for i, c := range s.Critical {
@@ -490,6 +508,41 @@ func (s *Spec) validate() error {
 		}
 	}
 
+	return nil
+}
+
+// validateGateExitCodes checks a gate's ok_exit_codes.
+//
+// nil means the field was omitted: exit 0 is the only pass. fromNerdMD
+// leaves Gate.OKExitCodes empty in that case so Gate.Passed applies the
+// default. A present list replaces that default, so it must include 0 —
+// Passed will not put 0 back. An empty list is not "omitted"; it is a
+// present list with nothing in it, and is refused so a typo cannot
+// silently mean "only 0".
+func validateGateExitCodes(i int, id string, codes []int) error {
+	if codes == nil {
+		return nil
+	}
+	if len(codes) == 0 {
+		return fmt.Errorf("gates[%d] (id %q) has an empty %q; omit the field when exit 0 is the only pass, or list the exits that pass (the list must include 0)", i, id, "ok_exit_codes")
+	}
+	seen := make(map[int]struct{}, len(codes))
+	hasZero := false
+	for _, c := range codes {
+		if c < 0 {
+			return fmt.Errorf("gates[%d] (id %q) has invalid %q %d; exit codes are non-negative integers", i, id, "ok_exit_codes", c)
+		}
+		if _, dup := seen[c]; dup {
+			return fmt.Errorf("gates[%d] (id %q) lists exit %d twice in %q", i, id, c, "ok_exit_codes")
+		}
+		seen[c] = struct{}{}
+		if c == 0 {
+			hasZero = true
+		}
+	}
+	if !hasZero {
+		return fmt.Errorf("gates[%d] (id %q) %q %v does not include 0; an explicit list is the complete set of passing exits, and exit 0 is implied only when the field is omitted", i, id, "ok_exit_codes", codes)
+	}
 	return nil
 }
 

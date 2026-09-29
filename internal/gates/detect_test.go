@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"codenerd/internal/projectdoc"
 )
 
 // installed stubs lookPath so only the named programs are on PATH.
@@ -219,6 +221,80 @@ gates:
 	if got := find(t, s, "nerd.md:node-lint").ForNode("pkg/a"); !slices.Equal(got, []string{"make", "lint", "PKG=./pkg/a"}) {
 		t.Fatalf("node-scoped nerd.md gate = %v", got)
 	}
+}
+
+// A nerd.md gate's ok_exit_codes travel onto the gate, and Gate.Passed uses
+// them. Omitted, the slice stays nil and only exit 0 passes. commands.* have
+// no such field, so they keep the same default.
+func TestFromNerdMD_OKExitCodesReachPassed(t *testing.T) {
+	const src = `---
+schema: nerd/v1
+commands:
+  test: go test ./...
+gates:
+  - id: pytest
+    kind: test
+    run: ./scripts/pytest.sh {node}
+    scope: node
+    ok_exit_codes: [0, 5]
+  - id: vet
+    kind: lint
+    run: go vet {pkg}
+    scope: node
+---
+`
+	doc, err := projectdoc.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got, err := fromNerdMD(doc)
+	if err != nil {
+		t.Fatalf("fromNerdMD: %v", err)
+	}
+	py := declaredGate(t, got, "nerd.md:pytest")
+	vet := declaredGate(t, got, "nerd.md:vet")
+	cmd := declaredGate(t, got, "nerd.md:test")
+	if !slices.Equal(py.OKExitCodes, []int{0, 5}) {
+		t.Fatalf("pytest OKExitCodes = %v, want [0 5]", py.OKExitCodes)
+	}
+	if vet.OKExitCodes != nil {
+		t.Fatalf("omitted ok_exit_codes carried %v", vet.OKExitCodes)
+	}
+	if cmd.OKExitCodes != nil {
+		t.Fatalf("commands.test has no ok_exit_codes field, got %v", cmd.OKExitCodes)
+	}
+	if !py.Passed(0) || !py.Passed(5) || py.Passed(1) {
+		t.Fatalf("pytest Passed: 0=%v 5=%v 1=%v", py.Passed(0), py.Passed(5), py.Passed(1))
+	}
+	if !vet.Passed(0) || vet.Passed(5) {
+		t.Fatalf("vet without the field: 0 passes (%v), 5 must not (%v)", vet.Passed(0), vet.Passed(5))
+	}
+	if !cmd.Passed(0) || cmd.Passed(5) {
+		t.Fatalf("commands.test: 0 passes (%v), 5 must not (%v)", cmd.Passed(0), cmd.Passed(5))
+	}
+	doc.Spec.Gates[0].OKExitCodes[1] = 9
+	if py.OKExitCodes[1] != 5 {
+		t.Fatalf("the gate aliases the spec's exit codes: %v", py.OKExitCodes)
+	}
+
+	installed(t)
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{"nerd.md": src})
+	detected := find(t, mustDetect(t, root), "nerd.md:pytest")
+	if !slices.Equal(detected.OKExitCodes, []int{0, 5}) || !detected.Passed(5) || detected.Passed(1) {
+		t.Fatalf("Detect dropped the nerd.md pass rule: %+v", detected)
+	}
+}
+
+func declaredGate(t *testing.T, gs []Gate, id string) Gate {
+	t.Helper()
+	for _, g := range gs {
+		if g.ID == id {
+			return g
+		}
+	}
+	t.Fatalf("no gate %q in %v", id, ids(gs))
+	return Gate{}
 }
 
 func TestDetect_MalformedNerdMDIsAnError(t *testing.T) {

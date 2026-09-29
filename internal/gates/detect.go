@@ -49,6 +49,8 @@ const (
 )
 
 // fromNerdMD turns commands.build/test/lint and the gates: list into gates.
+// A gates: entry's ok_exit_codes, when set, is copied onto Gate.OKExitCodes.
+// Omitted, the slice stays nil: Gate.Passed then treats exit 0 as the only pass.
 func fromNerdMD(doc *projectdoc.Document) ([]Gate, error) {
 	var out []Gate
 	cmds := doc.Spec.Commands
@@ -80,6 +82,9 @@ func fromNerdMD(doc *projectdoc.Document) ([]Gate, error) {
 		out = append(out, Gate{
 			ID: "nerd.md:" + spec.ID, Kind: Kind(spec.Kind), Argv: argv, Scope: scope,
 			Language: languageOf(argv), Source: sourceGates, Env: cmds.Env,
+			// Copied so a later edit of the parsed spec cannot change a gate
+			// the recurse ledger already holds. Nil when the field is absent.
+			OKExitCodes: append([]int(nil), spec.OKExitCodes...),
 		})
 	}
 	return out, nil

@@ -304,18 +304,103 @@ func TestParse_GatesAndCriticalAreValidated(t *testing.T) {
 	if len(doc.Spec.Gates) != 2 || doc.Spec.Gates[1].Scope != "node" || len(doc.Spec.Critical) != 1 {
 		t.Fatalf("parsed gates/critical = %+v / %v", doc.Spec.Gates, doc.Spec.Critical)
 	}
+	if doc.Spec.Gates[0].OKExitCodes != nil || doc.Spec.Gates[1].OKExitCodes != nil {
+		t.Fatalf("omitted ok_exit_codes = %#v / %#v, want nil so exit 0 stays implied", doc.Spec.Gates[0].OKExitCodes, doc.Spec.Gates[1].OKExitCodes)
+	}
 
 	for name, body := range map[string]string{
-		"empty id":           "gates:\n  - kind: audit\n    run: x\n",
-		"duplicate id":       "gates:\n  - id: a\n    kind: audit\n    run: x\n  - id: a\n    kind: lint\n    run: y\n",
-		"unknown kind":       "gates:\n  - id: a\n    kind: vibes\n    run: x\n",
-		"empty run":          "gates:\n  - id: a\n    kind: test\n    run: \"  \"\n",
-		"node without token": "gates:\n  - id: a\n    kind: test\n    run: go test ./...\n    scope: node\n",
-		"unknown scope":      "gates:\n  - id: a\n    kind: test\n    run: x\n    scope: galaxy\n",
-		"empty critical":     "critical:\n  - \"\"\n",
+		"empty id":            "gates:\n  - kind: audit\n    run: x\n",
+		"duplicate id":        "gates:\n  - id: a\n    kind: audit\n    run: x\n  - id: a\n    kind: lint\n    run: y\n",
+		"unknown kind":        "gates:\n  - id: a\n    kind: vibes\n    run: x\n",
+		"empty run":           "gates:\n  - id: a\n    kind: test\n    run: \"  \"\n",
+		"node without token":  "gates:\n  - id: a\n    kind: test\n    run: go test ./...\n    scope: node\n",
+		"unknown scope":       "gates:\n  - id: a\n    kind: test\n    run: x\n    scope: galaxy\n",
+		"empty critical":      "critical:\n  - \"\"\n",
+		"non-integer exit":    "gates:\n  - id: a\n    kind: test\n    run: x\n    ok_exit_codes: [0, five]\n",
+		"exit not a list":     "gates:\n  - id: a\n    kind: test\n    run: x\n    ok_exit_codes: 0\n",
+		"negative exit":       "gates:\n  - id: a\n    kind: test\n    run: x\n    ok_exit_codes: [0, -1]\n",
+		"duplicate exit":      "gates:\n  - id: a\n    kind: test\n    run: x\n    ok_exit_codes: [0, 5, 5]\n",
+		"exit list without 0": "gates:\n  - id: a\n    kind: test\n    run: x\n    ok_exit_codes: [5]\n",
+		"empty exit list":     "gates:\n  - id: a\n    kind: test\n    run: x\n    ok_exit_codes: []\n",
 	} {
 		if _, err := Parse([]byte(head + body + "---\n")); err == nil {
 			t.Errorf("%s: want a parse error", name)
 		}
+	}
+}
+
+// ok_exit_codes is optional. Absent, the slice stays nil and exit 0 is
+// implied. Present, the list is stored in author order and is the complete
+// pass set, so it has to include 0.
+func TestParse_GateOKExitCodes(t *testing.T) {
+	const head = "---\nschema: nerd/v1\n"
+	with := head + "gates:\n" +
+		"  - id: pytest\n    kind: test\n    run: python -m pytest -q {node}\n    scope: node\n    ok_exit_codes: [0, 5]\n" +
+		"  - id: vet\n    kind: lint\n    run: go vet {pkg}\n    scope: node\n" +
+		"  - id: only-zero\n    kind: audit\n    run: ./scripts/check.sh\n    ok_exit_codes: [0]\n" +
+		"---\n"
+	doc, err := Parse([]byte(with))
+	if err != nil {
+		t.Fatalf("gates with ok_exit_codes rejected: %v", err)
+	}
+	if got := doc.Spec.Gates[0].OKExitCodes; len(got) != 2 || got[0] != 0 || got[1] != 5 {
+		t.Fatalf("pytest ok_exit_codes = %#v, want [0 5]", got)
+	}
+	if doc.Spec.Gates[1].OKExitCodes != nil {
+		t.Fatalf("omitted ok_exit_codes = %#v, want nil", doc.Spec.Gates[1].OKExitCodes)
+	}
+	if got := doc.Spec.Gates[2].OKExitCodes; len(got) != 1 || got[0] != 0 {
+		t.Fatalf("explicit [0] = %#v, want [0]", got)
+	}
+
+	without := head + "gates:\n  - id: vet\n    kind: lint\n    run: go vet {pkg}\n    scope: node\n---\n"
+	doc, err = Parse([]byte(without))
+	if err != nil {
+		t.Fatalf("gate without ok_exit_codes rejected: %v", err)
+	}
+	if len(doc.Spec.Gates) != 1 || doc.Spec.Gates[0].OKExitCodes != nil {
+		t.Fatalf("without the field = %+v, want one gate and nil codes", doc.Spec.Gates)
+	}
+
+	missingZero := head + "gates:\n  - id: a\n    kind: test\n    run: x\n    ok_exit_codes: [5]\n---\n"
+	_, err = Parse([]byte(missingZero))
+	if err == nil || !strings.Contains(err.Error(), "ok_exit_codes") || !strings.Contains(err.Error(), "include 0") {
+		t.Fatalf("an explicit list without 0 must say that 0 is required, got %v", err)
+	}
+}
+
+func TestPromptSection_ShowsOKExitCodesOnlyWhenSet(t *testing.T) {
+	doc, err := Parse([]byte("---\nschema: nerd/v1\ngates:\n" +
+		"  - id: pytest\n    kind: test\n    run: python -m pytest -q {node}\n    scope: node\n    ok_exit_codes: [0, 5]\n" +
+		"  - id: vet\n    kind: lint\n    run: go vet {pkg}\n    scope: node\n" +
+		"---\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	doc.Path = "nerd.md"
+	section := doc.PromptSection()
+
+	var pytestLine, vetLine string
+	for _, line := range strings.Split(section, "\n") {
+		switch {
+		case strings.Contains(line, "`pytest`"):
+			pytestLine = line
+		case strings.Contains(line, "`vet`"):
+			vetLine = line
+		}
+	}
+	if pytestLine == "" || !strings.Contains(pytestLine, "pass on exit 0, 5") {
+		t.Fatalf("pytest line = %q, want the declared exits", pytestLine)
+	}
+	if vetLine == "" || strings.Contains(vetLine, "pass on exit") {
+		t.Fatalf("a gate with no ok_exit_codes must not restate exits, got %q", vetLine)
+	}
+
+	plain, err := Parse([]byte(validDoc))
+	if err != nil {
+		t.Fatalf("Parse validDoc: %v", err)
+	}
+	if strings.Contains(plain.PromptSection(), "Project gates") {
+		t.Fatal("a nerd.md with no gates must not grow a gates section")
 	}
 }

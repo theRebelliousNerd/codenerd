@@ -2,6 +2,7 @@ package projectdoc
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"codenerd/internal/types"
@@ -268,12 +269,59 @@ func (d *Document) PromptSection() string {
 		b.WriteString("\n")
 	}
 
+	if len(d.Spec.Gates) > 0 {
+		// The model cannot see Gate.Passed. Exit 0 is the pass unless a gate
+		// names others (pytest exits 5 when it collected nothing). Those
+		// codes are written on that gate only; an omitted list is not restated.
+		b.WriteString("### Project gates\n\n")
+		b.WriteString("These are the project's checks. Exit 0 passes. Any other passing exit is named on the gate.\n\n")
+		shownGates := min(len(d.Spec.Gates), maxPromptListEntries)
+		for _, g := range d.Spec.Gates[:shownGates] {
+			scope := g.Scope
+			if strings.TrimSpace(scope) == "" {
+				scope = "all"
+			}
+			b.WriteString("- `")
+			b.WriteString(g.ID)
+			b.WriteString("` (")
+			b.WriteString(g.Kind)
+			b.WriteString(", ")
+			b.WriteString(scope)
+			b.WriteString("): `")
+			b.WriteString(g.Run)
+			b.WriteString("`")
+			if len(g.OKExitCodes) > 0 {
+				b.WriteString(" — pass on exit ")
+				b.WriteString(joinInts(g.OKExitCodes))
+			}
+			b.WriteString("\n")
+		}
+		if notice := types.TruncationNotice(shownGates, len(d.Spec.Gates), "project gates"); notice != "" {
+			b.WriteString("- ")
+			b.WriteString(notice)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
 	if body := strings.TrimSpace(d.Body); body != "" {
 		b.WriteString(types.ClampText(body, maxPromptBodyChars, "nerd.md body"))
 		b.WriteString("\n")
 	}
 
 	return types.ClampText(b.String(), maxPromptSectionChars, "nerd.md")
+}
+
+// joinInts renders codes in author order, comma-separated.
+func joinInts(nums []int) string {
+	var b strings.Builder
+	for i, n := range nums {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(strconv.Itoa(n))
+	}
+	return b.String()
 }
 
 // Bounds on the rendered project-instruction section.
