@@ -269,6 +269,10 @@ type ExecutorConfig struct {
 	// ToolTimeout is the maximum time for a single tool execution.
 	ToolTimeout time.Duration
 
+	// LSPTimeout bounds one language-server diagnostic request
+	// (session.lsp_timeout). Zero takes the section's default.
+	LSPTimeout time.Duration
+
 	// Working is the working section of .nerd/config.json: the spans the
 	// working policy decides a tool loop's regime, steering, stop and finalize
 	// with. Zero fields take the section's defaults.
@@ -984,6 +988,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		return nil, fmt.Errorf("context error before processing: %w", err)
 	}
 	ctx = e.withSessionContext(ctx)
+	ctx = withDiagnosticTimeout(ctx, e.diagnosticTimeout())
 
 	result := &ExecutionResult{}
 	if contract, ok := evidence.ContractFromContext(ctx); ok {
@@ -1964,210 +1969,17 @@ func (e *Executor) buildToolDefinitions(cfg *config.EffectiveAgentRuntimeConfig)
 	return defs
 }
 
-// Bounds on the in-turn tool-result transcript.
-//
-// Tool results arrive whole (nothing cuts them any more; the working context
-// archives each one and pages it), but the tool loop's `history` slice is
-// append-only and is re-sent WHOLE on every CompleteWithToolResults call, so
-// the sum of an exploration session's output would be replayed on every
-// provider round-trip. Nothing bounded that sum.
-//
-// Eviction REWRITES the oldest tool results in place rather than deleting the
-// messages that carry them. Anthropic-style APIs reject a request in which a
-// tool_use block has no matching tool_result, so dropping a message is a hard
-// 400 mid-turn; replacing its content with a marker keeps the pairing valid and
-// tells the model, in the exact slot where the output used to be, that the
-// output existed and is gone. The most recent results — the ones the next
-// decision actually depends on — are never touched.
-const (
-	// maxToolLoopHistoryBytes caps the replayed tool-loop transcript
-	// (~64k tokens). Sized to hold roughly 16 full-size tool results, which
-	// covers the working set of a normal multi-step turn while refusing to
-	// resend a whole exploration session on every round-trip.
-	maxToolLoopHistoryBytes = 256 * 1024
-
-	// evictedToolResultNotice replaces an evicted result's content. It names
-	// what happened so the model re-reads the file rather than inventing what
-	// the result said.
-	evictedToolResultNotice = "[codenerd: this tool result was evicted from the transcript to stay inside the context budget. " +
-		"Re-run the tool if you still need its output.]"
-
-	// toolResultMarkerBudget reserves bytes for a clamped result's truncation
-	// marker inside that result's share of the ceiling.
-	toolResultMarkerBudget = 160
-
-	// minClampedToolResultBytes is the floor a clamped current result keeps.
-	// A batch of 50 pathological results would otherwise divide the ceiling
-	// into slices too small to say anything, and a result trimmed to nothing
-	// is indistinguishable from a tool that returned nothing.
-	minClampedToolResultBytes = 2048
-)
-
-// boundedTranscript bounds the loop's history when nothing else does. Inside a
-// working loop every request is already bounded, without loss: the context
-// ledger's compaction moves old results out behind their recall handles
-// (working_compact, working_evict) and prepareWorkingRequest archives any
-// result the window cannot fit behind a recall_context pointer. Blanking
-// payloads here as well cut results the request still carried, clamped the
-// newest one, and told the model to re-run a tool whose output was one recall
-// away (2026-09-22 sweep, alarm 9; it mattered once the loop stopped cutting
-// history to three messages). Without a working
-// loop there is no archive, and the byte bound with its re-run notice is true.
-func boundedTranscript(ctx context.Context, history []types.Message) []types.Message {
-	if activeWorkingLoop(ctx) != nil {
-		return history
-	}
-	return boundToolLoopHistory(history)
-}
-
-// boundToolLoopHistory caps the total bytes of a tool-loop transcript by
-// blanking the oldest tool-result payloads, oldest-first, until the transcript
-// fits. Message structure, ordering, and every ToolUseID are preserved.
-//
-// It is a no-op for a transcript already inside the ceiling, which is every
-// ordinary turn.
-func boundToolLoopHistory(history []types.Message) []types.Message {
-	total := toolLoopHistoryBytes(history)
-	if total <= maxToolLoopHistoryBytes {
-		return history
-	}
-
-	// Copy-on-write: the caller's slice is shared with the provider call in
-	// flight on the deadline path, and mutating a ToolResult in place would
-	// change a message that has already been serialized.
-	bounded := make([]types.Message, len(history))
-	copy(bounded, history)
-
-	// The newest tool-result message is the one the next decision is made
-	// from; it is clamped, never blanked. Everything older is expendable in
-	// full — if the model still needs it, re-running the tool is cheaper than
-	// carrying the payload through every remaining round-trip.
-	newest := -1
-	for i := len(bounded) - 1; i >= 0; i-- {
-		if len(bounded[i].ToolResults) > 0 {
-			newest = i
-			break
-		}
-	}
-
-	evicted := 0
-	for i := 0; i < len(bounded) && total > maxToolLoopHistoryBytes; i++ {
-		if i == newest || len(bounded[i].ToolResults) == 0 {
-			continue
-		}
-		results := make([]types.ToolResult, len(bounded[i].ToolResults))
-		copy(results, bounded[i].ToolResults)
-		for j := range results {
-			if results[j].Content == evictedToolResultNotice {
-				continue
-			}
-			total -= len(results[j].Content)
-			total += len(evictedToolResultNotice)
-			results[j].Content = evictedToolResultNotice
-			evicted++
-		}
-		// Both views. Assigning the field alone would leave a block-built turn
-		// sending the payload this eviction just accounted for as gone.
-		bounded[i] = bounded[i].WithToolResults(results)
-	}
-
-	// Every older result is gone and the transcript is still over: the newest
-	// batch alone exceeds the ceiling. Clamp it head+tail rather than blanking
-	// it — a tool result's tail carries the error or the last hunk.
-	clamped := 0
-	if total > maxToolLoopHistoryBytes && newest >= 0 {
-		results := make([]types.ToolResult, len(bounded[newest].ToolResults))
-		copy(results, bounded[newest].ToolResults)
-
-		// Budget the newest batch against what the rest of the transcript
-		// already costs, then reserve each result's marker inside its share.
-		// Reserving after the split is what keeps the marker from pushing the
-		// transcript back over the ceiling it was added to respect.
-		newestBytes := 0
-		for _, r := range results {
-			newestBytes += len(r.Content)
-		}
-		share := (maxToolLoopHistoryBytes - (total - newestBytes)) / max(1, len(results))
-		share -= toolResultMarkerBudget
-		if share < minClampedToolResultBytes {
-			share = minClampedToolResultBytes
-		}
-
-		for j := range results {
-			if len(results[j].Content) <= share {
-				continue
-			}
-			total -= len(results[j].Content)
-			results[j].Content = types.ClampText(results[j].Content, share, "tool result")
-			total += len(results[j].Content)
-			clamped++
-		}
-		bounded[newest] = bounded[newest].WithToolResults(results)
-	}
-
-	if evicted > 0 || clamped > 0 {
-		logging.Get(logging.CategorySession).Warn(
-			"Tool-loop transcript exceeded %d bytes; evicted %d stale tool result(s) and clamped %d current one(s)",
-			maxToolLoopHistoryBytes, evicted, clamped)
-	}
-	return bounded
-}
-
-// toolLoopHistoryBytes totals the text a transcript will put on the wire.
-func toolLoopHistoryBytes(history []types.Message) int {
-	total := 0
-	for _, m := range history {
-		total += len(m.Text)
-		for _, tc := range m.ToolCalls {
-			total += len(tc.Name)
-		}
-		for _, tr := range m.ToolResults {
-			total += len(tr.Content)
-		}
-	}
-	return total
-}
-
-// maxHistoryTurnChars caps a single stored conversation turn.
-//
-// The turn count was capped at 50 but each turn's Content never was, and both
-// ends of a turn are unbounded input: the user side is whatever was typed or
-// piped (`nerd run "$(cat build.log)"`), the assistant side is whatever the
-// model returned. One oversized turn used to do two things, both bad.
-//
-// It poisoned the replay window: priorTurnMessages drops whole messages
-// oldest-first until the 24000-char budget is met, so a single 200 KB turn
-// evicted EVERY prior turn and the model started the next turn with no memory
-// at all — a context loss that looked like amnesia rather than truncation.
-// And perception replays the last five turns into every classification call,
-// so the same blob was re-sent on every turn until it aged out of a 50-slot
-// window.
-//
-// 8000 chars is a third of the default history budget: three capped turns still
-// fit the replay window, so the cap bounds a pathological turn without
-// shrinking a normal conversation.
-const maxHistoryTurnChars = 8000
-
-// maxHistoryThoughtChars caps a stored reasoning summary. Thinking models emit
-// these at arbitrary length and nothing downstream depends on their full text.
-const maxHistoryThoughtChars = 2000
-
-// appendToHistory adds a turn to conversation history, bounding the turn's text
-// so one oversized turn cannot evict the rest of the window.
+// appendToHistory stores a turn whole. What reaches the next turn's model is
+// decided by priorTurnWindow from session.history_turn_window and
+// session.history_char_budget: whole exchanges that do not fit are evicted
+// and, inside a working loop, returned by recall_context. Slicing the turn
+// on the way in (8000 chars of content, 2000 of reasoning) destroyed the text
+// the window and the recall path would have held, and a silent 50-turn cap
+// dropped the rest with no notice at all.
 func (e *Executor) appendToHistory(turn perception.ConversationTurn) {
-	turn.Content = types.ClampText(turn.Content, maxHistoryTurnChars, "conversation turn")
-	turn.ThoughtSummary = types.ClampHead(turn.ThoughtSummary, maxHistoryThoughtChars, "thought summary")
-
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
 	e.conversationHistory = append(e.conversationHistory, turn)
-
-	// Limit history size
-	maxHistory := 50
-	if len(e.conversationHistory) > maxHistory {
-		e.conversationHistory = e.conversationHistory[len(e.conversationHistory)-maxHistory:]
-	}
 }
 
 // ClearHistory clears the conversation history.
@@ -2193,9 +2005,11 @@ func (e *Executor) GetHistory() []perception.ConversationTurn {
 //
 // Bounds: HistoryTurnWindow messages (0 disables, negative treated as
 // disabled) and HistoryCharBudget total characters (non-positive falls back
-// to DefaultHistoryCharBudget). The window keeps the most recent messages;
-// the character cap then drops the oldest first, two at a time, so a trimmed
-// window never splits a user/assistant pair. Turns with empty Content are
+// to session.history_char_budget). The window keeps the most recent messages;
+// the character cap then drops the oldest exchanges first, two at a time, so
+// a trimmed window never splits a user/assistant pair. An exchange that
+// contains a message longer than the budget is evicted whole — it is not
+// sliced — and the exchanges that fit stay. Turns with empty Content are
 // skipped. Role mapping is "user" -> "user", anything else -> "assistant".
 //
 // Eviction is announced, not silent. Whole turns leaving the window is the
@@ -2263,31 +2077,99 @@ func (e *Executor) priorTurnWindow(recallable bool) ([]types.Message, []types.Me
 		evicted = append(evicted, msgs[:len(msgs)-window]...)
 		msgs = msgs[len(msgs)-window:]
 	}
-	total := historyMessageChars(msgs)
-	for total > budget && len(msgs) > 0 {
-		drop := min(2, len(msgs))
-		total -= historyMessageChars(msgs[:drop])
-		evicted = append(evicted, msgs[:drop]...)
-		msgs = msgs[drop:]
+	kept, dropped := fitHistoryToBudget(msgs, budget)
+	evicted = append(evicted, dropped...)
+	msgs = kept
+	if len(evicted) == 0 {
+		return msgs, nil
 	}
+	notice := historyEvictionNotice(len(evicted), eligible, evicted, recallable)
 	if len(msgs) == 0 {
-		// Nothing survived the budget, so there is no surviving message to
-		// carry the marker. The window is empty and the caller renders no
-		// history at all, which is honest on its own: the model is not shown
-		// a partial transcript it could mistake for the whole one.
-		return nil, evicted
+		// No exchange fit. The notice is its own message so the drop is not
+		// silent, and it is an assistant turn so the user's next message
+		// keeps the alternation strict providers require.
+		return []types.Message{{Role: "assistant", Text: notice}}, evicted
 	}
-	if len(evicted) > 0 {
-		recover := ""
-		if recallable {
-			recover = fmt.Sprintf("recall_context id=%q returns them", historyEvictionHandle(evicted))
-		}
-		notice := types.DroppedNotice(len(evicted), eligible,
-			fmt.Sprintf("older conversation messages (%d chars) evicted from this window; the session still holds them",
-				historyMessageChars(evicted)), recover)
-		msgs[0].Text = notice + "\n\n" + msgs[0].Text
-	}
+	msgs[0].Text = notice + "\n\n" + msgs[0].Text
 	return msgs, evicted
+}
+
+// historyEvictionNotice names what left the window. recover is set only when
+// a verb in this process redeems the handle.
+func historyEvictionNotice(dropped, eligible int, evicted []types.Message, recallable bool) string {
+	recover := ""
+	if recallable {
+		recover = fmt.Sprintf("recall_context id=%q returns them", historyEvictionHandle(evicted))
+	}
+	return types.DroppedNotice(dropped, eligible,
+		fmt.Sprintf("conversation messages (%d chars) evicted from this window; the session still holds them",
+			historyMessageChars(evicted)), recover)
+}
+
+// fitHistoryToBudget keeps the exchanges that fit in budget and evicts the
+// rest, oldest first, without slicing a message. An exchange is a pair of
+// messages (a trailing singleton when the count is odd). One message longer
+// than the budget takes its whole exchange out, so a pasted log does not
+// drag every earlier turn out of the window with it and does not arrive
+// half-cut.
+func fitHistoryToBudget(msgs []types.Message, budget int) (kept, evicted []types.Message) {
+	keep := make([]bool, len(msgs))
+	for i := range keep {
+		keep[i] = true
+	}
+	exchangeAt := func(i int) int {
+		if i+1 < len(msgs) {
+			return 2
+		}
+		return 1
+	}
+	for i := 0; i < len(msgs); {
+		n := exchangeAt(i)
+		over := false
+		for _, m := range msgs[i : i+n] {
+			if len(m.Text) > budget {
+				over = true
+				break
+			}
+		}
+		if over {
+			for j := i; j < i+n; j++ {
+				keep[j] = false
+			}
+		}
+		i += n
+	}
+	total := 0
+	for i, m := range msgs {
+		if keep[i] {
+			total += len(m.Text)
+		}
+	}
+	for i := 0; i < len(msgs) && total > budget; {
+		n := exchangeAt(i)
+		fullyKept := true
+		for j := i; j < i+n; j++ {
+			if !keep[j] {
+				fullyKept = false
+				break
+			}
+		}
+		if fullyKept {
+			for j := i; j < i+n; j++ {
+				keep[j] = false
+				total -= len(msgs[j].Text)
+			}
+		}
+		i += n
+	}
+	for i, m := range msgs {
+		if keep[i] {
+			kept = append(kept, m)
+		} else {
+			evicted = append(evicted, m)
+		}
+	}
+	return kept, evicted
 }
 
 // historyMessageChars totals the text carried by prior messages.

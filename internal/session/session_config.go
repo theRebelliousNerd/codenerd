@@ -26,6 +26,7 @@ var defaultSessionPolicy = func() config.SessionPolicy {
 func ExecutorConfigFrom(p config.SessionPolicy, working config.WorkingConfig) ExecutorConfig {
 	return ExecutorConfig{
 		ToolTimeout:         p.ToolTimeout,
+		LSPTimeout:          p.LSPTimeout,
 		Working:             working,
 		RepairMaxAttempts:   p.RepairMaxAttempts,
 		RepairDiffFileBytes: p.RepairDiffFileBytes,

@@ -91,6 +91,36 @@ func TestSessionConfig_CheckNamesEachContradiction(t *testing.T) {
 	}
 }
 
+// lsp_timeout is one language-server request. Absent takes 90s; a non-positive
+// value refuses the file.
+func TestSessionConfig_LSPTimeoutIsOneRequest(t *testing.T) {
+	policy, err := DefaultSessionConfig().Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.LSPTimeout != 90*time.Second {
+		t.Fatalf("lsp_timeout = %s, want the default 90s", policy.LSPTimeout)
+	}
+
+	path := writeCampaignConfig(t, `{"session": {"lsp_timeout": "15s"}}`)
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	policy, err = cfg.GetSessionConfig().Resolve()
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if policy.LSPTimeout != 15*time.Second {
+		t.Fatalf("lsp_timeout = %s, want the file's 15s", policy.LSPTimeout)
+	}
+
+	path = writeCampaignConfig(t, `{"session": {"lsp_timeout": "0s"}}`)
+	if _, err := LoadUserConfig(path); err == nil {
+		t.Fatal("a non-positive lsp_timeout loaded")
+	}
+}
+
 // Every knob a rule reads reaches the kernel under the key the rule names
 // (turn_steps.mg reads /session_step_plan_min_sites).
 func TestSessionPolicy_ParamsCarryEveryPolicyKnob(t *testing.T) {

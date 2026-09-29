@@ -53,7 +53,7 @@ func TestHistoryEviction_MarksAndRetains(t *testing.T) {
 	}
 
 	// Count and kind, not just "something happened".
-	if !strings.Contains(msgs[0].Text, "older conversation messages") {
+	if !strings.Contains(msgs[0].Text, "conversation messages") {
 		t.Errorf("the marker does not name what was evicted: %q", truncateForFailure(msgs[0].Text))
 	}
 

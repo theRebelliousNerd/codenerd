@@ -64,10 +64,9 @@ type LLMClient interface {
 // from a constructor that fills both. There is one hazard left, and it is
 // worth naming: MUTATING the flat fields on a message that was built from
 // blocks changes only the projection, and Content will keep returning the
-// original blocks. internal/session's boundToolLoopHistory does exactly that
-// when it blanks old tool results, which is correct today only because the
-// messages it edits are literal-built and carry no blocks. Converting that
-// path to blocks means converting the eviction with it.
+// original blocks. Nothing in internal/session edits a stored message in
+// place any more: the working ledger archives a large result behind its
+// recall handle instead of blanking it.
 type Message struct {
 	Role string // "user" or "assistant"
 

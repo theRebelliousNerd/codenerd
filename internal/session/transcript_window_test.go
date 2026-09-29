@@ -82,13 +82,10 @@ func TestToolLoop_AWorkingLoopLosesNoResultToTheByteBound(t *testing.T) {
 	for n, history := range client.histories {
 		for _, m := range history {
 			for _, r := range m.ToolResults {
-				switch {
-				case r.Content == payload, strings.HasPrefix(r.Content, archivedResultPrefix):
-				case r.Content == evictedToolResultNotice:
-					t.Fatalf("request %d carried an evicted result telling the model to re-run the tool", n+1)
-				default:
-					t.Fatalf("request %d carried a cut result (%d of %d bytes)", n+1, len(r.Content), len(payload))
+				if r.Content == payload || strings.HasPrefix(r.Content, archivedResultPrefix) {
+					continue
 				}
+				t.Fatalf("request %d carried a cut result (%d of %d bytes)", n+1, len(r.Content), len(payload))
 			}
 		}
 	}

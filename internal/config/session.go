@@ -73,6 +73,14 @@ type SessionConfig struct {
 	// HistoryCharBudget bounds the characters of prior-turn text sent to the
 	// generating model; the oldest exchanges go first, never half of one.
 	HistoryCharBudget int `json:"history_char_budget,omitempty"`
+
+	// LSPTimeout bounds one language-server diagnostic request: one `gopls
+	// check`, or one pyright / tsserver session over the files the turn
+	// wrote. It is not a bound on the turn. Measured cold (2026-08-08, gopls
+	// v0.22.0) a single file took 5.9s; 90s is above that so a first package
+	// graph does not drop the signal. Every file the turn wrote is checked.
+	// A request that does not finish names the files it did not diagnose.
+	LSPTimeout string `json:"lsp_timeout,omitempty"`
 }
 
 // DefaultSessionConfig is the session section with every field written down.
@@ -89,6 +97,7 @@ func DefaultSessionConfig() SessionConfig {
 		FinalAnswerReserve:  "5m",
 		HistoryTurnWindow:   &window,
 		HistoryCharBudget:   24000,
+		LSPTimeout:          "90s",
 	}
 }
 
@@ -122,6 +131,7 @@ func (c SessionConfig) WithDefaults() SessionConfig {
 	intOr(&c.RepairDiffTurnBytes, d.RepairDiffTurnBytes)
 	strOr(&c.ToolTimeout, d.ToolTimeout)
 	strOr(&c.FinalAnswerReserve, d.FinalAnswerReserve)
+	strOr(&c.LSPTimeout, d.LSPTimeout)
 	if c.HistoryTurnWindow == nil {
 		c.HistoryTurnWindow = d.HistoryTurnWindow
 	}
@@ -143,6 +153,7 @@ type SessionPolicy struct {
 	FinalAnswerReserve  time.Duration
 	HistoryTurnWindow   int
 	HistoryCharBudget   int
+	LSPTimeout          time.Duration
 }
 
 // Resolve defaults, checks and parses the section. Every problem Check finds
@@ -171,6 +182,7 @@ func (c SessionConfig) Resolve() (SessionPolicy, error) {
 		FinalAnswerReserve:  d(c.FinalAnswerReserve),
 		HistoryTurnWindow:   *c.HistoryTurnWindow,
 		HistoryCharBudget:   c.HistoryCharBudget,
+		LSPTimeout:          d(c.LSPTimeout),
 	}, nil
 }
 
@@ -228,6 +240,7 @@ func (c SessionConfig) Check(prefix string) []Problem {
 		{"step_plan_timeout", c.StepPlanTimeout},
 		{"tool_timeout", c.ToolTimeout},
 		{"final_answer_reserve", c.FinalAnswerReserve},
+		{"lsp_timeout", c.LSPTimeout},
 	} {
 		d, err := time.ParseDuration(f.v)
 		switch {

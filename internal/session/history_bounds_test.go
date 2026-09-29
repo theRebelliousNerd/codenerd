@@ -1,6 +1,8 @@
 package session
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -8,226 +10,142 @@ import (
 	"codenerd/internal/types"
 )
 
-// The turn COUNT was capped at 50; no turn's text was capped at all. Both ends
-// of a turn are unbounded input — the user side is whatever was typed or piped
-// (`nerd run "$(cat build.log)"`), the assistant side is whatever the model
-// returned — and one oversized turn did two separate kinds of damage:
-// priorTurnMessages evicts whole messages oldest-first against a 24000-char
-// budget, so a single 200 KB turn threw away EVERY prior turn; and perception
-// replays the last five turns into every classification call, so the blob was
-// re-sent until it aged out of a 50-slot window.
-func TestAppendToHistory_BoundsTurnText(t *testing.T) {
-	tests := []struct {
-		name       string
-		turn       perception.ConversationTurn
-		wantMarker bool
-		mustKeep   []string
-	}{
-		{
-			name:     "an ordinary turn is stored verbatim",
-			turn:     perception.ConversationTurn{Role: "user", Content: "fix the router"},
-			mustKeep: []string{"fix the router"},
-		},
-		{
-			name: "a piped build log is clamped head and tail",
-			turn: perception.ConversationTurn{
-				Role:    "user",
-				Content: "HEADMARK" + strings.Repeat("L", 5_000_000) + "TAILMARK",
-			},
-			wantMarker: true,
-			// The tail of a build log is the failure; head-only truncation
-			// removes exactly the line the turn exists to act on.
-			mustKeep: []string{"HEADMARK", "TAILMARK"},
-		},
-		{
-			name: "an oversized reasoning summary is clamped",
-			turn: perception.ConversationTurn{
-				Role:           "assistant",
-				Content:        "done",
-				ThoughtSummary: strings.Repeat("T", 500_000),
-			},
-			wantMarker: true,
-			mustKeep:   []string{"done"},
-		},
+// A stored turn is the text the next window and recall_context hand back.
+// Slicing it on the way in (and dropping turns past a silent count) made both
+// of those lie about what was said.
+func TestHistory_AppendStoresTurnsWhole(t *testing.T) {
+	e := &Executor{}
+	huge := "HEADMARK" + strings.Repeat("L", 200_000) + "TAILMARK"
+	thought := strings.Repeat("T", 50_000)
+	e.appendToHistory(perception.ConversationTurn{
+		Role: "user", Content: huge, ThoughtSummary: thought,
+	})
+
+	got := e.GetHistory()
+	if len(got) != 1 {
+		t.Fatalf("history has %d turns, want 1", len(got))
+	}
+	if got[0].Content != huge {
+		t.Fatalf("stored content is %d chars, want the %d that were appended", len(got[0].Content), len(huge))
+	}
+	if got[0].ThoughtSummary != thought {
+		t.Fatalf("stored thought summary is %d chars, want the %d that were appended", len(got[0].ThoughtSummary), len(thought))
+	}
+	if types.IsClamped(got[0].Content) || types.IsClamped(got[0].ThoughtSummary) {
+		t.Fatal("a stored turn carries a truncation marker; the window is what bounds the prompt")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := &Executor{}
-			e.appendToHistory(tt.turn)
-
-			got := e.GetHistory()
-			if len(got) != 1 {
-				t.Fatalf("history has %d turns, want 1", len(got))
-			}
-			stored := got[0]
-
-			if len(stored.Content) > maxHistoryTurnChars+512 {
-				t.Errorf("stored content is %d chars, cap is %d", len(stored.Content), maxHistoryTurnChars)
-			}
-			if len(stored.ThoughtSummary) > maxHistoryThoughtChars+512 {
-				t.Errorf("stored thought summary is %d chars, cap is %d",
-					len(stored.ThoughtSummary), maxHistoryThoughtChars)
-			}
-			marked := types.IsClamped(stored.Content) || types.IsClamped(stored.ThoughtSummary)
-			if marked != tt.wantMarker {
-				t.Errorf("truncation marker present = %v, want %v", marked, tt.wantMarker)
-			}
-			for _, want := range tt.mustKeep {
-				if !strings.Contains(stored.Content, want) {
-					t.Errorf("stored turn lost %q", want)
-				}
-			}
-		})
+	for i := 0; i < 60; i++ {
+		e.appendToHistory(perception.ConversationTurn{Role: "user", Content: fmt.Sprintf("TURN%02d", i)})
+	}
+	got = e.GetHistory()
+	if len(got) != 61 {
+		t.Fatalf("stored %d turns, want 61; a silent cap dropped some", len(got))
+	}
+	if got[1].Content != "TURN00" {
+		t.Fatalf("oldest counted turn = %q, want TURN00", got[1].Content)
 	}
 }
 
-// The regression this cap exists to prevent: one huge turn used to make the
-// char-budget loop evict every message, so the next turn started with no
-// conversational memory at all.
-func TestPriorTurnMessages_OneHugeTurnDoesNotEvictTheWindow(t *testing.T) {
+// One message longer than the char budget used to be sliced so it would fit,
+// which threw away the tail of a pasted log, or it emptied the window and
+// said nothing. The exchange leaves whole, earlier exchanges that fit stay,
+// and recall_context returns the oversized text.
+func TestHistory_OversizedTurnIsEvictedWholeAndRecallable(t *testing.T) {
 	e := &Executor{}
 	e.SetConfig(ExecutorConfig{
 		HistoryTurnWindow: defaultSessionPolicy.HistoryTurnWindow,
 		HistoryCharBudget: defaultSessionPolicy.HistoryCharBudget,
 	})
-
+	huge := "HEADMARK" + strings.Repeat("G", 80_000) + "TAILMARK"
 	e.appendToHistory(perception.ConversationTurn{Role: "user", Content: "EARLIEST question"})
 	e.appendToHistory(perception.ConversationTurn{Role: "assistant", Content: "an answer"})
-	e.appendToHistory(perception.ConversationTurn{
-		Role: "user", Content: strings.Repeat("G", 5_000_000)})
+	e.appendToHistory(perception.ConversationTurn{Role: "user", Content: huge})
 	e.appendToHistory(perception.ConversationTurn{Role: "assistant", Content: "LATEST answer"})
 
-	msgs := e.priorTurnMessages()
+	msgs, evicted := e.priorTurnWindow(true)
 	if len(msgs) == 0 {
-		t.Fatal("a single oversized turn wiped the entire replay window")
+		t.Fatal("the oversized exchange wiped the window and left no notice")
 	}
-	joined := ""
-	for _, m := range msgs {
-		joined += m.Text
+	joined := strings.Join(messageTexts(msgs), "\n")
+	if !strings.Contains(joined, "EARLIEST question") || !strings.Contains(joined, "an answer") {
+		t.Fatalf("earlier turns that fit were dropped:\n%s", truncateForFailure(joined))
 	}
-	if !strings.Contains(joined, "LATEST answer") {
-		t.Error("the most recent turn must survive")
+	if strings.Contains(joined, "HEADMARK") || strings.Contains(joined, "TAILMARK") {
+		t.Fatal("the oversized turn was placed in the window, sliced or whole")
 	}
-	if total := len(joined); total > defaultSessionPolicy.HistoryCharBudget+2048 {
-		t.Errorf("replay window is %d chars, budget is %d", total, defaultSessionPolicy.HistoryCharBudget)
+	if !types.IsClamped(joined) || !strings.Contains(joined, "recall_context id=") {
+		t.Fatalf("the eviction was not announced with a recall handle:\n%s", truncateForFailure(joined))
+	}
+
+	var recovered string
+	for _, m := range evicted {
+		recovered += m.Text
+	}
+	if !strings.Contains(recovered, huge) || !strings.Contains(recovered, "LATEST answer") {
+		t.Fatal("the evicted exchange is not the oversized turn and its reply, whole")
+	}
+
+	handle := historyEvictionHandle(evicted)
+	body, err := (historyRecall{handle: handle, evicted: evicted}).Recall(context.Background(), handle, 0, 0)
+	if err != nil {
+		t.Fatalf("recall: %v", err)
+	}
+	if !strings.Contains(body, "HEADMARK") || !strings.Contains(body, "TAILMARK") || !strings.Contains(body, "LATEST answer") {
+		t.Fatalf("recall did not return the evicted exchange whole:\n%s", truncateForFailure(body))
 	}
 }
 
-// The in-turn tool transcript is append-only and re-sent WHOLE on every
-// provider round-trip. Per-result truncation caps one result at 16 KiB; nothing
-// capped their sum, and the arithmetic is not hypothetical — 50 tool calls x
-// 16 KiB, replayed across ~24 iterations.
-func TestBoundToolLoopHistory(t *testing.T) {
-	result := func(id string, size int) types.Message {
-		return types.Message{Role: "user", ToolResults: []types.ToolResult{
-			{ToolUseID: id, Content: strings.Repeat("R", size)},
-		}}
+// A window no exchange fits is still told that the turns exist. Returning
+// nothing there used to look like a conversation that had not started.
+func TestHistory_WindowThatFitsNothingStillAnnounces(t *testing.T) {
+	e := &Executor{}
+	e.SetConfig(ExecutorConfig{
+		HistoryTurnWindow: defaultSessionPolicy.HistoryTurnWindow,
+		HistoryCharBudget: 20,
+	})
+	question := strings.Repeat("Q", 100)
+	answer := strings.Repeat("A", 100)
+	e.appendToHistory(perception.ConversationTurn{Role: "user", Content: question})
+	e.appendToHistory(perception.ConversationTurn{Role: "assistant", Content: answer})
+
+	msgs, evicted := e.priorTurnWindow(true)
+	if len(msgs) != 1 || msgs[0].Role != "assistant" {
+		t.Fatalf("window = %+v, want one assistant notice", msgs)
+	}
+	if strings.Contains(msgs[0].Text, question) || strings.Contains(msgs[0].Text, answer) {
+		t.Fatal("the oversized exchange was placed in the window")
+	}
+	if !types.IsClamped(msgs[0].Text) || !strings.Contains(msgs[0].Text, "recall_context id=") {
+		t.Fatalf("the drop was not announced with a recall handle: %q", msgs[0].Text)
+	}
+	if len(evicted) != 2 || evicted[0].Text != question || evicted[1].Text != answer {
+		t.Fatalf("evicted = %+v, want both turns whole", evicted)
 	}
 
-	tests := []struct {
-		name        string
-		history     []types.Message
-		wantEvicted bool
-	}{
-		{
-			name: "a normal turn is untouched",
-			history: []types.Message{
-				{Role: "user", Text: "fix the router"},
-				{Role: "assistant", Text: "reading files", ToolCalls: []types.ToolCall{{ID: "t1", Name: "read_file"}}},
-				result("t1", 4000),
-			},
-		},
-		{
-			name:        "fifty full-size results are capped",
-			history:     bigToolTranscript(50, 16*1024),
-			wantEvicted: true,
-		},
-		{
-			name:        "one pathological result is capped",
-			history:     []types.Message{result("t1", 4_000_000)},
-			wantEvicted: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := boundToolLoopHistory(tt.history)
-
-			if n := toolLoopHistoryBytes(got); n > maxToolLoopHistoryBytes {
-				t.Errorf("transcript is %d bytes, cap is %d", n, maxToolLoopHistoryBytes)
-			}
-			if len(got) != len(tt.history) {
-				t.Fatalf("message count changed %d -> %d; an unpaired tool_use is a hard provider error",
-					len(tt.history), len(got))
-			}
-			// Every ToolUseID must survive: Anthropic rejects a request whose
-			// tool_use block has no matching tool_result.
-			for i := range tt.history {
-				if len(got[i].ToolResults) != len(tt.history[i].ToolResults) {
-					t.Fatalf("message %d lost tool results", i)
-				}
-				for j := range tt.history[i].ToolResults {
-					if got[i].ToolResults[j].ToolUseID != tt.history[i].ToolResults[j].ToolUseID {
-						t.Fatalf("message %d result %d lost its ToolUseID", i, j)
-					}
-				}
-			}
-
-			rendered := renderTranscript(got)
-			bounded := strings.Contains(rendered, "evicted from the transcript") || types.IsClamped(rendered)
-			if bounded != tt.wantEvicted {
-				t.Errorf("bounding marker present = %v, want %v", bounded, tt.wantEvicted)
-			}
-			if !tt.wantEvicted {
-				return
-			}
-			// The most recent result is what the next decision depends on.
-			last := got[len(got)-1]
-			if len(last.ToolResults) > 0 && last.ToolResults[0].Content == evictedToolResultNotice {
-				t.Error("the newest tool result was evicted; eviction must be oldest-first")
-			}
-			// Eviction must not mutate the caller's slice.
-			original := renderTranscript(tt.history)
-			if strings.Contains(original, "evicted from the transcript") || types.IsClamped(original) {
-				t.Error("boundToolLoopHistory mutated its input")
-			}
-		})
+	plain, _ := e.priorTurnWindow(false)
+	if len(plain) != 1 || strings.Contains(plain[0].Text, "recall_context") {
+		t.Fatalf("outside a working loop the notice named a handle nothing redeems: %+v", plain)
 	}
 }
 
-// A transcript already at the ceiling must not be re-evicted on the next round:
-// a marker that keeps replacing itself would loop and drop everything.
-func TestBoundToolLoopHistory_IsIdempotent(t *testing.T) {
-	once := boundToolLoopHistory(bigToolTranscript(50, 16*1024))
-	twice := boundToolLoopHistory(once)
-	if renderTranscript(once) != renderTranscript(twice) {
-		t.Error("a second pass changed an already-bounded transcript")
-	}
-}
+// Nothing that fits is announced, and a window with no history is empty
+// rather than a notice about nothing.
+func TestHistory_IntactWindowIsNotAnnounced(t *testing.T) {
+	e := &Executor{}
+	e.SetConfig(ExecutorConfig{
+		HistoryTurnWindow: defaultSessionPolicy.HistoryTurnWindow,
+		HistoryCharBudget: defaultSessionPolicy.HistoryCharBudget,
+	})
+	e.appendToHistory(perception.ConversationTurn{Role: "user", Content: "fix the router"})
+	e.appendToHistory(perception.ConversationTurn{Role: "assistant", Content: "done"})
 
-func bigToolTranscript(n, size int) []types.Message {
-	var h []types.Message
-	h = append(h, types.Message{Role: "user", Text: "do the thing"})
-	for i := 0; i < n; i++ {
-		id := "tool" + strings.Repeat("x", i%5)
-		h = append(h,
-			types.Message{Role: "assistant", ToolCalls: []types.ToolCall{{ID: id, Name: "read_file"}}},
-			types.Message{Role: "user", ToolResults: []types.ToolResult{
-				{ToolUseID: id, Content: strings.Repeat("R", size)},
-			}},
-		)
+	msgs, evicted := e.priorTurnWindow(true)
+	joined := strings.Join(messageTexts(msgs), "\n")
+	if types.IsClamped(joined) || strings.Contains(joined, "recall_context") {
+		t.Errorf("an intact window carries an eviction notice: %q", joined)
 	}
-	return h
-}
-
-func renderTranscript(h []types.Message) string {
-	var b strings.Builder
-	for _, m := range h {
-		b.WriteString(m.Text)
-		for _, tr := range m.ToolResults {
-			b.WriteString(tr.Content)
-		}
+	if len(evicted) != 0 {
+		t.Errorf("recorded %d evicted messages for an intact window", len(evicted))
 	}
-	return b.String()
 }

@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/build"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"codenerd/internal/world/lsp"
 )
 
@@ -35,61 +36,108 @@ import (
 // against, which is precisely the grounding that makes the difference between
 // review and opinion.
 
-// goplsTimeout bounds the diagnostic run. gopls builds a package graph on first
-// use; the ceiling is well above the 5.9s measured cold so a slow first call
-// does not silently drop the signal.
-const goplsTimeout = 90 * time.Second
+// diagnosticTimeoutKey carries session.lsp_timeout for one diagnostic request.
+type diagnosticTimeoutKey struct{}
 
-// goplsMaxFiles bounds how many files are analysed in one call.
-const goplsMaxFiles = 8
+// withDiagnosticTimeout attaches the bound for one language-server request.
+// A non-positive duration takes the session section's default.
+func withDiagnosticTimeout(ctx context.Context, d time.Duration) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if d <= 0 {
+		d = defaultSessionPolicy.LSPTimeout
+	}
+	return context.WithValue(ctx, diagnosticTimeoutKey{}, d)
+}
+
+// diagnosticTimeout is the bound on one language-server request. A context
+// that does not carry one — a test that calls the diagnostic functions
+// directly — uses the session section's default.
+func diagnosticTimeout(ctx context.Context) time.Duration {
+	if ctx != nil {
+		if d, ok := ctx.Value(diagnosticTimeoutKey{}).(time.Duration); ok && d > 0 {
+			return d
+		}
+	}
+	return defaultSessionPolicy.LSPTimeout
+}
+
+// diagnosticTimeout reads session.lsp_timeout off the executor. Zero takes
+// the section's default.
+func (e *Executor) diagnosticTimeout() time.Duration {
+	if e == nil {
+		return defaultSessionPolicy.LSPTimeout
+	}
+	if d := e.configSnapshot().LSPTimeout; d > 0 {
+		return d
+	}
+	return defaultSessionPolicy.LSPTimeout
+}
+
+// lookPath is exec.LookPath; tests substitute a binary that is not installed.
+var lookPath = exec.LookPath
+
+// runGoplsCheck runs `gopls check` on files. Tests substitute it.
+var runGoplsCheck = func(ctx context.Context, bin, workspace string, files []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, bin, append([]string{"check"}, files...)...)
+	cmd.Dir = workspace
+	cmd.Env = build.GetBuildEnv(nil, workspace)
+	return cmd.CombinedOutput()
+}
+
+// goDiagnosticFiles is every Go file the turn wrote. Diagnostics are what the
+// reviewer fixes, so a cap that hides file 9+ hides the defect. The turn's
+// own write set is the bound; there is no second one.
+func goDiagnosticFiles(paths []string) []string {
+	var files []string
+	for _, p := range paths {
+		t := strings.TrimSpace(p)
+		if strings.HasSuffix(strings.ToLower(t), ".go") {
+			files = append(files, NormalizeCoverPath(t))
+		}
+	}
+	return files
+}
 
 // goplsDiagnostics runs `gopls check` on the turn's written Go files and
 // returns its findings as text, or "" when there is nothing to report.
 //
 // Absent gopls is not an error and not a finding — it is silence. This is an
 // optional grounding signal, and a machine without gopls installed must behave
-// exactly as it did before this existed.
+// exactly as it did before this existed. A request that does not finish names
+// every file it was given: silence would read as a clean report.
 func goplsDiagnostics(ctx context.Context, workspace string, writtenPaths []string) string {
 	if strings.TrimSpace(workspace) == "" {
 		return ""
 	}
-
-	bin, err := exec.LookPath("gopls")
+	files := goDiagnosticFiles(writtenPaths)
+	if len(files) == 0 {
+		return ""
+	}
+	bin, err := lookPath("gopls")
 	if err != nil {
 		logging.SessionDebug("gopls not on PATH; skipping static diagnostics")
 		return ""
 	}
+	return goplsCheck(ctx, bin, workspace, files)
+}
 
-	var files []string
-	for _, p := range writtenPaths {
-		if len(files) >= goplsMaxFiles {
-			break
-		}
-		t := strings.TrimSpace(p)
-		if strings.HasSuffix(strings.ToLower(t), ".go") {
-			files = append(files, NormalizeCoverPath(t))
-		}
-	}
-	if len(files) == 0 {
-		return ""
-	}
-
-	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), goplsTimeout)
+func goplsCheck(ctx context.Context, bin, workspace string, files []string) string {
+	timeout := diagnosticTimeout(ctx)
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, bin, append([]string{"check"}, files...)...)
-	cmd.Dir = workspace
-	cmd.Env = build.GetBuildEnv(nil, workspace)
-
-	out, err := cmd.CombinedOutput()
+	out, err := runGoplsCheck(runCtx, bin, workspace, files)
+	text := keepDiagnosticLines(string(out))
 	if runCtx.Err() != nil {
 		logging.Get(logging.CategorySession).Warn(
-			"gopls diagnostics timed out after %s; continuing without them", goplsTimeout)
-		return ""
+			"gopls diagnostics did not finish within %s for %s", timeout, strings.Join(files, ", "))
+		return joinDiagnosticNotice(text, filesNotDiagnosed(files,
+			fmt.Sprintf("gopls did not finish within %s", timeout)))
 	}
 	// `gopls check` exits non-zero when it has findings, so a non-nil err with
 	// output is the normal reporting path, not a failure.
-	text := keepDiagnosticLines(string(out))
 	if text == "" {
 		if err != nil {
 			logging.SessionDebug("gopls check failed with no usable output (%v); continuing", err)
@@ -97,6 +145,26 @@ func goplsDiagnostics(ctx context.Context, workspace string, writtenPaths []stri
 		return ""
 	}
 	return text
+}
+
+// filesNotDiagnosed names files a diagnostic request did not finish. The
+// reviewer would otherwise treat the omission as a clean report.
+func filesNotDiagnosed(files []string, why string) string {
+	if len(files) == 0 {
+		return ""
+	}
+	return types.DroppedNotice(len(files), len(files),
+		fmt.Sprintf("files not diagnosed (%s): %s", why, strings.Join(files, ", ")), "")
+}
+
+func joinDiagnosticNotice(text, notice string) string {
+	if notice == "" {
+		return text
+	}
+	if text == "" {
+		return notice
+	}
+	return text + "\n" + notice
 }
 
 // diagnosticLineRe matches a real gopls diagnostic: a path, a line, a column,
@@ -143,9 +211,11 @@ func keepDiagnosticLines(raw string) string {
 // written files, and hands the errors and warnings to the critic beside
 // gopls's.
 //
-// The same rules as gopls: an absent server is silence, not a finding, and the
-// run is bounded by goplsTimeout and goplsMaxFiles. A server that never
-// publishes for a file costs the rest of the budget, not the turn.
+// The same rules as gopls: an absent server is silence, not a finding, and one
+// server session is one request bounded by session.lsp_timeout. Every file the
+// turn wrote in that language is opened. A server that never publishes for a
+// file costs the rest of that request, not the turn, and the files it did not
+// diagnose are named.
 type languageServer struct {
 	lang   string   // Mangle atom the client is tagged with
 	binary string   // looked up on PATH
@@ -174,9 +244,6 @@ func lspDiagnostics(ctx context.Context, workspace string, writtenPaths []string
 	for _, ls := range languageServers {
 		var files []string
 		for _, p := range writtenPaths {
-			if len(files) >= goplsMaxFiles {
-				break
-			}
 			if _, ok := ls.ids[strings.ToLower(filepath.Ext(p))]; ok {
 				files = append(files, p)
 			}
@@ -189,7 +256,8 @@ func lspDiagnostics(ctx context.Context, workspace string, writtenPaths []string
 }
 
 func serverDiagnostics(ctx context.Context, workspace string, ls languageServer, files []string) []string {
-	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), goplsTimeout)
+	timeout := diagnosticTimeout(ctx)
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	client, err := startLanguageServer(runCtx, ls.lang, ls.binary, ls.args...)
 	if err != nil {
@@ -202,21 +270,24 @@ func serverDiagnostics(ctx context.Context, workspace string, ls languageServer,
 		return nil
 	}
 	var lines []string
-	for _, p := range files {
+	for i, p := range files {
 		abs := p
 		if !filepath.IsAbs(abs) {
 			abs = filepath.Join(workspace, p)
 		}
 		data, err := os.ReadFile(abs)
 		if err != nil {
+			lines = append(lines, filesNotDiagnosed([]string{p}, err.Error()))
 			continue
 		}
 		if err := client.DidOpen(abs, ls.ids[strings.ToLower(filepath.Ext(p))], string(data)); err != nil {
+			lines = append(lines, filesNotDiagnosed(files[i:], err.Error()))
 			break
 		}
 		diags, err := client.WaitForDiagnostics(runCtx, abs)
 		if err != nil {
-			logging.Get(logging.CategorySession).Warn("%s published nothing for %s within %s; continuing without it", ls.binary, p, goplsTimeout)
+			logging.Get(logging.CategorySession).Warn("%s published nothing for %s within %s; naming the files not yet diagnosed", ls.binary, p, timeout)
+			lines = append(lines, filesNotDiagnosed(files[i:], fmt.Sprintf("%s did not finish within %s", ls.binary, timeout)))
 			break
 		}
 		rel := filepath.ToSlash(p)
