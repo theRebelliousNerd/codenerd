@@ -112,6 +112,10 @@ type RecurseCycleResult struct {
 	// UnavailableGates are gates that could not run here; what they cover is
 	// unverified, never passed.
 	UnavailableGates []string
+	// Unattributed are workspace-gate findings whose target is not in any
+	// node's directory. They stay in the measurement and are listed here;
+	// the loop does not assign them to a subsystem.
+	Unattributed []string
 }
 
 // Summary is the run in a few lines, the same on every surface.
@@ -130,6 +134,12 @@ func (r *RecurseCycleResult) Summary() string {
 	}
 	for _, u := range r.UnavailableGates {
 		fmt.Fprintf(&b, "\n  gate that could not run: %s", u)
+	}
+	if len(r.Unattributed) > 0 {
+		fmt.Fprintf(&b, "\n  unattributed findings: %d", len(r.Unattributed))
+		for _, line := range r.Unattributed {
+			fmt.Fprintf(&b, "\n    %s", line)
+		}
 	}
 	return b.String()
 }
@@ -170,6 +180,9 @@ type recurseRun struct {
 	// a finding absent last pass is a regression this pass.
 	seenLastPass map[string]bool
 	seenThisPass map[string]bool
+	// notedUnattributed are finding IDs already written to the progress log.
+	// The summary is rebuilt from the current measurement; the log line is once.
+	notedUnattributed map[string]bool
 	// prior are the reverted attempts by the work they attempted (priorKey),
 	// rebuilt from the journal on resume.
 	prior map[string][]PriorAttempt
@@ -399,13 +412,15 @@ func (r *recurseRun) measureWorkspace(ctx context.Context, set gates.Set, nodes 
 		}
 		r.state[gateKey(g.ID, "")] = r.measure(ctx, g, "", nodes)
 	}
+	r.reportUnattributed()
 	return nil
 }
 
 // measure runs one gate and attributes its findings to nodes. A node-scoped
 // run's findings belong to the node it ran for; a workspace run's to the node
-// whose directory holds the finding's target. A node that is a collapsed
-// import cycle runs the gate once per directory, and fails if any run fails.
+// whose directory holds the finding's target, or RecurseUnattributedNodeID
+// when none does. A node that is a collapsed import cycle runs the gate once
+// per directory, and fails if any run fails.
 func (r *recurseRun) measure(ctx context.Context, g gates.Gate, nodeID string, nodes []SubsystemNode) gateRun {
 	paths := []string{""}
 	if nodeID != "" {
@@ -455,26 +470,104 @@ func nodeByID(nodes []SubsystemNode, id string) (SubsystemNode, bool) {
 	return SubsystemNode{}, false
 }
 
-// attributeNode names the node whose directory holds target (a file, or
-// file::test). A target in no node's directory -- "." for a failure the output
-// did not locate -- goes to the wiring node, which closes every pass.
+// RecurseUnattributedNodeID is not a DAG node. A workspace finding whose
+// target is not in any subsystem directory is reported on
+// RecurseCycleResult.Unattributed and is not visited. Wiring is a real
+// cross-cutting subsystem; a failure with no location is not evidence it
+// belongs there. "." is the module root, so an unlocated target must not
+// use that spelling either.
+const RecurseUnattributedNodeID = "unattributed"
+
+// attributeNode names the node whose directory holds target. target is a
+// file, a package directory, or either of those plus "::" and a test name.
+// The module root is the directory "."; a file with no slash (main.go)
+// lives there, and ".::TestRoot" is that package's test. A target the
+// output did not locate (gates.UnattributedTarget) and a target in no
+// node's directory -- an unresolved import path such as
+// "example.com/r7b/testsfail::TestFails" — are RecurseUnattributedNodeID.
 func attributeNode(target string, nodes []SubsystemNode) string {
 	t, _, _ := strings.Cut(target, "::")
-	best, bestLen := RecurseWiringNodeID, -1
+	// "<unattributed>" has no slash. Checked before the root-file rule so
+	// the module root does not claim a failure that named no location.
+	if t == "" || t == gates.UnattributedTarget {
+		return RecurseUnattributedNodeID
+	}
+	best, bestLen := "", -1
+	rootID := ""
 	for _, n := range nodes {
 		for _, p := range n.Paths {
-			var match bool
 			if p == "." {
-				match = t != "." && !strings.Contains(t, "/")
-			} else {
-				match = t == p || strings.HasPrefix(t, p+"/")
+				if rootID == "" {
+					rootID = n.ID
+				}
+				continue
 			}
-			if match && len(p) > bestLen {
+			if (t == p || strings.HasPrefix(t, p+"/")) && len(p) > bestLen {
 				best, bestLen = n.ID, len(p)
 			}
 		}
 	}
-	return best
+	if t == "." {
+		if rootID != "" {
+			return rootID
+		}
+		return RecurseUnattributedNodeID
+	}
+	if best != "" {
+		return best
+	}
+	// A root file ("main.go") has no package directory in front of it.
+	// A length-1 package directory already won above, so this does not
+	// steal "a" or "a/x.go".
+	if rootID != "" && !strings.Contains(t, "/") {
+		return rootID
+	}
+	return RecurseUnattributedNodeID
+}
+
+// reportUnattributed rebuilds RecurseCycleResult.Unattributed from the
+// current measurement and logs each finding once. The sweep never visits
+// RecurseUnattributedNodeID, so this is how those findings surface.
+func (r *recurseRun) reportUnattributed() {
+	if r.notedUnattributed == nil {
+		r.notedUnattributed = map[string]bool{}
+	}
+	type item struct {
+		id   string
+		line string
+	}
+	var items []item
+	seen := map[string]bool{}
+	for _, run := range r.state {
+		for _, f := range run.findings {
+			if f.Node != RecurseUnattributedNodeID || f.ID == "" || seen[f.ID] {
+				continue
+			}
+			seen[f.ID] = true
+			items = append(items, item{id: f.ID, line: f.Gate + " " + f.Target + ": " + f.Message})
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].line != items[j].line {
+			return items[i].line < items[j].line
+		}
+		return items[i].id < items[j].id
+	})
+	if len(items) == 0 {
+		r.result.Unattributed = nil
+		return
+	}
+	lines := make([]string, len(items))
+	for i, it := range items {
+		lines[i] = it.line
+		if !r.notedUnattributed[it.id] {
+			r.notedUnattributed[it.id] = true
+			if r.out != nil {
+				r.logf("recurse: unattributed finding %s", it.line)
+			}
+		}
+	}
+	r.result.Unattributed = lines
 }
 
 func (r *recurseRun) openCount() int {
@@ -504,10 +597,8 @@ func nodeGates(set gates.Set, node SubsystemNode) []gates.Gate {
 // open is what the visit can attempt: the node's own gates' findings, and the
 // workspace gates' findings attributed to it -- except a workspace gate that a
 // per-node gate of its kind and language already measures (`go test ./...`
-// beside `go test {pkg}`). Its failures are the per-node gate's, read with the
-// package that failed; attempting them again from the whole-tree run would be
-// the same failure twice, and its test failures name no package to put them
-// in. Such a gate still runs at every pass boundary and in the ratchet.
+// beside `go test {pkg}`). Those failures are the per-node gate's to attempt.
+// Such a gate still runs at every pass boundary and in the ratchet.
 func (r *recurseRun) open(node SubsystemNode, own []gates.Gate, set gates.Set) []gates.Finding {
 	var out []gates.Finding
 	for _, g := range own {
@@ -803,6 +894,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 		for k, run := range after {
 			r.state[k] = run
 		}
+		r.reportUnattributed()
 		rec.Outcome, rec.Commit = outcomeKept, hash
 		r.result.Kept++
 		if spec.angle != "" {

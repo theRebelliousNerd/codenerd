@@ -1,0 +1,38 @@
+# example.com/r7b/compileerr
+compileerr\broken.go:3:28: undefined: Missing
+# example.com/r7b/testbuild [example.com/r7b/testbuild.test]
+testbuild\bad_test.go:6:8: undefined: NotASymbol
+--- FAIL: TestRoot (0.00s)
+    root_test.go:6: root package
+FAIL
+FAIL	example.com/r7b	0.284s
+FAIL	example.com/r7b/compileerr [build failed]
+--- FAIL: TestSame (0.00s)
+    same_test.go:6: from samea
+FAIL
+FAIL	example.com/r7b/samea	0.280s
+--- FAIL: TestSame (0.00s)
+    same_test.go:6: from sameb
+FAIL
+FAIL	example.com/r7b/sameb	0.287s
+FAIL	example.com/r7b/testbuild [build failed]
+--- FAIL: TestFails (0.00s)
+    ok_test.go:7: got 1 want 2
+--- FAIL: TestPanics (0.00s)
+panic: boom [recovered, repanicked]
+
+goroutine 21 [running]:
+testing.tRunner.func1.2({0x7ff6c1da48a0, 0x7ff6c1e13ef0})
+	C:/Program Files/Go/src/testing/testing.go:1872 +0x239
+testing.tRunner.func1()
+	C:/Program Files/Go/src/testing/testing.go:1875 +0x35b
+panic({0x7ff6c1da48a0?, 0x7ff6c1e13ef0?})
+	C:/Program Files/Go/src/runtime/panic.go:783 +0x132
+example.com/r7b/testsfail.TestPanics(0xc000106a80?)
+	C:/Users/smoor/AppData/Local/Temp/r7b-gates/testsfail/ok_test.go:12 +0x25
+testing.tRunner(0xc000106a80, 0x7ff6c1de5eb0)
+	C:/Program Files/Go/src/testing/testing.go:1934 +0xc3
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:1997 +0x44b
+FAIL	example.com/r7b/testsfail	0.283s
+FAIL

@@ -3,6 +3,9 @@ package gates
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -23,8 +26,9 @@ type Finding struct {
 	Kind Kind
 	// Node is the node the run was for; "" for a workspace-scoped run.
 	Node string
-	// Target is what failed: a file, a file::test, a test name, or the node
-	// (or "." for the workspace) when the output named nothing narrower.
+	// Target is what failed: a file, a package directory, or either plus
+	// "::" and a test name. UnattributedTarget when the output named no
+	// file and no package — that is not the module root (".").
 	Target string
 	// Message is the failure as reported, first line.
 	Message string
@@ -33,6 +37,11 @@ type Finding struct {
 	// same way.
 	Signature string
 }
+
+// UnattributedTarget is the target of a failure whose output named no file
+// and no package. It is not a directory, so a node whose path is "." (the
+// module root) must not claim it, and neither must any real package.
+const UnattributedTarget = "<unattributed>"
 
 // MaxFindingsPerRun bounds the findings one run yields. A tree that stops
 // compiling reports the same break hundreds of times; the first ones are the
@@ -52,6 +61,15 @@ var (
 	pytestFailed = regexp.MustCompile(`^(?:FAILED|ERROR) (\S+?)(?: - (.+))?$`)
 	// cargo test: "test module::name ... FAILED".
 	cargoTestFailed = regexp.MustCompile(`^test (\S+) \.\.\. FAILED$`)
+	// go vet prefixes a compile error with the tool name on Windows
+	// ("vet.exe: pkg\file.go:3:28: undefined: Missing", go 1.26.4). The
+	// same diagnostic without the prefix is a normal file:line.
+	vetPrefix = regexp.MustCompile(`^vet(?:\.exe)?:\s+`)
+	// "FAIL\texample.com/mod/pkg\t0.284s" or
+	// "FAIL\texample.com/mod/pkg [build failed]". The bracket is how a
+	// package that never ran a test reports itself. A bare "FAIL" is the
+	// run's summary and carries no package.
+	goPkgStatus = regexp.MustCompile(`^FAIL\t(\S+)(?:\t(\S+))?(?: \[([^\]]+)\])?\s*$`)
 	// Python traceback frame and error line (compileall, import errors).
 	pyFrame = regexp.MustCompile(`^\s*File "([^"]+)", line (\d+)`)
 	pyError = regexp.MustCompile(`^(\w+(?:Error|Exception)): (.+)$`)
@@ -65,10 +83,11 @@ var (
 )
 
 // Findings extracts what r reported wrong. A pass reports nothing. A failure
-// the parsers cannot read still reports one finding against the node, with
-// the output's last line as its message: a gate that failed is never
-// silently a finding-free run. An unverified run reports nothing either --
-// it is not evidence of anything, and the caller records it as unverified.
+// the parsers cannot read still reports one finding, with the output's last
+// line as its message: a gate that failed is never silently a finding-free
+// run. With no node and no location that target is UnattributedTarget, not
+// the module root. An unverified run reports nothing either -- it is not
+// evidence of anything, and the caller records it as unverified.
 func Findings(root string, r Result) []Finding {
 	if r.Passed || r.Unverified() {
 		return nil
@@ -98,14 +117,17 @@ func Findings(root string, r Result) []Finding {
 	}
 
 	lines := strings.Split(strings.ReplaceAll(r.Output, "\r\n", "\n"), "\n")
+	// Go names a package by import path ("FAIL\texample.com/mod/pkg") and,
+	// since Go 1.26, emits build failures inside `go test -json` as
+	// build-output / build-fail events. The file:line, when there is one,
+	// is the finding; a package with no file is the package's directory.
+	gs := newGoStream(root, modulePath(root), r.Node, add)
 	var pyFile, rustMsg string
 	for _, line := range lines {
+		if gs.consume(line) {
+			continue
+		}
 		switch {
-		case goTestFail.MatchString(line):
-			m := goTestFail.FindStringSubmatch(line)
-			// A test is its own identity: a partial fix that changes the
-			// message has not turned the failure into a different one.
-			add(nodeOr(r.Node)+"::"+m[1], "test failed: "+m[1], false)
 		case cargoTestFailed.MatchString(line):
 			m := cargoTestFailed.FindStringSubmatch(line)
 			add(nodeOr(r.Node)+"::"+m[1], "test failed: "+m[1], false)
@@ -131,21 +153,9 @@ func Findings(root string, r Result) []Finding {
 			m := pyError.FindStringSubmatch(line)
 			add(pyFile, m[1]+": "+m[2], true)
 			pyFile = ""
-		case fileLineMsg.MatchString(line):
-			if strings.TrimLeft(line, " \t") != line {
-				// Indented file:line lines are a failing Go test's log
-				// output (or a stack frame); the --- FAIL line above them
-				// is the finding. Diagnostics start at column zero.
-				continue
-			}
-			m := fileLineMsg.FindStringSubmatch(line)
-			msg := m[4]
-			if isNoise(msg) {
-				continue
-			}
-			add(m[1], msg, true)
 		}
 	}
+	gs.finish()
 	if len(out) == 0 {
 		add(nodeOr(r.Node), lastLine(lines, r.ExitCode), false)
 	}
@@ -160,9 +170,12 @@ func isNoise(msg string) bool {
 		!strings.ContainsAny(m, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 }
 
+// nodeOr is the target prefix for a tool that names a test but not a file.
+// An empty node is UnattributedTarget, not ".": "." is the module root, and
+// a cargo failure with no location is not a file there.
 func nodeOr(node string) string {
 	if node == "" {
-		return "."
+		return UnattributedTarget
 	}
 	return node
 }
@@ -172,6 +185,10 @@ func nodeOr(node string) string {
 // tool output.
 func relTarget(root, target string) string {
 	t := strings.TrimSpace(target)
+	// The Windows compiler prints "pkg\file.go". Node directories are
+	// slash-separated, and a captured log has to name the same directory
+	// wherever it is read.
+	t = strings.ReplaceAll(t, `\`, `/`)
 	if filepath.IsAbs(t) && root != "" {
 		if rel, err := filepath.Rel(root, t); err == nil && !strings.HasPrefix(rel, "..") {
 			t = rel
@@ -204,6 +221,453 @@ func lastLine(lines []string, exitCode int) string {
 func shortHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:8])
+}
+
+// goStream reads one go test / go test -json / go build / go vet log.
+//
+// A file:line is the finding. "FAIL\tpkg [build failed]" is a package
+// finding only when no diagnostic already named a file in that package:
+// the captured vet-off run prints the compiler line and, later, the FAIL
+// line, and they are one break. "--- FAIL:" lines, including indented
+// subtests, wait for the next "FAIL\tpkg\t0.284s" that is not bracketed;
+// that line names the package, so two packages can both fail TestSame.
+// A column-0 "panic:" after "--- FAIL: TestPanics" belongs to that test.
+// A column-0 "panic:" with no "--- FAIL" ("panic: initboom") belongs to
+// the following "FAIL\tpkg" line. An import path the module line cannot
+// place is kept as the tool printed it.
+type goStream struct {
+	root   string
+	module string
+	node   string
+	add    func(target, msg string, keyByMessage bool)
+
+	currentImport string
+	pending       []pendingTest
+	pkgPanic      string
+
+	covered       map[string]bool
+	tested        map[string]bool
+	jsonTested    map[string]bool
+	jsonPkgDone   map[string]bool
+	jsonPkgPanic  map[string]string
+	jsonTestPanic map[string]string
+}
+
+type pendingTest struct {
+	name  string
+	panic string
+}
+
+// goEvent is one test2json line. Go 1.26 emits build failures as
+// build-output / build-fail with ImportPath, then a fail event whose
+// FailedBuild repeats the package (the test binary's path carries a
+// " [pkg.test]" suffix).
+type goEvent struct {
+	Action      string `json:"Action"`
+	Package     string `json:"Package"`
+	Test        string `json:"Test"`
+	ImportPath  string `json:"ImportPath"`
+	Output      string `json:"Output"`
+	FailedBuild string `json:"FailedBuild"`
+}
+
+func knownGoAction(action string) bool {
+	switch action {
+	case "start", "run", "pause", "cont", "pass", "fail", "skip", "output", "bench", "build-output", "build-fail":
+		return true
+	default:
+		return false
+	}
+}
+
+func newGoStream(root, module, node string, add func(target, msg string, keyByMessage bool)) *goStream {
+	return &goStream{
+		root: root, module: module, node: node, add: add,
+		covered:       map[string]bool{},
+		tested:        map[string]bool{},
+		jsonTested:    map[string]bool{},
+		jsonPkgDone:   map[string]bool{},
+		jsonPkgPanic:  map[string]string{},
+		jsonTestPanic: map[string]string{},
+	}
+}
+
+// modulePath is the module line of root/go.mod. A missing or unreadable
+// file yields "" so an import path stays as printed instead of being
+// guessed onto a directory.
+func modulePath(root string) string {
+	if root == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "module" {
+			return strings.Trim(fields[1], `"`)
+		}
+	}
+	return ""
+}
+
+func (gs *goStream) consume(line string) bool {
+	if line == "" {
+		return false
+	}
+	if strings.HasPrefix(line, "{") {
+		var ev goEvent
+		if json.Unmarshal([]byte(line), &ev) == nil && knownGoAction(ev.Action) {
+			gs.onJSON(ev)
+			return true
+		}
+	}
+	if strings.HasPrefix(line, "# ") {
+		gs.noteHeader(line)
+		return true
+	}
+	if m := goTestFail.FindStringSubmatch(line); m != nil {
+		gs.pending = append(gs.pending, pendingTest{name: m[1]})
+		return true
+	}
+	if strings.HasPrefix(line, "panic:") {
+		gs.noteTextPanic(strings.TrimSpace(line))
+		return true
+	}
+	// Indented file:line lines are test logs ("    ok_test.go:7: got 1 want 2")
+	// and stack frames ("\tC:/Program Files/Go/src/testing/testing.go:1872 +0x239"),
+	// not diagnostics.
+	if !leadingWS(line) {
+		diag := vetPrefix.ReplaceAllString(line, "")
+		if m := fileLineMsg.FindStringSubmatch(diag); m != nil {
+			if !isNoise(m[4]) {
+				gs.addFile(m[1], m[4])
+			}
+			return true
+		}
+	}
+	if m := goPkgStatus.FindStringSubmatch(line); m != nil {
+		gs.onTextStatus(m[1], m[3])
+		return true
+	}
+	if strings.TrimSpace(line) == "FAIL" {
+		return true
+	}
+	return false
+}
+
+func (gs *goStream) noteHeader(line string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "#"))
+	if rest == "" {
+		return
+	}
+	gs.currentImport = cleanImport(rest)
+}
+
+func (gs *goStream) noteTextPanic(msg string) {
+	if n := len(gs.pending); n > 0 {
+		if gs.pending[n-1].panic == "" {
+			gs.pending[n-1].panic = msg
+		}
+		return
+	}
+	if gs.pkgPanic == "" {
+		gs.pkgPanic = msg
+	}
+}
+
+func (gs *goStream) onTextStatus(importPath, bracket string) {
+	key := gs.coverKey(importPath)
+	if bracket != "" {
+		// A bracketed line ("FAIL\tpkg [build failed]") is the package
+		// that did not run. It is not where buffered --- FAIL lines belong,
+		// and a compiler line already in that directory is the same break.
+		if !gs.covered[key] && !gs.tested[key] {
+			gs.add(gs.pkgTarget(importPath), bracket+": "+cleanImport(importPath), true)
+			gs.covered[key] = true
+		}
+		return
+	}
+	if len(gs.pending) > 0 {
+		for _, pt := range gs.pending {
+			msg := "test failed: " + pt.name
+			if pt.panic != "" {
+				msg = "test panicked: " + pt.name + ": " + pt.panic
+			}
+			gs.add(gs.testTarget(importPath, pt.name), msg, false)
+		}
+		gs.pending = nil
+		gs.pkgPanic = ""
+		gs.tested[key] = true
+		return
+	}
+	if gs.covered[key] || gs.tested[key] {
+		gs.pkgPanic = ""
+		return
+	}
+	if gs.pkgPanic != "" {
+		gs.add(gs.pkgTarget(importPath), gs.pkgPanic, true)
+		gs.pkgPanic = ""
+		gs.tested[key] = true
+		return
+	}
+	gs.add(gs.pkgTarget(importPath), "package failed: "+cleanImport(importPath), true)
+	gs.tested[key] = true
+}
+
+func (gs *goStream) onJSON(ev goEvent) {
+	switch ev.Action {
+	case "build-output":
+		gs.onBuildOutput(ev)
+	case "build-fail":
+		gs.onBuildFail(ev)
+	case "output":
+		gs.onOutput(ev)
+	case "fail":
+		gs.onFail(ev)
+	}
+}
+
+func (gs *goStream) onBuildOutput(ev goEvent) {
+	imp := ev.ImportPath
+	if imp == "" {
+		imp = ev.Package
+	}
+	if c := cleanImport(imp); c != "" {
+		gs.currentImport = c
+	}
+	for _, line := range outputLines(ev.Output) {
+		if strings.HasPrefix(line, "# ") {
+			gs.noteHeader(line)
+			continue
+		}
+		if leadingWS(line) {
+			continue
+		}
+		diag := vetPrefix.ReplaceAllString(line, "")
+		if m := fileLineMsg.FindStringSubmatch(diag); m != nil && !isNoise(m[4]) {
+			gs.addFile(m[1], m[4])
+		}
+	}
+}
+
+func (gs *goStream) onBuildFail(ev goEvent) {
+	imp := ev.ImportPath
+	if imp == "" {
+		imp = ev.Package
+	}
+	if cleanImport(imp) == "" {
+		return
+	}
+	gs.notePackageFail(imp, "build failed: "+cleanImport(imp))
+}
+
+func (gs *goStream) onOutput(ev goEvent) {
+	pkg := cleanImport(ev.Package)
+	for _, line := range outputLines(ev.Output) {
+		// "panic: boom [recovered, repanicked]", not the stack's "panic({0x...})".
+		if !strings.HasPrefix(line, "panic:") {
+			continue
+		}
+		msg := strings.TrimSpace(line)
+		if ev.Test != "" {
+			k := pkg + "\x00" + ev.Test
+			if gs.jsonTestPanic[k] == "" {
+				gs.jsonTestPanic[k] = msg
+			}
+			continue
+		}
+		if pkg != "" && gs.jsonPkgPanic[pkg] == "" {
+			gs.jsonPkgPanic[pkg] = msg
+		}
+	}
+}
+
+func (gs *goStream) onFail(ev goEvent) {
+	pkg := cleanImport(ev.Package)
+	if ev.Test != "" {
+		msg := "test failed: " + ev.Test
+		if p := gs.jsonTestPanic[pkg+"\x00"+ev.Test]; p != "" {
+			msg = "test panicked: " + ev.Test + ": " + p
+		}
+		gs.add(gs.testTarget(ev.Package, ev.Test), msg, false)
+		gs.jsonTested[pkg] = true
+		gs.tested[gs.coverKey(ev.Package)] = true
+		return
+	}
+	if pkg == "" && ev.FailedBuild == "" {
+		return
+	}
+	if gs.jsonTested[pkg] || gs.jsonPkgDone[pkg] {
+		gs.jsonPkgDone[pkg] = true
+		return
+	}
+	imp := ev.Package
+	msg := "package failed: " + pkg
+	if p := gs.jsonPkgPanic[pkg]; p != "" {
+		msg = p
+	} else if ev.FailedBuild != "" {
+		imp = ev.FailedBuild
+		msg = "build failed: " + cleanImport(ev.FailedBuild)
+	}
+	gs.notePackageFail(imp, msg)
+}
+
+func (gs *goStream) notePackageFail(importPath, msg string) {
+	key := gs.coverKey(importPath)
+	pkg := cleanImport(importPath)
+	if gs.covered[key] || gs.tested[key] || gs.jsonTested[pkg] || gs.jsonPkgDone[pkg] {
+		gs.jsonPkgDone[pkg] = true
+		return
+	}
+	gs.add(gs.pkgTarget(importPath), msg, true)
+	gs.covered[key] = true
+	gs.jsonPkgDone[pkg] = true
+}
+
+func (gs *goStream) finish() {
+	if len(gs.pending) > 0 {
+		for _, pt := range gs.pending {
+			msg := "test failed: " + pt.name
+			if pt.panic != "" {
+				msg = "test panicked: " + pt.name + ": " + pt.panic
+			}
+			gs.add(gs.testTarget("", pt.name), msg, false)
+		}
+		gs.pending = nil
+		gs.pkgPanic = ""
+	}
+	if gs.pkgPanic != "" {
+		if gs.currentImport != "" {
+			gs.notePackageFail(gs.currentImport, gs.pkgPanic)
+		} else {
+			target := UnattributedTarget
+			if gs.node != "" {
+				target = gs.node
+			}
+			gs.add(target, gs.pkgPanic, true)
+		}
+		gs.pkgPanic = ""
+	}
+	pkgs := make([]string, 0, len(gs.jsonPkgPanic))
+	for pkg := range gs.jsonPkgPanic {
+		pkgs = append(pkgs, pkg)
+	}
+	sort.Strings(pkgs)
+	for _, pkg := range pkgs {
+		if gs.jsonPkgDone[pkg] || gs.jsonTested[pkg] {
+			continue
+		}
+		gs.notePackageFail(pkg, gs.jsonPkgPanic[pkg])
+	}
+}
+
+func (gs *goStream) addFile(file, msg string) {
+	norm := relTarget(gs.root, file)
+	gs.add(file, msg, true)
+	dir := path.Dir(norm)
+	if dir == "" || dir == "/" {
+		dir = "."
+	}
+	gs.covered[dir] = true
+	if gs.currentImport != "" {
+		if d, ok := gs.locate(gs.currentImport); ok {
+			gs.covered[d] = true
+		}
+	}
+}
+
+// locate maps an import path to a workspace-relative directory using the
+// module path exactly. "example.com/r7b-extra" does not belong to module
+// "example.com/r7b", and a path that does not match is not guessed from
+// its suffix.
+func (gs *goStream) locate(importPath string) (string, bool) {
+	imp := cleanImport(importPath)
+	if imp == "" {
+		return "", false
+	}
+	if imp == "." || strings.HasPrefix(imp, "./") || strings.HasPrefix(imp, `.\`) {
+		return relTarget(gs.root, imp), true
+	}
+	if gs.module == "" {
+		return "", false
+	}
+	if imp == gs.module {
+		return ".", true
+	}
+	rest, ok := strings.CutPrefix(imp, gs.module+"/")
+	if !ok || rest == "" || strings.ContainsAny(rest, " \t") {
+		return "", false
+	}
+	return rest, true
+}
+
+func (gs *goStream) coverKey(importPath string) string {
+	if dir, ok := gs.locate(importPath); ok {
+		return dir
+	}
+	if imp := cleanImport(importPath); imp != "" {
+		return imp
+	}
+	return "."
+}
+
+// pkgTarget is the directory of a package failure. An import the module
+// line cannot place stays the import path the tool printed; it is not
+// replaced with the node the gate ran for.
+func (gs *goStream) pkgTarget(importPath string) string {
+	if dir, ok := gs.locate(importPath); ok {
+		return dir
+	}
+	if imp := cleanImport(importPath); imp != "" {
+		return imp
+	}
+	if gs.node != "" {
+		return gs.node
+	}
+	return UnattributedTarget
+}
+
+// testTarget names a failed test. The directory wins when the module line
+// places the import. Otherwise a node-scoped run (the store findings
+// fixture has no go.mod under its root) uses the node the gate ran for,
+// and a workspace run keeps the import path so two packages that both
+// fail TestSame stay distinct.
+func (gs *goStream) testTarget(importPath, test string) string {
+	if dir, ok := gs.locate(importPath); ok {
+		return dir + "::" + test
+	}
+	if gs.node != "" {
+		return gs.node + "::" + test
+	}
+	if imp := cleanImport(importPath); imp != "" {
+		return imp + "::" + test
+	}
+	return UnattributedTarget + "::" + test
+}
+
+// cleanImport strips the " [pkg.test]" suffix go prints on a test-binary
+// build and the brackets of a "# [pkg]" vet header.
+func cleanImport(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.Index(s, " ["); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	return strings.TrimSpace(strings.Trim(s, "[]"))
+}
+
+func outputLines(s string) []string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
+func leadingWS(s string) bool {
+	return strings.HasPrefix(s, " ") || strings.HasPrefix(s, "\t")
 }
 
 // SortFindings orders findings by ID, the order every consumer sees them in.

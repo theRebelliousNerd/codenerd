@@ -1,0 +1,8 @@
+# example.com/r7b/compileerr
+vet.exe: compileerr\broken.go:3:28: undefined: Missing
+# example.com/r7b/testbuild
+# [example.com/r7b/testbuild]
+vet.exe: testbuild\bad_test.go:6:8: undefined: NotASymbol
+# example.com/r7b/testsfail
+# [example.com/r7b/testsfail]
+testsfail\ok.go:8:14: fmt.Printf format %d has arg "not-an-int" of wrong type string

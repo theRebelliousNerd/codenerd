@@ -61,7 +61,7 @@ func TestFindings_ReadsEachToolchainsFailures(t *testing.T) {
 			name:   "cargo test",
 			gate:   Gate{ID: "rust:test", Kind: Test},
 			output: "running 2 tests\ntest parse::handles_empty ... ok\ntest parse::rejects_bad ... FAILED\n",
-			want:   []string{".::parse::rejects_bad"},
+			want:   []string{UnattributedTarget + "::parse::rejects_bad"},
 		},
 		{
 			name:   "rustc error with its location",
@@ -73,7 +73,7 @@ func TestFindings_ReadsEachToolchainsFailures(t *testing.T) {
 			name:   "unreadable failure still reports one finding",
 			gate:   Gate{ID: "nerd.md:deadcode", Kind: Audit},
 			output: "counting...\nNew unreachable functions (1): pkg.F\n\n",
-			want:   []string{"."},
+			want:   []string{UnattributedTarget},
 		},
 	}
 	for _, tc := range cases {

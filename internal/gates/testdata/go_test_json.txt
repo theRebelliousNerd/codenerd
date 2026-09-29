@@ -1,0 +1,66 @@
+{"ImportPath":"example.com/r7b/compileerr","Action":"build-output","Output":"# example.com/r7b/compileerr\n"}
+{"ImportPath":"example.com/r7b/compileerr","Action":"build-output","Output":"compileerr\\broken.go:3:28: undefined: Missing\n"}
+{"ImportPath":"example.com/r7b/compileerr","Action":"build-fail"}
+{"ImportPath":"example.com/r7b/testbuild [example.com/r7b/testbuild.test]","Action":"build-output","Output":"# example.com/r7b/testbuild [example.com/r7b/testbuild.test]\n"}
+{"ImportPath":"example.com/r7b/testbuild [example.com/r7b/testbuild.test]","Action":"build-output","Output":"testbuild\\bad_test.go:6:8: undefined: NotASymbol\n"}
+{"ImportPath":"example.com/r7b/testbuild [example.com/r7b/testbuild.test]","Action":"build-fail"}
+{"Time":"2026-09-29T04:52:18.7112317-04:00","Action":"start","Package":"example.com/r7b"}
+{"Time":"2026-09-29T04:52:18.7128006-04:00","Action":"start","Package":"example.com/r7b/compileerr"}
+{"Time":"2026-09-29T04:52:18.7128006-04:00","Action":"output","Package":"example.com/r7b/compileerr","Output":"FAIL\texample.com/r7b/compileerr [build failed]\n"}
+{"Time":"2026-09-29T04:52:18.7128006-04:00","Action":"fail","Package":"example.com/r7b/compileerr","Elapsed":0,"FailedBuild":"example.com/r7b/compileerr"}
+{"Time":"2026-09-29T04:52:18.7128006-04:00","Action":"start","Package":"example.com/r7b/samea"}
+{"Time":"2026-09-29T04:52:18.7133197-04:00","Action":"start","Package":"example.com/r7b/sameb"}
+{"Time":"2026-09-29T04:52:18.7133197-04:00","Action":"start","Package":"example.com/r7b/testbuild"}
+{"Time":"2026-09-29T04:52:18.7133197-04:00","Action":"output","Package":"example.com/r7b/testbuild","Output":"FAIL\texample.com/r7b/testbuild [build failed]\n"}
+{"Time":"2026-09-29T04:52:18.7133197-04:00","Action":"fail","Package":"example.com/r7b/testbuild","Elapsed":0,"FailedBuild":"example.com/r7b/testbuild [example.com/r7b/testbuild.test]"}
+{"Time":"2026-09-29T04:52:18.7133197-04:00","Action":"start","Package":"example.com/r7b/testsfail"}
+{"Time":"2026-09-29T04:52:18.9166462-04:00","Action":"run","Package":"example.com/r7b/sameb","Test":"TestSame"}
+{"Time":"2026-09-29T04:52:18.9166462-04:00","Action":"output","Package":"example.com/r7b/sameb","Test":"TestSame","Output":"=== RUN   TestSame\n"}
+{"Time":"2026-09-29T04:52:18.9166462-04:00","Action":"output","Package":"example.com/r7b/sameb","Test":"TestSame","Output":"    same_test.go:6: from sameb\n"}
+{"Time":"2026-09-29T04:52:18.917181-04:00","Action":"output","Package":"example.com/r7b/sameb","Test":"TestSame","Output":"--- FAIL: TestSame (0.00s)\n"}
+{"Time":"2026-09-29T04:52:18.917181-04:00","Action":"fail","Package":"example.com/r7b/sameb","Test":"TestSame","Elapsed":0}
+{"Time":"2026-09-29T04:52:18.917181-04:00","Action":"output","Package":"example.com/r7b/sameb","Output":"FAIL\n"}
+{"Time":"2026-09-29T04:52:18.9191574-04:00","Action":"output","Package":"example.com/r7b/sameb","Output":"FAIL\texample.com/r7b/sameb\t0.206s\n"}
+{"Time":"2026-09-29T04:52:18.9191574-04:00","Action":"fail","Package":"example.com/r7b/sameb","Elapsed":0.206}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"run","Package":"example.com/r7b","Test":"TestRoot"}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"run","Package":"example.com/r7b/samea","Test":"TestSame"}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"output","Package":"example.com/r7b","Test":"TestRoot","Output":"=== RUN   TestRoot\n"}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"output","Package":"example.com/r7b","Test":"TestRoot","Output":"    root_test.go:6: root package\n"}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"output","Package":"example.com/r7b/samea","Test":"TestSame","Output":"=== RUN   TestSame\n"}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"output","Package":"example.com/r7b/samea","Test":"TestSame","Output":"    same_test.go:6: from samea\n"}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"output","Package":"example.com/r7b","Test":"TestRoot","Output":"--- FAIL: TestRoot (0.00s)\n"}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"fail","Package":"example.com/r7b","Test":"TestRoot","Elapsed":0}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"output","Package":"example.com/r7b/samea","Test":"TestSame","Output":"--- FAIL: TestSame (0.00s)\n"}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"output","Package":"example.com/r7b","Output":"FAIL\n"}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"fail","Package":"example.com/r7b/samea","Test":"TestSame","Elapsed":0}
+{"Time":"2026-09-29T04:52:18.9261154-04:00","Action":"output","Package":"example.com/r7b/samea","Output":"FAIL\n"}
+{"Time":"2026-09-29T04:52:18.9287732-04:00","Action":"output","Package":"example.com/r7b/samea","Output":"FAIL\texample.com/r7b/samea\t0.215s\n"}
+{"Time":"2026-09-29T04:52:18.9287732-04:00","Action":"fail","Package":"example.com/r7b/samea","Elapsed":0.216}
+{"Time":"2026-09-29T04:52:18.9287732-04:00","Action":"output","Package":"example.com/r7b","Output":"FAIL\texample.com/r7b\t0.215s\n"}
+{"Time":"2026-09-29T04:52:18.9287732-04:00","Action":"fail","Package":"example.com/r7b","Elapsed":0.218}
+{"Time":"2026-09-29T04:52:18.9625094-04:00","Action":"run","Package":"example.com/r7b/testsfail","Test":"TestFails"}
+{"Time":"2026-09-29T04:52:18.963042-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestFails","Output":"=== RUN   TestFails\n"}
+{"Time":"2026-09-29T04:52:18.963042-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestFails","Output":"    ok_test.go:7: got 1 want 2\n"}
+{"Time":"2026-09-29T04:52:18.963042-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestFails","Output":"--- FAIL: TestFails (0.00s)\n"}
+{"Time":"2026-09-29T04:52:18.963042-04:00","Action":"fail","Package":"example.com/r7b/testsfail","Test":"TestFails","Elapsed":0}
+{"Time":"2026-09-29T04:52:18.963042-04:00","Action":"run","Package":"example.com/r7b/testsfail","Test":"TestPanics"}
+{"Time":"2026-09-29T04:52:18.963042-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"=== RUN   TestPanics\n"}
+{"Time":"2026-09-29T04:52:18.963042-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"--- FAIL: TestPanics (0.00s)\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"panic: boom [recovered, repanicked]\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"goroutine 8 [running]:\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"testing.tRunner.func1.2({0x7ff798f148a0, 0x7ff798f83ef0})\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"\tC:/Program Files/Go/src/testing/testing.go:1872 +0x239\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"testing.tRunner.func1()\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"\tC:/Program Files/Go/src/testing/testing.go:1875 +0x35b\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"panic({0x7ff798f148a0?, 0x7ff798f83ef0?})\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"\tC:/Program Files/Go/src/runtime/panic.go:783 +0x132\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"example.com/r7b/testsfail.TestPanics(0xc000003a40?)\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"\tC:/Users/smoor/AppData/Local/Temp/r7b-gates/testsfail/ok_test.go:12 +0x25\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"testing.tRunner(0xc000003a40, 0x7ff798f55eb0)\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"\tC:/Program Files/Go/src/testing/testing.go:1934 +0xc3\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"created by testing.(*T).Run in goroutine 1\n"}
+{"Time":"2026-09-29T04:52:18.9661094-04:00","Action":"output","Package":"example.com/r7b/testsfail","Test":"TestPanics","Output":"\tC:/Program Files/Go/src/testing/testing.go:1997 +0x44b\n"}
+{"Time":"2026-09-29T04:52:18.9682027-04:00","Action":"fail","Package":"example.com/r7b/testsfail","Test":"TestPanics","Elapsed":0}
+{"Time":"2026-09-29T04:52:18.9682027-04:00","Action":"output","Package":"example.com/r7b/testsfail","Output":"FAIL\texample.com/r7b/testsfail\t0.255s\n"}
+{"Time":"2026-09-29T04:52:18.9682027-04:00","Action":"fail","Package":"example.com/r7b/testsfail","Elapsed":0.255}
