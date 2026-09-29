@@ -28,4 +28,4 @@
 
     `callers_of` marks a site `exact` when the package ties it to the target, and `by-name` when it is a method call through a variable: check a by-name site before relying on it.
 
-    `grep`, `glob`, `list_files` and `search_code` are not offered at the start of a task; they open once the structural queries have been tried and cannot answer. `read_file` is for files CodeDOM does not parse: prose, configuration, other languages.
+    `grep`, `glob`, `list_files` and `search_code` stay in the catalog, but the working loop withholds them from each request until the `working_search_open` gate derives -- after the structural queries above have had their trial, or have shown they have no answer. `read_file` is for files CodeDOM does not parse: prose, configuration, other languages.
