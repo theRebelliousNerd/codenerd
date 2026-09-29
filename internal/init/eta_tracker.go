@@ -17,13 +17,14 @@ type ETATracker struct {
 
 // DefaultPhaseDurations returns expected durations for each init phase.
 // These are baseline estimates that get refined based on actual performance.
-// E2: Updated to include all 22 phases for accurate ETA calculation.
+// Includes orientation before the consumers of repository knowledge.
 func DefaultPhaseDurations() map[string]time.Duration {
 	return map[string]time.Duration{
 		"setup":           2 * time.Second,
 		"migration":       3 * time.Second,
 		"directory":       5 * time.Second,
 		"scanning":        20 * time.Second,
+		"orientation":     30 * time.Second,
 		"analysis":        1 * time.Second, // print-only JIT handoff phase
 		"profile":         5 * time.Second,
 		"facts":           10 * time.Second,

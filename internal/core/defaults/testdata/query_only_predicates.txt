@@ -29,8 +29,33 @@ module_northstar	internal/northstar/module.go
 module_requirement	internal/northstar/module.go
 origin_source	internal/orient/report.go
 requirement_task_link	cmd/nerd/chat/model_session_context.go
-repo_era	internal/orient/report.go
+repo_era	internal/init/phase_orient.go internal/orient/report.go
 safety_warning	cmd/nerd/chat/model_session_context.go internal/campaign/intelligence_gathering_methods.go
 shard_prompt_base	internal/articulation/prompt_assembler.go
 user_requests_appeal	internal/shards/system/constitution.go
 vision_source	internal/orient/report.go
+
+# Orientation judgments have rule producers in internal/orient/*.mg,
+# evaluated by the isolated orientation engine, outside this guard's corpus.
+# config_param there is asserted from OrientConfig.Params by the orient engine,
+# not by the main kernel's config rows.
+agent_source_loser	internal/init/phase_ecosystem.go
+agent_source_winner	internal/init/phase_ecosystem.go
+cohort_burst	internal/orient/report.go
+cohort_member	internal/orient/report.go
+cohort_rep	internal/orient/report.go
+config_param	internal/init/phase_ecosystem.go
+doc_birth_month	internal/init/phase_orient.go
+orient_agent	internal/init/phase_ecosystem.go
+orient_agent_description	internal/init/phase_ecosystem.go
+orient_agent_knowledge	internal/init/phase_ecosystem.go
+orient_agent_permission	internal/init/phase_ecosystem.go
+orient_agent_priority	internal/init/phase_ecosystem.go
+orient_agent_prompt	internal/init/phase_ecosystem.go
+orient_agent_topic	internal/init/phase_ecosystem.go
+orient_read_candidate	internal/init/orientation_documents.go internal/init/phase_orient.go internal/init/phase_orient.go internal/init/strategic_documents.go
+orient_read_member	internal/orient/report.go
+orient_read_omitted	internal/init/phase_orient.go
+orient_refresh_document	internal/orient/snapshot.go
+orient_research_topic	internal/init/phase_ecosystem.go
+orient_stale	internal/orient/snapshot.go

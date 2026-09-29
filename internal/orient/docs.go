@@ -28,10 +28,12 @@ import (
 // pairs the policy is allowed to treat as lineage evidence.
 type DocScan struct {
 	Facts           []types.Fact
+	Bodies          map[string]string
 	Unreadable      []string
 	Empty           int
 	Embedded        int
 	CacheHits       int
+	EmbeddingFailed int
 	SimilarityNote  string
 	SimilarityError string
 	CacheWriteError string
@@ -44,16 +46,17 @@ type DocScan struct {
 // a doc_file row; dropping it silently would hide it from the read set.
 //
 // emb may be nil. Similarity is then skipped and SimilarityNote says so.
-// The first embedding error discards every doc_similar and doc_cluster
-// row: a partial neighbour graph would elect representatives from
-// whichever documents happened to embed. Vectors already cached stay
-// cached.
+// Failed documents are counted and named; successful vectors still supply
+// the neighbour graph. No incomplete document centroid enters the cache.
 func CollectDocs(ctx context.Context, root string, cfg config.OrientConfig, emb embedding.EmbeddingEngine) (*DocScan, error) {
 	root, err := absPath(root)
 	if err != nil {
 		return nil, err
 	}
 	cfg = cfg.WithDefaults()
+	if problems := cfg.Check("orient"); len(problems) > 0 {
+		return nil, fmt.Errorf("%s: %s", problems[0].Path, problems[0].Message)
+	}
 	if err := ensureWorkTree(ctx, root); err != nil {
 		return nil, err
 	}
@@ -88,6 +91,12 @@ func CollectDocs(ctx context.Context, root string, cfg config.OrientConfig, emb 
 			Args:      []any{p, dir, int64(len(body)), int64(headingCount(text))},
 		})
 	}
+	return collectDocBodies(ctx, root, cfg, emb, paths, bodies, scan)
+}
+
+func collectDocBodies(ctx context.Context, root string, cfg config.OrientConfig, emb embedding.EmbeddingEngine, paths []string, bodies map[string]string, scan *DocScan) (*DocScan, error) {
+	cfg = cfg.WithDefaults()
+	scan.Bodies = bodies
 	readable := make(map[string]struct{}, len(bodies))
 	for p := range bodies {
 		readable[p] = struct{}{}
@@ -97,6 +106,15 @@ func CollectDocs(ctx context.Context, root string, cfg config.OrientConfig, emb 
 		text, ok := bodies[p]
 		if !ok {
 			continue
+		}
+		normalized := strings.TrimSpace(strings.ReplaceAll(text, "\r\n", "\n"))
+		digest := sha256.Sum256([]byte(normalized))
+		scan.Facts = append(scan.Facts, types.Fact{Predicate: "doc_body_digest", Args: []any{p, hex.EncodeToString(digest[:])}})
+		for dir := path.Dir(p); dir != "."; dir = path.Dir(dir) {
+			scan.Facts = append(scan.Facts, types.Fact{Predicate: "doc_subtree", Args: []any{p, dir}})
+		}
+		if path.Dir(p) == "." {
+			scan.Facts = append(scan.Facts, types.Fact{Predicate: "doc_subtree", Args: []any{p, ""}})
 		}
 		for _, to := range linksIn(p, text, readable) {
 			k := p + "\x00" + to
@@ -112,26 +130,49 @@ func CollectDocs(ctx context.Context, root string, cfg config.OrientConfig, emb 
 	}
 	sort.Strings(scan.Unreadable)
 	if emb == nil {
+		for _, p := range paths {
+			if body, ok := bodies[p]; ok && strings.TrimSpace(body) == "" {
+				scan.Empty++
+				scan.Facts = append(scan.Facts, types.Fact{Predicate: "doc_embedding_omitted", Args: []any{p, types.MangleAtom("/empty"), "no embeddable text"}})
+			}
+		}
 		scan.SimilarityNote = "Similarity was not computed: no embedding engine was passed (an Ollama model has to be named; this command does not invent one). doc_similar and doc_cluster were not asserted."
 		return scan, nil
 	}
-	vecs, hits, empty, cacheErr, embedErr := embedDocs(ctx, root, cfg.EmbeddingChunkBytes, emb, bodies)
+	embedded := embedDocs(ctx, root, cfg, emb, bodies)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	vecs, hits := embedded.vectors, embedded.hits
 	scan.CacheHits = hits
-	scan.Empty = empty
+	scan.Empty = embedded.empty
 	scan.Embedded = len(vecs)
-	if cacheErr != nil {
-		scan.CacheWriteError = cacheErr.Error()
+	if embedded.cacheErr != nil {
+		scan.CacheWriteError = embedded.cacheErr.Error()
 	}
-	if embedErr != nil {
-		scan.SimilarityError = embedErr.Error()
-		scan.SimilarityNote = fmt.Sprintf(
-			"Similarity was not computed: %s. No doc_similar or doc_cluster facts were asserted; a partial neighbour graph would pick representatives from whichever documents happened to embed.",
-			embedErr.Error(),
-		)
-		return scan, nil
+	for _, omission := range embedded.omitted {
+		scan.Facts = append(scan.Facts, types.Fact{Predicate: "doc_embedding_omitted", Args: []any{omission.Path, types.MangleAtom(omission.Kind), omission.Detail}})
+		if omission.Kind == "/error" {
+			scan.EmbeddingFailed++
+		}
+	}
+	for p := range vecs {
+		status := types.MangleAtom("/embedded")
+		if embedded.cached[p] {
+			status = "/cache"
+		}
+		scan.Facts = append(scan.Facts, types.Fact{Predicate: "doc_embedding_status", Args: []any{p, status}})
+	}
+	if len(embedded.omitted) > 0 {
+		var notice strings.Builder
+		fmt.Fprintf(&notice, "orient: similarity retained %d documents; excluded %d (%d empty, %d embedding failures).\n", len(vecs), len(embedded.omitted), scan.Empty, scan.EmbeddingFailed)
+		for _, omission := range embedded.omitted {
+			fmt.Fprintf(&notice, "  %s %s: %s\n", omission.Path, omission.Kind, omission.Detail)
+		}
+		fmt.Fprint(os.Stderr, notice.String())
+		if scan.EmbeddingFailed > 0 {
+			scan.SimilarityError = notice.String()
+		}
 	}
 	pairs := topKPairs(vecs, cfg.SimilarTopK, cfg.SimilarityFloorPermille)
 	for _, pair := range pairs {
@@ -150,11 +191,11 @@ func CollectDocs(ctx context.Context, root string, cfg config.OrientConfig, emb 
 		"doc_similar keeps at most %d neighbours of each document with cosine at or above %d permille. Pairs below the floor or outside that top-k are not facts; raise orient.similar_top_k or lower orient.similarity_floor_permille to widen the set. Embedded %d documents (%d from cache).",
 		cfg.SimilarTopK, cfg.SimilarityFloorPermille, len(vecs), hits,
 	)
-	if empty > 0 {
-		note += fmt.Sprintf(" %d empty documents were not embedded and have no neighbours.", empty)
+	if len(embedded.omitted) > 0 {
+		note += fmt.Sprintf(" Excluded %d documents (%d empty, %d embedding failures); all excluded paths and reasons are recorded in doc_embedding_omitted. The graph uses every successful document vector.", len(embedded.omitted), scan.Empty, scan.EmbeddingFailed)
 	}
-	if cacheErr != nil {
-		note += fmt.Sprintf(" Vector cache write failed (%s); this run used the vectors it computed, and the next run will re-embed those documents.", cacheErr.Error())
+	if embedded.cacheErr != nil {
+		note += fmt.Sprintf(" Vector cache write failed (%s); this run used the vectors it computed, and the next run will re-embed those documents.", embedded.cacheErr.Error())
 	}
 	scan.SimilarityNote = note
 	return scan, nil
@@ -365,117 +406,240 @@ type neigh struct {
 	sim float64
 }
 
-func embedDocs(ctx context.Context, root string, chunk int, emb embedding.EmbeddingEngine, bodies map[string]string) (map[string][]float32, int, int, error, error) {
+// EmbeddingOmission records why one document has no vector.
+type EmbeddingOmission struct {
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	Detail string `json:"detail"`
+}
+
+type embeddingScan struct {
+	vectors  map[string][]float32
+	cached   map[string]bool
+	hits     int
+	empty    int
+	omitted  []EmbeddingOmission
+	cacheErr error
+}
+
+type embeddingChunk struct {
+	path  string
+	index int
+	text  string
+}
+
+type embeddingResult struct {
+	chunk embeddingChunk
+	vec   []float32
+	err   error
+}
+
+type documentEmbedding struct {
+	hash string
+	vecs [][]float32
+	err  error
+}
+
+func embedDocs(ctx context.Context, root string, cfg config.OrientConfig, emb embedding.EmbeddingEngine, bodies map[string]string) embeddingScan {
+	cfg = cfg.WithDefaults()
+	scan := embeddingScan{vectors: map[string][]float32{}, cached: map[string]bool{}}
 	paths := make([]string, 0, len(bodies))
-	empty := 0
-	for p, body := range bodies {
-		if strings.TrimSpace(body) == "" {
-			empty++
-			continue
-		}
+	for p := range bodies {
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
-	parent := ctx
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-
-	type result struct {
-		path  string
-		vec   []float32
-		hit   bool
-		err   error
-		cache error
-	}
-	out := make(chan result, len(paths))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 4)
+	documents := map[string]*documentEmbedding{}
+	var chunks []embeddingChunk
 	for _, p := range paths {
-		wg.Add(1)
-		go func(p string) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				out <- result{path: p, err: ctx.Err()}
-				return
+		if ctx.Err() != nil {
+			return scan
+		}
+		var parts []string
+		for _, part := range chunkBytes(bodies[p], cfg.EmbeddingChunkBytes) {
+			if strings.TrimSpace(part) != "" {
+				parts = append(parts, part)
 			}
-			vec, hit, cacheErr, err := embedOne(ctx, root, emb, p, bodies[p], chunk)
-			out <- result{path: p, vec: vec, hit: hit, err: err, cache: cacheErr}
-		}(p)
+		}
+		if len(parts) == 0 {
+			scan.empty++
+			scan.omitted = append(scan.omitted, EmbeddingOmission{p, "/empty", "no embeddable text"})
+			continue
+		}
+		sum := sha256.Sum256([]byte(bodies[p]))
+		hash := hex.EncodeToString(sum[:])
+		if vec, ok := readVectorCache(root, emb.Name(), hash, cfg.EmbeddingChunkBytes); ok && validVector(vec, emb.Dimensions()) == nil {
+			scan.vectors[p], scan.cached[p] = vec, true
+			scan.hits++
+			continue
+		}
+		documents[p] = &documentEmbedding{hash: hash, vecs: make([][]float32, len(parts))}
+		for i, part := range parts {
+			chunks = append(chunks, embeddingChunk{p, i, part})
+		}
+	}
+
+	jobs := make(chan []embeddingChunk, cfg.EmbeddingConcurrency)
+	results := make(chan []embeddingResult, cfg.EmbeddingConcurrency)
+	var workers sync.WaitGroup
+	for i := 0; i < cfg.EmbeddingConcurrency; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for batch := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				rows := embedBatch(ctx, emb, batch, cfg.EmbeddingRetryAttempts)
+				select {
+				case results <- rows:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
 	}
 	go func() {
-		wg.Wait()
-		close(out)
-	}()
-	vecs := make(map[string][]float32, len(paths))
-	hits := 0
-	var first error
-	var cacheErr error
-	for r := range out {
-		if r.cache != nil && cacheErr == nil {
-			cacheErr = r.cache
+		defer close(jobs)
+		for start := 0; start < len(chunks); start += cfg.EmbeddingBatchSize {
+			end := start + cfg.EmbeddingBatchSize
+			if end > len(chunks) {
+				end = len(chunks)
+			}
+			select {
+			case jobs <- chunks[start:end]:
+			case <-ctx.Done():
+				return
+			}
 		}
-		if r.err != nil {
-			if parent.Err() != nil {
+	}()
+	go func() {
+		workers.Wait()
+		close(results)
+	}()
+	for batch := range results {
+		for _, row := range batch {
+			doc := documents[row.chunk.path]
+			if row.err != nil {
+				if doc.err == nil {
+					doc.err = fmt.Errorf("chunk %d: %w", row.chunk.index+1, row.err)
+				}
 				continue
 			}
-			if first == nil && !errors.Is(r.err, context.Canceled) {
-				first = fmt.Errorf("%s: %w", r.path, r.err)
-				cancel()
+			doc.vecs[row.chunk.index] = row.vec
+		}
+	}
+	if ctx.Err() != nil {
+		return scan
+	}
+	var cacheErrors []error
+	for _, p := range paths {
+		if ctx.Err() != nil {
+			return scan
+		}
+		doc := documents[p]
+		if doc == nil {
+			continue
+		}
+		dims := 0
+		for _, vec := range doc.vecs {
+			if doc.err != nil {
+				break
 			}
-			continue
+			if err := validVector(vec, dims); err != nil {
+				doc.err = err
+				break
+			}
+			dims = len(vec)
 		}
-		if len(r.vec) == 0 {
-			continue
+		if doc.err == nil {
+			vec := centroid(doc.vecs)
+			if err := validVector(vec, dims); err != nil {
+				doc.err = err
+			} else {
+				scan.vectors[p] = vec
+				if err := writeVectorCache(root, emb.Name(), doc.hash, cfg.EmbeddingChunkBytes, vec); err != nil {
+					cacheErrors = append(cacheErrors, fmt.Errorf("%s: %w", p, err))
+				}
+			}
 		}
-		vecs[r.path] = r.vec
-		if r.hit {
-			hits++
+		if doc.err != nil {
+			scan.omitted = append(scan.omitted, EmbeddingOmission{p, "/error", doc.err.Error()})
 		}
 	}
-	if parent.Err() != nil {
-		return nil, 0, empty, cacheErr, parent.Err()
-	}
-	if first != nil {
-		return nil, hits, empty, cacheErr, first
-	}
-	return vecs, hits, empty, cacheErr, nil
+	sort.Slice(scan.omitted, func(i, j int) bool { return scan.omitted[i].Path < scan.omitted[j].Path })
+	scan.cacheErr = errors.Join(cacheErrors...)
+	return scan
 }
 
-func embedOne(ctx context.Context, root string, emb embedding.EmbeddingEngine, p, body string, chunk int) ([]float32, bool, error, error) {
-	sum := sha256.Sum256([]byte(body))
-	hash := hex.EncodeToString(sum[:])
-	if vec, ok := readVectorCache(root, emb.Name(), hash, chunk); ok {
-		return vec, true, nil, nil
+// An exhausted batch is bisected so one rejected item cannot discard its peers.
+// Retries and splits stay inside a worker; request concurrency cannot multiply.
+func embedBatch(ctx context.Context, emb embedding.EmbeddingEngine, batch []embeddingChunk, attempts int) []embeddingResult {
+	texts := make([]string, len(batch))
+	for i, chunk := range batch {
+		texts[i] = chunk.text
 	}
-	parts := chunkBytes(body, chunk)
-	vecs := make([][]float32, 0, len(parts))
-	var dims int
-	for _, part := range parts {
-		v, err := emb.Embed(ctx, part)
-		if err != nil {
-			return nil, false, nil, err
+	var vecs [][]float32
+	var err error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+			break
 		}
-		if len(v) == 0 {
-			return nil, false, nil, fmt.Errorf("empty embedding")
+		vecs, err = emb.EmbedBatch(ctx, texts)
+		if err == nil && len(vecs) != len(batch) {
+			err = fmt.Errorf("embedding batch returned %d vectors for %d chunks", len(vecs), len(batch))
 		}
-		if dims == 0 {
-			dims = len(v)
-		} else if len(v) != dims {
-			return nil, false, nil, fmt.Errorf("embedding length %d, want %d", len(v), dims)
+		if err == nil {
+			for i, vec := range vecs {
+				if problem := validVector(vec, emb.Dimensions()); problem != nil {
+					err = fmt.Errorf("embedding batch item %d: %w", i+1, problem)
+					break
+				}
+			}
 		}
-		vecs = append(vecs, v)
+		if err == nil {
+			out := make([]embeddingResult, len(batch))
+			for i, chunk := range batch {
+				out[i] = embeddingResult{chunk: chunk, vec: vecs[i]}
+			}
+			return out
+		}
 	}
-	cent := centroid(vecs)
-	err := writeVectorCache(root, emb.Name(), hash, chunk, cent)
-	return cent, false, err, nil
+	if len(batch) > 1 && ctx.Err() == nil {
+		middle := len(batch) / 2
+		left := embedBatch(ctx, emb, batch[:middle], attempts)
+		return append(left, embedBatch(ctx, emb, batch[middle:], attempts)...)
+	}
+	out := make([]embeddingResult, len(batch))
+	for i, chunk := range batch {
+		out[i] = embeddingResult{chunk: chunk, err: fmt.Errorf("embedding request failed after at most %d attempts: %w", attempts, err)}
+	}
+	return out
+}
+
+func validVector(vec []float32, dims int) error {
+	if len(vec) == 0 {
+		return fmt.Errorf("empty embedding")
+	}
+	if dims > 0 && len(vec) != dims {
+		return fmt.Errorf("embedding length %d, want %d", len(vec), dims)
+	}
+	nonzero := false
+	for _, x := range vec {
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
+			return fmt.Errorf("non-finite embedding")
+		}
+		nonzero = nonzero || x != 0
+	}
+	if !nonzero {
+		return fmt.Errorf("zero embedding")
+	}
+	return nil
 }
 
 func chunkBytes(s string, n int) []string {
 	if n <= 0 {
-		n = 2000
+		return nil
 	}
 	b := []byte(s)
 	if len(b) == 0 {
@@ -647,7 +811,9 @@ func cacheFile(root, engineName, hash string) string {
 	if safe == "" {
 		safe = "embedder"
 	}
-	return filepath.Join(root, ".nerd", "orient", "vectors", safe, hash)
+	// Under .nerd/cache, which init ignores: embeddings are regenerable and a
+	// committed .nerd must not carry them.
+	return filepath.Join(root, ".nerd", "cache", "orient", "vectors", safe, hash)
 }
 
 func readVectorCache(root, engineName, hash string, chunk int) ([]float32, bool) {

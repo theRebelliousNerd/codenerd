@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
+	"codenerd/internal/orient"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
@@ -411,6 +413,7 @@ func (k *RealKernel) loadMangleFiles() error {
 		k.manglePath,
 	}
 	northstarLoaded := false
+	orientationLoaded := false
 	userExtensionsLoaded := 0
 	for _, wsPath := range workspacePaths {
 		if wsPath == "" {
@@ -474,6 +477,24 @@ func (k *RealKernel) loadMangleFiles() error {
 					logging.Kernel("Loaded northstar vision from %s (%d bytes, %d data facts, %d intents, %d prompts)", northstarPath, len(res.Logic), len(res.Facts), len(res.Intents), len(res.Prompts))
 				} else {
 					logging.Get(logging.CategoryKernel).Warn("Failed to load northstar vision from %s: %v", northstarPath, err)
+				}
+			}
+		}
+
+		if !orientationLoaded {
+			orientationLoaded = true
+			orientationPath := k.nerdPath(filepath.Join("orientation", "orientation.mg"))
+			if _, err := os.Stat(orientationPath); err == nil {
+				_, refreshErr := orient.Refresh(context.Background(), k.workspaceRoot, nil)
+				if refreshErr != nil {
+					logging.Get(logging.CategoryKernel).Warn("Orientation refresh failed; projection withheld: %v", refreshErr)
+				} else if res, err := LoadHybridMangleFile(orientationPath); err == nil {
+					schemasBuilder.WriteString("\n\n# Repository Orientation\n")
+					schemasBuilder.WriteString(res.Logic)
+					k.bootFacts = append(k.bootFacts, res.Facts...)
+					userExtensionsLoaded++
+				} else {
+					logging.Get(logging.CategoryKernel).Warn("Failed to load repository orientation: %v", err)
 				}
 			}
 		}

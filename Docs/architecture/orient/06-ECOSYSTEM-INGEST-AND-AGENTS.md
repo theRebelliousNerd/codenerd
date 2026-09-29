@@ -3,7 +3,7 @@ doc-class: north-star
 subsystem: orient
 implementation-status: target-state
 last-verified: 2026-09-29
-verified-against: e056692c
+verified-against: working-tree-C2a
 supersedes: []
 ---
 
@@ -17,7 +17,9 @@ This capability specification details the ingestion of foreign coding-agent conf
 
 Modern repositories frequently accumulate configuration files, prompt instructions, custom modes, and operational skills from multiple AI developer tools: Claude Code, OpenAI Codex, Google Antigravity / Gemini, Grok, Roo Code, Jules, and Cursor.
 
-Today, codeNERD exhibits two major failures in this domain:
+The pre-orientation baseline had two major failures in this domain. These
+historical defects motivate the capability; they are not claims about the
+current source integration recorded below:
 1. **Total Blindness**: The scanner explicitly skips dot-directories (`internal/world/fs.go:241-263`), ignoring `.codex/`, `.agents/`, `.gemini/`, `.grok/`, `.jules/`, and `.cursor/`.
 2. **Imperative Hardcoding**: Specialist agents are selected via an imperative Go `switch` statement over language strings (`internal/init/agents.go:373-626`). If a repository contains a rich library of specialized database, infrastructure, or compliance skills, codeNERD ignores them and spawns only generic language experts.
 
@@ -75,8 +77,8 @@ Policy file `internal/orient/ecosystem_agents.mg` computes duplicate resolution 
 When multiple tools define overlapping skills (e.g. an identical deployment skill in both `.claude/skills/deploy` and `.codex/skills/deploy`):
 - `agent_source_duplicate(A, B)`: derives when two sources share the same normalized `Name` or strongly overlapping `Topic` sets across different `Tool` definitions with differing `Digest` values.
 - `agent_source_winner(ID, Why)`: selects the authoritative winning source based on grounded evidence:
-  1. Git tracking precedence (`Tracked == /yes` beats local-only `/no`).
-  2. Commit recency (`repo_file_history` committer timestamp).
+  1. Commit recency when both sources have measured history.
+  2. Git tracking precedence (`Tracked == /yes` beats local-only `/no`) when recency does not separate the pair.
   3. Body completeness and structural specificity.
   4. Inbound citation density from other specifications.
   *Ruling*: There is no hardcoded tool-precedence table. Evidence alone decides the winner.
@@ -93,10 +95,12 @@ When multiple tools define overlapping skills (e.g. an identical deployment skil
 
 ## 5. Materialization Pipeline in `nerd init`
 
-A dedicated initialization phase (`internal/init/phase_ecosystem.go`) executes the materialization workflow:
-1. Runs `ecosystem.Discover(workspace)`.
-2. Asserts `agent_source*` facts into the orientation engine alongside `repo_file_history`.
-3. Evaluates Mangle policy to fixpoint.
+The orientation phase measures sources with `orient.Discover` alongside the
+shared history/document census before profile generation. Agent materialization
+(`internal/init/phase_ecosystem.go`) then consumes the retained engine:
+1. Reads the measured sources from the retained snapshot.
+2. Adds profile measurements to the same engine; it does not discover sources or run another history pass.
+3. Evaluates the shared Mangle policy to fixpoint.
 4. Queries `orient_agent`, `orient_agent_knowledge`, and `agent_source_winner`.
 5. Materializes each derived agent via `createAgentKnowledgeBase`:
    - Seeds `.nerd/shards/{agent}_knowledge.db` with winning knowledge atoms (chunked for embedding, never truncated; each atom records source tool and path).
@@ -112,3 +116,14 @@ A dedicated initialization phase (`internal/init/phase_ecosystem.go`) executes t
 1. `TestEcosystemParser_AllFormats`: Test table feeding fixture directory trees for each supported tool format, asserting exact parsing of frontmatter, bodies, scopes, and digest values.
 2. `TestEcosystemDeduplication_EvidenceOverPrecedence`: Asserts duplicate sources across Claude and Codex with conflicting commit dates; verifies that the git-tracked, more recent file wins regardless of tool type.
 3. `TestAgentMaterialization_EndToEnd`: Runs `phase_ecosystem` against a temporary workspace, verifying that `.nerd/shards/<name>_knowledge.db` is populated, `prompts.yaml` is written, and `.nerd/orientation/agents.md` records the lineage.
+
+## C2a source integration (verification pending)
+
+Init retains the measurement engine through profile and agent materialization
+(`internal/init/phase_ecosystem.go:115`, `integrateEcosystem`). The embedded
+loader includes ecosystem policy (`internal/orient/engine.go:111`, `policySource`).
+Its two thresholds have typed defaults, validation and policy rows
+(`internal/config/orient.go:182`, `WithDefaults`; `internal/config/orient.go:400`, `Params`).
+Imported prompt-source selection is a derived row
+(`internal/orient/ecosystem_agents.mg:109`, `orient_agent_prompt`). This is
+source state, not passing integration evidence.

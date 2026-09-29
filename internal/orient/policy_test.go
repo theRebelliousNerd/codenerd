@@ -216,20 +216,91 @@ func TestPolicy_Burst(t *testing.T) {
 	}
 }
 
-func TestPolicy_CohortIsASharedBirthDay(t *testing.T) {
+func cohortFixture() []types.Fact {
+	facts := []types.Fact{spanFact(0, 86400*500, 120, "/no")}
+	for i := 0; i < 120; i++ {
+		p, dir, day := fmt.Sprintf("other/d%d/p.md", i), fmt.Sprintf("other/d%d", i), int64(100+i*4)
+		if i < 12 {
+			p, dir, day = fmt.Sprintf("packet/p%02d.md", i), "packet", 10
+		}
+		facts = append(facts, docFact(p, dir), histFact(p, day*86400, day*86400, 1, 1),
+			F("doc_subtree", p, dir), F("repo_file_day", p, day), tieFact(p, i))
+		if i < 11 {
+			facts = append(facts, F("doc_link", p, "packet/p11.md"))
+		}
+	}
+	return facts
+}
+
+func TestPolicy_CohortIsSmallCohesiveAndScoredOnce(t *testing.T) {
 	t.Parallel()
-	facts := []types.Fact{spanFact(0, 86400*30, 9, "/no")}
-	for i := 0; i < 8; i++ {
-		p := fmt.Sprintf("c%d.md", i)
-		facts = append(facts, histFact(p, 86400*10, 86400*10, 1, 1), docFact(p, ""))
+	e := evalFacts(t, nil, cohortFixture())
+	if predCount(t, e, "doc_cohort") != 12 || predCount(t, e, "doc_burst") != 12 {
+		t.Fatal("sparse one-day document act did not become a burst cohort")
 	}
-	facts = append(facts, histFact("solo.md", 86400*20, 86400*20, 1, 1), docFact("solo.md", ""))
-	e := evalFacts(t, nil, facts)
-	if got := predCount(t, e, "doc_cohort"); got != 8 {
-		rows, _ := e.Query("doc_cohort")
-		t.Fatalf("cohort %d, want 8 (%s)", got, dumpRows(rows))
+	mustRow(t, e, "cohort_rep", "packet/p00.md", "packet/p11.md")
+	mustRow(t, e, "orient_read_candidate", "packet/p11.md", "/burst")
+	if predCount(t, e, "orient_read_kept") != 1 || predCount(t, e, "orient_read_member") != 11 {
+		t.Fatal("cohort consumed more than its one representative slot")
 	}
-	refuseRow(t, e, "doc_cohort", "solo.md")
+	rep, err := buildReport(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.CohortGroups) != 1 || len(rep.CohortGroups[0].Members) != 12 || !rep.CohortGroups[0].Burst {
+		t.Fatalf("cohort unit was not reported: %+v", rep.CohortGroups)
+	}
+	mustRow(t, e, "read_contribution", "packet/p00.md", "/burst", "49")
+	mustRow(t, e, "read_contribution", "packet/p11.md", "/burst", "49")
+}
+
+func TestPolicy_CohortRejectsBroadImportsAndDispersedBirths(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"broad", "dispersed", "unrelated", "share ceiling", "spread touches"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := config.DefaultOrientConfig()
+			facts := cohortFixture()
+			if mode == "share ceiling" {
+				cfg.CohortShareCeilingPermille = 99
+			}
+			for i := range facts {
+				f := &facts[i]
+				p := types.ExtractString(f.Args[0])
+				if mode == "broad" {
+					switch f.Predicate {
+					case "repo_file_history":
+						f.Args[1], f.Args[2] = int64(86400*10), int64(86400*10)
+					case "doc_subtree":
+						f.Args[1] = "all"
+					}
+				}
+				if mode == "dispersed" && strings.HasPrefix(p, "packet/") {
+					if f.Predicate == "repo_file_history" {
+						day := int64(10 + i*4)
+						f.Args[1], f.Args[2] = day*86400, day*86400
+					}
+				}
+				if mode == "unrelated" {
+					if f.Predicate == "doc_subtree" {
+						f.Args[1] = p
+					}
+					// Existing links all point to the representative and are
+					// not reciprocal, so they cannot establish cohesion.
+				}
+				if mode == "spread touches" && strings.HasPrefix(p, "packet/") && f.Predicate == "repo_file_day" {
+					f.Args[1] = int64(10 + i*3)
+				}
+			}
+			e := evalFacts(t, &cfg, facts)
+			if mode == "spread touches" {
+				if predCount(t, e, "doc_cohort") != 12 || predCount(t, e, "doc_burst") != 0 {
+					t.Fatal("an unconcentrated cohort was called a burst")
+				}
+			} else if predCount(t, e, "doc_cohort") != 0 {
+				t.Fatal("weak cohort evidence was accepted")
+			}
+		})
+	}
 }
 
 func TestPolicy_Generation(t *testing.T) {
@@ -242,7 +313,8 @@ func TestPolicy_Generation(t *testing.T) {
 			histFact("new.md", 250, 250, 1, 1),
 		)
 		e := evalFacts(t, nil, facts)
-		mustRow(t, e, "doc_generation", "old.md", "/origin")
+		mustRow(t, e, "doc_generation", "old.md", "/early")
+		refuseRow(t, e, "doc_generation", "old.md", "/origin")
 		mustRow(t, e, "doc_generation", "mid.md", "/early")
 		mustRow(t, e, "doc_generation", "new.md", "/recent")
 	})
@@ -256,11 +328,11 @@ func TestPolicy_Generation(t *testing.T) {
 			histFact("r.md", 950, 950, 1, 1),
 		}
 		e := evalFacts(t, nil, facts)
-		mustRow(t, e, "doc_generation", "o.md", "/origin")
+		mustRow(t, e, "doc_generation", "o.md", "/early")
 		mustRow(t, e, "doc_generation", "m.md", "/middle")
 		mustRow(t, e, "doc_generation", "r.md", "/recent")
 	})
-	t.Run("zero width span is origin", func(t *testing.T) {
+	t.Run("zero width peripheral document is early", func(t *testing.T) {
 		facts := []types.Fact{
 			spanFact(5, 5, 1, "/no"),
 			monthFact(0, "m", 1),
@@ -269,8 +341,8 @@ func TestPolicy_Generation(t *testing.T) {
 			docFact("z.md", ""),
 		}
 		e := evalFacts(t, nil, facts)
-		mustRow(t, e, "doc_generation", "z.md", "/origin")
-		mustRow(t, e, "origin_source", "z.md", "/zero_span")
+		mustRow(t, e, "doc_generation", "z.md", "/early")
+		refuseRow(t, e, "origin_source", "z.md", "/zero_span")
 	})
 }
 
@@ -396,9 +468,17 @@ func TestPolicy_VisionWeightsARecentDraftAboveAQuietOrigin(t *testing.T) {
 		F("doc_role_claim", "burst.md", N("/north_star_draft"), int64(70)),
 	)
 	e := evalFacts(t, nil, facts)
-	mustRow(t, e, "vision_source", "old.md", "56", "/origin_vision")
-	mustRow(t, e, "vision_source", "draft.md", "73", "/recent_draft")
-	mustRow(t, e, "vision_source", "burst.md", "93", "/recent_burst_draft")
+	weights := map[string]int64{}
+	rows, err := e.Query("vision_source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		weights[types.ExtractString(row.Args[0])], _ = types.ExtractInt64(row.Args[1])
+	}
+	if !(weights["burst.md"] > weights["draft.md"] && weights["draft.md"] > weights["old.md"]) {
+		t.Fatalf("vision ordering %+v", weights)
+	}
 }
 
 func TestPolicy_ReadBudgetAndTieBreak(t *testing.T) {
@@ -414,6 +494,9 @@ func TestPolicy_ReadBudgetAndTieBreak(t *testing.T) {
 			tieFact("AGENTS.md", 0),
 			histFact("o.md", 0, 0, 1, 1),
 			docFact("o.md", ""),
+			F("doc_link", "x.md", "o.md"),
+			F("doc_link", "y.md", "o.md"),
+			F("doc_link", "z.md", "o.md"),
 			tieFact("o.md", 1),
 			histFact("b.md", 900, 900, 6, 1),
 			docFact("b.md", ""),
@@ -464,10 +547,11 @@ func TestPolicy_NamesDoNotSelect(t *testing.T) {
 	}
 	e := evalFacts(t, nil, facts)
 	mustRow(t, e, "doc_generation", "docs/vision/north-star.md", "/middle")
-	mustRow(t, e, "origin_source", "zzz-notes.md", "/span_position")
+	mustRow(t, e, "doc_generation", "zzz-notes.md", "/early")
+	refuseRow(t, e, "origin_source", "zzz-notes.md", "/span_position")
 	refuseRow(t, e, "orient_read_candidate", "docs/vision/north-star.md", "/origin")
-	mustRow(t, e, "orient_read_candidate", "zzz-notes.md", "/origin")
-	if predCount(t, e, "orient_read_candidate") != 1 {
+	refuseRow(t, e, "orient_read_candidate", "zzz-notes.md", "/origin")
+	if predCount(t, e, "orient_read_candidate") != 0 {
 		rows, _ := e.Query("orient_read_candidate")
 		t.Fatalf("candidates %s", dumpRows(rows))
 	}
@@ -531,4 +615,224 @@ func TestPolicy_ShallowStillReadsInstructions(t *testing.T) {
 	if predCount(t, e, "repo_era") != 0 || predCount(t, e, "doc_burst") != 0 {
 		t.Fatal("shallow clone drew eras or a burst")
 	}
+}
+
+func TestPolicy_RareReasonsOutrankNinetyPercentSharedReasons(t *testing.T) {
+	t.Parallel()
+	cfg := config.DefaultOrientConfig()
+	cfg.ReadCandidateBudget = 1
+	facts := []types.Fact{spanFact(0, 1000, 100, "/no")}
+	for i := 0; i < 100; i++ {
+		p := fmt.Sprintf("d%03d.md", i)
+		commits := int64(1)
+		if i < 90 {
+			commits = 6
+		}
+		facts = append(facts, docFact(p, ""), histFact(p, 500, 500, commits, 1), tieFact(p, i))
+	}
+	facts = append(facts, F("agent_source", "rare", N("/codex"), N("/instructions"), "root", "d099.md", N("/yes")))
+	e := evalFacts(t, &cfg, facts)
+	mustRow(t, e, "reason_document_count", "/burst", "90")
+	mustRow(t, e, "reason_rarity", "/burst", "100")
+	mustRow(t, e, "reason_rarity", "/instructions", "990")
+	mustRow(t, e, "orient_read_candidate", "d099.md", "/instructions")
+	refuseRow(t, e, "orient_read_candidate", "d000.md", "/burst")
+	cfg.ReasonRarityFloorPermille = 250
+	withFloor := evalFacts(t, &cfg, facts)
+	mustRow(t, withFloor, "reason_rarity", "/burst", "250")
+}
+
+func TestPolicy_EqualWeightReasonsBothContribute(t *testing.T) {
+	t.Parallel()
+	cfg := config.DefaultOrientConfig()
+	cfg.ReadWeightInstructions, cfg.ReadWeightLinkHub = 60, 60
+	facts := []types.Fact{
+		docFact("root.md", ""), docFact("other.md", ""),
+		F("agent_source", "i", N("/codex"), N("/instructions"), "root", "root.md", N("/yes")),
+		F("doc_link", "a.md", "root.md"), F("doc_link", "b.md", "root.md"), F("doc_link", "c.md", "root.md"),
+	}
+	e := evalFacts(t, &cfg, facts)
+	mustRow(t, e, "read_score", "root.md", "60")
+}
+
+func TestPolicy_DuplicateComponentsShareOneSlot(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"digest", "similarity", "transitive similarity", "below threshold"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := config.DefaultOrientConfig()
+			facts := []types.Fact{spanFact(0, 1000, 20, "/no")}
+			for i, p := range []string{"a.md", "b.md", "c.md", "different.md"} {
+				facts = append(facts, docFact(p, ""), histFact(p, 500, 500, 6, 1), tieFact(p, i))
+			}
+			switch mode {
+			case "digest":
+				for _, p := range []string{"a.md", "b.md", "c.md"} {
+					facts = append(facts, F("doc_body_digest", p, "same-body"))
+				}
+			case "similarity", "transitive similarity":
+				facts = append(facts, F("doc_similar", "a.md", "b.md", int64(975)), F("doc_similar", "b.md", "c.md", int64(975)))
+				if mode == "similarity" {
+					facts = append(facts, F("doc_similar", "a.md", "c.md", int64(975)))
+				}
+			case "below threshold":
+				facts = append(facts, F("doc_similar", "a.md", "b.md", int64(949)))
+			}
+			e := evalFacts(t, &cfg, facts)
+			want := 2
+			if mode == "below threshold" {
+				want = 4
+			}
+			if predCount(t, e, "orient_read_kept") != want {
+				t.Fatalf("read units = %d, want %d", predCount(t, e, "orient_read_kept"), want)
+			}
+			if mode != "below threshold" {
+				if predCount(t, e, "orient_read_member") != 2 {
+					t.Fatal("duplicate members not recorded")
+				}
+			}
+		})
+	}
+}
+
+func TestPolicy_OriginsRequireStructuralWitnesses(t *testing.T) {
+	t.Parallel()
+	for _, witness := range []string{"none", "descendant", "links", "embedding hub", "root instruction", "subtree instruction"} {
+		t.Run(witness, func(t *testing.T) {
+			p, dir := "old.md", ""
+			if witness == "subtree instruction" {
+				p, dir = "sub/root.md", "sub"
+			}
+			facts := append(threeMonths("/no"), docFact(p, dir), histFact(p, 10, 250, 2, 2))
+			switch witness {
+			case "descendant":
+				facts = append(facts, docFact("later.md", ""), histFact("later.md", 260, 280, 1, 1), F("doc_similar", "later.md", p, int64(900)))
+			case "links":
+				for _, from := range []string{"a", "b", "c"} {
+					facts = append(facts, F("doc_link", from, p))
+				}
+			case "embedding hub":
+				for i := 0; i < 15; i++ {
+					other := fmt.Sprintf("neighbor-%02d.md", i)
+					facts = append(facts, F("doc_similar", other, p, int64(900)))
+				}
+			case "root instruction", "subtree instruction":
+				facts = append(facts, F("agent_source", "i", N("/codex"), N("/instructions"), "root", p, N("/yes")), F("agent_source_scope", "i", dir))
+			}
+			e := evalFacts(t, nil, facts)
+			if witness == "none" {
+				mustRow(t, e, "doc_generation", p, "/early")
+				refuseRow(t, e, "doc_generation", p, "/origin")
+			} else {
+				mustRow(t, e, "doc_generation", p, "/origin")
+				mustRow(t, e, "origin_source", p, "/birth_era")
+			}
+		})
+	}
+}
+
+func TestPolicy_LullsUseMonthlyMedianAndAbsoluteFloor(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name         string
+		commits      []int
+		share, floor int
+		want         []string
+	}{
+		{"quiet five percent", []int{100, 5, 100}, 100, 1, []string{"/wave", "/lull", "/wave"}},
+		{"relative config changes the verdict", []int{100, 5, 100}, 40, 1, []string{"/wave", "/wave", "/wave"}},
+		{"absolute floor still wins", []int{100, 5, 100}, 40, 6, []string{"/wave", "/lull", "/wave"}},
+		{"even median", []int{100, 5, 300, 100}, 100, 1, []string{"/wave", "/lull", "/wave", "/wave"}},
+		{"half integer median", []int{1, 2}, 700, 1, []string{"/lull", "/wave"}},
+		{"all zero", []int{0, 0, 0}, 100, 1, []string{"/lull", "/lull", "/lull"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.DefaultOrientConfig()
+			cfg.EraLullMedianPermille, cfg.EraLullCommits = tc.share, tc.floor
+			facts := []types.Fact{spanFact(0, 1000, 10, "/no")}
+			for i, commits := range tc.commits {
+				facts = append(facts, monthFact(i, fmt.Sprintf("m%d", i), commits))
+			}
+			e := evalFacts(t, &cfg, facts)
+			for i, kind := range tc.want {
+				mustRow(t, e, "month_kind", fmt.Sprint(i), kind)
+			}
+		})
+	}
+}
+
+func TestPolicy_CohortSpansCalendarBoundaryWithoutChainingWindows(t *testing.T) {
+	t.Parallel()
+	facts := cohortFixture()
+	for i := range facts {
+		f := &facts[i]
+		p := types.ExtractString(f.Args[0])
+		if !strings.HasPrefix(p, "packet/") {
+			continue
+		}
+		day := int64(1)
+		if p >= "packet/p06.md" {
+			day = 2
+		}
+		switch f.Predicate {
+		case "repo_file_history":
+			f.Args[1], f.Args[2] = day*86400, day*86400
+		case "repo_file_day":
+			f.Args[1] = day
+		}
+	}
+	e := evalFacts(t, nil, facts)
+	if predCount(t, e, "doc_cohort") != 12 || predCount(t, e, "doc_burst") != 12 || predCount(t, e, "cohort_rep") != 1 {
+		t.Fatal("a two-day act was split at an arbitrary calendar boundary")
+	}
+	// A four-day chain never becomes one unbounded cohort, even with
+	// reciprocal links across adjacent births.
+	for i := range facts {
+		f := &facts[i]
+		p := types.ExtractString(f.Args[0])
+		if !strings.HasPrefix(p, "packet/") {
+			continue
+		}
+		var member int
+		if _, err := fmt.Sscanf(p, "packet/p%d.md", &member); err != nil {
+			t.Fatal(err)
+		}
+		day := int64(member/3 + 1)
+		switch f.Predicate {
+		case "repo_file_history":
+			f.Args[1], f.Args[2] = day*86400, day*86400
+		case "repo_file_day":
+			f.Args[1] = day
+		}
+	}
+	for i := 0; i < 11; i++ {
+		a, b := fmt.Sprintf("packet/p%02d.md", i), fmt.Sprintf("packet/p%02d.md", i+1)
+		facts = append(facts, F("doc_link", a, b), F("doc_link", b, a))
+	}
+	noLongChain := evalFacts(t, nil, facts)
+	if predCount(t, noLongChain, "doc_cohort") != 0 {
+		t.Fatal("short windows chained into a long cohort")
+	}
+}
+
+func TestPolicy_DirectoryCohortSurvivesBroadSimilarity(t *testing.T) {
+	t.Parallel()
+	facts := cohortFixture()
+	for i := range facts {
+		f := &facts[i]
+		switch f.Predicate {
+		case "repo_file_history":
+			f.Args[1], f.Args[2] = int64(86400*10), int64(86400*10)
+		case "repo_file_day":
+			f.Args[1] = int64(10)
+		}
+	}
+	for i := 12; i < 120; i++ {
+		facts = append(facts, F("doc_similar", fmt.Sprintf("other/d%d/p.md", i), "packet/p00.md", int64(900)))
+	}
+	e := evalFacts(t, nil, facts)
+	if predCount(t, e, "doc_cohort") != 12 {
+		t.Fatal("broad similarity swallowed a qualified directory act")
+	}
+	mustRow(t, e, "cohort_rep", "packet/p00.md", "packet/p11.md")
 }

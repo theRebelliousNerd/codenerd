@@ -1,3 +1,31 @@
+config_param_required(/orient, /orient_embedding_hub_top_k_multiple).
+config_param_required(/orient, /orient_embedding_batch_size).
+config_param_required(/orient, /orient_embedding_concurrency).
+config_param_required(/orient, /orient_embedding_retry_attempts).
+config_param_required(/orient, /orient_reason_rarity_floor_permille).
+config_param_required(/orient, /orient_near_duplicate_permille).
+config_param_required(/orient, /orient_cohort_window_days).
+config_param_required(/orient, /orient_cohort_share_ceiling_permille).
+config_param_required(/orient, /orient_era_lull_median_permille).
+config_param_required(/orient, /orient_read_weight_instructions).
+config_param_required(/orient, /orient_read_weight_chain_latest).
+config_param_required(/orient, /orient_read_weight_origin).
+config_param_required(/orient, /orient_read_weight_cluster_rep).
+config_param_required(/orient, /orient_read_weight_live_hub).
+config_param_required(/orient, /orient_read_weight_link_hub).
+config_param_required(/orient, /orient_read_weight_burst).
+config_param_required(/orient, /orient_read_weight_cohort).
+config_param_required(/orient, /orient_vision_weight_confidence).
+config_param_required(/orient, /orient_vision_weight_role).
+config_param_required(/orient, /orient_vision_weight_recent).
+config_param_required(/orient, /orient_vision_weight_origin).
+config_param_required(/orient, /orient_vision_weight_early).
+config_param_required(/orient, /orient_vision_weight_middle).
+config_param_required(/orient, /orient_vision_weight_burst).
+config_param_required(/orient, /orient_vision_weight_cohort).
+config_param_required(/orient, /orient_vision_weight_central).
+config_param_required(/orient, /orient_vision_weight_live).
+
 # Timeline judgments. Lineage (similarity, links, instructions) is lineage.mg.
 # A shallow clone still has repo_month and repo_file_history; history_usable
 # is the gate on every judgment that would treat the oldest fetched commit
@@ -7,21 +35,41 @@ history_usable() :-
     repo_span(_, _, _, /no).
 
 # --- eras -------------------------------------------------------------------
-# A month quieter than the lull threshold is a lull, consecutive months of
-# the same kind are one era, and the calendar gap Go stored as a 0-commit
-# month splits a wave. Threshold 1 means only an empty month is a lull.
-
-month_kind(M, /lull) :-
-    history_usable(),
-    repo_month(M, _, Commits, _, _),
-    config_param(/orient_era_lull_commits, T),
-    Commits < T.
-
+# Monthly median includes empty calendar months. Ranking by month ordinal
+# preserves repeated counts; averaging the two middle values stays exact.
+month_measure(M, C) :- repo_month(M, _, C, _, _).
+month_before(M, Other) :-
+    month_measure(M, C), month_measure(Other, OC), OC < C.
+month_before(M, Other) :-
+    month_measure(M, C), month_measure(Other, C), Other < M.
+month_has_before(M) :- month_before(M, _).
+month_rank(M, R) :-
+    month_before(M, Other)
+    |> do fn:group_by(M), let R = fn:count().
+month_rank(M, 0) :- month_measure(M, _), !month_has_before(M).
+month_total(N) :-
+    month_measure(M, C)
+    |> do fn:group_by(), let N = fn:count().
+month_middle(Lower, Upper) :-
+    month_total(N), N > 0,
+    Before = fn:minus(N, 1),
+    Lower = fn:div(Before, 2), Upper = fn:div(N, 2).
+month_median_twice(V) :-
+    month_middle(Lower, Upper),
+    month_rank(LM, Lower), month_measure(LM, LC),
+    month_rank(UM, Upper), month_measure(UM, UC),
+    V = fn:plus(LC, UC).
+month_lull(M) :-
+    month_measure(M, C), config_param(/orient_era_lull_commits, Floor),
+    C < Floor.
+month_lull(M) :-
+    month_measure(M, C), month_median_twice(Median),
+    config_param(/orient_era_lull_median_permille, Share),
+    Scaled = fn:mult(C, 2000), Threshold = fn:mult(Median, Share),
+    Scaled < Threshold.
+month_kind(M, /lull) :- history_usable(), month_lull(M).
 month_kind(M, /wave) :-
-    history_usable(),
-    repo_month(M, _, Commits, _, _),
-    config_param(/orient_era_lull_commits, T),
-    Commits >= T.
+    history_usable(), month_measure(M, _), !month_lull(M).
 
 has_later_month(M) :-
     month_kind(M, _),
@@ -69,7 +117,7 @@ repo_era(I, Start, End, Kind) :-
     month_kind(Start, Kind).
 
 era_count(N) :-
-    repo_era(I, _, _, _)
+    repo_era(I, Start, End, Kind)
     |> do fn:group_by(), let N = fn:count().
 
 # --- where a document sits in the span --------------------------------------
@@ -96,7 +144,7 @@ doc_birth_era(Path, I) :-
 
 # One era has no "early" and "late" inside it. Position along repo_span does.
 # Zero-width (every commit on one timestamp, or a span that does not advance)
-# is all origin: there is no later generation to invent.
+# is an early birth; origin still requires a structural witness.
 
 doc_at_permille(Path, P) :-
     history_usable(),
@@ -120,7 +168,7 @@ doc_touch_permille(Path, P) :-
     Scaled = fn:mult(Delta, 1000),
     P = fn:div(Scaled, Width).
 
-doc_generation(Path, /origin) :-
+doc_early_birth(Path) :-
     history_usable(),
     doc_birth_era(Path, 0),
     era_count(N),
@@ -156,14 +204,14 @@ doc_generation(Path, /middle) :-
     Twice = fn:mult(I, 2),
     Twice >= N.
 
-doc_generation(Path, /origin) :-
+doc_early_birth(Path) :-
     history_usable(),
     era_count(1),
     repo_file_history(Path, _, _, _, _),
     repo_span(A, B, _, /no),
     A >= B.
 
-doc_generation(Path, /origin) :-
+doc_early_birth(Path) :-
     doc_at_permille(Path, P),
     config_param(/orient_origin_span_permille, Cut),
     P < Cut.
@@ -190,38 +238,147 @@ doc_generation(Path, /recent) :-
 doc_has_generation(Path) :-
     doc_generation(Path, _).
 
-# --- burst and cohort -------------------------------------------------------
-# A burst is many commits on very few days: one document worked in a
-# concentrated act. A cohort is many documents born on one day: a landing,
-# not a file that happened to be touched. Neither is "recent".
+# --- bursts and cohesive birth-window cohorts ------------------------------
+document_path(Path) :- doc_file(Path, _, _, _).
+document_count(N) :-
+    document_path(Path)
+    |> do fn:group_by(), let N = fn:count().
+doc_birth_day(Path, Day) :-
+    history_usable(), doc_file(Path, _, _, _),
+    repo_file_history(Path, First, _, _, _),
+    Day = fn:div(First, 86400).
+doc_birth_date(Day) :- doc_birth_day(_, Day).
+# Anchor short windows to actual births, so a calendar boundary cannot split
+# a deliberate act. Window-local components cannot chain across those windows.
+doc_birth_window(Path, Window) :-
+    doc_birth_day(Path, Day), doc_birth_date(Window),
+    config_param(/orient_cohort_window_days, Days),
+    Day >= Window, End = fn:plus(Window, Days), Day < End.
+cohort_directory_member(Dir, Window, Path) :-
+    doc_birth_window(Path, Window), doc_subtree(Path, Dir).
+cohort_directory_count(Dir, Window, N) :-
+    cohort_directory_member(Dir, Window, Path)
+    |> do fn:group_by(Dir, Window), let N = fn:count().
+cohort_directory_good(Dir, Window) :-
+    cohort_directory_count(Dir, Window, N), document_count(Total),
+    config_param(/orient_cohort_min_docs, Min),
+    config_param(/orient_cohort_share_ceiling_permille, Ceiling),
+    N >= Min,
+    Scaled = fn:mult(N, 1000), Limit = fn:mult(Total, Ceiling),
+    Scaled <= Limit.
+cohort_directory_document(Path, Window) :-
+    cohort_directory_good(Dir, Window), cohort_directory_member(Dir, Window, Path).
+cohort_directory_ord(Dir, Window, Ord) :-
+    cohort_directory_good(Dir, Window),
+    cohort_directory_member(Dir, Window, Path), doc_tie(Path, O)
+    |> do fn:group_by(Dir, Window), let Ord = fn:min(O).
+# Star connections avoid materializing every pair in a directory group.
+cohort_connection(Path, Anchor, Window) :-
+    cohort_directory_ord(Dir, Window, Ord), doc_tie(Anchor, Ord),
+    cohort_directory_member(Dir, Window, Path), Path != Anchor.
+cohort_connection(A, B, W) :-
+    doc_link(A, B), doc_link(B, A),
+    doc_birth_window(A, W), doc_birth_window(B, W), A != B,
+    !cohort_directory_document(A, W), !cohort_directory_document(B, W).
+cohort_connection(A, B, W) :-
+    doc_similar(A, B, P),
+    config_param(/orient_similarity_floor_permille, Floor), P >= Floor,
+    doc_birth_window(A, W), doc_birth_window(B, W), A != B,
+    !cohort_directory_document(A, W), !cohort_directory_document(B, W).
+cohort_edge(A, B, W) :- cohort_connection(A, B, W).
+cohort_edge(B, A, W) :- cohort_connection(A, B, W).
+cohort_reach(A, A, W) :- cohort_edge(A, _, W).
+cohort_reach(A, B, W) :-
+    cohort_edge(A, B, W), doc_tie(A, AO), doc_tie(B, BO), BO < AO.
+cohort_reach(A, C, W) :-
+    cohort_edge(A, B, W), cohort_reach(B, C, W),
+    doc_tie(A, AO), doc_tie(C, CO), CO < AO.
+cohort_root_ord(Path, W, Ord) :-
+    cohort_reach(Path, Other, W), doc_tie(Other, O)
+    |> do fn:group_by(Path, W), let Ord = fn:min(O).
+cohort_component(Path, Root, W) :-
+    cohort_root_ord(Path, W, Ord), doc_tie(Root, Ord).
+cohort_member_count(Root, W, N) :-
+    cohort_component(Path, Root, W)
+    |> do fn:group_by(Root, W), let N = fn:count().
+cohort_good(Root, W) :-
+    cohort_member_count(Root, W, N), document_count(Total),
+    config_param(/orient_cohort_min_docs, Min),
+    config_param(/orient_cohort_share_ceiling_permille, Ceiling),
+    N >= Min,
+    Scaled = fn:mult(N, 1000), Limit = fn:mult(Total, Ceiling),
+    Scaled <= Limit.
+cohort_overlap(Root, W, Other, OW) :-
+    cohort_good(Root, W), cohort_component(Member, Root, W),
+    cohort_component(Member, Other, OW), cohort_good(Other, OW).
+cohort_blocked(Root, W) :-
+    cohort_overlap(Root, W, Other, OW),
+    cohort_member_count(Root, W, N), cohort_member_count(Other, OW, ON), ON > N.
+cohort_blocked(Root, W) :-
+    cohort_overlap(Root, W, Other, OW),
+    cohort_member_count(Root, W, N), cohort_member_count(Other, OW, N), OW < W.
+# Equal-size overlapping windows prefer the earlier act. All winning groups
+# are bounded and disjoint; no member consumes two cohort slots.
+cohort_member(Path, Root) :-
+    cohort_component(Path, Root, W), cohort_good(Root, W), !cohort_blocked(Root, W).
+doc_cohort(Path) :- cohort_member(Path, _).
 
+file_has_days(Path) :- repo_file_day(Path, _).
+cohort_days_missing(Root) :-
+    cohort_member(Path, Root), repo_file_history(Path, _, _, _, Days),
+    Days > 1, !file_has_days(Path).
+cohort_touch_day(Root, Day) :-
+    cohort_member(Path, Root), repo_file_day(Path, Day).
+# A one-day summary is exact even when a synthetic fixture omits daily rows.
+cohort_touch_day(Root, Day) :-
+    cohort_member(Path, Root), !file_has_days(Path),
+    repo_file_history(Path, _, _, _, 1), doc_birth_day(Path, Day).
+cohort_active_days(Root, N) :-
+    cohort_touch_day(Root, Day)
+    |> do fn:group_by(Root), let N = fn:count().
+cohort_commit_touches(Root, N) :-
+    cohort_member(Path, Root), repo_file_history(Path, First, Last, C, Days)
+    |> do fn:group_by(Root), let N = fn:sum(C).
+cohort_burst(Root) :-
+    cohort_active_days(Root, Days), cohort_commit_touches(Root, Commits),
+    config_param(/orient_burst_max_days, MaxDays),
+    config_param(/orient_burst_min_commits, MinCommits),
+    Days <= MaxDays, Commits >= MinCommits, !cohort_days_missing(Root).
+doc_burst(Path) :- cohort_member(Path, Root), cohort_burst(Root).
 doc_burst(Path) :-
-    history_usable(),
-    doc_file(Path, _, _, _),
+    history_usable(), doc_file(Path, _, _, _),
     repo_file_history(Path, _, _, Commits, Days),
     config_param(/orient_burst_max_days, MaxDays),
     config_param(/orient_burst_min_commits, MinCommits),
-    Days <= MaxDays,
-    Commits >= MinCommits.
+    Days <= MaxDays, Commits >= MinCommits.
 
-doc_birth_day(Path, Day) :-
-    history_usable(),
-    doc_file(Path, _, _, _),
-    repo_file_history(Path, First, _, _, _),
-    Day = fn:div(First, 86400).
+cohort_in_link(Root, Path, From) :-
+    cohort_member(Path, Root), doc_link(From, Path),
+    cohort_member(From, Root), From != Path.
+cohort_in_count(Root, Path, N) :-
+    cohort_in_link(Root, Path, From)
+    |> do fn:group_by(Root, Path), let N = fn:count().
+cohort_has_in(Root, Path) :- cohort_in_count(Root, Path, _).
+cohort_link_rank(Root, Path, N) :-
+    cohort_in_count(Root, Path, N), N < 1000.
+cohort_link_rank(Root, Path, 999) :-
+    cohort_in_count(Root, Path, N), N >= 1000.
+cohort_link_rank(Root, Path, 0) :-
+    cohort_member(Path, Root), !cohort_has_in(Root, Path).
+cohort_member_score(Root, Path, Score) :-
+    cohort_link_rank(Root, Path, Links), read_cent_of(Path, C),
+    read_tie_of(Path, Tie),
+    LinkPart = fn:mult(Links, 1000000000000),
+    CentPart = fn:mult(C, 1000000000),
+    Sum = fn:plus(LinkPart, CentPart), Score = fn:plus(Sum, Tie).
+cohort_best(Root, Score) :-
+    cohort_member_score(Root, Path, S)
+    |> do fn:group_by(Root), let Score = fn:max(S).
+cohort_rep(Root, Path) :-
+    cohort_member_score(Root, Path, S), cohort_best(Root, S).
+is_cohort_rep(Path) :- cohort_rep(_, Path).
 
-cohort_size(Day, N) :-
-    doc_birth_day(Path, Day)
-    |> do fn:group_by(Day), let N = fn:count().
-
-doc_cohort(Path) :-
-    doc_birth_day(Path, Day),
-    cohort_size(Day, N),
-    config_param(/orient_cohort_min_docs, Min),
-    N >= Min.
-
-doc_has_history(Path) :-
-    repo_file_history(Path, _, _, _, _).
+doc_has_history(Path) :- repo_file_history(Path, _, _, _, _).
 
 # --- live, quiet, superseded ------------------------------------------------
 # doc_live cannot be an input to doc_superseded: a successor is "live"
@@ -309,93 +466,68 @@ origin_source(Path, /zero_span) :-
     !doc_has_superseded(Path).
 
 # --- vision -----------------------------------------------------------------
-# A /north_star_draft is not a weaker /vision. A draft written in the recent
-# generation, in one burst, is the strongest source: that is where the
-# north star is being written, including while it is still a draft.
-# Points, then a cap at 100. The why is the strongest applicable label
-# (lowest rank), recorded beside the weight.
+# A draft is a vision claim too. Confidence and structural contributions
+# are weighted by prevalence, then capped at 100. The why records an
+# applicable structural shape, not an assertion that recency is quality.
 
-vision_claim(Path, Conf) :-
-    doc_role_claim(Path, /vision, Conf).
-
-vision_claim(Path, Conf) :-
-    doc_role_claim(Path, /north_star_draft, Conf).
-
+vision_claim(Path, Conf) :- doc_role_claim(Path, /vision, Conf).
+vision_claim(Path, Conf) :- doc_role_claim(Path, /north_star_draft, Conf).
 vision_conf(Path, C) :-
     vision_claim(Path, Conf)
     |> do fn:group_by(Path), let C = fn:max(Conf).
-
 vision_part_conf(Path, P) :-
     vision_conf(Path, C),
-    Scaled = fn:mult(C, 40),
-    P = fn:div(Scaled, 100).
-
-vision_part_role(Path, 10) :-
-    vision_conf(Path, _).
-
-vision_part_gen(Path, 20) :-
-    vision_part_role(Path, _),
-    doc_generation(Path, /recent).
-
-vision_part_gen(Path, 10) :-
-    vision_part_role(Path, _),
-    doc_generation(Path, /origin).
-
-vision_part_gen(Path, 8) :-
-    vision_part_role(Path, _),
-    doc_generation(Path, /early).
-
-vision_part_gen(Path, 5) :-
-    vision_part_role(Path, _),
-    doc_generation(Path, /middle).
-
-vision_part_gen(Path, 0) :-
-    vision_part_role(Path, _),
-    !doc_has_generation(Path).
-
-# Burst outranks cohort, and a document that is both was one act, not two.
-vision_part_burst(Path, 20) :-
-    vision_part_role(Path, _),
-    doc_burst(Path).
-
-vision_part_burst(Path, 15) :-
-    vision_part_role(Path, _),
-    doc_cohort(Path),
-    !doc_burst(Path).
-
+    config_param(/orient_vision_weight_confidence, Base),
+    reason_rarity(/vision_role, R),
+    Scaled = fn:mult(C, Base), Raw = fn:div(Scaled, 100),
+    Weighted = fn:mult(Raw, R), P = fn:div(Weighted, 1000).
+vision_part_role(Path, P) :-
+    vision_conf(Path, _), config_param(/orient_vision_weight_role, Base),
+    reason_rarity(/vision_role, R),
+    Weighted = fn:mult(Base, R), P = fn:div(Weighted, 1000).
+vision_part_gen(Path, P) :-
+    vision_part_role(Path, _), doc_generation(Path, /recent),
+    config_param(/orient_vision_weight_recent, Base), reason_rarity(/gen_recent, R),
+    Weighted = fn:mult(Base, R), P = fn:div(Weighted, 1000).
+vision_part_gen(Path, P) :-
+    vision_part_role(Path, _), doc_generation(Path, /origin),
+    config_param(/orient_vision_weight_origin, Base), reason_rarity(/gen_origin, R),
+    Weighted = fn:mult(Base, R), P = fn:div(Weighted, 1000).
+vision_part_gen(Path, P) :-
+    vision_part_role(Path, _), doc_generation(Path, /early),
+    config_param(/orient_vision_weight_early, Base), reason_rarity(/gen_early, R),
+    Weighted = fn:mult(Base, R), P = fn:div(Weighted, 1000).
+vision_part_gen(Path, P) :-
+    vision_part_role(Path, _), doc_generation(Path, /middle),
+    config_param(/orient_vision_weight_middle, Base), reason_rarity(/gen_middle, R),
+    Weighted = fn:mult(Base, R), P = fn:div(Weighted, 1000).
+vision_part_gen(Path, 0) :- vision_part_role(Path, _), !doc_has_generation(Path).
+vision_part_burst(Path, P) :-
+    vision_part_role(Path, _), doc_burst(Path),
+    config_param(/orient_vision_weight_burst, Base), reason_rarity(/burst, R),
+    Weighted = fn:mult(Base, R), P = fn:div(Weighted, 1000).
+vision_part_burst(Path, P) :-
+    vision_part_role(Path, _), doc_cohort(Path), !doc_burst(Path),
+    config_param(/orient_vision_weight_cohort, Base), reason_rarity(/cohort, R),
+    Weighted = fn:mult(Base, R), P = fn:div(Weighted, 1000).
 vision_part_burst(Path, 0) :-
-    vision_part_role(Path, _),
-    !doc_burst(Path),
-    !doc_cohort(Path).
-
-vision_part_central(Path, 10) :-
-    vision_part_role(Path, _),
-    doc_central(Path).
-
-vision_part_central(Path, 0) :-
-    vision_part_role(Path, _),
-    !doc_central(Path).
-
-vision_part_live(Path, 15) :-
-    vision_part_role(Path, _),
-    doc_live(Path).
-
-vision_part_live(Path, 0) :-
-    vision_part_role(Path, _),
-    !doc_live(Path).
-
+    vision_part_role(Path, _), !doc_burst(Path), !doc_cohort(Path).
+vision_part_central(Path, P) :-
+    vision_part_role(Path, _), doc_central(Path),
+    config_param(/orient_vision_weight_central, Base), reason_rarity(/central, R),
+    Weighted = fn:mult(Base, R), P = fn:div(Weighted, 1000).
+vision_part_central(Path, 0) :- vision_part_role(Path, _), !doc_central(Path).
+vision_part_live(Path, P) :-
+    vision_part_role(Path, _), doc_live(Path),
+    config_param(/orient_vision_weight_live, Base), reason_rarity(/live, R),
+    Weighted = fn:mult(Base, R), P = fn:div(Weighted, 1000).
+vision_part_live(Path, 0) :- vision_part_role(Path, _), !doc_live(Path).
 vision_raw(Path, R) :-
-    vision_part_conf(Path, C),
-    vision_part_role(Path, Role),
-    vision_part_gen(Path, G),
-    vision_part_burst(Path, B),
-    vision_part_central(Path, Cen),
-    vision_part_live(Path, L),
-    S1 = fn:plus(C, Role),
-    S2 = fn:plus(S1, G),
-    S3 = fn:plus(S2, B),
-    S4 = fn:plus(S3, Cen),
-    R = fn:plus(S4, L).
+    vision_part_conf(Path, C), vision_part_role(Path, Role),
+    vision_part_gen(Path, G), vision_part_burst(Path, B),
+    vision_part_central(Path, Cen), vision_part_live(Path, L),
+    S1 = fn:plus(C, Role), S2 = fn:plus(S1, G),
+    S3 = fn:plus(S2, B), S4 = fn:plus(S3, Cen), R = fn:plus(S4, L).
 
 vision_why_rank(Path, 0) :-
     vision_part_role(Path, _),
@@ -455,7 +587,7 @@ vision_source(Path, 100, Why) :-
 # Weights sum. The key spaces the components so a higher score always beats
 # centrality, centrality always beats the coarse last-touch bucket, and that
 # bucket always beats the path ordinal:
-#   score gap is at least 5, times 1e12
+#   integer score gap is at least 1, times 1e12
 #   centrality is capped at 999, times 1e9
 #   last-touch is committer unix / 1e7, times 1e6 (about 116 days)
 #   tie is (999999 - ord), and ord is a unique lexicographic rank
@@ -464,14 +596,42 @@ vision_source(Path, 100, Why) :-
 # and every path with nothing above it. orient_read_omitted is the rest,
 # with the same reasons, so the cut is visible.
 
-reason_weight(/instructions, 100).
-reason_weight(/chain_latest, 90).
-reason_weight(/origin, 80).
-reason_weight(/cluster_rep, 70).
-reason_weight(/live_hub, 65).
-reason_weight(/link_hub, 60).
-reason_weight(/burst, 55).
-reason_weight(/cohort, 50).
+reason_weight(/instructions, W) :- config_param(/orient_read_weight_instructions, W).
+reason_weight(/chain_latest, W) :- config_param(/orient_read_weight_chain_latest, W).
+reason_weight(/origin, W) :- config_param(/orient_read_weight_origin, W).
+reason_weight(/cluster_rep, W) :- config_param(/orient_read_weight_cluster_rep, W).
+reason_weight(/live_hub, W) :- config_param(/orient_read_weight_live_hub, W).
+reason_weight(/link_hub, W) :- config_param(/orient_read_weight_link_hub, W).
+reason_weight(/burst, W) :- config_param(/orient_read_weight_burst, W).
+reason_weight(/cohort, W) :- config_param(/orient_read_weight_cohort, W).
+# Inverse prevalence is measured over distinct documents, not candidate rows.
+orient_document(Path) :- doc_file(Path, _, _, _).
+orient_document(Path) :- instruction_at_repo_root(Path).
+orient_document(Path) :- instruction_at_scope_root(Path).
+orient_document_count(N) :-
+    orient_document(Path)
+    |> do fn:group_by(), let N = fn:count().
+signal_reason(Path, Reason) :- read_reason(Path, Reason).
+signal_reason(Path, /vision_role) :- vision_claim(Path, _).
+signal_reason(Path, /gen_recent) :- doc_generation(Path, /recent).
+signal_reason(Path, /gen_origin) :- doc_generation(Path, /origin).
+signal_reason(Path, /gen_early) :- doc_generation(Path, /early).
+signal_reason(Path, /gen_middle) :- doc_generation(Path, /middle).
+signal_reason(Path, /central) :- doc_central(Path).
+signal_reason(Path, /live) :- doc_live(Path).
+reason_document_count(Reason, N) :-
+    signal_reason(Path, Reason), orient_document(Path)
+    |> do fn:group_by(Reason), let N = fn:count().
+reason_rarity(Reason, R) :-
+    reason_document_count(Reason, N), orient_document_count(Total),
+    config_param(/orient_reason_rarity_floor_permille, Floor), Total > 0,
+    Scaled = fn:mult(N, 1000), Share = fn:div(Scaled, Total),
+    R = fn:minus(1000, Share), R >= Floor.
+reason_rarity(Reason, Floor) :-
+    reason_document_count(Reason, N), orient_document_count(Total),
+    config_param(/orient_reason_rarity_floor_permille, Floor), Total > 0,
+    Scaled = fn:mult(N, 1000), Share = fn:div(Scaled, Total),
+    R = fn:minus(1000, Share), R < Floor.
 
 read_reason(Path, /origin) :-
     origin_source(Path, _).
@@ -480,7 +640,7 @@ read_reason(Path, /burst) :-
     doc_burst(Path).
 
 read_reason(Path, /cohort) :-
-    doc_cohort(Path).
+    doc_cohort(Path), !doc_burst(Path).
 
 read_reason(Path, /instructions) :-
     instruction_at_repo_root(Path).
@@ -500,12 +660,11 @@ read_reason(Path, /link_hub) :-
 read_reason(Path, /live_hub) :-
     live_hub(Path).
 
-read_weighted(Path, W) :-
-    read_reason(Path, Reason),
-    reason_weight(Reason, W).
-
+read_contribution(Path, Reason, W) :-
+    read_reason(Path, Reason), reason_weight(Reason, Base), reason_rarity(Reason, R),
+    Scaled = fn:mult(Base, R), W = fn:div(Scaled, 1000).
 read_score(Path, S) :-
-    read_weighted(Path, W)
+    read_contribution(Path, Reason, W)
     |> do fn:group_by(Path), let S = fn:sum(W).
 
 read_cent_of(Path, C) :-
@@ -541,7 +700,7 @@ read_tie_of(Path, 0) :-
     read_ord_of(Path, Ord),
     Ord > 999999.
 
-read_key(Path, Key) :-
+read_member_key(Path, Key) :-
     read_score(Path, S),
     read_cent_of(Path, C),
     read_last_of(Path, Last),
@@ -553,6 +712,19 @@ read_key(Path, Key) :-
     K1 = fn:plus(ScorePart, CentPart),
     K2 = fn:plus(K1, TimePart),
     Key = fn:plus(K2, Tie).
+
+read_unit_contribution(Path, Reason, W) :-
+    read_unit_reason(Path, Reason), reason_weight(Reason, Base), reason_rarity(Reason, R),
+    Scaled = fn:mult(Base, R), W = fn:div(Scaled, 1000).
+read_unit_score(Path, S) :-
+    read_unit_contribution(Path, Reason, W)
+    |> do fn:group_by(Path), let S = fn:sum(W).
+read_key(Path, Key) :-
+    read_unit_score(Path, S), read_cent_of(Path, C),
+    read_last_of(Path, Last), read_tie_of(Path, Tie),
+    ScorePart = fn:mult(S, 1000000000000), CentPart = fn:mult(C, 1000000000),
+    Coarse = fn:div(Last, 10000000), TimePart = fn:mult(Coarse, 1000000),
+    K1 = fn:plus(ScorePart, CentPart), K2 = fn:plus(K1, TimePart), Key = fn:plus(K2, Tie).
 
 read_rank_higher(Path, Other) :-
     read_key(Path, K),
@@ -582,7 +754,7 @@ orient_read_kept_path(Path) :-
 
 orient_read_candidate(Path, Reason) :-
     orient_read_kept(Path),
-    read_reason(Path, Reason).
+    read_unit_reason(Path, Reason).
 
 orient_read_omitted(Path, Reason) :-
     read_reason(Path, Reason),

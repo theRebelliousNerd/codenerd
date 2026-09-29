@@ -108,44 +108,6 @@ func TestChatCompilationContext_FailClosedWithoutKernel(t *testing.T) {
 	}
 }
 
-// TestNorthstarCompilationContext_SetsAvailableTools pins that the
-// /research compile names the /research envelope, so the /researcher prompt
-// keeps its tool-gated research guidance.
-func TestNorthstarCompilationContext_SetsAvailableTools(t *testing.T) {
-	_, kernel := newChatTestCompiler(t)
-
-	m := NewTestModel()
-	m.kernel = kernel
-
-	cc := m.buildNorthstarCompilationContext("requirements")
-	want, err := prompt.DeriveTurnTools(kernel, "/research")
-	if err != nil {
-		t.Fatalf("DeriveTurnTools(/research): %v", err)
-	}
-	if !slices.Equal(cc.AvailableTools, want) {
-		t.Fatalf("AvailableTools = %v, want the turn's catalog %v", cc.AvailableTools, want)
-	}
-	// find_symbol is in the /researcher /codedom_read envelope and absent
-	// from the /general floor: this distinguishes the envelope from a
-	// collapsed-to-/general fallback.
-	if !slices.Contains(cc.AvailableTools, "find_symbol") {
-		t.Fatalf("AvailableTools = %v, want the /research envelope (with find_symbol)",
-			cc.AvailableTools)
-	}
-}
-
-// TestNorthstarCompilationContext_FailClosedWithoutKernel is the northstar
-// half of the fail-closed rule: no kernel, no catalog, no panic.
-func TestNorthstarCompilationContext_FailClosedWithoutKernel(t *testing.T) {
-	m := NewTestModel()
-
-	cc := m.buildNorthstarCompilationContext("requirements")
-	if len(cc.AvailableTools) != 0 {
-		t.Fatalf("AvailableTools = %v without a kernel; a failed derivation "+
-			"must fail closed", cc.AvailableTools)
-	}
-}
-
 // TestTranslatorPrompt_CompilesAgainstEmptyCatalog pins the deliberate
 // exception: the /translate translator never calls tools — its answer is
 // user-facing prose — so its compile names no catalog and carries no

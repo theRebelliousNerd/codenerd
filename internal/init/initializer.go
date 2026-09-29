@@ -24,6 +24,7 @@ import (
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
+	"codenerd/internal/orient"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/regression"
@@ -94,7 +95,7 @@ type InitConfig struct {
 	LLMModel        string                   // Human-readable model used in summaries
 	ShardManager    *coreshards.ShardManager // Shard manager for agent spawning
 	Interactive     bool                     // Whether to prompt user for preferences
-	Timeout         time.Duration            // Maximum time for initialization
+	Timeout         time.Duration            // Bounds one model request; zero uses configured provider timeout
 	SkipResearch    bool                     // Skip deep research phase (faster init)
 	SkipAgentCreate bool                     // Skip Type 3 agent creation
 	PreferenceHints []string                 // User-provided hints about preferences
@@ -121,7 +122,7 @@ func DefaultInitConfig(workspace string) InitConfig {
 	return InitConfig{
 		Workspace:    workspace,
 		Interactive:  true,
-		Timeout:      30 * time.Minute,
+		Timeout:      config.GetLLMTimeouts().PerCallTimeout,
 		SkipResearch: false,
 	}
 }
@@ -215,6 +216,7 @@ type UserPreferences struct {
 // InitResult represents the result of initialization.
 type InitResult struct {
 	Success        bool               `json:"success"`
+	VisionDerived  bool               `json:"vision_derived"`
 	Profile        ProjectProfile     `json:"profile"`
 	Preferences    UserPreferences    `json:"preferences"`
 	NerdDir        string             `json:"nerd_dir"`
@@ -279,11 +281,14 @@ type CreatedAgent struct {
 type Initializer struct {
 	config InitConfig
 	// researcher removed - JIT clean loop handles research
-	scanner     *world.Scanner
-	localDB     *store.LocalStore
-	shardMgr    *coreshards.ShardManager
-	kernel      *core.RealKernel
-	embedEngine embedding.EmbeddingEngine
+	scanner             *world.Scanner
+	localDB             *store.LocalStore
+	shardMgr            *coreshards.ShardManager
+	kernel              *core.RealKernel
+	embedEngine         embedding.EmbeddingEngine
+	orientation         *orient.Engine
+	orientationSnapshot *orient.Snapshot
+	orientedVision      *northstar.Vision
 
 	// Gemini grounding helper (nil if not Gemini or grounding unavailable)
 	grounding        *research.GroundingHelper
@@ -361,7 +366,7 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 		kernel:      kernel,
 		embedEngine: nil,
 		llmMetrics:  metrics,
-		etaTracker:  NewETATracker(22), // E2: 22 phases in total (see allPhases in Initialize)
+		etaTracker:  NewETATracker(23),
 	}
 
 	// Use provided shard manager or create new one
@@ -387,6 +392,10 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 
 // Close releases resources held by the initializer.
 func (i *Initializer) Close() error {
+	if i.orientation != nil {
+		_ = i.orientation.Close()
+		i.orientation = nil
+	}
 	i.jitMu.Lock()
 	i.jitClosed = true
 	compiler := i.jitCompiler
@@ -459,7 +468,10 @@ func initEmbeddingModel(cfg embedding.Config) string {
 
 func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	startTime := time.Now()
-	ctx, cancel := initializationContext(ctx, i.config.Timeout)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	result := &InitResult{
 		FilesCreated:  make([]string, 0),
@@ -520,7 +532,18 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		return result, err
 	}
 
-	// Phase 3: Analysis (STUBBED)
+	// Phase 3: Orientation, which also drafts the north star. Everything after
+	// it (profile, agents, knowledge bases) consumes what orientation derived.
+	runner.start("orientation", "Orienting repository history and knowledge...", 0.22)
+	if err := i.runOrientation(ctx, nerdDir, result); err != nil {
+		result.Failures = append(result.Failures, "Orientation failed: "+err.Error())
+		return result, err
+	}
+	runner.complete("orientation")
+	if err := checkContext("repository orientation"); err != nil {
+		return result, err
+	}
+
 	i.runPhase3Analysis(runner)
 	if err := checkContext("analysis framework setup"); err != nil {
 		return result, err
@@ -528,6 +551,7 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 
 	// Phase 4: Build Profile
 	profile := i.runPhase4Profile(runner, result, nerdDir, scanResult)
+	i.persistOrientationKnowledge(ctx, profile, result)
 	if err := checkContext("project profile creation"); err != nil {
 		return result, err
 	}
@@ -620,16 +644,6 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	return i.finalizeInitialization(runner, result, startTime, profile)
 }
 
-func initializationContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if parent == nil {
-		parent = context.Background()
-	}
-	if timeout > 0 {
-		return context.WithTimeout(parent, timeout)
-	}
-	return context.WithCancel(parent)
-}
-
 func (i *Initializer) recordLLMCall(err error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -698,7 +712,7 @@ type phaseRunner struct {
 
 func newPhaseRunner(i *Initializer) *phaseRunner {
 	allPhases := []string{
-		"setup", "migration", "directory", "scanning", "analysis", "profile",
+		"setup", "migration", "directory", "scanning", "orientation", "analysis", "profile",
 		"facts", "prompt_atoms", "prompt_db", "agents", "shared_kb", "kb_creation",
 		"codebase_kb", "core_shards_kb", "campaign_kb", "tool_generation",
 		"preferences", "session", "tools", "registry", "prompt_sync", "complete",
@@ -902,7 +916,7 @@ func (i *Initializer) runPhase6AnalyzeAgents(ctx context.Context, runner *phaseR
 	runner.start("agents", "Analyzing required agents...", 0.50)
 	fmt.Println("\n🤖 Phase 6: Determining Required Type 3 Agents")
 
-	recommendedAgents := i.determineRequiredAgents(profile)
+	recommendedAgents := i.integrateEcosystem(ctx, result, profile, nil)
 	fmt.Printf("   Recommended %d Type 3 agents for this project\n", len(recommendedAgents))
 
 	for _, agent := range recommendedAgents {
@@ -965,23 +979,6 @@ func (i *Initializer) runPhase7bCreateCodebaseKB(ctx context.Context, runner *ph
 		fmt.Printf("   ✓ Codebase KB ready (%d atoms)\n", codebaseAtoms)
 	}
 
-	fmt.Println("   🧠 Generating strategic knowledge...")
-	if i.config.LLMClient != nil && i.localDB != nil {
-		strategicKnowledge, err := i.generateStrategicKnowledge(ctx, profile, scanResult)
-		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("Strategic knowledge generation failed: %v", err))
-		} else if strategicKnowledge != nil {
-			strategicAtoms, err := i.PersistStrategicKnowledge(ctx, strategicKnowledge, i.localDB)
-			if err != nil {
-				result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to persist strategic knowledge: %v", err))
-			} else {
-				fmt.Printf("   ✓ Strategic knowledge generated (%d atoms)\n", strategicAtoms)
-				fmt.Printf("      Vision: %s\n", truncateString(strategicKnowledge.ProjectVision, 80))
-			}
-		}
-	} else {
-		result.Warnings = append(result.Warnings, "Strategic knowledge skipped (no LLM client or DB)")
-	}
 	runner.complete("codebase_kb")
 }
 
@@ -1444,7 +1441,7 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 	if result.Success {
 		fmt.Println("🚀 Next steps:")
 		fmt.Println("   • Run `nerd chat` to start interactive session")
-		fmt.Println("   • Use `/northstar` to define your project vision")
+		fmt.Println("   • Review the derived orientation and project vision")
 		fmt.Println("   • Use `/agents` to see available agents")
 		fmt.Println("   • Use `/spawn <agent> <task>` to delegate tasks")
 	} else {

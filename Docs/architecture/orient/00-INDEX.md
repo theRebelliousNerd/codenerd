@@ -3,7 +3,7 @@ doc-class: governance
 subsystem: orient
 implementation-status: not-applicable
 last-verified: 2026-09-29
-verified-against: bb7bafac
+verified-against: working-tree-C2a
 supersedes: []
 ---
 
@@ -13,7 +13,7 @@ _Governance map for this directory. Per `Docs/journeys/09-architecture-doc-stand
 
 - Last-verified: 2026-09-29
 - Verified-against: `bb7bafac`
-- ID ownership: `03-GAP-ANALYSIS.md` owns `GAP-ORIENT-01..22`.
+- ID ownership: `03-GAP-ANALYSIS.md` owns `GAP-ORIENT-01..23`.
 
 ## 1. Read Order (One Line Per File)
 
@@ -24,7 +24,7 @@ _Governance map for this directory. Per `Docs/journeys/09-architecture-doc-stand
 | 3 | `01-VISION.md` | The north-star dream: how `nerd init` autonomously discovers repository reality, timeline, lineage, ecosystem, and north star without guessing — read before current state. |
 | 4 | `02-CURRENT-STATE.md` + `IMPLEMENTED_SPEC.md` | What runs today in `init`, `world`, `research`, `northstar`, `docscheck`, `campaign`, and `session`, cited to exact source lines — read together as the baseline of today's behavior. |
 | 5 | `WIRING-AND-NOT-BUILT.md` | Integration seams, uncalled helper paths, disjoint Code/Spec DAGs, and dormant assumptions in existing passes — read before capability specs. |
-| 6 | `03-GAP-ANALYSIS.md` | The complete gap matrix (`GAP-ORIENT-01..22`) defining severity, blocking lanes, phases, and command-checkable exit criteria — read after current state. |
+| 6 | `03-GAP-ANALYSIS.md` | The complete gap matrix (`GAP-ORIENT-01..23`) defining severity, blocking lanes, phases, and command-checkable exit criteria — read after current state. |
 | 7 | `04-PRINCIPLES-AND-CONSTRAINTS.md` | Non-negotiable architectural laws and rulings (recency is not quality, no name-keyed decisions, paging over truncation, blind acceptance) — read before implementation. |
 | 8 | `05-TIMELINE-AND-LINEAGE.md` | Capability spec for git history streaming, commit era derivation, document generation, and supersession chains (`I2a`). |
 | 9 | `06-ECOSYSTEM-INGEST-AND-AGENTS.md` | Capability spec for foreign agent CLI ingest, cross-tool duplicate resolution, and dynamic shard agent materialization (`I1`). |
@@ -42,26 +42,15 @@ _Governance map for this directory. Per `Docs/journeys/09-architecture-doc-stand
 
 ## 2. Grounded vs Hypothesized
 
-### 2a. GROUNDED — Code-Verified Claims (Cite Freely)
+### 2a. Source-reviewed C2a integration
 
-The following areas reflect current repository source code re-verified against commit `bb7bafac`:
-
-- **Initialization Phase Pipeline**: `internal/init/initializer.go:460-621` orchestrates 22 phases. Phase 1 opens and closes `northstar.NewStore` without writing vision data (`internal/init/initializer.go:796-804`). Next steps instruct user to run `/northstar` manually (`internal/init/initializer.go:1447`).
-- **Strategic Knowledge Disconnection**: `internal/init/initializer.go:968-985` invokes `generateStrategicKnowledge` (`internal/init/strategic_knowledge.go:25, 68-120`), which stores vision solely in `.nerd/knowledge.db` as atom `strategic/vision` (`internal/init/strategic_knowledge.go:616-663`), completely bypassing `internal/northstar`.
-- **Hardcoded Documentation Scoring**: `internal/init/strategic_knowledge.go:241-260` scores files by fixed name (`CLAUDE.md` priority 0, `README.md`/`VISION.md` priority 1). Lines 305-308 prune all hidden directories except `.github` and `.claude`, ignoring `.agents`, `.codex`, `.gemini`, `.grok`, `.jules`, and `.cursor`.
-- **Imperative Agent Selection Switch**: `internal/init/agents.go:373-626` (`determineRequiredAgents`) selects shard agents via hardcoded Go `switch` statements over language and dependencies.
-- **Scanner Hidden Directory Pruning**: `internal/world/fs.go:226-263` prunes dot-directories except `.github`, `.vscode`, `.circleci`, `.config`, causing complete omission of foreign agent configuration trees.
-- **North Star Interactive Truncation**: `cmd/nerd/chat/northstar_llm.go:185-242` truncates document input to 10,000 characters (`northstar_llm.go:201-203`) and requires Bubbletea TUI message handling.
-- **Clarification UI Seam**: `cmd/nerd/chat/process_dream_delegation.go:26` (`kernelClarification`) and `cmd/nerd/chat/model_handlers.go:417, 539` implement the working TUI clarification flow for unmapped user intents.
-- **MCP Configuration Model**: `internal/config/integrations.go:12-45` defines `IntegrationsConfig` and `MCPServerIntegration`.
-- **Git Tracking Precedent**: `internal/docscheck/docscheck.go:723-740` demonstrates safe zero-copy execution of `git -C <abs> ls-files -z`.
-- **Docscheck Linter**: `internal/docscheck/docscheck.go:66-150` validates front-matter, required slots, gap matrices, and ADR witnesses, hardcoded to `Docs/architecture/<pkg>` (`docscheck.go:85`) and `.go`/`.mg` extensions (`docscheck.go:674`), called only via `cmd/nerd/cmd_docs.go:85`.
-- **Project Policy Parser**: `internal/projectdoc/nerdmd.go:48-128` parses `nerd.md` via `LoadAll` (`internal/system/factory.go:1339`), emitting policy facts (`internal/projectdoc/facts.go:61-120`) for path and command enforcement (`internal/projectdoc/tool_gate.go:37-80`).
-- **Workspace DAG Sweep Sensor**: `internal/campaign/recurse_workspace.go:59-92` (`DeriveWorkspaceDAG`) scans package directories across Go, Python, JS/TS, and Rust, collapsing circular dependencies via Tarjan SCC (`recurse_workspace.go:139-226`).
-- **Kahn Package Sweep Ordering**: `internal/campaign/recurse_plan.go:108-133` asserts sweep facts, and `internal/core/defaults/policy/recurse.mg:377-386` computes `recurse_node_ready` for compiler sweep cycles (`cmd/nerd/cmd_campaign_recurse.go:42-80`, `internal/campaign/recurse_policy.go:66-106`).
-- **Turn Verification Gates**: `internal/core/defaults/policy/coder_safety.mg:632-676` derives `turn_done` and `turn_verified` based on build, test, coverage, and vet gates, consumed by `consumeTurnDoneSignal` (`internal/session/executor.go:2879-2915`).
-- **AST Unreferenced Symbol Scanner**: `internal/world/structure_index.go:759-793` (`StructureIndex.Unreferenced`) identifies unreferenced declarations in Go code.
-- **CodeDOM Repoint and Delete**: `internal/tools/codedom/repoint.go:310-342` (`repointAndDelete`) rewrites uses and deletes package-level Go symbols in one atomic commit.
+- Init orientation precedes profile and agent materialization
+  (`internal/init/initializer.go:469`, `Initialize`).
+- Strategic consumers receive the oriented vision and candidate evidence
+  (`internal/init/phase_orient.go:258`, `persistOrientationKnowledge`).
+- Agents consume the retained orientation engine
+  (`internal/init/phase_ecosystem.go:115`, `integrateEcosystem`).
+- Runtime evidence is pending; the incremental scan hook is outside C2a scope.
 
 ### 2b. HYPOTHESIZED / TARGET-STATE — Planned Design (Mark Planned)
 
@@ -90,3 +79,8 @@ The following areas describe target architecture specified in capability specifi
 - **Shipped claims**: Cite `02-CURRENT-STATE.md`, `IMPLEMENTED_SPEC.md`, or the verified source `path:line` directly.
 - **Planned claims**: Cite capability specs `05` through `08`, `10` through `12`, `09-MANGLE-SURFACE.md`, or specific `GAP-ORIENT-NN` rows from `03-GAP-ANALYSIS.md`.
 - **Decisions**: Cite `adr/ADR-001..011` including status (`accepted-not-implemented` until witness verification resolves).
+
+## C2a integration record
+
+[13-INIT-AND-REORIENTATION.md](13-INIT-AND-REORIENTATION.md) specifies the single init orientation and boot refresh. Its source exists; acceptance commands and the incremental hook remain pending.
+

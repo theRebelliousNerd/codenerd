@@ -1,9 +1,9 @@
 ---
-doc-class: shipped
+doc-class: shipped-with-future
 subsystem: orient
-implementation-status: shipped
+implementation-status: partial
 last-verified: 2026-09-29
-verified-against: 6597099c
+verified-against: working-tree-C2a
 supersedes: []
 ---
 
@@ -13,15 +13,33 @@ supersedes: []
 
 ---
 
-## 1. What Has Shipped
+## 1. Source state and verification boundary
 
-As of commit `6597099c` plus the orientation-engine commit that carries this revision:
-- **The orientation engine** (`internal/orient`): its own Mangle engine (`NewEngine`, `Assert`, `Evaluate`, `Query` in `internal/orient/engine.go`), one streaming `git log --name-status -M` pass with rename stitching and shallow-clone detection (`internal/orient/history.go`), document facts, resolved links and embedding similarity with a content-addressed vector cache (`internal/orient/docs.go`), and the policy (`internal/orient/schema.mg`, `timeline.mg`, `lineage.mg`): eras, generation, bursts, cohorts, evolution, supersession, liveness, origin sources, vision weights, and the bounded read-candidate set with every omitted document listed. `Inspect` (`internal/orient/report.go`) runs it on a workspace.
-- **Config**: the `orient` block (`internal/config/orient.go`, `GetOrientConfig`), checked at load; every threshold reaches the policy as `config_param(/orient_<key>, N)`.
-- **Evidence**: `go test ./internal/orient/` (policy fact sets; engine API; a temp git repository with a rename, a lull, a one-day burst and a shallow clone; embedding cache hit/miss; the report).
-- **Not shipped**: init does not yet run orientation (GAP-ORIENT-23); the ecosystem ingest, role transduction, north-star derivation, discernment/questions and spec alignment are in flight (section 2).
-- **By design, no `nerd orient` command** (Steve, 2026-09-29): orientation is the Orient step of the OODA loop, run by `nerd init` first and refreshed automatically.
-- `internal/workspace` and non-interactive north-star derivation have not shipped.
+The committed engine remains the baseline. C2a has authored the following
+wiring; compilation and runtime gates were deliberately not run by this lane.
+This record describes inspected source, not passing acceptance evidence.
+
+| Capability | Source witness | Gate status |
+|---|---|---|
+| One init orientation before profile, prompts, agents and KB generation | `internal/init/initializer.go:469` (`Initialize`); `internal/init/initializer.go:712` (`newPhaseRunner`) | `TestOrientationPhaseOrder`, authored; not run |
+| Shared history, document and ecosystem census | `internal/orient/snapshot.go:77` (`Measure`); `internal/init/phase_orient.go:38` (`runOrientation`) | `TestOrientationInitArtifacts`, authored; not run |
+| Role transduction and north-star API calls | `internal/init/phase_orient.go:38` (`runOrientation`) calls the existing northstar APIs | C2b owns the derivation implementation; integration unverified |
+| Ecosystem policy loaded with every embedded policy file | `internal/orient/engine.go:111` (`policySource`) | Existing engine gate updated; not run |
+| Typed topic overlap and skill cluster thresholds | `internal/config/orient.go:182` (`WithDefaults`), `internal/config/orient.go:400` (`Params`) | Config test authored; `UserConfig` registration remains outside this lane |
+| Agent roster, KB seeds and imported prompts consume the same fixpoint | `internal/init/phase_ecosystem.go:115` (`integrateEcosystem`); `internal/orient/ecosystem_agents.mg:109` (`orient_agent_prompt`) | Existing materialization test adapted; not run |
+| Strategic consumers keep their existing categories | `internal/init/phase_orient.go:258` (`persistOrientationKnowledge`) | End-to-end artifact test checks `strategic/vision`; not run |
+| Init timeout bounds one model request | `internal/init/jit_integration.go:399` (`withJITPrompt`) | `TestInitTimeoutBoundsOneModelRequest`, authored; not run |
+| Durable snapshot and main-kernel projection | `internal/orient/snapshot.go:181` (`Projection`), `internal/orient/snapshot.go:228` (`Save`) | Author-only; no compiled evidence |
+| Boot derives staleness and refreshes measurements | `internal/orient/freshness.mg:8` (`orient_stale`); `internal/orient/snapshot.go:281` (`Refresh`); `internal/core/kernel_init.go:309` (`loadMangleFiles`) | `TestRefreshNewCommitAnswersSurvive`, authored; not run |
+
+There is no orientation command. Changed documents lose their old role/theme
+claims and become `orient_role_pending`; boot cannot call an LLM. Unchanged
+classifications survive. Fast-forward history uses a delta; rewritten history,
+renames, and snapshots without day witnesses require a full history pass.
+Operator answers are outside the snapshot writer and remain untouched.
+
+GAP-ORIENT-23 remains **partial**: the incremental scan must invoke `Refresh`,
+and all acceptance commands remain pending. See [13-INIT-AND-REORIENTATION.md](13-INIT-AND-REORIENTATION.md).
 
 ## 2. Active Implementation Lanes In Flight
 
@@ -29,9 +47,9 @@ The target capabilities specified in this corpus are actively being implemented 
 
 | Lane ID | Subsystem Scope | Target Implementation Artifacts |
 |---|---|---|
-| **`I2a`** | Orientation Engine & History | `internal/orient/engine.go`, `history.go`, `docs.go`, `timeline.mg`, `lineage.mg`, `internal/config/orient.go`, `cmd/nerd/cmd_orient.go`. |
+| **`I2a`** | Orientation Engine & History | `internal/orient/engine.go`, `history.go`, `docs.go`, `timeline.mg`, `lineage.mg`, `internal/config/orient.go`. |
 | **`I1`** | Ecosystem Ingest & Agents | `internal/orient/ecosystem.go`, `ecosystem_agents.mg`, `internal/init/phase_ecosystem.go`, deletion of `determineRequiredAgents` switch in `internal/init/agents.go`. |
-| **`I2b`** | North Star Synthesis & Transduction | `internal/northstar/derive.go`, `internal/init/phase_orient.go`, JIT prompt atoms under `internal/prompt/atoms/northstar/`, `.nerd/orientation/README.md` and `orientation.mg` emission. |
+| **`C2b / C2a`** | North Star Synthesis & Transduction | C2b: library `ClassifyDocuments` (`internal/northstar/derive.go:215`), `DraftVision` (`internal/northstar/derive.go:343`), `DeriveRequirements` (`internal/northstar/derive.go:381`), insert-only `InstallDerivedVision` (`internal/northstar/derive.go:545`) and TUI callers (`cmd/nerd/chat/northstar_llm.go:15`, `cmd/nerd/chat/northstar_llm.go:39`). Authored, runtime validation pending. C2a owns init, orientation reporting and fact persistence. |
 | **`O1`** | Discernment, Privacy & Questions | `internal/orient/trees.go`, `trees.mg`, `deps.go`, `deps.mg`, `mcp.go`, `mcp.mg`, `questions.mg`, `internal/config/merge.go`, TUI first-boot clarification hook. |
 | **`L1`** | Workspace Membership Authority | `internal/workspace/membership.go`, repointing of ~35 production walkers to ask `Membership.Includes`. |
 | **`P1`** | Polyglot CodeDOM | `internal/world/codemodel/` element models and surgical edit tools for Python, TypeScript, TSX, and JS. |
@@ -42,16 +60,22 @@ The target capabilities specified in this corpus are actively being implemented 
 
 ---
 
-## 3. Shipped Baseline in Preexisting Subsystems
+## 3. Historical baseline in preexisting subsystems (not reverified by C2a)
+
+### C2b library source supplement (not runtime-verified)
+
+The north-star library now contains the full-reading and synthesis implementation described in [07-NORTH-STAR-DERIVATION.md](07-NORTH-STAR-DERIVATION.md). Exact source and authored test witnesses are listed there. `TestDerive_LosslessPaging` (`internal/northstar/derive_test.go:95`), `TestDerive_WizardDocumentLinkIntegrity` (`internal/northstar/derive_test.go:214`), `TestInstallDerivedVision_PreservesExistingAuthority` (`internal/northstar/derive_test.go:316`) and the TUI witnesses (`cmd/nerd/chat/northstar_llm_test.go:50`, `cmd/nerd/chat/northstar_llm_test.go:84`) have not been executed by this author-only lane. They do not close `GAP-ORIENT-06` or `GAP-ORIENT-07` until the validation owner runs their exit commands. Shared `OrientConfig` registration of the typed derivation section is still outside C2b scope (`internal/config/northstar_derive.go:13`, `NorthstarDeriveConfig`).
 
 The codeNERD repository contains robust production foundations that the incoming orientation lanes build upon and integrate with:
 
 ### A. Initialization Pipeline (`internal/init`)
-- `internal/init/initializer.go:460-621` executes 22 sequential phases with `ETATracker` progress reporting (`internal/init/eta_tracker.go:21-46`).
-- Phase 1 opens `northstar.NewStore` for SQLite table migrations (`internal/init/initializer.go:796-804`).
-- Phase 12 gathers documentation via `GatherProjectDocumentation` (`internal/init/strategic_knowledge.go:241-410`) using fixed filename scores (lines 246-260).
-- Phase 9 executes `determineRequiredAgents` (`internal/init/agents.go:373-626`), evaluating language and dependency strings in an imperative Go switch.
-- Specialist agents are provisioned via `createAgentKnowledgeBase` (`internal/init/agents_knowledge.go:33-164`) and registered in `.nerd/agents.json` (`internal/init/agents_registration.go:73`).
+
+`Initialize` inserts orientation after the membership scan and before profile
+creation (`internal/init/initializer.go:536`). Agent materialization consumes
+that engine (`internal/init/phase_ecosystem.go:115`, `integrateEcosystem`). The
+independent phase-7b document relevance pass and filename score table were
+removed; strategic storage is fed from orientation instead
+(`internal/init/phase_orient.go:258`, `persistOrientationKnowledge`).
 
 ### B. North Star Domain Model (`internal/northstar`)
 - `internal/northstar/types.go:27-38` defines the canonical relational model (`Vision`, `Mission`, `Problem`, `Personas`, `Capabilities`, `Risks`, `Requirements`, `Constraints`).

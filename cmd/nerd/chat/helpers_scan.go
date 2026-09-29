@@ -246,8 +246,22 @@ func (m Model) runDocRefresh(force bool) tea.Cmd {
 			return docRefreshCompleteMsg{err: fmt.Errorf("failed to create initializer: %w", err)}
 		}
 
-		// Gather all documentation
-		allDocs := initializer.GatherProjectDocumentation()
+		// The documents are the orientation read set, refreshed against HEAD
+		// first; the changed projection is published to the running kernel.
+		allDocs, refresh, err := initializer.OrientationDocuments(ctx)
+		if err != nil && len(allDocs) == 0 {
+			return docRefreshCompleteMsg{err: err}
+		}
+		if err != nil {
+			m.ReportStatus(fmt.Sprintf("Orientation warning: %v", err))
+		}
+		if tx, ok := m.kernel.(types.KernelTransactor); ok {
+			if applyErr := refresh.Apply(tx); applyErr != nil {
+				return docRefreshCompleteMsg{err: fmt.Errorf("publish orientation refresh: %w", applyErr)}
+			}
+		} else if refresh != nil && refresh.Refreshed {
+			m.ReportStatus("Orientation refreshed on disk; this kernel takes no transactions, so it sees the change at next boot")
+		}
 		if len(allDocs) == 0 {
 			return docRefreshCompleteMsg{
 				docsDiscovered: 0,

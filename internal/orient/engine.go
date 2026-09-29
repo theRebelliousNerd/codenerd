@@ -15,7 +15,6 @@ import (
 	"sync"
 
 	"codenerd/internal/config"
-	"codenerd/internal/core"
 	"codenerd/internal/mangle"
 	"codenerd/internal/types"
 )
@@ -105,15 +104,11 @@ func newEngine(params []config.Param) (*Engine, error) {
 	return e, nil
 }
 
-// policySource is config_params.mg, then schema.mg, then every other
-// embedded .mg in name order except ecosystem_agents.mg. schema.mg holds
+// policySource is schema.mg, then every other embedded .mg in name order.
+// schema.mg holds
 // the declarations; another lane can add a rule file and have it load
 // without an edit here.
 func policySource() (string, error) {
-	params, err := core.GetDefaultContent("policy/config_params.mg")
-	if err != nil {
-		return "", err
-	}
 	entries, err := policyFiles.ReadDir(".")
 	if err != nil {
 		return "", err
@@ -127,22 +122,10 @@ func policySource() (string, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".mg") || e.Name() == "schema.mg" {
 			continue
 		}
-		// ecosystem_agents.mg redeclares config_param, config_param_required,
-		// has_config_param, config_param_missing, repo_file_history and the
-		// shared agent_source EDB, and it requires /orient_topic_overlap_min
-		// and /orient_skill_cluster_min, which OrientConfig does not supply.
-		// A second Decl is a hard error and the extra required keys would
-		// refuse every start. I1 evaluates that file on its own engine.
-		// Delete this skip once those declarations are gone from that file.
-		if e.Name() == "ecosystem_agents.mg" {
-			continue
-		}
 		names = append(names, e.Name())
 	}
 	sort.Strings(names)
 	var b strings.Builder
-	b.WriteString(params)
-	b.WriteString("\n")
 	b.Write(schema)
 	b.WriteString("\n")
 	for _, name := range names {

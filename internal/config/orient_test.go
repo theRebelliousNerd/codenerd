@@ -1,6 +1,11 @@
 package config
 
-import "testing"
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+)
 
 func TestOrientConfig_DefaultsPassCheck(t *testing.T) {
 	t.Parallel()
@@ -12,7 +17,7 @@ func TestOrientConfig_DefaultsPassCheck(t *testing.T) {
 	if filled != c {
 		t.Fatalf("zero config defaults to %+v, want %+v", filled, c)
 	}
-	if got, want := len(c.Params()), 13; got != want {
+	if got, want := len(c.Params()), reflect.TypeOf(c).NumField()-len(orientRequestBounds); got != want {
 		t.Fatalf("params: %d, want %d", got, want)
 	}
 	for _, p := range c.Params() {
@@ -95,5 +100,84 @@ func TestOrientConfig_ExplicitValueWinsOverDefault(t *testing.T) {
 	}
 	if probs := c.Check("orient"); len(probs) != 0 {
 		t.Fatalf("mixed config: %v", probs)
+	}
+}
+
+func TestOrientConfig_C3ValuesRoundTripAndReachPolicy(t *testing.T) {
+	t.Parallel()
+	c := DefaultOrientConfig()
+	value := reflect.ValueOf(&c).Elem()
+	for _, name := range []string{
+		"EmbeddingHubTopKMultiple", "EmbeddingBatchSize", "EmbeddingConcurrency", "EmbeddingRetryAttempts",
+		"ReasonRarityFloorPermille", "NearDuplicatePermille", "CohortWindowDays",
+		"CohortShareCeilingPermille", "EraLullMedianPermille",
+		"ReadWeightInstructions", "ReadWeightChainLatest", "ReadWeightOrigin",
+		"ReadWeightClusterRep", "ReadWeightLiveHub", "ReadWeightLinkHub",
+		"ReadWeightBurst", "ReadWeightCohort", "VisionWeightConfidence",
+		"VisionWeightRole", "VisionWeightRecent", "VisionWeightOrigin",
+		"VisionWeightEarly", "VisionWeightMiddle", "VisionWeightBurst",
+		"VisionWeightCohort", "VisionWeightCentral", "VisionWeightLive",
+	} {
+		field := value.FieldByName(name)
+		field.SetInt(field.Int() + 1)
+	}
+	body, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored OrientConfig
+	if err := json.Unmarshal(body, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if got := restored.WithDefaults(); got != c {
+		t.Fatalf("explicit fields lost: %+v", got)
+	}
+	if problems := restored.Check("orient"); len(problems) != 0 {
+		t.Fatalf("explicit fields: %v", problems)
+	}
+	params := map[string]int64{}
+	for _, p := range restored.Params() {
+		params[p.Key] = p.Value
+	}
+	kind := value.Type()
+	for i := 0; i < value.NumField(); i++ {
+		if orientRequestBounds[kind.Field(i).Name] {
+			continue
+		}
+		key := "/orient_" + strings.Split(kind.Field(i).Tag.Get("json"), ",")[0]
+		if params[key] != value.Field(i).Int() {
+			t.Errorf("%s did not reach Params", key)
+		}
+	}
+}
+
+func TestOrientConfig_C3InvalidValues(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ body, path string }{
+		{`{"embedding_batch_size":-1}`, "embedding_batch_size"},
+		{`{"embedding_batch_size":1025}`, "embedding_batch_size"},
+		{`{"embedding_concurrency":65}`, "embedding_concurrency"},
+		{`{"embedding_retry_attempts":11}`, "embedding_retry_attempts"},
+		{`{"reason_rarity_floor_permille":1001}`, "reason_rarity_floor_permille"},
+		{`{"near_duplicate_permille":699}`, "near_duplicate_permille"},
+		{`{"cohort_window_days":32}`, "cohort_window_days"},
+		{`{"cohort_share_ceiling_permille":1000}`, "cohort_share_ceiling_permille"},
+		{`{"era_lull_median_permille":1001}`, "era_lull_median_permille"},
+		{`{"read_weight_origin":1001}`, "read_weight_origin"},
+		{`{"vision_weight_confidence":101}`, "vision_weight_confidence"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path+tc.body, func(t *testing.T) {
+			var c OrientConfig
+			if err := json.Unmarshal([]byte(tc.body), &c); err != nil {
+				t.Fatal(err)
+			}
+			for _, p := range c.Check("orient") {
+				if p.Path == "orient."+tc.path && p.Severity == SeverityError {
+					return
+				}
+			}
+			t.Fatalf("accepted %s", tc.body)
+		})
 	}
 }

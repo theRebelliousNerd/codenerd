@@ -36,8 +36,8 @@ func TestEngine_ParamsMatchRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(held) != 13 {
-		t.Fatalf("config_param rows %d, want 13", len(held))
+	if len(held) != len(config.DefaultOrientConfig().Params()) {
+		t.Fatalf("config_param rows %d, want %d", len(held), len(config.DefaultOrientConfig().Params()))
 	}
 	missing, err := e.Query("config_param_missing")
 	if err != nil {

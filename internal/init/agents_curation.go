@@ -93,6 +93,16 @@ func (i *Initializer) curateAgents(ctx context.Context, recommended []Recommende
 	}
 
 	detected := ConvertToDetectedAgents(recommended, profile)
+	// categorizeAgent only recommends the core pair and a Go expert. A
+	// derived agent carries the policy's Why in Reason; that is the
+	// recommendation, and the operator can still decline it.
+	for i := range detected {
+		if !detected[i].Recommended && strings.TrimSpace(detected[i].Reason) != "" {
+			detected[i].DetectedBy = detected[i].Reason
+			detected[i].Recommended = true
+			detected[i].Selected = true
+		}
+	}
 	selected, err := InteractiveAgentSelection(ctx, detected, interactiveCfg)
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Interactive agent selection failed, keeping recommended agents: %v", err))

@@ -7,20 +7,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-)
 
-// manifestSkipDirs are directories that never hold a first-party module
-// manifest. Descending into node_modules in particular turns manifest discovery
-// into a multi-minute walk over tens of thousands of third-party package.json
-// files, and every one of them would be scanned for the project's own
-// dependencies.
-var manifestSkipDirs = map[string]bool{
-	"node_modules": true, "vendor": true, ".git": true, ".nerd": true,
-	"dist": true, "build": true, "target": true, "out": true,
-	"__pycache__": true, ".next": true, ".nuxt": true, "coverage": true,
-	"testdata": true, "third_party": true, ".venv": true, "venv": true,
-	".tox": true, ".gradle": true, ".idea": true, ".vscode": true,
-}
+	wscope "codenerd/internal/workspace"
+)
 
 // maxManifestDepth bounds how deep below the workspace root a module manifest
 // is still considered part of this project. Real monorepo layouts put modules
@@ -52,6 +41,17 @@ func findManifestFiles(workspace string, names []string, maxDepth int) []string 
 
 	var found []string
 	root := filepath.Clean(workspace)
+	// Membership, not a private directory list: gitignore and
+	// world.ignore_patterns are what keep node_modules out of a monorepo's
+	// own dependency set. A failure returns nothing rather than scanning
+	// the ignored trees the list used to exist to skip.
+	mem, memErr := wscope.For(root)
+	if memErr != nil {
+		return nil
+	}
+	if memErr = mem.Refresh(); memErr != nil {
+		return nil
+	}
 	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil // unreadable subtree: skip, never abort discovery
@@ -63,8 +63,11 @@ func findManifestFiles(workspace string, names []string, maxDepth int) []string 
 			if path == root {
 				return nil
 			}
-			name := entry.Name()
-			if manifestSkipDirs[name] || strings.HasPrefix(name, ".") {
+			member, admErr := mem.Admit(path, true)
+			if admErr != nil {
+				return admErr
+			}
+			if !member {
 				return filepath.SkipDir
 			}
 			// Manifests *inside* a directory at exactly maxDepth still count;
@@ -72,6 +75,10 @@ func findManifestFiles(workspace string, names []string, maxDepth int) []string 
 			if manifestDepth(root, path) > maxDepth {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		member, _ := mem.Admit(path, false)
+		if !member {
 			return nil
 		}
 		if wanted[entry.Name()] {

@@ -169,8 +169,25 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 	state.Phase = "analysis"
 	i.saveIngestionState(state)
 
-	// Phase 2: LLM Analysis - filter for relevance
-	relevantDocs := i.filterDocumentsByRelevance(ctx, docs)
+	// The orientation fixpoint owns admission; extraction cannot re-elect docs.
+	if i.orientation == nil {
+		return state, fmt.Errorf("document extraction requires orientation")
+	}
+	rows, err := i.orientation.Query("orient_read_candidate")
+	if err != nil {
+		return state, err
+	}
+	admitted := map[string]string{}
+	for _, row := range rows {
+		admitted[types.ExtractString(row.Args[0])] = types.ExtractString(row.Args[1])
+	}
+	var relevantDocs []DocumentInfo
+	for _, doc := range docs {
+		if reason, ok := admitted[filepath.ToSlash(doc.Path)]; ok {
+			doc.IsRelevant, doc.Reasoning = true, reason
+			relevantDocs = append(relevantDocs, doc)
+		}
+	}
 	for _, doc := range relevantDocs {
 		if entry, ok := state.Documents[doc.Path]; ok {
 			entry.IsRelevant = true
@@ -187,7 +204,7 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 	for path, entry := range state.Documents {
 		if !relevantPaths[path] && entry.Status == DocStatusDiscovered {
 			entry.Status = DocStatusSkipped
-			entry.Reasoning = "Not relevant based on LLM analysis"
+			entry.Reasoning = "Not admitted by orientation policy"
 			i.assertDocFact(kernel, DocStatusSkipped, path, entry.ContentHash)
 		}
 	}

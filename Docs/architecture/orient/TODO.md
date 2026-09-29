@@ -91,3 +91,11 @@ This document specifies the leaf implementation tasks for `internal/orient`, spe
 - [ ] `TODO-ORIENT-43` (`GAP-ORIENT-22`, Lane TBD): Generalize `repointAndDelete` (`internal/tools/codedom/repoint.go:310`) to support methods, cross-file moves, and polyglot files in `internal/tools/codedom/cleanup_transaction.go`.
 - [ ] `TODO-ORIENT-44` (`GAP-ORIENT-22`, Lane TBD): Implement pre-commit in-memory AST syntax validation across all staged files in `cleanup_transaction.go`.
 - [ ] `TODO-ORIENT-45` (`GAP-ORIENT-22`, Lane TBD): Wire post-commit compiler (`verifyBuild`) and impacted test execution (`run_impacted_tests.go`) with automated `git checkout` rollback on failure.
+
+## GAP-ORIENT-23 remaining leaves
+
+- Wire the existing incremental scan to the shared refresh API; its affected-document
+  role claims then need an LLM-capable resumption route.
+- Register typed orientation fields on the global user configuration and check path.
+- Run the authored phase-order, artifact, freshness and configuration tests, then
+  the policy guard and sqlite-vec build. C2a executed no runtime gates.

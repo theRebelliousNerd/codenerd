@@ -159,11 +159,10 @@ cluster_rep(Path) :-
     cluster_score(Path, Score),
     cluster_best(Cluster, Score).
 
-# The same inbound-link threshold as doc_central. One rule, so the two
-# names cannot drift. link_hub is the read reason; doc_central is what
-# "quiet" is the complement of.
+# Link evidence stays distinct from embedding centrality in read reasons.
+# doc_central also recognizes embedding hubs below.
 link_hub(Path) :-
-    doc_central(Path).
+    link_in_count(Path, N), config_param(/orient_centrality_min_links, Min), N >= Min.
 
 live_link(From, To) :-
     doc_live(From),
@@ -199,3 +198,68 @@ instruction_at_scope_root(Path) :-
     instruction_path_has_slash(Path),
     doc_file(Path, Dir, _, _),
     agent_source_scope(ID, Dir).
+
+# C3: early birth is a candidate, not an origin verdict.
+doc_origin_evidence(Path) :- doc_has_successor(Path).
+doc_origin_evidence(Path) :- doc_central(Path).
+doc_origin_evidence(Path) :- instruction_at_repo_root(Path).
+doc_origin_evidence(Path) :- instruction_at_scope_root(Path).
+doc_generation(Path, /origin) :- doc_early_birth(Path), doc_origin_evidence(Path).
+doc_generation(Path, /early) :- doc_early_birth(Path), !doc_origin_evidence(Path).
+
+# Embedding hubs preserve old central sources even with sparse Markdown links.
+doc_central(Path) :-
+    sim_degree(Path, N), config_param(/orient_similar_top_k, K),
+    config_param(/orient_embedding_hub_top_k_multiple, Multiple),
+    Min = fn:mult(K, Multiple), N >= Min.
+
+# Duplicate and cohort components share a read slot. Minimum labels propagate
+# through every component; greater labels need not reach a smaller node.
+# Digest stars use one
+# canonical ordinal instead of every pair of equal bodies.
+digest_first_ord(Digest, Ord) :-
+    doc_body_digest(Path, Digest), doc_tie(Path, O)
+    |> do fn:group_by(Digest), let Ord = fn:min(O).
+read_connection(Path, Anchor) :-
+    digest_first_ord(Digest, Ord), doc_tie(Anchor, Ord),
+    doc_body_digest(Path, Digest), Path != Anchor.
+read_connection(A, B) :-
+    doc_similar(A, B, P), config_param(/orient_near_duplicate_permille, Floor),
+    P >= Floor, A != B.
+read_connection(Path, Root) :- cohort_member(Path, Root), Path != Root.
+read_edge(A, B) :- read_connection(A, B).
+read_edge(B, A) :- read_connection(A, B).
+read_has_connection(Path) :- read_edge(Path, _).
+read_reach(A, A) :- read_edge(A, _).
+read_reach(A, B) :-
+    read_edge(A, B), doc_tie(A, AO), doc_tie(B, BO), BO < AO.
+read_reach(A, C) :-
+    read_edge(A, B), read_reach(B, C),
+    doc_tie(A, AO), doc_tie(C, CO), CO < AO.
+read_component_ord(Path, Ord) :-
+    read_reach(Path, Other), doc_tie(Other, O)
+    |> do fn:group_by(Path), let Ord = fn:min(O).
+read_component(Path, Root) :- read_component_ord(Path, Ord), doc_tie(Root, Ord).
+read_has_reason(Path) :- read_reason(Path, _).
+# A cohort's internally linked representative wins within its read unit.
+# The bonus sits above every validated raw read score and ranking suffix.
+read_rep_score(Root, Path, S) :-
+    read_component(Path, Root), read_member_key(Path, K), is_cohort_rep(Path),
+    S = fn:plus(K, 10000000000000000).
+read_rep_score(Root, Path, K) :-
+    read_component(Path, Root), read_member_key(Path, K), !is_cohort_rep(Path).
+read_rep_best(Root, S) :-
+    read_rep_score(Root, Path, Score)
+    |> do fn:group_by(Root), let S = fn:max(Score).
+read_slot_rep(Path) :-
+    read_rep_score(Root, Path, S), read_rep_best(Root, S).
+read_slot_rep(Path) :-
+    read_has_reason(Path), !read_has_connection(Path).
+read_unit_reason(Rep, Reason) :-
+    read_slot_rep(Rep), read_component(Rep, Root),
+    read_component(Member, Root), read_reason(Member, Reason).
+read_unit_reason(Path, Reason) :-
+    read_slot_rep(Path), !read_has_connection(Path), read_reason(Path, Reason).
+orient_read_member(Member, Rep) :-
+    read_slot_rep(Rep), read_component(Rep, Root),
+    read_component(Member, Root), Member != Rep.

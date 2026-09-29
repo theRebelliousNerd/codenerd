@@ -61,17 +61,27 @@ func TestCreateDirectoryStructurePreservesUserGitignore(t *testing.T) {
 	assertFileContent(t, gitignorePath, custom)
 }
 
-func TestInitializationContextAppliesConfiguredDeadline(t *testing.T) {
-	ctx, cancel := initializationContext(context.Background(), 2*time.Second)
-	defer cancel()
-
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		t.Fatal("initializationContext() did not install a deadline")
+func TestInitTimeoutBoundsOneModelRequest(t *testing.T) {
+	parent := context.Background()
+	initializer := &Initializer{config: InitConfig{Timeout: 2 * time.Second}}
+	for range 2 {
+		_, err := initializer.withJITPrompt(parent, "orientation", "fixture", nil, func(ctx context.Context, _ string) (string, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("model request has no deadline")
+			}
+			remaining := time.Until(deadline)
+			if remaining <= 0 || remaining > 2*time.Second {
+				t.Fatalf("request deadline remaining = %s, want (0s, 2s]", remaining)
+			}
+			return "ok", nil
+		}, "compiled fixture guidance")
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	remaining := time.Until(deadline)
-	if remaining <= 0 || remaining > 2*time.Second {
-		t.Fatalf("deadline remaining = %s, want (0s, 2s]", remaining)
+	if _, hasDeadline := parent.Deadline(); hasDeadline {
+		t.Fatal("request deadline leaked into the initialization context")
 	}
 }
 

@@ -1,9 +1,9 @@
 ---
 doc-class: governance
 subsystem: orient
-implementation-status: accepted-not-implemented
+implementation-status: partial
 last-verified: 2026-09-29
-verified-against: e056692c
+verified-against: working-tree-C2a
 supersedes: []
 ---
 
@@ -11,7 +11,7 @@ supersedes: []
 
 ## Context
 
-Today, `nerd init` executes 22 sequential phases, but completely fails to initialize a North Star:
+The historical `bb7bafac` baseline executed 22 sequential phases without initializing a North Star:
 - `internal/init/initializer.go:796-804` opens `northstar.NewStore(nerdDir)` during Phase 1 purely to run SQLite schema migrations, and closes it immediately without writing a vision row.
 - `internal/init/initializer.go:1447` outputs the final diagnostic instruction: `Use '/northstar' to define your project vision`.
 - The only LLM drafting path lives inside the interactive Bubbletea chat model (`cmd/nerd/chat/northstar_llm.go:185-242`), which is completely unreachable from headless commands or scripted pipelines.
@@ -40,15 +40,14 @@ Consequently, projects initialized with `nerd init` start with an empty North St
 
 ## Witness
 
-**Witness:** `test:TestPhaseOrient_WritesNorthStarNonInteractively`
+The init call site exists (`internal/init/initializer.go:536`, `Initialize`),
+and `runOrientation` calls classification, drafting and installation
+(`internal/init/phase_orient.go:38`). The regression is
+`TestOrientationInitArtifacts` (`internal/init/orientation_test.go:124`).
+The northstar implementation and overwrite invariant remain C2b-owned.
 
-| Claim | Witness (Code Evidence as of 2026-09-29) |
-|---|---|
-| Init closes store empty today | `northstarStore.Close()` in `internal/init/initializer.go:796-804`. |
-| Manual instruction printed today | `Use '/northstar' to define your project vision` in `internal/init/initializer.go:1447`. |
-| Target phase implementation | `internal/init/phase_orient.go`. |
-| Proving regression test | `TestPhaseOrient_WritesNorthStarNonInteractively` asserting that running `init` on a repository with design documents results in a non-empty `northstar_knowledge.db`. |
+## Status (derived from the witness)
 
-## Status (Derived, Not Asserted)
-
-**`accepted-not-implemented`**. Derivation: The decision is approved, but `internal/init/phase_orient.go` has not yet landed in commit `e056692c`. Status flips to `implemented` once the witness test passes.
+**Partial; runtime verification pending.** The source witness resolves;
+the author-only lane did not execute the regression. Existing vision
+preservation still requires C2b's derivation tests and the integration gate.

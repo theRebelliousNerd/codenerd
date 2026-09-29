@@ -47,6 +47,12 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 	// In upgrade mode, get existing atoms for deduplication
 	var existingHashes map[string]bool
 	topics := agent.Topics
+	// A derived research list replaces the topics this KB fetches. The
+	// RecommendedAgent.Topics field stays the catalog: an empty derived list
+	// means the winning sources already cover every topic, so nothing is fetched.
+	if researched, ok := ecosystemResearchTopics(i.config.Workspace, agent.Name); ok {
+		topics = researched
+	}
 	if upgradeMode {
 		existingAtoms, err := agentDB.GetAllKnowledgeAtoms()
 		if err != nil {
@@ -92,6 +98,30 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 			stats.NewAtoms++
 		} else {
 			stats.SkippedAtoms++
+		}
+	}
+
+	// Winning corpus sources are knowledge atoms. Each paragraph (or rune
+	// page, when the orient threshold says so) is stored whole. The vector
+	// row carries the source; a vector failure does not drop the atom.
+	for _, chunk := range ecosystemKnowledgeChunks(i.config.Workspace, agent.Name) {
+		added, err := appendKnowledgeAtom(agentDB, chunk.Concept, chunk.Content, 0.95, existingHashes)
+		if err != nil {
+			logging.Boot("Warning: failed to store ecosystem atom for %s: %v", agent.Name, err)
+			continue
+		}
+		if !added {
+			stats.SkippedAtoms++
+			continue
+		}
+		stats.NewAtoms++
+		if verr := agentDB.StoreVectorWithEmbedding(ctx, chunk.Content, map[string]any{
+			"path":    chunk.Path,
+			"tool":    chunk.Tool,
+			"kind":    chunk.Kind,
+			"concept": chunk.Concept,
+		}); verr != nil {
+			logging.Boot("Warning: ecosystem vector for %s %s: %v", agent.Name, chunk.Concept, verr)
 		}
 	}
 

@@ -12,28 +12,47 @@ import (
 	"codenerd/internal/types"
 )
 
-// Report is what `nerd orient` prints. Judgments come from the engine.
+// Report is the repository orientation view. Judgments come from the engine.
 // Month labels are joined here for display; they are not a decision.
 type Report struct {
-	Workspace      string        `json:"workspace"`
-	Shallow        bool          `json:"shallow"`
-	Empty          bool          `json:"empty"`
-	Commits        int           `json:"commits"`
-	Span           SpanView      `json:"span"`
-	Eras           []EraView     `json:"eras"`
-	Origins        []OriginView  `json:"origins"`
-	Evolved        []EvolvedView `json:"evolved"`
-	Bursts         []string      `json:"bursts"`
-	Cohorts        []string      `json:"cohorts"`
-	ReadCandidates []ReadView    `json:"read_candidates"`
-	ReadOmitted    []ReadView    `json:"read_omitted"`
-	ReadBudget     int64         `json:"read_budget"`
-	Vision         []VisionView  `json:"vision"`
-	VisionNote     string        `json:"vision_note"`
-	SimilarityNote string        `json:"similarity_note"`
-	HistoryNote    string        `json:"history_note"`
-	Unreadable     []string      `json:"unreadable"`
-	CacheNote      string        `json:"cache_note,omitempty"`
+	Workspace          string              `json:"workspace"`
+	Shallow            bool                `json:"shallow"`
+	Empty              bool                `json:"empty"`
+	Commits            int                 `json:"commits"`
+	Span               SpanView            `json:"span"`
+	Eras               []EraView           `json:"eras"`
+	Origins            []OriginView        `json:"origins"`
+	Evolved            []EvolvedView       `json:"evolved"`
+	Bursts             []string            `json:"bursts"`
+	Cohorts            []string            `json:"cohorts"`
+	ReadCandidates     []ReadView          `json:"read_candidates"`
+	ReadOmitted        []ReadView          `json:"read_omitted"`
+	ReadBudget         int64               `json:"read_budget"`
+	Vision             []VisionView        `json:"vision"`
+	VisionNote         string              `json:"vision_note"`
+	SimilarityNote     string              `json:"similarity_note"`
+	HistoryNote        string              `json:"history_note"`
+	Unreadable         []string            `json:"unreadable"`
+	CacheNote          string              `json:"cache_note,omitempty"`
+	Embedded           int                 `json:"embedded"`
+	EmbeddingCacheHits int                 `json:"embedding_cache_hits"`
+	EmbeddingOmitted   []EmbeddingOmission `json:"embedding_omitted"`
+	ReadMembers        []ReadMemberView    `json:"read_members"`
+	CohortGroups       []CohortView        `json:"cohort_groups"`
+}
+
+// ReadMemberView exposes suppression separately from the read-budget cut.
+type ReadMemberView struct {
+	Path           string `json:"path"`
+	Representative string `json:"representative"`
+}
+
+// CohortView is a policy-derived act, its representative and every member.
+type CohortView struct {
+	ID             string   `json:"id"`
+	Representative string   `json:"representative"`
+	Members        []string `json:"members"`
+	Burst          bool     `json:"burst"`
 }
 
 // SpanView is repo_span.
@@ -86,8 +105,8 @@ type VisionView struct {
 // this function assigns the single ordinal space. emb may be nil; similarity
 // is then skipped and the report says so.
 //
-// The name is Inspect because Run already evaluates the agent-ecosystem
-// program on its own engine.
+// Init retains its engine between transduction and materialization; Inspect
+// is the read-only library view over one measurement pass.
 func Inspect(ctx context.Context, root string, cfg *config.OrientConfig, emb embedding.EmbeddingEngine, extra []types.Fact) (*Report, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("orient config is nil")
@@ -152,15 +171,47 @@ func Inspect(ctx context.Context, root string, cfg *config.OrientConfig, emb emb
 
 func buildReport(e *Engine) (*Report, error) {
 	rep := &Report{
-		Eras:           []EraView{},
-		Origins:        []OriginView{},
-		Evolved:        []EvolvedView{},
-		Bursts:         []string{},
-		Cohorts:        []string{},
-		ReadCandidates: []ReadView{},
-		ReadOmitted:    []ReadView{},
-		Vision:         []VisionView{},
-		Unreadable:     []string{},
+		Eras:             []EraView{},
+		Origins:          []OriginView{},
+		Evolved:          []EvolvedView{},
+		Bursts:           []string{},
+		Cohorts:          []string{},
+		ReadCandidates:   []ReadView{},
+		ReadOmitted:      []ReadView{},
+		Vision:           []VisionView{},
+		Unreadable:       []string{},
+		EmbeddingOmitted: []EmbeddingOmission{},
+		ReadMembers:      []ReadMemberView{},
+		CohortGroups:     []CohortView{},
+	}
+	statuses, err := e.Query("doc_embedding_status")
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range statuses {
+		rep.Embedded++
+		if types.ExtractString(f.Args[1]) == "/cache" {
+			rep.EmbeddingCacheHits++
+		}
+	}
+	omissions, err := e.Query("doc_embedding_omitted")
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range omissions {
+		rep.EmbeddingOmitted = append(rep.EmbeddingOmitted, EmbeddingOmission{types.ExtractString(f.Args[0]), types.ExtractString(f.Args[1]), types.ExtractString(f.Args[2])})
+	}
+	sort.Slice(rep.EmbeddingOmitted, func(i, j int) bool { return rep.EmbeddingOmitted[i].Path < rep.EmbeddingOmitted[j].Path })
+	members, err := e.Query("orient_read_member")
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range members {
+		rep.ReadMembers = append(rep.ReadMembers, ReadMemberView{types.ExtractString(f.Args[0]), types.ExtractString(f.Args[1])})
+	}
+	sort.Slice(rep.ReadMembers, func(i, j int) bool { return rep.ReadMembers[i].Path < rep.ReadMembers[j].Path })
+	if rep.CohortGroups, err = cohortViews(e); err != nil {
+		return nil, err
 	}
 	span, err := e.Query("repo_span")
 	if err != nil {
@@ -310,6 +361,46 @@ func onePath(e *Engine, pred string) ([]string, error) {
 	return out, nil
 }
 
+func cohortViews(e *Engine) ([]CohortView, error) {
+	by := map[string]*CohortView{}
+	members, err := e.Query("cohort_member")
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range members {
+		p, root := types.ExtractString(f.Args[0]), types.ExtractString(f.Args[1])
+		if by[root] == nil {
+			by[root] = &CohortView{ID: root}
+		}
+		by[root].Members = append(by[root].Members, p)
+	}
+	representatives, err := e.Query("cohort_rep")
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range representatives {
+		if view := by[types.ExtractString(f.Args[0])]; view != nil {
+			view.Representative = types.ExtractString(f.Args[1])
+		}
+	}
+	bursts, err := e.Query("cohort_burst")
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range bursts {
+		if view := by[types.ExtractString(f.Args[0])]; view != nil {
+			view.Burst = true
+		}
+	}
+	out := make([]CohortView, 0, len(by))
+	for _, view := range by {
+		sort.Strings(view.Members)
+		out = append(out, *view)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
 func readViews(e *Engine, pred string) ([]ReadView, error) {
 	rows, err := e.Query(pred)
 	if err != nil {
@@ -361,6 +452,15 @@ func (r *Report) JSON() ([]byte, error) {
 func (r *Report) Text() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "workspace: %s\n", r.Workspace)
+	if r.SimilarityNote != "" {
+		fmt.Fprintf(&b, "%s\n", r.SimilarityNote)
+	}
+	if len(r.EmbeddingOmitted) > 0 {
+		fmt.Fprintf(&b, "similarity exclusions: %d (retained %d, cache hits %d)\n", len(r.EmbeddingOmitted), r.Embedded, r.EmbeddingCacheHits)
+		for _, omitted := range r.EmbeddingOmitted {
+			fmt.Fprintf(&b, "  %s %s: %s\n", omitted.Path, omitted.Kind, omitted.Detail)
+		}
+	}
 	if r.HistoryNote != "" {
 		fmt.Fprintf(&b, "%s\n", r.HistoryNote)
 	}
@@ -391,17 +491,23 @@ func (r *Report) Text() string {
 	for _, p := range r.Cohorts {
 		fmt.Fprintf(&b, "  %s\n", p)
 	}
+	for _, group := range r.CohortGroups {
+		fmt.Fprintf(&b, "  cohort %s representative %s burst %t members %s\n", group.ID, group.Representative, group.Burst, strings.Join(group.Members, ","))
+	}
 	qualifying := len(r.ReadCandidates) + len(r.ReadOmitted)
 	fmt.Fprintf(&b, "read candidates (budget %d): %d kept of %d qualifying, %d omitted\n",
 		r.ReadBudget, len(r.ReadCandidates), qualifying, len(r.ReadOmitted))
 	if len(r.ReadOmitted) > 0 {
-		fmt.Fprintf(&b, "omitted documents are listed; raise orient.read_candidate_budget to keep them\n")
+		fmt.Fprintf(&b, "omitted documents are listed; raising orient.read_candidate_budget admits more representatives; unit members share their representative's slot\n")
 	}
 	for _, c := range r.ReadCandidates {
 		fmt.Fprintf(&b, "  keep %s %s\n", c.Path, strings.Join(c.Reasons, ","))
 	}
 	for _, c := range r.ReadOmitted {
 		fmt.Fprintf(&b, "  omit %s %s\n", c.Path, strings.Join(c.Reasons, ","))
+	}
+	for _, member := range r.ReadMembers {
+		fmt.Fprintf(&b, "  member %s representative %s\n", member.Path, member.Representative)
 	}
 	if len(r.Vision) == 0 {
 		fmt.Fprintf(&b, "vision sources: %s\n", r.VisionNote)
@@ -410,9 +516,6 @@ func (r *Report) Text() string {
 		for _, v := range r.Vision {
 			fmt.Fprintf(&b, "  %s %d %s\n", v.Path, v.WeightPct, v.Why)
 		}
-	}
-	if r.SimilarityNote != "" {
-		fmt.Fprintf(&b, "%s\n", r.SimilarityNote)
 	}
 	if len(r.Unreadable) > 0 {
 		fmt.Fprintf(&b, "unreadable documents (not asserted as doc_file): %d\n", len(r.Unreadable))

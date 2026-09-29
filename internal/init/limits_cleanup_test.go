@@ -4,48 +4,11 @@
 package init
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"codenerd/internal/store"
 )
-
-// The relevance judge must see the whole document: a 500-char preview
-// misclassified documents whose architecture signal sits past byte 500.
-func TestAnalyzeDocBatch_DocumentContentReachesJudgementWhole(t *testing.T) {
-	workspace := t.TempDir()
-	marker := "ARCHITECTURE-SIGNAL-PAST-BYTE-500"
-	content := strings.Repeat("filler prose with no signal. ", 40) + marker
-	if len(content) <= 500 {
-		t.Fatalf("fixture too short to exercise the old 500-char preview: %d", len(content))
-	}
-	if strings.Index(content, marker) <= 500 {
-		t.Fatalf("marker sits at byte %d, must sit past byte 500", strings.Index(content, marker))
-	}
-	llm := &scriptedLLM{
-		relevance: `[{"index":0,"relevant":true,"reason":"vision doc"}]`,
-	}
-	ini := &Initializer{config: InitConfig{Workspace: workspace, LLMClient: llm}}
-	docs := []DocumentInfo{{
-		Path: "DESIGN.md", Title: "Design", Content: content, Size: len(content), Priority: 1,
-	}}
-	got := ini.analyzeDocBatch(context.Background(), docs)
-	if len(got) != 1 || !got[0].IsRelevant {
-		t.Fatalf("analyzeDocBatch = %+v, want the one relevant doc", got)
-	}
-	llm.mu.Lock()
-	defer llm.mu.Unlock()
-	if len(llm.prompts) != 1 {
-		t.Fatalf("got %d prompts, want 1", len(llm.prompts))
-	}
-	if !strings.Contains(llm.prompts[0], content) {
-		t.Error("relevance prompt dropped document content past byte 500")
-	}
-	if !strings.Contains(llm.prompts[0], marker) {
-		t.Error("relevance prompt lost the architecture signal past byte 500")
-	}
-}
 
 // Stored atoms feed the synthesis model whole: a 200-char cut truncated the
 // context for every long insight.

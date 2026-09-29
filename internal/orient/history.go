@@ -73,6 +73,9 @@ func ScanHistory(ctx context.Context, root string) (*History, error) {
 		return nil, fmt.Errorf("orient history: git log: %w", err)
 	}
 	facts, n, err := factsFromGitLog(stdout, shallow)
+	if err != nil {
+		_ = cmd.Process.Kill()
+	}
 	waitErr := cmd.Wait()
 	if err != nil {
 		return nil, err
@@ -300,6 +303,9 @@ func factsFromGitLog(r io.Reader, shallow bool) ([]types.Fact, int, error) {
 	facts := make([]types.Fact, 0, len(files)+8)
 	facts = append(facts, spanFacts(firstUnix, lastUnix, total, shallow)...)
 	for p, rec := range files {
+		for day := range rec.days {
+			facts = append(facts, types.Fact{Predicate: "repo_file_day", Args: []any{p, day}})
+		}
 		facts = append(facts, types.Fact{
 			Predicate: "repo_file_history",
 			Args: []any{

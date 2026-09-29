@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"codenerd/internal/broker"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -395,16 +396,24 @@ When completing knowledge base creation:
 
 // withJITPrompt wraps an LLM call with JIT prompt compilation.
 // This is a helper for init phases that need to make LLM calls.
-func (i *Initializer) withJITPrompt(ctx context.Context, phase, task string, profile *ProjectProfile, handler func(ctx context.Context, prompt string) (string, error)) (string, error) {
+func (i *Initializer) withJITPrompt(ctx context.Context, phase, task string, profile *ProjectProfile, handler func(ctx context.Context, prompt string) (string, error), compiled ...string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// Assemble prompt using JIT (with fallback)
-	prompt, err := i.assembleJITPrompt(ctx, phase, task, profile)
-	if err != nil {
-		logging.Boot("Failed to assemble JIT prompt: %v", err)
-		// Use fallback
-		prompt = i.buildFallbackPrompt(phase, task)
+	// Northstar owns its JIT corpus; retain its compiled system guidance.
+	var prompt string
+	if len(compiled) > 0 {
+		if len(compiled) != 1 || strings.TrimSpace(compiled[0]) == "" {
+			return "", fmt.Errorf("invalid precompiled JIT prompt")
+		}
+		prompt = compiled[0]
+	} else {
+		var err error
+		prompt, err = i.assembleJITPrompt(ctx, phase, task, profile)
+		if err != nil {
+			logging.Boot("Failed to assemble JIT prompt: %v", err)
+			prompt = i.buildFallbackPrompt(phase, task)
+		}
 	}
 
 	// Fast-path: parent already done. Skip the provider call entirely; a
@@ -413,6 +422,12 @@ func (i *Initializer) withJITPrompt(ctx context.Context, phase, task string, pro
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return "", ctxErr
 	}
+	timeout := i.config.Timeout
+	if timeout <= 0 {
+		timeout = config.GetLLMTimeouts().PerCallTimeout
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	// All init LLM calls pass this chokepoint, so record one outcome per actual
 	// provider attempt. Prompt compilation failures use the local fallback and
@@ -420,7 +435,7 @@ func (i *Initializer) withJITPrompt(ctx context.Context, phase, task string, pro
 	//
 	// Providers must honor cancellation. Keep their lifetime and usage accounting
 	// joined to this call rather than returning while a detached request runs.
-	response, callErr := handler(ctx, prompt)
+	response, callErr := handler(callCtx, prompt)
 	i.recordLLMCall(callErr)
 	return response, callErr
 }

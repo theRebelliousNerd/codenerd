@@ -3,13 +3,13 @@ doc-class: deep-dive
 subsystem: orient
 implementation-status: target-state
 last-verified: 2026-09-29
-verified-against: bb7bafac
+verified-against: working-tree-C2a
 supersedes: []
 ---
 
 # 09 — Mangle Surface — Relational Schema & Predicate Registry
 
-This document defines the complete Mangle Datalog language surface for the `internal/orient` engine and related runtime policy extensions. It serves as the immutable schema contract across Lanes `I1`, `I2a`, `I2b`, `O1`, and the spec alignment and what-next engines.
+This document defines the complete Mangle language surface for the `internal/orient` engine and related runtime policy extensions. It serves as the immutable schema contract across Lanes `I1`, `I2a`, `I2b`, `O1`, and the spec alignment and what-next engines.
 
 ---
 
@@ -355,3 +355,23 @@ All Mangle rules across orientation and runtime policies must satisfy codeNERD's
 3. **Pipeline Aggregation Syntax**: All aggregations must use pipe syntax:
    `|> do fn:group_by([Var1, ...]), let Result = fn:count()`.
 4. **Configuration Parameter Decoupling**: Hardcoded numerical thresholds or ranking weights are prohibited in `.mg` rules. All thresholds must be loaded as `config_param(Key, Value)` facts asserted from Go configuration.
+
+## C2a schema additions (source reviewed; runtime gates pending)
+
+The existing orientation-contract predicate signatures were not changed.
+The isolated engine now owns the four configuration declarations locally,
+so the action kernel can import orientation without a package cycle.
+
+| Relation | Contract | Source |
+|---|---|---|
+| `repo_file_day(Path, Day)` | Distinct UTC commit-day witnesses for exact history-delta merging | `internal/orient/schema.mg:50` |
+| `oriented_head(Head)`, `current_repo_head(Head)` | Previous/current Git observation | `internal/orient/freshness.mg:2` |
+| `oriented_document(Path, Digest)`, `current_document(Path, Digest)` | Previous/current document content identity | `internal/orient/freshness.mg:4` |
+| `orient_stale(Why)` | Derived head/document staleness | `internal/orient/freshness.mg:8` |
+| `orient_refresh_document(Path, Why)` | Derived added, changed or deleted documents | `internal/orient/freshness.mg:9` |
+| `orient_role_pending(Path)` | New classification required after content changes | `internal/orient/freshness.mg:10` |
+| `orient_agent_prompt(Name, ID)` | Imported prompt source chosen in policy | `internal/orient/ecosystem_agents.mg:109` |
+
+The presence/known-document and prompt-candidate/better predicates are internal
+joins. Public projection declarations are emitted from the embedded schema,
+never hand-maintained in init (`internal/orient/snapshot.go:181`, `Projection`).

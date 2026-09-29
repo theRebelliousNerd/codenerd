@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/session"
 
 	"github.com/stretchr/testify/assert"
@@ -764,7 +765,7 @@ func TestDefaultInitConfig_WhenEmptyWorkspace_ShouldNotPanic(t *testing.T) {
 	// Should use current working dir fallback
 	assert.NotEmpty(t, cfg.Workspace)
 	assert.True(t, cfg.Interactive)
-	assert.Equal(t, 30*time.Minute, cfg.Timeout)
+	assert.Equal(t, config.GetLLMTimeouts().PerCallTimeout, cfg.Timeout)
 	assert.False(t, cfg.SkipResearch)
 }
 

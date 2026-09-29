@@ -80,6 +80,24 @@ func (i *Initializer) generateAgentPromptsYAMLWithContext(ctx context.Context, a
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	// A winning imported subagent or mode carries its own prompt. That text
+	// is the methodology and the domain; a generated template would replace
+	// the definition the corpus already stated.
+	if imported := ecosystemImportedPrompt(i.config.Workspace, agent.Name); imported != "" {
+		topicsStr := strings.Join(agent.Topics, ", ")
+		domainExpertise := formatDomainExpertise(agent.Topics)
+		agentNameLower := strings.ToLower(agent.Name)
+		yamlStr := buildPromptsYAML(agentNameLower, agent.Name, agent.Description, domainExpertise, topicsStr, imported, imported)
+		if err := validatePromptsYAML([]byte(yamlStr), agentNameLower); err != nil {
+			logging.BootWarn("Imported prompt for %s failed validation: %v", agent.Name, err)
+		} else {
+			if err := os.WriteFile(promptsPath, []byte(yamlStr), 0644); err != nil {
+				return fmt.Errorf("failed to write prompts.yaml: %w", err)
+			}
+			logging.Boot("Generated prompts.yaml for %s from the imported definition", agent.Name)
+			return nil
+		}
+	}
 	topicsStr := strings.Join(agent.Topics, ", ")
 	domainExpertise := formatDomainExpertise(agent.Topics)
 	agentNameLower := strings.ToLower(agent.Name)
@@ -369,259 +387,21 @@ type KnowledgeBaseStats struct {
 	QualityRating string
 }
 
-// determineRequiredAgents analyzes the project and recommends Type 3 agents.
+// determineRequiredAgents reads the agents the profile catalog derives.
+// The language, framework and dependency table is data in the orientation
+// policy. A policy that does not start yields no agents: the old switch is
+// not kept beside it.
 func (i *Initializer) determineRequiredAgents(profile ProjectProfile) []RecommendedAgent {
-	agents := make([]RecommendedAgent, 0)
-
-	// Language-specific agents
-	switch strings.ToLower(profile.Language) {
-	case "go", "golang":
-		agents = append(agents, RecommendedAgent{
-			Name:        "GoExpert",
-			Type:        "persistent",
-			Description: "Expert in Go idioms, concurrency patterns, and standard library",
-			Topics:      []string{"go concurrency", "go error handling", "go interfaces", "go testing"},
-			Permissions: []string{"read_file", "code_graph", "exec_cmd"},
-			Priority:    100,
-			Reason:      "Go project detected - expert knowledge improves code quality",
-		})
-
-	case "python":
-		agents = append(agents, RecommendedAgent{
-			Name:        "PythonExpert",
-			Type:        "persistent",
-			Description: "Expert in Python best practices, type hints, and async patterns",
-			Topics:      []string{"python typing", "python async", "python testing", "python packaging"},
-			Permissions: []string{"read_file", "code_graph", "exec_cmd"},
-			Priority:    100,
-			Reason:      "Python project detected - expert knowledge improves code quality",
-		})
-
-	case "typescript", "javascript":
-		agents = append(agents, RecommendedAgent{
-			Name:        "TSExpert",
-			Type:        "persistent",
-			Description: "Expert in TypeScript/JavaScript patterns and modern ES features",
-			Topics:      []string{"typescript types", "javascript async", "react patterns", "node.js"},
-			Permissions: []string{"read_file", "code_graph", "exec_cmd"},
-			Priority:    100,
-			Reason:      "TypeScript/JavaScript project detected",
-		})
-
-	case "rust":
-		agents = append(agents, RecommendedAgent{
-			Name:        "RustExpert",
-			Type:        "persistent",
-			Description: "Expert in Rust ownership, lifetimes, and async patterns",
-			Topics:      []string{"rust ownership", "rust lifetimes", "rust async", "rust error handling"},
-			Permissions: []string{"read_file", "code_graph", "exec_cmd"},
-			Priority:    100,
-			Reason:      "Rust project detected - ownership expertise critical",
-		})
-
-	case "kotlin":
-		// FIX(BUG-006): Add Kotlin/Android language support
-		agents = append(agents, RecommendedAgent{
-			Name:        "AndroidExpert",
-			Type:        "persistent",
-			Description: "Expert in Kotlin Android development, Jetpack Compose, and mobile patterns",
-			Topics:      []string{"kotlin android", "jetpack compose", "android architecture", "coroutines", "room database", "hilt dependency injection"},
-			Permissions: []string{"read_file", "code_graph", "exec_cmd"},
-			Priority:    100,
-			Reason:      "Kotlin/Android project detected - mobile expertise critical",
-		})
+	agents, err := agentsFromProfile(context.Background(), profile)
+	if err != nil {
+		logging.Boot("profile agent policy failed: %v", err)
+		return nil
 	}
-
-	// Framework-specific agents
-	switch strings.ToLower(profile.Framework) {
-	case "gin", "echo", "fiber":
-		agents = append(agents, RecommendedAgent{
-			Name:        "WebAPIExpert",
-			Type:        "persistent",
-			Description: "Expert in REST API design and HTTP middleware patterns",
-			Topics:      []string{"REST API design", "HTTP middleware", "API authentication", "OpenAPI"},
-			Permissions: []string{"read_file", "network"},
-			Priority:    80,
-			Reason:      fmt.Sprintf("%s framework detected - API expertise beneficial", profile.Framework),
-		})
-
-	case "react", "nextjs", "vue":
-		agents = append(agents, RecommendedAgent{
-			Name:        "FrontendExpert",
-			Type:        "persistent",
-			Description: "Expert in modern frontend patterns and state management",
-			Topics:      []string{"react hooks", "state management", "component patterns", "CSS-in-JS"},
-			Permissions: []string{"read_file", "browser"},
-			Priority:    80,
-			Reason:      fmt.Sprintf("%s framework detected - frontend expertise beneficial", profile.Framework),
-		})
-	}
-
-	// Dependency-specific agents
-	depNames := make(map[string]bool)
-	for _, dep := range profile.Dependencies {
-		depNames[dep.Name] = true
-	}
-
-	// Browser automation experts
-	if depNames["rod"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "RodExpert",
-			Type:        "persistent",
-			Description: "Expert in Rod browser automation, selectors, and CDP protocol",
-			Topics:      []string{"rod browser automation", "CDP protocol", "web scraping", "headless chrome", "page selectors"},
-			Permissions: []string{"read_file", "browser", "exec_cmd"},
-			Priority:    95,
-			Reason:      "Rod browser automation detected - specialized expertise beneficial",
-		})
-	}
-	if depNames["chromedp"] || depNames["puppeteer"] || depNames["playwright"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "BrowserAutomationExpert",
-			Type:        "persistent",
-			Description: "Expert in browser automation patterns and CDP",
-			Topics:      []string{"browser automation", "CDP protocol", "page navigation", "element interaction"},
-			Permissions: []string{"read_file", "browser"},
-			Priority:    90,
-			Reason:      "Browser automation library detected",
-		})
-	}
-
-	// Logic/Datalog experts
-	if depNames["mangle"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "MangleExpert",
-			Type:        "persistent",
-			Description: "Expert in Google Mangle/Datalog, logic programming, and rule systems",
-			Topics:      []string{"datalog", "mangle syntax", "logic programming", "horn clauses", "fact derivation", "negation as failure"},
-			Permissions: []string{"read_file", "code_graph"},
-			Priority:    95,
-			Reason:      "Mangle/Datalog detected - logic programming expertise critical",
-		})
-	}
-
-	// LLM integration experts
-	if depNames["openai"] || depNames["anthropic"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "LLMIntegrationExpert",
-			Type:        "persistent",
-			Description: "Expert in LLM API integration, prompt engineering, and token optimization",
-			Topics:      []string{"LLM APIs", "prompt engineering", "token optimization", "streaming responses", "function calling"},
-			Permissions: []string{"read_file", "network"},
-			Priority:    90,
-			Reason:      "LLM API integration detected - expertise improves reliability",
-		})
-	}
-
-	// CLI/TUI experts
-	if depNames["bubbletea"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "BubbleTeaExpert",
-			Type:        "persistent",
-			Description: "Expert in Bubbletea TUI framework, Elm architecture, and terminal rendering",
-			Topics:      []string{"bubbletea", "elm architecture", "terminal UI", "lipgloss styling", "bubbles components"},
-			Permissions: []string{"read_file", "code_graph"},
-			Priority:    85,
-			Reason:      "Bubbletea TUI framework detected",
-		})
-	}
-	if depNames["cobra"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "CobraExpert",
-			Type:        "persistent",
-			Description: "Expert in Cobra CLI framework, command structure, and flag handling",
-			Topics:      []string{"cobra CLI", "command patterns", "flag handling", "CLI best practices"},
-			Permissions: []string{"read_file"},
-			Priority:    75,
-			Reason:      "Cobra CLI framework detected",
-		})
-	}
-
-	// Database experts
-	if depNames["gorm"] || depNames["sqlx"] || depNames["sql"] || depNames["prisma"] || depNames["typeorm"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "DatabaseExpert",
-			Type:        "persistent",
-			Description: "Expert in database patterns, ORM usage, and query optimization",
-			Topics:      []string{"database design", "ORM patterns", "SQL optimization", "migrations", "connection pooling"},
-			Permissions: []string{"read_file", "code_graph"},
-			Priority:    80,
-			Reason:      "Database ORM/driver detected",
-		})
-	}
-
-	// FIX(BUG-006): ArangoDB graph database expert
-	if depNames["arangodb"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "ArangoExpert",
-			Type:        "persistent",
-			Description: "Expert in ArangoDB graph database, AQL queries, and document/graph modeling",
-			Topics:      []string{"arangodb", "AQL queries", "graph traversal", "document modeling", "multi-model database", "graph database patterns"},
-			Permissions: []string{"read_file", "code_graph", "network"},
-			Priority:    85,
-			Reason:      "ArangoDB detected - graph database expertise beneficial",
-		})
-	}
-
-	// FIX(BUG-006): Google ADK agent orchestration expert
-	if depNames["adk"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "ADKExpert",
-			Type:        "persistent",
-			Description: "Expert in Google ADK for LLM agent orchestration and tool use",
-			Topics:      []string{"google adk", "agent orchestration", "llm tool use", "multi-agent systems", "agent workflows"},
-			Permissions: []string{"read_file", "code_graph", "network"},
-			Priority:    90,
-			Reason:      "Google ADK detected - agent orchestration expertise beneficial",
-		})
-	}
-
-	// FIX(BUG-006): A2A card/manifest agent expert
-	if depNames["a2a"] {
-		agents = append(agents, RecommendedAgent{
-			Name:        "A2AExpert",
-			Type:        "persistent",
-			Description: "Expert in A2A card-driven and manifest-based agent patterns",
-			Topics:      []string{"a2a protocol", "agent cards", "manifest agents", "agent interoperability", "card-driven workflows"},
-			Permissions: []string{"read_file", "code_graph"},
-			Priority:    85,
-			Reason:      "A2A protocol detected - agent interop expertise beneficial",
-		})
-	}
-
-	// FIX: Only add core agents if no language-specific or dependency-specific agents were found
-	// This prevents the system from adding only generic agents when it should be detecting specialists
-	if len(agents) == 0 {
-		// Fallback: Only add generic agents if we couldn't detect anything specific
-		agents = append(agents,
-			RecommendedAgent{
-				Name:        "SecurityAuditor",
-				Type:        "persistent",
-				Description: "Security vulnerability detection and best practices",
-				Topics:      []string{"OWASP top 10", "secure coding", "vulnerability patterns", "code injection"},
-				Permissions: []string{"read_file", "code_graph"},
-				Priority:    90,
-				Reason:      "Security analysis is critical for all projects",
-			},
-			RecommendedAgent{
-				Name:        "TestArchitect",
-				Type:        "persistent",
-				Description: "Test strategy, coverage analysis, and TDD patterns",
-				Topics:      []string{"unit testing", "integration testing", "test coverage", "mocking patterns"},
-				Permissions: []string{"read_file", "exec_cmd"},
-				Priority:    85,
-				Reason:      "Test quality directly impacts code reliability",
-			},
-		)
-	}
-
-	// Assign tools to all agents based on their type and project language
 	for idx := range agents {
 		tools, prefs := GetToolsForAgentType(agents[idx].Name, profile.Language)
 		agents[idx].Tools = tools
 		agents[idx].ToolPreferences = prefs
 	}
-
 	return agents
 }
 
@@ -668,6 +448,9 @@ type agentCreationResult struct {
 // In upgrade mode (--force with existing KB), it appends new knowledge rather than overwriting.
 // Uses parallel creation with a worker pool for improved performance.
 func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, agents []RecommendedAgent, result *InitResult) ([]CreatedAgent, map[string]int) {
+	// The seed is read by the parallel KB workers. Clear it when they have
+	// all returned, not when the deriving phase returns.
+	defer clearEcosystemSeed(i.config.Workspace)
 	created := make([]CreatedAgent, 0)
 	kbSizes := make(map[string]int)
 

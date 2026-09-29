@@ -1,6 +1,12 @@
 package config
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 // OrientConfig is the `orient` section of .nerd/config.json: the thresholds
 // the orientation policy (internal/orient) decides a repository's eras,
@@ -9,9 +15,7 @@ import "fmt"
 // Check refuses a value that would make a rule draw nothing or accept
 // everything.
 //
-// The section is not on UserConfig yet. Another lane owns that struct and
-// check.go. NewEngine takes an OrientConfig directly; the accessor and the
-// check.go call are in the lane report until that merge.
+// UserConfig and check.go are owned by the configuration integration lane.
 type OrientConfig struct {
 	// SimilarityFloorPermille is the cosine similarity, times 1000, at or
 	// above which two documents are evidence for lineage
@@ -55,6 +59,72 @@ type OrientConfig struct {
 	OriginSpanPermille int `json:"origin_span_permille,omitempty"`
 	EarlySpanPermille  int `json:"early_span_permille,omitempty"`
 	MiddleSpanPermille int `json:"middle_span_permille,omitempty"`
+	TopicOverlapMin    int `json:"topic_overlap_min,omitempty"`
+	SkillClusterMin    int `json:"skill_cluster_min,omitempty"`
+
+	// Embedding request bounds and inverse-prevalence signal weights.
+	EmbeddingHubTopKMultiple   int `json:"embedding_hub_top_k_multiple,omitempty"`
+	EmbeddingBatchSize         int `json:"embedding_batch_size,omitempty"`
+	EmbeddingConcurrency       int `json:"embedding_concurrency,omitempty"`
+	EmbeddingRetryAttempts     int `json:"embedding_retry_attempts,omitempty"`
+	ReasonRarityFloorPermille  int `json:"reason_rarity_floor_permille,omitempty"`
+	NearDuplicatePermille      int `json:"near_duplicate_permille,omitempty"`
+	CohortWindowDays           int `json:"cohort_window_days,omitempty"`
+	CohortShareCeilingPermille int `json:"cohort_share_ceiling_permille,omitempty"`
+	EraLullMedianPermille      int `json:"era_lull_median_permille,omitempty"`
+	ReadWeightInstructions     int `json:"read_weight_instructions,omitempty"`
+	ReadWeightChainLatest      int `json:"read_weight_chain_latest,omitempty"`
+	ReadWeightOrigin           int `json:"read_weight_origin,omitempty"`
+	ReadWeightClusterRep       int `json:"read_weight_cluster_rep,omitempty"`
+	ReadWeightLiveHub          int `json:"read_weight_live_hub,omitempty"`
+	ReadWeightLinkHub          int `json:"read_weight_link_hub,omitempty"`
+	ReadWeightBurst            int `json:"read_weight_burst,omitempty"`
+	ReadWeightCohort           int `json:"read_weight_cohort,omitempty"`
+	VisionWeightConfidence     int `json:"vision_weight_confidence,omitempty"`
+	VisionWeightRole           int `json:"vision_weight_role,omitempty"`
+	VisionWeightRecent         int `json:"vision_weight_recent,omitempty"`
+	VisionWeightOrigin         int `json:"vision_weight_origin,omitempty"`
+	VisionWeightEarly          int `json:"vision_weight_early,omitempty"`
+	VisionWeightMiddle         int `json:"vision_weight_middle,omitempty"`
+	VisionWeightBurst          int `json:"vision_weight_burst,omitempty"`
+	VisionWeightCohort         int `json:"vision_weight_cohort,omitempty"`
+	VisionWeightCentral        int `json:"vision_weight_central,omitempty"`
+	VisionWeightLive           int `json:"vision_weight_live,omitempty"`
+
+	// DeriveRequestBytes bounds one north-star derivation request: framing,
+	// carried-forward summary and document bytes together. A larger document
+	// is paged, never cut. It bounds a request, not a derivation run. No rule
+	// reads it, so it is not a Params row (orientRequestBounds).
+	DeriveRequestBytes int `json:"derive_request_bytes,omitempty"`
+}
+
+// LoadOrientConfig reads only the target workspace's orientation section.
+// The caller receives invalid explicit values as errors, never defaults.
+func LoadOrientConfig(workspace string) (OrientConfig, error) {
+	cfg := DefaultOrientConfig()
+	if strings.TrimSpace(workspace) == "" {
+		return cfg, nil
+	}
+	body, err := os.ReadFile(filepath.Join(workspace, ".nerd", "config.json"))
+	if os.IsNotExist(err) {
+		return cfg, nil
+	}
+	if err != nil {
+		return cfg, err
+	}
+	var section struct {
+		Orient *OrientConfig `json:"orient"`
+	}
+	if err := json.Unmarshal(body, &section); err != nil {
+		return cfg, fmt.Errorf("orientation configuration: %w", err)
+	}
+	if section.Orient != nil {
+		cfg = section.Orient.WithDefaults()
+	}
+	if problems := cfg.Check("orient"); len(problems) > 0 {
+		return cfg, fmt.Errorf("%s: %s", problems[0].Path, problems[0].Message)
+	}
+	return cfg, nil
 }
 
 // DefaultOrientConfig is the orient section with every field written down.
@@ -80,12 +150,132 @@ func DefaultOrientConfig() OrientConfig {
 		OriginSpanPermille:      100,
 		EarlySpanPermille:       350,
 		MiddleSpanPermille:      700,
+		TopicOverlapMin:         2,
+		SkillClusterMin:         2,
+
+		// Embedding and signal defaults.
+		EmbeddingHubTopKMultiple:   3,
+		EmbeddingBatchSize:         32,
+		EmbeddingConcurrency:       4,
+		EmbeddingRetryAttempts:     3,
+		ReasonRarityFloorPermille:  50,
+		NearDuplicatePermille:      950,
+		CohortWindowDays:           2,
+		CohortShareCeilingPermille: 100,
+		EraLullMedianPermille:      100,
+		ReadWeightInstructions:     100,
+		ReadWeightChainLatest:      90,
+		ReadWeightOrigin:           80,
+		ReadWeightClusterRep:       70,
+		ReadWeightLiveHub:          65,
+		ReadWeightLinkHub:          60,
+		ReadWeightBurst:            55,
+		ReadWeightCohort:           50,
+		VisionWeightConfidence:     40,
+		VisionWeightRole:           10,
+		VisionWeightRecent:         20,
+		VisionWeightOrigin:         10,
+		VisionWeightEarly:          8,
+		VisionWeightMiddle:         5,
+		VisionWeightBurst:          20,
+		VisionWeightCohort:         15,
+		VisionWeightCentral:        10,
+		VisionWeightLive:           15,
+		DeriveRequestBytes:         32 << 10,
 	}
 }
 
 // WithDefaults fills every absent field from DefaultOrientConfig.
 func (c OrientConfig) WithDefaults() OrientConfig {
 	d := DefaultOrientConfig()
+	// Embedding and signal settings share defaults with policy parameters.
+	if c.EmbeddingHubTopKMultiple == 0 {
+		c.EmbeddingHubTopKMultiple = d.EmbeddingHubTopKMultiple
+	}
+	if c.EmbeddingBatchSize == 0 {
+		c.EmbeddingBatchSize = d.EmbeddingBatchSize
+	}
+	if c.EmbeddingConcurrency == 0 {
+		c.EmbeddingConcurrency = d.EmbeddingConcurrency
+	}
+	if c.EmbeddingRetryAttempts == 0 {
+		c.EmbeddingRetryAttempts = d.EmbeddingRetryAttempts
+	}
+	if c.ReasonRarityFloorPermille == 0 {
+		c.ReasonRarityFloorPermille = d.ReasonRarityFloorPermille
+	}
+	if c.NearDuplicatePermille == 0 {
+		c.NearDuplicatePermille = d.NearDuplicatePermille
+	}
+	if c.CohortWindowDays == 0 {
+		c.CohortWindowDays = d.CohortWindowDays
+	}
+	if c.CohortShareCeilingPermille == 0 {
+		c.CohortShareCeilingPermille = d.CohortShareCeilingPermille
+	}
+	if c.EraLullMedianPermille == 0 {
+		c.EraLullMedianPermille = d.EraLullMedianPermille
+	}
+	if c.ReadWeightInstructions == 0 {
+		c.ReadWeightInstructions = d.ReadWeightInstructions
+	}
+	if c.ReadWeightChainLatest == 0 {
+		c.ReadWeightChainLatest = d.ReadWeightChainLatest
+	}
+	if c.ReadWeightOrigin == 0 {
+		c.ReadWeightOrigin = d.ReadWeightOrigin
+	}
+	if c.ReadWeightClusterRep == 0 {
+		c.ReadWeightClusterRep = d.ReadWeightClusterRep
+	}
+	if c.ReadWeightLiveHub == 0 {
+		c.ReadWeightLiveHub = d.ReadWeightLiveHub
+	}
+	if c.ReadWeightLinkHub == 0 {
+		c.ReadWeightLinkHub = d.ReadWeightLinkHub
+	}
+	if c.ReadWeightBurst == 0 {
+		c.ReadWeightBurst = d.ReadWeightBurst
+	}
+	if c.ReadWeightCohort == 0 {
+		c.ReadWeightCohort = d.ReadWeightCohort
+	}
+	if c.VisionWeightConfidence == 0 {
+		c.VisionWeightConfidence = d.VisionWeightConfidence
+	}
+	if c.VisionWeightRole == 0 {
+		c.VisionWeightRole = d.VisionWeightRole
+	}
+	if c.VisionWeightRecent == 0 {
+		c.VisionWeightRecent = d.VisionWeightRecent
+	}
+	if c.VisionWeightOrigin == 0 {
+		c.VisionWeightOrigin = d.VisionWeightOrigin
+	}
+	if c.VisionWeightEarly == 0 {
+		c.VisionWeightEarly = d.VisionWeightEarly
+	}
+	if c.VisionWeightMiddle == 0 {
+		c.VisionWeightMiddle = d.VisionWeightMiddle
+	}
+	if c.VisionWeightBurst == 0 {
+		c.VisionWeightBurst = d.VisionWeightBurst
+	}
+	if c.VisionWeightCohort == 0 {
+		c.VisionWeightCohort = d.VisionWeightCohort
+	}
+	if c.VisionWeightCentral == 0 {
+		c.VisionWeightCentral = d.VisionWeightCentral
+	}
+	if c.VisionWeightLive == 0 {
+		c.VisionWeightLive = d.VisionWeightLive
+	}
+	if c.TopicOverlapMin == 0 {
+		c.TopicOverlapMin = d.TopicOverlapMin
+	}
+	if c.SkillClusterMin == 0 {
+		c.SkillClusterMin = d.SkillClusterMin
+	}
 	if c.SimilarityFloorPermille == 0 {
 		c.SimilarityFloorPermille = d.SimilarityFloorPermille
 	}
@@ -125,6 +315,9 @@ func (c OrientConfig) WithDefaults() OrientConfig {
 	if c.MiddleSpanPermille == 0 {
 		c.MiddleSpanPermille = d.MiddleSpanPermille
 	}
+	if c.DeriveRequestBytes == 0 {
+		c.DeriveRequestBytes = d.DeriveRequestBytes
+	}
 	return c
 }
 
@@ -154,6 +347,36 @@ func (c OrientConfig) Check(prefix string) []Problem {
 			})
 		}
 	}
+	rangeOf("embedding_hub_top_k_multiple", c.EmbeddingHubTopKMultiple, 2, 1000, "embedding hub degree relative to the top-k allowance")
+	rangeOf("embedding_batch_size", c.EmbeddingBatchSize, 1, 1024, "chunks per embedding batch")
+	rangeOf("embedding_concurrency", c.EmbeddingConcurrency, 1, 64, "embedding batch workers")
+	rangeOf("embedding_retry_attempts", c.EmbeddingRetryAttempts, 1, 10, "total attempts per embedding request")
+	rangeOf("reason_rarity_floor_permille", c.ReasonRarityFloorPermille, 1, 1000, "minimum inverse-prevalence factor")
+	rangeOf("near_duplicate_permille", c.NearDuplicatePermille, 1, 1000, "similarity for one duplicate read unit")
+	rangeOf("cohort_window_days", c.CohortWindowDays, 1, 31, "UTC birth window length")
+	rangeOf("cohort_share_ceiling_permille", c.CohortShareCeilingPermille, 1, 999, "maximum repository share of a cohort")
+	rangeOf("era_lull_median_permille", c.EraLullMedianPermille, 1, 1000, "relative lull threshold as a share of median commits")
+	rangeOf("read_weight_instructions", c.ReadWeightInstructions, 1, 1000, "instruction read weight")
+	rangeOf("read_weight_chain_latest", c.ReadWeightChainLatest, 1, 1000, "lineage tip read weight")
+	rangeOf("read_weight_origin", c.ReadWeightOrigin, 1, 1000, "origin read weight")
+	rangeOf("read_weight_cluster_rep", c.ReadWeightClusterRep, 1, 1000, "similarity representative read weight")
+	rangeOf("read_weight_live_hub", c.ReadWeightLiveHub, 1, 1000, "live hub read weight")
+	rangeOf("read_weight_link_hub", c.ReadWeightLinkHub, 1, 1000, "link hub read weight")
+	rangeOf("read_weight_burst", c.ReadWeightBurst, 1, 1000, "burst read weight")
+	rangeOf("read_weight_cohort", c.ReadWeightCohort, 1, 1000, "cohort read weight")
+	rangeOf("vision_weight_confidence", c.VisionWeightConfidence, 1, 100, "confidence contribution ceiling")
+	rangeOf("vision_weight_role", c.VisionWeightRole, 1, 100, "vision role weight")
+	rangeOf("vision_weight_recent", c.VisionWeightRecent, 1, 100, "recent generation vision weight")
+	rangeOf("vision_weight_origin", c.VisionWeightOrigin, 1, 100, "origin generation vision weight")
+	rangeOf("vision_weight_early", c.VisionWeightEarly, 1, 100, "early generation vision weight")
+	rangeOf("vision_weight_middle", c.VisionWeightMiddle, 1, 100, "middle generation vision weight")
+	rangeOf("vision_weight_burst", c.VisionWeightBurst, 1, 100, "burst vision weight")
+	rangeOf("vision_weight_cohort", c.VisionWeightCohort, 1, 100, "cohort vision weight")
+	rangeOf("vision_weight_central", c.VisionWeightCentral, 1, 100, "centrality vision weight")
+	rangeOf("vision_weight_live", c.VisionWeightLive, 1, 100, "live vision weight")
+	if c.NearDuplicatePermille < c.SimilarityFloorPermille {
+		out = append(out, Problem{Severity: SeverityError, Path: prefix + ".near_duplicate_permille", Message: "near-duplicate threshold must be at least similarity_floor_permille", Fix: "raise near_duplicate_permille or lower similarity_floor_permille"})
+	}
 	rangeOf("similarity_floor_permille", c.SimilarityFloorPermille, 1, 1000, "permille is cosine times 1000, and 0 would keep every pair")
 	atLeast("similar_top_k", c.SimilarTopK, 1, "top-k is how many neighbours a document may contribute")
 	atLeast("read_candidate_budget", c.ReadCandidateBudget, 1, "the read set has to be able to hold a document")
@@ -164,9 +387,12 @@ func (c OrientConfig) Check(prefix string) []Problem {
 	atLeast("cohort_min_docs", c.CohortMinDocs, 2, "a cohort is more than one document")
 	atLeast("centrality_min_links", c.CentralityMinLinks, 1, "centrality is a count of inbound links")
 	atLeast("live_hub_min_links", c.LiveHubMinLinks, 1, "a live hub is a count of inbound links")
+	atLeast("topic_overlap_min", c.TopicOverlapMin, 1, "duplicate evidence requires shared topics")
+	atLeast("skill_cluster_min", c.SkillClusterMin, 2, "a skill cluster requires more than one source")
 	rangeOf("origin_span_permille", c.OriginSpanPermille, 1, 999, "the opening slice of a single-era span")
 	rangeOf("early_span_permille", c.EarlySpanPermille, 1, 999, "the early slice of a single-era span")
 	rangeOf("middle_span_permille", c.MiddleSpanPermille, 1, 999, "the middle slice of a single-era span")
+	rangeOf("derive_request_bytes", c.DeriveRequestBytes, 256, 1<<20, "a request must fit framing, carry-forward context and document bytes")
 	if c.OriginSpanPermille < c.EarlySpanPermille && c.EarlySpanPermille < c.MiddleSpanPermille && c.MiddleSpanPermille < 1000 {
 		return out
 	}
@@ -180,11 +406,45 @@ func (c OrientConfig) Check(prefix string) []Problem {
 	return out
 }
 
+// orientRequestBounds are the orient fields Go reads as request bounds. They
+// are checked like every orient key but are not policy thresholds, so Params
+// leaves them out and no config_param_required row names them.
+var orientRequestBounds = map[string]bool{"DeriveRequestBytes": true}
+
 // Params are the orient thresholds the policy reads, as config_param rows.
 // The keys are declared config_param_required(/orient, Key) beside the rules.
 func (c OrientConfig) Params() []Param {
 	c = c.WithDefaults()
 	return []Param{
+		{Key: "/orient_embedding_hub_top_k_multiple", Value: int64(c.EmbeddingHubTopKMultiple)},
+		{Key: "/orient_embedding_batch_size", Value: int64(c.EmbeddingBatchSize)},
+		{Key: "/orient_embedding_concurrency", Value: int64(c.EmbeddingConcurrency)},
+		{Key: "/orient_embedding_retry_attempts", Value: int64(c.EmbeddingRetryAttempts)},
+		{Key: "/orient_reason_rarity_floor_permille", Value: int64(c.ReasonRarityFloorPermille)},
+		{Key: "/orient_near_duplicate_permille", Value: int64(c.NearDuplicatePermille)},
+		{Key: "/orient_cohort_window_days", Value: int64(c.CohortWindowDays)},
+		{Key: "/orient_cohort_share_ceiling_permille", Value: int64(c.CohortShareCeilingPermille)},
+		{Key: "/orient_era_lull_median_permille", Value: int64(c.EraLullMedianPermille)},
+		{Key: "/orient_read_weight_instructions", Value: int64(c.ReadWeightInstructions)},
+		{Key: "/orient_read_weight_chain_latest", Value: int64(c.ReadWeightChainLatest)},
+		{Key: "/orient_read_weight_origin", Value: int64(c.ReadWeightOrigin)},
+		{Key: "/orient_read_weight_cluster_rep", Value: int64(c.ReadWeightClusterRep)},
+		{Key: "/orient_read_weight_live_hub", Value: int64(c.ReadWeightLiveHub)},
+		{Key: "/orient_read_weight_link_hub", Value: int64(c.ReadWeightLinkHub)},
+		{Key: "/orient_read_weight_burst", Value: int64(c.ReadWeightBurst)},
+		{Key: "/orient_read_weight_cohort", Value: int64(c.ReadWeightCohort)},
+		{Key: "/orient_vision_weight_confidence", Value: int64(c.VisionWeightConfidence)},
+		{Key: "/orient_vision_weight_role", Value: int64(c.VisionWeightRole)},
+		{Key: "/orient_vision_weight_recent", Value: int64(c.VisionWeightRecent)},
+		{Key: "/orient_vision_weight_origin", Value: int64(c.VisionWeightOrigin)},
+		{Key: "/orient_vision_weight_early", Value: int64(c.VisionWeightEarly)},
+		{Key: "/orient_vision_weight_middle", Value: int64(c.VisionWeightMiddle)},
+		{Key: "/orient_vision_weight_burst", Value: int64(c.VisionWeightBurst)},
+		{Key: "/orient_vision_weight_cohort", Value: int64(c.VisionWeightCohort)},
+		{Key: "/orient_vision_weight_central", Value: int64(c.VisionWeightCentral)},
+		{Key: "/orient_vision_weight_live", Value: int64(c.VisionWeightLive)},
+		{Key: "/orient_topic_overlap_min", Value: int64(c.TopicOverlapMin)},
+		{Key: "/orient_skill_cluster_min", Value: int64(c.SkillClusterMin)},
 		{Key: "/orient_similarity_floor_permille", Value: int64(c.SimilarityFloorPermille)},
 		{Key: "/orient_similar_top_k", Value: int64(c.SimilarTopK)},
 		{Key: "/orient_read_candidate_budget", Value: int64(c.ReadCandidateBudget)},
@@ -199,13 +459,4 @@ func (c OrientConfig) Params() []Param {
 		{Key: "/orient_early_span_permille", Value: int64(c.EarlySpanPermille)},
 		{Key: "/orient_middle_span_permille", Value: int64(c.MiddleSpanPermille)},
 	}
-}
-
-// GetOrientConfig returns the orientation config with every absent key filled
-// from DefaultOrientConfig.
-func (c *UserConfig) GetOrientConfig() OrientConfig {
-	if c == nil || c.Orient == nil {
-		return DefaultOrientConfig()
-	}
-	return c.Orient.WithDefaults()
 }

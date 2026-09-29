@@ -6,6 +6,7 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/prompt"
 	sysshards "codenerd/internal/shards"
+	"codenerd/internal/workspace"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -156,7 +157,7 @@ func (i *Initializer) detectDependencies() []DependencyInfo {
 
 	// Monorepo modules. This used to be two hardcoded glob pairs limited to one
 	// and two levels below the root; findManifestFiles walks to
-	// maxManifestDepth while skipping vendor/node_modules and friends, so
+	// maxManifestDepth and membership drops ignored trees, so
 	// services/api/go.mod and packages/@scope/ui/package.json are finally seen.
 	for _, goMod := range findManifestFiles(workspace, []string{"go.mod"}, maxManifestDepth) {
 		scanGoMod(goMod)
@@ -262,14 +263,32 @@ func (i *Initializer) detectEntryPoints() []string {
 // root module; detectModules calls it per module root.
 func (i *Initializer) detectEntryPointsForRoot(root string) []string {
 	entryPoints := []string{}
+	memRoot := i.config.Workspace
+	if strings.TrimSpace(memRoot) == "" {
+		memRoot = root
+	}
+	mem := workspaceMembers(memRoot)
+	if mem == nil {
+		return entryPoints
+	}
 
 	exists := func(path string) bool {
-		_, err := os.Stat(filepath.Join(root, path))
+		abs := filepath.Join(root, path)
+		member, admErr := mem.Admit(abs, false)
+		if admErr != nil || !member {
+			return false
+		}
+		_, err := os.Stat(abs)
 		return err == nil
 	}
 
 	hasContent := func(path, pattern string) bool {
-		content, err := os.ReadFile(filepath.Join(root, path))
+		abs := filepath.Join(root, path)
+		member, admErr := mem.Admit(abs, false)
+		if admErr != nil || !member {
+			return false
+		}
+		content, err := os.ReadFile(abs)
 		if err != nil {
 			return false
 		}
@@ -282,14 +301,22 @@ func (i *Initializer) detectEntryPointsForRoot(root string) []string {
 	}
 	if info, err := os.Stat(filepath.Join(root, "cmd")); err == nil && info.IsDir() {
 		_ = filepath.Walk(filepath.Join(root, "cmd"), func(path string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() && strings.HasSuffix(path, ".go") {
-				rel, err := filepath.Rel(root, path)
-				if err != nil {
-					return nil
-				}
-				if hasContent(rel, "package main") && hasContent(rel, "func main()") {
-					entryPoints = append(entryPoints, rel)
-				}
+			if err != nil {
+				return nil
+			}
+			member, admErr := mem.Admit(path, info.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member || info.IsDir() || !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return nil
+			}
+			if hasContent(rel, "package main") && hasContent(rel, "func main()") {
+				entryPoints = append(entryPoints, rel)
 			}
 			return nil
 		})
@@ -305,6 +332,10 @@ func (i *Initializer) detectEntryPointsForRoot(root string) []string {
 	scanDirs := []string{".", "src"}
 	for _, dir := range scanDirs {
 		dirPath := filepath.Join(root, dir)
+		member, admErr := mem.Admit(dirPath, true)
+		if admErr != nil || !member {
+			continue
+		}
 		if _, err := os.Stat(dirPath); err != nil {
 			continue
 		}
@@ -937,6 +968,14 @@ func (i *Initializer) detectProjectType() string {
 
 // hasMainFunction checks if any Go file in the workspace has a main function.
 func (i *Initializer) hasMainFunction(workspace string) bool {
+	// Membership is relative to the workspace, not the cmd subdirectory
+	// the walk starts in. A failure skips the walk rather than reading
+	// every ignored tree looking for func main.
+	mem := workspaceMembers(workspace)
+	if mem == nil {
+		return false
+	}
+
 	// Check common locations
 	locations := []string{
 		filepath.Join(workspace, "main.go"),
@@ -955,11 +994,16 @@ func (i *Initializer) hasMainFunction(workspace string) bool {
 				if err != nil {
 					return nil
 				}
-				if !info.IsDir() && strings.HasSuffix(path, ".go") {
-					if content, err := os.ReadFile(path); err == nil {
-						if strings.Contains(string(content), "func main()") {
-							return filepath.SkipAll // Found main, stop walking
-						}
+				member, admErr := mem.Admit(path, info.IsDir())
+				if admErr != nil {
+					return admErr
+				}
+				if !member || info.IsDir() || !strings.HasSuffix(path, ".go") {
+					return nil
+				}
+				if content, err := os.ReadFile(path); err == nil {
+					if strings.Contains(string(content), "func main()") {
+						return filepath.SkipAll // Found main, stop walking
 					}
 				}
 				return nil
@@ -968,7 +1012,10 @@ func (i *Initializer) hasMainFunction(workspace string) bool {
 				return true
 			}
 		} else if strings.HasSuffix(loc, ".go") {
-			// Check single file
+			ok, admErr := mem.Admit(loc, false)
+			if admErr != nil || !ok {
+				continue
+			}
 			if content, err := os.ReadFile(loc); err == nil {
 				if strings.Contains(string(content), "func main()") {
 					return true
@@ -978,6 +1025,22 @@ func (i *Initializer) hasMainFunction(workspace string) bool {
 	}
 
 	return false
+}
+
+// workspaceMembers is nil when membership cannot be decided. Callers skip
+// the walk; they do not fall open.
+func workspaceMembers(root string) *workspace.Membership {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	m, err := workspace.For(root)
+	if err != nil {
+		return nil
+	}
+	if err := m.Refresh(); err != nil {
+		return nil
+	}
+	return m
 }
 
 // createDirectoryStructure creates the .nerd/ directory and subdirectories.
