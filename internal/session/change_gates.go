@@ -34,8 +34,10 @@ var vetFinding = regexp.MustCompile(`^(.+\.go):\d+:\d+: (.*)$`)
 // -- the file it names and what it says, without the position, so an edit
 // above a finding moves its line and not what it is.
 type vetDiagnostic struct {
-	line string
-	key  string
+	line    string
+	file    string
+	message string
+	key     string
 }
 
 // vetDiagnostics parses vet's positioned findings. resolve maps the path vet
@@ -48,7 +50,10 @@ func vetDiagnostics(output string, resolve func(string) string) []vetDiagnostic 
 		if m == nil {
 			continue
 		}
-		out = append(out, vetDiagnostic{line: line, key: resolve(m[1]) + "\x00" + m[2]})
+		file, message := resolve(m[1]), m[2]
+		// file and message are the identity the /vet rule counts. The NUL
+		// key stays in Go: a Mangle string is not a place for it.
+		out = append(out, vetDiagnostic{line: line, file: file, message: message, key: file + "\x00" + message})
 	}
 	return out
 }
@@ -111,16 +116,19 @@ func verifyVet(ctx context.Context, workspace string, written []string, preWrite
 	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), buildVerifyTimeout, command[0], command[1:], verifyBuildRunner)
 	switch outcome {
 	case VerifyPassed:
-		return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: time.Since(start)}
+		return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: time.Since(start), VetMeasured: true}
 	case VerifyFailed:
 		now := vetDiagnostics(string(out), func(p string) string { return workspaceFile(workspace, p) })
 		if len(now) == 0 {
 			return BuildVerification{Ran: true, Output: strings.TrimSpace(string(out)), Outcome: VerifyIndeterminate, Command: command,
 				Reason: "go vet failed and named no finding to judge", Duration: time.Since(start)}
 		}
+		measured := BuildVerification{Ran: true, Outcome: VerifyFailed, Command: command, Duration: time.Since(start), VetMeasured: true, VetNow: now}
 		var own []string
 		before, ok, why := vetBaseline(ctx, workspace, runnable, preWrite)
 		if ok {
+			measured.VetBeforeKnown = true
+			measured.VetBefore = before
 			own = newVetFindings(now, before)
 		} else {
 			for _, d := range now {
@@ -129,11 +137,17 @@ func verifyVet(ctx context.Context, workspace string, written []string, preWrite
 			reason = "no pre-turn vet to compare with (" + why + "): every finding in the packages the turn wrote is charged to it"
 		}
 		if len(own) == 0 {
+			// The process failed. The /vet rule decides the gate from the
+			// counts above; the text still names what was already there.
 			logging.Get(logging.CategorySession).Warn(
 				"go vet reports only findings that were there before this turn:\n%s", strings.TrimSpace(string(out)))
-			return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Reason: "every finding predates the turn", Duration: time.Since(start)}
+			measured.Reason = "every finding predates the turn"
+			measured.Output = "Pre-existing vet findings (also reported without this turn's edits):\n" + strings.TrimSpace(string(out))
+			return measured
 		}
-		return BuildVerification{Ran: true, Output: strings.Join(own, "\n"), Outcome: VerifyFailed, Command: command, Reason: reason, Duration: time.Since(start)}
+		measured.Output = strings.Join(own, "\n")
+		measured.Reason = reason
+		return measured
 	default:
 		return BuildVerification{Ran: len(out) > 0, Output: strings.TrimSpace(string(out)), Outcome: outcome, Command: command, Reason: reason, Duration: time.Since(start)}
 	}
@@ -224,7 +238,7 @@ func (e *Executor) verifyAndRepairVet(
 	}
 	workspace := e.workspaceForVerification()
 	result.VetCheck = verifyVet(ctx, workspace, result.WrittenPaths, result.PreWriteContents)
-	if result.VetCheck.Verdict() != VerifyFailed || trp == nil {
+	if !e.vetGateRed(result.turnAtom(), result) || trp == nil {
 		return nil, nil, nil
 	}
 	logging.Get(logging.CategorySession).Warn("go vet rejects this turn's files; giving the model repair rounds:\n%s", result.VetCheck.Output)
@@ -239,17 +253,19 @@ func (e *Executor) verifyAndRepairVet(
 			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
 				result.VetCheck = v
 			}
-			if v.Verdict() != VerifyPassed {
+			if !e.vetGatePassed(result.turnAtom(), result) {
 				return false, repairFailure{Output: v.Output}, v.Verdict()
 			}
 			// A vet repair that breaks the tests has repaired nothing: the
-			// round keeps the suite as green as it found it.
+			// round keeps the suite as green as it found it. The /test rule
+			// is what "green" is, so a failure that already failed before
+			// the turn does not undo a clean vet.
 			tv, _ := gateOwnTests(epCtx, workspace, result, false)
 			if tv.Verdict() == VerifyPassed || tv.Verdict() == VerifyFailed {
 				tv.Repair = result.TestCheck.Repair
 				result.TestCheck = tv
 			}
-			if tv.Verdict() != VerifyPassed {
+			if !e.testGatePassed(result.turnAtom(), result) {
 				return false, repairFailure{Output: tv.Output, TestsBroke: tv.Verdict() == VerifyFailed}, tv.Verdict()
 			}
 			return true, repairFailure{}, VerifyPassed

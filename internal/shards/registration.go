@@ -165,6 +165,14 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// joined against its attempts.
 				"repair_restart",
 				"turn_gate",
+				// Measurements the /test, /vet, /check and /test_run gates are
+				// derived from (coder_safety.mg). They join turn_failing_test,
+				// turn_check_run and turn_gate, which this shard owns; a
+				// catch-all home would split those joins and the gate would
+				// never fire.
+				"turn_test_failed_before", "turn_test_measured",
+				"turn_write_seq", "turn_test_run",
+				"turn_vet_ran", "turn_vet_finding", "turn_vet_before",
 				// The post-edit rounds a turn ran, and its write-tool count
 				// (turn_rounds.mg), beside the gates they schedule.
 				"turn_round_ran", "turn_write_tools",
@@ -403,7 +411,6 @@ func SharedPredicates() []string {
 		"active_goal",
 		// The moment
 		"current_time",
-		"ooda_timeout",
 		// The shards and their compile context
 		"active_shard",
 		"context_budget",

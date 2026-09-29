@@ -91,7 +91,7 @@ func TestVerifyCompletedToolTurn_APolicyEditNoTestRanIsSentBackToRunOne(t *testi
 	if !strings.Contains(client.prompts[0], "no test process ran after this turn's last write") || !strings.Contains(client.prompts[0], "x.mg") {
 		t.Errorf("the round's prompt does not name the file and the missing run:\n%s", client.prompts[0])
 	}
-	if got := result.testRunVerdict(); got != VerifyPassed {
+	if got := derivedVerify(t, e, result.turnAtom(), "/test_run"); got != VerifyPassed {
 		t.Fatalf("test run gate = %v after the round, want passed", got)
 	}
 
@@ -118,6 +118,9 @@ func TestVerifyCompletedToolTurn_ATestRunThatKeepsFailingIsTheVerdicts(t *testin
 		t.Errorf("a later attempt was not told the run failed: %q", client.prompts)
 	}
 	turn := result.turnAtom()
+	if got := derivedVerify(t, e, turn, "/test_run"); got != VerifyFailed {
+		t.Fatalf("test run gate = %v, want failing: the run after the write kept exiting 1", got)
+	}
 	e.assertTurnEvidence(turn, "/fix", result)
 	e.captureTurnOutcome(turn, result, nil)
 	if result.TurnOutcome == types.MangleAtom("/done") || !slices.Contains(result.MissingEvidence, "/test_run_not_green") {

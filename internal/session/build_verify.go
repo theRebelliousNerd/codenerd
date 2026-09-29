@@ -80,6 +80,16 @@ type BuildVerification struct {
 	// outcome, cost, per-attempt evidence, edited files, follow-ups. Nil
 	// when the gate passed (or was skipped/canceled) without repair.
 	Repair *RepairRecord
+
+	// VetMeasured is set by verifyVet when the run was conclusive: exit 0,
+	// or a non-zero exit that named findings. VetNow is that run's findings.
+	// VetBeforeKnown is true when the pre-turn vet also finished; VetBefore
+	// is what it reported, empty when it was clean. A finding's identity is
+	// its file and message, not its line.
+	VetMeasured    bool
+	VetBeforeKnown bool
+	VetNow         []vetDiagnostic
+	VetBefore      []vetDiagnostic
 }
 
 // Verdict returns the authoritative outcome, deriving one for hand-built
@@ -310,8 +320,6 @@ func (e *Executor) verifyAndRepairTests(
 	}
 
 	switch verification.Verdict() {
-	case VerifyPassed, VerifySkipped:
-		return nil, nil, nil
 	case VerifyCanceled:
 		return nil, nil, fmt.Errorf("test verification canceled: %w", context.Canceled)
 	case VerifyIndeterminate:
@@ -320,6 +328,12 @@ func (e *Executor) verifyAndRepairTests(
 		// closeChangeEvidence arbitrates the final workspace.
 		logging.Get(logging.CategorySession).Warn(
 			"Test verification timed out on the initial check; turn completes unverified")
+		return nil, nil, nil
+	}
+	// Passed, skipped, or a failure policy does not charge to the turn
+	// (every named failure also failed before it). The outcome stays the
+	// run's own exit.
+	if !e.testGateRed(result.turnAtom(), result) {
 		return nil, nil, nil
 	}
 
@@ -366,7 +380,10 @@ func (e *Executor) verifyAndRepairTests(
 			if rt.Verdict() == VerifyPassed || rt.Verdict() == VerifyFailed {
 				result.TestCheck = rt
 			}
-			return rt.Verdict() == VerifyPassed, repairFailure{Output: rt.Output}, rt.Verdict()
+			if e.testGatePassed(result.turnAtom(), result) {
+				return true, repairFailure{}, VerifyPassed
+			}
+			return false, repairFailure{Output: rt.Output}, rt.Verdict()
 		},
 		followups: func() []string {
 			runnable, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
@@ -389,7 +406,10 @@ func (e *Executor) verifyAndRepairTests(
 // its callers and not by itself.
 func gateTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
 	v, uncovered := gateOwnTests(ctx, workspace, result, withCoverage)
-	if v.Verdict() != VerifyPassed {
+	// Importers still run when the turn's own named failures all predate it,
+	// so a new importer failure is measured. That comparison does not set
+	// the outcome: the /test rule does, from the run this returns.
+	if v.Verdict() != VerifyPassed && !failuresAllPredate(v) {
 		return v, uncovered
 	}
 	return mergeImporterVerdict(v, verifyImporters(ctx, workspace, result)), uncovered

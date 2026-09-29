@@ -780,7 +780,11 @@ func (e *Executor) verifyAndRepairPinning(
 	if e.sessionContext != nil && e.sessionContext.DreamMode {
 		return nil, nil, nil
 	}
-	if !e.configSnapshot().VerifyTestsAfterEdits || result.TestCheck.Verdict() != VerifyPassed {
+	// The derived /test gate, which is what the closure reads. A suite whose
+	// only failures already failed still fails the process, and returning on
+	// that exit left this round's /pinned measurement unmade. With no
+	// kernel, testGatePassed is the raw exit and records no verdict.
+	if !e.configSnapshot().VerifyTestsAfterEdits || !e.testGatePassed(result.turnAtom(), result) {
 		return nil, nil, nil
 	}
 	workspace := e.workspaceForVerification()

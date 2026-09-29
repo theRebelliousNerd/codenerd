@@ -790,24 +790,24 @@ type ExecutionResult struct {
 
 	// TestRunSinceLastWrite is the last test process the tool layer recorded
 	// after this turn's last successful write, or nil when none has run since
-	// it; every successful write resets it. It is the /test_run gate's
-	// measurement: a write the Go gates do not cover -- anything but Go and
-	// documentation -- is verified by a test run the model started once it had
-	// stopped writing, and that run's exit decides (coder_safety.mg
-	// turn_owes_gate, external audit N01).
+	// it; every successful write resets it. The /test_run rule does not read
+	// it. The shortfall prompt and the choice to run the workspace's own
+	// gates do: both need the last process, not the derived verdict
+	// (coder_safety.mg turn_owes_gate, external audit N01).
 	TestRunSinceLastWrite *tools.TestRun
 
-	// CheckSinceLastWrite is the last campaign acceptance command the tool
-	// layer recorded after this turn's last successful write, or nil when
-	// none has run since it; every successful write resets it. It is the
-	// /check gate's measurement, the same shape as TestRunSinceLastWrite: a
-	// turn that carries a declared check and wrote is verified by a run_check
-	// that exited 0 once it had stopped writing. The campaign's acceptance
-	// round stays the authority; this is the turn's own evidence.
-	CheckSinceLastWrite *tools.AcceptanceRun
-
-	// checkSeq numbers the run_check receipts asserted as turn_check_run.
-	checkSeq int
+	// gateSeq numbers successful writes, test runs and run_check on one
+	// clock. turn_write_seq, turn_test_run and turn_check_run carry it, and
+	// the /check and /test_run rules take the last run whose seq is after
+	// the last write.
+	gateSeq int
+	// writeSequenced is set once this turn's writes are on that clock, so
+	// the closure does not invent a write after runs the tool loop already
+	// recorded.
+	writeSequenced bool
+	// testRunSequenced is set once a test run is on that clock, so a run the
+	// tool loop recorded is not asserted again from the pointer.
+	testRunSequenced bool
 	// checkDeclared is set once turn_declared_check is asserted for this turn.
 	checkDeclared bool
 
@@ -1217,8 +1217,9 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 
 	// Surface unrecovered tool failures as the execution error. See
 	// surfaceToolErrors: whether a mid-turn tool error survived is decided by
-	// the closing evidence, not by the shape of the final response.
-	surfaceToolErrors(result, toolErrs)
+	// the closing evidence, not by the shape of the final response. This
+	// executor measured the run, so the read asks it directly.
+	e.surfaceToolErrors(result, toolErrs)
 
 	// Close the turn on every path: checkHollowSuccess asserts the turn's
 	// evidence, reads the kernel's verdict once and retracts the per-turn
@@ -2695,33 +2696,39 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	if e.kernel == nil || result == nil {
 		return
 	}
-	record := func(global string, gate types.MangleAtom, verdict VerifyOutcome) {
-		var state types.MangleAtom
+	// /build and /pinned are this function's assertions. /test, /vet,
+	// /test_run and /check are derived (coder_safety.mg): asserting
+	// turn_gate for them here would be a second source for one gate.
+	// test_state stays the raw suite exit. A suite that fails only on tests
+	// that already failed is still a failing suite; the turn is not charged
+	// for it, and that charge is the derived gate, not this fact.
+	stateOf := func(verdict VerifyOutcome) (types.MangleAtom, bool) {
 		switch verdict {
 		case VerifyPassed:
-			state = types.MangleAtom("/passing")
+			return types.MangleAtom("/passing"), true
 		case VerifyFailed:
-			state = types.MangleAtom("/failing")
+			return types.MangleAtom("/failing"), true
 		default:
-			return
+			return "", false
 		}
-		if global != "" {
-			e.assertTurnFact(types.Fact{Predicate: global, Args: []any{state}})
-		}
-		e.assertTurnFact(types.Fact{Predicate: "turn_gate", Args: []any{turn, gate, state}})
 	}
-	record("build_state", types.MangleAtom("/build"), result.BuildCheck.Verdict())
-	record("test_state", types.MangleAtom("/test"), result.TestCheck.Verdict())
-	// Vet has no session-global: turn_gate is its only record.
-	record("", types.MangleAtom("/vet"), result.VetCheck.Verdict())
-	// The test run after the last write has no session-global either.
-	record("", types.MangleAtom("/test_run"), result.testRunVerdict())
-	// Nor does the pinning gate.
-	record("", types.MangleAtom("/pinned"), result.PinCheck.Verdict())
-	// Nor the campaign acceptance check. Same shape as /test_run: the last
-	// run_check since the last write, decided here rather than recomputed
-	// from the turn_check_run receipts.
-	record("", types.MangleAtom("/check"), result.checkVerdict())
+	if state, ok := stateOf(result.BuildCheck.Verdict()); ok {
+		e.assertTurnFact(types.Fact{Predicate: "build_state", Args: []any{state}})
+		e.assertTurnFact(types.Fact{Predicate: "turn_gate", Args: []any{turn, types.MangleAtom("/build"), state}})
+	}
+	if state, ok := stateOf(result.TestCheck.Verdict()); ok {
+		e.assertTurnFact(types.Fact{Predicate: "test_state", Args: []any{state}})
+	}
+	e.syncTestGateFacts(turn, result)
+	e.syncVetGateFacts(turn, result)
+	// Writes recorded on the result, and a test run recorded only on the
+	// pointer, join the clock the tool loop already uses. The turn argument
+	// is the key the caller is closing, which is not always result.turnAtom().
+	e.ensureWriteSequenced(turn, result)
+	e.ensurePointerTestRun(turn, result)
+	if state, ok := stateOf(result.PinCheck.Verdict()); ok {
+		e.assertTurnFact(types.Fact{Predicate: "turn_gate", Args: []any{turn, types.MangleAtom("/pinned"), state}})
+	}
 	// Coverage debt rides with the gates: asserted here, retracted with them.
 	// The corpus withholds turn_verified while any holds and names it as
 	// turn_missing_evidence(Turn, /tests_not_written) or
@@ -2749,23 +2756,8 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 			Args:      []any{turn, types.MangleString(ref)},
 		})
 	}
-	// The gate's parsed run, keyed by this turn. A skipped gate has nothing
-	// to assert; the Result already parsed at the gate is the source.
-	e.assertTurnTestFacts(turn, result)
-}
-
-// testRunVerdict is the /test_run gate's verdict: passed when the last test
-// run since the turn's last write exited 0, failed when it exited otherwise,
-// skipped -- no verdict -- when none ran since it.
-func (r *ExecutionResult) testRunVerdict() VerifyOutcome {
-	switch {
-	case r.TestRunSinceLastWrite == nil:
-		return VerifySkipped
-	case r.TestRunSinceLastWrite.ExitCode == 0:
-		return VerifyPassed
-	default:
-		return VerifyFailed
-	}
+	// The gate's parsed run is asserted by syncTestGateFacts, with the
+	// baseline names. A second call here would assert the rows twice.
 }
 
 // uncoveredPaths names each file holding blocks of this turn's changed code

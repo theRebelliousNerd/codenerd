@@ -76,15 +76,21 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 				}
 			}
 			current, currentErr := evidence.Snapshot(ctx, workspace)
+			// /build stays the host-asserted raw exit. /test is the derived
+			// gate: the suite exit used to be rewritten to passed when every
+			// failure predated the turn, and this read still treated that
+			// exit as the turn's. With no kernel the helpers are the raw
+			// exit and record no verdict.
+			testsPassed, testsRed := closingTestGate(e, result)
 			if err == nil && currentErr == nil && current == after &&
-				result.BuildCheck.Verdict() == VerifyPassed && result.TestCheck.Verdict() == VerifyPassed {
+				result.BuildCheck.Verdict() == VerifyPassed && testsPassed {
 				result.ChecksSnapshot = current
 				result.ChangeStage = "checks_passed"
 			}
 			// Only an affirmative failure fails the turn. A timeout or cancel is
 			// not proof of broken code: the stage stays artifact_changed and the
 			// turn is labeled unverified rather than failed.
-			if result.BuildCheck.Verdict() == VerifyFailed || result.TestCheck.Verdict() == VerifyFailed {
+			if result.BuildCheck.Verdict() == VerifyFailed || testsRed {
 				return fmt.Errorf("%w: final workspace failed mechanical checks: %s", ErrVerificationFailed, failedChecksSummary(result))
 			}
 		}
@@ -134,14 +140,19 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 		result.TestCheck = fresh
 		result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
 		// The pinning gate, where the schedule ran its round
-		// (turn_round_ran), over the tests as they are now; a red suite
-		// leaves it unmeasured -- the turn fails on the tests. It used to
-		// ask turn_owes_gate again here, and a failed query meant no
-		// remeasure: the verdict then read a pin check older than the code.
-		if ran["/pinned"] && result.TestCheck.Verdict() == VerifyPassed {
-			pin := verifyPinning(ctx, workspace, result, false)
-			pin.Repair = inheritRepair(pin.Verdict(), result.PinCheck.Repair)
-			result.PinCheck = pin
+		// (turn_round_ran), over the tests as they are now. A suite the
+		// derived /test gate charges to the turn leaves it unmeasured --
+		// the turn fails on the tests. The raw exit is not that charge:
+		// failures that already failed still fail the process, and skipping
+		// the pin run then left a check older than the code. turnTests
+		// drops those names from the pin run, so what is measured is the
+		// tests this turn wrote.
+		if ran["/pinned"] {
+			if passed, _ := closingTestGate(e, result); passed {
+				pin := verifyPinning(ctx, workspace, result, false)
+				pin.Repair = inheritRepair(pin.Verdict(), result.PinCheck.Repair)
+				result.PinCheck = pin
+			}
 		}
 	}
 	if ran["/vet"] && cfg.VerifyBuildAfterEdits {
@@ -162,7 +173,8 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 // A tool error is an event inside the turn, not a verdict on it: the model may
 // run a build, see it fail, fix the code, and run it green. What decides
 // whether the failure survived is the CLOSING evidence, so that is what this
-// asks.
+// asks. The receiver is the executor that measured the run. A nil receiver
+// has no kernel: closingTestGate is then the raw suite exit and records nothing.
 //
 // It used to ask whether the final response was empty. Live (2026-09-18 00:05,
 // pid 054828, `nerd fix`): run_build failed mid-turn, the repair loop
@@ -173,32 +185,53 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 // checks_passed" onto that empty string, so the user was shown a green
 // evidence line beside a failed exit. turn_cost recorded outcome=/failed with
 // every gate green.
-func surfaceToolErrors(result *ExecutionResult, toolErrs []string) {
+func (e *Executor) surfaceToolErrors(result *ExecutionResult, toolErrs []string) {
 	if result == nil || len(toolErrs) == 0 {
 		return
 	}
-	if turnRecoveredFromToolErrors(result) {
+	if e.turnRecoveredFromToolErrors(result) {
 		return
 	}
 	result.Error = fmt.Errorf("tool execution failed: %s", strings.Join(toolErrs, "; "))
 }
 
+// closingTestGate is the /test gate the closure reads. testGateRed and
+// testGatePassed sync this run and ask policy; they do not choose a second
+// verdict. With no kernel they are the raw suite exit and record nothing.
+// A pass and a fail derived together is red: one gate, one charge.
+func closingTestGate(e *Executor, result *ExecutionResult) (passed, red bool) {
+	if result == nil {
+		return false, false
+	}
+	turn := result.turn
+	if e != nil && e.kernel != nil {
+		turn = result.turnAtom()
+	}
+	if e.testGateRed(turn, result) {
+		return false, true
+	}
+	return e.testGatePassed(turn, result), false
+}
+
 // turnRecoveredFromToolErrors reports whether the closing evidence answers the
-// tool errors this turn hit on the way there.
+// tool errors this turn hit on the way there. A nil receiver has no kernel:
+// the /test read is the raw suite exit and records no verdict.
 //
 // The order is the point. An affirmative gate failure is the tool error
 // confirmed; a gate that ran and passed is direct evidence about the final
 // workspace and outranks anything that failed earlier in the turn; and only
 // when no gate ran at all does the model's own closing answer decide, because
-// then it is the only signal there is.
-func turnRecoveredFromToolErrors(result *ExecutionResult) bool {
+// then it is the only signal there is. /build is the raw exit. /test is
+// closingTestGate.
+func (e *Executor) turnRecoveredFromToolErrors(result *ExecutionResult) bool {
 	if result == nil {
 		return false
 	}
-	if result.BuildCheck.Verdict() == VerifyFailed || result.TestCheck.Verdict() == VerifyFailed {
+	testsPassed, testsRed := closingTestGate(e, result)
+	if result.BuildCheck.Verdict() == VerifyFailed || testsRed {
 		return false
 	}
-	if result.BuildCheck.Verdict() == VerifyPassed || result.TestCheck.Verdict() == VerifyPassed {
+	if result.BuildCheck.Verdict() == VerifyPassed || testsPassed {
 		return true
 	}
 	return strings.TrimSpace(result.Response) != ""

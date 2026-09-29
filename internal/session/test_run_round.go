@@ -20,8 +20,8 @@ import (
 // run named, and nothing sent it back to run it.
 //
 // The obligation is the kernel's: the turn's writes are asserted under its key
-// and turn_owes_gate is asked. The measure is Go's: the last test process the
-// tool layer recorded since the last write (TestRunSinceLastWrite). A round
+// and turn_owes_gate is asked. The measure is the seq clock (turn_test_run,
+// turn_write_seq). The pointer is the shortfall text, not the verdict. A round
 // that does not converge leaves /test_run_not_green to the verdict; it does
 // not fail the turn.
 func (e *Executor) verifyAndRepairTestRun(
@@ -39,6 +39,9 @@ func (e *Executor) verifyAndRepairTestRun(
 	if e.sessionContext != nil && e.sessionContext.DreamMode {
 		return nil, nil, nil
 	}
+	// Writes already on the result are one moment, before a run this round
+	// starts. A clock the tool loop advanced already has that write.
+	e.ensureWriteSequenced(result.turnAtom(), result)
 	// When the workspace says how it tests what was written, the executor
 	// runs that instead of waiting on a run the model chooses.
 	byWorkspace := false
@@ -46,7 +49,11 @@ func (e *Executor) verifyAndRepairTestRun(
 	if result.TestRunSinceLastWrite == nil {
 		byWorkspace, gateOutput = e.workspaceTestRun(ctx, result)
 	}
-	if result.testRunVerdict() == VerifyPassed {
+	// A run recorded only on the pointer (the closure's other path) is the
+	// same measurement. The tool loop and workspaceTestRun already sequenced
+	// theirs, and this does not assert those again.
+	e.ensurePointerTestRun(result.turnAtom(), result)
+	if e.testRunGatePassed(result.turnAtom()) {
 		return nil, nil, nil
 	}
 	seed := testRunShortfall(result)
@@ -64,11 +71,12 @@ func (e *Executor) verifyAndRepairTestRun(
 			if byWorkspace {
 				// The workspace's gates decide, not a run the model picked
 				// after its repair: re-run them on what the repair left.
-				if _, out := e.workspaceTestRun(ctx, result); result.testRunVerdict() != VerifyPassed {
+				_, out := e.workspaceTestRun(ctx, result)
+				if !e.testRunGatePassed(result.turnAtom()) {
 					return false, repairFailure{Output: testRunShortfall(result) + "\n\n" + out}, VerifyFailed
 				}
 			}
-			if result.testRunVerdict() == VerifyPassed {
+			if e.testRunGatePassed(result.turnAtom()) {
 				return true, repairFailure{}, VerifyPassed
 			}
 			// The shortfall is a missing run, not a red suite.

@@ -997,19 +997,20 @@ func (e *Executor) executeAndRecordToolCall(
 		result.TestRunCalls++
 		last := runs[len(runs)-1]
 		result.TestRunSinceLastWrite = &last
+		// Every process, not only the last: the /test_run rule keeps the
+		// one whose seq is after the last write. A call that also writes
+		// records the run first, so the run's seq is the earlier one.
+		for _, run := range runs {
+			e.noteTestRun(result, run.ExitCode)
+		}
 	}
 	// A run_check is an acceptance command the tool layer started and
-	// recorded (tools.AcceptanceRun). The last one since the last write is
-	// the /check gate; every one is also a turn_check_run receipt. A run
-	// before a write stays in the receipt log and drops out of the gate.
+	// recorded (tools.AcceptanceRun). Every one is a turn_check_run on the
+	// same clock. A run before a write stays in the receipt log; its seq is
+	// not after the last write, and the /check rule drops it.
 	if runs := checkRuns(); len(runs) > 0 {
-		last := runs[len(runs)-1]
-		result.CheckSinceLastWrite = &last
-		if e.kernel != nil {
-			for _, run := range runs {
-				result.checkSeq++
-				e.assertTurnCheckRun(result, run.ExitCode)
-			}
+		for _, run := range runs {
+			e.noteCheckRun(result, run.ExitCode)
 		}
 	}
 	memoryErr := e.recordWorkingResult(ctx, call, out, err)
@@ -1021,8 +1022,9 @@ func (e *Executor) executeAndRecordToolCall(
 	if isWriteMutationTool(call.Name) {
 		result.SuccessfulWriteTools++
 		// A run before this write says nothing about what the write left.
+		// The receipt facts stay; the write's seq is what puts them before it.
 		result.TestRunSinceLastWrite = nil
-		result.CheckSinceLastWrite = nil
+		e.noteWrite(result)
 		if err := recordWrittenPaths(result, call.Input, e.workspaceForVerification()); err != nil {
 			logging.Get(logging.CategorySession).Warn(
 				"successful write %s returned invalid target metadata: %v", call.Name, err)

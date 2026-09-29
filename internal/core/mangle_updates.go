@@ -315,6 +315,19 @@ var hostWitnessPredicates = map[string]struct{}{
 	// put a tool on a turn's envelope directly. turn_check_run is the
 	// host's receipt, not the model's.
 	"turn_declared_check": {}, "turn_check_run": {}, "editing_persona": {}, "turn_catalog": {},
+	// Measurements the three moved gates are derived from (coder_safety.mg).
+	// A model that could write them could mint a passing /test, /vet, /check
+	// or /test_run, or hide a failure the host measured. The derived helpers
+	// are the same conclusion: an asserted turn_own_test_failure or
+	// turn_last_check would be a second source for the gate.
+	"turn_test_failed_before": {}, "turn_test_measured": {},
+	"turn_own_test_failure": {}, "turn_has_own_test_failure": {}, "turn_has_failing_test": {},
+	"turn_write_seq": {}, "turn_test_run": {},
+	"turn_last_write":  {},
+	"turn_check_after": {}, "turn_check_after_seq": {}, "turn_last_check": {},
+	"turn_test_after": {}, "turn_test_after_seq": {}, "turn_last_test_run": {},
+	"turn_vet_ran": {}, "turn_vet_finding": {}, "turn_vet_before": {},
+	"turn_vet_before_key": {}, "turn_vet_new": {}, "turn_has_vet_new": {},
 	// The turn's own report admitting unfinished work (Q-14): a model able to
 	// retract or never assert it would decide its own verdict; asserting it
 	// only withholds, but it is the host's reading, not the model's.

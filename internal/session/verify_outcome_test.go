@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/prompt"
@@ -288,9 +289,14 @@ func TestVerifyAndRepairTests_PreExistingFailuresNeedNoRepair(t *testing.T) {
 	builds := &scriptVerifyRunner{script: []func(context.Context) ([]byte, error){verifyPass()}}
 	stubVerifySeams(t, time.Minute, time.Minute, builds.runWithCtx, tests.runWithCtx)
 	e, result := verifyGateExecutor(t)
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.kernel = kernel
 	result.PreWriteContents = map[string]PreImage{"main.go": existed("package main\n")}
 	trp := &verifyProseRepair{}
-	_, _, err := e.verifyAndRepairTests(context.Background(), trp, "system", nil, nil, &jitconfig.EffectiveAgentRuntimeConfig{}, result)
+	_, _, err = e.verifyAndRepairTests(context.Background(), trp, "system", nil, nil, &jitconfig.EffectiveAgentRuntimeConfig{}, result)
 	if err != nil {
 		t.Fatalf("verifyAndRepairTests returned error: %v", err)
 	}
@@ -300,11 +306,17 @@ func TestVerifyAndRepairTests_PreExistingFailuresNeedNoRepair(t *testing.T) {
 	if got := tests.callCount(); got != 2 {
 		t.Errorf("tests.callCount() = %d; want 2 (head run + baseline overlay run)", got)
 	}
-	if got := result.TestCheck.Verdict(); got != VerifyPassed {
-		t.Errorf("Verdict() = %v; want VerifyPassed", got)
+	if got := result.TestCheck.Verdict(); got != VerifyFailed {
+		t.Errorf("Verdict() = %v; want the process failure, not a rewritten pass", got)
 	}
 	if len(result.TestCheck.PreExistingFailures) != 1 || result.TestCheck.PreExistingFailures[0] != "TestAlwaysFails" {
 		t.Errorf("PreExistingFailures = %v; want [TestAlwaysFails]", result.TestCheck.PreExistingFailures)
+	}
+	if !strings.Contains(result.TestCheck.Output, "TestAlwaysFails") {
+		t.Errorf("the text does not name the pre-existing failure: %q", result.TestCheck.Output)
+	}
+	if got := derivedVerify(t, e, result.turnAtom(), "/test"); got != VerifyPassed {
+		t.Errorf("test gate = %v, want passing: TestAlwaysFails also failed before the turn", got)
 	}
 }
 

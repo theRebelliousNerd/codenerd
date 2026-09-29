@@ -81,11 +81,18 @@ Decl turn_acceptance(Turn, Contract, Snapshot) bound [/name, /string, /string].
 # withhold verification, never supply it.
 Decl turn_self_reported_incomplete(Turn) bound [/name].
 Decl has_turn_acceptance(Turn) bound [/name].
-# turn_gate is THIS turn's post-edit gate as the session executor measured it
-# (recordBuildState): Gate is /build, /test, /vet, /test_run, /pinned or /check;
-# Verdict is /passing or /failing, and only an affirmative verdict is ever
-# asserted. The verdict rules below read the evidence of the turn they judge
-# and nothing else.
+# turn_gate is THIS turn's post-edit gate. Gate is /build, /test, /vet,
+# /test_run, /pinned or /check; Verdict is /passing or /failing, and only an
+# affirmative verdict is ever present. /build and /pinned are asserted by the
+# executor from those commands' own exits (recordBuildState). /test, /vet,
+# /test_run and /check are derived below from measurements the executor
+# asserts and does not judge. One source per gate: the engine keeps a source
+# fact of an IDB predicate beside atoms a rule derives (probed 2026-09-29,
+# nerd check-mangle --standalone --eval turn_gate), so a rule and a host
+# assert can share this predicate, and two sources for one gate would let
+# /passing and /failing both hold, which turn_red_gate reads as red.
+# The verdict rules below read the evidence of the turn they judge and
+# nothing else.
 # build_state/1 and test_state/1 are the session-global workspace state --
 # written by the same gates, but also by the run_tests tool the model invokes,
 # the TDD loop's state machine and the log reader, none of them per-turn -- and
@@ -136,6 +143,39 @@ Decl turn_vet_red(Turn) bound [/name].
 turn_vet_green(Turn) :- turn_gate(Turn, /vet, /passing).
 turn_vet_red(Turn) :- turn_gate(Turn, /vet, /failing).
 
+# The /vet gate is the difference in counts of (file, message). The position
+# is not part of the key: an edit above a finding moves its line and not what
+# it is (session/change_gates.go, vetDiagnostic). Counts, not a set of lines:
+# a second copy of a message the baseline already reported is still new
+# (N > B). No before-row means the baseline did not report that finding,
+# including a baseline that did not run, so every current finding is charged.
+# turn_vet_ran is asserted only for a conclusive run (exit 0, or a failure
+# that named findings). A failure that named nothing asserts nothing, and
+# that is not a pass.
+Decl turn_vet_ran(Turn) bound [/name].
+Decl turn_vet_finding(Turn, File, Message, Count) bound [/name, /string, /string, /number].
+Decl turn_vet_before(Turn, File, Message, Count) bound [/name, /string, /string, /number].
+Decl turn_vet_before_key(Turn, File, Message) bound [/name, /string, /string].
+Decl turn_vet_new(Turn, File, Message) bound [/name, /string, /string].
+Decl turn_has_vet_new(Turn) bound [/name].
+
+turn_vet_before_key(Turn, File, Message) :-
+    turn_vet_before(Turn, File, Message, _).
+turn_vet_new(Turn, File, Message) :-
+    turn_vet_finding(Turn, File, Message, N),
+    turn_vet_before(Turn, File, Message, B),
+    N > B.
+turn_vet_new(Turn, File, Message) :-
+    turn_vet_finding(Turn, File, Message, _),
+    !turn_vet_before_key(Turn, File, Message).
+turn_has_vet_new(Turn) :- turn_vet_new(Turn, _, _).
+turn_gate(Turn, /vet, /failing) :-
+    turn_vet_ran(Turn),
+    turn_has_vet_new(Turn).
+turn_gate(Turn, /vet, /passing) :-
+    turn_vet_ran(Turn),
+    !turn_has_vet_new(Turn).
+
 # What a write owes is policy, not a property of the gate code (external audit
 # N01, 2026-09-19). Until then the compile and test gates ran only when a .go
 # file was written while turn_verified demanded both green for every write, so
@@ -154,8 +194,9 @@ turn_vet_red(Turn) :- turn_gate(Turn, /vet, /failing).
 #           a gate it cannot have would leave it unverifiable. Stated here so
 #           a reader does not infer it from an absence.
 #   /other  /test_run: a test process the tool layer started after the turn's
-#           last write, whose exit was 0 (the executor reads the receipts
-#           internal/tools records -- N07 -- and asserts the gate)
+#           last write, whose exit was 0. The executor asserts each run and
+#           each successful write (turn_test_run, turn_write_seq, one seq
+#           clock); the gate is derived below.
 #
 # A write-oriented turn with no recorded write -- dream mode, or a write tool
 # whose path was not recorded -- owes both Go gates: the cautious side, as
@@ -188,12 +229,49 @@ Decl turn_element_measured(Turn, Ref) bound [/name, /string].
 # are not keyed by turn, so a verdict that joined them would see another
 # turn's failures; RetractFact matches the first argument, which is why the
 # turn is that argument. Shapes match testfacts.Facts exactly, Turn first.
-# Nothing reads them yet.
+# turn_failing_test is what the /test gate reads. The other rows are the run
+# itself; the gate does not read them.
 Decl turn_test_case(Turn, Pkg, Test, Status, ElapsedMs) bound [/name, /string, /string, /name, /number].
 Decl turn_test_failure_at(Turn, Pkg, Test, File, Line, Message, Count) bound [/name, /string, /string, /string, /number, /string, /number].
 Decl turn_test_build_failure(Turn, Pkg, File, Line, Message) bound [/name, /string, /string, /number, /string].
 Decl turn_test_output_repeat(Turn, Line, Count) bound [/name, /string, /number].
 Decl turn_failing_test(Turn, TestName, ErrorMessage) bound [/name, /string, /string].
+
+# The /test gate. The executor asserts what the runs measured and does not
+# rewrite the outcome. turn_test_measured is the head run's raw exit, and
+# only when that run was conclusive. turn_failing_test names each failing
+# test (sanitized, subtests included); an empty name is a build that named
+# no test. turn_test_failed_before is every test the pre-turn baseline
+# failed, when that baseline finished. A failure is this turn's when the
+# head named it and the baseline did not. A failing run that named no test
+# is the turn's: attribution it could not make is not a pass. The gate is
+# red only for the turn's own failures.
+Decl turn_test_failed_before(Turn, TestName) bound [/name, /string].
+Decl turn_test_measured(Turn, Outcome) bound [/name, /name].
+Decl turn_own_test_failure(Turn, Name) bound [/name, /string].
+Decl turn_has_own_test_failure(Turn) bound [/name].
+Decl turn_has_failing_test(Turn) bound [/name].
+
+turn_own_test_failure(Turn, Name) :-
+    turn_failing_test(Turn, Name, _),
+    !turn_test_failed_before(Turn, Name).
+turn_has_own_test_failure(Turn) :- turn_own_test_failure(Turn, _).
+turn_has_failing_test(Turn) :- turn_failing_test(Turn, _, _).
+
+turn_gate(Turn, /test, /failing) :-
+    turn_test_measured(Turn, /failing),
+    turn_has_own_test_failure(Turn).
+# No failing_test row at all. The projection is what negation can see:
+# !turn_failing_test(Turn, _, _) is deleted (engine truth 020 item 1).
+turn_gate(Turn, /test, /failing) :-
+    turn_test_measured(Turn, /failing),
+    !turn_has_failing_test(Turn).
+turn_gate(Turn, /test, /passing) :-
+    turn_test_measured(Turn, /passing).
+turn_gate(Turn, /test, /passing) :-
+    turn_test_measured(Turn, /failing),
+    turn_has_failing_test(Turn),
+    !turn_has_own_test_failure(Turn).
 # turn_doc_write: the written path lies under a path the workspace's nerd.md
 # declares as docs (the executor measures it; assertTurnWrites).
 Decl turn_doc_write(Turn, Path) bound [/name, /string].
@@ -265,11 +343,60 @@ turn_owes_gate(Turn, /pinned) :- turn_verb(Turn, Verb), behavior_change_intent(V
 # evidence that it ran the same judge.
 Decl turn_declared_check(Turn) bound [/name].
 Decl editing_persona(Persona) bound [/name].
-# turn_check_run is the host's receipt of each run_check this turn started
-# (sequence, exit). "Last run since the last write" is the executor's
-# turn_gate(/check), the same place /test_run is decided; no rule recomputes
-# it from these facts.
+# One clock for this turn (session gateSeq). turn_write_seq is each
+# successful write, turn_check_run each run_check, turn_test_run each test
+# process. A run counts only when its seq is after the last write, and the
+# last such run's exit is the gate. Probed 2026-09-29 with
+# nerd check-mangle --standalone --eval: fn:max after group_by(Turn) is the
+# greatest seq; a run at a lower seq derives no after-row; no write derives
+# no last-write and therefore no gate; exit 0 is passing and a non-zero exit
+# is failing. The seq is projected before the aggregate. A single-atom body
+# may keep a wildcard through a transform on this engine, and a second atom
+# in that body would not (engine truth 020 item 7), so the wildcard form is
+# not what these rules use.
 Decl turn_check_run(Turn, Seq, ExitCode) bound [/name, /number, /number].
+Decl turn_write_seq(Turn, Seq) bound [/name, /number].
+Decl turn_test_run(Turn, Seq, ExitCode) bound [/name, /number, /number].
+Decl turn_last_write(Turn, W) bound [/name, /number].
+Decl turn_check_after(Turn, S, C) bound [/name, /number, /number].
+Decl turn_check_after_seq(Turn, S) bound [/name, /number].
+Decl turn_last_check(Turn, M) bound [/name, /number].
+Decl turn_test_after(Turn, S, C) bound [/name, /number, /number].
+Decl turn_test_after_seq(Turn, S) bound [/name, /number].
+Decl turn_last_test_run(Turn, M) bound [/name, /number].
+
+turn_last_write(Turn, W) :-
+    turn_write_seq(Turn, S) |> do fn:group_by(Turn), let W = fn:max(S).
+
+turn_check_after(Turn, S, C) :-
+    turn_check_run(Turn, S, C),
+    turn_last_write(Turn, W),
+    S > W.
+turn_check_after_seq(Turn, S) :- turn_check_after(Turn, S, _).
+turn_last_check(Turn, M) :-
+    turn_check_after_seq(Turn, S) |> do fn:group_by(Turn), let M = fn:max(S).
+turn_gate(Turn, /check, /passing) :-
+    turn_last_check(Turn, M),
+    turn_check_after(Turn, M, 0).
+turn_gate(Turn, /check, /failing) :-
+    turn_last_check(Turn, M),
+    turn_check_after(Turn, M, C),
+    C != 0 .
+
+turn_test_after(Turn, S, C) :-
+    turn_test_run(Turn, S, C),
+    turn_last_write(Turn, W),
+    S > W.
+turn_test_after_seq(Turn, S) :- turn_test_after(Turn, S, _).
+turn_last_test_run(Turn, M) :-
+    turn_test_after_seq(Turn, S) |> do fn:group_by(Turn), let M = fn:max(S).
+turn_gate(Turn, /test_run, /passing) :-
+    turn_last_test_run(Turn, M),
+    turn_test_after(Turn, M, 0).
+turn_gate(Turn, /test_run, /failing) :-
+    turn_last_test_run(Turn, M),
+    turn_test_after(Turn, M, C),
+    C != 0 .
 editing_persona(/coder).
 editing_persona(/tester).
 # Owed exactly when this turn's catalog offered run_check and the turn wrote:

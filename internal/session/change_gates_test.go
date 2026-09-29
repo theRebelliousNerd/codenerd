@@ -73,6 +73,9 @@ func TestVerifyVet_ACauseInAWrittenFileReportedInAnother(t *testing.T) {
 	if v.Verdict() != VerifyFailed || !strings.Contains(v.Output, "use.go") || !strings.Contains(v.Output, "passes lock by value") {
 		t.Fatalf("verifyVet = %+v, want failed naming use.go's copied lock", v)
 	}
+	if got := derivedVerify(t, vetGateExec(t, v), testTurn, "/vet"); got != VerifyFailed {
+		t.Fatalf("vet gate = %v, want failing: the copied lock was not reported before the turn", got)
+	}
 }
 
 // A finding that was there before the turn is the workspace's, in a file the
@@ -85,9 +88,24 @@ func TestVerifyVet_AFindingThatPredatesTheTurnIsNotCharged(t *testing.T) {
 
 	v := verifyVet(context.Background(), ws, []string{"p/state.go"}, map[string]PreImage{"p/state.go": existed(stateBefore)})
 
-	if v.Verdict() != VerifyPassed {
-		t.Fatalf("verifyVet = %+v, want passed: both findings were there before the turn", v)
+	if v.Verdict() != VerifyFailed || !strings.Contains(v.Reason, "every finding predates the turn") {
+		t.Fatalf("verifyVet = %+v, want the process failure kept and the findings named as pre-existing", v)
 	}
+	if !strings.Contains(v.Output, "Pre-existing vet findings") || !strings.Contains(v.Output, "unreachable code") {
+		t.Fatalf("the text does not name the pre-existing finding:\n%s", v.Output)
+	}
+	if got := derivedVerify(t, vetGateExec(t, v), testTurn, "/vet"); got != VerifyPassed {
+		t.Fatalf("vet gate = %v, want passing: both findings were there before the turn", got)
+	}
+}
+
+// vetGateExec asserts one measured vet run and returns the executor whose
+// kernel holds the /vet rule's verdict for it.
+func vetGateExec(t *testing.T, v BuildVerification) *Executor {
+	t.Helper()
+	e := newObligationExec(t)
+	e.syncVetGateFacts(testTurn, &ExecutionResult{VetCheck: v})
+	return e
 }
 
 // Without a baseline the gate cannot tell old from new, and attribution it
@@ -99,6 +117,9 @@ func TestVerifyVet_WithoutABaselineEveryFindingIsCharged(t *testing.T) {
 
 	if v.Verdict() != VerifyFailed || !strings.Contains(v.Output, "use.go") || !strings.Contains(v.Reason, "no pre-turn vet") {
 		t.Fatalf("verifyVet = %+v, want failed naming use.go, with the missing baseline as the reason", v)
+	}
+	if got := derivedVerify(t, vetGateExec(t, v), testTurn, "/vet"); got != VerifyFailed {
+		t.Fatalf("vet gate = %v, want failing: a finding with no baseline is the turn's", got)
 	}
 }
 

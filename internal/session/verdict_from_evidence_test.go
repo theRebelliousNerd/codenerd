@@ -84,7 +84,10 @@ func TestRecoveredToolError_IsNotAFailedTurn(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			surfaceToolErrors(tc.result, toolErrs)
+			// No executor: a nil receiver has no kernel, so this is the raw
+			// suite exit and records no verdict.
+			var raw *Executor
+			raw.surfaceToolErrors(tc.result, toolErrs)
 			gotErr := tc.result.Error != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("surfaceToolErrors: error=%v (%v), want error=%v",
@@ -100,7 +103,10 @@ func TestRecoveredToolError_IsNotAFailedTurn(t *testing.T) {
 func TestSurfaceToolErrors_NoToolErrorsNeverFailsATurn(t *testing.T) {
 	t.Parallel()
 	res := &ExecutionResult{}
-	surfaceToolErrors(res, nil)
+	// No executor: a nil receiver has no kernel, so this is the raw suite
+	// exit and records no verdict.
+	var raw *Executor
+	raw.surfaceToolErrors(res, nil)
 	if res.Error != nil {
 		t.Fatalf("a turn with no tool errors must not be failed, got %v", res.Error)
 	}

@@ -83,8 +83,15 @@ func TestGateTests_AnImporterFailingBeforeTheTurnIsNotCharged(t *testing.T) {
 	writeWorkspaceFile(t, ws, "a/a.go", aBefore+"\nfunc Added() int { return 2 }\n")
 	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
 
-	if v, _ := gateTests(context.Background(), ws, result, false); v.Verdict() == VerifyFailed {
-		t.Fatalf("gate = failed (%s):\n%s\nwant the pre-existing failure not charged to the turn", v.Reason, v.Output)
+	v, _ := gateTests(context.Background(), ws, result, false)
+	if v.Verdict() != VerifyFailed {
+		t.Fatalf("gate process = %s (%s), want the suite's own failure left in place", v.Verdict(), v.Reason)
+	}
+	if !strings.Contains(v.Output, "TestAlreadyRed") {
+		t.Fatalf("the text does not name the pre-existing failure:\n%s", v.Output)
+	}
+	if got := derivedVerify(t, testGateExec(t, v), testTurn, "/test"); got != VerifyPassed {
+		t.Fatalf("test gate = %v, want passing: TestAlreadyRed failed before the turn\n%s", got, v.Output)
 	}
 }
 

@@ -61,20 +61,24 @@ func workspaceWithGate(t *testing.T, gateLine string) string {
 func TestWorkspaceTestRun_TheWorkspacesGateDecidesANonGoWrite(t *testing.T) {
 	bin := checkGate(t)
 	ws := workspaceWithGate(t, "  - id: check\n    kind: test\n    run: >-\n      '"+filepath.ToSlash(bin)+"' {node}\n    scope: node\n")
-	e := &Executor{}
+	e := newObligationExec(t)
 	e.SetConfig(ExecutorConfig{WorkspaceRoot: ws})
-	result := &ExecutionResult{WrittenPaths: []string{"svc/app.py"}}
+	result := &ExecutionResult{WrittenPaths: []string{"svc/app.py"}, SuccessfulWriteTools: 1}
+	// The write is one moment, before either run. The second run is a later
+	// seq, and that seq's exit is the gate.
+	turn := result.turnAtom()
+	e.ensureWriteSequenced(turn, result)
 
 	ran, out := e.workspaceTestRun(context.Background(), result)
-	if !ran || result.testRunVerdict() != VerifyFailed {
-		t.Fatalf("a red workspace gate fails the test run: ran=%v verdict=%v\n%s", ran, result.testRunVerdict(), out)
+	if !ran || derivedVerify(t, e, turn, "/test_run") != VerifyFailed {
+		t.Fatalf("a red workspace gate fails the test run: ran=%v verdict=%v\n%s", ran, derivedVerify(t, e, turn, "/test_run"), out)
 	}
 	if err := os.WriteFile(filepath.Join(ws, "svc", "value.txt"), []byte("ok\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result.TestRunSinceLastWrite = nil
-	if ran, out := e.workspaceTestRun(context.Background(), result); !ran || result.testRunVerdict() != VerifyPassed {
-		t.Fatalf("a green workspace gate passes it: ran=%v verdict=%v\n%s", ran, result.testRunVerdict(), out)
+	if ran, out := e.workspaceTestRun(context.Background(), result); !ran || derivedVerify(t, e, turn, "/test_run") != VerifyPassed {
+		t.Fatalf("a green workspace gate passes it: ran=%v verdict=%v\n%s", ran, derivedVerify(t, e, turn, "/test_run"), out)
 	}
 }
 

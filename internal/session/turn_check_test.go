@@ -17,6 +17,41 @@ import (
 	"codenerd/internal/types"
 )
 
+// derivedVerify is the turn_gate policy derived for this turn and gate.
+// Neither verdict is a skipped gate: the rule did not fire.
+func derivedVerify(t *testing.T, e *Executor, turn types.MangleAtom, gate string) VerifyOutcome {
+	t.Helper()
+	pass, fail := e.derivedGate(turn, gate)
+	if pass && fail {
+		t.Fatalf("turn_gate(%s, %s) is both passing and failing", turn, gate)
+	}
+	switch {
+	case pass:
+		return VerifyPassed
+	case fail:
+		return VerifyFailed
+	default:
+		return VerifySkipped
+	}
+}
+
+func gateFact(t *testing.T, e *Executor, pred string, turn types.MangleAtom, gate string) bool {
+	t.Helper()
+	facts, err := e.kernel.Query(pred)
+	if err != nil {
+		t.Fatalf("query %s: %v", pred, err)
+	}
+	for _, fact := range facts {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		if types.ExtractString(fact.Args[0]) == string(turn) && types.ExtractString(fact.Args[1]) == gate {
+			return true
+		}
+	}
+	return false
+}
+
 func campaignCheckContext() context.Context {
 	return tools.WithCampaignCheck(context.Background(), tools.CampaignCheck{
 		CampaignID: "camp",
@@ -239,9 +274,10 @@ func TestSpawn_OffersRunCheckOnlyToAnEditingPersonaWithACheck(t *testing.T) {
 	}
 }
 
-// The /check gate is the last run_check after the turn's last write, decided
-// in Go the way /test_run is: a run before a write is not a verdict, and the
-// receipt facts stay either way.
+// The /check gate is the last run_check after the turn's last write. The
+// tool loop asserts every run and every successful write on one seq clock;
+// coder_safety.mg derives the verdict. A run before a write is not a
+// verdict, and the receipt facts stay either way.
 func TestCheckGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 	ws := t.TempDir()
 	t.Setenv("CODENERD_WORKSPACE_ROOT", ws)
@@ -280,7 +316,10 @@ func TestCheckGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 		{"a later write sets the verdict aside", []types.ToolCall{write("w1"), run("r", 0), write("w2")}, VerifySkipped},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			kernel := &MockKernel{}
+			kernel, err := core.NewRealKernel()
+			if err != nil {
+				t.Fatal(err)
+			}
 			e := NewExecutor(kernel, &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 			e.config.WorkspaceRoot = ws
 			e.config.EnableSafetyGate = false
@@ -291,7 +330,7 @@ func TestCheckGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 			if result.SuccessfulWriteTools == 0 {
 				t.Fatal("no write succeeded; the probe measured nothing")
 			}
-			if got := result.checkVerdict(); got != tc.want {
+			if got := derivedVerify(t, e, result.turnAtom(), "/check"); got != tc.want {
 				t.Fatalf("check gate = %v, want %v", got, tc.want)
 			}
 			facts, err := kernel.Query("turn_check_run")
@@ -337,6 +376,9 @@ func TestTurnOutcome_ADeclaredCheckIsEvidence(t *testing.T) {
 		result := mdWrite()
 		declare(t, e)
 		closeTurn(e, result, "/fix")
+		if got := derivedVerify(t, e, testTurn, "/check"); got != VerifySkipped {
+			t.Fatalf("check gate = %v, want no verdict: nothing ran after the write", got)
+		}
 		if result.TurnOutcome == types.MangleAtom("/done") {
 			t.Fatal("TurnOutcome = /done for a write whose acceptance check never ran")
 		}
@@ -351,9 +393,16 @@ func TestTurnOutcome_ADeclaredCheckIsEvidence(t *testing.T) {
 	t.Run("aRedRunAfterTheWriteNamesTheCheck", func(t *testing.T) {
 		e := newObligationExec(t)
 		result := mdWrite()
-		result.CheckSinceLastWrite = &tools.AcceptanceRun{Argv: []string{"go", "test"}, ExitCode: 1}
+		// Seq 2 is after the write recordBuildState seeds at seq 1, because
+		// this turn has not sequenced anything yet.
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_check_run", Args: []any{testTurn, int64(2), int64(1)}}) {
+			t.Fatal("assert turn_check_run")
+		}
 		declare(t, e)
 		closeTurn(e, result, "/fix")
+		if got := derivedVerify(t, e, testTurn, "/check"); got != VerifyFailed {
+			t.Fatalf("check gate = %v, want failing: the run after the write exited 1", got)
+		}
 		if result.TurnOutcome == types.MangleAtom("/done") {
 			t.Fatal("TurnOutcome = /done after a red acceptance check")
 		}
@@ -365,9 +414,14 @@ func TestTurnOutcome_ADeclaredCheckIsEvidence(t *testing.T) {
 	t.Run("aGreenRunAfterTheWriteVerifies", func(t *testing.T) {
 		e := newObligationExec(t)
 		result := mdWrite()
-		result.CheckSinceLastWrite = &tools.AcceptanceRun{Argv: []string{"go", "test"}, ExitCode: 0}
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_check_run", Args: []any{testTurn, int64(2), int64(0)}}) {
+			t.Fatal("assert turn_check_run")
+		}
 		declare(t, e)
 		closeTurn(e, result, "/fix")
+		if got := derivedVerify(t, e, testTurn, "/check"); got != VerifyPassed {
+			t.Fatalf("check gate = %v, want passing", got)
+		}
 		if result.TurnOutcome != types.MangleAtom("/done") {
 			t.Fatalf("TurnOutcome = %v (missing %v), want /done after a green check", result.TurnOutcome, result.MissingEvidence)
 		}
@@ -376,10 +430,22 @@ func TestTurnOutcome_ADeclaredCheckIsEvidence(t *testing.T) {
 	t.Run("aRunBeforeTheLastWriteDoesNotCount", func(t *testing.T) {
 		e := newObligationExec(t)
 		result := mdWrite()
+		// The run is on the clock, and it passed. The write is later, so the
+		// run is not a verdict: unmet, not red.
+		result.gateSeq = 2
+		result.writeSequenced = true
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_write_seq", Args: []any{testTurn, int64(2)}}) ||
+			!e.assertTurnFact(types.Fact{Predicate: "turn_check_run", Args: []any{testTurn, int64(1), int64(0)}}) {
+			t.Fatal("assert the run and the later write")
+		}
 		declare(t, e)
-		// The tool loop clears CheckSinceLastWrite on the write that follows
-		// a run. The closure sees no run since the last write.
 		closeTurn(e, result, "/fix")
+		if got := derivedVerify(t, e, testTurn, "/check"); got != VerifySkipped {
+			t.Fatalf("check gate = %v, want no verdict: the only run is before the last write", got)
+		}
+		if !gateFact(t, e, "turn_unmet_gate", testTurn, "/check") || gateFact(t, e, "turn_red_gate", testTurn, "/check") {
+			t.Fatal("a run before the last write must be unmet, not red")
+		}
 		if result.TurnOutcome == types.MangleAtom("/done") || !namesCheck(result) {
 			t.Fatalf("TurnOutcome = %v missing %v, want unverified and /check_not_green", result.TurnOutcome, result.MissingEvidence)
 		}
@@ -416,6 +482,26 @@ func TestTurnOutcome_ADeclaredCheckIsEvidence(t *testing.T) {
 			"editing_persona(/reviewer).",
 			"turn_catalog(/turn_x, /run_check).",
 			"turn_gate(/turn_x, /check, /passing).",
+			"turn_write_seq(/turn_x, 1).",
+			"turn_test_run(/turn_x, 2, 0).",
+			"turn_test_measured(/turn_x, /failing).",
+			`turn_test_failed_before(/turn_x, "TestA").`,
+			`turn_own_test_failure(/turn_x, "TestA").`,
+			"turn_has_own_test_failure(/turn_x).",
+			"turn_has_failing_test(/turn_x).",
+			"turn_last_write(/turn_x, 1).",
+			"turn_last_check(/turn_x, 2).",
+			"turn_check_after(/turn_x, 2, 0).",
+			"turn_check_after_seq(/turn_x, 2).",
+			"turn_last_test_run(/turn_x, 2).",
+			"turn_test_after(/turn_x, 2, 0).",
+			"turn_test_after_seq(/turn_x, 2).",
+			"turn_vet_ran(/turn_x).",
+			`turn_vet_finding(/turn_x, "a.go", "unreachable code", 1).`,
+			`turn_vet_before(/turn_x, "a.go", "unreachable code", 1).`,
+			`turn_vet_before_key(/turn_x, "a.go", "unreachable code").`,
+			`turn_vet_new(/turn_x, "a.go", "unreachable code").`,
+			"turn_has_vet_new(/turn_x).",
 		} {
 			if kept, _ := core.FilterMangleUpdates(nil, []string{update}, permissive); len(kept) != 0 {
 				t.Errorf("the model can assert %s; the check and its catalog are the harness's", update)

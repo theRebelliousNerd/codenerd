@@ -89,6 +89,10 @@ func TestTurnWhoseChangedCodeIsUnexecutedOrVetRedIsNotDone(t *testing.T) {
 			"turn_has_uncovered(/fix).",
 			"turn_vet_green(/fix).",
 			"turn_vet_red(/fix).",
+			"turn_vet_ran(/fix).",
+			`turn_vet_finding(/fix, "pkg/foo.go", "unreachable code", 1).`,
+			`turn_vet_before(/fix, "pkg/foo.go", "unreachable code", 1).`,
+			`turn_vet_new(/fix, "pkg/foo.go", "unreachable code").`,
 		} {
 			if kept, _ := core.FilterMangleUpdates(nil, []string{update}, permissive); len(kept) != 0 {
 				t.Errorf("the model can assert %s; the verdict's evidence must be the harness's alone", update)

@@ -66,31 +66,54 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 		logging.SessionDebug("test gate: no baseline attribution: baseline run inconclusive (outcome %s)", baselineOutcome)
 		return head
 	}
+	// The full baseline set, not the intersection. A name the head did not
+	// fail does not become a failure; the /test rule charges a head name
+	// only when it is absent here.
+	head.BaselineRan = true
+	head.BaselineFailures = failedTestNames(baseline)
 	preExisting := partitionPreExisting(headFailed, baseline)
 	if len(preExisting) == 0 {
 		logging.SessionDebug("test gate: no baseline attribution: every failure is new to this turn (%d failed)", len(headFailed))
 		return head
 	}
-	if len(preExisting) == len(headFailed) {
-		return markAllPreExisting(head, preExisting)
+	return notePreExisting(head, preExisting, len(preExisting) == len(headFailed))
+}
+
+// notePreExisting names the failures that also fail without this turn's
+// edits. It does not change the outcome: the head run failed, and whether
+// that failure is the turn's is the /test rule's.
+func notePreExisting(head TestVerification, preExisting []string, all bool) TestVerification {
+	if all {
+		logging.Get(logging.CategorySession).Warn("test gate: %d failure(s) also fail before this turn's edits (pre-existing), not charged to the turn: %s", len(preExisting), strings.Join(preExisting, ", "))
 	}
-	return markSomePreExisting(head, preExisting)
-}
-
-func markAllPreExisting(head TestVerification, preExisting []string) TestVerification {
-	logging.Get(logging.CategorySession).Warn("test gate: %d failure(s) also fail before this turn's edits (pre-existing), not charged to the turn: %s", len(preExisting), strings.Join(preExisting, ", "))
-	passed := head
-	passed.Outcome = VerifyPassed
-	passed.OK = true
-	passed.Ran = true
-	passed.PreExistingFailures = preExisting
-	return passed
-}
-
-func markSomePreExisting(head TestVerification, preExisting []string) TestVerification {
 	head.PreExistingFailures = preExisting
 	head.Output = "Pre-existing failures (also fail without this turn's edits; not yours to fix): " + strings.Join(preExisting, ", ") + "\n" + head.Output
 	return head
+}
+
+// failuresAllPredate reports whether every named failure also failed before
+// the turn. gateTests uses it only to keep measuring importers, so a new
+// importer failure is still recorded when the turn's own failures are
+// entirely the baseline's. It does not set the outcome. An unnamed failure
+// is the turn's, and a baseline that did not run attributes nothing.
+func failuresAllPredate(v TestVerification) bool {
+	if !v.BaselineRan {
+		return false
+	}
+	names := failedTestNames(v.Result)
+	if len(names) == 0 {
+		return false
+	}
+	before := make(map[string]bool, len(v.BaselineFailures))
+	for _, name := range v.BaselineFailures {
+		before[name] = true
+	}
+	for _, name := range names {
+		if !before[name] {
+			return false
+		}
+	}
+	return true
 }
 
 func partitionPreExisting(headFailed []string, baseline *testfacts.Result) []string {

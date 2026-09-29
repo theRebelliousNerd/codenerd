@@ -104,30 +104,3 @@ func retractSpawnCatalogFacts(kernel types.Kernel, facts []types.Fact) {
 		}
 	}
 }
-
-// assertTurnCheckRun records one run_check receipt. The /check gate does not
-// read it; recordBuildState asserts turn_gate from CheckSinceLastWrite, the
-// same way /test_run is decided from TestRunSinceLastWrite.
-func (e *Executor) assertTurnCheckRun(result *ExecutionResult, exitCode int) {
-	if e == nil || e.kernel == nil || result == nil {
-		return
-	}
-	e.assertTurnFact(types.Fact{
-		Predicate: "turn_check_run",
-		Args:      []any{result.turnAtom(), int64(result.checkSeq), int64(exitCode)},
-	})
-}
-
-// checkVerdict is the /check gate's verdict: passed when the last run_check
-// since the turn's last write exited 0, failed when it exited otherwise,
-// skipped -- no verdict -- when none ran since it.
-func (r *ExecutionResult) checkVerdict() VerifyOutcome {
-	switch {
-	case r.CheckSinceLastWrite == nil:
-		return VerifySkipped
-	case r.CheckSinceLastWrite.ExitCode == 0:
-		return VerifyPassed
-	default:
-		return VerifyFailed
-	}
-}

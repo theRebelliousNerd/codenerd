@@ -94,14 +94,20 @@ func TestAttributeTestFailures_AllPreExistingPasses(t *testing.T) {
 	}
 
 	got := attributeTestFailures(context.Background(), ws, []string{"."}, []string{"calc.go"}, preWrite, head)
-	if got.Outcome != VerifyPassed {
-		t.Fatalf("all-pre-existing gate should pass, got Outcome=%v output=%q", got.Outcome, got.Output)
-	}
-	if !got.OK || !got.Ran {
-		t.Errorf("all-pre-existing gate should report Ran=true OK=true, got Ran=%v OK=%v", got.Ran, got.OK)
+	// The process failed. The /test rule is what charges the turn, and this
+	// failure is not the turn's. The text still names it.
+	if got.Outcome != VerifyFailed || got.OK || !got.Ran {
+		t.Fatalf("all-pre-existing run stays the process exit, got Outcome=%v Ran=%v OK=%v output=%q", got.Outcome, got.Ran, got.OK, got.Output)
 	}
 	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "TestAlwaysFails" {
 		t.Errorf("PreExistingFailures = %v; want [TestAlwaysFails]", got.PreExistingFailures)
+	}
+	const prefix = "Pre-existing failures (also fail without this turn's edits; not yours to fix): TestAlwaysFails"
+	if !strings.HasPrefix(got.Output, prefix) {
+		t.Errorf("output should begin with %q, got %q", prefix, got.Output)
+	}
+	if got := derivedVerify(t, testGateExec(t, got), testTurn, "/test"); got != VerifyPassed {
+		t.Fatalf("test gate = %v, want passing: TestAlwaysFails also failed before the turn", got)
 	}
 }
 
@@ -135,11 +141,17 @@ func TestAttributeTestFailures_ExpiredDeadlineStillAttributes(t *testing.T) {
 	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 	got := attributeTestFailures(expired, ws, []string{"."}, []string{"calc.go"}, preWrite, head)
-	if got.Outcome != VerifyPassed {
-		t.Fatalf("expired-deadline attribution should pass, got Outcome=%v output=%q", got.Outcome, got.Output)
+	if got.Outcome != VerifyFailed {
+		t.Fatalf("expired-deadline attribution keeps the process exit, got Outcome=%v output=%q", got.Outcome, got.Output)
 	}
 	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "TestAlwaysFails" {
 		t.Errorf("PreExistingFailures = %v; want [TestAlwaysFails]", got.PreExistingFailures)
+	}
+	if !strings.Contains(got.Output, "TestAlwaysFails") {
+		t.Errorf("output should name the pre-existing failure, got %q", got.Output)
+	}
+	if got := derivedVerify(t, testGateExec(t, got), testTurn, "/test"); got != VerifyPassed {
+		t.Fatalf("test gate = %v, want passing: the expired deadline still attributed TestAlwaysFails", got)
 	}
 }
 
@@ -204,6 +216,18 @@ func TestAttributeTestFailures_MixedNewAndPreExisting(t *testing.T) {
 	if !strings.Contains(got.Output, "TestOK") {
 		t.Errorf("output should still contain TestOK's failure, got %q", got.Output)
 	}
+	if got := derivedVerify(t, testGateExec(t, got), testTurn, "/test"); got != VerifyFailed {
+		t.Fatalf("test gate = %v, want failing: TestOK did not fail before the turn", got)
+	}
+}
+
+// testGateExec asserts one measured run and returns the executor whose
+// kernel holds the /test rule's verdict for it.
+func testGateExec(t *testing.T, v TestVerification) *Executor {
+	t.Helper()
+	e := newObligationExec(t)
+	e.syncTestGateFacts(testTurn, &ExecutionResult{TestCheck: v})
+	return e
 }
 
 // A new subtest is charged even when its parent already failed. The name

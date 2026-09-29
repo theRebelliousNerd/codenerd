@@ -89,8 +89,16 @@ type TestVerification struct {
 
 	// PreExistingFailures lists sanitized test names, subtests included
 	// ("TestX/case_one"), that also fail without this turn's edits.
-	// Set by attributeTestFailures.
+	// Set by attributeTestFailures. The gate does not read this list as a
+	// verdict; the model-facing output names the same tests.
 	PreExistingFailures []string
+
+	// BaselineRan is true when the pre-turn run finished. BaselineFailures
+	// is every sanitized name that run failed, not only the ones the head
+	// also failed. Nil names and BaselineRan false means the baseline did
+	// not run, so nothing is known to predate the turn.
+	BaselineRan      bool
+	BaselineFailures []string
 }
 
 // Verdict returns the authoritative outcome, deriving one for hand-built

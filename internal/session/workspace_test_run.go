@@ -90,6 +90,8 @@ func (e *Executor) workspaceTestRun(ctx context.Context, result *ExecutionResult
 		}
 	}
 	result.TestRunSinceLastWrite = &verdict
+	// The pointer is the shortfall text. The /test_run rule reads the seq.
+	e.noteTestRun(result, verdict.ExitCode)
 	return true, strings.Join(outputs, "\n")
 }
 

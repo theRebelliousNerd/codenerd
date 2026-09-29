@@ -16,10 +16,11 @@ import (
 )
 
 // External audit N01 (2026-09-19): a write the Go gates do not cover owes a
-// test run that passed after the turn's last write. The measurement is the
-// last test process the tool layer recorded since the last successful write:
-// a run before a write says nothing about what the write left, and the run
-// the model started last is the one its answer rests on.
+// test run that passed after the turn's last write. The tool loop asserts
+// every run and every successful write on one seq clock; coder_safety.mg
+// derives the verdict. A run before a write says nothing about what the
+// write left, and the run with the greatest seq after that write is the one
+// the answer rests on.
 func TestTestRunGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 	ws := t.TempDir()
 	t.Setenv("CODENERD_WORKSPACE_ROOT", ws)
@@ -58,7 +59,11 @@ func TestTestRunGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 		{"a later write sets the verdict aside", []types.ToolCall{write("w1"), run("r", 0), write("w2")}, VerifySkipped},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := NewExecutor(&MockKernel{}, &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+			kernel, err := core.NewRealKernel()
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := NewExecutor(kernel, &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 			e.config.WorkspaceRoot = ws
 			e.config.EnableSafetyGate = false
 			result := &ExecutionResult{}
@@ -68,7 +73,7 @@ func TestTestRunGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 			if result.SuccessfulWriteTools == 0 {
 				t.Fatal("no write succeeded; the probe measured nothing")
 			}
-			if got := result.testRunVerdict(); got != tc.want {
+			if got := derivedVerify(t, e, result.turnAtom(), "/test_run"); got != tc.want {
 				t.Fatalf("test run gate = %v, want %v", got, tc.want)
 			}
 		})
@@ -175,6 +180,9 @@ func TestTurnOutcome_AWriteTheGoGatesDoNotCoverHasACompletionPath(t *testing.T) 
 		result.TestRunSinceLastWrite = &tools.TestRun{Argv: []string{"go", "test", "./internal/core/..."}, ExitCode: 0}
 		e.assertTurnEvidence(testTurn, "/fix", result)
 		e.captureTurnOutcome(testTurn, result, nil)
+		if got := derivedVerify(t, e, testTurn, "/test_run"); got != VerifyPassed {
+			t.Fatalf("test run gate = %v, want passing: the pointer's run is after the seeded write", got)
+		}
 		if result.TurnOutcome != types.MangleAtom("/done") {
 			t.Fatalf("TurnOutcome = %v (missing %v), want /done after a passing test run", result.TurnOutcome, result.MissingEvidence)
 		}
@@ -188,6 +196,9 @@ func TestTurnOutcome_AWriteTheGoGatesDoNotCoverHasACompletionPath(t *testing.T) 
 			"turn_owes_gate(/turn_x, /test_run).",
 			"turn_unmet_gate(/turn_x, /test_run).",
 			"has_unmet_gate(/turn_x).",
+			"turn_test_run(/turn_x, 2, 0).",
+			"turn_write_seq(/turn_x, 1).",
+			"turn_last_test_run(/turn_x, 2).",
 		} {
 			if kept, _ := core.FilterMangleUpdates(nil, []string{update}, permissive); len(kept) != 0 {
 				t.Errorf("the model can assert %s; what a write owes must be the harness's alone", update)
