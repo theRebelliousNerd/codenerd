@@ -171,6 +171,11 @@ func (e *Executor) captureTurnOutcome(turn types.MangleAtom, result *ExecutionRe
 	verdict := e.consumeTurnDoneSignal(turn, strings.TrimSpace(result.Intent.Verb))
 	result.MissingEvidence = verdict.Missing
 	result.UnwitnessedElements = verdict.Unwitnessed
+	// The foreign packages leave with the per-turn facts. The sentence is
+	// spelled after that cleanup, so they have to be on the result now.
+	if e != nil && e.kernel != nil {
+		result.BuildForeignPackages = e.foreignBuildPackages(turn)
+	}
 
 	switch {
 	case result.Error != nil:

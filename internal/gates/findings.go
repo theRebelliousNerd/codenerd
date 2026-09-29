@@ -38,6 +38,19 @@ type Finding struct {
 	Signature string
 }
 
+// GoDiagnostic is one file:line the Go toolchain named. Findings collapses
+// these into a capped target list; attribution keeps every one, including
+// its line, column and the "# pkg" header that was current when it was
+// printed. A package-only "FAIL\tpkg [build failed]" row is not a
+// diagnostic: it names no file.
+type GoDiagnostic struct {
+	File    string
+	Line    int
+	Col     int
+	Message string
+	Package string
+}
+
 // UnattributedTarget is the target of a failure whose output named no file
 // and no package. It is not a directory, so a node whose path is "." (the
 // module root) must not claim it, and neither must any real package.
@@ -244,6 +257,9 @@ type goStream struct {
 	currentImport string
 	pending       []pendingTest
 	pkgPanic      string
+	// diags is every file:line, uncapped. Findings' add callback still
+	// stops at MaxFindingsPerRun; attribution must not.
+	diags []GoDiagnostic
 
 	covered       map[string]bool
 	tested        map[string]bool
@@ -342,7 +358,7 @@ func (gs *goStream) consume(line string) bool {
 		diag := vetPrefix.ReplaceAllString(line, "")
 		if m := fileLineMsg.FindStringSubmatch(diag); m != nil {
 			if !isNoise(m[4]) {
-				gs.addFile(m[1], m[4])
+				gs.addFile(m[1], atoiOrZero(m[2]), atoiOrZero(m[3]), m[4])
 			}
 			return true
 		}
@@ -447,7 +463,7 @@ func (gs *goStream) onBuildOutput(ev goEvent) {
 		}
 		diag := vetPrefix.ReplaceAllString(line, "")
 		if m := fileLineMsg.FindStringSubmatch(diag); m != nil && !isNoise(m[4]) {
-			gs.addFile(m[1], m[4])
+			gs.addFile(m[1], atoiOrZero(m[2]), atoiOrZero(m[3]), m[4])
 		}
 	}
 }
@@ -563,8 +579,12 @@ func (gs *goStream) finish() {
 	}
 }
 
-func (gs *goStream) addFile(file, msg string) {
+func (gs *goStream) addFile(file string, line, col int, msg string) {
 	norm := relTarget(gs.root, file)
+	gs.diags = append(gs.diags, GoDiagnostic{
+		File: norm, Line: line, Col: col,
+		Message: strings.TrimSpace(msg), Package: gs.currentImport,
+	})
 	gs.add(file, msg, true)
 	dir := path.Dir(norm)
 	if dir == "" || dir == "/" {
@@ -655,6 +675,26 @@ func cleanImport(s string) string {
 		s = strings.TrimSpace(s[:i])
 	}
 	return strings.TrimSpace(strings.Trim(s, "[]"))
+}
+
+func atoiOrZero(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
+}
+
+// ParseGoDiagnostics reads file:line diagnostics out of go build / go test /
+// go vet output. It walks the same stream Findings uses (the "# pkg" header,
+// the vet.exe prefix, a Windows path, a test2json build-output line) and
+// keeps every file:line. Findings stops at MaxFindingsPerRun; a turn is
+// charged from the whole log, so this does not. A package-only failure
+// ("FAIL\tpkg [build failed]") yields nothing: no file was named.
+func ParseGoDiagnostics(root, output string) []GoDiagnostic {
+	gs := newGoStream(root, modulePath(root), "", func(string, string, bool) {})
+	for _, line := range outputLines(output) {
+		gs.consume(line)
+	}
+	gs.finish()
+	return gs.diags
 }
 
 func outputLines(s string) []string {

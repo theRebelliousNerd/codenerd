@@ -77,6 +77,32 @@ func TestFindings_CapturedGoBuild(t *testing.T) {
 	}
 }
 
+// The same captured log, read as diagnostics rather than findings: the
+// line, the column and the "# pkg" header survive, and nothing is dropped
+// for MaxFindingsPerRun.
+func TestParseGoDiagnostics_CapturedBuild(t *testing.T) {
+	diags := ParseGoDiagnostics(r7bModule(t), readTD(t, "go_build.txt"))
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %+v, want one", diags)
+	}
+	d := diags[0]
+	if d.File != "compileerr/broken.go" || d.Line != 3 || d.Col != 28 || d.Package != "example.com/r7b/compileerr" {
+		t.Fatalf("diagnostic = %+v", d)
+	}
+	if !strings.Contains(d.Message, "undefined: Missing") {
+		t.Fatalf("message = %q", d.Message)
+	}
+}
+
+// A failure that names no file is not a diagnostic. The build gate treats
+// that as unlocatable and charges the turn (fail closed).
+func TestParseGoDiagnostics_UnlocatedIsEmpty(t *testing.T) {
+	out := "go: updates to go.mod needed; to update it:\n\tgo get example.com/x\n"
+	if diags := ParseGoDiagnostics(t.TempDir(), out); len(diags) != 0 {
+		t.Fatalf("unlocated output produced %+v", diags)
+	}
+}
+
 // go vet ./... prefixes Windows diagnostics with "vet.exe: ".
 // "vet.exe: compileerr\broken.go:3:28: undefined: Missing" did not match a
 // file:line pattern, and the printf line in testsfail kept the run from

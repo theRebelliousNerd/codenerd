@@ -83,8 +83,8 @@ Decl turn_self_reported_incomplete(Turn) bound [/name].
 Decl has_turn_acceptance(Turn) bound [/name].
 # turn_gate is THIS turn's post-edit gate. Gate is /build, /test, /vet,
 # /test_run, /pinned or /check; Verdict is /passing or /failing, and only an
-# affirmative verdict is ever present. /build and /pinned are asserted by the
-# executor from those commands' own exits (recordBuildState). /test, /vet,
+# affirmative verdict is ever present. /pinned is asserted by the executor
+# from that command's own exit (recordBuildState). /build, /test, /vet,
 # /test_run and /check are derived below from measurements the executor
 # asserts and does not judge. One source per gate: the engine keeps a source
 # fact of an IDB predicate beside atoms a rule derives (probed 2026-09-29,
@@ -109,6 +109,82 @@ turn_build_green(Turn) :- turn_gate(Turn, /build, /passing).
 turn_build_red(Turn) :- turn_gate(Turn, /build, /failing).
 turn_tests_green(Turn) :- turn_gate(Turn, /test, /passing).
 turn_tests_red(Turn) :- turn_gate(Turn, /test, /failing).
+
+# The /build gate is this turn's compile, charged only for a failure the
+# turn's write set can have caused (dogfood runs 4 and 5: `go build ./...`
+# failed in another agent's half-written package and the turn was failed
+# for it). The command stays whole-workspace — scoping it to the touched
+# packages would miss a transitive importer the turn broke — and the
+# attribution is derived here.
+#
+# A diagnostic is the turn's when its file is in the write set, or its
+# package is a package the turn wrote (a signature change in a.go breaks
+# b.go in the same package, and a package does not import itself), or its
+# package transitively depends on a package the turn wrote. The executor
+# asserts the direct import edges (one `go list -e` of .Imports among the
+# module's own packages); the closure is these rules.
+#
+# An unlocatable failure (the build exited non-zero and named no file:line)
+# is attributed. Fail closed: calling it foreign would skip the repair for
+# a break that may be this turn's. A list that did not return the graph
+# (turn_build_graph_unknown) is attributed for the same reason: with no
+# edges an importer break would be called foreign.
+#
+# A failing build with no attributed diagnostic derives no /build verdict.
+# The gate is unknown, never green, and turn_missing_evidence names
+# /build_failure_foreign.
+Decl turn_build_measured(Turn, Outcome) bound [/name, /name].
+Decl turn_build_diagnostic(Turn, File, Pkg) bound [/name, /string, /string].
+Decl turn_pkg_imports(Turn, Importer, Imported) bound [/name, /string, /string].
+Decl turn_written_package(Turn, Pkg) bound [/name, /string].
+Decl turn_build_graph_unknown(Turn) bound [/name].
+Decl turn_pkg_depends(Turn, Pkg, Dep) bound [/name, /string, /string].
+Decl turn_build_depends_on_written(Turn, Pkg) bound [/name, /string].
+Decl turn_build_has_diagnostic(Turn) bound [/name].
+Decl turn_build_failure_attributed(Turn) bound [/name].
+Decl turn_build_failure_foreign(Turn, Pkg) bound [/name, /string].
+Decl turn_has_build_failure_foreign(Turn) bound [/name].
+
+turn_pkg_depends(Turn, Pkg, Dep) :-
+    turn_pkg_imports(Turn, Pkg, Dep).
+turn_pkg_depends(Turn, Pkg, Dep) :-
+    turn_pkg_imports(Turn, Pkg, Mid),
+    turn_pkg_depends(Turn, Mid, Dep).
+turn_build_depends_on_written(Turn, Pkg) :-
+    turn_pkg_depends(Turn, Pkg, Written),
+    turn_written_package(Turn, Written).
+turn_build_has_diagnostic(Turn) :-
+    turn_build_diagnostic(Turn, _, _).
+turn_build_failure_attributed(Turn) :-
+    turn_build_diagnostic(Turn, File, _),
+    turn_written(Turn, File, _).
+turn_build_failure_attributed(Turn) :-
+    turn_build_diagnostic(Turn, _, Pkg),
+    turn_written_package(Turn, Pkg),
+    Pkg != "".
+turn_build_failure_attributed(Turn) :-
+    turn_build_diagnostic(Turn, _, Pkg),
+    turn_build_depends_on_written(Turn, Pkg).
+# Unlocatable: no file:line. Fail closed (see the block comment).
+turn_build_failure_attributed(Turn) :-
+    turn_build_measured(Turn, /failing),
+    !turn_build_has_diagnostic(Turn).
+# The import graph did not come back. Fail closed (see the block comment).
+turn_build_failure_attributed(Turn) :-
+    turn_build_measured(Turn, /failing),
+    turn_build_graph_unknown(Turn).
+turn_gate(Turn, /build, /passing) :-
+    turn_build_measured(Turn, /passing).
+turn_gate(Turn, /build, /failing) :-
+    turn_build_measured(Turn, /failing),
+    turn_build_failure_attributed(Turn).
+turn_build_failure_foreign(Turn, Pkg) :-
+    turn_build_measured(Turn, /failing),
+    !turn_build_failure_attributed(Turn),
+    turn_build_diagnostic(Turn, _, Pkg),
+    Pkg != "".
+turn_has_build_failure_foreign(Turn) :-
+    turn_build_failure_foreign(Turn, _).
 
 # turn_untested is THIS turn's coverage debt as the session executor measured it
 # on disk: a production Go file the turn wrote with no test file beside it
@@ -522,11 +598,12 @@ turn_done(Turn) :- turn_executed(Turn), turn_verified(Turn).
 #      contract with current, executed behavioral witnesses. Strongest, and
 #      still the only thing that can speak for REQUESTED BEHAVIOUR.
 #   2. turn_gate — the session executor's own post-edit gates for THIS turn
-#      (recordBuildState, from BuildCheck/TestCheck/VetCheck). These are not
-#      the model's word for anything: the executor ran the compiler and the
-#      test runner itself and recorded what they returned, and only an
-#      affirmative verdict is ever asserted. A skipped or indeterminate gate
-#      asserts nothing.
+#      (recordBuildState measures BuildCheck/TestCheck/VetCheck; /build,
+#      /test, /vet, /test_run and /check are derived from those measurements,
+#      and /pinned is the pinning run's exit). These are not the model's word
+#      for anything: the executor ran the compiler and the test runner itself
+#      and recorded what they returned, and only an affirmative verdict is
+#      ever present. A skipped or indeterminate gate asserts nothing.
 #
 # So the evidence arms below do not weaken the contract path. They are the same
 # host reporting what it mechanically measured, rather than what it was asked to
@@ -579,8 +656,14 @@ turn_wrote(Turn) :- turn_evidence(Turn, Verb, _, _, _, _, _), write_oriented_int
 # for a turn that wrote nothing (those verify), so no spurious reason is
 # produced for a read-only turn.
 turn_unverified(Turn) :- turn_executed(Turn), !turn_verified(Turn).
-turn_missing_evidence(Turn, /build_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /build).
+# A foreign build is unmet and not red. Naming it /build_not_green as well
+# would bury the packages the turn text has to state.
+turn_missing_evidence(Turn, /build_not_green) :-
+    turn_unverified(Turn),
+    turn_unmet_gate(Turn, /build),
+    !turn_has_build_failure_foreign(Turn).
 turn_missing_evidence(Turn, /build_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /build).
+turn_missing_evidence(Turn, /build_failure_foreign) :- turn_unverified(Turn), turn_has_build_failure_foreign(Turn).
 turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test).
 turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /test).
 turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test_run).
@@ -599,7 +682,9 @@ turn_missing_evidence(Turn, /self_reported_incomplete) :- turn_unverified(Turn),
 
 # A red build is a failed turn, not merely an unverified one. turn_executed
 # already excludes it; this names it so the outcome can say /failed instead of
-# leaving Go to re-check BuildCheck itself.
+# leaving Go to re-check BuildCheck itself. A failing build that derived no
+# /build verdict (every located diagnostic is outside the write set) is not
+# red: the turn stays unverified and names those packages.
 turn_build_failed(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_build_red(Turn).
 # Helper: any pending edit is implementation
 Decl has_implementation_edit() bound [].

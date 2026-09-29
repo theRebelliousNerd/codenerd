@@ -76,11 +76,13 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 				}
 			}
 			current, currentErr := evidence.Snapshot(ctx, workspace)
-			// /build stays the host-asserted raw exit. /test is the derived
-			// gate: the suite exit used to be rewritten to passed when every
-			// failure predated the turn, and this read still treated that
-			// exit as the turn's. With no kernel the helpers are the raw
-			// exit and record no verdict.
+			// /build is the derived gate: a failing build whose diagnostics
+			// are all outside this turn derives no verdict, and this closure
+			// must not fail the turn for it. An attributed failure, including
+			// one that named no file, is still a failure. /test is the
+			// derived gate too. With no kernel the helpers are the raw exit
+			// and record no verdict.
+			buildRed := e.buildGateRed(ctx, result.turnAtom(), result)
 			testsPassed, testsRed := closingTestGate(e, result)
 			if err == nil && currentErr == nil && current == after &&
 				result.BuildCheck.Verdict() == VerifyPassed && testsPassed {
@@ -89,8 +91,9 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 			}
 			// Only an affirmative failure fails the turn. A timeout or cancel is
 			// not proof of broken code: the stage stays artifact_changed and the
-			// turn is labeled unverified rather than failed.
-			if result.BuildCheck.Verdict() == VerifyFailed || testsRed {
+			// turn is labeled unverified rather than failed. A build broken
+			// only outside this turn is not this turn's failure either.
+			if buildRed || testsRed {
 				return fmt.Errorf("%w: final workspace failed mechanical checks: %s", ErrVerificationFailed, failedChecksSummary(result))
 			}
 		}
@@ -221,17 +224,33 @@ func closingTestGate(e *Executor, result *ExecutionResult) (passed, red bool) {
 // confirmed; a gate that ran and passed is direct evidence about the final
 // workspace and outranks anything that failed earlier in the turn; and only
 // when no gate ran at all does the model's own closing answer decide, because
-// then it is the only signal there is. /build is the raw exit. /test is
-// closingTestGate.
+// then it is the only signal there is. /build is the derived gate
+// (buildGateRed). /test is closingTestGate. A failing build this turn is
+// not charged for does not confirm the tool error and does not count as
+// recovered.
 func (e *Executor) turnRecoveredFromToolErrors(result *ExecutionResult) bool {
 	if result == nil {
 		return false
 	}
 	testsPassed, testsRed := closingTestGate(e, result)
-	if result.BuildCheck.Verdict() == VerifyFailed || testsRed {
+	// /build is the derived gate. The raw exit of a build broken only
+	// outside this turn must not confirm a tool error: that sets
+	// result.Error, and captureTurnOutcome then records /failed over the
+	// /unverified the unmet gate derives. It is not a green recovery
+	// either. The workspace build is still broken; the turn is not charged.
+	buildRed := false
+	if e != nil {
+		buildRed = e.buildGateRed(context.Background(), result.turnAtom(), result)
+	} else if result.BuildCheck.Verdict() == VerifyFailed {
+		buildRed = true
+	}
+	if buildRed || testsRed {
 		return false
 	}
 	if result.BuildCheck.Verdict() == VerifyPassed || testsPassed {
+		return true
+	}
+	if result.BuildCheck.Verdict() == VerifyFailed {
 		return true
 	}
 	return strings.TrimSpace(result.Response) != ""
@@ -349,10 +368,25 @@ func verdictSentence(result *ExecutionResult) string {
 					clause += "; " + named
 				}
 			}
+			clause = nameForeignBuild(clause, result)
 			return "Unverified: " + clause + "."
 		}
 		return "Unverified: the evidence this turn owed was not produced."
 	default:
 		return "Unverified: the turn produced no verdict."
 	}
+}
+
+// nameForeignBuild spells the packages the kernel named onto the clause
+// missingEvidenceSentence left without them. The atom carries no package;
+// the result does, captured before the rows were retracted.
+func nameForeignBuild(clause string, result *ExecutionResult) string {
+	if result == nil || !slices.Contains(result.MissingEvidence, "/build_failure_foreign") {
+		return clause
+	}
+	base := missingEvidenceSentence("/build_failure_foreign")
+	pkgs := slices.Clone(result.BuildForeignPackages)
+	slices.Sort(pkgs)
+	pkgs = slices.Compact(pkgs)
+	return strings.Replace(clause, base, base+": "+strings.Join(pkgs, ", "), 1)
 }

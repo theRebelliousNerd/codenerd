@@ -1,18 +1,22 @@
 package session
 
 import (
+	"context"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	internalbuild "codenerd/internal/build"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
-// The /test, /vet, /check, /test_run and /test_retention gates are derived
-// (coder_safety.mg), and so is the critic's triage (turn_needs_uplift).
+// The /test, /vet, /check, /test_run, /test_retention and /build gates are
+// derived (coder_safety.mg), and so is the critic's triage (turn_needs_uplift).
 // These helpers assert the measurements and read the derived verdicts back.
-// They do not choose them. /build and /pinned stay asserted in
-// recordBuildState: one source per gate.
+// They do not choose them. /pinned stays asserted in recordBuildState: one
+// source per gate.
 
 // retractTurnPredicates removes this turn's rows of each predicate and drops
 // them from the cleanup list. RetractFact matches the predicate and the first
@@ -132,8 +136,279 @@ func (e *Executor) assertVetCounts(turn types.MangleAtom, predicate string, find
 	}
 }
 
+// syncBuildGateFacts replaces this turn's /build measurements. A repair
+// re-runs the build; the previous rows would otherwise stay. build_state is
+// not touched: it is the workspace's raw exit, and a build that fails only
+// outside this turn is still a failing build.
+//
+// The import graph is one `go list -e` of direct .Imports (the same family
+// as importer_packages.go), asserted only for packages that list returned.
+// Stdlib and third-party imports are dropped: the closure the policy
+// computes is the module's own, and a graph that included the standard
+// library is tens of thousands of edges. The world model's import facts are
+// not this measurement. They can lag a write this turn just made. The list
+// runs only for a located failure. No file:line is already attributed, and
+// a passing build has nothing to close over.
+func (e *Executor) syncBuildGateFacts(ctx context.Context, turn types.MangleAtom, result *ExecutionResult) {
+	if e == nil || e.kernel == nil || result == nil || turn == "" {
+		return
+	}
+	e.retractTurnPredicates(turn,
+		"turn_build_measured", "turn_build_diagnostic", "turn_pkg_imports",
+		"turn_written_package", "turn_build_graph_unknown")
+	// The file rule joins turn_written. Repair may have created a file
+	// since the round that first asserted the write set.
+	e.assertTurnWrites(turn, result)
+	var outcome types.MangleAtom
+	switch result.BuildCheck.Verdict() {
+	case VerifyPassed:
+		outcome = "/passing"
+	case VerifyFailed:
+		outcome = "/failing"
+	default:
+		return
+	}
+	e.assertTurnFact(types.Fact{
+		Predicate: "turn_build_measured",
+		Args:      []any{turn, outcome},
+	})
+	if outcome == "/passing" {
+		return
+	}
+	workspace := e.workspaceForVerification()
+	asserted := 0
+	for _, diag := range result.BuildCheck.locatedDiagnostics(workspace) {
+		if diag.File == "" {
+			continue
+		}
+		// The join is string equality. The compiler's spelling and the
+		// write set's spelling are the same path; on Windows they can
+		// differ by case. Asserting the write set's spelling is the
+		// measurement, not the attribution.
+		file := spellLikeWriteSet(diag.File, result.WrittenPaths)
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_build_diagnostic",
+			Args:      []any{turn, types.MangleString(file), types.MangleString(diag.Package)},
+		})
+		asserted++
+	}
+	if asserted == 0 {
+		// Unlocatable. The policy attributes it; there is no graph to ask for.
+		return
+	}
+	edges, dirs, unknown := e.moduleImportGraph(ctx, workspace)
+	if unknown {
+		// The list failed. Asserting no edges would call an importer break
+		// foreign. The policy attributes a missing graph (fail closed).
+		e.assertTurnFact(types.Fact{Predicate: "turn_build_graph_unknown", Args: []any{turn}})
+		return
+	}
+	for _, pkg := range packagesForWrittenGo(result.WrittenPaths, dirs) {
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_written_package",
+			Args:      []any{turn, types.MangleString(pkg)},
+		})
+	}
+	for _, edge := range edges {
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_pkg_imports",
+			Args:      []any{turn, types.MangleString(edge[0]), types.MangleString(edge[1])},
+		})
+	}
+}
+
+// spellLikeWriteSet returns path spelled the way the write set spells it
+// when the two name the same file, and path otherwise.
+func spellLikeWriteSet(file string, written []string) string {
+	slash := filepath.ToSlash(file)
+	for _, w := range written {
+		ws := filepath.ToSlash(w)
+		if strings.EqualFold(ws, slash) {
+			return ws
+		}
+	}
+	return slash
+}
+
+// moduleImportGraph is the current module's direct import edges. unknown
+// is true when the list did not run or named no package: the caller then
+// fail-closes instead of treating a missing graph as "nothing depends on
+// the turn".
+func (e *Executor) moduleImportGraph(ctx context.Context, workspace string) (edges [][2]string, dirs map[string]string, unknown bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const format = "{{.ImportPath}}\t{{.Dir}}\t{{join .Imports \" \"}}"
+	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), buildVerifyTimeout,
+		"go", []string{"list", "-e", "-f", format, "./..."}, verifyBuildRunner)
+	if outcome != VerifyPassed {
+		logging.Get(logging.CategorySession).Warn("build attribution: import graph unavailable (%s%s)", outcome, suffixed(reason))
+		return nil, nil, true
+	}
+	root := goWorkspace(workspace)
+	type row struct {
+		dir     string
+		imports []string
+	}
+	parsed := map[string]row{}
+	for _, line := range strings.Split(string(out), "\n") {
+		// TrimSpace would delete the trailing tab that marks an empty
+		// import list. A package with no imports would then vanish, and
+		// either the graph looks empty (fail closed) or an importer of
+		// that package is not recorded as depending on it.
+		line = strings.TrimRight(strings.TrimLeft(line, " "), "\r ")
+		imp, rest, ok := strings.Cut(line, "\t")
+		if !ok || imp == "" {
+			continue
+		}
+		dir, imports, ok := strings.Cut(rest, "\t")
+		if !ok {
+			continue
+		}
+		parsed[imp] = row{dir: moduleRelDir(root, dir), imports: strings.Fields(imports)}
+	}
+	if len(parsed) == 0 {
+		logging.Get(logging.CategorySession).Warn("build attribution: go list returned no packages; the failure is charged to the turn")
+		return nil, nil, true
+	}
+	dirs = make(map[string]string, len(parsed))
+	for imp, r := range parsed {
+		dirs[imp] = r.dir
+	}
+	// An import is kept only when both ends were listed. A broken
+	// third-party dependency is foreign: this turn did not write it, and
+	// nothing it wrote is that package's source.
+	for imp, r := range parsed {
+		for _, imported := range r.imports {
+			if imported == imp {
+				continue
+			}
+			if _, listed := parsed[imported]; !listed {
+				continue
+			}
+			edges = append(edges, [2]string{imp, imported})
+		}
+	}
+	return edges, dirs, false
+}
+
+func moduleRelDir(root, dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" || dir == "." {
+		return "."
+	}
+	if root != "" {
+		if rel, err := filepath.Rel(root, dir); err == nil && rel != "" && !strings.HasPrefix(rel, "..") {
+			rel = filepath.ToSlash(rel)
+			if rel == "." || rel == "" {
+				return "."
+			}
+			return rel
+		}
+	}
+	return filepath.ToSlash(dir)
+}
+
+// packagesForWrittenGo names the import path of each .go file the turn
+// wrote, by the directory go list reported for that package. A package is
+// one directory; the match is that directory, not the package clause.
+func packagesForWrittenGo(written []string, dirs map[string]string) []string {
+	byDir := make(map[string]string, len(dirs))
+	for imp, dir := range dirs {
+		byDir[dir] = imp
+	}
+	var pkgs []string
+	seen := map[string]bool{}
+	for _, writtenPath := range written {
+		if !strings.EqualFold(filepath.Ext(writtenPath), ".go") {
+			continue
+		}
+		dir := path.Dir(filepath.ToSlash(writtenPath))
+		if dir == "" || dir == "/" {
+			dir = "."
+		}
+		imp, ok := byDir[dir]
+		if !ok {
+			for d, p := range byDir {
+				if strings.EqualFold(d, dir) {
+					imp, ok = p, true
+					break
+				}
+			}
+		}
+		if ok && !seen[imp] {
+			seen[imp] = true
+			pkgs = append(pkgs, imp)
+		}
+	}
+	sort.Strings(pkgs)
+	return pkgs
+}
+
+// buildGateRed is the repair loop's question: does policy charge this turn
+// with a build failure? With no kernel there is nothing to ask, and the raw
+// exit is what the loop has. A mock kernel derives nothing; neither a
+// verdict nor a foreign atom is then present, and that too is charged
+// (fail closed) so a real breakage is not skipped.
+func (e *Executor) buildGateRed(ctx context.Context, turn types.MangleAtom, result *ExecutionResult) bool {
+	if result == nil || result.BuildCheck.Verdict() != VerifyFailed {
+		return false
+	}
+	if e == nil || e.kernel == nil {
+		return true
+	}
+	e.syncBuildGateFacts(ctx, turn, result)
+	_, fail := e.derivedGate(turn, "/build")
+	if fail {
+		return true
+	}
+	if e.hasBuildFailureForeign(turn) {
+		result.BuildForeignPackages = e.foreignBuildPackages(turn)
+		return false
+	}
+	return true
+}
+
+func (e *Executor) hasBuildFailureForeign(turn types.MangleAtom) bool {
+	rows, err := e.turnRows("turn_build_failure_foreign", turn)
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("gate facts: query turn_build_failure_foreign: %v", err)
+		return false
+	}
+	return len(rows) > 0
+}
+
+func (e *Executor) foreignBuildPackages(turn types.MangleAtom) []string {
+	if e == nil || e.kernel == nil || turn == "" {
+		return nil
+	}
+	rows, err := e.turnRows("turn_build_failure_foreign", turn)
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("gate facts: query turn_build_failure_foreign: %v", err)
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var pkgs []string
+	for _, row := range rows {
+		if len(row.Args) < 2 {
+			continue
+		}
+		pkg := types.ExtractString(row.Args[1])
+		if pkg == "" {
+			continue
+		}
+		if _, ok := seen[pkg]; ok {
+			continue
+		}
+		seen[pkg] = struct{}{}
+		pkgs = append(pkgs, pkg)
+	}
+	sort.Strings(pkgs)
+	return pkgs
+}
+
 // derivedGate reads the turn_gate atoms policy derived (or the executor
-// asserted, for /build and /pinned) for this turn and gate.
+// asserted, for /pinned) for this turn and gate.
 func (e *Executor) derivedGate(turn types.MangleAtom, gate string) (pass, fail bool) {
 	if e == nil || e.kernel == nil || turn == "" {
 		return false, false

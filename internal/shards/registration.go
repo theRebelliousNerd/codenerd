@@ -170,6 +170,16 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// joined against its attempts.
 				"repair_restart",
 				"turn_gate",
+				// Measurements the /build gate is derived from, and the
+				// closure it joins (coder_safety.mg). turn_written is already
+				// on this shard; a catch-all home for the import edges would
+				// split that join and a transitive importer the turn broke
+				// would never be charged.
+				"turn_build_measured", "turn_build_diagnostic", "turn_pkg_imports",
+				"turn_written_package", "turn_build_graph_unknown",
+				"turn_pkg_depends", "turn_build_depends_on_written",
+				"turn_build_has_diagnostic", "turn_build_failure_attributed",
+				"turn_build_failure_foreign", "turn_has_build_failure_foreign",
 				// Measurements the /test, /vet, /check, /test_run and
 				// /test_retention gates are derived from (coder_safety.mg).
 				// They join turn_failing_test, turn_check_run and turn_gate,

@@ -328,6 +328,17 @@ var hostWitnessPredicates = map[string]struct{}{
 	"turn_test_after": {}, "turn_test_after_seq": {}, "turn_last_test_run": {},
 	"turn_vet_ran": {}, "turn_vet_finding": {}, "turn_vet_before": {},
 	"turn_vet_before_key": {}, "turn_vet_new": {}, "turn_has_vet_new": {},
+	// Measurements the /build gate is derived from (coder_safety.mg), and
+	// the conclusions that charge a failure to this turn. A model that
+	// could write the diagnostic or the import edge could hide a break it
+	// caused, or name another package's break as foreign. The closure and
+	// the verdict are the same conclusion: an asserted
+	// turn_build_failure_attributed would be a second source for the gate.
+	"turn_build_measured": {}, "turn_build_diagnostic": {},
+	"turn_pkg_imports": {}, "turn_written_package": {}, "turn_build_graph_unknown": {},
+	"turn_pkg_depends": {}, "turn_build_depends_on_written": {},
+	"turn_build_has_diagnostic": {}, "turn_build_failure_attributed": {},
+	"turn_build_failure_foreign": {}, "turn_has_build_failure_foreign": {},
 	// The retention gate and critic triage (coder_safety.mg). A model that
 	// could write the removal rows could turn /test_retention red; one that
 	// could write critic findings or their conclusions could force an uplift

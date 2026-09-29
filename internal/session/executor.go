@@ -731,7 +731,13 @@ type ExecutionResult struct {
 	// Acceptance is populated only by caller-authorized, revision-bound checks.
 	Acceptance *evidence.Report
 	BuildCheck BuildVerification
-	TestCheck  TestVerification
+	// BuildForeignPackages are the packages a failing build named whose
+	// failure this turn cannot have caused (turn_build_failure_foreign).
+	// Empty when the build passed, was attributed, or was not measured.
+	// Captured from the kernel before cleanupTurnFacts retracts the rows,
+	// because the turn text names them after the facts are gone.
+	BuildForeignPackages []string
+	TestCheck            TestVerification
 	// VetCheck is `go vet` over the packages the turn wrote, judged on the
 	// turn's own files: a finding in a file the turn did not touch is not
 	// this turn's evidence.
@@ -2570,9 +2576,10 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 	e.assertTurnElements(turn, result)
 }
 
-// recordBuildState asserts this turn's mechanical gate verdicts as the facts
-// the policy corpus reads: turn_gate/3 for this turn, build_state/1 and
-// test_state/1 for the session.
+// recordBuildState asserts this turn's mechanical measurements as the facts
+// the policy corpus reads: build_state/1 and test_state/1 for the session,
+// the per-turn rows the derived gates read, and turn_gate/3 for /pinned.
+// /build is not asserted here. The policy derives it from the measurements.
 //
 // Until this existed the field below it tracked was written by nothing —
 // perTurnBuildStateFacts named a recordBuildState that was not in the tree, the
@@ -2599,12 +2606,12 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	if e.kernel == nil || result == nil {
 		return
 	}
-	// /build and /pinned are this function's assertions. /test, /vet,
-	// /test_run, /check and /test_retention are derived (coder_safety.mg):
-	// asserting turn_gate for them here would be a second source for one gate.
-	// test_state stays the raw suite exit. A suite that fails only on tests
-	// that already failed is still a failing suite; the turn is not charged
-	// for it, and that charge is the derived gate, not this fact.
+	// /pinned is this function's assertion. /build, /test, /vet, /test_run,
+	// /check and /test_retention are derived (coder_safety.mg): asserting
+	// turn_gate for them here would be a second source for one gate.
+	// build_state and test_state stay the raw exits. A build that fails
+	// only outside this turn is still a failing build; the turn is not
+	// charged for it, and that charge is the derived gate, not this fact.
 	stateOf := func(verdict VerifyOutcome) (types.MangleAtom, bool) {
 		switch verdict {
 		case VerifyPassed:
@@ -2617,8 +2624,11 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	}
 	if state, ok := stateOf(result.BuildCheck.Verdict()); ok {
 		e.assertTurnFact(types.Fact{Predicate: "build_state", Args: []any{state}})
-		e.assertTurnFact(types.Fact{Predicate: "turn_gate", Args: []any{turn, types.MangleAtom("/build"), state}})
 	}
+	// recordBuildState has no caller context. The list is bounded by
+	// buildVerifyTimeout inside runVerificationCommand, the same budget
+	// the build itself just ran under.
+	e.syncBuildGateFacts(context.Background(), turn, result)
 	if state, ok := stateOf(result.TestCheck.Verdict()); ok {
 		e.assertTurnFact(types.Fact{Predicate: "test_state", Args: []any{state}})
 	}
@@ -2914,6 +2924,10 @@ func missingEvidenceSentence(atom string) string {
 	switch atom {
 	case "/build_not_green":
 		return "the build was not verified green"
+	case "/build_failure_foreign":
+		// The packages are not in the atom. verdictSentence appends them
+		// from the result, which captured the rows before they were retracted.
+		return "the build is broken outside this turn"
 	case "/tests_not_green":
 		return "the tests were not verified green"
 	case "/tests_not_written":

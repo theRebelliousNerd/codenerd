@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/broker"
 	"codenerd/internal/build"
 	"codenerd/internal/config"
+	"codenerd/internal/gates"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/testfacts"
@@ -59,9 +60,17 @@ type BuildVerification struct {
 	// OK is true only when the build actually succeeded.
 	OK bool
 
-	// Output is the compiler's stderr/stdout, truncated. Empty on success
-	// and on runs that produced no text (skips, pre-start cancels).
+	// Output is the compiler's stderr/stdout. Empty on success and on runs
+	// that produced no text (skips, pre-start cancels).
 	Output string
+
+	// Diagnostics is every file:line the build named
+	// (gates.ParseGoDiagnostics). Nil means the output was not parsed (a
+	// hand-built verification); the gate then parses Output. A non-nil
+	// empty slice means the failure named no file. Line and column stay
+	// here so a reader of the verification can name the site; the fact
+	// the policy joins is the file and the package.
+	Diagnostics []gates.GoDiagnostic
 
 	// Duration is how long the build took.
 	Duration time.Duration
@@ -106,6 +115,19 @@ func (v BuildVerification) Verdict() VerifyOutcome {
 	default:
 		return VerifySkipped
 	}
+}
+
+// locatedDiagnostics is the file:line list the build gate asserts. A
+// verification verifyBuild filled already carries it. A hand-built failure
+// does not, so its Output is parsed once here; empty output names nothing.
+func (v BuildVerification) locatedDiagnostics(workspace string) []gates.GoDiagnostic {
+	if v.Diagnostics != nil {
+		return v.Diagnostics
+	}
+	if strings.TrimSpace(v.Output) == "" {
+		return nil
+	}
+	return gates.ParseGoDiagnostics(workspace, v.Output)
 }
 
 // workspaceForVerification resolves the directory the verification build runs
@@ -171,7 +193,13 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 		// request and says so instead.
 		logging.Get(logging.CategorySession).Warn(
 			"build verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
-		return BuildVerification{Ran: true, OK: false, Output: text, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed}
+		// A non-nil slice, empty when nothing was located. Nil would mean
+		// "not parsed", and a later sync would parse the text a second time.
+		diags := gates.ParseGoDiagnostics(workspace, text)
+		if diags == nil {
+			diags = []gates.GoDiagnostic{}
+		}
+		return BuildVerification{Ran: true, OK: false, Output: text, Diagnostics: diags, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed}
 	case VerifyCanceled:
 		logging.Get(logging.CategorySession).Warn("build verification canceled: %s", reason)
 		return BuildVerification{Ran: len(out) > 0, Output: strings.TrimSpace(string(out)), Outcome: VerifyCanceled, Command: command, Reason: reason, Duration: elapsed}
@@ -236,6 +264,19 @@ func (e *Executor) verifyAndRepairBuild(
 		return nil, nil, nil
 	}
 
+	// A failure policy does not charge to this turn is not this turn's to
+	// repair (dogfood runs 4 and 5: go build ./... failed in another
+	// agent's half-written package). The command stays whole-workspace;
+	// attribution is the gate's. An unlocatable failure (no file:line) is
+	// charged, so the repair still runs: fail closed. With no kernel there
+	// is nothing to ask, and the raw exit is charged the same way.
+	if !e.buildGateRed(ctx, result.turnAtom(), result) {
+		logging.Get(logging.CategorySession).Warn(
+			"build is broken outside this turn (%s); no repair attempted",
+			strings.Join(result.BuildForeignPackages, ", "))
+		return nil, nil, nil
+	}
+
 	if trp == nil {
 		return nil, nil, fmt.Errorf(
 			"%w: edits broke the build and no repair is possible (client cannot accept tool results):\n%s",
@@ -262,8 +303,14 @@ func (e *Executor) verifyAndRepairBuild(
 			if r.Verdict() == VerifyPassed || r.Verdict() == VerifyFailed {
 				result.BuildCheck = r
 			}
-			// The build is this round's subject, so a failure is always on it.
-			return r.Verdict() == VerifyPassed, repairFailure{Output: r.Output}, r.Verdict()
+			// A build that still exits non-zero, but only in packages this
+			// turn cannot have broken, is not this round's failure. The raw
+			// exit stays on BuildCheck. Same shape as testGatePassed: the
+			// suite can stay red while the turn is not charged.
+			if r.Verdict() == VerifyPassed || (r.Verdict() == VerifyFailed && !e.buildGateRed(epCtx, result.turnAtom(), result)) {
+				return true, repairFailure{}, r.Verdict()
+			}
+			return false, repairFailure{Output: r.Output}, r.Verdict()
 		},
 		followups: func() []string {
 			return repairFollowups(workspace, nil, result, "build")
@@ -351,10 +398,10 @@ func (e *Executor) verifyAndRepairTests(
 	// outside the owned paths: the pre-gate set plus files this turn has
 	// written since (a failure in a file an earlier repair created is still
 	// the turn's). An empty File, or any Failure row, keeps the repair.
-	// The build path (verifyAndRepairBuild) keeps today's repair behaviour:
-	// its output is raw compiler text H5b has yet to locate, so an
-	// unlocated build failure still repairs, confined to the set by the
-	// guard repairRound installs.
+	// The build path locates compiler output the same way (buildGateRed).
+	// A failure only in packages this turn cannot have broken does not
+	// repair; an unlocated build failure still does, fail closed, and the
+	// guard repairRound installs keeps those writes inside the set.
 	owned := turnOwnedPaths(ctx, result)
 	if foreign, outside := testBuildFailuresOutsideWriteSet(result.TestCheck.Result, owned, workspace); outside {
 		logging.Get(logging.CategorySession).Warn(
@@ -398,9 +445,14 @@ func (e *Executor) verifyAndRepairTests(
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			if rb := verifyBuild(epCtx, workspace, nil); rb.Verdict() == VerifyFailed {
 				result.BuildCheck = rb
-				// testRepairPrompt reads a compile failure out of the output
-				// itself, so this round keeps its own prompt either way.
-				return false, repairFailure{Output: rb.Output}, VerifyFailed
+				// An attributed build break fails this repair. A failure
+				// only in packages this turn cannot have broken does not:
+				// the test repair is not asked to edit them.
+				if e.buildGateRed(epCtx, result.turnAtom(), result) {
+					// testRepairPrompt reads a compile failure out of the output
+					// itself, so this round keeps its own prompt either way.
+					return false, repairFailure{Output: rb.Output}, VerifyFailed
+				}
 			} else if rb.Verdict() == VerifyCanceled {
 				return false, repairFailure{}, VerifyCanceled
 			}
