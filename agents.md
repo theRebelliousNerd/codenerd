@@ -58,9 +58,11 @@ This repo exists to make that split real in production: creative power with dete
   runs. Nothing achieves the north star; every turn moves toward it, and the pressure never
   lets go.
 - The original bet lives in `.codex/skills/codenerd-builder/references/` — an input to be
-  judged, not a request to restore. `Docs/architecture/` (July 2026) is not the original and
-  not authoritative: it was generated one package at a time by a weak model and its claims
-  have been found stale or never true; never cite it as evidence of anything. Read the code.
+  judged, not a request to restore. `Docs/architecture/` is codeNERD's spec (Steve,
+  2026-09-29), being rebuilt package by package to `Docs/journeys/09-architecture-doc-standard.md`.
+  Its July-2026 files that have not been rewritten to that standard were generated one package
+  at a time by a weak model and their claims have been found stale or never true: never cite
+  those as evidence of what the code does. Read the code.
 
 ## Use codeNERD Where It Can Do the Job (a suggestion, not a mandate — for now)
 
@@ -93,6 +95,10 @@ running at all.
 - New prompt behavior becomes prompt atoms first, not ad-hoc shard prompt text.
 - Internal prompt atoms live under `internal/prompt/atoms/<category>/`.
 - Project-specific or user-agent prompt atoms live under `.nerd/agents/`.
+- `Docs/architecture/` is the spec. Every change updates the corpus of each package it touches in
+  the same change, to the standard in `Docs/journeys/09-architecture-doc-standard.md`: vision and
+  specs for what is being built, current-state / `IMPLEMENTED_SPEC.md` / wiring rows (cited
+  `path:line`) for what shipped, and the gap row closed or opened. A new package gets a corpus.
 - Always look for wiring gaps before deleting "unused" code. This codebase frequently has partially wired features and dormant integration points.
 - Keep root-level agent guidance concise. Put subsystem detail in scoped `agents.md` files or skill references.
 - Push to GitHub regularly and use conventional commits.
