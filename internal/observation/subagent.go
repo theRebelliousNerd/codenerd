@@ -419,6 +419,15 @@ type ReturnWindow struct {
 	// it by paging through nine hundred lines is the cost this codec exists to
 	// avoid.
 	Match string
+	// MaxLines, when positive, overrides the leaf expansion cap below for
+	// this hydration. It is set by callers that resolve the observation.*
+	// policy, never from model-facing tool args: observation is a leaf
+	// package and cannot read config, so the caller passes the resolved
+	// values in, the way ReadLimits reaches the file-read codec.
+	MaxLines int
+	// DefaultLines, when positive, overrides the leaf default for an
+	// unbounded request (Limit <= 0). Same caller, same reason.
+	DefaultLines int
 }
 
 // HydratedReturn is the transcript, as returned, bounded to a window.
@@ -437,7 +446,11 @@ type HydratedReturn struct {
 }
 
 // maxReturnHydrateLines caps a single expansion regardless of what was asked
-// for, and defaultReturnHydrateLines is what an unbounded request gets.
+// for, and defaultReturnHydrateLines is what an unbounded request gets. They
+// are the leaf safety net for direct API callers; production callers resolve
+// the observation.* hydrate bounds and pass them in through ReturnWindow.
+// The cap is paging, not truncation: the hydration carries its Total and
+// NextOffset, and Text() names the remainder with the offset that continues.
 const (
 	maxReturnHydrateLines     = 200
 	defaultReturnHydrateLines = 60
@@ -487,12 +500,19 @@ func (s *Subagents) HydrateReturn(handle string, w ReturnWindow) (HydratedReturn
 		lines = filtered
 	}
 
+	maxLines, defaultLines := maxReturnHydrateLines, defaultReturnHydrateLines
+	if w.MaxLines > 0 {
+		maxLines = w.MaxLines
+	}
+	if w.DefaultLines > 0 {
+		defaultLines = w.DefaultLines
+	}
 	limit := w.Limit
 	if limit <= 0 {
-		limit = defaultReturnHydrateLines
+		limit = defaultLines
 	}
-	if limit > maxReturnHydrateLines {
-		limit = maxReturnHydrateLines
+	if limit > maxLines {
+		limit = maxLines
 	}
 	offset := max(w.Offset, 0)
 	offset = min(offset, len(lines))

@@ -318,12 +318,8 @@ func runBrowserTest(ctx context.Context, args map[string]any, view string) (stri
 		if !passed {
 			violations++
 		}
-		if view == "full" && matched > 0 {
-			sample := facts
-			if len(sample) > 3 {
-				sample = sample[:3]
-			}
-			row["sample"] = publicBrowserFacts(manager, sample, true)
+		if sample := browserTestAssertionSample(manager, facts, view); sample != nil {
+			row["sample"] = sample
 		}
 		assertionResults = append(assertionResults, row)
 	}
@@ -368,6 +364,19 @@ func runBrowserTest(ctx context.Context, args map[string]any, view string) (stri
 		"action_count": len(resolved.Actions), "assertion_count": len(resolved.Assertions), "violation_count": violations,
 	})
 	return marshalProgressiveResult(output)
+}
+
+// browserTestAssertionSample renders the matched verification facts for an
+// assertion row. Full means full: every matched fact is returned, and the
+// row's "matched" count already tells the model how many there are. Other
+// views carry no sample at all. The working-context ledger archives a large
+// result behind a recall handle; cutting here hid verification records from
+// the agent that asked for them, with no marker that any were missing.
+func browserTestAssertionSample(manager *browser.SessionManager, facts []types.Fact, view string) []map[string]any {
+	if view != "full" || len(facts) == 0 {
+		return nil
+	}
+	return publicBrowserFacts(manager, facts, true)
 }
 
 func browserTestOperationsValue(operations []browser.ActionOperation) ([]any, error) {

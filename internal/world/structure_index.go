@@ -740,9 +740,11 @@ func (s *StructureIndex) Callees(ctx context.Context, query string) ([]StructSym
 					callee.Candidates = append(callee.Candidates, fmt.Sprintf("%s @ %s:%d", c.Ref, c.File, c.StartLine))
 				}
 			}
-			if len(callee.Candidates) > 6 {
-				callee.Candidates = append(callee.Candidates[:6], fmt.Sprintf("... %d more share the name", len(callee.Candidates)-6))
-			}
+			// The candidates are returned whole. callees_of pages the rendered
+			// rows with an announced offset, and the working-context ledger
+			// archives an oversized answer behind a recall handle; cutting here
+			// hid valid resolution targets on overloaded names behind an
+			// ellipsis the model could not redeem.
 			out = append(out, callee)
 		}
 	}

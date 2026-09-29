@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"codenerd/internal/atomicfile"
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/observation/precondition"
@@ -204,7 +205,26 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 		Start:   startLine,
 		End:     endLine,
 	}
-	result := observation.EncodeRead(observed, observation.ReadLimits{}).Text()
+	// The projection bounds come from observation.* via the installed
+	// policy, the way VirtualStore.handleReadFile builds them: observation
+	// is a leaf package and cannot read config, so the caller that builds
+	// ReadLimits passes the resolved values in. A zero ReadLimits here
+	// silently fell back to the codec's own defaults and the configured
+	// keys never reached this read path.
+	//
+	// PadLines stays the codec-honored 0, not the configured 8: the codec
+	// defaults a negative pad but honors an explicit 0 as "exact region",
+	// and TestReadFile_FractionalBoundsRefused pins that a bounded tool
+	// read returns its bounds, not its bounds plus padding. Routing
+	// observation.pad_lines into this path is a contract change, not a
+	// wiring fix, and needs that test's contract revisited first.
+	obsLimits := config.ResolvedObservationLimits()
+	result := observation.EncodeRead(observed, observation.ReadLimits{
+		MaxRegionLines: obsLimits.MaxRegionLines,
+		PadLines:       0,
+		MaxOutline:     obsLimits.MaxOutline,
+		MaxRegionBytes: obsLimits.MaxRegionBytes,
+	}).Text()
 
 	logging.Audit().FileOp(logging.AuditFileRead, path, int64(len(content)), true, "")
 	logging.Tools("read_file completed: %s (%d bytes read, %d bytes returned)", path, len(content), len(result))
