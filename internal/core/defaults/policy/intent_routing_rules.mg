@@ -261,6 +261,8 @@ persona_tool_allowed(/coder, /delete_element).
 persona_tool_allowed(/coder, /create_file).
 persona_tool_allowed(/coder, /repoint).
 persona_tool_allowed(/coder, /apply_edits).
+# The campaign's acceptance check, for the turn that carries one.
+persona_tool_allowed(/coder, /run_check).
 
 # Tester-specific tools
 persona_tool_allowed(/tester, /run_tests).
@@ -336,6 +338,11 @@ modular_tool_allowed(/bash, Intent) :- verb_category(Intent, /code).
 modular_tool_allowed(/bash, Intent) :- verb_category(Intent, /test).
 modular_tool_allowed(/run_build, Intent) :- verb_category(Intent, /code).
 modular_tool_allowed(/run_tests, Intent) :- verb_category(Intent, /test).
+# /run_check runs the campaign's acceptance command for the turn; it is
+# offered only on turns that carry a check, and routes wherever verification
+# does.
+modular_tool_allowed(/run_check, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/run_check, Intent) :- verb_category(Intent, /test).
 
 # Code DOM tools - available for code intents
 modular_tool_allowed(/get_elements, Intent) :- user_intent(_, _, Intent, _, _).

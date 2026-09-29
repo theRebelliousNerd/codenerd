@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/tools/research"
+	"codenerd/internal/tools/shell"
 	"context"
 	"errors"
 	"fmt"
@@ -123,6 +124,10 @@ func (c *Cortex) Close() error {
 			errs = append(errs, err)
 		}
 		c.ToolStore = nil
+	}
+
+	if c.Executor != nil {
+		shell.ClearCheckExecutor(c.Executor)
 	}
 
 	if c.BrowserManager != nil {

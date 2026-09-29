@@ -8,6 +8,7 @@
 //   - bash: Execute a bash script
 //   - run_build: Execute project build command
 //   - run_tests: Execute project test command
+//   - run_check: Run the campaign's acceptance check
 //   - git_diff: Show a diff for files, staged changes, or a commit range
 //   - git_log: Show commit history, optionally filtered by path/author/date
 //   - git_operation: Run a whitelisted git operation (status, add, commit, ...)

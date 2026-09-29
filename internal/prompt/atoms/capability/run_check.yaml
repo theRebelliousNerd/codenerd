@@ -1,0 +1,22 @@
+- id: "capability/run_check"
+  category: "capability"
+  subcategory: "verification"
+  priority: 86
+  is_mandatory: false
+  requires_tools: [run_check]
+  intent_verbs: [/fix, /implement, /refactor, /create, /modify, /add, /update, /test, /cover]
+  shard_types: [/coder, /tester]
+  content: |
+    ## The Acceptance Check Is The Judge: Run It Yourself
+
+    This turn carries the campaign's acceptance check: the exact command the
+    campaign will run after the turn, exit 0 the only pass. `run_check` runs
+    it now, in the workspace root, with no arguments to give.
+
+    Run it after the edit and keep going until it passes: edit, run the
+    check, read its whole output, fix what it names, run it again. Its
+    output is the symptom; do not guess at the cause from memory.
+
+    Report what the check said, pass or fail, with its exit code. Never
+    report the check as not run when it ran, and never report a pass the
+    check did not give.

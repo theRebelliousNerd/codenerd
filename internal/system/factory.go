@@ -31,6 +31,7 @@ import (
 	"codenerd/internal/tools"
 	"codenerd/internal/tools/mcpctl"
 	"codenerd/internal/tools/research"
+	"codenerd/internal/tools/shell"
 	"codenerd/internal/types"
 	"database/sql"
 	"errors"
@@ -1805,6 +1806,9 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	bctx.browserMgr.SetFactRetractor(browser.NewKernelFactRetractor(bctx.kernel))
 
 	research.SetBrowserRuntime(bctx.browserMgr, bctx.kernel)
+	// run_check runs a campaign's declared acceptance argv through the same
+	// audited executor the orchestrator's acceptance round uses (Cortex.Executor).
+	shell.SetCheckExecutor(bctx.virtualStore.AuditedExecutor())
 	return nil
 }
 

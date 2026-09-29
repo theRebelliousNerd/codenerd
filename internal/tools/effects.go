@@ -31,7 +31,7 @@ func BuiltinEffect(name string) Effect {
 		"delete_lines", "edit_element", "replace_element", "insert_element", "delete_element",
 		"create_file", "repoint", "apply_edits", "research_cache_set", "research_cache_clear":
 		return EffectWrite
-	case "run_command", "bash", "run_build", "run_tests", "run_impacted_tests", "git_operation":
+	case "run_command", "bash", "run_build", "run_tests", "run_check", "run_impacted_tests", "git_operation":
 		return EffectExecute
 	case "browser_navigate", "browser_click", "browser_type", "browser_close",
 		"browser_screenshot", "browser_audit", "browser_test", "browser_act",

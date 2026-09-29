@@ -22,6 +22,7 @@ import (
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	"codenerd/internal/testoutput"
+	"codenerd/internal/tools"
 	internaltypes "codenerd/internal/types"
 	"crypto/sha256"
 )
@@ -49,6 +50,12 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 		// The input is the brief plus the evidence the task is handed; memory
 		// is recalled by the brief.
 		ctx = session.WithRecallQuery(ctx, task.Description)
+		// The campaign's acceptance command rides the turn's context to the
+		// run_check tool, so the turn can run the judge the campaign will
+		// run after it instead of paying a whole acceptance round per try.
+		if check, ok := o.campaignCheck(task); ok {
+			ctx = tools.WithCampaignCheck(ctx, check)
+		}
 	}
 	ret, err := observed.ExecuteObserved(ctx, req)
 	o.recordAttemptWrites(task, ret.Writes)
@@ -61,6 +68,26 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 		return ret.Output, turnNotDoneError(intent, ret)
 	}
 	return ret.Output, nil
+}
+
+// campaignCheck returns the acceptance command the task's turn may run
+// itself through the run_check tool, when the campaign declares one. The
+// guard is the same one settleAcceptance uses: no declared command, no check
+// on the context, and the tool fails closed.
+func (o *Orchestrator) campaignCheck(task *Task) (tools.CampaignCheck, bool) {
+	if task == nil {
+		return tools.CampaignCheck{}, false
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.campaign == nil || o.campaign.Acceptance == nil || len(o.campaign.Acceptance.Command) == 0 {
+		return tools.CampaignCheck{}, false
+	}
+	return tools.CampaignCheck{
+		CampaignID: o.campaign.ID,
+		TaskID:     task.ID,
+		Argv:       append([]string(nil), o.campaign.Acceptance.Command...),
+	}, true
 }
 
 // ErrTaskNotDone marks an attempt whose turn ran without an error but whose

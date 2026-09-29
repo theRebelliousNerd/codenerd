@@ -266,6 +266,10 @@ safe_action(/run_command).
 safe_action(/bash).
 safe_action(/run_build).
 safe_action(/run_tests).
+# /run_check runs the campaign's own acceptance command with no model
+# arguments; the argv is the campaign's declaration, so there is no payload
+# for dangerous_content to judge.
+safe_action(/run_check).
 safe_action(/git_operation).
 safe_action(/git_diff).
 safe_action(/git_log).

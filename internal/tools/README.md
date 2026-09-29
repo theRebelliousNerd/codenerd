@@ -30,7 +30,7 @@ tools/
 | Category | Directory | Tools |
 |----------|-----------|-------|
 | `/code` | `core/` | read_file, write_file, glob, grep, list_files |
-| `/shell` | `shell/` | run_command, bash, run_build, run_tests |
+| `/shell` | `shell/` | run_command, bash, run_build, run_tests, run_check |
 | `/codedom` | `codedom/` | get_elements, get_element, edit_lines |
 | `/research` | `research/` | context7_fetch, web_search, web_fetch, browser |
 
