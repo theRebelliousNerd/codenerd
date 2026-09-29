@@ -83,3 +83,5 @@ behavioral claim attached.
 - `WIRING-AND-NOT-BUILT.md` — what is wired and reachable, what degrades
   by design, what this pass did not re-derive, and which old claims are
   retired.
+- Port Specification: [`13-BROWSERNERD-PARITY.md`](13-BROWSERNERD-PARITY.md) (contract and governance), [`14-BROWSERNERD-1.2-PORT-SPEC.md`](14-BROWSERNERD-1.2-PORT-SPEC.md) (target-state capability specification), and [`15-PARITY-LEDGER-AND-GAPS.md`](15-PARITY-LEDGER-AND-GAPS.md) (parity ledger and gap matrix).
+
