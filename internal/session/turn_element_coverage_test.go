@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -102,12 +103,13 @@ func TestUsed(t *testing.T) {
 // test takes one branch, the other block is uncovered, and the element is
 // not turn_element_uncovered. Old is uncovered and unchanged, so it is not
 // named either. Empty changed into a body with no statements. The written
-// path is recorded with a backslash; the fact and the match use slashes.
+// path is recorded in the host's spelling (a backslash on Windows, where the
+// tools record one); the fact and the match use slashes.
 func TestTurnElementUncovered_RealRunNamesTheMissedElements(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles and tests a throwaway package")
 	}
-	const written = `sub\calc.go`
+	written := filepath.Join("sub", "calc.go")
 	ws := writeBaselineModule(t, map[string]string{
 		"go.mod":           "module elemcover\n\ngo 1.21\n",
 		"sub/calc.go":      elemCoverAfter,

@@ -697,6 +697,18 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		return &config.EffectiveAgentRuntimeConfig{}, nil
 	}
 
+	// The tool envelope is derived BEFORE compiling, so the requires_tools
+	// gate selects against the catalog the subagent will actually hold.
+	// One derivation feeds both the prompt and cfg.AllowedTools below; a
+	// failed derivation fail-closes both (no tools, and the prompt compiled
+	// against none). No tools is not all tools.
+	tools, derr := prompt.DeriveTurnTools(s.kernel, intentVerb)
+	if derr != nil {
+		logging.Get(logging.CategorySession).Warn("turn catalog: %v; spawned config has no tools", derr)
+		tools = nil
+	}
+	compilationCtx.AvailableTools = tools
+
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)
 	if err != nil {
 		// The caller's context ending is not a compile failure to retry
@@ -713,6 +725,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 			IntentVerb:      "/general",
 			OperationalMode: "/active",
 			TokenBudget:     budget, // The configured budget; a smaller fallback budget cut mandatory atoms
+			AvailableTools:  tools,  // The retry prompt gates on the same envelope the subagent holds.
 		}
 		baselineCtx.Provider, baselineCtx.Model = s.servingIdentity()
 		compileResult, err = s.jitCompiler.Compile(ctx, baselineCtx)
@@ -734,17 +747,10 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		return nil, fmt.Errorf("turn catalog: config factory returned a nil config for %s", intentVerb)
 	}
 	// The atom carries policies. The tool allowlist is the kernel's, the
-	// same projection the session turn uses. A failed or empty derivation
-	// fail-closes to no tools; the subagent still starts, and no tools is
-	// not all tools. The prompt compile above does not see this overlay
-	// (compilationCtx.AvailableTools is unset); that predates the catalog
-	// move and is left for the owner of spawn-time JIT.
-	tools, derr := prompt.DeriveTurnTools(s.kernel, intentVerb)
-	if derr != nil {
-		logging.Get(logging.CategorySession).Warn("turn catalog: %v; spawned config has no tools", derr)
-		cfg.AllowedTools = nil
-		return cfg, nil
-	}
+	// same projection the session turn uses, derived once above: the prompt
+	// already compiled against exactly this catalog, so the two cannot
+	// drift. A failed derivation left tools nil; the subagent still starts,
+	// and no tools is not all tools.
 	cfg.AllowedTools = tools
 	return cfg, nil
 }
