@@ -347,6 +347,12 @@ func (m Model) buildChatCompilationContext() *prompt.CompilationContext {
 	cc.Provider, cc.Model = m.servingIdentity()
 	cc.IntentVerb = m.turnIntentVerb
 
+	// The catalog this turn is offered, derived once for the verb the
+	// compile claims. Without it the selector strips every tool-gated atom
+	// (turnTools documents the failure); with it the skeleton keeps the
+	// CodeDOM and structure-query guidance the orchestrator routes on.
+	cc.AvailableTools = m.turnTools(cc.IntentVerb)
+
 	// Drive the vector tier. AtomSelector gates semantic search on a non-empty
 	// SemanticQuery, so an empty one turns the probabilistic half of the
 	// skeleton/flesh architecture off entirely. The user's own words are the

@@ -337,6 +337,12 @@ OUTPUT:
 			WithTokenBudget(tokenBudget, reservedTokens).
 			WithSemanticQuery(semanticQuery, 8)
 
+		// AvailableTools stays empty on purpose: the translator never calls
+		// tools -- interpretShardOutput sends this prompt through
+		// CompleteWithSystem and publishes the answer as user-facing prose -- so
+		// tool-gated atoms would teach tool syntax to a prompt that cannot act
+		// on it. The empty catalog here is deliberate, not an omission.
+
 		if res, err := m.jitCompiler.Compile(ctx, cc); err == nil && res != nil && strings.TrimSpace(res.Prompt) != "" {
 			return res.Prompt, userPrompt
 		}

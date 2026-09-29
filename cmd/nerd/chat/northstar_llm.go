@@ -134,6 +134,12 @@ func (m Model) buildNorthstarCompilationContext(phase string) *prompt.Compilatio
 	// Set intent verb
 	cc.IntentVerb = "/research"
 
+	// The catalog this turn is offered, derived once for the verb the
+	// compile claims. Without it the selector strips every tool-gated atom
+	// (turnTools documents the failure); the /researcher prompt keeps its
+	// research guidance only when the compile names the /research envelope.
+	cc.AvailableTools = m.turnTools(cc.IntentVerb)
+
 	// Token budget (80k for prompt, 20k for response)
 	cc.TokenBudget = 100000
 	cc.ReservedTokens = 20000
