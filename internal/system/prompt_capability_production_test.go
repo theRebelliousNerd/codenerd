@@ -47,7 +47,13 @@ func TestProductionPromptRespectsRestrictedCapabilities(t *testing.T) {
 		}
 	}
 	assertRestricted(compile())
-	cc.AvailableTools = append(cc.AvailableTools, "find_symbol", "package_outline", "get_elements", "get_element", "edit_element", "replace_element", "insert_element")
+	// capability/codedom_first names ten element tools in its body and gates on
+	// all ten. The inclusion gate drops the atom when any one is absent, so a
+	// catalog that stops at insert_element still suppresses it.
+	cc.AvailableTools = append(cc.AvailableTools,
+		"find_symbol", "package_outline", "get_elements", "get_element",
+		"edit_element", "replace_element", "insert_element", "delete_element",
+		"create_file", "repoint")
 	if !compile()["capability/codedom_first"] {
 		t.Error("available semantic editing guidance was suppressed")
 	}

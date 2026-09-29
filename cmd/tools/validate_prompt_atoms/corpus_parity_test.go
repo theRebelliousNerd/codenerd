@@ -53,7 +53,6 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 		t.Fatal("validator and embedded runtime atom order differ")
 	}
 
-	const wantCount = 915
 	// Includes tool-agnostic editing discipline alongside change evidence, and
 	// the working-context methodology atom (methodology/working_context).
 	// 920 at 8ebd7616, minus the 6 envelope-restating atoms deleted by
@@ -70,7 +69,12 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 	// the planner is not told to answer in a Piggyback envelope); plus
 	// eval/delegation_judge/{implementation,review} (6cf5b177, the delegation
 	// judge's prompt compiled from atoms). The count held; the order did not.
-	const wantDigest = "73445b874f3a90a3efadc6b21f52403a62fe0defd9b2193bcfceebd4f6c4bf1b"
+	// plus capability/run_check (812ba2a4, 2026-09-28), the campaign acceptance
+	// check; plus capability/codedom_whole_file, the edit_file/write_file
+	// teaching split out of capability/codedom_safety and
+	// capability/codedom_selection.
+	const wantCount = 917
+	const wantDigest = "58cb5a6d344eed99462cbecdeec44898465b6b3b91d6bcae1e346e7a1e2139bf"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}

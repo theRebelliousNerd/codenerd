@@ -37,6 +37,16 @@ func inheritedRequiredTools(a *PromptAtom, byID map[string]*PromptAtom, seen map
 	return req
 }
 
+// catalogHoldsAll reports whether catalog offers every tool in req.
+func catalogHoldsAll(catalog, req map[string]bool) bool {
+	for t := range req {
+		if !catalog[t] {
+			return false
+		}
+	}
+	return true
+}
+
 // knownToolNames returns every executable tool name a turn's catalog can draw
 // from. It unions three sources because each alone is incomplete:
 //
@@ -230,6 +240,12 @@ func TestAtomCorpus_OptionalToolsAreNamedOnlyByAtomsThatRequireThem(t *testing.T
 						catalog[name] = true
 					}
 					catalogs[verb] = catalog
+				}
+				// requires_tools is an inclusion gate (atomToolSatisfied): a
+				// catalog missing any required tool never receives the atom,
+				// so a mention cannot mislead a model there.
+				if !catalogHoldsAll(catalog, req) {
+					continue
 				}
 				if !catalog[tool] {
 					missing = append(missing, verb)

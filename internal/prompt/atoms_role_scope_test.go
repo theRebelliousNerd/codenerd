@@ -81,6 +81,7 @@ func TestAtomCorpus_UnscopedMandatoryAtomsAreTheSharedSubstrate(t *testing.T) {
 		"protocol/reasoning/format":             true,
 		"methodology/ooda/core":                 true,
 		"capability/tool_thinking":              true,
+		"capability/codedom_safety":             true,
 	}
 
 	corpus, err := LoadEmbeddedCorpus()

@@ -28,8 +28,11 @@
   subcategory: "semantic_editing"
   priority: 91
   is_mandatory: true
-  depends_on: ["capability/codedom_impact"]
-  requires_tools: [edit_file, write_file]
+  # Ungated on purpose. deny_edit still applies to edit_lines and edit_element
+  # on catalogs that have neither edit_file nor write_file. Naming those two
+  # tools is capability/codedom_whole_file, which requires them. No depends_on:
+  # impact is tool-gated, and a missing parent is pruned, which would take
+  # this atom with it.
   content: |
     ## Edit Safety: What Gets Blocked
 
@@ -41,7 +44,7 @@
     - introducing an `unsafe` block
     - changing one side of a backend/frontend API contract without the other
 
-    When blocked: fix the cause and retry. Do not route around the block with `edit_file` or `write_file`; if the rule is wrong for this case, say so and stop. An `edit_warning` (e.g. no test covers the function) is reported but does not block.
+    When blocked: fix the cause and retry. Do not route around the block with a different edit tool; if the rule is wrong for this case, say so and stop. An `edit_warning` (e.g. no test covers the function) is reported but does not block.
 
 - id: "capability/codedom_transaction"
   category: "capability"
@@ -49,6 +52,10 @@
   priority: 89
   is_mandatory: false
   depends_on: ["capability/codedom_safety"]
+  # edit_element is named below. Safety no longer carries a tool gate, so this
+  # atom has to name the tool itself or the mention reaches catalogs that
+  # cannot call it.
+  requires_tools: [edit_element]
   content: |
     ## Transactional Editing: Two-Phase Commit
 

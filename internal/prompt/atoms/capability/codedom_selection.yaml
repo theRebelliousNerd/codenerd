@@ -7,7 +7,10 @@
   priority: 96  # Very high - guides tool selection before other CodeDOM atoms
   is_mandatory: true
   depends_on: []
-  requires_tools: [find_symbol, get_elements, get_element, callers_of, edit_element, edit_lines, edit_file, write_file]
+  # edit_file and write_file are not required here. /review admits this atom
+  # and does not grant them; those names live on capability/codedom_whole_file.
+  # What remains is held by every verb below, including /review.
+  requires_tools: [find_symbol, get_elements, get_element, callers_of, edit_element, edit_lines]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/debug", "/review", "/test"]
   content: |
     ## Worked Examples: One Edit, Done Right
@@ -23,14 +26,14 @@
 
     **A message quoted in a brief** ("Vector recall query failed"): `find_text text="Vector recall query failed"` answers with the element that logs it.
 
-    **Existing Markdown - "update the Usage section":** Markdown has no semantic parser; `get_elements` does not parse Markdown. Locate the heading with one bounded `read_file` range or a scoped `grep`, then edit by 1-indexed line range with `path`, preferred over `edit_file`:
+    **Existing Markdown - "update the Usage section":** Markdown has no semantic parser; `get_elements` does not parse Markdown. Locate the heading with one bounded `read_file` range or a scoped `grep`, then edit by 1-indexed line range with `path`:
     ```
     edit_lines path="docs/guide.md" start_line=42 end_line=55 new_content="## Usage\n..."
     ```
 
     **Wrong:** reading a whole Go file to find a function; editing Go by line numbers; writing an import line; grepping for who calls or imports something.
 
-    Before an edit, two questions: does the target exist (a new Go or Mangle file is `create_file`; any other new file is `write_file`), and does anything else have to change with it (`callers_of`, `importers_of` first; moving or renaming a package-level name is one `repoint`).
+    Before an edit, two questions: does the target exist (a new Go or Mangle file is `create_file`), and does anything else have to change with it (`callers_of`, `importers_of` first; moving or renaming a package-level name is one `repoint`).
 
 - id: "capability/codedom_workflow"
   category: "capability"

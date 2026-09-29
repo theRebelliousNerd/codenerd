@@ -1,0 +1,26 @@
+# Whole-file write tools. Split out of capability/codedom_safety and
+# capability/codedom_selection: requires_tools is an inclusion gate, and
+# putting edit_file / write_file on those atoms dropped them from every
+# catalog that does not grant both (reviewer, nemesis, researcher,
+# tool_generator, /none).
+
+- id: "capability/codedom_whole_file"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 90
+  is_mandatory: true
+  depends_on: ["capability/codedom_safety"]
+  # Exactly the two tools this atom names, and the only admission it needs:
+  # the gate keeps it off every catalog that lacks either (reviewer and the
+  # other read envelopes keep the deny_edit rules through
+  # capability/codedom_safety and never see these names).
+  requires_tools: [edit_file, write_file]
+  shard_types: []
+  content: |
+    ## Whole-File Writes
+
+    `edit_file` and `write_file` write a whole file. Use them only when an element edit cannot express the change.
+
+    - A new file that is not Go or Mangle is `write_file`. A new Go or Mangle file is `create_file`, which derives the imports.
+    - Markdown and any other file with no element parser is edited with `edit_lines`. `edit_file` is the fallback when a line-range edit cannot represent the change.
+    - A `deny_edit` block refused the change. Do not route around it with `edit_file` or `write_file`. Fix the cause and retry, or stop and say the rule is wrong for this case.
