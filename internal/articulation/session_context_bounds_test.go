@@ -9,19 +9,14 @@ import (
 
 // buildSessionContext is the JIT compiler's fallback: it runs when compilation
 // FAILED, which is exactly when the system is already degraded and least able
-// to absorb a context-window error on top. List items are rendered whole; a
-// line and the assembled block are not. Five hundred payloads of 200KB still
-// have to come back under the block ceiling with a visible marker, or one
-// shard summary becomes the next prompt.
+// to absorb a context-window error on top. Lists and lines are rendered whole.
+// One payload larger than the derived block ceiling still has to come back
+// under that ceiling with a visible marker, or one shard summary becomes the
+// next prompt.
 func TestBuildSessionContext_Bounds(t *testing.T) {
-	blob := strings.Repeat("B", 200_000)
-	many := func(n int, s string) []string {
-		out := make([]string, n)
-		for i := range out {
-			out[i] = s
-		}
-		return out
-	}
+	pa := &PromptAssembler{}
+	ceiling := pa.sessionContextCharCeiling()
+	blob := strings.Repeat("B", ceiling+4096)
 
 	tests := []struct {
 		name string
@@ -29,13 +24,13 @@ func TestBuildSessionContext_Bounds(t *testing.T) {
 	}{
 		{
 			name: "oversized diagnostics",
-			ctx:  &types.SessionContext{CurrentDiagnostics: many(500, blob)},
+			ctx:  &types.SessionContext{CurrentDiagnostics: []string{blob}},
 		},
 		{
 			name: "oversized findings and reflection hits",
 			ctx: &types.SessionContext{
-				RecentFindings: many(500, blob),
-				ReflectionHits: many(500, blob),
+				RecentFindings: []string{blob},
+				ReflectionHits: []string{blob},
 			},
 		},
 		{
@@ -49,43 +44,42 @@ func TestBuildSessionContext_Bounds(t *testing.T) {
 		{
 			name: "oversized knowledge atoms and specialist hints",
 			ctx: &types.SessionContext{
-				KnowledgeAtoms:  many(500, blob),
-				SpecialistHints: many(500, blob),
+				KnowledgeAtoms:  []string{blob},
+				SpecialistHints: []string{blob},
 			},
 		},
 		{
 			name: "oversized safety text",
 			ctx: &types.SessionContext{
-				BlockedActions: many(500, blob),
-				SafetyWarnings: many(500, blob),
+				BlockedActions: []string{blob},
+				SafetyWarnings: []string{blob},
 			},
 		},
 		{
 			name: "everything at once",
 			ctx: &types.SessionContext{
-				CurrentDiagnostics: many(500, blob),
-				FailingTests:       many(500, blob),
-				RecentFindings:     many(500, blob),
-				ReflectionHits:     many(500, blob),
-				ImpactedFiles:      many(500, blob),
+				CurrentDiagnostics: []string{blob},
+				FailingTests:       []string{blob},
+				RecentFindings:     []string{blob},
+				ReflectionHits:     []string{blob},
+				ImpactedFiles:      []string{blob},
 				GitBranch:          "main",
-				GitRecentCommits:   many(500, blob),
+				GitRecentCommits:   []string{blob},
 				CampaignActive:     true,
 				CampaignGoal:       blob,
-				RecentActions:      many(500, blob),
-				KnowledgeAtoms:     many(500, blob),
-				BlockedActions:     many(500, blob),
+				RecentActions:      []string{blob},
+				KnowledgeAtoms:     []string{blob},
+				BlockedActions:     []string{blob},
 			},
 		},
 	}
 
-	pa := &PromptAssembler{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := pa.buildSessionContext(&PromptContext{SessionCtx: tt.ctx})
 
-			if len(got) > maxSessionContextChars+512 {
-				t.Errorf("blackboard block is %d chars, cap is %d", len(got), maxSessionContextChars)
+			if len(got) > ceiling+512 {
+				t.Errorf("blackboard block is %d chars, cap is %d", len(got), ceiling)
 			}
 			if got != "" && !types.IsClamped(got) {
 				t.Error("an over-cap blackboard block must carry a visible truncation marker")
@@ -114,25 +108,19 @@ func TestBuildSessionContext_OrdinarySessionIsUnchanged(t *testing.T) {
 	}
 }
 
-func TestSessionContextLine(t *testing.T) {
-	tests := []struct {
-		name       string
-		in         string
-		wantMarker bool
-	}{
-		{name: "a real diagnostic passes through", in: "main.go:12: undefined: foo"},
-		{name: "a pasted payload is clamped", in: strings.Repeat("p", 100_000), wantMarker: true},
-		{name: "empty stays empty", in: ""},
+// The old per-line cap was 500 characters. A diagnostic longer than that is
+// still the diagnostic: it is kept whole while it fits the block ceiling, and
+// only the ceiling clamps it.
+func TestBuildSessionContext_LinePastTheOldCapIsKept(t *testing.T) {
+	pa := &PromptAssembler{}
+	line := strings.Repeat("p", 600)
+	got := pa.buildSessionContext(&PromptContext{SessionCtx: &types.SessionContext{
+		CurrentDiagnostics: []string{line},
+	}})
+	if !strings.Contains(got, line) {
+		t.Fatalf("a %d-char diagnostic was cut; the old 500-char line cap is gone", len(line))
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := sessionContextLine(tt.in)
-			if types.IsClamped(got) != tt.wantMarker {
-				t.Fatalf("IsClamped = %v, want %v", types.IsClamped(got), tt.wantMarker)
-			}
-			if !tt.wantMarker && got != tt.in {
-				t.Errorf("in-bounds line was modified: %q", got)
-			}
-		})
+	if types.IsClamped(got) {
+		t.Fatal("a line that fits the block ceiling was truncated")
 	}
 }

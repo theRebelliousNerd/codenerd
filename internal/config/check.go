@@ -338,6 +338,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Working.Check("working")...)
 	}
 
+	// --- articulation ---
+	// A nil section is the defaults. An explicit share outside 1-100 refuses
+	// the file; GetArticulationConfig fills an absent share before the check.
+	out = append(out, c.GetArticulationConfig().Check("articulation")...)
+
 	// --- research ---
 	if c.Browser != nil {
 		out = append(out, c.Browser.Reaper.Check("browser.reaper")...)
@@ -354,14 +359,14 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Meta.Check("meta")...)
 	}
 
-	// --- integrations ---
-	if c.Integrations != nil {
-		out = append(out, c.Integrations.Check("integrations")...)
-	}
-
 	// --- observation ---
 	if c.Observation != nil {
 		out = append(out, c.Observation.Check("observation")...)
+	}
+
+	// --- integrations ---
+	if c.Integrations != nil {
+		out = append(out, c.Integrations.Check("integrations")...)
 	}
 
 	// --- jit ---

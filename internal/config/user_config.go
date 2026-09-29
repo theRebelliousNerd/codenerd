@@ -293,6 +293,10 @@ type UserConfig struct {
 	// JIT Prompt Compiler configuration
 	JIT *JITConfig `json:"jit,omitempty"`
 
+	// Articulation is the share of the prompt budget the legacy session
+	// blackboard may occupy (articulation.go).
+	Articulation *ArticulationConfig `json:"articulation,omitempty"`
+
 	// =====================================================================
 	// LEARNING CANDIDATES
 	// =====================================================================
@@ -592,6 +596,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 			installDefaultImageRequestTimeout()
 			SetObservationLimits(DefaultObservationConfig().Resolve())
 			SetClassificationHistory(DefaultClassificationConfig().Resolve())
+			SetArticulationConfig(DefaultArticulationConfig())
 			if d, derr := DefaultIntegrationsConfig().ResolveDefaultTimeout(); derr == nil {
 				mcp.SetTransportTimeoutFallback(d)
 			}
@@ -693,6 +698,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	SetImageRequestTimeout(imageTimeoutDuration(cfg.GetImageLLMConfig()))
 	SetObservationLimits(cfg.GetObservationConfig().Resolve())
 	SetClassificationHistory(cfg.GetClassificationConfig().Resolve())
+	SetArticulationConfig(cfg.GetArticulationConfig())
 	integFallback, ierr := cfg.GetIntegrations().ResolveDefaultTimeout()
 	if ierr != nil {
 		// Unreachable for the same reason.
@@ -1471,13 +1477,13 @@ func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 
 // BrowserAutomationConfig controls codeNERD's native Rod browser manager.
 type BrowserAutomationConfig struct {
+	Reaper              BrowserReaperConfig `json:"reaper,omitempty"`
 	DebuggerURL         string   `json:"debugger_url,omitempty"`
 	Launch              []string `json:"launch,omitempty"`
 	Headless            bool     `json:"headless,omitempty"`
 	ViewportWidth       int      `json:"viewport_width,omitempty"`
 	ViewportHeight      int      `json:"viewport_height,omitempty"`
 	NavigationTimeoutMs int      `json:"navigation_timeout_ms,omitempty"`
-	Reaper              BrowserReaperConfig `json:"reaper,omitempty"`
 	MultiTabDefault     *bool    `json:"multi_tab_default,omitempty"`
 	MaxTabs             int      `json:"max_tabs,omitempty"`
 	MaxBrowsers         int      `json:"max_browsers,omitempty"`
@@ -1500,13 +1506,13 @@ type BrowserAutomationConfig struct {
 func DefaultBrowserAutomationConfig() BrowserAutomationConfig {
 	sharedTabs := true
 	return BrowserAutomationConfig{
+		Reaper:              DefaultBrowserReaperConfig(),
 		ViewportWidth:        1920,
 		ViewportHeight:       1080,
 		NavigationTimeoutMs:  30000,
 		MultiTabDefault:      &sharedTabs,
 		MaxTabs:              32,
 		MaxBrowsers:          4,
-		Reaper:              DefaultBrowserReaperConfig(),
 		EvidenceEnabled:      boolConfigPointer(true),
 		MaxEvidenceFiles:     16,
 		MaxEvidenceFileBytes: 4 << 20,
@@ -1523,13 +1529,13 @@ func (c *UserConfig) GetBrowserConfig() BrowserAutomationConfig {
 		return defaults
 	}
 	cfg := *c.Browser
+	cfg.Reaper = cfg.Reaper.WithDefaults()
 	if cfg.ViewportWidth <= 0 {
 		cfg.ViewportWidth = defaults.ViewportWidth
 	}
 	if cfg.ViewportHeight <= 0 {
 		cfg.ViewportHeight = defaults.ViewportHeight
 	}
-	cfg.Reaper = cfg.Reaper.WithDefaults()
 	if cfg.NavigationTimeoutMs <= 0 {
 		cfg.NavigationTimeoutMs = defaults.NavigationTimeoutMs
 	}
@@ -1668,6 +1674,7 @@ func DefaultUserConfig() *UserConfig {
 	uiCfg := DefaultUIConfig()
 	delegationCfg := DefaultDelegationConfig()
 	workingCfg := DefaultWorkingConfig()
+	articulationCfg := DefaultArticulationConfig()
 
 	return &UserConfig{
 		Engine:                       "api",
@@ -1675,6 +1682,7 @@ func DefaultUserConfig() *UserConfig {
 		UI:                           &uiCfg,
 		ContinuationMode:             1,
 		Gemini:                       DefaultGeminiProviderConfig(),
+		Meta:                         DefaultMetaProviderConfig(),
 		ClaudeCLI:                    DefaultClaudeCLIConfig(),
 		CodexCLI:                     DefaultCodexCLIConfig(),
 		ContextWindow:                &ctxWin,
@@ -1682,7 +1690,6 @@ func DefaultUserConfig() *UserConfig {
 		Reflection:                   &reflection,
 		ShardProfiles:                DefaultShardProfiles(),
 		DefaultShard:                 DefaultShardProfile(),
-		Meta:                         DefaultMetaProviderConfig(),
 		CoreLimits:                   DefaultCoreLimits(),
 		World:                        &w,
 		Integrations:                 DefaultIntegrationsConfig(),
@@ -1700,6 +1707,7 @@ func DefaultUserConfig() *UserConfig {
 		Usage:                        &UsageConfig{},
 		Delegation:                   &delegationCfg,
 		Working:                      &workingCfg,
+		Articulation:                 &articulationCfg,
 		Logging:                      DefaultLoggingConfig(),
 		JIT:                          &jit,
 		LearningCandidateThreshold:   3,
@@ -1872,14 +1880,6 @@ func (c *UserConfig) GetGeminiConfig() *GeminiProviderConfig {
 	return DefaultGeminiProviderConfig()
 }
 
-// IsOnboardingComplete returns true if the user has completed onboarding.
-func (c *UserConfig) IsOnboardingComplete() bool {
-	if c.Onboarding == nil {
-		return false
-	}
-	return c.Onboarding.SetupComplete
-}
-
 // GetMetaConfig returns the Meta provider config with defaults applied.
 // A nil block is search on at medium context. The returned pointer is a copy:
 // changing it does not change the stored config.
@@ -1898,6 +1898,14 @@ func (c *UserConfig) GetMetaConfig() *MetaProviderConfig {
 		return &cfg
 	}
 	return DefaultMetaProviderConfig()
+}
+
+// IsOnboardingComplete returns true if the user has completed onboarding.
+func (c *UserConfig) IsOnboardingComplete() bool {
+	if c.Onboarding == nil {
+		return false
+	}
+	return c.Onboarding.SetupComplete
 }
 
 // GetExperienceLevel returns the user's experience level.

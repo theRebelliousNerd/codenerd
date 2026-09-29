@@ -40,7 +40,7 @@ with preset intent → `CheckpointRunner.Run` (`checkpoint.go:48`) →
 | `permitted_action/5`, `permission_check_result/4` | ConstitutionGateShard | TactileRouter (`router.go:302`) | second pipeline |
 | `next_action/1` | policy, `tdd_loop.go:355`, campaign | executive shard, chat (`process.go:761`) | **never read by the session executor** |
 | `route_action/2` | policy | `router.go:573` | thin; a ~120-entry Go table is the real router |
-| `modular_tool_allowed/2` | `intent_routing_rules.mg:277` | none | orphan |
+| `modular_tool_allowed/2` | `intent_routing_rules.mg` | none | deleted 2026-09-28; replaced by turn_tool_allowed |
 | `test_framework/1` | `intent_routing_rules.mg:154-165` | none | orphan |
 | `campaign_complete/1` | `campaign_core.mg:13,17` | none in Go | orphan |
 | `unverified_test_claim`, `missing_test_for` | executor asserts evidence, Mangle decides | `checkHollowSuccess` | **the reference pattern: Go measures, Mangle decides** |
@@ -58,7 +58,7 @@ b. `next_action/1` is never consulted by the session executor; the model's
 c. `apply_edits` is a first-class write tool with no `safe_action`, unmapped in
    the Dreamer/validator table, yet steered to by the budget nudge.
 d. Tool grants live in Go (`config_factory.go:226-330`), `safe_action/1` is a
-   second hand list, `modular_tool_allowed/2` is unread — three lists drift
+   second hand list, `modular_tool_allowed/2` was deleted 2026-09-28 — tool catalog is derived via turn_tool_allowed
    (`constitution.mg:57-62` records an outage caused by exactly this).
 e. Prose decides campaign completion: checkpoint parses PASS/FAIL from the
    reviewer's first line (`checkpoint.go:262-315`); `campaign_complete/1` unread.

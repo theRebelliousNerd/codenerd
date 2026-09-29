@@ -211,11 +211,11 @@ See [references/shard-agents.md](references/shard-agents.md) for legacy context.
 | `codedom/` | get_elements, edit_lines | Semantic code operations |
 | `research/` | web_search, web_fetch, context7 | Research tools |
 
-Tools are routed via Mangle rules in `intent_routing.mg`:
+Tools are routed via Mangle rules in `internal/core/defaults/policy/intent_routing_rules.mg`:
 
 ```mangle
-modular_tool_allowed(/read_file, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/web_search, Intent) :- intent_category(Intent, /research).
+turn_tool_allowed(Verb, Tool) :- verb_persona(Verb, Persona), persona_tool_allowed(Persona, Tool).
+persona_tool_allowed(/researcher, /web_search).
 ```
 
 ### Quiescent Boot & Sessions

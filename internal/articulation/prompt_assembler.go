@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"codenerd/internal/broker"
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
@@ -60,6 +61,17 @@ type PromptAssembler struct {
 	reservedTokens              int
 	semanticTopK                int
 	reservedTokensFallbackRatio int
+
+	// kernelContextRows and kernelContextRowChars override
+	// jit.kernel_context_rows and jit.kernel_context_row_chars for the legacy
+	// block. Zero means unset: the attached compiler's config, then
+	// DefaultJITConfig, which is where the JIT path reads them.
+	kernelContextRows     int
+	kernelContextRowChars int
+
+	// sessionContextSharePercent overrides articulation.session_context_share_percent.
+	// Zero means the process articulation config installed by LoadUserConfig.
+	sessionContextSharePercent int
 }
 
 // NewPromptAssembler creates a PromptAssembler with the given kernel querier.
@@ -476,10 +488,11 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input any) 
 		sb.WriteString("// =============================================================================\n")
 		sb.WriteString("// KERNEL-INJECTED CONTEXT (Derived from Logic)\n")
 		sb.WriteString("// =============================================================================\n\n")
-		shown := min(len(contextAtoms), maxInjectedContextAtoms)
+		rows, rowChars := pa.kernelContextLimits()
+		shown := min(len(contextAtoms), rows)
 		for _, atom := range contextAtoms[:shown] {
 			sb.WriteString(fmt.Sprintf("- %s\n",
-				types.ClampHead(atom, maxInjectedContextAtomChars, "injectable_context row")))
+				types.ClampHead(atom, rowChars, "injectable_context row")))
 		}
 		if notice := types.TruncationNotice(shown, len(contextAtoms), "injectable_context rows"); notice != "" {
 			sb.WriteString(notice)
@@ -656,25 +669,28 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	if len(ctx.BlockedActions) > 0 || len(ctx.SafetyWarnings) > 0 {
 		sb.WriteString("\nSAFETY CONSTRAINTS:\n")
 		for _, blocked := range ctx.BlockedActions {
-			sb.WriteString(fmt.Sprintf("  BLOCKED: %s\n", sessionContextLine(blocked)))
+			sb.WriteString(fmt.Sprintf("  BLOCKED: %s\n", blocked))
 		}
 		for _, warning := range ctx.SafetyWarnings {
-			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", sessionContextLine(warning)))
+			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", warning))
 		}
 	}
 
-	// Every list below is rendered whole. A count that ends in "... and N more"
-	// hides items the model is then told to address, and none of these slices
-	// has a typed tool that lists the omitted remainder: the lines are
-	// blackboard text already in hand (a diagnostic, a failing test name, a
-	// blocked action), not a query a tool can re-run. git_log, callers_of and
-	// importers_of answer different questions and do not return this slice.
+	// Every list below is rendered whole, and so is every line. A count that
+	// ends in "... and N more" hides items the model is then told to address,
+	// and none of these slices has a typed tool that lists the omitted
+	// remainder: the lines are blackboard text already in hand (a diagnostic,
+	// a failing test name, a blocked action), not a query a tool can re-run.
+	// git_log, callers_of and importers_of answer different questions and do
+	// not return this slice. A per-line character cap was the same defect one
+	// level down: it cut a diagnostic that was longer than a label even when
+	// the block ceiling had room for it.
 	//
 	// Current diagnostics (highest priority). The heading says "must address".
 	if len(ctx.CurrentDiagnostics) > 0 {
 		sb.WriteString("\nCURRENT BUILD/LINT ERRORS (must address):\n")
 		for _, diag := range ctx.CurrentDiagnostics {
-			sb.WriteString(fmt.Sprintf("  %s\n", sessionContextLine(diag)))
+			sb.WriteString(fmt.Sprintf("  %s\n", diag))
 		}
 	}
 
@@ -685,7 +701,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 			sb.WriteString(fmt.Sprintf("  TDD Retry: %d (fix root cause, not symptoms)\n", ctx.TDDRetryCount))
 		}
 		for _, test := range ctx.FailingTests {
-			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(test)))
+			sb.WriteString(fmt.Sprintf("  - %s\n", test))
 		}
 	}
 
@@ -693,7 +709,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	if len(ctx.RecentFindings) > 0 {
 		sb.WriteString("\nRECENT FINDINGS:\n")
 		for _, finding := range ctx.RecentFindings {
-			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(finding)))
+			sb.WriteString(fmt.Sprintf("  - %s\n", finding))
 		}
 	}
 
@@ -701,7 +717,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	if len(ctx.ReflectionHits) > 0 {
 		sb.WriteString("\nREFLECTION HITS:\n")
 		for _, hit := range ctx.ReflectionHits {
-			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(hit)))
+			sb.WriteString(fmt.Sprintf("  - %s\n", hit))
 		}
 	}
 
@@ -709,7 +725,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	if len(ctx.ImpactedFiles) > 0 {
 		sb.WriteString("\nIMPACTED FILES:\n")
 		for _, file := range ctx.ImpactedFiles {
-			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(file)))
+			sb.WriteString(fmt.Sprintf("  - %s\n", file))
 		}
 	}
 
@@ -727,7 +743,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	if len(ctx.DependencyContext) > 0 {
 		sb.WriteString("\nDEPENDENCIES OF FILES IN FOCUS:\n")
 		for _, dep := range ctx.DependencyContext {
-			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(dep)))
+			sb.WriteString(fmt.Sprintf("  - %s\n", dep))
 		}
 	}
 
@@ -747,7 +763,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 			// fact's file list, so the names are rendered with the count.
 			sb.WriteString(fmt.Sprintf("  Modified files: %d\n", len(ctx.GitModifiedFiles)))
 			for _, file := range ctx.GitModifiedFiles {
-				sb.WriteString(fmt.Sprintf("    - %s\n", sessionContextLine(file)))
+				sb.WriteString(fmt.Sprintf("    - %s\n", file))
 			}
 		}
 		if len(ctx.GitRecentCommits) > 0 {
@@ -757,7 +773,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 			// this fact's omitted lines.
 			sb.WriteString("  Recent commits (context for why code exists):\n")
 			for _, commit := range ctx.GitRecentCommits {
-				sb.WriteString(fmt.Sprintf("    - %s\n", sessionContextLine(commit)))
+				sb.WriteString(fmt.Sprintf("    - %s\n", commit))
 			}
 		}
 	}
@@ -769,7 +785,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 			sb.WriteString(fmt.Sprintf("  Phase: %s\n", ctx.CampaignPhase))
 		}
 		if ctx.CampaignGoal != "" {
-			sb.WriteString(fmt.Sprintf("  Goal: %s\n", sessionContextLine(ctx.CampaignGoal)))
+			sb.WriteString(fmt.Sprintf("  Goal: %s\n", ctx.CampaignGoal))
 		}
 		if len(ctx.TaskDependencies) > 0 {
 			sb.WriteString("  Blocked by: ")
@@ -788,7 +804,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 			}
 			sb.WriteString(fmt.Sprintf("  [%s] %s: %s - %s\n",
 				output.ShardType, status,
-				sessionContextLine(output.Task), sessionContextLine(output.Summary)))
+				output.Task, output.Summary))
 		}
 	}
 
@@ -796,7 +812,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	if len(ctx.RecentActions) > 0 {
 		sb.WriteString("\nRECENT SESSION ACTIONS:\n")
 		for _, action := range ctx.RecentActions {
-			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(action)))
+			sb.WriteString(fmt.Sprintf("  - %s\n", action))
 		}
 	}
 
@@ -804,10 +820,10 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	if len(ctx.KnowledgeAtoms) > 0 || len(ctx.SpecialistHints) > 0 {
 		sb.WriteString("\nDOMAIN KNOWLEDGE:\n")
 		for _, atom := range ctx.KnowledgeAtoms {
-			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(atom)))
+			sb.WriteString(fmt.Sprintf("  - %s\n", atom))
 		}
 		for _, hint := range ctx.SpecialistHints {
-			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", sessionContextLine(hint)))
+			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", hint))
 		}
 	}
 
@@ -816,64 +832,119 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	if len(ctx.AvailableTools) > 0 {
 		sb.WriteString("\nAVAILABLE TOOLS:\n")
 		for _, tool := range ctx.AvailableTools {
-			sb.WriteString(fmt.Sprintf("  - %s: %s\n", tool.Name, sessionContextLine(tool.Description)))
+			sb.WriteString(fmt.Sprintf("  - %s: %s\n", tool.Name, tool.Description))
 			if tool.BinaryPath != "" {
 				sb.WriteString(fmt.Sprintf("    Binary: %s\n", tool.BinaryPath))
 			}
 		}
 	}
 
-	// Compressed history stays behind this gate. It is one blob, not a list,
-	// and it is the last section: a multi-megabyte history would occupy the
-	// block ceiling's whole tail and push the lists above it into the dropped
-	// middle. Under the gate it is rendered whole.
-	if ctx.CompressedHistory != "" && len(ctx.CompressedHistory) < 1500 {
+	// Compressed history is one blob, rendered whole. It used to be omitted
+	// with no marker once it reached 1500 characters, so the model never
+	// learned there was a history. It stays last: the ceiling's tail keeps
+	// its end, and a clamp names the block that included it.
+	if ctx.CompressedHistory != "" {
 		sb.WriteString("\nSESSION HISTORY (compressed):\n")
 		sb.WriteString(ctx.CompressedHistory)
 		sb.WriteString("\n")
 	}
 
-	// Lists above are not count-capped. Each line still is, and a shard that
-	// returned hundreds of line-capped rows — or one payload that arrived as
-	// a summary — can pass this ceiling. Head+tail: the head carries the
-	// safety constraints (what must not be done), then diagnostics and failing
-	// tests (what is broken); the tail carries compressed history.
-	return types.ClampText(sb.String(), maxSessionContextChars, "session context")
+	// The one bound is the block ceiling, a share of the configured prompt
+	// budget. Head+tail: the head carries the safety constraints (what must
+	// not be done), then diagnostics and failing tests (what is broken); the
+	// tail carries compressed history. A cut names itself.
+	label := "session context"
+	if ctx.CompressedHistory != "" {
+		label = "session context, including compressed history"
+	}
+	return types.ClampText(sb.String(), pa.sessionContextCharCeiling(), label)
 }
 
-// Bounds on the legacy blackboard block.
+// kernelContextLimits is the legacy block's cap on injectable_context rows.
+// The numbers are jit.kernel_context_rows and jit.kernel_context_row_chars,
+// the same keys the JIT path resolves in CompilerConfig.kernelInjectionLimits.
+// An explicit limit on this assembler wins, else the attached compiler's
+// config (boot copies the user's jit.* onto it), else DefaultJITConfig.
+// A non-positive value means unset, not "show nothing".
+func (pa *PromptAssembler) kernelContextLimits() (rows, rowChars int) {
+	pa.mu.RLock()
+	rows, rowChars = pa.kernelContextRows, pa.kernelContextRowChars
+	compiler := pa.jitCompiler
+	pa.mu.RUnlock()
+
+	if compiler != nil {
+		cfg := compiler.GetConfig()
+		if rows <= 0 {
+			rows = cfg.KernelContextRows
+		}
+		if rowChars <= 0 {
+			rowChars = cfg.KernelContextRowChars
+		}
+	}
+	d := config.DefaultJITConfig()
+	if rows <= 0 {
+		rows = d.KernelContextRows
+	}
+	if rowChars <= 0 {
+		rowChars = d.KernelContextRowChars
+	}
+	return rows, rowChars
+}
+
+// sessionContextCharCeiling is how many characters the legacy blackboard may
+// occupy: articulation.session_context_share_percent of the prompt budget
+// this assembler already holds, in characters at config.BytesPerToken.
+// An unset budget falls back to the attached compiler's default, then
+// DefaultJITConfig.TokenBudget — the budget the JIT path compiles against.
 //
-// This is the fallback assembler: it runs when JIT compilation fails, which is
-// exactly when the system is already degraded and least able to absorb a
-// context-window error on top. List items are rendered whole: a count that
-// hides a diagnostic, a failing test, or a blocked action asks the model to
-// act on a line it cannot see, and none of these slices has a typed tool that
-// returns the hidden remainder. What stays bounded is one line and the
-// assembled block. A reviewer that returned a 4 MB summary — a whole file, or
-// full `go test` output pasted into a slot sized for a label — must not become
-// the next prompt.
-const (
-	// maxSessionContextLineChars caps one blackboard line. These are meant to
-	// be one-line facts: a failing test name, a diagnostic, a finding, a
-	// commit subject. A longer one is a producer pasting a payload into a
-	// slot sized for a label.
-	maxSessionContextLineChars = 500
+// There is no per-line cap. The old 500-character cut dropped a diagnostic
+// longer than a label even when this ceiling had room, and nothing returns
+// the cut tail. A line that does not fit is cut here, head and tail, with
+// the marker.
+func (pa *PromptAssembler) sessionContextCharCeiling() int {
+	pa.mu.RLock()
+	budget := pa.tokenBudget
+	share := pa.sessionContextSharePercent
+	compiler := pa.jitCompiler
+	pa.mu.RUnlock()
 
-	// maxSessionContextChars caps the assembled blackboard block (~8k tokens).
-	maxSessionContextChars = 32 * 1024
+	if budget <= 0 && compiler != nil {
+		if b := compiler.GetConfig().DefaultTokenBudget; b > 0 {
+			budget = b
+		}
+	}
+	if budget <= 0 {
+		budget = config.DefaultJITConfig().TokenBudget
+	}
+	if share <= 0 {
+		share = config.ResolvedArticulationConfig().SessionContextSharePercent
+	}
+	chars := int64(budget) * int64(share) * int64(config.BytesPerToken) / 100
+	// ClampText treats a non-positive limit as "return the empty string",
+	// which would drop safety with no marker. One character still clamps
+	// and leaves the marker.
+	if chars < 1 {
+		return 1
+	}
+	return int(chars)
+}
 
-	// maxInjectedContextAtoms caps kernel-injected context lines in the legacy
-	// path. Mirrors maxKernelContextRows on the JIT path so the fallback does
-	// not admit what the primary path rejects.
-	maxInjectedContextAtoms = 60
+// SetKernelContextLimits installs jit.kernel_context_rows and
+// jit.kernel_context_row_chars for the legacy kernel-injected block.
+// Non-positive fields stay unset and resolve in kernelContextLimits.
+func (pa *PromptAssembler) SetKernelContextLimits(cfg config.JITConfig) {
+	pa.mu.Lock()
+	defer pa.mu.Unlock()
+	pa.kernelContextRows = cfg.KernelContextRows
+	pa.kernelContextRowChars = cfg.KernelContextRowChars
+}
 
-	// maxInjectedContextAtomChars caps one kernel-injected context line.
-	maxInjectedContextAtomChars = 1024
-)
-
-// sessionContextLine bounds one blackboard line with a visible marker.
-func sessionContextLine(s string) string {
-	return types.ClampHead(s, maxSessionContextLineChars, "session context line")
+// SetSessionContextSharePercent installs articulation.session_context_share_percent
+// for this assembler. Zero means the process articulation config.
+func (pa *PromptAssembler) SetSessionContextSharePercent(percent int) {
+	pa.mu.Lock()
+	defer pa.mu.Unlock()
+	pa.sessionContextSharePercent = percent
 }
 
 // buildIntentContext formats the user intent for prompt injection.

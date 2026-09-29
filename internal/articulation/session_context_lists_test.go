@@ -169,34 +169,53 @@ func TestAssembleSystemPrompt_ModifiedFilesRenderWithoutBranch(t *testing.T) {
 	}
 }
 
-// With the lists uncapped, the block ceiling (32 KiB, head two thirds and tail
-// one third, middle dropped) fires on an ordinary long tool list. Safety
-// constraints used to sit near the end and survived only while they fit in
-// the ~10.9 KiB tail. Here they are ~18 KiB -- more than that tail, less than
-// the head -- behind ~90 KiB of tools: every BLOCKED and WARNING line must
-// still be in the prompt, and ahead of the tools.
+// The block ceiling keeps a head (two thirds) and a tail (one third) and
+// drops the middle. Safety constraints used to sit near the end and survived
+// only while they fit in the tail. Here the safety section is larger than
+// that tail and smaller than the head, and the tool list pushes the block
+// past the ceiling: every BLOCKED and WARNING line must still be in the
+// prompt, and ahead of the tools.
 func TestAssembleSystemPrompt_SafetyConstraintsSurviveTheBlockCeiling(t *testing.T) {
-	pad := strings.Repeat("x", 400)
-	tools := make([]types.ToolInfo, 200)
-	for i := range tools {
-		tools[i] = types.ToolInfo{
-			Name:        fmt.Sprintf("ceil-tool-%03d", i),
-			Description: fmt.Sprintf("ceil-tooldesc-%03d %s", i, pad),
-		}
-	}
-	blocked := make([]string, 30)
-	for i := range blocked {
-		blocked[i] = fmt.Sprintf("ceil-blocked-%02d %s", i, pad)
-	}
-	warnings := make([]string, 10)
-	for i := range warnings {
-		warnings[i] = fmt.Sprintf("ceil-warning-%02d %s", i, pad)
-	}
-
 	pa, err := NewPromptAssembler(newMockKernel())
 	if err != nil {
 		t.Fatalf("NewPromptAssembler: %v", err)
 	}
+	ceiling := pa.sessionContextCharCeiling()
+	tail := ceiling / 3
+	head := ceiling - tail
+	if head <= tail+64 {
+		t.Fatalf("ceiling %d does not leave a head larger than the tail", ceiling)
+	}
+
+	const nBlocked, nWarn = 30, 10
+	// Midway between the tail and the head, so a tail-only clamp would drop
+	// safety and a head clamp keeps it.
+	safetyTarget := tail + (head-tail)/2
+	padLen := safetyTarget/(nBlocked+nWarn) - 48
+	if padLen < 1 {
+		t.Fatalf("ceiling %d is too small to build a safety section past the tail", ceiling)
+	}
+	pad := strings.Repeat("x", padLen)
+	blocked := make([]string, nBlocked)
+	for i := range blocked {
+		blocked[i] = fmt.Sprintf("ceil-blocked-%02d %s", i, pad)
+	}
+	warnings := make([]string, nWarn)
+	for i := range warnings {
+		warnings[i] = fmt.Sprintf("ceil-warning-%02d %s", i, pad)
+	}
+
+	toolPad := strings.Repeat("t", 128)
+	perTool := len(toolPad) + 64
+	nTools := ceiling/perTool + 4
+	tools := make([]types.ToolInfo, nTools)
+	for i := range tools {
+		tools[i] = types.ToolInfo{
+			Name:        fmt.Sprintf("ceil-tool-%03d", i),
+			Description: fmt.Sprintf("ceil-tooldesc-%03d %s", i, toolPad),
+		}
+	}
+
 	result, err := pa.AssembleSystemPrompt(context.Background(), &PromptContext{
 		ShardID:   "coder-ceiling",
 		ShardType: "coder",
