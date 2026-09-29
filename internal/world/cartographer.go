@@ -942,17 +942,103 @@ func symbolsFor(node *ast.File, fsPath, pkgName string) pkgSymbols {
 	return base
 }
 
+func symbolCacheKey(dir, pkgName string, includeTests bool) string {
+	key := dir + "\x00" + pkgName + "\x00"
+	if includeTests {
+		return key + "test"
+	}
+	return key + "lib"
+}
+
+// peekPkgSymbols returns the cached declaration set for one directory
+// package even when the file stamp has since moved. loadSymbols replaces
+// that entry as soon as it sees the new stamp, so a caller comparing the
+// set before an edit with the set after it has to read the cache first.
+// The bool is false when this process has not mapped the package yet.
+func peekPkgSymbols(dir, pkgName string, includeTests bool) (pkgSymbols, bool) {
+	symbolCacheMu.Lock()
+	defer symbolCacheMu.Unlock()
+	ent, ok := symbolCache[symbolCacheKey(dir, pkgName, includeTests)]
+	if !ok {
+		return pkgSymbols{}, false
+	}
+	return ent.sym.clone(), true
+}
+
+// sameDeclarations reports whether two snapshots name the same types,
+// functions, methods and aliases. Line spans are not part of the set, so a
+// body edit that only moves lines compares equal.
+func (s pkgSymbols) sameDeclarations(o pkgSymbols) bool {
+	return boolMapEq(s.types, o.types) &&
+		boolMapEq(s.funcs, o.funcs) &&
+		boolMapEq(s.aliases, o.aliases) &&
+		boolMapEq(s.aliasBad, o.aliasBad) &&
+		methodMapsEq(s.methods, o.methods)
+}
+
+// declKeys is the declaration set in the shape stored code_defines rows
+// already use: func:<pkg>.<Name>, method:<pkg>.<Recv>.<Name>,
+// type:<pkg>.<Name>. Aliases are types here; sameDeclarations is what sees
+// an alias retarget. Kinds struct and interface collapse to type so a key
+// read back from code_defines compares with this set.
+func (s pkgSymbols) declKeys(pkg string) map[string]struct{} {
+	keys := make(map[string]struct{}, len(s.funcs)+len(s.types))
+	for name := range s.funcs {
+		keys["func:"+pkg+"."+name] = struct{}{}
+	}
+	for recv, methods := range s.methods {
+		for name := range methods {
+			keys["method:"+pkg+"."+recv+"."+name] = struct{}{}
+		}
+	}
+	for name := range s.types {
+		keys["type:"+pkg+"."+name] = struct{}{}
+	}
+	return keys
+}
+
+func boolMapEq[T comparable](a, b map[string]T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+func methodMapsEq(a, b map[string]map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if !boolMapEq(v, b[k]) {
+			return false
+		}
+	}
+	return true
+}
+
+// goPackageClause is the package name of a Go file. PackageClauseOnly stops
+// before the body, so a broken function does not hide which package the file
+// belongs to.
+func goPackageClause(path string) (string, bool) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, parser.PackageClauseOnly)
+	if err != nil || file == nil || file.Name == nil || file.Name.Name == "" {
+		return "", false
+	}
+	return file.Name.Name, true
+}
+
 func loadSymbols(dir, pkgName string, includeTests bool) (pkgSymbols, bool) {
 	stamp, files, err := goFileStamp(dir)
 	if err != nil {
 		return pkgSymbols{}, false
 	}
-	key := dir + "\x00" + pkgName + "\x00"
-	if includeTests {
-		key += "test"
-	} else {
-		key += "lib"
-	}
+	key := symbolCacheKey(dir, pkgName, includeTests)
 	symbolCacheMu.Lock()
 	if ent, ok := symbolCache[key]; ok && ent.stamp == stamp {
 		symbolCacheMu.Unlock()

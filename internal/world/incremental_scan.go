@@ -249,14 +249,34 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		}, nil
 	}
 
+	// A Go file's code_calls rows are spelled from the package's symbols, and
+	// those symbols are read from every sibling in the directory
+	// (cartographer.go symbolsFor). Declaring or removing a type rewrites a
+	// sibling that did not change: T(x) in b.go is a call when a.go declares
+	// func T and a conversion when a.go declares type T. The deep cache keys
+	// by this file's own size and mtime, so it would keep b.go's old rows
+	// until a full rescan. Remap the siblings only when the package
+	// declaration set actually changed — a body edit compares equal and stays
+	// on the one file whose bytes moved.
+	callSiblings := goCallSiblings(root, db, currentFiles, changed, newFiles, deleted)
+	if len(callSiblings) > 0 {
+		logging.World("incremental scan: declaration change remaps %d Go sibling(s)", len(callSiblings))
+	}
+
 	// Gather old facts for retraction (fast depth) before mutating cache/DB.
 	// Keyed by CANONICAL path: the store rows are written under the canonical
 	// identity, and looking them up by the absolute walk path (as this did)
 	// missed every row, so no scan ever retracted anything and superseded facts
 	// piled up in the kernel forever.
+	// Siblings join this list so their fast rows retract and reassert with the
+	// file that owns them, the same way a changed file already does.
 	retractFacts := make([]core.Fact, 0)
+	retractPaths := make([]string, 0, len(changed)+len(deleted)+len(callSiblings))
+	retractPaths = append(retractPaths, changed...)
+	retractPaths = append(retractPaths, deleted...)
+	retractPaths = append(retractPaths, callSiblings...)
 	if db != nil {
-		for _, p := range append(changed, deleted...) {
+		for _, p := range retractPaths {
 			oldInputs, _, err := db.LoadWorldFactsForFile(canonicalScanPath(root, p), "fast")
 			if err != nil || len(oldInputs) == 0 {
 				continue
@@ -269,6 +289,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 
 	pathsToParse := append([]string{}, changed...)
 	pathsToParse = append(pathsToParse, newFiles...)
+	pathsToParse = append(pathsToParse, callSiblings...)
 
 	maxConc := s.config.MaxConcurrency
 	if maxConc <= 0 {
@@ -458,6 +479,18 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		}
 	}
 
+	// Call rows are not fast facts: code_calls names functions, not files, so
+	// groupFactsByPath would file them under the global bucket and the next
+	// delete could not take them with their file. They live in the deep cache,
+	// keyed by the file the cartographer mapped. Retract the sibling's previous
+	// deep rows and assert the fresh map, per file, the same owner-keyed
+	// replacement the fast loop above uses.
+	if len(callSiblings) > 0 {
+		deepNew, deepOld := refreshSiblingCallRows(ctx, root, db, currentFiles, callSiblings)
+		newFacts = append(newFacts, deepNew...)
+		retractFacts = append(retractFacts, deepOld...)
+	}
+
 	// Handle deletions: drop from DB and cache. DB rows are keyed canonically,
 	// the cache by walk path.
 	if db != nil && len(deleted) > 0 {
@@ -537,6 +570,343 @@ func (s *Scanner) deriveSnapshotGlobals(root string, currentFiles map[string]os.
 	// for files this delta parsed; path heuristics cover the rest.
 	out.facts = append(out.facts, detectEntryPoints(append(topology, deltaFacts...))...)
 	return out
+}
+
+// goCallSiblings lists Go files in a touched directory whose call rows have to
+// be mapped again because a sibling's package-level declaration set changed.
+//
+// Detection is the declaration set, not the diff. In-process, peekPkgSymbols
+// still holds the set from the last map and loadSymbols recomputes it from
+// the bytes now on disk; sameDeclarations ignores line spans, so a body edit
+// compares equal and this returns nothing. A restarted process has an empty
+// cache. The previous set is then the code_defines rows already stored for
+// the package, and only when every pre-existing file of that package has a
+// deep row — a partial deep scan is not a declaration set, and treating it
+// as one would remap the package on a body edit. No stored rows and no cache
+// means there is nothing stale to repair, so the siblings stay put.
+func goCallSiblings(root string, db *store.LocalStore, current map[string]os.FileInfo, changed, added, deleted []string) []string {
+	type dirTouch struct {
+		live    []string
+		deleted []string
+	}
+	dirs := map[string]*dirTouch{}
+	note := func(p string, del bool) {
+		if !strings.HasSuffix(p, ".go") {
+			return
+		}
+		d := filepath.Dir(p)
+		touch := dirs[d]
+		if touch == nil {
+			touch = &dirTouch{}
+			dirs[d] = touch
+		}
+		if del {
+			touch.deleted = append(touch.deleted, p)
+			return
+		}
+		touch.live = append(touch.live, p)
+	}
+	for _, p := range changed {
+		note(p, false)
+	}
+	for _, p := range added {
+		note(p, false)
+	}
+	for _, p := range deleted {
+		note(p, true)
+	}
+	if len(dirs) == 0 {
+		return nil
+	}
+
+	already := make(map[string]struct{}, len(changed)+len(added))
+	for _, p := range changed {
+		already[p] = struct{}{}
+	}
+	for _, p := range added {
+		already[p] = struct{}{}
+	}
+	addedSet := make(map[string]struct{}, len(added))
+	for _, p := range added {
+		addedSet[p] = struct{}{}
+	}
+
+	var out []string
+	for dir, touch := range dirs {
+		out = append(out, siblingsInGoDir(root, db, dir, current, touch.live, touch.deleted, already, addedSet)...)
+	}
+	sort.Strings(out)
+	return out
+}
+
+type goPkgRoster struct {
+	lib         []string
+	test        []string
+	deletedLib  []string
+	deletedTest []string
+}
+
+func siblingsInGoDir(root string, db *store.LocalStore, dir string, current map[string]os.FileInfo, live, deleted []string, already, added map[string]struct{}) []string {
+	byPkg := map[string]*goPkgRoster{}
+	roster := func(pkg string) *goPkgRoster {
+		r := byPkg[pkg]
+		if r == nil {
+			r = &goPkgRoster{}
+			byPkg[pkg] = r
+		}
+		return r
+	}
+	for p := range current {
+		if filepath.Dir(p) != dir || !strings.HasSuffix(p, ".go") {
+			continue
+		}
+		pkg, ok := goPackageClause(p)
+		if !ok {
+			continue
+		}
+		r := roster(pkg)
+		if strings.HasSuffix(p, "_test.go") {
+			r.test = append(r.test, p)
+		} else {
+			r.lib = append(r.lib, p)
+		}
+	}
+	for _, p := range deleted {
+		pkg := storedGoPackage(db, root, p)
+		if pkg == "" {
+			continue
+		}
+		r := roster(pkg)
+		if strings.HasSuffix(p, "_test.go") {
+			r.deletedTest = append(r.deletedTest, p)
+		} else {
+			r.deletedLib = append(r.deletedLib, p)
+		}
+	}
+
+	touched := touchedGoPackages(root, db, live, deleted)
+	if len(touched) == 0 {
+		// The changed file's clause did not parse and a deleted file had no
+		// stored package. Compare every package in the directory: an
+		// unchanged set adds no sibling, and skipping the directory would
+		// leave a real declaration change unrepaired.
+		for pkg := range byPkg {
+			touched[pkg] = struct{}{}
+		}
+	}
+
+	var out []string
+	for pkg := range touched {
+		r := byPkg[pkg]
+		if r == nil {
+			continue
+		}
+		libCandidates := notIn(r.lib, already)
+		if len(libCandidates) > 0 && packageDeclsChanged(dir, pkg, false, db, root, evidenceFiles(r.lib, r.deletedLib, added)) {
+			out = append(out, libCandidates...)
+		}
+		testCandidates := notIn(r.test, already)
+		if len(testCandidates) == 0 {
+			continue
+		}
+		testEvidence := evidenceFiles(append(append([]string{}, r.lib...), r.test...), append(append([]string{}, r.deletedLib...), r.deletedTest...), added)
+		if packageDeclsChanged(dir, pkg, true, db, root, testEvidence) {
+			out = append(out, testCandidates...)
+		}
+	}
+	return out
+}
+
+func touchedGoPackages(root string, db *store.LocalStore, live, deleted []string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, p := range live {
+		if pkg, ok := goPackageClause(p); ok {
+			out[pkg] = struct{}{}
+		}
+	}
+	for _, p := range deleted {
+		if pkg := storedGoPackage(db, root, p); pkg != "" {
+			out[pkg] = struct{}{}
+		}
+	}
+	return out
+}
+
+func storedGoPackage(db *store.LocalStore, root, abs string) string {
+	if db == nil {
+		return ""
+	}
+	inputs, _, err := db.LoadWorldFactsForFile(canonicalScanPath(root, abs), "fast")
+	if err != nil {
+		return ""
+	}
+	for _, in := range inputs {
+		if in.Predicate != "file_package" || len(in.Args) < 2 {
+			continue
+		}
+		if name, ok := in.Args[1].(string); ok && name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+// evidenceFiles is the pre-existing files of a package: current files that
+// are not new, plus files just deleted. A new file has no stored
+// code_defines yet; the old declaration set is the files that were already
+// mapped.
+func evidenceFiles(current, deleted []string, added map[string]struct{}) []string {
+	out := make([]string, 0, len(current)+len(deleted))
+	for _, p := range current {
+		if _, ok := added[p]; ok {
+			continue
+		}
+		out = append(out, p)
+	}
+	out = append(out, deleted...)
+	return out
+}
+
+func notIn(paths []string, skip map[string]struct{}) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if _, ok := skip[p]; ok {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// packageDeclsChanged reports whether the on-disk declaration set differs
+// from the set this package was last mapped with. had-cache is the
+// in-process compare (peekPkgSymbols vs loadSymbols). Without a cache, the
+// stored code_defines rows are the previous set, and only when every
+// evidence file has a deep row. Returning false when that evidence is
+// missing is deliberate: a body edit must not fan out across the package
+// just because the previous set is unknown.
+func packageDeclsChanged(dir, pkg string, includeTests bool, db *store.LocalStore, root string, evidence []string) bool {
+	before, had := peekPkgSymbols(dir, pkg, includeTests)
+	after, ok := loadSymbols(dir, pkg, includeTests)
+	if !ok {
+		return false
+	}
+	if had {
+		return !before.sameDeclarations(after)
+	}
+	keys, complete := storedDeclKeys(db, root, evidence)
+	if !complete {
+		return false
+	}
+	return !declKeyEqual(keys, after.declKeys(pkg))
+}
+
+func storedDeclKeys(db *store.LocalStore, root string, files []string) (map[string]struct{}, bool) {
+	if db == nil {
+		return nil, false
+	}
+	keys := map[string]struct{}{}
+	if len(files) == 0 {
+		return keys, true
+	}
+	for _, abs := range files {
+		inputs, _, err := db.LoadWorldFactsForFile(canonicalScanPath(root, abs), "deep")
+		if err != nil || len(inputs) == 0 {
+			return nil, false
+		}
+		for _, in := range inputs {
+			k, ok := declKeyFromDefine(in.Predicate, in.Args)
+			if ok {
+				keys[k] = struct{}{}
+			}
+		}
+	}
+	return keys, true
+}
+
+func declKeyFromDefine(pred string, args []any) (string, bool) {
+	if pred != "code_defines" || len(args) < 3 {
+		return "", false
+	}
+	id := types.ExtractString(args[1])
+	kind := strings.TrimPrefix(types.ExtractString(args[2]), "/")
+	if id == "" || kind == "" {
+		return "", false
+	}
+	switch kind {
+	case "function":
+		// pkg.Name is a function; pkg.Recv.Name is a method. Package clauses
+		// do not contain dots, so the second dot is the receiver.
+		if strings.Count(id, ".") >= 2 {
+			return "method:" + id, true
+		}
+		return "func:" + id, true
+	case "struct", "interface", "type":
+		return "type:" + id, true
+	default:
+		return "", false
+	}
+}
+
+func declKeyEqual(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// refreshSiblingCallRows remaps each sibling through the cartographer and
+// replaces its deep rows. The previous rows are returned for retraction and
+// the fresh map for assertion; both are the whole per-file deep set, because
+// that is the unit EnsureDeepFacts replaces.
+func refreshSiblingCallRows(ctx context.Context, root string, db *store.LocalStore, current map[string]os.FileInfo, siblings []string) (fresh, old []core.Fact) {
+	c := NewCartographer()
+	defer c.Close()
+	for _, p := range siblings {
+		if err := ctx.Err(); err != nil {
+			return fresh, old
+		}
+		info := current[p]
+		if info == nil {
+			continue
+		}
+		canonical := canonicalScanPath(root, p)
+		var prior []core.Fact
+		if db != nil {
+			inputs, _, err := db.LoadWorldFactsForFile(canonical, "deep")
+			if err != nil {
+				logging.WorldWarn("sibling call rows: load %s: %v", canonical, err)
+				continue
+			}
+			prior = make([]core.Fact, len(inputs))
+			for i, in := range inputs {
+				prior[i] = core.Fact{Predicate: in.Predicate, Args: in.Args}
+			}
+		}
+		mapped, err := c.MapFileAs(p, canonical)
+		if err != nil {
+			logging.WorldWarn("sibling call rows: map %s: %v", canonical, err)
+			continue
+		}
+		if db != nil {
+			inputs := make([]store.WorldFactInput, len(mapped))
+			for i, f := range mapped {
+				inputs[i] = store.WorldFactInput{Predicate: f.Predicate, Args: f.Args}
+			}
+			if err := db.ReplaceWorldFactsForFile(canonical, "deep", fileFingerprint(info), inputs); err != nil {
+				logging.WorldWarn("sibling call rows: store %s: %v", canonical, err)
+				continue
+			}
+		}
+		old = append(old, prior...)
+		fresh = append(fresh, mapped...)
+	}
+	return fresh, old
 }
 
 // groupFactsByPath buckets a scan's facts by the file each one belongs to, so
