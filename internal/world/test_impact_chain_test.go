@@ -247,22 +247,21 @@ func TestTestImpactChain_WhenCallsOnly_ShouldDeriveDirectImpact(t *testing.T) {
 	if rows := queryRows(t, k, "file_imports"); len(rows) != 0 {
 		t.Fatalf("single-package fixture produced file_imports rows %v; the R2/R3 isolation is broken", rows)
 	}
-	// The fn:t.Fail / fn:s.M callees are the Cartographer's best-effort
-	// selector edges (t.Fail, s.M): they join nothing downstream, but R2
-	// derives them without needing a code_element for the callee. R3 (same
-	// directory + referenced symbol, on the scanner's real file_dir rows)
-	// can only re-derive what R2 already found here.
+	// s := &S{} then s.M() resolves to the method's code_element fn:p.S.M.
+	// t.Fail() does not: *testing.T is not a type of this package, so the
+	// cartographer keeps the bare row and emits no fn: row for it. R2 joins
+	// the fn: strings without requiring the callee to be a code_element, so
+	// a spurious fn: row would show up here. R3 (same directory + referenced
+	// symbol, on the scanner's real file_dir rows) re-derives those call
+	// edges. The transitive row to struct:p.S is method_of from element_parent.
 	assertRows(t, "test_depends_on", queryRows(t, k, "test_depends_on"),
 		row("test_depends_on", "fn:p.TestTarget", "fn:p.Target"),
-		row("test_depends_on", "fn:p.TestTarget", "fn:t.Fail"),
-		row("test_depends_on", "fn:p.TestMethod", "fn:s.M"),
-		row("test_depends_on", "fn:p.TestMethod", "fn:t.Fail"),
+		row("test_depends_on", "fn:p.TestMethod", "fn:p.S.M"),
 	)
 	assertRows(t, "test_depends_on_transitive", queryRows(t, k, "test_depends_on_transitive"),
 		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:p.Target"),
-		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:t.Fail"),
-		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:s.M"),
-		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:t.Fail"),
+		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:p.S.M"),
+		row("test_depends_on_transitive", "fn:p.TestMethod", "struct:p.S"),
 	)
 	assertRows(t, "impacted_test", queryRows(t, k, "impacted_test"),
 		row("impacted_test", "fn:p.TestTarget"),
@@ -364,30 +363,24 @@ func TestTestImpactChain_WhenFileImports_ShouldDeriveCrossProduct(t *testing.T) 
 		row("test_depends_on", "fn:p.TestTarget", "fn:q.S.M"),
 		row("test_depends_on", "fn:p.TestTarget", "fn:q.Target"),
 		row("test_depends_on", "fn:p.TestTarget", "fn:q.Helper"),
-		row("test_depends_on", "fn:p.TestTarget", "fn:t.Fail"),
 		row("test_depends_on", "fn:p.TestMethod", "struct:q.S"),
 		row("test_depends_on", "fn:p.TestMethod", "fn:q.S.M"),
 		row("test_depends_on", "fn:p.TestMethod", "fn:q.Target"),
 		row("test_depends_on", "fn:p.TestMethod", "fn:q.Helper"),
-		row("test_depends_on", "fn:p.TestMethod", "fn:s.M"),
-		row("test_depends_on", "fn:p.TestMethod", "fn:t.Fail"),
 	)
-	// No second-hop rows: Target and Helper call nothing, and the junk
-	// callees call nothing, so transitive equals direct. The method_of
-	// path is consistent (its rows are already in the R1 cross-product)
-	// but contributes nothing distinguishable here.
+	// No second-hop rows: Target and Helper call nothing, and q.Target /
+	// s.M() / t.Fail() do not emit an fn: row (other package, or a
+	// receiver type this file does not name). Transitive equals direct.
+	// method_of's struct is already in the R1 cross-product.
 	assertRows(t, "test_depends_on_transitive", queryRows(t, k, "test_depends_on_transitive"),
 		row("test_depends_on_transitive", "fn:p.TestTarget", "struct:q.S"),
 		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:q.S.M"),
 		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:q.Target"),
 		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:q.Helper"),
-		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:t.Fail"),
 		row("test_depends_on_transitive", "fn:p.TestMethod", "struct:q.S"),
 		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:q.S.M"),
 		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:q.Target"),
 		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:q.Helper"),
-		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:s.M"),
-		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:t.Fail"),
 	)
 	assertRows(t, "impacted_test", queryRows(t, k, "impacted_test"),
 		row("impacted_test", "fn:p.TestTarget"),

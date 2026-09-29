@@ -1,10 +1,12 @@
 package world
 
 import (
-	"codenerd/internal/core"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"codenerd/internal/core"
 )
 
 func TestNewCartographer(t *testing.T) {
@@ -115,6 +117,141 @@ func (m *MyStruct) method() {
 	}
 	if !foundDualCall {
 		t.Error("Expected to find dual code_calls fact from fn:main.MyStruct.method to fn:main.hello")
+	}
+}
+
+// TestCartographer_FnCallRows_MatchCodeElementRefs locks the fn: spelling
+// of code_calls against buildRef (fn:<pkg>.<Name>, fn:<pkg>.<Recv>.<Name>).
+// A selector used to be copied off the expression (fn:s.M, fn:t.Fail), and
+// the enclosing function was never restored, so a package-level call after
+// a function was credited to it.
+func TestCartographer_FnCallRows_MatchCodeElementRefs(t *testing.T) {
+	c := NewCartographer()
+	defer c.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "callers.go")
+	src := `package p
+
+import (
+	"fmt"
+	"testing"
+)
+
+type S struct{ N int }
+
+func (s *S) M() int { return sink() }
+
+func (b *Box[T]) Get() int { return sink() }
+
+type Box[T any] struct{ V T }
+
+func sink() int { return 1 }
+
+func byComposite() {
+	s := S{}
+	s.M()
+}
+
+func byPointerLit() {
+	s := &S{}
+	s.M()
+}
+
+func byExplicit() {
+	var s S
+	s.M()
+}
+
+func byPointerVar() {
+	var s *S
+	s.M()
+}
+
+func byParam(s S) {
+	s.M()
+	fmt.Println(s.N)
+}
+
+func byParamPtr(s *S) {
+	s.M()
+}
+
+func TestValue(t *testing.T) {
+	t.Fail()
+}
+
+func earlier() {}
+
+var leaked = helper()
+
+var wrapped = func() int { return helper() }
+
+func helper() int { return 1 }
+`
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	facts, err := c.MapFile(path)
+	if err != nil {
+		t.Fatalf("MapFile: %v", err)
+	}
+
+	calls := map[[2]string]bool{}
+	for _, f := range facts {
+		if f.Predicate != "code_calls" || len(f.Args) < 2 {
+			continue
+		}
+		caller, ok1 := f.Args[0].(string)
+		callee, ok2 := f.Args[1].(string)
+		if !ok1 || !ok2 {
+			t.Fatalf("code_calls args are not strings: %#v", f.Args)
+		}
+		calls[[2]string{caller, callee}] = true
+	}
+
+	for _, caller := range []string{
+		"fn:p.byComposite",
+		"fn:p.byPointerLit",
+		"fn:p.byExplicit",
+		"fn:p.byPointerVar",
+		"fn:p.byParam",
+		"fn:p.byParamPtr",
+	} {
+		if !calls[[2]string{caller, "fn:p.S.M"}] {
+			t.Errorf("missing code_calls(%s, fn:p.S.M)", caller)
+		}
+	}
+	if !calls[[2]string{"fn:p.S.M", "fn:p.sink"}] {
+		t.Error("missing code_calls(fn:p.S.M, fn:p.sink) for the same-package ident call")
+	}
+	if !calls[[2]string{"fn:p.Box.Get", "fn:p.sink"}] {
+		t.Error("missing code_calls(fn:p.Box.Get, fn:p.sink); generic receiver was dropped from the caller ref")
+	}
+	if !calls[[2]string{"p.TestValue", "t.Fail"}] {
+		t.Error("bare code_calls(p.TestValue, t.Fail) was dropped")
+	}
+	if !calls[[2]string{"p.byParam", "fmt.Println"}] {
+		t.Error("bare code_calls(p.byParam, fmt.Println) was dropped")
+	}
+
+	for pair := range calls {
+		if strings.HasPrefix(pair[1], "fn:") && (strings.Contains(pair[1], "Fail") || strings.Contains(pair[1], "Println") || pair[1] == "fn:s.M") {
+			t.Errorf("fn: row does not name a code_element: code_calls(%s, %s)", pair[0], pair[1])
+		}
+		if strings.Contains(pair[0], "earlier") && strings.Contains(pair[1], "helper") {
+			t.Errorf("package-level helper() attributed to earlier: code_calls(%s, %s)", pair[0], pair[1])
+		}
+		if pair[0] == "p.Get" || pair[0] == "fn:p.Get" {
+			t.Errorf("generic method collapsed onto Get: code_calls(%s, %s)", pair[0], pair[1])
+		}
+	}
+	for _, caller := range []string{"p.earlier", "fn:p.earlier", "p.helper", "fn:p.helper"} {
+		for pair := range calls {
+			if pair[0] == caller && strings.Contains(pair[1], "helper") {
+				t.Errorf("helper() call attributed to %s -> %s", pair[0], pair[1])
+			}
+		}
 	}
 }
 
