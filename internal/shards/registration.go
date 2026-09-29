@@ -143,7 +143,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// hollow_success / turn_done) sit beside the diagnostics and
 				// build state their negations read.
 				"turn_evidence", "turn_acceptance", "turn_created_source", "build_state",
-				"turn_created_test", "turn_written", "turn_changed_element", "turn_element_uncovered", "turn_doc_write", "turn_verb",
+				"turn_created_test", "turn_written", "turn_changed_element", "turn_element_uncovered", "turn_element_measured", "turn_doc_write", "turn_verb",
+				// This turn's test run, beside the elements a witness joins
+				// it to. A catch-all home would split that join.
+				"turn_test_case", "turn_test_failure_at", "turn_test_build_failure", "turn_test_output_repeat", "turn_failing_test",
 				// The campaign check this turn was handed, and each run_check
 				// receipt. turn_owes_gate(/check) and turn_catalog join them
 				// with turn_verb here; a catch-all home would split the join

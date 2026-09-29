@@ -63,8 +63,11 @@ type TestVerification struct {
 
 	// Result is the parsed `go test -json` stream: per-package and
 	// per-test status, every test's full output, failures, build
-	// failures, and repeats. Gates read their verdicts from it; a later
-	// lane stores per-test outputs for recall and asserts Facts().
+	// failures, and repeats. Gates read their verdicts from it.
+	// assertTurnTestFacts asserts Facts() keyed by the turn, and when a
+	// working loop is active annotateFailingTestRecall names a
+	// recall_context handle for each failing test's full output on the
+	// summary line.
 	Result *testfacts.Result
 
 	// Duration is how long the test run took.
@@ -276,21 +279,24 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 	elapsed := time.Since(start)
 	res := parseTestJSON(workspace, out)
 
+	var v TestVerification
 	switch outcome {
 	case VerifyPassed:
 		logging.SessionDebug("test verification passed in %s", elapsed.Round(time.Millisecond))
-		return TestVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: elapsed, Result: res}
+		v = TestVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: elapsed, Result: res}
 	case VerifyFailed:
 		text := verificationOutput(res)
 		if text == "" {
 			text = reason
 		}
+		v = TestVerification{Ran: true, OK: false, Output: text, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed, Result: res}
+		annotateFailingTestRecall(ctx, &v)
 		logging.Get(logging.CategorySession).Warn(
-			"test verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
-		return TestVerification{Ran: true, OK: false, Output: text, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed, Result: res}
+			"test verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), v.Output)
+		return v
 	case VerifyCanceled:
 		logging.Get(logging.CategorySession).Warn("test verification canceled: %s", reason)
-		return TestVerification{Ran: len(out) > 0, Output: verificationOutput(res), Outcome: VerifyCanceled, Command: command, Reason: reason, Duration: elapsed, Result: res}
+		v = TestVerification{Ran: len(out) > 0, Output: verificationOutput(res), Outcome: VerifyCanceled, Command: command, Reason: reason, Duration: elapsed, Result: res}
 	default: // VerifyIndeterminate
 		// A timeout is not evidence the tests are broken — but it is not
 		// evidence of recovery either. Report it as indeterminate with
@@ -298,8 +304,10 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 		// instead of minting a pass from silence.
 		logging.Get(logging.CategorySession).Warn(
 			"test verification timed out after %s; recovery not verified", testVerifyTimeout)
-		return TestVerification{Ran: true, Output: verificationOutput(res), Outcome: VerifyIndeterminate, Command: command, Reason: reason, Duration: elapsed, Result: res}
+		v = TestVerification{Ran: true, Output: verificationOutput(res), Outcome: VerifyIndeterminate, Command: command, Reason: reason, Duration: elapsed, Result: res}
 	}
+	annotateFailingTestRecall(ctx, &v)
+	return v
 }
 
 // untestedGoFiles returns the subset of paths that are non-test .go files

@@ -172,6 +172,24 @@ Decl turn_changed_element(Turn, Ref) bound [/name, /string].
 # the same code_element ref as turn_changed_element. Nothing reads it yet.
 # The file-level turn_uncovered above remains the verdict's coverage debt.
 Decl turn_element_uncovered(Turn, Ref) bound [/name, /string].
+# turn_element_measured is a changed element whose span holds at least one
+# statement block in this turn's coverage profile, whether or not the run
+# executed it (session/turn_element_coverage.go). An element with no
+# statements, or a file the profile does not mention, is not measured: no
+# block is not evidence the run saw the element. Nothing reads it yet.
+Decl turn_element_measured(Turn, Ref) bound [/name, /string].
+# The turn's own `go test -json` run (session/turn_test_facts.go), one row
+# per testfacts fact with this turn prepended. The unscoped test_case /
+# test_failure_at / failing_test predicates are a different measurement and
+# are not keyed by turn, so a verdict that joined them would see another
+# turn's failures; RetractFact matches the first argument, which is why the
+# turn is that argument. Shapes match testfacts.Facts exactly, Turn first.
+# Nothing reads them yet.
+Decl turn_test_case(Turn, Pkg, Test, Status, ElapsedMs) bound [/name, /string, /string, /name, /number].
+Decl turn_test_failure_at(Turn, Pkg, Test, File, Line, Message, Count) bound [/name, /string, /string, /string, /number, /string, /number].
+Decl turn_test_build_failure(Turn, Pkg, File, Line, Message) bound [/name, /string, /string, /number, /string].
+Decl turn_test_output_repeat(Turn, Line, Count) bound [/name, /string, /number].
+Decl turn_failing_test(Turn, TestName, ErrorMessage) bound [/name, /string, /string].
 # turn_doc_write: the written path lies under a path the workspace's nerd.md
 # declares as docs (the executor measures it; assertTurnWrites).
 Decl turn_doc_write(Turn, Path) bound [/name, /string].

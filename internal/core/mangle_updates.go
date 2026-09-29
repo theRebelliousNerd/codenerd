@@ -291,7 +291,13 @@ var hostWitnessPredicates = map[string]struct{}{
 	"turn_created_test": {}, "turn_test_coverage": {}, "turn_missing_test": {},
 	// What a write owes (N01): write_class is the table a model could
 	// otherwise extend to reclassify its own code as documentation.
-	"turn_written": {}, "turn_changed_element": {}, "turn_element_uncovered": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
+	"turn_written": {}, "turn_changed_element": {}, "turn_element_uncovered": {}, "turn_element_measured": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
+	// This turn's `go test -json` rows (session/turn_test_facts.go). A model
+	// that could write them could name a failure the gate did not run, or
+	// hide one it did. The unscoped test_case predicates stay host witnesses
+	// too; these are the turn-keyed copies.
+	"turn_test_case": {}, "turn_test_failure_at": {}, "turn_test_build_failure": {},
+	"turn_test_output_repeat": {}, "turn_failing_test": {},
 	"turn_doc_write": {},
 	"turn_owes_gate": {}, "turn_unmet_gate": {}, "turn_red_gate": {}, "has_unmet_gate": {}, "has_red_gate": {},
 	// What a behaviour change owes (N22): the turn's intent and the table

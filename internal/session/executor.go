@@ -744,7 +744,13 @@ type ExecutionResult struct {
 	// whose statement blocks the coverage run shows and never executed
 	// (turn_element_coverage.go). Set by narrowToChangedLines; nil when no
 	// coverage run measured the turn.
-	ElementUncovered      []string
+	ElementUncovered []string
+	// ElementMeasured names the changed elements whose span holds at least
+	// one statement block in the same profile, executed or not. An element
+	// with no statements, or a file the profile does not mention, is absent.
+	// Set beside ElementUncovered from the one profile walk; nil when that
+	// walk did not run.
+	ElementMeasured       []string
 	ChecksSnapshot        string
 	ChangeStage           string
 	acceptanceTransaction *evidence.Transaction
@@ -2722,14 +2728,25 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 		e.assertTurnFact(types.Fact{Predicate: "turn_uncovered", Args: []any{turn, path}})
 	}
 	// The same run, named per changed element. The profile cannot say which
-	// test executed an element, so the fact is only the element it never
-	// executed. Nothing reads it yet; turn_uncovered above stays the verdict.
+	// test executed an element, so the uncovered fact is only the element it
+	// never executed, and the measured fact is the element whose statements
+	// the profile contains at all. Nothing reads either yet; turn_uncovered
+	// above stays the verdict.
+	for _, ref := range result.ElementMeasured {
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_element_measured",
+			Args:      []any{turn, types.MangleString(ref)},
+		})
+	}
 	for _, ref := range result.ElementUncovered {
 		e.assertTurnFact(types.Fact{
 			Predicate: "turn_element_uncovered",
 			Args:      []any{turn, types.MangleString(ref)},
 		})
 	}
+	// The gate's parsed run, keyed by this turn. A skipped gate has nothing
+	// to assert; the Result already parsed at the gate is the source.
+	e.assertTurnTestFacts(turn, result)
 }
 
 // testRunVerdict is the /test_run gate's verdict: passed when the last test
