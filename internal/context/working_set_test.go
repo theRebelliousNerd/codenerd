@@ -17,7 +17,11 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "b.go"), []byte("package b"), 0600))
-	w, err := NewWorkingSet(root, "task", config.DefaultWorkingConfig())
+	// The derived ceiling carries this fixture. The assertion is eviction,
+	// so the ceiling is the old explicit floor: one large read.
+	spans := config.DefaultWorkingConfig()
+	spans.LedgerCeilingBytes = 4096
+	w, err := NewWorkingSet(root, "task", spans)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 	var entries []LedgerEntry
@@ -30,22 +34,25 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: fmt.Sprint(i), Entity: entity, Revision: w.Revision(entity), Kind: fmt.Sprint(i), Step: int64(i), Body: body}))
 		entries = append(entries, LedgerEntry{Call: fmt.Sprintf("call-%d", i), ID: fmt.Sprint(i), Bytes: len(body), Round: i + 1})
 	}
-	decision, err := w.Ledger(t.Context(), entries, 120, nil, nil)
+	decision, err := w.Ledger(t.Context(), entries, 120, nil, nil, nil)
 	require.NoError(t, err)
 	require.Contains(t, decision.Evict, "call-0", "the first round's result leaves a ledger far over its ceiling")
-	page, err := w.Recall(t.Context(), "0", 0, 1000)
+	// The first save is handle "1". The storage id "0" is not a handle.
+	page, err := w.Recall(t.Context(), "1", 0, 1000)
 	require.NoError(t, err)
 	require.Contains(t, page, "fact-0", "eviction is not deletion")
-	other, err := NewWorkingSet(root, "sibling", config.DefaultWorkingConfig())
-	require.NoError(t, err)
-	defer other.Close()
-	_, err = other.Recall(t.Context(), "0", 0, 1000)
-	require.Error(t, err, "sibling scopes cannot recover each other's records")
-	// The model reads this error: it names the id and the way forward, not the
-	// driver's "sql: no rows in result set".
+	require.NotContains(t, page, `"id":"0"`, "the page names the handle, not the storage id")
+	_, err = w.Recall(t.Context(), "0", 0, 1000)
+	require.Error(t, err, "the storage id is not a recall handle")
 	require.Contains(t, err.Error(), `no archived observation has id "0"`)
 	require.Contains(t, err.Error(), "query=")
 	require.NotContains(t, err.Error(), "sql: no rows")
+	other, err := NewWorkingSet(root, "sibling", spans)
+	require.NoError(t, err)
+	defer other.Close()
+	_, err = other.Recall(t.Context(), "1", 0, 1000)
+	require.Error(t, err, "sibling scopes cannot recover each other's records")
+	require.Contains(t, err.Error(), `no archived observation has id "1"`)
 }
 
 // The working policy decides continuation from the loop's whole-turn report,
@@ -112,13 +119,20 @@ func TestWorkingSetRecallReturnsTheWholeBodyUnlessPaged(t *testing.T) {
 	t.Cleanup(func() { _ = w.Close() })
 	body := strings.Repeat("0123456789", 2500) + "tail-marker"
 	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "whole", Entity: "a.go", Revision: w.Revision("a.go"), Kind: "read", Step: 1, Body: body}))
+	handle, err := w.Handle(t.Context(), "whole")
+	require.NoError(t, err)
+	require.Equal(t, "1", handle)
 
-	whole, err := w.Recall(t.Context(), "whole", 0, 0)
+	whole, err := w.Recall(t.Context(), handle, 0, 0)
 	require.NoError(t, err)
 	require.Contains(t, whole, "tail-marker")
+	require.Contains(t, whole, `"id":"1"`)
+	require.NotContains(t, whole, "whole", "the storage id is not in the page")
 	require.Contains(t, whole, fmt.Sprintf(`"total_chars":%d,"next_offset":%d`, len(body), len(body)))
+	_, err = w.Recall(t.Context(), "whole", 0, 0)
+	require.Error(t, err)
 
-	page, err := w.Recall(t.Context(), "whole", 10, 100)
+	page, err := w.Recall(t.Context(), handle, 10, 100)
 	require.NoError(t, err)
 	require.NotContains(t, page, "tail-marker")
 	require.Contains(t, page, `"offset":10,`)
@@ -142,12 +156,16 @@ func TestWorkingSetSearchReportsBodyCharsNotAnEmptyBody(t *testing.T) {
 
 	out, err := w.Search(t.Context(), "executor_tools", 0, 10)
 	require.NoError(t, err)
-	require.Contains(t, out, `"id":"hit-1"`)
+	require.Contains(t, out, `"id":"1"`, "the hit names the short handle")
+	require.NotContains(t, out, "hit-1", "the storage id is not a handle the model is shown")
 	require.Contains(t, out, `"body_chars":5000`, "the hit must report the body's size")
 	require.NotContains(t, out, `"body":`, "an explicit empty body reads as an empty observation")
 	require.Contains(t, out, `read_with`, "the envelope must say how to read the body")
 
-	page, err := w.Recall(t.Context(), "hit-1", 0, 0)
+	_, err = w.Recall(t.Context(), "hit-1", 0, 0)
+	require.Error(t, err, "recall by the storage id does not resolve")
+	page, err := w.Recall(t.Context(), "1", 0, 0)
 	require.NoError(t, err)
-	require.Contains(t, page, `"total_chars":5000`, "the id must round-trip into a full-body read")
+	require.Contains(t, page, `"total_chars":5000`, "the handle must round-trip into a full-body read")
+	require.NotContains(t, page, "hit-1")
 }

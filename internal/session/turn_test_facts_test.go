@@ -588,7 +588,7 @@ func failureCount(res *testfacts.Result) int {
 	return len(res.Failures)
 }
 
-var recallIDPattern = regexp.MustCompile(`recall_context id="([0-9a-f]{64})"`)
+var recallIDPattern = regexp.MustCompile(`recall_context id="([0-9]+)"`)
 
 func recallIDs(t *testing.T, text string) []string {
 	t.Helper()

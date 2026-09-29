@@ -18,10 +18,13 @@ type WorkingConfig struct {
 	// LedgerCeilingBytes is the size at which the policy compacts the context
 	// ledger -- the tool results a working request carries whole since the
 	// last compaction (working_ledger_ceiling). It is a trigger, not a cut:
-	// compaction moves old results out behind recall handles, in one step.
+	// compaction moves stale and superseded results out first, then only
+	// enough older live results to fit. Zero means "derive it" (see
+	// GetWorkingConfig); an explicit value wins.
 	LedgerCeilingBytes int `json:"ledger_ceiling_bytes,omitempty"`
-	// LedgerKeepRounds is how many of the latest rounds a compaction keeps
-	// whole (working_ledger_keep_rounds).
+	// LedgerKeepRounds is how many of the latest rounds a compaction leaves
+	// in place while they are live (working_ledger_keep_rounds). Stale and
+	// superseded results are not protected by the window.
 	LedgerKeepRounds int `json:"ledger_keep_rounds,omitempty"`
 	// NudgeRounds is the span after which a read task is nudged to conclude,
 	// a change task to implement or verify (working_nudge_rounds).
@@ -50,13 +53,51 @@ type WorkingConfig struct {
 	StructuralMissLimit int `json:"structural_miss_limit,omitempty"`
 }
 
+// ledgerBytesPerToken converts the context window's token budget into the
+// ledger's byte count. prompt.EstimateTokens counts (len+3)/4, and the
+// ledger sums bytes, so one token of budget is four bytes of tool result.
+// It is that estimator's unit conversion, not a config knob: a second knob
+// would let the two disagree about how big a result is.
+const ledgerBytesPerToken = 4
+
+// LedgerCeilingBytesFromContext is the working-memory share of the serving
+// model's input budget, in bytes:
+//
+//	context_window.max_tokens * context_window.working_reserve_percent / 100 * 4
+//
+// working_reserve_percent is the share InputBudget already names for working
+// memory (Core + Atom + History + Working; internal/config/memory.go). A
+// zero max_tokens or percent takes that field's default, so a partial
+// context_window block still derives.
+//
+// jit.token_budget is not this number. It is the compiled system prompt's
+// ceiling, and GetEffectiveJITConfig already clamps it to
+// context_window.max_tokens. Using it here would book the same window twice:
+// once as the prompt, again as the ledger.
+func LedgerCeilingBytesFromContext(window ContextWindowConfig) int {
+	def := DefaultContextWindowConfig()
+	maxTokens := window.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = def.MaxTokens
+	}
+	percent := window.WorkingReservePercent
+	if percent <= 0 {
+		percent = def.WorkingReservePercent
+	}
+	return maxTokens * percent / 100 * ledgerBytesPerToken
+}
+
 // DefaultWorkingConfig is the working section with every field written down.
-// The ledger ceiling is the context-economics study's 16k-token point
-// (2026-09-22, simulated on 481 measured rounds: uncached input -68%, total
-// -10%; a 64k-token ceiling bought nothing more).
+// The ledger ceiling is the working-memory share of the default context
+// window (200000 tokens, 50%): 400000 bytes. The flat 65536-byte default
+// (the 2026-09-22 16k-token economics point) compacted a 16-read working set
+// on the first live nerd fix of main 2dadb513 (2026-09-29, session
+// 20260929_052520): 14 live results left the request and the model spent the
+// stall span recalling them. An explicit working.ledger_ceiling_bytes still
+// wins over this derivation.
 func DefaultWorkingConfig() WorkingConfig {
 	return WorkingConfig{
-		LedgerCeilingBytes:  65536,
+		LedgerCeilingBytes:  LedgerCeilingBytesFromContext(DefaultContextWindowConfig()),
 		LedgerKeepRounds:    2,
 		NudgeRounds:         8,
 		CommitRounds:        16,
@@ -70,12 +111,29 @@ func DefaultWorkingConfig() WorkingConfig {
 }
 
 // GetWorkingConfig returns the working section with every absent field
-// defaulted. A nil receiver is the defaults.
+// defaulted. A nil receiver is the defaults. An absent or zero
+// ledger_ceiling_bytes is derived from this config's context window, not
+// from the default window baked into DefaultWorkingConfig: a user who set
+// context_window.max_tokens and left the ledger key out gets a ceiling that
+// matches the model they are serving. DefaultUserConfig stores a filled
+// Working struct, so a non-zero ceiling there is the derived default and
+// matches its default context window. A loaded file leaves the key at 0
+// when it is absent (omitempty), which is the case this re-derives.
 func (c *UserConfig) GetWorkingConfig() WorkingConfig {
-	if c == nil || c.Working == nil {
+	if c == nil {
 		return DefaultWorkingConfig()
 	}
-	return c.Working.WithDefaults()
+	var raw WorkingConfig
+	explicit := 0
+	if c.Working != nil {
+		raw = *c.Working
+		explicit = c.Working.LedgerCeilingBytes
+	}
+	out := raw.WithDefaults()
+	if explicit == 0 {
+		out.LedgerCeilingBytes = LedgerCeilingBytesFromContext(c.GetContextWindowConfig())
+	}
+	return out
 }
 
 // WithDefaults fills every absent field from DefaultWorkingConfig.

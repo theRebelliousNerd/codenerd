@@ -101,9 +101,10 @@ func TestWorkingLedger_RequestsAreAppendOnlyAndTheViewIsSentOnce(t *testing.T) {
 	}
 }
 
-// Past the ceiling one compaction moves every result older than the kept
-// rounds out behind its recall handle; the handle is sent unchanged from then
-// on, and it recovers the result whole. Eviction is not deletion.
+// Past the ceiling one compaction moves the oldest aged result out behind its
+// short recall handle; the kept rounds stay whole. The handle is sent
+// unchanged from then on, and it recovers the result whole. The storage id
+// is not a handle. Eviction is not deletion.
 func TestWorkingLedger_ACompactionMovesOldRoundsBehindTheirHandles(t *testing.T) {
 	l := newLedgerLoop(t, 4096, 2)
 	first := strings.Repeat("first-round ", 125) // 1500 bytes
@@ -111,10 +112,10 @@ func TestWorkingLedger_ACompactionMovesOldRoundsBehindTheirHandles(t *testing.T)
 	l.round("outline", strings.Repeat("second-round ", 116))
 	third := l.round("read_symbol", strings.Repeat("third-round ", 125))
 
-	handle := lastResultOf(t, third, "call-1")
-	if !strings.HasPrefix(handle, archivedResultPrefix) || !types.IsClamped(handle) || !strings.Contains(handle, "recall_context id=") ||
-		!strings.Contains(handle, fmt.Sprintf("%d chars", len(first))) {
-		t.Fatalf("past the ceiling the first round's result must be its recall handle, naming its size; got %q", handle)
+	pointer := lastResultOf(t, third, "call-1")
+	if !strings.HasPrefix(pointer, archivedResultPrefix) || !types.IsClamped(pointer) || !strings.Contains(pointer, `recall_context id="1"`) ||
+		!strings.Contains(pointer, fmt.Sprintf("%d chars", len(first))) {
+		t.Fatalf("past the ceiling the first round's result must be its short recall handle, naming its size; got %q", pointer)
 	}
 	for _, call := range []string{"call-2", "call-3"} {
 		if got := lastResultOf(t, third, call); strings.HasPrefix(got, archivedResultPrefix) {
@@ -126,13 +127,24 @@ func TestWorkingLedger_ACompactionMovesOldRoundsBehindTheirHandles(t *testing.T)
 	}
 
 	fourth := l.round("read_file", "small")
-	if got := lastResultOf(t, fourth, "call-1"); got != handle {
-		t.Fatalf("the handle must be sent unchanged after the compaction; got %q, was %q", got, handle)
+	if got := lastResultOf(t, fourth, "call-1"); got != pointer {
+		t.Fatalf("the handle must be sent unchanged after the compaction; got %q, was %q", got, pointer)
 	}
 	loop := activeWorkingLoop(l.ctx)
-	page, err := loop.set.Recall(l.ctx, loop.observations["call-1"], 0, 0)
+	storageID := loop.observations["call-1"]
+	if strings.Contains(pointer, storageID) {
+		t.Fatalf("the pointer carries the storage id %s; the model copies the short handle", storageID)
+	}
+	handle, err := loop.set.Handle(l.ctx, storageID)
+	if err != nil || handle != "1" {
+		t.Fatalf("the first observation's handle = %q (%v), want 1", handle, err)
+	}
+	page, err := loop.set.Recall(l.ctx, handle, 0, 0)
 	if err != nil || !strings.Contains(page, first) {
 		t.Fatalf("the handle must recover the result whole; recall = %q, %v", truncateForFailure(page), err)
+	}
+	if _, err := loop.set.Recall(l.ctx, storageID, 0, 0); err == nil {
+		t.Fatal("recall by the storage id must fail")
 	}
 }
 
@@ -143,14 +155,23 @@ func TestWorkingLedger_ACompactionMovesOldRoundsBehindTheirHandles(t *testing.T)
 func TestWorkingLedger_AnEditRestatesTheStaleReadOnce(t *testing.T) {
 	l := newLedgerLoop(t, 1<<20, 2)
 	l.round("read_file", "v1-body")
-	id := activeWorkingLoop(l.ctx).observations["call-1"]
+	loop := activeWorkingLoop(l.ctx)
+	id := loop.observations["call-1"]
+	handle, err := loop.modelHandle(l.ctx, id)
+	if err != nil || handle != "1" {
+		t.Fatalf("the first observation's handle = %q (%v), want 1", handle, err)
+	}
 
 	if err := os.WriteFile(filepath.Join(l.e.config.WorkspaceRoot, "target.go"), []byte("package target // v2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	second := l.round("edit_lines", "edited")
-	if n := strings.Count(requestText(second), "observation "+id+" (read_file of target.go) predates"); n != 1 {
-		t.Fatalf("the round that sees the edit must restate the stale read once; the notice appears %d times in:\n%s", n, requestText(second))
+	notice := "observation " + handle + " (read_file of target.go) predates"
+	if n := strings.Count(requestText(second), notice); n != 1 {
+		t.Fatalf("the round that sees the edit must restate the stale read once, by its short handle; the notice appears %d times in:\n%s", n, requestText(second))
+	}
+	if strings.Contains(requestText(second), id) {
+		t.Fatalf("the notice names the storage id %s; the model copies the short handle", id)
 	}
 	if !strings.Contains(requestText(second), "v1-body") {
 		t.Fatal("the stale read stays in the ledger: rewriting it would change every request from its round on")
@@ -211,7 +232,11 @@ func TestWorkingLedger_AnEditToOneFunctionRestatesOnlyWhatWasReadOfIt(t *testing
 	// A recall of an element's observation moves the focus to its file: the
 	// focus names whose view is rendered, and an element is not a file.
 	loop.focus = "."
-	recall := types.ToolCall{ID: "recall-b", Name: "recall_context", Input: map[string]any{"id": loop.observations["call-2"]}}
+	handle, err := loop.modelHandle(l.ctx, loop.observations["call-2"])
+	if err != nil || handle != "2" {
+		t.Fatalf("B's observation handle = %q (%v), want 2", handle, err)
+	}
+	recall := types.ToolCall{ID: "recall-b", Name: "recall_context", Input: map[string]any{"id": handle}}
 	if err := l.e.recordWorkingResult(l.ctx, recall, "page", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -241,6 +266,54 @@ func TestSingleShotRequest_CarriesTheViewAndRefusesWhatCannotFit(t *testing.T) {
 	l.e.config.TokenBudget = 3000
 	if _, err := l.e.singleShotRequest(l.ctx, "SYSTEM", strings.Repeat("a massive task ", 5000), nil); !errors.Is(err, ErrInputBudgetExceeded) {
 		t.Fatalf("a task larger than the window: err = %v, want ErrInputBudgetExceeded", err)
+	}
+}
+
+// Session 20260929_052520: compaction moved the live working set out, and the
+// next rounds spent the stall span recalling it back. A result the model
+// recalled stays in the request through the next compaction while it is still
+// live, so continuing does not mean recalling it again.
+func TestWorkingLedger_ARecalledLiveResultStaysThroughTheNextCompaction(t *testing.T) {
+	l := newLedgerLoop(t, 8000, 2)
+	l.round("read_file", strings.Repeat("A", 5000))
+	l.round("outline", strings.Repeat("B", 5000))
+	third := l.round("read_symbol", strings.Repeat("C", 5000))
+	if got := lastResultOf(t, third, "call-1"); !strings.Contains(got, `recall_context id="1"`) {
+		t.Fatalf("round 3 compacts the only aged result behind handle 1; got %q", got)
+	}
+	for _, call := range []string{"call-2", "call-3"} {
+		if got := lastResultOf(t, third, call); strings.HasPrefix(got, archivedResultPrefix) {
+			t.Fatalf("%s is inside the keep window and must stay whole; got %q", call, truncateForFailure(got))
+		}
+	}
+
+	recalled := strings.Repeat("R", 5000)
+	recall := types.ToolCall{ID: "recall-1", Name: "recall_context", Input: map[string]any{"id": "1"}}
+	if err := l.e.recordWorkingResult(l.ctx, recall, recalled, nil); err != nil {
+		t.Fatalf("recordWorkingResult recall: %v", err)
+	}
+	l.history = append(l.history,
+		types.Message{Role: "assistant", ToolCalls: []types.ToolCall{recall}},
+		types.Message{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: recall.ID, Content: recalled}}})
+	if _, err := l.e.prepareWorkingRequest(l.ctx, "SYSTEM", l.history, nil); err != nil {
+		t.Fatalf("prepare after the recall: %v", err)
+	}
+
+	l.round("read_file", strings.Repeat("D", 5000))
+	fifth := l.round("read_file", strings.Repeat("E", 5000))
+	if got := lastResultOf(t, fifth, "recall-1"); got != recalled {
+		t.Fatalf("the recalled live result was moved out again; got %q", truncateForFailure(got))
+	}
+	if got := lastResultOf(t, fifth, "call-3"); !strings.HasPrefix(got, archivedResultPrefix) {
+		t.Fatalf("call-3 aged out and must be behind its handle; got %q", truncateForFailure(got))
+	}
+	if got := lastResultOf(t, fifth, "call-1"); !strings.Contains(got, `recall_context id="1"`) {
+		t.Fatalf("call-1's pointer = %q", got)
+	}
+	for _, call := range []string{"call-4", "call-5"} {
+		if got := lastResultOf(t, fifth, call); strings.HasPrefix(got, archivedResultPrefix) {
+			t.Fatalf("%s is inside the keep window; continuing must not require a recall of it; got %q", call, truncateForFailure(got))
+		}
 	}
 }
 

@@ -208,7 +208,10 @@ func saveFailingOutput(ctx context.Context, set *working.WorkingSet, pkg, test, 
 	if err := set.Save(ctx, rec); err != nil {
 		return "", err
 	}
-	return id, nil
+	// The model is handed the short per-task ordinal, not the storage id:
+	// a 64-hex id was mis-copied on the first live run (the ledger
+	// replay in internal/context), and recall now accepts only the ordinal.
+	return set.Handle(ctx, id)
 }
 
 // failingOutputPhrase is the clause appended to a FAIL line. The id form

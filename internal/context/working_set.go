@@ -104,7 +104,8 @@ func (w *WorkingSet) Search(ctx context.Context, query string, offset, limit int
 }
 
 // Recall returns a page of an archived observation from a character offset;
-// a limit of zero or less returns the rest of the body.
+// a limit of zero or less returns the rest of the body. id is the short
+// per-task handle (WorkingStore), not the storage id.
 func (w *WorkingSet) Recall(ctx context.Context, id string, offset, limit int) (string, error) {
 	r, total, err := w.store.Read(ctx, id, offset, limit)
 	if err != nil {
@@ -122,8 +123,20 @@ func (w *WorkingSet) Recall(ctx context.Context, id string, offset, limit int) (
 	return string(data), err
 }
 
+// Handle is the short per-task ordinal for a storage id. The model-facing
+// text uses it; the ledger joins observations by the storage id.
+func (w *WorkingSet) Handle(ctx context.Context, id string) (string, error) {
+	return w.store.Handle(ctx, id)
+}
+
+// ResolveHandle maps a short handle back to the storage id and the entity
+// the observation was recorded under.
+func (w *WorkingSet) ResolveHandle(ctx context.Context, handle string) (id, entity string, err error) {
+	return w.store.ResolveHandle(ctx, handle)
+}
+
 // Entity names the file an archived observation was recorded under, or ""
-// when the store holds no record with that id.
+// when the store holds no record with that storage id.
 func (w *WorkingSet) Entity(ctx context.Context, id string) (string, error) {
 	records, err := w.store.Records(ctx, []string{id})
 	if err != nil || len(records) == 0 {
@@ -218,11 +231,14 @@ type LedgerDecision struct {
 // ledger: whether it compacts and what goes, and which observations the
 // harness restates. round is the latest round in the ledger; restated maps an
 // observation to the revision it was last restated at. Go measures (sizes,
-// rounds, file revisions); the policy decides.
+// rounds, file revisions, which entities the task touched, which observations
+// a recall brought back); the policy decides.
 //
-// hot are the files an observation of which is pinned past the age cut
-// (working_pinned): the loop's focus and the files it has written.
-func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round int, restated map[string]string, hot []string) (LedgerDecision, error) {
+// hot are the files whose live observations are shed last (working_hot): the
+// loop's focus and the files it has written. recalled are storage ids a
+// recall_context this loop resolved; while that observation is still live the
+// policy does not move it out again (working_recall_held).
+func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round int, restated map[string]string, hot []string, recalled []string) (LedgerDecision, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -233,8 +249,10 @@ func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round in
 	add("working_round_now", int64(round))
 	var ids []string
 	seenID := map[string]bool{}
-	for _, e := range entries {
+	for i, e := range entries {
 		add("working_ledger", e.Call, e.ID, int64(e.Bytes), int64(e.Round))
+		// Arrival order, not call-id order: the shed prefix's tie-break.
+		add("working_ledger_seq", e.Call, int64(i))
 		if !seenID[e.ID] {
 			seenID[e.ID] = true
 			ids = append(ids, e.ID)
@@ -255,6 +273,9 @@ func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round in
 			seenEntity[r.Entity] = true
 			add("working_revision", r.Entity, w.Revision(r.Entity))
 			add("working_entity_file", r.Entity, EntityFile(r.Entity))
+			// The task touched this entity: it is a row of the ledger. Live
+			// is derived from that fact, not from the text of the result.
+			add("working_touch", r.Entity)
 		}
 	}
 	for id, revision := range restated {
@@ -267,8 +288,17 @@ func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round in
 			add("working_hot", file)
 		}
 	}
+	seenRecall := map[string]bool{}
+	for _, id := range recalled {
+		if id != "" && !seenRecall[id] {
+			seenRecall[id] = true
+			add("working_recalled", id)
+		}
+	}
 	// Replace, not accumulate: every one of these describes this round only.
-	if err := w.engine.ReplaceControlFacts(facts, "working_round_now", "working_ledger", "working_observation", "working_digest", "working_span", "working_revision", "working_restated", "working_entity_file", "working_hot"); err != nil {
+	// A recalled id or a touch left from the previous round would hold a
+	// result the loop is no longer carrying.
+	if err := w.engine.ReplaceControlFacts(facts, "working_round_now", "working_ledger", "working_ledger_seq", "working_observation", "working_digest", "working_span", "working_revision", "working_restated", "working_entity_file", "working_hot", "working_touch", "working_recalled"); err != nil {
 		return LedgerDecision{}, err
 	}
 	var decision LedgerDecision

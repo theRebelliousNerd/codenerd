@@ -29,15 +29,21 @@ type workingLoop struct {
 	focus  string
 	anchor string
 	// written are the files this loop's successful write tools changed: with
-	// the focus, the files whose observations the ledger pins (hotFiles).
+	// the focus, the files whose live observations the ledger sheds last
+	// (hotFiles, working_hot).
 	written map[string]bool
 	// task is the request as given, before the retrieval brief was appended
 	// to make the anchor: what the turn was asked to do, for the reviewers
 	// that judge the change against it.
 	task         string
 	prior        []types.Message
-	observations map[string]string // tool call ID -> the observation it produced or recalled
-	regime       string            // the policy's working_regime for the next round
+	observations map[string]string // tool call ID -> the storage id it produced or recalled
+	// handles map a storage id to the short ordinal the model copies.
+	// recalled are storage ids a recall_context this loop resolved; the next
+	// compaction leaves them while they stay live (working_recall_held).
+	handles  map[string]string
+	recalled map[string]bool
+	regime   string // the policy's working_regime for the next round
 	// searchOpen is the policy's working_search_open. False at the start of a
 	// loop: the raw search tools are withheld until the policy derives it.
 	searchOpen bool
@@ -219,6 +225,8 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 	loop := &workingLoop{
 		set: set, focus: focus, anchor: withRetrievalBrief(ctx, input), task: input, prior: prior,
 		observations: make(map[string]string),
+		handles:      make(map[string]string),
+		recalled:     make(map[string]bool),
 		evicted:      make(map[string]bool),
 		appended:     make(map[string]string),
 		restated:     make(map[string]string),
@@ -325,12 +333,24 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	// repair_loop.go and their neighbours while every request rendered
 	// working_meter.go, then a read-only stall with no edit made.
 	if call.Name == "recall_context" && toolErr == nil {
-		if id, _ := call.Input["id"].(string); id != "" {
-			loop.remember(call.ID, id)
-			if entity, err := loop.set.Entity(ctx, id); err == nil && entity != "" {
-				loop.focus = working.EntityFile(entity)
+		if handle, _ := call.Input["id"].(string); handle != "" {
+			// The model copies the short handle. The ledger joins on the
+			// storage id, so resolve before remember; remembering the handle
+			// would file the page under a key the policy never observes.
+			// A handle this store does not own (obs:hist:, obs:sa:, obs:cs:)
+			// is still a successful recall: the tool already returned the
+			// page. Failing the call here drops it. It is filed below like
+			// any other tool result.
+			id, entity, err := loop.set.ResolveHandle(ctx, handle)
+			if err == nil {
+				loop.remember(call.ID, id)
+				loop.handles[id] = handle
+				loop.noteRecalled(id)
+				if entity != "" {
+					loop.focus = working.EntityFile(entity)
+				}
+				return nil
 			}
-			return nil
 		}
 	}
 	entity := ""
@@ -391,6 +411,11 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	if err := loop.set.Save(ctx, record); err != nil {
 		return fmt.Errorf("persist working observation: %w", err)
 	}
+	handle, err := loop.set.Handle(ctx, id)
+	if err != nil {
+		return fmt.Errorf("working observation handle: %w", err)
+	}
+	loop.handles[id] = handle
 	loop.remember(call.ID, id)
 	if toolErr == nil {
 		if effect, err := tools.LookupEffect(call.Name); err == nil && effect == tools.EffectWrite {
@@ -403,11 +428,12 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	return nil
 }
 
-// hotFiles are the files whose current observations the ledger keeps past the
-// age cut (working_pinned): the focus, and every file this loop has written.
+// hotFiles are the files whose live observations the ledger sheds last
+// (working_hot): the focus, and every file this loop has written.
 func (loop *workingLoop) hotFiles() []string {
 	// "." is where an observation lands when it names no file the workspace
-	// holds; it is not a file, and pinning it would pin all of them.
+	// holds; it is not a file, and treating it as hot would shed every such
+	// observation last.
 	hot := make([]string, 0, len(loop.written)+1)
 	if file := working.EntityFile(loop.focus); file != "" && file != "." {
 		hot = append(hot, file)
@@ -421,9 +447,57 @@ func (loop *workingLoop) hotFiles() []string {
 	return slices.Compact(hot)
 }
 
-// remember maps a tool call to the observation it produced or recalled.
+// remember maps a tool call to the storage id of the observation it produced
+// or recalled.
 func (loop *workingLoop) remember(callID, id string) {
 	loop.observations[callID] = id
+}
+
+// noteRecalled records that a recall_context resolved to this storage id.
+// The next compaction leaves it while the observation stays live.
+func (loop *workingLoop) noteRecalled(id string) {
+	if id == "" {
+		return
+	}
+	if loop.recalled == nil {
+		loop.recalled = map[string]bool{}
+	}
+	loop.recalled[id] = true
+}
+
+// recalledIDs are the storage ids this loop has recalled, in a stable order
+// so the facts asserted for them do not depend on map iteration.
+func (loop *workingLoop) recalledIDs() []string {
+	if len(loop.recalled) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(loop.recalled))
+	for id := range loop.recalled {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// modelHandle is the short ordinal for a storage id. It never falls back to
+// the storage id: that string is what the model garbled (session
+// 20260929_052520, two recalls of a 64-hex id).
+func (loop *workingLoop) modelHandle(ctx context.Context, storageID string) (string, error) {
+	if h := loop.handles[storageID]; h != "" {
+		return h, nil
+	}
+	if loop.set == nil || storageID == "" {
+		return "", fmt.Errorf("working observation has no recall handle")
+	}
+	h, err := loop.set.Handle(ctx, storageID)
+	if err != nil {
+		return "", err
+	}
+	if loop.handles == nil {
+		loop.handles = map[string]string{}
+	}
+	loop.handles[storageID] = h
+	return h, nil
 }
 
 // wholeFileSpanEnd stands for "to the end of the file" in an observation's
@@ -468,10 +542,11 @@ func observedSpan(call types.ToolCall) (int64, int64) {
 // of 55.4k input tokens a round uncached).
 //
 // What leaves the ledger is the policy's: past its ceiling (working_compact)
-// one compaction moves out every result older than the kept rounds and every
-// stale or superseded one (working_evict), so the cache breaks once an epoch
-// instead of once a round. An observation the ledger still carries whose file
-// changed is restated, not rewritten (working_restate).
+// one compaction moves stale and superseded results out, then only enough of
+// the older live results to fit, oldest last, and never a result this loop
+// just recalled while it stays live (working_evict). The cache breaks once
+// an epoch instead of once a round. An observation the ledger still carries
+// whose file changed is restated, not rewritten (working_restate).
 //
 // The current result is sent whole. Observed 2026-09-11: a 14 KB read of the
 // file the brief named was swapped for an "archived, recall it" pointer on a
@@ -506,7 +581,11 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		results := append([]types.ToolResult(nil), history[i].ToolResults...)
 		for j := range results {
 			if loop.evicted[results[j].ToolUseID] {
-				results[j].Content = compactedResultHandle(results[j].Content, loop.observations[results[j].ToolUseID])
+				handle, err := loop.modelHandle(ctx, loop.observations[results[j].ToolUseID])
+				if err != nil {
+					return nil, err
+				}
+				results[j].Content = compactedResultHandle(results[j].Content, handle)
 			}
 		}
 		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
@@ -527,9 +606,13 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		}
 		results := append([]types.ToolResult(nil), messages[i].ToolResults...)
 		result := &results[j]
-		id := loop.observations[result.ToolUseID]
-		if id == "" {
+		storageID := loop.observations[result.ToolUseID]
+		if storageID == "" {
 			return nil, fmt.Errorf("oversize tool result has no durable observation")
+		}
+		handle, err := loop.modelHandle(ctx, storageID)
+		if err != nil {
+			return nil, err
 		}
 		// The pipeline's marker rides with the pointer. This path already told
 		// the model the size and the handle, which is most of what a marker is
@@ -539,7 +622,7 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		result.Content = fmt.Sprintf("%s %s recall_context id=%q returns it from offset 0, or in offset/limit pages. Historical evidence requires a current revision check.",
 			archivedResultPrefix,
 			types.DroppedNotice(size, size, "chars of this tool result; it does not fit the request", ""),
-			id)
+			handle)
 		// Both views: assigning Content on the flat projection alone would leave
 		// a block-built turn sending the payload this archive accounted as gone.
 		messages[i] = messages[i].WithToolResults(results)
@@ -648,7 +731,7 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 			extra = 0
 		}
 	}
-	decision, err := loop.set.Ledger(ctx, entries, round, loop.restated, loop.hotFiles())
+	decision, err := loop.set.Ledger(ctx, entries, round, loop.restated, loop.hotFiles(), loop.recalledIDs())
 	if err != nil {
 		return fmt.Errorf("working ledger: %w", err)
 	}
@@ -690,7 +773,11 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
 		for _, r := range records {
 			tool, _, _ := strings.Cut(r.Kind, "/")
-			notes = append(notes, fmt.Sprintf(staleObservationNotice, r.ID, tool, r.Entity, r.Entity))
+			handle, err := loop.modelHandle(ctx, r.ID)
+			if err != nil {
+				return fmt.Errorf("working ledger: %w", err)
+			}
+			notes = append(notes, fmt.Sprintf(staleObservationNotice, handle, tool, r.Entity, r.Entity))
 			loop.restated[r.ID] = loop.set.Revision(r.Entity)
 		}
 	}
@@ -726,13 +813,13 @@ const workingViewHeader = "[harness: the current view of %s, appended when the f
 const staleObservationNotice = "[harness: observation %s (%s of %s) predates the current content of %s, which changed after it was made. It is history, not the file as it stands; read again what you still need from it.]"
 
 // compactedResultHandle is what a result a compaction moved out of the ledger
-// reads as on every later request: its size and its recall handle, in the
-// pipeline's marker, byte-identical from one request to the next.
-func compactedResultHandle(content, id string) string {
+// reads as on every later request: its size and its short recall handle, in
+// the pipeline's marker, byte-identical from one request to the next.
+func compactedResultHandle(content, handle string) string {
 	return fmt.Sprintf("%s %s recall_context id=%q returns it from offset 0, or in offset/limit pages.",
 		archivedResultPrefix,
 		types.DroppedNotice(len(content), len(content), "chars of this tool result; the context ledger's compaction moved it out of the request", ""),
-		id)
+		handle)
 }
 
 // archivedResultPrefix opens the pointer that replaces a tool result the

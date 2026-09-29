@@ -177,8 +177,11 @@ func TestPrepareWorkingRequest_ArchivesOnlyWhatTheWindowCannotCarry(t *testing.T
 	// own marker so an audit of the assembled messages can recognise this cut
 	// alongside every other one.
 	if !strings.HasPrefix(got, archivedResultPrefix) || !types.IsClamped(got) ||
-		!strings.Contains(got, fmt.Sprintf("%d chars", len(body))) || !strings.Contains(got, "recall_context id=") {
-		t.Fatalf("archived pointer must name the size and the record; got:\n%s", got)
+		!strings.Contains(got, fmt.Sprintf("%d chars", len(body))) || !strings.Contains(got, `recall_context id="1"`) {
+		t.Fatalf("archived pointer must name the size and the short handle; got:\n%s", got)
+	}
+	if storageID := activeWorkingLoop(ctx).observations["call-1"]; storageID == "" || strings.Contains(got, storageID) {
+		t.Fatalf("the pointer carries the storage id %s", storageID)
 	}
 	if strings.Contains(provider.system, "needle-line-437") || strings.Count(requestText(provider.history), "needle-line-437") != 0 {
 		t.Fatal("a result the request points at must not also be sent some other way")
@@ -328,15 +331,19 @@ func TestRecordWorkingResult_RecallRestoresTheOriginalObservation(t *testing.T) 
 		t.Fatal(err)
 	}
 	original := loop.observations[read.ID]
+	handle, err := loop.set.Handle(ctx, original)
+	if err != nil || handle != "1" {
+		t.Fatalf("the first observation's handle = %q (%v), want 1", handle, err)
+	}
 	other := types.ToolCall{ID: "call-other", Name: "read_file", Input: map[string]any{"path": "loop.go"}}
 	if err := e.recordWorkingResult(ctx, other, "body-of-loop", nil); err != nil {
 		t.Fatal(err)
 	}
-	page, err := loop.set.Recall(ctx, original, 0, 0)
+	page, err := loop.set.Recall(ctx, handle, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	recall := types.ToolCall{ID: "call-recall", Name: "recall_context", Input: map[string]any{"id": original}}
+	recall := types.ToolCall{ID: "call-recall", Name: "recall_context", Input: map[string]any{"id": handle}}
 	if err := e.recordWorkingResult(ctx, recall, page, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -391,11 +398,15 @@ func TestCompleteWithWorkingContext_RendersTheRecalledFileUnderTheCommitRegime(t
 	}
 	loop.regime = commitRegime
 	id := loop.observations[readFix.ID]
-	page, err := loop.set.Recall(ctx, id, 0, 0)
+	handle, err := loop.set.Handle(ctx, id)
+	if err != nil || handle != "1" {
+		t.Fatalf("fix.go's handle = %q (%v), want 1", handle, err)
+	}
+	page, err := loop.set.Recall(ctx, handle, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	recall := types.ToolCall{ID: "recall-fix", Name: "recall_context", Input: map[string]any{"id": id}}
+	recall := types.ToolCall{ID: "recall-fix", Name: "recall_context", Input: map[string]any{"id": handle}}
 	if err := e.recordWorkingResult(ctx, recall, page, nil); err != nil {
 		t.Fatal(err)
 	}

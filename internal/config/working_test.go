@@ -6,10 +6,59 @@ import (
 )
 
 // The defaults are the spans the policy carried as literals until 2026-09-23,
-// and they check clean.
+// and they check clean. The ledger ceiling is the working-memory share of the
+// default context window, not the flat 65536-byte figure that compacted a
+// 16-read working set on 2026-09-29 (session 20260929_052520).
 func TestWorkingConfig_TheDefaultsCheckClean(t *testing.T) {
-	if problems := DefaultWorkingConfig().Check("working"); len(problems) != 0 {
+	def := DefaultWorkingConfig()
+	if problems := def.Check("working"); len(problems) != 0 {
 		t.Fatalf("the defaults do not check clean: %v", problems)
+	}
+	window := DefaultContextWindowConfig()
+	want := window.MaxTokens * window.WorkingReservePercent / 100 * 4
+	if def.LedgerCeilingBytes != want || want != 400000 {
+		t.Fatalf("ledger_ceiling_bytes = %d, want %d (context_window.max_tokens %d * working_reserve_percent %d / 100 tokens, times 4 bytes)", def.LedgerCeilingBytes, want, window.MaxTokens, window.WorkingReservePercent)
+	}
+	if got := LedgerCeilingBytesFromContext(window); got != want {
+		t.Fatalf("LedgerCeilingBytesFromContext = %d, want %d", got, want)
+	}
+	var nilCfg *UserConfig
+	if got := nilCfg.GetWorkingConfig().LedgerCeilingBytes; got != want {
+		t.Fatalf("a nil config's ceiling = %d, want %d", got, want)
+	}
+}
+
+// An absent ledger_ceiling_bytes follows this file's context window. An
+// explicit value wins, including over a window that would derive something else.
+func TestWorkingConfig_AnAbsentCeilingFollowsTheContextWindow(t *testing.T) {
+	load := func(body string) WorkingConfig {
+		t.Helper()
+		cfg, err := LoadUserConfig(writeCampaignConfig(t, body))
+		if err != nil {
+			t.Fatalf("load %s: %v", body, err)
+		}
+		return cfg.GetWorkingConfig()
+	}
+
+	// 100000 tokens * 25% = 25000 tokens, times 4 bytes = 100000 bytes.
+	custom := load(`{"context_window": {"max_tokens": 100000, "working_reserve_percent": 25}}`)
+	if custom.LedgerCeilingBytes != 100000 {
+		t.Fatalf("no working section, custom window: ceiling = %d, want 100000", custom.LedgerCeilingBytes)
+	}
+
+	absent := load(`{}`)
+	if absent.LedgerCeilingBytes != 400000 {
+		t.Fatalf("no working section and no context_window: ceiling = %d, want the default window's 400000", absent.LedgerCeilingBytes)
+	}
+
+	explicit := load(`{"context_window": {"max_tokens": 100000, "working_reserve_percent": 25}, "working": {"ledger_ceiling_bytes": 32768}}`)
+	if explicit.LedgerCeilingBytes != 32768 {
+		t.Fatalf("an explicit ledger_ceiling_bytes must win over the window: got %d", explicit.LedgerCeilingBytes)
+	}
+
+	keepOnly := load(`{"context_window": {"max_tokens": 100000, "working_reserve_percent": 25}, "working": {"ledger_keep_rounds": 4}}`)
+	if keepOnly.LedgerCeilingBytes != 100000 || keepOnly.LedgerKeepRounds != 4 {
+		t.Fatalf("a working section that omits the ceiling derives it and keeps the key it set: %+v", keepOnly)
 	}
 }
 

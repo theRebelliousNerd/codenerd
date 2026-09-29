@@ -61,10 +61,15 @@
   carried observation's file changed) is appended once to the round where it
   arose and resent unchanged, never regenerated. What leaves the ledger is the
   policy's (`internal/context/working_set.mg`): past `working.ledger_ceiling_bytes`
-  one compaction (`working_compact`) moves every result older than
-  `working.ledger_keep_rounds` and every stale or superseded one
-  (`working_evict`) out behind its `recall_context` handle, which states the
-  body's size. A carried observation whose source changed is restated once per
+  (default: `context_window.max_tokens * working_reserve_percent / 100` tokens,
+  times 4 bytes) one compaction (`working_compact`) moves every stale or
+  superseded result out, then aged results that are not a recalled live
+  observation, oldest first, only until the excess is covered; the newest
+  `working.ledger_keep_rounds` and a recalled live result stay
+  (`working_evict`). Each leaves behind its `recall_context` handle -- a short
+  per-task ordinal -- which states the body's size. (Measured 2026-09-29: the
+  old age-only rule evicted 14 live results at round 16 and the model spent its
+  stall budget recalling them.) A carried observation whose source changed is restated once per
   revision (`working_restate`), not rewritten. An observation of an element (a
   call naming a `ref` that resolves after it) is filed under `file::key` and
   dated by the element's own bytes, so an edit to one function leaves what was

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"codenerd/internal/sqlpragmas"
@@ -82,13 +83,125 @@ func OpenWorkingStore(workspace, scope string) (*WorkingStore, error) {
 		id TEXT PRIMARY KEY, scope TEXT NOT NULL, entity TEXT NOT NULL,
 		revision TEXT NOT NULL, kind TEXT NOT NULL, step INTEGER NOT NULL,
 		body TEXT NOT NULL, failed INTEGER NOT NULL, digest TEXT NOT NULL DEFAULT '',
-		span_start INTEGER NOT NULL DEFAULT 0, span_end INTEGER NOT NULL DEFAULT 0);
+		span_start INTEGER NOT NULL DEFAULT 0, span_end INTEGER NOT NULL DEFAULT 0,
+		handle TEXT NOT NULL DEFAULT '');
 		CREATE INDEX IF NOT EXISTS working_entity ON working_records(scope,entity,step DESC);`)
 	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
+	// Archives opened before handles existed have the table and not the
+	// column. CREATE TABLE IF NOT EXISTS does not add it.
+	if err := ensureWorkingHandles(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &WorkingStore{db: db, scope: scope}, nil
+}
+
+// ensureWorkingHandles adds the short-handle column to an archive that
+// predates it, fills empty handles in step order, then enforces one handle
+// per scope. The unique index is created after the backfill: every legacy
+// row starts as the empty string, and that value would collide with itself.
+func ensureWorkingHandles(db *sql.DB) error {
+	has, err := workingColumn(db, "handle")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.Exec(`ALTER TABLE working_records ADD COLUMN handle TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if err := backfillWorkingHandles(db); err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS working_handle ON working_records(scope, handle)`)
+	return err
+}
+
+func workingColumn(db *sql.DB, name string) (bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(working_records)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notnull, pk int
+		var col, typ string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &col, &typ, &notnull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if col == name {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+func backfillWorkingHandles(db *sql.DB) error {
+	rows, err := db.Query(`SELECT DISTINCT scope FROM working_records WHERE handle = ''`)
+	if err != nil {
+		return err
+	}
+	var scopes []string
+	for rows.Next() {
+		var scope string
+		if err := rows.Scan(&scope); err != nil {
+			rows.Close()
+			return err
+		}
+		scopes = append(scopes, scope)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, scope := range scopes {
+		if err := backfillWorkingHandleScope(db, scope); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func backfillWorkingHandleScope(db *sql.DB, scope string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var next int64
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(CAST(handle AS INTEGER)), 0) FROM working_records WHERE scope = ? AND handle != ''`, scope).Scan(&next); err != nil {
+		return err
+	}
+	rows, err := tx.Query(`SELECT id FROM working_records WHERE scope = ? AND handle = '' ORDER BY step ASC, id ASC`, scope)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, id := range ids {
+		next++
+		if _, err := tx.Exec(`UPDATE working_records SET handle = ? WHERE id = ?`, strconv.FormatInt(next, 10), id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *WorkingStore) Close() error { return s.db.Close() }
@@ -111,11 +224,14 @@ type WorkingSearchHit struct {
 
 // Search discovers handles even after they leave the bounded candidate slice.
 // Search is literal, paginated and scope-local; it grants no execution authority.
+// The id in each hit is the short handle, the same string recall_context takes.
+// The storage id is not in the payload: a 64-hex id was copied wrong twice on
+// 2026-09-29 (session 20260929_052520).
 func (s *WorkingStore) Search(ctx context.Context, query string, offset, limit int) (string, error) {
 	if query == "" || len(query) > 4096 || offset < 0 || offset > 1<<30 || limit < 1 || limit > 50 {
 		return "", fmt.Errorf("invalid context search bounds")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,entity,revision,kind,step,failed,length(body),span_start,span_end FROM working_records
+	rows, err := s.db.QueryContext(ctx, `SELECT handle,entity,revision,kind,step,failed,length(body),span_start,span_end FROM working_records
 		WHERE scope=? AND (instr(entity,?)>0 OR instr(kind,?)>0 OR instr(body,?)>0)
 		ORDER BY step DESC,id LIMIT ? OFFSET ?`, s.scope, query, query, query, limit, offset)
 	if err != nil {
@@ -151,9 +267,51 @@ func (s *WorkingStore) Save(ctx context.Context, r WorkingRecord) error {
 	if r.Digest == "" {
 		r.Digest = workingDigest(r.Body)
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO working_records (id,scope,entity,revision,kind,step,body,failed,digest,span_start,span_end) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
-		r.ID, s.scope, r.Entity, r.Revision, r.Kind, r.Step, r.Body, r.Failed, r.Digest, r.Start, r.End)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var existing string
+	err = tx.QueryRowContext(ctx, `SELECT handle FROM working_records WHERE scope=? AND id=?`, s.scope, r.ID).Scan(&existing)
+	if err == nil {
+		// The row is already addressable. A second save keeps that handle;
+		// minting another would make the pointer the model holds a lie.
+		return tx.Commit()
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	var next int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(CAST(handle AS INTEGER)), 0) + 1 FROM working_records WHERE scope=? AND handle != ''`, s.scope).Scan(&next); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO working_records (id,scope,entity,revision,kind,step,body,failed,digest,span_start,span_end,handle) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
+		r.ID, s.scope, r.Entity, r.Revision, r.Kind, r.Step, r.Body, r.Failed, r.Digest, r.Start, r.End, strconv.FormatInt(next, 10)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Handle is the short ordinal for a storage id, empty only when the store
+// has no such row.
+func (s *WorkingStore) Handle(ctx context.Context, id string) (string, error) {
+	var handle string
+	err := s.db.QueryRowContext(ctx, `SELECT handle FROM working_records WHERE scope=? AND id=?`, s.scope, id).Scan(&handle)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && handle == "") {
+		return "", fmt.Errorf("working observation %s has no recall handle", id)
+	}
+	return handle, err
+}
+
+// ResolveHandle maps a short handle to the storage id and the entity. The
+// storage id is not a handle: passing it here is a miss, on purpose.
+func (s *WorkingStore) ResolveHandle(ctx context.Context, handle string) (id, entity string, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT id, entity FROM working_records WHERE scope=? AND handle=?`, s.scope, handle).Scan(&id, &entity)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", noWorkingObservation(handle)
+	}
+	return id, entity, err
 }
 
 // Records returns metadata for the named observations, with no body IO: the
@@ -190,12 +348,22 @@ func scanWorkingMetadata(rows *sql.Rows) ([]WorkingRecord, error) {
 	return result, rows.Err()
 }
 
+// noWorkingObservation is what the model reads when a handle does not resolve.
+// A driver's "sql: no rows in result set" gave it nothing to act on, and on
+// 2026-09-18 two such failures in a row, with a refused edit between them,
+// ended a turn on the working policy's tool-failure stop.
+func noWorkingObservation(id string) error {
+	return fmt.Errorf("no archived observation has id %q in this task's working context (ids appear in the working section and in \"Observation archived\" pointers); recall_context with query=<text> searches the archive when the id is unknown", id)
+}
+
 // Read retrieves a page of a record's body from a character offset, retaining
-// provenance on every page. A limit of zero or less reads to the end: the
-// store serves what is asked for whole, and whether a body fits a request is
-// decided where the request is built, against the configured window. It used
-// to refuse any page over 16000 characters, so a selected observation longer
-// than that could never be shown in full, only pointed at.
+// provenance on every page. id is the short handle. A limit of zero or less
+// reads to the end: the store serves what is asked for whole, and whether a
+// body fits a request is decided where the request is built, against the
+// configured window. It used to refuse any page over 16000 characters, so a
+// selected observation longer than that could never be shown in full, only
+// pointed at. The record's ID is the handle, so the page the model reads
+// does not carry the storage id.
 func (s *WorkingStore) Read(ctx context.Context, id string, offset, limit int) (WorkingRecord, int, error) {
 	if offset < 0 || offset > 1<<30 {
 		return WorkingRecord{}, 0, fmt.Errorf("invalid context page bounds")
@@ -205,15 +373,11 @@ func (s *WorkingStore) Read(ctx context.Context, id string, offset, limit int) (
 	}
 	var r WorkingRecord
 	var length int
-	err := s.db.QueryRowContext(ctx, `SELECT id,entity,revision,kind,step,failed,substr(body,?,?),length(body)
-		FROM working_records WHERE scope=? AND id=?`, offset+1, limit, s.scope, id).
+	err := s.db.QueryRowContext(ctx, `SELECT handle,entity,revision,kind,step,failed,substr(body,?,?),length(body)
+		FROM working_records WHERE scope=? AND handle=?`, offset+1, limit, s.scope, id).
 		Scan(&r.ID, &r.Entity, &r.Revision, &r.Kind, &r.Step, &r.Failed, &r.Body, &length)
 	if errors.Is(err, sql.ErrNoRows) {
-		// The model reads this: a driver's "sql: no rows in result set" gave it
-		// nothing to act on, and on 2026-09-18 two such failures in a row, with
-		// a refused edit between them, ended a turn on the working policy's
-		// tool-failure stop.
-		return WorkingRecord{}, 0, fmt.Errorf("no archived observation has id %q in this task's working context (ids appear in the working section and in \"Observation archived\" pointers); recall_context with query=<text> searches the archive when the id is unknown", id)
+		return WorkingRecord{}, 0, noWorkingObservation(id)
 	}
 	return r, length, err
 }
