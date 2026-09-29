@@ -127,7 +127,7 @@ func newHistoryTestExecutor(client types.LLMClient, toolName string) *Executor {
 			}, nil
 		},
 	}
-	return NewExecutor(
+	executor := NewExecutor(
 		&MockKernel{},
 		&MockVirtualStore{},
 		client,
@@ -135,6 +135,11 @@ func newHistoryTestExecutor(client types.LLMClient, toolName string) *Executor {
 		mockConfig,
 		mockTransducer,
 	)
+	// historyProbe* names are fixtures. Generate's allowlist is overwritten
+	// by the kernel derivation, and a MockKernel fail-closes that derivation,
+	// which takes the no-tools completion path these tests are not exercising.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}
+	return executor
 }
 
 func twoExchangeHistory() []perception.ConversationTurn {

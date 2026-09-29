@@ -111,9 +111,9 @@ func kernelTargetNeeds(t *testing.T, k *core.RealKernel, language string) []stri
 // budget. needs is what the kernel derived for it (policy/jit_needs.mg).
 func coderTurnContext(t *testing.T, verb, target, language string, needs []string) *CompilationContext {
 	t.Helper()
-	tools, err := NewConfigFactory(NewDefaultConfigAtomProvider()).ResolveAllowedTools(context.Background(), verb)
+	tools, err := DeriveTurnTools(testTurnKernel(t), verb)
 	if err != nil {
-		t.Fatalf("ResolveAllowedTools(%s): %v", verb, err)
+		t.Fatalf("DeriveTurnTools(%s): %v", verb, err)
 	}
 	cc := NewCompilationContextWithBudget(1048576)
 	cc.ShardType = "/coder"

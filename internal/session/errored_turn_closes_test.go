@@ -77,6 +77,10 @@ func TestErroredTurnStillClosesAndRetractsItsFacts(t *testing.T) {
 	executor = NewExecutor(mockKernel, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, mockConfig, &MockTransducer{})
 	executor.config.EnableSafetyGate = true
 	executor.config.WorkspaceRoot = t.TempDir()
+	// readFile is a fixture. The kernel catalog does not name it, and a
+	// MockKernel fail-closes the derivation, so the allowlist this test means
+	// is the precompiled config compileConfig returns unchanged.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"readFile"}}
 
 	result, _ := executor.Process(context.Background(), "Read /test/file.txt")
 	if result == nil {

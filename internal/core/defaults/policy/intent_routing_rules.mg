@@ -49,7 +49,6 @@ Decl verb_has_specialist(Verb).
 Decl imports(Target, Path).
 Decl test_failed(Path, TestName, Reason).
 Decl diagnostic_active(Path, Line, Severity, Message).
-Decl verb_category(Verb, Category).
 
 # =============================================================================
 # SECTION 1: Action Type Derivation
@@ -212,298 +211,299 @@ safe_action(/run_build) :- test_framework(_).
 
 
 # =============================================================================
-# SECTION 4: Tool Selection
+# SECTION 4: Turn tool envelope
 # =============================================================================
-# Maps personas and action types to allowed tools
+# The turn's tool catalog is this projection. Go used to keep a second copy in
+# NewDefaultConfigAtomProvider; E1 measured the two against each other and
+# zero of the 65 factory verbs matched, because persona/1 (section 2) defaults
+# every non-specialist verb — including the read-only ones — to /coder, and
+# the old tables then handed that persona /bash, /run_command and /run_check.
+# Those three are registered and the old rules granted them. The factory never
+# offered them, and the repo contract forbids offering a free-form shell by
+# default, so they are absent here on purpose. Parity is the gate: no verb
+# gains a tool the factory withheld, and every tool the factory offered is
+# named below. persona/1 and verb_has_specialist stay; delegation, campaign
+# and prompt_northstar still read them. They do not decide this catalog.
+#
+# search_expand rides with search_code. search_code elides the matching lines
+# and returns a handle; without the redemption verb that handle is a promise
+# the model cannot keep. subagent_expand is on every persona for a sharper
+# reason: a subagent-return handle is minted by a delegation and arrives on a
+# turn that never ran one, so there is no narrower catalog to pair it with.
+# The MCP surface is five fixed verbs on every persona. Per-remote-tool blast
+# radius is mcp_tool_gated in policy_mcp.mg, not this catalog; scoping the
+# five by verb left configured servers unreachable from whole regions of the
+# taxonomy, which fails silently. apply_edits was registered and taught while
+# missing from every catalog until 2026-09-22, so it sits with the other
+# CodeDOM edits. The researcher gets the read half of that surface because
+# campaign grounding ran on this persona with grep as its only cross-file
+# tool. The reviewer keeps the edit half too: that is the factory envelope
+# (it does not include edit_file or write_file). Narrowing it is a separate
+# decision, not a side effect of moving the catalog.
+#
+# /explain, /read and the other ShardType /none verbs carry the core set.
+# They drifted off the factory once, an unregistered verb resolved to zero
+# tools, and `nerd explain <file>` answered "reading the file now" and exited
+# 0. An unknown verb gets the same floor (the last rule). An empty derivation
+# is a broken projection, and the Go consumer fail-closes the turn rather
+# than treating "no tools" as "all tools".
 
-# Core tools available to all personas
-persona_tool_allowed(P, /read_file) :- persona(P).
-persona_tool_allowed(P, /search_code) :- persona(P).
-persona_tool_allowed(P, /list_files) :- persona(P).
-persona_tool_allowed(P, /glob) :- persona(P).
-persona_tool_allowed(P, /grep) :- persona(P).
+Decl envelope_tool(Group, Tool) bound [/name, /name].
+Decl persona_envelope(Persona, Group) bound [/name, /name].
+Decl verb_persona(Verb, Persona) bound [/name, /name].
+Decl verb_has_persona(Verb) bound [/name].
+Decl turn_tool_allowed(Verb, Tool) bound [/name, /name].
+# One fact per tool a user agent (.nerd/agents.json) declared. The host
+# asserts these at registration, and only for a tool it has already seen
+# registered or already inside a persona envelope. Not a verb_persona:
+# these agents are not specialists the delegation rules know.
+Decl user_agent_declared_tool(Verb, Tool) bound [/name, /name].
 
-# Code DOM tools - available to all personas for semantic code navigation
-persona_tool_allowed(P, /get_elements) :- persona(P).
-# Structural queries over the world model's structure index: read-only, every persona.
-persona_tool_allowed(P, /find_symbol) :- persona(P).
-persona_tool_allowed(P, /package_outline) :- persona(P).
-persona_tool_allowed(P, /callers_of) :- persona(P).
-persona_tool_allowed(P, /callees_of) :- persona(P).
-persona_tool_allowed(P, /unreferenced_symbols) :- persona(P).
-persona_tool_allowed(P, /get_element) :- persona(P).
-# Importers, text in literals and comments, and Mangle predicate outlines:
-# read-only structural queries, every persona (R8, 2026-09-22).
-persona_tool_allowed(P, /importers_of) :- persona(P).
-persona_tool_allowed(P, /find_text) :- persona(P).
-persona_tool_allowed(P, /predicate_outline) :- persona(P).
+# --- /core: every persona. Read, recall, search, list, and the MCP plane. ---
+envelope_tool(/core, /recall_context).
+envelope_tool(/core, /read_file).
+envelope_tool(/core, /search_code).
+envelope_tool(/core, /search_expand).
+envelope_tool(/core, /subagent_expand).
+envelope_tool(/core, /list_files).
+envelope_tool(/core, /glob).
+envelope_tool(/core, /grep).
+envelope_tool(/core, /mcp_map).
+envelope_tool(/core, /mcp_probe).
+envelope_tool(/core, /mcp_call).
+envelope_tool(/core, /mcp_expand).
+envelope_tool(/core, /mcp_context).
 
-# Coder-specific tools
+# --- /codedom: structural reads and the edits that replace a line edit. ---
+envelope_tool(/codedom, /find_symbol).
+envelope_tool(/codedom, /package_outline).
+envelope_tool(/codedom, /callers_of).
+envelope_tool(/codedom, /callees_of).
+envelope_tool(/codedom, /unreferenced_symbols).
+envelope_tool(/codedom, /importers_of).
+envelope_tool(/codedom, /find_text).
+envelope_tool(/codedom, /predicate_outline).
+envelope_tool(/codedom, /get_elements).
+envelope_tool(/codedom, /get_element).
+envelope_tool(/codedom, /edit_element).
+envelope_tool(/codedom, /replace_element).
+envelope_tool(/codedom, /insert_element).
+envelope_tool(/codedom, /delete_element).
+envelope_tool(/codedom, /create_file).
+envelope_tool(/codedom, /repoint).
+envelope_tool(/codedom, /edit_lines).
+envelope_tool(/codedom, /insert_lines).
+envelope_tool(/codedom, /delete_lines).
+envelope_tool(/codedom, /apply_edits).
+
+# --- /codedom_read: the read half, for the researcher. ---
+envelope_tool(/codedom_read, /find_symbol).
+envelope_tool(/codedom_read, /package_outline).
+envelope_tool(/codedom_read, /callers_of).
+envelope_tool(/codedom_read, /callees_of).
+envelope_tool(/codedom_read, /unreferenced_symbols).
+envelope_tool(/codedom_read, /importers_of).
+envelope_tool(/codedom_read, /find_text).
+envelope_tool(/codedom_read, /predicate_outline).
+envelope_tool(/codedom_read, /get_elements).
+envelope_tool(/codedom_read, /get_element).
+
+envelope_tool(/impact, /get_impacted_tests).
+envelope_tool(/impact, /run_impacted_tests).
+
+# The eight-verb browser session. Screenshot, click, type, close and audit
+# are registered and the old modular rules granted them to /research; the
+# factory never did, so they stay out.
+envelope_tool(/browser_session, /browser_observe).
+envelope_tool(/browser_session, /browser_act).
+envelope_tool(/browser_session, /browser_mangle).
+envelope_tool(/browser_session, /browser_wait).
+envelope_tool(/browser_session, /browser_reason).
+envelope_tool(/browser_session, /browser_evidence).
+envelope_tool(/browser_session, /browser_specs).
+envelope_tool(/browser_session, /browser_test).
+
+persona_envelope(/general, /core).
+
+persona_envelope(/coder, /core).
+persona_envelope(/coder, /codedom).
+persona_envelope(/coder, /impact).
+
+persona_envelope(/tester, /core).
+persona_envelope(/tester, /codedom).
+persona_envelope(/tester, /impact).
+persona_envelope(/tester, /browser_session).
+
+persona_envelope(/reviewer, /core).
+persona_envelope(/reviewer, /codedom).
+
+persona_envelope(/researcher, /core).
+persona_envelope(/researcher, /codedom_read).
+persona_envelope(/researcher, /browser_session).
+
+persona_envelope(/nemesis, /core).
+persona_envelope(/nemesis, /codedom).
+
+persona_envelope(/tool_generator, /core).
+
+# A persona's envelope is the groups it includes plus these extras. The
+# groups are facts so the only rule head is persona_tool_allowed, which
+# turn_tool_allowed reads.
+persona_tool_allowed(P, T) :- persona_envelope(P, G), envelope_tool(G, T).
+
+# Coder extras. run_tests is here because the factory offered it; the old
+# persona table did not. bash, run_command and run_check are not.
 persona_tool_allowed(/coder, /write_file).
 persona_tool_allowed(/coder, /edit_file).
 persona_tool_allowed(/coder, /delete_file).
 persona_tool_allowed(/coder, /run_build).
-persona_tool_allowed(/coder, /run_command).
-persona_tool_allowed(/coder, /bash).
+persona_tool_allowed(/coder, /run_tests).
 persona_tool_allowed(/coder, /git_operation).
-persona_tool_allowed(/coder, /edit_lines).
-persona_tool_allowed(/coder, /insert_lines).
-persona_tool_allowed(/coder, /delete_lines).
-# Element-addressed edits (R8, 2026-09-22): wherever the line tools go.
-persona_tool_allowed(/coder, /edit_element).
-persona_tool_allowed(/coder, /replace_element).
-persona_tool_allowed(/coder, /insert_element).
-persona_tool_allowed(/coder, /delete_element).
-persona_tool_allowed(/coder, /create_file).
-persona_tool_allowed(/coder, /repoint).
-persona_tool_allowed(/coder, /apply_edits).
-# The campaign's acceptance check, for the turn that carries one.
-persona_tool_allowed(/coder, /run_check).
 
-# Tester-specific tools
+# Tester extras. No delete_file, run_build, git_operation, or free-form shell.
 persona_tool_allowed(/tester, /run_tests).
-persona_tool_allowed(/tester, /run_command).
-persona_tool_allowed(/tester, /bash).
-persona_tool_allowed(/tester, /write_file).  # Can write test files
+persona_tool_allowed(/tester, /write_file).
 persona_tool_allowed(/tester, /edit_file).
-persona_tool_allowed(/tester, /edit_lines).
-persona_tool_allowed(/tester, /insert_lines).
-persona_tool_allowed(/tester, /delete_lines).
-persona_tool_allowed(/tester, /edit_element).
-persona_tool_allowed(/tester, /replace_element).
-persona_tool_allowed(/tester, /insert_element).
-persona_tool_allowed(/tester, /delete_element).
-persona_tool_allowed(/tester, /create_file).
-persona_tool_allowed(/tester, /repoint).
-persona_tool_allowed(/tester, /apply_edits).
-persona_tool_allowed(/tester, /get_impacted_tests).
-persona_tool_allowed(/tester, /run_impacted_tests).
 
-# Coder can also use test impact tools
-persona_tool_allowed(/coder, /get_impacted_tests).
-persona_tool_allowed(/coder, /run_impacted_tests).
-
-# Reviewer-specific tools (read-heavy)
 persona_tool_allowed(/reviewer, /git_diff).
 persona_tool_allowed(/reviewer, /git_log).
-persona_tool_allowed(/reviewer, /run_command).  # For static analysis tools
 
-# Researcher-specific tools
-persona_tool_allowed(/researcher, /web_search).
-persona_tool_allowed(/researcher, /web_fetch).
+# Researcher extras. browser_navigate and browser_extract sit beside the
+# session verbs; the cache is get and set only (stats and clear are
+# registered, and the factory did not offer them). git_diff and git_log
+# were universal in the old modular rules and are reviewer-only here.
 persona_tool_allowed(/researcher, /context7_fetch).
-persona_tool_allowed(/researcher, /write_file).  # Can write documentation
+persona_tool_allowed(/researcher, /web_search).
 persona_tool_allowed(/researcher, /grounded_web_search).
+persona_tool_allowed(/researcher, /web_fetch).
+persona_tool_allowed(/researcher, /browser_navigate).
+persona_tool_allowed(/researcher, /browser_extract).
+persona_tool_allowed(/researcher, /research_cache_get).
+persona_tool_allowed(/researcher, /research_cache_set).
+persona_tool_allowed(/researcher, /write_file).
 
-# =============================================================================
-# SECTION 4.5: Modular Tool Routing
-# =============================================================================
-# Maps intents to modular tools (internal/tools/*)
-# These tools are available to any agent via the JIT system.
+persona_tool_allowed(/nemesis, /run_build).
+persona_tool_allowed(/nemesis, /run_tests).
+persona_tool_allowed(/nemesis, /write_file).
 
-# Core filesystem tools - available to all intents
-modular_tool_allowed(/read_file, Intent) :- user_intent(_, _, Intent, _, _).
-# recall_context pages an archived working-context observation back by its
-# record ID. It rides with read_file: any turn whose earlier tool output was
-# evicted from the active window must be able to recover it.
-modular_tool_allowed(/recall_context, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/list_files, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/glob, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/grep, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/search_code, Intent) :- user_intent(_, _, Intent, _, _).
-# Wherever /search_code is allowed, so is the verb that reads back the lines it
-# retained. Allowing one without the other elides the matching lines from every
-# result and then withholds the only way to get them, which is strictly worse
-# than not eliding them.
-modular_tool_allowed(/search_expand, Intent) :- user_intent(_, _, Intent, _, _).
-# A subagent-return handle is minted by the delegate action, by the campaign
-# orchestrator and by the chat blackboard, and lands in the prompt of a persona
-# that ran none of them. The verb that redeems it therefore has to be available
-# wherever a return can arrive, which is everywhere.
-modular_tool_allowed(/subagent_expand, Intent) :- user_intent(_, _, Intent, _, _).
+persona_tool_allowed(/tool_generator, /write_file).
+persona_tool_allowed(/tool_generator, /run_build).
+persona_tool_allowed(/tool_generator, /run_tests).
 
-# Write tools - available for code modification intents
-modular_tool_allowed(/write_file, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/edit_file, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/delete_file, Intent) :- verb_category(Intent, /code).
+# --- verb to persona. One fact per factory intent, including the aliases
+# perception has historically emitted. /generate-tool is not a fact: a
+# Mangle atom cannot spell a hyphen, and the consumer rewrites that one
+# alias to /generate_tool before it queries. /consult/<name> is rewritten
+# to /<name> the same way. ---
 
-# Shell tools - available for code and test intents
-modular_tool_allowed(/run_command, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/run_command, Intent) :- verb_category(Intent, /test).
-modular_tool_allowed(/bash, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/bash, Intent) :- verb_category(Intent, /test).
-modular_tool_allowed(/run_build, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/run_tests, Intent) :- verb_category(Intent, /test).
-# /run_check runs the campaign's acceptance command for the turn; it is
-# offered only on turns that carry a check, and routes wherever verification
-# does.
-modular_tool_allowed(/run_check, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/run_check, Intent) :- verb_category(Intent, /test).
+verb_persona(/fix, /coder).
+verb_persona(/refactor, /coder).
+verb_persona(/create, /coder).
+verb_persona(/write, /coder).
+verb_persona(/delete, /coder).
+verb_persona(/debug, /coder).
+verb_persona(/campaign, /coder).
+verb_persona(/git, /coder).
+verb_persona(/migrate, /coder).
+verb_persona(/optimize, /coder).
+verb_persona(/document, /coder).
+verb_persona(/scaffold, /coder).
+verb_persona(/format, /coder).
+verb_persona(/deploy, /coder).
+verb_persona(/implement, /coder).
+verb_persona(/modify, /coder).
+verb_persona(/add, /coder).
+verb_persona(/update, /coder).
 
-# Code DOM tools - available for code intents
-modular_tool_allowed(/get_elements, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/find_symbol, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/package_outline, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/callers_of, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/callees_of, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/unreferenced_symbols, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/get_element, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/importers_of, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/find_text, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/predicate_outline, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/edit_lines, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/insert_lines, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/delete_lines, Intent) :- verb_category(Intent, /code).
-# Element-addressed edits: a code mutation, same envelope as edit_lines.
-modular_tool_allowed(/edit_element, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/replace_element, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/insert_element, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/delete_element, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/create_file, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/repoint, Intent) :- verb_category(Intent, /code).
+verb_persona(/test, /tester).
+verb_persona(/benchmark, /tester).
+verb_persona(/profile, /tester).
+verb_persona(/cover, /tester).
 
-# Test impact analysis tools - available for code and test intents
-modular_tool_allowed(/get_impacted_tests, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/get_impacted_tests, Intent) :- verb_category(Intent, /test).
-modular_tool_allowed(/run_impacted_tests, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/run_impacted_tests, Intent) :- verb_category(Intent, /test).
+verb_persona(/verify, /tester).
+verb_persona(/validate, /tester).
 
-# Transactional multi-file edit - a code mutation, same envelope as edit_lines
-modular_tool_allowed(/apply_edits, Intent) :- verb_category(Intent, /code).
+verb_persona(/review, /reviewer).
+verb_persona(/review_enhance, /reviewer).
+verb_persona(/security, /reviewer).
+verb_persona(/analyze, /reviewer).
+verb_persona(/audit, /reviewer).
+verb_persona(/lint, /reviewer).
+verb_persona(/check, /reviewer).
+verb_persona(/inspect, /reviewer).
 
-# MCP control plane. Five fixed verbs front every connected MCP server, so what
-# is granted here is a NAVIGATION surface, not a capability. The tools an MCP
-# server actually exposes are gated one level down, per remote tool, by
-# mcp_tool_gated in policy_mcp.mg against a risk class derived at discovery from
-# the server's own annotations.
-#
-# All five are available from any intent, and that is a considered choice rather
-# than a permissive default. Scoping them by verb_category was tried and is
-# wrong here: the categories are /code, /test, /git, /research, /learn,
-# /document and /verify, so any scoping narrow enough to be meaningful leaves a
-# configured MCP server unreachable from whole regions of the taxonomy — an
-# /understand or /document intent could not consult a code-graph server that was
-# configured precisely to answer it. Unreachable-by-routing is indistinguishable
-# from broken, and it fails silently, which is the worst combination.
-#
-# The blast-radius question is not answered here because it cannot be: this rule
-# fires before anyone knows which remote tool will be named.
-modular_tool_allowed(/mcp_map, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/mcp_probe, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/mcp_expand, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/mcp_context, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/mcp_call, Intent) :- user_intent(_, _, Intent, _, _).
+verb_persona(/explore, /researcher).
+verb_persona(/search, /researcher).
+verb_persona(/research, /researcher).
+verb_persona(/init, /researcher).
+verb_persona(/learn, /researcher).
+verb_persona(/understand, /researcher).
+verb_persona(/find, /researcher).
 
-# Git tools. shell.RegisterAll has registered git_diff, git_log and
-# git_operation since the package was split out, and none of them appeared
-# here, so the Mangle catalog and the Go registry disagreed about what exists.
-#
-# Read-only history is available wherever reading a file is: reviewing a diff
-# is how an agent orients, and both refuse to leave the workspace.
-modular_tool_allowed(/git_diff, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/git_log, Intent) :- user_intent(_, _, Intent, _, _).
+verb_persona(/attack, /nemesis).
+verb_persona(/break, /nemesis).
+verb_persona(/exploit, /nemesis).
+verb_persona(/fuzz, /nemesis).
+verb_persona(/pentest, /nemesis).
+verb_persona(/nemesis, /nemesis).
 
-# git_operation mutates the repository (add/commit/checkout/push/reset), so it
-# is scoped to the intents that are allowed to change the working tree. The
-# constitution still gates the individual operation; this only decides which
-# intents may reach the tool at all.
-modular_tool_allowed(/git_operation, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/git_operation, Intent) :- verb_category(Intent, /git).
+verb_persona(/generate_tool, /tool_generator).
+verb_persona(/generate, /tool_generator).
+verb_persona(/tool_generator, /tool_generator).
+verb_persona(/create_tool, /tool_generator).
 
-verb_category(/git, /git) :- user_intent(_, _, /git, _, _).
-verb_category(/commit, /git) :- user_intent(_, _, /commit, _, _).
+verb_persona(/general, /general).
+verb_persona(/explain, /general).
+verb_persona(/read, /general).
+verb_persona(/stats, /general).
+verb_persona(/knowledge, /general).
+verb_persona(/help, /general).
+verb_persona(/greet, /general).
+verb_persona(/configure, /general).
+verb_persona(/dream, /general).
+verb_persona(/shadow, /general).
+verb_persona(/assault, /general).
+verb_persona(/converse, /general).
+verb_persona(/forget, /general).
+verb_persona(/remember, /general).
+verb_persona(/requirements_interrogator, /general).
 
-# Intent category mappings for code
-verb_category(/fix, /code) :- user_intent(_, _, /fix, _, _).
-verb_category(/implement, /code) :- user_intent(_, _, /implement, _, _).
-verb_category(/refactor, /code) :- user_intent(_, _, /refactor, _, _).
-verb_category(/create, /code) :- user_intent(_, _, /create, _, _).
-verb_category(/modify, /code) :- user_intent(_, _, /modify, _, _).
-verb_category(/add, /code) :- user_intent(_, _, /add, _, _).
-verb_category(/update, /code) :- user_intent(_, _, /update, _, _).
+verb_has_persona(V) :- verb_persona(V, _).
 
-# Intent category mappings for test
-verb_category(/test, /test) :- user_intent(_, _, /test, _, _).
-verb_category(/cover, /test) :- user_intent(_, _, /cover, _, _).
+# The catalog for a known verb is its persona's tools. Static: it does not
+# consult persona/1, so a read-only verb cannot inherit /coder.
+turn_tool_allowed(V, T) :- verb_persona(V, P), persona_tool_allowed(P, T).
 
-# Research tools - available for /research intent
-modular_tool_allowed(/context7_fetch, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/web_search, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/web_fetch, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_navigate, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_extract, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_screenshot, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_click, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_type, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_close, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_observe, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_act, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_mangle, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_wait, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_reason, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_evidence, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_specs, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_test, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/browser_audit, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/research_cache_get, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/research_cache_set, Intent) :- verb_category(Intent, /research).
-# research_cache_stats is read-only bookkeeping and belongs everywhere the
-# cache itself is reachable: an agent that can Get/Set but cannot see the hit
-# rate re-fetches pages it already has.
-modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /learn).
-modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /document).
-modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /verify).
-# research_cache_clear discards work every other agent in the process shares —
-# the cache is a package-level singleton — so it stays confined to /research,
-# where the agent that filled it is the agent that empties it.
-modular_tool_allowed(/research_cache_clear, Intent) :- verb_category(Intent, /research).
-# Provider-native grounded search is restricted to research and verification.
-modular_tool_allowed(/grounded_web_search, Intent) :- verb_category(Intent, /research).
-modular_tool_allowed(/grounded_web_search, Intent) :- verb_category(Intent, /verify).
+# /verify and /validate are the tester envelope plus grounded search, and
+# nothing else the old modular /verify rules added (no browser_navigate,
+# no browser_extract). The two facts are the whole difference.
+turn_tool_allowed(/verify, /grounded_web_search).
+turn_tool_allowed(/validate, /grounded_web_search).
 
-# Context7 also available for /learn and /document intents
-modular_tool_allowed(/context7_fetch, Intent) :- verb_category(Intent, /learn).
-modular_tool_allowed(/context7_fetch, Intent) :- verb_category(Intent, /document).
+# A verb with no persona fact, seen on a real turn, gets the core floor.
+# V is bound by user_intent before the negation. The Go consumer asks
+# verb_has_persona first and reads /general itself when the answer is no,
+# because the spawner compiles a config without asserting user_intent;
+# both paths name the same floor, and a persona-bearing verb that derives
+# nothing is a broken projection rather than a silent widening.
+turn_tool_allowed(V, T) :-
+    user_intent(_, _, V, _, _),
+    persona_tool_allowed(/general, T),
+    !verb_has_persona(V).
 
-# Browser tools also available for verification intents
-modular_tool_allowed(/browser_navigate, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_extract, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_screenshot, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_observe, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_act, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_mangle, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_wait, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_reason, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_evidence, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_specs, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_test, Intent) :- verb_category(Intent, /verify).
-modular_tool_allowed(/browser_audit, Intent) :- verb_category(Intent, /verify).
+# A user agent's declared tools, plus the same /general floor an unknown
+# verb gets. DeriveTurnTools returns the first non-empty derivation and
+# does not union /general afterwards, so a specialist that declared
+# go_build would lose read_file if the floor were left to the Go fallback.
+# The fallback still covers an agent that declared nothing: it has no
+# user_agent_declared_tool fact, verb_has_persona stays false, and Go
+# reads /general itself.
+turn_tool_allowed(V, T) :-
+    user_agent_declared_tool(V, T).
 
-# Intent category mappings for research/learn/document/verify
-verb_category(/research, /research) :- user_intent(_, _, /research, _, _).
-verb_category(/explore, /research) :- user_intent(_, _, /explore, _, _).
-verb_category(/learn, /learn) :- user_intent(_, _, /learn, _, _).
-verb_category(/understand, /learn) :- user_intent(_, _, /understand, _, _).
-verb_category(/document, /document) :- user_intent(_, _, /document, _, _).
-verb_category(/verify, /verify) :- user_intent(_, _, /verify, _, _).
-verb_category(/validate, /verify) :- user_intent(_, _, /validate, _, _).
-
-# Tool priority (prefer cached results)
-modular_tool_priority(/research_cache_get, 90).
-modular_tool_priority(/context7_fetch, 80).
-modular_tool_priority(/web_search, 75).
-modular_tool_priority(/web_fetch, 70).
-modular_tool_priority(/browser_navigate, 60).
-modular_tool_priority(/browser_observe, 70).
-modular_tool_priority(/browser_act, 65).
-modular_tool_priority(/browser_mangle, 72).
-modular_tool_priority(/browser_wait, 71).
-modular_tool_priority(/browser_reason, 73).
-modular_tool_priority(/browser_evidence, 74).
-modular_tool_priority(/browser_specs, 75).
-modular_tool_priority(/browser_test, 76).
-modular_tool_priority(/browser_audit, 77).
+turn_tool_allowed(V, T) :-
+    user_agent_declared_tool(V, _),
+    persona_tool_allowed(/general, T).
 
 # =============================================================================
 # SECTION 6: Subagent Spawning

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -77,9 +78,20 @@ func TestConfigFactory_NullBytesAndInvalidUTF8(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Generate failed on bad intent %q: %v", intent, err)
 		}
-		// Since these don't match exactly, they should fall back to /general
-		if len(cfg.AllowedTools) == 0 {
-			t.Errorf("Expected fallback tools for invalid intent %q, got 0", intent)
+		// The atom fallback is policies. The tool floor is the kernel, and
+		// an unqueryable verb is /general: read_file, not a writer.
+		if len(cfg.Policies) == 0 {
+			t.Errorf("invalid intent %q fell through with no policies", intent)
+		}
+		if len(cfg.AllowedTools) != 0 {
+			t.Errorf("Generate granted tools for %q: %v", intent, cfg.AllowedTools)
+		}
+		tools, terr := DeriveTurnTools(testTurnKernel(t), intent)
+		if terr != nil {
+			t.Fatalf("DeriveTurnTools(%q): %v", intent, terr)
+		}
+		if !slices.Contains(tools, "read_file") || slices.Contains(tools, "write_file") {
+			t.Errorf("invalid intent %q envelope = %v, want the read-only floor", intent, tools)
 		}
 	}
 }
@@ -644,8 +656,15 @@ func TestDefaultConfigAtomProvider_ConsultRequirementsInterrogator(t *testing.T)
 		if !ok {
 			t.Fatalf("missing config atom for %s", verb)
 		}
-		if len(atom.Tools) == 0 {
-			t.Fatalf("%s has no tools", verb)
+		if len(atom.Policies) == 0 {
+			t.Fatalf("%s has no policies", verb)
+		}
+		tools, err := DeriveTurnTools(testTurnKernel(t), verb)
+		if err != nil {
+			t.Fatalf("DeriveTurnTools(%s): %v", verb, err)
+		}
+		if !slices.Contains(tools, "read_file") || slices.Contains(tools, "write_file") {
+			t.Fatalf("%s envelope = %v, want the read-only floor", verb, tools)
 		}
 	}
 }

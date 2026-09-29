@@ -1130,12 +1130,3 @@ func TestE2E_Session_LLMClient_NetworkDisconnect_MidTurn(t *testing.T) {
 		t.Fatalf("Agent leaked after disconnect: %v", active)
 	}
 }
-
-// ResolveAllowedTools projects the same fixture envelope before JIT selection.
-func (m *spawnerMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
-	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
-	if err != nil || resolved == nil {
-		return nil, err
-	}
-	return append([]string(nil), resolved.AllowedTools...), nil
-}

@@ -174,9 +174,9 @@ func TestTurnCatalogSize(t *testing.T) {
 		t.Fatalf("NewRealKernel: %v", err)
 	}
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
-	envelope, err := prompt.NewConfigFactory(prompt.NewDefaultConfigAtomProvider()).ResolveAllowedTools(t.Context(), "/create")
+	envelope, err := e.turnDerivedTools("/create")
 	if err != nil {
-		t.Fatalf("ResolveAllowedTools: %v", err)
+		t.Fatalf("turnDerivedTools(/create): %v", err)
 	}
 	size := func(tools []string) int {
 		defs := e.buildToolDefinitions(&config.EffectiveAgentRuntimeConfig{AllowedTools: tools})

@@ -15,23 +15,40 @@ import (
 	"codenerd/internal/tools/shell"
 )
 
-// routingFile is the Mangle source of truth for which modular tools an intent
-// may reach.
+// routingFile is the Mangle source of truth for which tools a turn may be
+// offered. The catalog is the turn envelope (envelope_tool groups,
+// persona_tool_allowed extras, turn_tool_allowed verb grants), not the
+// deleted modular_tool_allowed tables.
 const routingFile = "../core/defaults/policy/intent_routing_rules.mg"
 
-// modularToolAllowedRe extracts the tool name from a modular_tool_allowed
-// head. Names are Mangle /name constants, so the leading slash is stripped to
+// turnEnvelopeToolRe extracts a tool name from a catalog fact. The three
+// predicates are the turn envelope: a group member, a persona extra, or a
+// verb-specific grant. A rule (variables, a body) does not match, and
+// neither does persona_envelope, whose second argument is a group name.
+// Names are Mangle /name constants; the leading slash is stripped to
 // compare against Go registry names.
-var modularToolAllowedRe = regexp.MustCompile(`modular_tool_allowed\(/([A-Za-z0-9_]+)`)
+var turnEnvelopeToolRe = regexp.MustCompile(`(?m)^(?:envelope_tool|persona_tool_allowed|turn_tool_allowed)\(/[A-Za-z0-9_]+,\s*/([A-Za-z0-9_]+)\)\.\s*$`)
 
-// intentionalCatalogExceptions are tools deliberately absent from
-// modular_tool_allowed, with the reason. Anything not listed here and not in
-// the Mangle catalog is drift: the Go registry grew a tool and nobody told the
-// executive about it, so the agent can see it in the piggyback catalog and the
-// policy layer has no opinion on whether it may run.
+// intentionalCatalogExceptions are tools the Go registry provides that the
+// turn envelope deliberately does not offer, with the reason. The old
+// modular rules granted several of these. The factory never did, and the
+// kernel catalog is the factory envelope: granting one here would hand a
+// verb a tool it did not have. Anything not listed and not in the envelope
+// is drift.
 //
 // Add to this map only with a reason. An empty-string reason fails the test.
-var intentionalCatalogExceptions = map[string]string{}
+var intentionalCatalogExceptions = map[string]string{
+	"bash":                 "registered shell; the factory never offered a free-form shell, and turn_tool_allowed does not grant one",
+	"run_command":          "registered shell; withheld from every persona for the same reason as bash",
+	"run_check":            "registered in shell.RegisterAll (812ba2a4) and granted by the old modular rules; no factory list offered it, so parity keeps it out",
+	"browser_screenshot":   "registered and granted to /research by the old modular rules; the factory researcher envelope did not include it",
+	"browser_click":        "registered; the factory researcher envelope did not include it",
+	"browser_type":         "registered; the factory researcher envelope did not include it",
+	"browser_close":        "registered; the factory researcher envelope did not include it",
+	"browser_audit":        "registered; the factory researcher envelope did not include it",
+	"research_cache_stats": "registered; the factory offered research_cache_get and research_cache_set only",
+	"research_cache_clear": "registered; the factory offered research_cache_get and research_cache_set only",
+}
 
 func fullyHydratedRegistry(t *testing.T) *tools.Registry {
 	t.Helper()
@@ -57,11 +74,11 @@ func mangleAllowedTools(t *testing.T) map[string]bool {
 		t.Fatalf("read %s: %v", routingFile, err)
 	}
 	allowed := make(map[string]bool)
-	for _, m := range modularToolAllowedRe.FindAllStringSubmatch(string(data), -1) {
+	for _, m := range turnEnvelopeToolRe.FindAllStringSubmatch(string(data), -1) {
 		allowed[m[1]] = true
 	}
 	if len(allowed) == 0 {
-		t.Fatalf("%s parsed to zero modular_tool_allowed heads — the regex or the file layout changed", routingFile)
+		t.Fatalf("%s parsed to zero turn-envelope tool facts — the regex or the file layout changed", routingFile)
 	}
 	return allowed
 }
@@ -89,9 +106,9 @@ func TestCatalog_WhenToolRegistered_ShouldAppearInMangleRouting(t *testing.T) {
 	sort.Strings(missing)
 
 	if len(missing) > 0 {
-		t.Errorf("tools registered in Go but absent from modular_tool_allowed in %s: %v\n"+
-			"Either add a modular_tool_allowed rule for each, or record it in "+
-			"intentionalCatalogExceptions with the reason it must not be agent-callable.",
+		t.Errorf("tools registered in Go but absent from the turn envelope in %s: %v\n"+
+			"Either add the tool to envelope_tool / persona_tool_allowed / turn_tool_allowed, "+
+			"or record it in intentionalCatalogExceptions with the reason it must not be offered.",
 			routingFile, missing)
 	}
 }
@@ -120,7 +137,7 @@ func TestCatalog_WhenMangleRoutesTool_ShouldBeRegistered(t *testing.T) {
 	sort.Strings(unregistered)
 
 	if len(unregistered) > 0 {
-		t.Errorf("modular_tool_allowed routes tools no registry provides: %v", unregistered)
+		t.Errorf("the turn envelope names tools no registry provides: %v", unregistered)
 	}
 }
 

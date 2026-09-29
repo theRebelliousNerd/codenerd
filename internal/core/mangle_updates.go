@@ -37,8 +37,14 @@ type MangleUpdateBlock struct {
 // witnessing its own completion. It is now hard-blocked in predicateAllowed,
 // and the atom no longer teaches it.
 //
-// The prompt atom protocol/piggyback/mangle_updates teaches exactly this set
-// with its declared arities. Add a predicate here and there together.
+// "failing_test" left with it. internal/testfacts measures it from
+// `go test -json`, and context_compilation.mg joins failing_test(_, _) to
+// decide that the suite is failing. A model that writes the fact could
+// invent or hide a failure. It is a host witness, not an observation, and
+// the atom names it on the refused list next to build_state and test_state.
+//
+// The prompt atom protocol/piggyback/mangle_updates is meant to teach exactly
+// this set with its declared arities. Add a predicate here and there together.
 func ModelObservationPolicy() MangleUpdatePolicy {
 	return MangleUpdatePolicy{
 		AllowedPredicates: map[string]struct{}{
@@ -47,7 +53,6 @@ func ModelObservationPolicy() MangleUpdatePolicy {
 			"task_status":       {},
 			"task_completed":    {},
 			"diagnostic":        {},
-			"failing_test":      {},
 			"review_finding":    {},
 			"modified":          {},
 			"modified_function": {},
@@ -286,7 +291,7 @@ var hostWitnessPredicates = map[string]struct{}{
 	"turn_created_test": {}, "turn_test_coverage": {}, "turn_missing_test": {},
 	// What a write owes (N01): write_class is the table a model could
 	// otherwise extend to reclassify its own code as documentation.
-	"turn_written": {}, "turn_changed_element": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
+	"turn_written": {}, "turn_changed_element": {}, "turn_element_uncovered": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
 	"turn_doc_write": {},
 	"turn_owes_gate": {}, "turn_unmet_gate": {}, "turn_red_gate": {}, "has_unmet_gate": {}, "has_red_gate": {},
 	// What a behaviour change owes (N22): the turn's intent and the table
@@ -314,9 +319,19 @@ var hostWitnessPredicates = map[string]struct{}{
 	"config_param": {}, "config_param_required": {},
 	"hollow_success": {}, "has_hollow_success": {}, "has_turn_tools": {}, "has_turn_write": {}, "has_turn_test": {},
 	"build_state": {}, "test_state": {},
+	// What `go test -json` measured (internal/testfacts). failing_test is
+	// what context_compilation.mg joins; the four located predicates are
+	// the same measurement, one row per case, site, diagnostic, or repeated
+	// line. A model that writes any of them could invent or hide a failure.
+	"failing_test": {}, "test_case": {}, "test_failure_at": {},
+	"test_build_failure": {}, "test_output_repeat": {},
 	// What may carry unchecked strings, and what the host acts on: a
 	// model that could write either could exempt its own strings.
 	"prose_only": {}, "exec_sink": {},
+	// What a user agent was granted (intent_routing_rules.mg). A model
+	// that could write user_agent_declared_tool could put a tool on its
+	// own turn.
+	"user_agent_declared_tool": {},
 	// What the docs checker measured (the R6 structural grade, `nerd docs
 	// check` via internal/docscheck): a model that could write doc_problem
 	// could invent findings about, or erase findings from, the corpus it

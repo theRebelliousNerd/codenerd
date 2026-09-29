@@ -142,6 +142,10 @@ func TestJourney_InfiniteReaderEndsBoundedAndHonest(t *testing.T) {
 	executor := NewExecutor(kernel, &MockVirtualStore{}, model, &MockJITCompiler{}, journeyConfigFactory(toolName), journeyIntent("/fix", "/mutation"))
 	executor.SetConfig(journeyConfig(t))
 	executor.SetSessionID("journey-infinite-reader")
+	// journey_read_alpha is a fixture. /fix's turn_tool_allowed envelope
+	// does not name it; the precompiled config is the injection path
+	// compileConfig does not overwrite.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -220,6 +224,11 @@ func TestJourney_ProseOnlyDoneOnChangeTaskFails(t *testing.T) {
 	executor := NewExecutor(kernel, &MockVirtualStore{}, model, &MockJITCompiler{}, journeyConfigFactory(toolName), journeyIntent("/fix", "/mutation"))
 	executor.SetConfig(journeyConfig(t))
 	executor.SetSessionID("journey-prose-done")
+	// journey_read_prose is a fixture. /fix's envelope does not name it, and
+	// the catalog tools are not in this process's registry, so without the
+	// precompiled offer the turn fails as "no tools were offered" instead of
+	// the hollow success this journey asserts.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -271,6 +280,10 @@ func TestJourney_FabricatedTestOutputOnQueryTurnIsNotDone(t *testing.T) {
 	executor := NewExecutor(kernel, &MockVirtualStore{}, model, &MockJITCompiler{}, journeyConfigFactory(toolName), journeyIntent("/explain", "/query"))
 	executor.SetConfig(journeyConfig(t))
 	executor.SetSessionID("journey-fabricated-pass")
+	// journey_read_beta is a fixture. /explain's turn_tool_allowed envelope
+	// is the read-only core and does not name it; the precompiled config is
+	// the injection path compileConfig does not overwrite.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

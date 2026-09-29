@@ -264,27 +264,6 @@ Decl relevant_tool(ShardType, ToolName) bound [/name, /string].
 Decl tool_priority_rank(ShardType, ToolName, Rank) bound [/name, /string, /number].
 
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# 40.4b Modular Tool Routing (Intent-based)
-# -----------------------------------------------------------------------------
-
-# modular_tool_allowed(ToolName, Intent) - derived: modular tool permitted for intent
-#
-# ToolName is /name, not /string. Every rule head in
-# defaults/policy/intent_routing_rules.mg emits a name constant (/read_file,
-# /web_search), so a Decl claiming /string described a producer that does not
-# exist. Mangle derives the facts either way, which is what makes this the
-# quiet kind of mistake: the damage lands on the first Go consumer, which
-# reads the Decl, queries with a quoted string, matches nothing, and silently
-# falls back to whatever the Go-side default is. That exact sequence is why
-# MCP tool selection never once consulted the kernel. Fixed here while the
-# only consumer is still a text-scanning golden test.
-Decl modular_tool_allowed(ToolName, Intent) bound [/name, /name].
-
-# modular_tool_priority(ToolName, Priority) - derived: tool priority
-# Same correction: the facts in intent_routing_rules.mg are /name-keyed.
-Decl modular_tool_priority(ToolName, Priority) bound [/name, /number].
-
 # 40.5 Tool Execution Tracking (for learning feedback)
 # -----------------------------------------------------------------------------
 

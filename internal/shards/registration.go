@@ -114,6 +114,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// file_topology by tool_routing.mg and against the shared
 				// per-turn facts by stage_context.mg.
 				"tool_registered", "tool_capability", "tool_hash", "tool_source",
+				// What .nerd/agents.json declared (registerUserAgentConfigAtoms).
+				// turn_tool_allowed joins it with persona_tool_allowed, which
+				// every shard holds, so the rule fires on this owner. The
+				// tool registry those names were checked against lives here.
+				"user_agent_declared_tool",
 				"tool_exists", "tool_usage_stats", "tool_description",
 				"tool_available", "tool_binary_path", "tool_source_ready",
 				"tool_safety_verified", "tool_compiled",
@@ -138,7 +143,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// hollow_success / turn_done) sit beside the diagnostics and
 				// build state their negations read.
 				"turn_evidence", "turn_acceptance", "turn_created_source", "build_state",
-				"turn_created_test", "turn_written", "turn_changed_element", "turn_doc_write", "turn_verb",
+				"turn_created_test", "turn_written", "turn_changed_element", "turn_element_uncovered", "turn_doc_write", "turn_verb",
 				// The turn's own report admitting unfinished work
 				// (session/admission_audit.go), negated by turn_verified.
 				"turn_self_reported_incomplete",

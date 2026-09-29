@@ -359,7 +359,6 @@ unconsumed method_of
 unconsumed milestone_reached
 unconsumed minimal_implementation_mode
 unconsumed missing_skeleton_category
-unconsumed modular_tool_allowed
 unconsumed moonshot_capability
 unconsumed multi_lang_impact
 unconsumed must_have_requirement
@@ -392,7 +391,6 @@ unconsumed pending_permission_check
 unconsumed permission_checked
 unconsumed permission_denied
 unconsumed persona
-unconsumed persona_tool_allowed
 unconsumed phase_block_reason
 unconsumed phase_blocked
 unconsumed phase_build_failed
@@ -574,7 +572,6 @@ unconsumed validation_element_lost
 unconsumed validation_hash_mismatch
 unconsumed validation_meets_threshold
 unconsumed validation_syntax_error
-unconsumed verb_category
 unconsumed verb_pair_relation
 unconsumed violation
 unconsumed warning_suppressed

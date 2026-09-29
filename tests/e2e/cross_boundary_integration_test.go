@@ -644,12 +644,3 @@ func TestE2E_CrossBoundary_Kernel_ConcurrentAssertQuery_Stress(t *testing.T) {
 		t.Errorf("Expected exactly 200 observations after concurrent assertions, got %d", len(finalFacts))
 	}
 }
-
-// ResolveAllowedTools projects the same fixture envelope before JIT selection.
-func (m *cbMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
-	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
-	if err != nil || resolved == nil {
-		return nil, err
-	}
-	return append([]string(nil), resolved.AllowedTools...), nil
-}

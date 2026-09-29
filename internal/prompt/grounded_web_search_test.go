@@ -29,67 +29,59 @@ func TestGroundedWebSearch_ConfigVisibility(t *testing.T) {
 		{"/refactor", false},
 	}
 
+	k := testTurnKernel(t)
 	for _, tc := range cases {
-		atom, ok := provider.GetAtom(tc.intent)
-		if !ok {
+		if _, ok := provider.GetAtom(tc.intent); !ok {
 			t.Fatalf("missing config atom for %s", tc.intent)
 		}
-		has := slices.Contains(atom.Tools, "grounded_web_search")
-		if has != tc.want {
-			t.Errorf("intent %s grounded_web_search present=%v want %v tools=%v", tc.intent, has, tc.want, atom.Tools)
+		tools, err := DeriveTurnTools(k, tc.intent)
+		if err != nil {
+			t.Fatalf("DeriveTurnTools(%s): %v", tc.intent, err)
 		}
-		// no duplicates in this intent's tool list
+		has := slices.Contains(tools, "grounded_web_search")
+		if has != tc.want {
+			t.Errorf("intent %s grounded_web_search present=%v want %v tools=%v", tc.intent, has, tc.want, tools)
+		}
 		seen := make(map[string]int)
-		for _, tool := range atom.Tools {
+		for _, tool := range tools {
 			seen[tool]++
 			if seen[tool] > 1 {
 				t.Errorf("intent %s has duplicate tool %q", tc.intent, tool)
 			}
 		}
-	}
-
-	// Factory Generate also respects same visibility
-	factory := NewConfigFactory(provider)
-	ctx := context.Background()
-	res := &CompilationResult{Prompt: "identity"}
-	for _, tc := range cases {
-		cfg, err := factory.Generate(ctx, res, tc.intent)
+		again, err := DeriveTurnTools(k, tc.intent)
 		if err != nil {
-			t.Fatalf("Generate %s failed: %v", tc.intent, err)
+			t.Fatalf("DeriveTurnTools(%s) again: %v", tc.intent, err)
 		}
-		has := slices.Contains(cfg.AllowedTools, "grounded_web_search")
-		if has != tc.want {
-			t.Errorf("Generate %s grounded present=%v want %v tools=%v", tc.intent, has, tc.want, cfg.AllowedTools)
-		}
-		// deterministic: second call same order
-		cfg2, _ := factory.Generate(ctx, res, tc.intent)
-		if !slices.Equal(cfg.AllowedTools, cfg2.AllowedTools) {
-			t.Errorf("Generate %s not deterministic: %v vs %v", tc.intent, cfg.AllowedTools, cfg2.AllowedTools)
-		}
-		// no duplicates after Generate
-		seen := map[string]bool{}
-		for _, tool := range cfg.AllowedTools {
-			if seen[tool] {
-				t.Errorf("Generate %s duplicate tool %q", tc.intent, tool)
-			}
-			seen[tool] = true
+		if !slices.Equal(tools, again) {
+			t.Errorf("intent %s not deterministic: %v vs %v", tc.intent, tools, again)
 		}
 	}
 
-	// verificationTools == testerTools + grounded_web_search preserving tester prefix
-	testerAtom, _ := provider.GetAtom("/test")
-	verifyAtom, _ := provider.GetAtom("/verify")
-	if len(verifyAtom.Tools) != len(testerAtom.Tools)+1 {
-		t.Errorf("verificationTools length=%d want tester len+1=%d", len(verifyAtom.Tools), len(testerAtom.Tools)+1)
+	// The default atoms carry policies, not a second tool catalog.
+	factory := NewConfigFactory(provider)
+	cfg, err := factory.Generate(context.Background(), &CompilationResult{Prompt: "identity"}, "/verify")
+	if err != nil {
+		t.Fatalf("Generate /verify: %v", err)
 	}
-	for i, tool := range testerAtom.Tools {
-		if verifyAtom.Tools[i] != tool {
-			t.Errorf("verificationTools order mismatch at %d: got %q want %q (must preserve tester prefix)", i, verifyAtom.Tools[i], tool)
-			break
-		}
+	if len(cfg.AllowedTools) != 0 {
+		t.Errorf("Generate granted tools %v; the catalog is turn_tool_allowed", cfg.AllowedTools)
 	}
-	if verifyAtom.Tools[len(verifyAtom.Tools)-1] != "grounded_web_search" {
-		t.Errorf("verificationTools last tool should be grounded_web_search, got %q", verifyAtom.Tools[len(verifyAtom.Tools)-1])
+
+	// /verify is the tester envelope plus grounded_web_search, as a set.
+	// The consumer sorts, so the old prefix-order assertion does not apply.
+	tester, err := DeriveTurnTools(k, "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verify, err := DeriveTurnTools(k, "/verify")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append(slices.Clone(tester), "grounded_web_search")
+	slices.Sort(want)
+	if !slices.Equal(verify, want) {
+		t.Errorf("verify = %v, want tester plus grounded_web_search %v", verify, want)
 	}
 }
 

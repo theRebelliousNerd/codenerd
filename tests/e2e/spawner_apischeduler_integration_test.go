@@ -823,15 +823,6 @@ func TestE2E_SpawnerAPIScheduler_OODALoop_LatencyBudget(t *testing.T) {
 	}
 }
 
-// ResolveAllowedTools projects the same fixture envelope before JIT selection.
-func (m *sasMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
-	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
-	if err != nil || resolved == nil {
-		return nil, err
-	}
-	return append([]string(nil), resolved.AllowedTools...), nil
-}
-
 // newTestScheduler gives one test its own scheduler. These tests used to
 // share the process-global scheduler under t.Parallel, each reconfiguring it
 // before the sync.Once that builds it had run, so only the first test's

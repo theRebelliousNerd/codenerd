@@ -92,6 +92,10 @@ func TestSubAgent_Execute_SurfacesToolExecutionError(t *testing.T) {
 	// workspace to build its working set in — a shard gets one from the
 	// spawner in production.
 	agent.executor.config.WorkspaceRoot = t.TempDir()
+	// The probe is a fixture. A MockKernel fail-closes turn_tool_allowed, and
+	// an empty catalog drops the call before the tool can fail. The
+	// precompiled config is the allowlist compileConfig returns unchanged.
+	agent.executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}
 
 	// Sanity-check the executor contract first: soft tool failures stay on
 	// result.Error with a nil return.

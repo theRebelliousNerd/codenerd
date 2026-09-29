@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // ConfigAtom represents a configuration fragment associated with an intent.
@@ -113,18 +115,20 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 			found = true
 			continue
 		}
-		// An unregistered intent falls back to /general so the agent still gets
-		// a read-only tool set rather than running with zero capability.
+		// An unregistered intent still merges the /general atom so the turn
+		// has a policy anchor. The tool floor is turn_tool_allowed: an
+		// unknown verb derives the /general envelope, and an empty
+		// derivation fail-closes. This atom is not that catalog.
 		//
-		// This used to apply only to "/consult/<persona>" specialists, so every
-		// OTHER unregistered verb produced AllowedTools == nil. That is a worse
-		// failure than it looks: the caller logs a WARN, keeps the empty config,
-		// and proceeds to answer from an empty tool catalog -- the agent has no
-		// way to read a file and no way to say so. Degrade loudly, don't
-		// silently disarm.
+		// The fallback used to apply only to "/consult/<persona>" specialists,
+		// so every other unregistered verb produced AllowedTools == nil. The
+		// caller logged a WARN, kept the empty config, and answered with no
+		// way to read a file. `nerd explain <file>` said it was reading the
+		// file and exited 0. Degrade loudly, don't silently disarm.
 		if atom, ok := f.provider.GetAtom("/general"); ok {
 			logging.Get(logging.CategoryContext).Warn(
-				"No config atom for intent %q; falling back to /general read-only tools. "+
+				"No config atom for intent %q; falling back to /general policies. "+
+					"The tool envelope is turn_tool_allowed, not this atom. "+
 					"Canonical verbs belong in NewDefaultConfigAtomProvider.", intent)
 			finalAtom = finalAtom.Merge(atom)
 			found = true
@@ -138,6 +142,10 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 	// Determine primary intent for the config
 	primaryIntent := intents[0]
 
+	// AllowedTools is whatever the atom itself declared. The default atoms
+	// declare none: the turn catalog is DeriveTurnTools, and the session
+	// executor and spawner overlay that derivation onto this config. A
+	// custom atom's Tools are not a second built-in catalog.
 	cfg := &config.EffectiveAgentRuntimeConfig{
 		IdentityPrompt: result.Prompt,
 		IntentVerb:     primaryIntent,
@@ -159,44 +167,114 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 	return cfg, nil
 }
 
-// ResolveAllowedTools returns the effective executable tool catalog for the
-// given intents without requiring a compiled prompt. It merges the same
-// config atoms Generate uses (including the /general fallback) so the prompt
-// compiler and the session executor agree on the envelope BEFORE selection.
-// It never widens authority: the result is exactly what Generate would grant
-// for the same intents, and callers must omit tool-gated atoms rather than
-// add tools to make the prompt work.
-func (f *ConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
-	if f.provider == nil {
-		return nil, fmt.Errorf("config provider cannot be nil")
+// DeriveTurnTools is the turn's tool envelope: whatever
+// turn_tool_allowed(Verb, Tool) derives (policy/intent_routing_rules.mg),
+// before a turn's withholdings narrow it. The session executor, the
+// spawner and the prompt tests all call this so they name the same verb
+// the policy does. Prompt cannot import session, which is why it lives
+// here rather than next to the executor.
+//
+// Only the verb naming happens here, and it mirrors the factory's lookup.
+// An empty verb is /general. /consult/<name> resolves to /<name> (GetAtom).
+// /generate-tool is the one hyphenated alias, rewritten to /generate_tool
+// because a Mangle atom cannot spell a hyphen and no other registered verb
+// contains one. Anything not shaped like a Mangle atom falls back to
+// /general. Which tools a verb gets is the kernel's answer.
+//
+// A verb with no verb_persona fact gets the /general floor. The policy
+// derives that floor from user_intent when a turn has asserted one; the
+// spawner compiles a config without asserting user_intent, so the same
+// floor is read here when verb_has_persona is false. A persona-bearing
+// verb that derives nothing is a broken projection: an empty catalog is
+// not "all tools", and the caller fail-closes.
+func DeriveTurnTools(kernel types.Kernel, verb string) ([]string, error) {
+	if kernel == nil {
+		return nil, fmt.Errorf("turn catalog: no kernel to derive the tool envelope from")
 	}
-	if len(intents) == 0 {
-		return nil, fmt.Errorf("no intents provided")
+	verb = canonicalTurnVerb(verb)
+	derived, err := queryTurnTools(kernel, verb)
+	if err != nil {
+		return nil, err
 	}
-	var finalAtom ConfigAtom
-	found := false
-	for _, rawIntent := range intents {
-		intent := strings.TrimSpace(rawIntent)
-		if intent == "" {
+	if len(derived) == 0 {
+		has, herr := kernel.Query(fmt.Sprintf("verb_has_persona(%s)", verb))
+		if herr != nil {
+			return nil, fmt.Errorf("turn catalog: verb_has_persona(%s) failed: %w", verb, herr)
+		}
+		if len(has) == 0 && verb != "/general" {
+			derived, err = queryTurnTools(kernel, "/general")
+			if err != nil {
+				return nil, err
+			}
+		}
+		if len(derived) == 0 {
+			return nil, fmt.Errorf("turn catalog: turn_tool_allowed(%s, Tool) derived no tools; the policy projection is missing or broken", verb)
+		}
+	}
+	slices.Sort(derived)
+	return derived, nil
+}
+
+// canonicalTurnVerb is the atom DeriveTurnTools queries. It is the same
+// normalization GetAtom and validMangleVerb apply at the two call sites:
+// empty and non-atoms become /general, a consult prefix resolves to the
+// remainder, and the one hyphenated alias is spelled with an underscore.
+func canonicalTurnVerb(verb string) string {
+	verb = strings.TrimSpace(verb)
+	if verb == "" {
+		return "/general"
+	}
+	if after, found := strings.CutPrefix(verb, "/consult/"); found {
+		verb = "/" + strings.ToLower(strings.TrimSpace(after))
+	}
+	verb = strings.ReplaceAll(verb, "-", "_")
+	if !queryableIntentVerb(verb) {
+		logging.Get(logging.CategorySession).Warn(
+			"turn catalog: %q is not a queryable intent verb; falling back to /general read-only tools", verb)
+		return "/general"
+	}
+	return verb
+}
+
+// queryableIntentVerb admits only the atom shape the policy corpus uses.
+// The verb is interpolated into a query, so a second slash, whitespace or
+// an uppercase letter would turn caller state into a query fragment.
+// Same predicate as session.validMangleVerb.
+func queryableIntentVerb(verb string) bool {
+	if len(verb) < 2 || verb[0] != '/' {
+		return false
+	}
+	for i := 1; i < len(verb); i++ {
+		c := verb[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func queryTurnTools(kernel types.Kernel, verb string) ([]string, error) {
+	facts, err := kernel.Query(fmt.Sprintf("turn_tool_allowed(%s, Tool)", verb))
+	if err != nil {
+		return nil, fmt.Errorf("turn catalog: turn_tool_allowed(%s, Tool) failed: %w", verb, err)
+	}
+	seen := make(map[string]struct{}, len(facts))
+	derived := make([]string, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) == 0 {
 			continue
 		}
-		if atom, ok := f.provider.GetAtom(intent); ok {
-			finalAtom = finalAtom.Merge(atom)
-			found = true
+		tool := strings.TrimPrefix(types.ExtractString(f.Args[len(f.Args)-1]), "/")
+		if tool == "" {
 			continue
 		}
-		if atom, ok := f.provider.GetAtom("/general"); ok {
-			logging.Get(logging.CategoryContext).Warn(
-				"No config atom for intent %q; falling back to /general read-only tools.",
-				intent)
-			finalAtom = finalAtom.Merge(atom)
-			found = true
+		if _, dup := seen[tool]; dup {
+			continue
 		}
+		seen[tool] = struct{}{}
+		derived = append(derived, tool)
 	}
-	if !found {
-		return nil, fmt.Errorf("no config atoms found for intents: %v", intents)
-	}
-	return append([]string(nil), finalAtom.Tools...), nil
+	return derived, nil
 }
 
 // GenerateFallback creates a minimal config for when JIT compilation fails.
@@ -261,171 +339,18 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		atoms: make(map[string]ConfigAtom),
 	}
 
-	// Core tools available to all personas
-	coreTools := []string{
-		"recall_context",
-		"read_file",
-		"search_code",
-		// search_expand rides with search_code deliberately. search_code elides
-		// the matching lines and reports a handle for them; if the redemption
-		// verb is missing from the persona's catalog, that handle is a promise
-		// the model is structurally unable to keep, and the elision becomes
-		// plain loss. One extra schema on every turn is the price of the lines
-		// not being on every turn.
-		"search_expand",
-		// subagent_expand rides with every persona for the same reason, and
-		// with one difference that makes it more necessary rather than less: a
-		// search_code handle is minted by the same turn that would redeem it,
-		// while a subagent-return handle is minted by a delegation and arrives
-		// in the prompt of a persona that never ran one. There is no catalog to
-		// pair it with except all of them.
-		"subagent_expand",
-		"list_files",
-		"glob",
-		"grep",
-		// MCP control plane. Five fixed verbs regardless of how many servers
-		// are connected, which is what makes them affordable for every persona
-		// — the alternative, rendering each discovered server's tool schemas,
-		// is what kept MCP out of the prompt entirely. Per-remote-tool blast
-		// radius is gated by mcp_tool_gated in policy_mcp.mg, not here.
-		"mcp_map",
-		"mcp_probe",
-		"mcp_call",
-		"mcp_expand",
-		"mcp_context",
-	}
-
-	// Code DOM tools for semantic code operations
-	codeDomTools := []string{
-		"find_symbol",
-		"package_outline",
-		"callers_of",
-		"callees_of",
-		"unreferenced_symbols",
-		"importers_of",
-		"find_text",
-		"predicate_outline",
-		"get_elements",
-		"get_element",
-		// Element-addressed edits: validated before write, answer with the new
-		// text and rev. They go wherever the line tools go, so removing the
-		// line tools later removes nothing a persona needs.
-		"edit_element",
-		"replace_element",
-		"insert_element",
-		"delete_element",
-		"create_file",
-		"repoint",
-		"edit_lines",
-		"insert_lines",
-		"delete_lines",
-		// apply_edits was registered and taught by the mandatory CodeDOM atom
-		// but absent from every catalog until 2026-09-22.
-		"apply_edits",
-	}
-
-	// Test impact analysis tools
-	testImpactTools := []string{
-		"get_impacted_tests",
-		"run_impacted_tests",
-	}
-
-	// Helper to copy slice and avoid aliasing
-	copyTools := func(base []string, more ...string) []string {
-		result := make([]string, 0, len(base)+len(more))
-		result = append(result, base...)
-		result = append(result, more...)
-		return result
-	}
-
-	// Coder persona tools
-	coderTools := copyTools(coreTools,
-		"write_file",
-		"edit_file",
-		"delete_file",
-		"run_build",
-		"run_tests",
-		"git_operation",
-	)
-	coderTools = append(coderTools, codeDomTools...)
-	coderTools = append(coderTools, testImpactTools...)
-
-	// Tester persona tools
-	testerTools := copyTools(coreTools,
-		"run_tests",
-		"write_file", // Can write test files
-		"edit_file",
-		"browser_observe",
-		"browser_act",
-		"browser_mangle",
-		"browser_wait",
-		"browser_reason",
-		"browser_evidence",
-		"browser_specs",
-		"browser_test",
-	)
-	testerTools = append(testerTools, codeDomTools...)
-	testerTools = append(testerTools, testImpactTools...)
-
-	// Reviewer persona tools (read-heavy, includes Code DOM for inspection)
-	reviewerTools := copyTools(coreTools,
-		"git_diff",
-		"git_log",
-	)
-	reviewerTools = append(reviewerTools, codeDomTools...)
-
-	// Researcher persona tools
-	researcherTools := copyTools(coreTools,
-		"context7_fetch", // LLM-optimized documentation
-		"web_search",
-		"grounded_web_search",
-		"web_fetch",
-		"browser_navigate",
-		"browser_extract",
-		"browser_observe",
-		"browser_act",
-		"browser_mangle",
-		"browser_wait",
-		"browser_reason",
-		"browser_evidence",
-		"browser_specs",
-		"browser_test",
-		"research_cache_get",
-		"research_cache_set",
-		"write_file", // Can write documentation
-		// Research about this repository is structural before it is textual:
-		// the grounding tasks of campaign 440585a6 ran on this persona and
-		// had grep as their only cross-file tool.
-		"find_symbol",
-		"package_outline",
-		"callers_of",
-		"callees_of",
-		"unreferenced_symbols",
-		"importers_of",
-		"find_text",
-		"predicate_outline",
-		"get_elements",
-		"get_element",
-	)
-
-	verificationTools := copyTools(testerTools, "grounded_web_search")
-
-	// The intent lists below must cover every verb in
-	// perception.DefaultTaxonomyData, and each verb belongs to the persona that
-	// taxonomy declares as its ShardType. TestConfigAtoms_EveryTaxonomyVerbHasTools
-	// pins that; read it before editing these lists.
+	// These atoms carry policies and priority. The tool envelope is
+	// turn_tool_allowed (policy/intent_routing_rules.mg), read by
+	// DeriveTurnTools. A Tools slice here would be a second catalog.
 	//
-	// They drifted badly once. The taxonomy grew to 36 verbs while this file
-	// still listed 9 of them plus a dozen synonyms that were never canonical
-	// ("/implement", "/check", "/find", ...), leaving 27 verbs with NO config
-	// atom. An unregistered verb resolved to zero AllowedTools, which made
-	// buildToolCatalogForPiggyback emit nothing and buildToolDefinitions log
-	// "no tools configured" -- so `nerd explain <file>` could not read the file
-	// it was asked to explain. It answered "reading the file now..." and exited
-	// 0. /explain is the highest-volume verb in the product.
-	//
-	// Non-canonical aliases are kept: they cost nothing and the perception layer
-	// has historically emitted some of them.
+	// The verb lists must still cover every verb in
+	// perception.DefaultTaxonomyData, each on the policy set its ShardType
+	// names. They drifted once: the taxonomy grew to 36 verbs while this
+	// file still listed 9, an unregistered verb had no atom, and
+	// `nerd explain <file>` had nothing to anchor its policies to. The
+	// tool half of that failure (an empty catalog, "reading the file now",
+	// exit 0) is the kernel floor for /explain and for an unknown verb.
+	// Non-canonical aliases stay: perception has historically emitted them.
 
 	// Register coder intents
 	for _, intent := range []string{
@@ -436,7 +361,6 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"/implement", "/modify", "/add", "/update",
 	} {
 		provider.atoms[intent] = ConfigAtom{
-			Tools:    coderTools,
 			Policies: copyPolicySet(core.PolicySetCoder),
 			Priority: 100,
 		}
@@ -449,18 +373,17 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"/cover",
 	} {
 		provider.atoms[intent] = ConfigAtom{
-			Tools:    testerTools,
 			Policies: copyPolicySet(core.PolicySetTester),
 			Priority: 90,
 		}
 	}
 
-	// Register verification intents (tester + grounded search)
+	// Register verification intents (tester policies; grounded search is a
+	// turn_tool_allowed fact, not a second tool list).
 	for _, intent := range []string{
 		"/verify", "/validate",
 	} {
 		provider.atoms[intent] = ConfigAtom{
-			Tools:    verificationTools,
 			Policies: copyPolicySet(core.PolicySetTester),
 			Priority: 90,
 		}
@@ -473,7 +396,6 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"/check", "/inspect",
 	} {
 		provider.atoms[intent] = ConfigAtom{
-			Tools:    reviewerTools,
 			Policies: copyPolicySet(core.PolicySetReviewer),
 			Priority: 80,
 		}
@@ -486,57 +408,43 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"/learn", "/understand", "/find",
 	} {
 		provider.atoms[intent] = ConfigAtom{
-			Tools:    researcherTools,
 			Policies: copyPolicySet(core.PolicySetResearcher),
 			Priority: 70,
 		}
 	}
 
 	// Nemesis/adversarial intents (attack persona)
-	nemesisTools := copyTools(coreTools,
-		"run_build",
-		"run_tests",
-		"write_file", // For writing attack code
-	)
-	nemesisTools = append(nemesisTools, codeDomTools...)
 	for _, intent := range []string{"/attack", "/break", "/exploit", "/fuzz", "/pentest", "/nemesis"} {
 		provider.atoms[intent] = ConfigAtom{
-			Tools:    nemesisTools,
 			Policies: copyPolicySet(core.PolicySetNemesis),
 			Priority: 85, // Higher priority than reviewer
 		}
 	}
 
-	// Tool generator intents
-	toolGenTools := copyTools(coreTools,
-		"write_file",
-		"run_build",
-		"run_tests",
-	)
+	// Tool generator intents. /generate-tool is the one hyphenated alias;
+	// DeriveTurnTools rewrites it to /generate_tool before querying.
 	for _, intent := range []string{
 		"/generate_tool",
 		// non-canonical aliases
 		"/generate", "/generate-tool", "/tool_generator", "/create_tool",
 	} {
 		provider.atoms[intent] = ConfigAtom{
-			Tools:    toolGenTools,
 			Policies: copyPolicySet(core.PolicySetToolGenerator),
 			Priority: 75,
 		}
 	}
 
-	// General/fallback intent
+	// General/fallback intent. Policies only; the core tool floor is the
+	// /general persona in the kernel.
 	provider.atoms["/general"] = ConfigAtom{
-		Tools:    coreTools,
 		Policies: copyPolicySet(core.PolicySetBase),
 		Priority: 50,
 	}
 
-	// Taxonomy verbs whose declared ShardType is /none. They route no persona,
-	// but "no persona" is not "no hands" -- /explain and /read exist to describe
-	// files, and answering from the filename alone is exactly the hallucination
-	// the constitutional prompt forbids. Core tools are read-only, so this grants
-	// the ability to look without the ability to change anything.
+	// Taxonomy verbs whose declared ShardType is /none. They route no
+	// persona. The atom exists so the base policies attach and /consult/<name>
+	// does not log a missing-atom warning; the read-only tools are the
+	// kernel's /general envelope.
 	for _, intent := range []string{
 		"/explain", "/read", "/stats", "/knowledge", "/help", "/greet",
 		"/configure", "/dream", "/shadow", "/assault",
@@ -547,7 +455,6 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"/requirements_interrogator", "/consult/requirements_interrogator",
 	} {
 		provider.atoms[intent] = ConfigAtom{
-			Tools:    coreTools,
 			Policies: copyPolicySet(core.PolicySetBase),
 			Priority: 50,
 		}

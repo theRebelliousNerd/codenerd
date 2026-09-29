@@ -1001,12 +1001,3 @@ func (m *mockKernelLLM) GetProgramInfo() *analysis.ProgramInfo { return nil }
 func (m *mockLLMClientWithControls) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
 	return nil, nil
 }
-
-// ResolveAllowedTools projects the same fixture envelope before JIT selection.
-func (m *mockConfigFactoryLLM) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
-	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
-	if err != nil || resolved == nil {
-		return nil, err
-	}
-	return append([]string(nil), resolved.AllowedTools...), nil
-}

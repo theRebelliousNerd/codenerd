@@ -1986,56 +1986,179 @@ func startOnDemandWatcher(bctx *bootContext) func() {
 // intentFor) and "/consult/<name>" (SpawnConsultation and campaign
 // specialists).
 //
-// Without this, ConfigFactory.Generate found no atom for a custom agent, logged
-// a warning, and fell back to /general — a read-only tool set. A specialist
-// created to write Rust could not write a file, and because "/consult/<name>"
-// classifies as a query the hollow-success gate never fired: the agent returned
-// plausible prose and the run was recorded as a success.
+// The catalog a turn enforces is turn_tool_allowed. compileConfig overwrites
+// whatever this atom lists, so the declared tools are also asserted as
+// user_agent_declared_tool facts (policy/intent_routing_rules.mg). That rule
+// unions them with the /general floor: DeriveTurnTools returns the first
+// non-empty derivation, and a specialist that declared go_build would
+// otherwise lose read_file. A declared name that is neither
+// is_tool_registered nor already inside a persona envelope is refused here,
+// before any atom or fact is written, and the error names the tool.
 //
-// The grant is exactly what the project declared for that agent (registry
-// `tools`) unioned with the read-only core set, never more. Every mutation still
-// has to derive permitted(...) in the kernel.
-func registerUserAgentConfigAtoms(provider *prompt.DefaultConfigAtomProvider, workspace string) {
+// Every mutation still has to derive permitted(...) in the kernel.
+func registerUserAgentConfigAtoms(provider *prompt.DefaultConfigAtomProvider, kernel core.Kernel, workspace string) error {
 	if provider == nil {
-		return
+		return nil
 	}
 	base, ok := provider.GetAtom("/general")
 	if !ok {
-		return
+		return nil
 	}
 
+	// Validate every agent before registering any atom or asserting any
+	// fact, so a later bad tool does not leave an earlier grant behind.
+	grants := make([]userAgentGrant, 0)
 	for _, def := range LoadUserAgentDefinitions(workspace) {
 		name := strings.ToLower(strings.TrimSpace(def.Name))
 		if name == "" {
 			continue
 		}
+		verb, ok := userAgentCanonicalVerb(name)
+		if !ok {
+			return fmt.Errorf("user agent %q has a name that is not a queryable intent verb", def.Name)
+		}
+		declared, err := userAgentDeclaredTools(kernel, def.Name, def.Tools)
+		if err != nil {
+			return err
+		}
 
-		seen := make(map[string]struct{}, len(base.Tools)+len(def.Tools))
-		merged := make([]string, 0, len(base.Tools)+len(def.Tools))
-		for _, tool := range append(append([]string(nil), base.Tools...), def.Tools...) {
-			tool = strings.TrimSpace(tool)
-			if tool == "" {
-				continue
-			}
+		seen := make(map[string]struct{}, len(base.Tools)+len(declared))
+		merged := make([]string, 0, len(base.Tools)+len(declared))
+		for _, tool := range append(append([]string(nil), base.Tools...), declared...) {
 			if _, dup := seen[tool]; dup {
 				continue
 			}
 			seen[tool] = struct{}{}
 			merged = append(merged, tool)
 		}
-
-		atom := prompt.ConfigAtom{
-			Tools:    merged,
-			Policies: append([]string(nil), base.Policies...),
-			// Above /general so an explicit agent atom wins a merge, below the
-			// built-in personas so a name collision cannot quietly demote /fix.
-			Priority: base.Priority + 5,
-		}
-		provider.RegisterAtom("/"+name, atom)
-		provider.RegisterAtom("/consult/"+name, atom)
-		logging.Get(logging.CategoryContext).Info(
-			"Registered config atom for user agent %q (%d tools)", name, len(merged))
+		grants = append(grants, userAgentGrant{
+			name: name,
+			verb: verb,
+			atom: prompt.ConfigAtom{
+				Tools:    merged,
+				Policies: append([]string(nil), base.Policies...),
+				// Above /general so an explicit agent atom wins a merge, below the
+				// built-in personas so a name collision cannot quietly demote /fix.
+				Priority: base.Priority + 5,
+			},
+			declared: declared,
+		})
 	}
+
+	var facts []types.Fact
+	for _, g := range grants {
+		provider.RegisterAtom("/"+g.name, g.atom)
+		provider.RegisterAtom("/consult/"+g.name, g.atom)
+		logging.Get(logging.CategoryContext).Info(
+			"Registered config atom for user agent %q (%d tools)", g.name, len(g.atom.Tools))
+		for _, tool := range g.declared {
+			facts = append(facts, types.Fact{
+				Predicate: "user_agent_declared_tool",
+				Args:      []any{g.verb, "/" + tool},
+			})
+		}
+	}
+	if len(facts) == 0 {
+		return nil
+	}
+	if kernel == nil {
+		return fmt.Errorf("user agent tools cannot be recorded: no kernel")
+	}
+	if err := kernel.AssertBatch(facts); err != nil {
+		return fmt.Errorf("record user agent tools: %w", err)
+	}
+	return nil
+}
+
+// userAgentGrant is one validated agent, held until every agent in the
+// registry has been checked.
+type userAgentGrant struct {
+	name     string
+	verb     string
+	atom     prompt.ConfigAtom
+	declared []string
+}
+
+// userAgentCanonicalVerb is the atom DeriveTurnTools queries. The name is
+// already lowercased. Hyphens become underscores because a Mangle atom
+// cannot spell one, which is the same rewrite canonicalTurnVerb applies
+// (that function is unexported in prompt, and this package already imports
+// prompt). Anything else is refused by the caller, named.
+func userAgentCanonicalVerb(name string) (string, bool) {
+	name = strings.ReplaceAll(name, "-", "_")
+	if name == "" {
+		return "", false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return "", false
+		}
+	}
+	return "/" + name, true
+}
+
+// userAgentDeclaredTools keeps the declared names that the host can see,
+// in order, dropping blanks and duplicates. A name that is not a Mangle
+// tool atom, or that neither is_tool_registered nor persona_tool_allowed
+// derives, is refused. The tool string is interpolated into a query only
+// after the atom-shape check.
+func userAgentDeclaredTools(kernel core.Kernel, agent string, tools []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(tools))
+	declared := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		tool = strings.TrimSpace(tool)
+		if tool == "" {
+			continue
+		}
+		if _, dup := seen[tool]; dup {
+			continue
+		}
+		seen[tool] = struct{}{}
+		if err := kernelToolIsRegistered(kernel, agent, tool); err != nil {
+			return nil, err
+		}
+		declared = append(declared, tool)
+	}
+	return declared, nil
+}
+
+func kernelToolIsRegistered(kernel core.Kernel, agent, tool string) error {
+	refused := fmt.Errorf("user agent %q declares tool %q, which is not a registered tool", agent, tool)
+	if kernel == nil || !mangleToolName(tool) {
+		return refused
+	}
+	reg, err := kernel.Query(fmt.Sprintf("is_tool_registered(%q)", tool))
+	if err != nil {
+		return fmt.Errorf("user agent %q: is_tool_registered(%q): %w", agent, tool, err)
+	}
+	if len(reg) > 0 {
+		return nil
+	}
+	env, err := kernel.Query(fmt.Sprintf("persona_tool_allowed(Persona, /%s)", tool))
+	if err != nil {
+		return fmt.Errorf("user agent %q: persona_tool_allowed for %q: %w", agent, tool, err)
+	}
+	if len(env) == 0 {
+		return refused
+	}
+	return nil
+}
+
+// mangleToolName is the tool-atom shape persona_tool_allowed uses: a
+// lowercase name constant with no slash. The registry is case-sensitive,
+// so this does not lowercase a declared name into a different tool.
+func mangleToolName(tool string) bool {
+	if tool == "" || tool[0] < 'a' || tool[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(tool); i++ {
+		c := tool[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // installContextProviders wires the holographic file-context provider and the
@@ -2083,13 +2206,13 @@ func initFinalExecutors(bctx *bootContext) error {
 	}
 	sessionLLM := &sessionLLMAdapter{client: taskLLM, tracker: bctx.tracker}
 
-	// Config atoms decide which tools an intent verb may call. The built-in
-	// verbs are registered by NewDefaultConfigAtomProvider; user-defined agents
-	// are registered here from .nerd/agents.json so their declared toolchain is
-	// actually reachable instead of falling through to the read-only /general
-	// atom.
+	// User-defined agents come from .nerd/agents.json. Registration asserts
+	// user_agent_declared_tool so turn_tool_allowed grants the declared
+	// tools; a name the host has not seen registered fails boot.
 	atomProvider := prompt.NewDefaultConfigAtomProvider()
-	registerUserAgentConfigAtoms(atomProvider, bctx.workspace)
+	if err := registerUserAgentConfigAtoms(atomProvider, bctx.kernel, bctx.workspace); err != nil {
+		return err
+	}
 	configFactory := prompt.NewConfigFactory(atomProvider)
 
 	bctx.sessionExecutor = session.NewExecutor(

@@ -21,8 +21,15 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to generate coder config: %v", err)
 	}
-	if len(coderCfg.AllowedTools) == 0 {
-		t.Errorf("Coder config has no tools")
+	if len(coderCfg.AllowedTools) != 0 {
+		t.Errorf("Generate granted tools %v; the catalog is turn_tool_allowed", coderCfg.AllowedTools)
+	}
+	coderTools, err := DeriveTurnTools(testTurnKernel(t), "/fix")
+	if err != nil {
+		t.Fatalf("DeriveTurnTools(/fix): %v", err)
+	}
+	if !contains(coderTools, "edit_file") {
+		t.Errorf("coder envelope = %v, want edit_file", coderTools)
 	}
 	expectedCoderPolicies := []string{
 		"policy/constitution.mg",
@@ -55,21 +62,27 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 	}
 	assertContainsAll(t, reviewerCfg.Policies, []string{"policy/constitution.mg", "policy/validation.mg", "reviewer.mg"}, "Reviewer")
 
-	researchCfg, err := factory.Generate(ctx, result, "/research")
-	if err != nil {
+	if _, err := factory.Generate(ctx, result, "/research"); err != nil {
 		t.Fatalf("Failed to generate researcher config: %v", err)
 	}
-	assertContainsAll(t, researchCfg.AllowedTools, []string{"browser_observe", "browser_act", "browser_mangle", "browser_wait", "browser_reason", "browser_evidence", "browser_specs", "browser_test"}, "Researcher")
+	researchTools, err := DeriveTurnTools(testTurnKernel(t), "/research")
+	if err != nil {
+		t.Fatalf("DeriveTurnTools(/research): %v", err)
+	}
+	assertContainsAll(t, researchTools, []string{"browser_observe", "browser_act", "browser_mangle", "browser_wait", "browser_reason", "browser_evidence", "browser_specs", "browser_test"}, "Researcher")
 }
 
 func TestDefaultConfigAtomProvider_ProgressiveBrowserToolsReachResearchAndVerify(t *testing.T) {
-	provider := NewDefaultConfigAtomProvider()
+	k := testTurnKernel(t)
 	for _, intent := range []string{"/research", "/explore", "/verify", "/validate"} {
-		atom, ok := provider.GetAtom(intent)
-		if !ok {
+		if _, ok := NewDefaultConfigAtomProvider().GetAtom(intent); !ok {
 			t.Fatalf("missing config atom for %s", intent)
 		}
-		assertContainsAll(t, atom.Tools, []string{"browser_observe", "browser_act", "browser_mangle", "browser_wait", "browser_reason", "browser_evidence", "browser_specs", "browser_test"}, intent)
+		tools, err := DeriveTurnTools(k, intent)
+		if err != nil {
+			t.Fatalf("DeriveTurnTools(%s): %v", intent, err)
+		}
+		assertContainsAll(t, tools, []string{"browser_observe", "browser_act", "browser_mangle", "browser_wait", "browser_reason", "browser_evidence", "browser_specs", "browser_test"}, intent)
 	}
 }
 
@@ -102,13 +115,21 @@ func TestConfigGeneration_HybridIntents(t *testing.T) {
 		"tester.mg",
 	}, "Hybrid")
 
-	// Should have the union of both intents' tools
-	assertContainsAll(t, hybridCfg.AllowedTools, fixCfg.AllowedTools, "Hybrid/fix")
-	assertContainsAll(t, hybridCfg.AllowedTools, testCfg.AllowedTools, "Hybrid/test")
-	// The production catalog grants no free-form shell; a hybrid must not
-	// manufacture one either.
-	if contains(hybridCfg.AllowedTools, "run_shell_command") {
-		t.Errorf("Hybrid config grants free-form shell: %v", hybridCfg.AllowedTools)
+	// Generate must not grow a second catalog. The kernel envelopes stay
+	// disjoint from a free-form shell.
+	if len(fixCfg.AllowedTools) != 0 || len(testCfg.AllowedTools) != 0 || len(hybridCfg.AllowedTools) != 0 {
+		t.Errorf("Generate granted tools (fix %v test %v hybrid %v); the catalog is turn_tool_allowed",
+			fixCfg.AllowedTools, testCfg.AllowedTools, hybridCfg.AllowedTools)
+	}
+	k := testTurnKernel(t)
+	for _, verb := range []string{"/fix", "/test"} {
+		tools, err := DeriveTurnTools(k, verb)
+		if err != nil {
+			t.Fatalf("DeriveTurnTools(%s): %v", verb, err)
+		}
+		if contains(tools, "run_shell_command") || contains(tools, "bash") || contains(tools, "run_command") {
+			t.Errorf("%s envelope grants a free-form shell: %v", verb, tools)
+		}
 	}
 }
 

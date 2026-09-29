@@ -726,7 +726,27 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		}
 	}
 
-	return s.configFactory.Generate(ctx, compileResult, intentVerb)
+	cfg, err := s.configFactory.Generate(ctx, compileResult, intentVerb)
+	if err != nil {
+		return nil, err
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("turn catalog: config factory returned a nil config for %s", intentVerb)
+	}
+	// The atom carries policies. The tool allowlist is the kernel's, the
+	// same projection the session turn uses. A failed or empty derivation
+	// fail-closes to no tools; the subagent still starts, and no tools is
+	// not all tools. The prompt compile above does not see this overlay
+	// (compilationCtx.AvailableTools is unset); that predates the catalog
+	// move and is left for the owner of spawn-time JIT.
+	tools, derr := prompt.DeriveTurnTools(s.kernel, intentVerb)
+	if derr != nil {
+		logging.Get(logging.CategorySession).Warn("turn catalog: %v; spawned config has no tools", derr)
+		cfg.AllowedTools = nil
+		return cfg, nil
+	}
+	cfg.AllowedTools = tools
+	return cfg, nil
 }
 
 // determineAgentType maps intents to subagent types.

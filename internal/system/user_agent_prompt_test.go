@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/prompt"
 	prsync "codenerd/internal/prompt/sync"
 	"codenerd/internal/session"
+	"codenerd/internal/types"
 )
 
 // userAgentPromptsYAML mirrors the layout `nerd init` and `nerd define-agent`
@@ -155,67 +156,77 @@ func TestUserAgentShardDBLookupIsCaseInsensitive(t *testing.T) {
 // wiring for user-defined agents.
 //
 // Regression guarded: .nerd/agents.json has carried a per-agent `tools` array
-// since agent creation (internal/init/agents.go GetToolsForAgentType) that no
-// code read. ConfigFactory.Generate found no atom for "/consult/<name>", fell
-// back to the read-only /general atom, and the specialist could not act — while
-// "/consult/*" classifies as a query, so the hollow-success gate never fired
-// and the empty-handed run was recorded as a success.
+// since agent creation (internal/init/agents.go GetToolsForAgentType). After
+// the catalog moved into turn_tool_allowed, that array was dropped at runtime
+// and this test still passed because both sides of the atom comparison were
+// empty. The grant has to reach DeriveTurnTools: the declared names, and the
+// /general floor a specialist would otherwise lose.
 func TestRegisterUserAgentConfigAtomsHonorsDeclaredTools(t *testing.T) {
-	workspace := t.TempDir()
-	nerdDir := filepath.Join(workspace, ".nerd")
-	if err := os.MkdirAll(nerdDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	kernel, err := NewDomainCortex(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewDomainCortex: %v", err)
+	}
+	// go_build and go_test are not persona-envelope tools. The host records
+	// them as registered before an agent may declare them. read_file is
+	// already in the /general envelope, so it needs no tool_registered fact.
+	for _, tool := range []string{"go_build", "go_test"} {
+		if err := kernel.Assert(types.Fact{
+			Predicate: "tool_registered",
+			Args:      []any{tool, int64(1)},
+		}); err != nil {
+			t.Fatalf("assert tool_registered(%s): %v", tool, err)
+		}
 	}
 
-	registry := map[string]any{
-		"version": "1.5.0",
-		"agents": []map[string]any{
-			{
-				"name":   "GoExpert",
-				"type":   "user",
-				"status": "ready",
-				"tools":  []string{"go_build", "go_test"},
-			},
-			{
-				// No declared tools: must still get an atom (read-only core
-				// tools) rather than falling through to the /general warning.
-				"name":   "PlainExpert",
-				"type":   "user",
-				"status": "ready",
-			},
+	workspace := t.TempDir()
+	writeAgentsJSON(t, workspace, []map[string]any{
+		{
+			"name":   "GoExpert",
+			"type":   "user",
+			"status": "ready",
+			"tools":  []string{"go_build", "go_test", "read_file"},
 		},
-	}
-	data, err := json.Marshal(registry)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(nerdDir, "agents.json"), data, 0o644); err != nil {
-		t.Fatalf("write agents.json: %v", err)
-	}
+		{
+			// No declared tools: still an atom. The turn catalog is the
+			// /general floor, via the verb_has_persona fallback, because
+			// nothing was asserted for this verb.
+			"name":   "PlainExpert",
+			"type":   "user",
+			"status": "ready",
+		},
+	})
 
 	provider := prompt.NewDefaultConfigAtomProvider()
 	general, ok := provider.GetAtom("/general")
 	if !ok {
 		t.Fatal("/general atom missing from the default provider")
 	}
-	registerUserAgentConfigAtoms(provider, workspace)
+	if err := registerUserAgentConfigAtoms(provider, kernel, workspace); err != nil {
+		t.Fatalf("register: %v", err)
+	}
 
-	// Both verb shapes must resolve, for both agents.
 	for _, verb := range []string{"/goexpert", "/consult/goexpert"} {
 		atom, found := provider.GetAtom(verb)
 		if !found {
 			t.Fatalf("no config atom registered for %q", verb)
 		}
-		for _, want := range []string{"go_build", "go_test"} {
+		for _, want := range []string{"go_build", "go_test", "read_file"} {
 			if !containsString(atom.Tools, want) {
-				t.Errorf("%s: declared tool %q missing from grant %v", verb, want, atom.Tools)
+				t.Errorf("%s: declared tool %q missing from atom grant %v", verb, want, atom.Tools)
 			}
 		}
-		// The read-only core set is still present; the declared tools are added
-		// to it, never a replacement for it.
 		for _, want := range general.Tools {
 			if !containsString(atom.Tools, want) {
-				t.Errorf("%s: core tool %q dropped from grant %v", verb, want, atom.Tools)
+				t.Errorf("%s: core tool %q dropped from atom grant %v", verb, want, atom.Tools)
+			}
+		}
+		derived, err := prompt.DeriveTurnTools(kernel, verb)
+		if err != nil {
+			t.Fatalf("DeriveTurnTools(%s): %v", verb, err)
+		}
+		for _, want := range []string{"go_build", "go_test", "read_file"} {
+			if !containsString(derived, want) {
+				t.Errorf("DeriveTurnTools(%s) = %v, missing %q", verb, derived, want)
 			}
 		}
 	}
@@ -225,13 +236,88 @@ func TestRegisterUserAgentConfigAtomsHonorsDeclaredTools(t *testing.T) {
 		t.Fatal("agent with no declared tools got no config atom")
 	}
 	if len(plain.Tools) != len(general.Tools) {
-		t.Errorf("agent with no declared tools should get exactly the core set, got %v", plain.Tools)
+		t.Errorf("agent with no declared tools should get exactly the core atom set, got %v", plain.Tools)
+	}
+	plainDerived, err := prompt.DeriveTurnTools(kernel, "/plainexpert")
+	if err != nil {
+		t.Fatalf("DeriveTurnTools(/plainexpert): %v", err)
+	}
+	if !containsString(plainDerived, "read_file") {
+		t.Errorf("agent with no declared tools lost the /general floor: %v", plainDerived)
+	}
+	if containsString(plainDerived, "go_build") {
+		t.Errorf("agent with no declared tools gained go_build: %v", plainDerived)
 	}
 
-	// A name that is not a registered agent must NOT gain an atom — that would
-	// silently grant tools to arbitrary verbs.
+	// A name that is not a registered agent must not gain an atom. Its
+	// catalog is the unknown-verb floor, not this agent's tools.
 	if _, found := provider.GetAtom("/consult/notanagent"); found {
 		t.Error("unregistered agent name gained a config atom")
+	}
+	unknown, err := prompt.DeriveTurnTools(kernel, "/consult/notanagent")
+	if err != nil {
+		t.Fatalf("DeriveTurnTools(/consult/notanagent): %v", err)
+	}
+	if containsString(unknown, "go_build") {
+		t.Errorf("unregistered verb gained go_build: %v", unknown)
+	}
+
+	// A declared tool the host has not seen registered is refused by name,
+	// and nothing is registered for that file.
+	refused := t.TempDir()
+	writeAgentsJSON(t, refused, []map[string]any{
+		{
+			"name":   "GoExpert",
+			"type":   "user",
+			"status": "ready",
+			"tools":  []string{"not_a_registered_tool"},
+		},
+	})
+	refusedProvider := prompt.NewDefaultConfigAtomProvider()
+	err = registerUserAgentConfigAtoms(refusedProvider, kernel, refused)
+	if err == nil || !strings.Contains(err.Error(), "not_a_registered_tool") {
+		t.Fatalf("unregistered tool error = %v, want it to name not_a_registered_tool", err)
+	}
+	if _, found := refusedProvider.GetAtom("/goexpert"); found {
+		t.Error("atom registered after a refused tool")
+	}
+
+	// bash is a real executable name and is intentionally outside every
+	// persona envelope. Declaring it must fail the same way a typo does.
+	bashWS := t.TempDir()
+	writeAgentsJSON(t, bashWS, []map[string]any{
+		{
+			"name":   "ShellExpert",
+			"type":   "user",
+			"status": "ready",
+			"tools":  []string{"bash"},
+		},
+	})
+	bashProvider := prompt.NewDefaultConfigAtomProvider()
+	err = registerUserAgentConfigAtoms(bashProvider, kernel, bashWS)
+	if err == nil || !strings.Contains(err.Error(), "bash") {
+		t.Fatalf("bash error = %v, want it to name bash", err)
+	}
+	if _, found := bashProvider.GetAtom("/shellexpert"); found {
+		t.Error("atom registered after bash was refused")
+	}
+}
+
+func writeAgentsJSON(t *testing.T, workspace string, agents []map[string]any) {
+	t.Helper()
+	nerdDir := filepath.Join(workspace, ".nerd")
+	if err := os.MkdirAll(nerdDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	data, err := json.Marshal(map[string]any{
+		"version": "1.5.0",
+		"agents":  agents,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nerdDir, "agents.json"), data, 0o644); err != nil {
+		t.Fatalf("write agents.json: %v", err)
 	}
 }
 

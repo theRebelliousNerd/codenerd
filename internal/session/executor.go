@@ -47,14 +47,10 @@ type JITCompiler interface {
 }
 
 // ConfigFactory creates EffectiveAgentRuntimeConfig from compilation results.
+// The tool envelope is not part of that contract: compileConfig overlays
+// turnDerivedTools, and a factory that listed tools would be a second catalog.
 type ConfigFactory interface {
 	Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error)
-	// ResolveAllowedTools reports the effective executable tool catalog for
-	// intents without compiling a prompt. The executor resolves this BEFORE
-	// prompt selection so capability atoms can be gated on the same envelope
-	// the tool loop will enforce. Implementations must return exactly what
-	// Generate would grant for the same intents (including /general fallback).
-	ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error)
 }
 
 // SessionPersister stores session turn data for cross-session continuity.
@@ -743,7 +739,12 @@ type ExecutionResult struct {
 	// PinAdvisory names the decisions inside the change that no test the turn
 	// wrote distinguishes (condition_units.go). Recorded and handed to the
 	// model, never charged: a forced guard can be unanswerable.
-	PinAdvisory           []string
+	PinAdvisory []string
+	// ElementUncovered names the changed elements (turn_changed_element refs)
+	// whose statement blocks the coverage run shows and never executed
+	// (turn_element_coverage.go). Set by narrowToChangedLines; nil when no
+	// coverage run measured the turn.
+	ElementUncovered      []string
 	ChecksSnapshot        string
 	ChangeStage           string
 	acceptanceTransaction *evidence.Transaction
@@ -1430,12 +1431,12 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 	return cc
 }
 
-// resolveAvailableTools populates cc.AvailableTools with the effective
-// executable tool catalog BEFORE prompt compilation so Mangle can gate
-// tool-specific atoms on the same envelope the tool loop will enforce.
-// Precompiled EffectiveAgentRuntimeConfig (SubAgent injection) wins; otherwise
-// the factory resolves [verb] exactly as compileConfig will. It never widens
-// authority: failures leave the catalog empty (fail-closed, no tools).
+// resolveAvailableTools populates cc.AvailableTools with the kernel's
+// turn_tool_allowed envelope BEFORE prompt compilation, so Mangle can gate
+// tool-specific atoms on the same catalog the tool loop will enforce.
+// A precompiled EffectiveAgentRuntimeConfig (subagent injection) wins, and
+// is copied so one turn cannot alias the next. A failed or empty derivation
+// leaves the catalog empty: no tools is not all tools.
 func (e *Executor) resolveAvailableTools(ctx context.Context, cc *prompt.CompilationContext, intent perception.Intent) {
 	if cc == nil {
 		return
@@ -1447,15 +1448,11 @@ func (e *Executor) resolveAvailableTools(ctx context.Context, cc *prompt.Compila
 		cc.AvailableTools = append([]string(nil), precompiled.AllowedTools...)
 		return
 	}
-	if e.configFactory == nil {
-		cc.AvailableTools = nil
-		return
-	}
 	verb := intent.Verb
 	if verb == "" {
 		verb = "/general"
 	}
-	tools, err := e.resolveAllowedToolsSafely(ctx, verb)
+	tools, err := e.turnDerivedTools(verb)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("Tool envelope resolution failed for %q: %v (compiling with empty catalog)", verb, err)
 		cc.AvailableTools = nil
@@ -1464,20 +1461,12 @@ func (e *Executor) resolveAvailableTools(ctx context.Context, cc *prompt.Compila
 	cc.AvailableTools = tools
 }
 
-// resolveAllowedToolsSafely calls the config factory with panic recovery. A
-// factory that panics degrades exactly like one that errors — empty catalog —
-// instead of crashing the turn; fail-closed parity with the error path above.
-func (e *Executor) resolveAllowedToolsSafely(ctx context.Context, verb string) (resolved []string, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			resolved = nil
-			err = fmt.Errorf("config factory ResolveAllowedTools panicked: %v", r)
-		}
-	}()
-	return e.configFactory.ResolveAllowedTools(ctx, verb)
-}
-
 // compileConfig creates an EffectiveAgentRuntimeConfig from the compilation result and intent.
+// Policies come from the factory atom. The tool allowlist is the kernel
+// derivation, overwriting anything the atom declared, so the two cannot drift.
+// A precompiled config is returned as-is (the caller narrows it with
+// configWithoutTools). A failed derivation fails the config closed; the
+// caller then runs the turn with an empty allowlist.
 func (e *Executor) compileConfig(ctx context.Context, result *prompt.CompilationResult, intent perception.Intent) (*config.EffectiveAgentRuntimeConfig, error) {
 	e.mu.RLock()
 	if e.EffectiveAgentRuntimeConfig != nil {
@@ -1487,17 +1476,30 @@ func (e *Executor) compileConfig(ctx context.Context, result *prompt.Compilation
 	}
 	e.mu.RUnlock()
 
-	if e.configFactory == nil {
-		return &config.EffectiveAgentRuntimeConfig{}, nil
-	}
-
-	// Use intent verb as the primary intent for config lookup
 	intentVerb := intent.Verb
 	if intentVerb == "" {
 		intentVerb = "/general"
 	}
 
-	return e.generateAgentConfigSafely(ctx, result, intentVerb)
+	var cfg *config.EffectiveAgentRuntimeConfig
+	if e.configFactory == nil {
+		cfg = &config.EffectiveAgentRuntimeConfig{IntentVerb: intentVerb}
+	} else {
+		generated, err := e.generateAgentConfigSafely(ctx, result, intentVerb)
+		if err != nil {
+			return nil, err
+		}
+		if generated == nil {
+			return nil, fmt.Errorf("turn catalog: config factory returned a nil config for %s", intentVerb)
+		}
+		cfg = generated
+	}
+	tools, err := e.turnDerivedTools(intentVerb)
+	if err != nil {
+		return nil, err
+	}
+	cfg.AllowedTools = tools
+	return cfg, nil
 }
 
 // generateAgentConfigSafely calls the config factory with panic recovery. A
@@ -2689,6 +2691,15 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	}
 	for _, path := range uncoveredPaths(result) {
 		e.assertTurnFact(types.Fact{Predicate: "turn_uncovered", Args: []any{turn, path}})
+	}
+	// The same run, named per changed element. The profile cannot say which
+	// test executed an element, so the fact is only the element it never
+	// executed. Nothing reads it yet; turn_uncovered above stays the verdict.
+	for _, ref := range result.ElementUncovered {
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_element_uncovered",
+			Args:      []any{turn, types.MangleString(ref)},
+		})
 	}
 }
 

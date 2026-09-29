@@ -275,12 +275,3 @@ func TestE2E_SessionContext_SequentialExecution_NoStateBleed(t *testing.T) {
 		t.Errorf("parent session history has %d turns after two cloned task runs, want 0", got)
 	}
 }
-
-// ResolveAllowedTools projects the same fixture envelope before JIT selection.
-func (m *sciMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
-	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
-	if err != nil || resolved == nil {
-		return nil, err
-	}
-	return append([]string(nil), resolved.AllowedTools...), nil
-}

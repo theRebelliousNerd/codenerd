@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/jit/config"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
@@ -161,6 +162,10 @@ func TestJourney_ToolErrorThenRecoveryFailsHonestThenSucceeds(t *testing.T) {
 	executor := NewExecutor(kernel, &testExecutiveStore{}, model, &MockJITCompiler{}, journeyConfigFactory(toolName), journeyIntent("/explain", "/query"))
 	executor.SetConfig(journeyConfig(t))
 	executor.SetSessionID("journey-tool-error-recovery")
+	// journey_read_gamma is a fixture. /explain's turn_tool_allowed envelope
+	// is the read-only core and does not name it; the precompiled config is
+	// the injection path compileConfig does not overwrite.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

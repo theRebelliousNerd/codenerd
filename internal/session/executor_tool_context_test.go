@@ -6,62 +6,68 @@ import (
 	"slices"
 	"testing"
 
+	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
 
 func TestCompilationContextUsesPermittedToolEnvelope(t *testing.T) {
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
 	for _, requestContext := range []bool{false, true} {
-		for _, tc := range []struct {
-			name        string
-			verb        string
-			precompiled *config.EffectiveAgentRuntimeConfig
-			factoryErr  error
-			want        []string
-		}{
-			{name: "factory", verb: "/fix", want: []string{"read_file"}},
-			{name: "general fallback", want: []string{"read_file"}},
-			{name: "resolver error", verb: "/fix", factoryErr: errors.New("unavailable")},
-			{name: "specialist", verb: "/fix", precompiled: &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file"}}, want: []string{"write_file"}},
-			{name: "empty specialist", verb: "/fix", precompiled: &config.EffectiveAgentRuntimeConfig{}},
-		} {
-			t.Run(tc.name+map[bool]string{true: "/request-context", false: "/default-context"}[requestContext], func(t *testing.T) {
-				calls := 0
-				factory := &MockConfigFactory{ResolveAllowedToolsFunc: func(_ context.Context, intents ...string) ([]string, error) {
-					calls++
-					wantVerb := tc.verb
-					if wantVerb == "" {
-						wantVerb = "/general"
-					}
-					if !slices.Equal(intents, []string{wantVerb}) {
-						t.Fatalf("resolved intents=%v, want %s", intents, wantVerb)
-					}
-					return []string{"read_file"}, tc.factoryErr
-				}}
-				e := &Executor{configFactory: factory, EffectiveAgentRuntimeConfig: tc.precompiled}
-				ctx := t.Context()
-				if requestContext {
-					ctx = types.WithSessionContext(ctx, &types.SessionContext{})
-				}
-				cc := e.buildCompilationContext(ctx, perception.Intent{Verb: tc.verb})
-				if !slices.Equal(cc.AvailableTools, tc.want) {
-					t.Fatalf("prompt envelope=%v, want %v", cc.AvailableTools, tc.want)
-				}
-				if (tc.precompiled == nil && calls != 1) || (tc.precompiled != nil && calls != 0) {
-					t.Fatalf("factory calls=%d with specialist=%v", calls, tc.precompiled != nil)
-				}
-				if tc.precompiled != nil && len(cc.AvailableTools) != 0 {
-					cc.AvailableTools[0] = "changed"
-					if !slices.Equal(tc.precompiled.AllowedTools, tc.want) {
-						t.Fatal("compilation context aliases specialist permissions")
-					}
-				}
-			})
+		suffix := map[bool]string{true: "/request-context", false: "/default-context"}[requestContext]
+		ctx := t.Context()
+		if requestContext {
+			ctx = types.WithSessionContext(ctx, &types.SessionContext{})
 		}
+		t.Run("coder"+suffix, func(t *testing.T) {
+			cc := (&Executor{kernel: k}).buildCompilationContext(ctx, perception.Intent{Verb: "/fix"})
+			if !slices.Contains(cc.AvailableTools, "read_file") {
+				t.Fatalf("coder envelope = %v, want read_file", cc.AvailableTools)
+			}
+			if slices.Contains(cc.AvailableTools, "bash") || slices.Contains(cc.AvailableTools, "run_command") {
+				t.Fatalf("coder envelope gained a free-form shell: %v", cc.AvailableTools)
+			}
+		})
+		t.Run("general fallback"+suffix, func(t *testing.T) {
+			cc := (&Executor{kernel: k}).buildCompilationContext(ctx, perception.Intent{})
+			if !slices.Contains(cc.AvailableTools, "read_file") || slices.Contains(cc.AvailableTools, "write_file") {
+				t.Fatalf("empty verb envelope = %v, want the read-only floor", cc.AvailableTools)
+			}
+		})
+		t.Run("query error"+suffix, func(t *testing.T) {
+			e := &Executor{kernel: &MockKernel{QueryError: errors.New("unavailable")}}
+			cc := e.buildCompilationContext(ctx, perception.Intent{Verb: "/fix"})
+			if len(cc.AvailableTools) != 0 {
+				t.Fatalf("query error supplied tools %v", cc.AvailableTools)
+			}
+		})
+		t.Run("specialist"+suffix, func(t *testing.T) {
+			precompiled := &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file"}}
+			e := &Executor{kernel: k, EffectiveAgentRuntimeConfig: precompiled}
+			cc := e.buildCompilationContext(ctx, perception.Intent{Verb: "/fix"})
+			if !slices.Equal(cc.AvailableTools, []string{"write_file"}) {
+				t.Fatalf("prompt envelope=%v, want the precompiled allowlist", cc.AvailableTools)
+			}
+			cc.AvailableTools[0] = "changed"
+			if !slices.Equal(precompiled.AllowedTools, []string{"write_file"}) {
+				t.Fatal("compilation context aliases specialist permissions")
+			}
+		})
+		t.Run("empty specialist"+suffix, func(t *testing.T) {
+			precompiled := &config.EffectiveAgentRuntimeConfig{}
+			e := &Executor{kernel: k, EffectiveAgentRuntimeConfig: precompiled}
+			cc := e.buildCompilationContext(ctx, perception.Intent{Verb: "/fix"})
+			if len(cc.AvailableTools) != 0 {
+				t.Fatalf("empty specialist supplied %v", cc.AvailableTools)
+			}
+		})
 	}
 	if cc := (&Executor{}).buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix"}); len(cc.AvailableTools) != 0 {
-		t.Fatal("missing config factory supplied ambient tools")
+		t.Fatal("nil kernel supplied ambient tools")
 	}
 }
 

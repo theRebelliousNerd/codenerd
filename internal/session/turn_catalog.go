@@ -7,6 +7,7 @@ import (
 
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -14,6 +15,19 @@ import (
 // (internal/observation: subagentHandlePrefix; recall_context and
 // subagent_expand redeem it).
 const subagentReturnHandlePrefix = "obs:sa:"
+
+// turnDerivedTools resolves the turn's tool envelope from the kernel
+// (prompt.DeriveTurnTools, policy/intent_routing_rules.mg
+// turn_tool_allowed/2), before turnWithheldTools narrows it for the turn
+// at hand. The derivation lives in prompt so the executor, the spawner
+// and the prompt tests share one normalization; prompt cannot import
+// session. A nil kernel fails closed: no tools is not all tools.
+func (e *Executor) turnDerivedTools(verb string) ([]string, error) {
+	if e == nil || e.kernel == nil {
+		return nil, fmt.Errorf("turn catalog: no kernel to derive the tool envelope from")
+	}
+	return prompt.DeriveTurnTools(e.kernel, verb)
+}
 
 // turnWithheldTools asks the kernel which of the persona's tools this turn
 // does not get (policy/jit_tools.mg): those its target's language withholds,

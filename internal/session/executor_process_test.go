@@ -176,6 +176,11 @@ func TestExecutor_Process_ToolExecution(t *testing.T) {
 	// The tool loop runs under the working policy, which needs a declared
 	// workspace to build its working set in.
 	executor.config.WorkspaceRoot = t.TempDir()
+	// readFile is a fixture, not a turn_tool_allowed name. compileConfig
+	// derives the catalog from the kernel and fail-closes a MockKernel, so
+	// the allowlist this test means is the precompiled config, which that
+	// path returns unchanged.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"readFile"}}
 
 	// Execute
 	result, err := executor.Process(context.Background(), "Read /test/file.txt")
@@ -253,6 +258,10 @@ func TestExecutor_Process_SafetyGate(t *testing.T) {
 	// The tool loop runs under the working policy, which needs a declared
 	// workspace to build its working set in.
 	executor.config.WorkspaceRoot = t.TempDir()
+	// deleteFile is a fixture. The kernel catalog does not name it, and a
+	// MockKernel fail-closes the derivation, so the allowlist this test means
+	// is the precompiled config compileConfig returns unchanged.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"deleteFile"}}
 
 	// Execute
 	result, err := executor.Process(context.Background(), "Delete everything")
@@ -417,6 +426,10 @@ func TestExecutor_Process_EmptyToolCallArgs(t *testing.T) {
 	// The tool loop runs under the working policy, which needs a declared
 	// workspace to build its working set in.
 	executor.config.WorkspaceRoot = t.TempDir()
+	// valid_name is a fixture. The kernel catalog does not name it, and a
+	// MockKernel fail-closes the derivation, so the allowlist this test means
+	// is the precompiled config compileConfig returns unchanged.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"valid_name"}}
 
 	_, err := executor.Process(context.Background(), "do it")
 	if err != nil {
@@ -537,6 +550,10 @@ func TestExecutor_Process_LargeToolBatchIsNotCutOffByACount(t *testing.T) {
 	// The tool loop runs under the working policy, which needs a declared
 	// workspace to build its working set in.
 	executor.config.WorkspaceRoot = t.TempDir()
+	// valid_name is a fixture. The kernel catalog does not name it, and a
+	// MockKernel fail-closes the derivation, so the offer is the precompiled
+	// config compileConfig leaves alone.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"valid_name"}}
 
 	result, _ := executor.Process(context.Background(), "hello")
 	if result == nil {
@@ -573,6 +590,13 @@ func TestExecutor_Process_ToolTimeout(t *testing.T) {
 		},
 	)
 	executor.config.ToolTimeout = 10 * time.Millisecond // very short timeout
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
+	// sleep_tool is a fixture. The kernel catalog does not name it, and a
+	// MockKernel fail-closes the derivation, so the allowlist this test means
+	// is the precompiled config compileConfig returns unchanged.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"sleep_tool"}}
 
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
@@ -644,6 +668,13 @@ func TestExecutor_StateConflicts_ToolRemoved(t *testing.T) {
 
 	// Note: tools.Global() doesn't have an unregister, but if it's never registered it acts as removed.
 	// This simulates TOCTOU if the config says "allowed" but tool is not in registry.
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
+	// removed_tool is a fixture. The kernel catalog does not name it, and a
+	// MockKernel fail-closes the derivation, so the allowlist this test means
+	// is the precompiled config compileConfig returns unchanged.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"removed_tool"}}
 
 	executor.Process(context.Background(), "run removed")
 	// Should not panic, should handle gracefully (probably an error returned internally for the tool call)
@@ -682,6 +713,13 @@ func TestExecutor_StateConflicts_PanicRecovery(t *testing.T) {
 			panic("intentional panic inside tool")
 		},
 	})
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
+	// panic_tool is a fixture. The kernel catalog does not name it, and a
+	// MockKernel fail-closes the derivation, so the allowlist this test means
+	// is the precompiled config compileConfig returns unchanged.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"panic_tool"}}
 
 	executor.Process(context.Background(), "run panic")
 	// Should not crash the test run
@@ -830,6 +868,13 @@ func TestExecutor_SafetyGateFailClosed(t *testing.T) {
 		},
 	)
 	executor.config.EnableSafetyGate = true
+	// The tool loop runs under the working policy, which needs a declared
+	// workspace to build its working set in.
+	executor.config.WorkspaceRoot = t.TempDir()
+	// any_tool is a fixture. A nil kernel fail-closes the derivation, so the
+	// allowlist this test means is the precompiled config compileConfig
+	// returns unchanged. Without it the call never reaches the safety gate.
+	executor.EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"any_tool"}}
 
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,

@@ -1,18 +1,20 @@
 package prompt
 
 import (
-	"context"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
+	"codenerd/internal/core"
 	"codenerd/internal/tools"
 	"codenerd/internal/tools/codedom"
 	toolscore "codenerd/internal/tools/core"
 	"codenerd/internal/tools/mcpctl"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/tools/shell"
+	"codenerd/internal/types"
 )
 
 // inheritedRequiredTools returns the tools an atom requires, directly or
@@ -53,10 +55,10 @@ func catalogHoldsAll(catalog, req map[string]bool) bool {
 //   - the five modular families the session executor hydrates into
 //     tools.Global() (VirtualStore.HydrateModularTools): the only source that
 //     knows withheld tools (run_command, bash) the catalogs never grant;
-//   - every name any persona catalog grants (DefaultConfigAtomProvider, the
-//     same source ConfigFactory.ResolveAllowedTools reads): covers
-//     conditionally-registered tools the bare registry lacks
-//     (grounded_web_search without a searcher, browser_*);
+//   - every name any persona catalog grants (DeriveTurnTools, the kernel
+//     envelope the executor offers): covers conditionally-registered tools
+//     the bare registry lacks (grounded_web_search without a searcher,
+//     browser_*);
 //   - every name any atom gates on (requires_tools): covers tools known to
 //     the corpus but neither registered nor granted.
 //
@@ -87,13 +89,9 @@ func knownToolNames(t *testing.T, corpus []*PromptAtom) map[string]bool {
 	for _, name := range reg.Names() {
 		known[name] = true
 	}
-	provider := NewDefaultConfigAtomProvider()
-	for _, intent := range provider.RegisteredIntents() {
-		atom, ok := provider.GetAtom(intent)
-		if !ok {
-			continue
-		}
-		for _, tool := range atom.Tools {
+	_, catalogs := catalogsByVerb(t)
+	for _, catalog := range catalogs {
+		for tool := range catalog {
 			known[tool] = true
 		}
 	}
@@ -118,24 +116,42 @@ func knownToolNames(t *testing.T, corpus []*PromptAtom) map[string]bool {
 	return known
 }
 
+var (
+	turnKernelOnce sync.Once
+	turnKernel     types.Kernel
+	turnKernelErr  error
+)
+
+// testTurnKernel is the booted kernel the prompt tests ask for a verb's
+// envelope. One boot per process: NewRealKernel loads the embedded policy.
+func testTurnKernel(t *testing.T) types.Kernel {
+	t.Helper()
+	turnKernelOnce.Do(func() {
+		turnKernel, turnKernelErr = core.NewRealKernel()
+	})
+	if turnKernelErr != nil {
+		t.Fatalf("NewRealKernel: %v", turnKernelErr)
+	}
+	return turnKernel
+}
+
 // catalogsByVerb resolves the effective executable tool catalog for every
-// registered intent verb through ConfigFactory.ResolveAllowedTools -- the same
-// call the session executor makes (resolveAvailableTools) before compiling the
+// registered intent verb through DeriveTurnTools -- the same projection the
+// session executor applies (resolveAvailableTools) before compiling the
 // turn's prompt, so the test and the turn agree on the envelope.
 func catalogsByVerb(t *testing.T) (verbs []string, catalogs map[string]map[string]bool) {
 	t.Helper()
 	provider := NewDefaultConfigAtomProvider()
-	factory := NewConfigFactory(provider)
-	ctx := context.Background()
 	verbs = provider.RegisteredIntents()
 	if len(verbs) == 0 {
 		t.Fatalf("RegisteredIntents returned no verbs")
 	}
+	k := testTurnKernel(t)
 	catalogs = make(map[string]map[string]bool, len(verbs))
 	for _, verb := range verbs {
-		granted, err := factory.ResolveAllowedTools(ctx, verb)
+		granted, err := DeriveTurnTools(k, verb)
 		if err != nil {
-			t.Fatalf("ResolveAllowedTools(%s): %v", verb, err)
+			t.Fatalf("DeriveTurnTools(%s): %v", verb, err)
 		}
 		set := make(map[string]bool, len(granted))
 		for _, tool := range granted {
@@ -173,8 +189,8 @@ func selectableVerbs(a *PromptAtom, allVerbs []string) []string {
 // requires_tools gates (directly or via depends_on, which the resolver prunes
 // transitively), or be offered to every persona/verb the atom can be selected
 // for. Catalogs come from the same source the executor uses
-// (ConfigFactory.ResolveAllowedTools over DefaultConfigAtomProvider), not a
-// hand-copied list, so a catalog change re-derives the expectation.
+// (DeriveTurnTools over turn_tool_allowed), not a hand-copied list, so a
+// catalog change re-derives the expectation.
 //
 // Measured 2026-09-28: the mandatory identity/coder/tool_usage taught
 // "`run_command` / `run_build` for build and test commands" with no
@@ -228,9 +244,9 @@ func TestAtomCorpus_OptionalToolsAreNamedOnlyByAtomsThatRequireThem(t *testing.T
 				catalog, ok := catalogs[verb]
 				if !ok {
 					// An intent verb no catalog knows falls back to
-					// /general read-only tools in the executor; resolve
-					// it the same way rather than treating it as empty.
-					fallback, ferr := NewConfigFactory(NewDefaultConfigAtomProvider()).ResolveAllowedTools(context.Background(), verb)
+					// the /general floor in DeriveTurnTools; resolve it
+					// the same way rather than treating it as empty.
+					fallback, ferr := DeriveTurnTools(testTurnKernel(t), verb)
 					if ferr != nil {
 						missing = append(missing, verb)
 						continue

@@ -43,8 +43,9 @@ Decl persona_tool_allowed(Persona, Tool).
 	program := mockSchema + "\n" + string(data)
 
 	t.Run("persona_tool_allowed derivation", func(t *testing.T) {
-		// Test that /coder persona gets write_file permission
-		// persona(/coder) :- user_intent(_, _, /fix, _, _).
+		// persona_tool_allowed(/coder, /write_file) is a static envelope fact.
+		// The user_intent below is what a /fix turn asserts; the writer does
+		// not depend on it. A read-only verb must not inherit this persona.
 		facts := []testFact{
 			{"user_intent", []any{"id1", "/command", "/fix", "file.go", "/none"}},
 		}
@@ -225,9 +226,13 @@ Decl test_state(State).
 Decl tdd_state(State).
 Decl next_action(Action).
 Decl persona_tool_allowed(Persona, Tool).
-Decl modular_tool_allowed(Tool, Intent).
-Decl modular_tool_priority(Tool, Priority).
 `
+	// turn_tool_allowed is Decl'd in the routing file. The catalog used to be
+	// modular_tool_allowed(Tool, Intent), derived from the asserted
+	// user_intent. It is now a static projection: the query returns every
+	// verb's grant, so a check has to name the verb. An unbound "does any
+	// fact mention the tool" reading would see /research's grounded search
+	// and fail the /fix negative.
 	program := mockSchema + "\n" + string(data)
 
 	t.Run("researcher persona has grounded_web_search", func(t *testing.T) {
@@ -264,100 +269,56 @@ Decl modular_tool_priority(Tool, Priority).
 		}
 	})
 
-	t.Run("modular_tool_allowed for research", func(t *testing.T) {
-		facts := []testFact{
-			{"user_intent", []any{"id1", "/command", "/research", "topic", "/none"}},
-		}
-		result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
-		found := false
-		for _, f := range result {
-			if len(f.Args) == 2 {
-				tool, ok1 := f.Args[0].(string)
-				intent, ok2 := f.Args[1].(string)
-				if ok1 && ok2 && tool == "/grounded_web_search" && intent == "/research" {
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			t.Errorf("Expected modular_tool_allowed(/grounded_web_search, /research), got: %v", result)
+	t.Run("turn_tool_allowed for research", func(t *testing.T) {
+		result := evaluateAndQuery(t, program, nil, "turn_tool_allowed")
+		if !turnAllowsTool(result, "/research", "/grounded_web_search") {
+			t.Errorf("Expected turn_tool_allowed(/research, /grounded_web_search), got: %v", result)
 		}
 	})
 
-	t.Run("modular_tool_allowed for verify", func(t *testing.T) {
-		facts := []testFact{
-			{"user_intent", []any{"id1", "/command", "/verify", "topic", "/none"}},
-		}
-		result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
-		found := false
-		for _, f := range result {
-			if len(f.Args) == 2 {
-				tool, ok1 := f.Args[0].(string)
-				intent, ok2 := f.Args[1].(string)
-				if ok1 && ok2 && tool == "/grounded_web_search" && intent == "/verify" {
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			t.Errorf("Expected modular_tool_allowed(/grounded_web_search, /verify), got: %v", result)
+	t.Run("turn_tool_allowed for verify", func(t *testing.T) {
+		result := evaluateAndQuery(t, program, nil, "turn_tool_allowed")
+		if !turnAllowsTool(result, "/verify", "/grounded_web_search") {
+			t.Errorf("Expected turn_tool_allowed(/verify, /grounded_web_search), got: %v", result)
 		}
 	})
 
 	t.Run("fix does NOT derive grounded_web_search", func(t *testing.T) {
-		facts := []testFact{
-			{"user_intent", []any{"id1", "/command", "/fix", "file.go", "/none"}},
-		}
-		result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
-		for _, f := range result {
-			if len(f.Args) == 2 {
-				tool, ok1 := f.Args[0].(string)
-				if ok1 && tool == "/grounded_web_search" {
-					t.Errorf("fix intent must not derive grounded_web_search, got: %v", result)
-					break
-				}
-			}
+		result := evaluateAndQuery(t, program, nil, "turn_tool_allowed")
+		if turnAllowsTool(result, "/fix", "/grounded_web_search") {
+			t.Errorf("fix intent must not derive grounded_web_search, got: %v", result)
 		}
 	})
 
 	t.Run("create code intent does NOT derive grounded_web_search", func(t *testing.T) {
-		facts := []testFact{
-			{"user_intent", []any{"id1", "/command", "/create", "file.go", "/none"}},
-		}
-		result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
-		for _, f := range result {
-			if len(f.Args) == 2 {
-				tool, ok1 := f.Args[0].(string)
-				if ok1 && tool == "/grounded_web_search" {
-					t.Errorf("create code intent must not derive grounded_web_search, got: %v", result)
-					break
-				}
-			}
+		result := evaluateAndQuery(t, program, nil, "turn_tool_allowed")
+		if turnAllowsTool(result, "/create", "/grounded_web_search") {
+			t.Errorf("create code intent must not derive grounded_web_search, got: %v", result)
 		}
 	})
 
 	t.Run("explore research and validate verify also allow grounded", func(t *testing.T) {
+		result := evaluateAndQuery(t, program, nil, "turn_tool_allowed")
 		for _, verb := range []string{"/explore", "/validate"} {
-			facts := []testFact{
-				{"user_intent", []any{"id1", "/command", verb, "topic", "/none"}},
-			}
-			result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
-			found := false
-			for _, f := range result {
-				if len(f.Args) == 2 {
-					tool, ok1 := f.Args[0].(string)
-					intent, ok2 := f.Args[1].(string)
-					if ok1 && ok2 && tool == "/grounded_web_search" && intent == verb {
-						found = true
-						break
-					}
-				}
-			}
-			if !found {
-				t.Errorf("Expected modular_tool_allowed(/grounded_web_search, %s), got: %v", verb, result)
+			if !turnAllowsTool(result, verb, "/grounded_web_search") {
+				t.Errorf("Expected turn_tool_allowed(%s, /grounded_web_search), got: %v", verb, result)
 			}
 		}
 	})
+}
+
+// turnAllowsTool reports whether the unbound turn_tool_allowed facts include
+// this verb and tool. Arg 0 is the verb, arg 1 the tool.
+func turnAllowsTool(facts []Fact, verb, tool string) bool {
+	for _, f := range facts {
+		if len(f.Args) != 2 {
+			continue
+		}
+		gotVerb, ok1 := f.Args[0].(string)
+		gotTool, ok2 := f.Args[1].(string)
+		if ok1 && ok2 && gotVerb == verb && gotTool == tool {
+			return true
+		}
+	}
+	return false
 }
