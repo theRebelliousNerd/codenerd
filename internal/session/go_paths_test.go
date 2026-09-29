@@ -80,8 +80,18 @@ func TestGates_AWorkspaceReachedThroughALinkKeepsItsVerdicts(t *testing.T) {
 		result.WrittenPaths = []string{"a/a.go"}
 		result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
 		v, _ := gateTests(context.Background(), ws, result, false)
-		if v.Verdict() != VerifyFailed || !strings.Contains(v.Output, "TestLabelIsTheOldName") {
-			t.Fatalf("gate through a link = %s (%s):\n%s\nwant failed on b's test", v.Verdict(), v.Reason, v.Output)
+		if v.Verdict() != VerifyPassed {
+			t.Fatalf("own run through a link = %s (%s):\n%s\nwant passed", v.Verdict(), v.Reason, v.Output)
+		}
+		imp := result.ImporterCheck
+		if imp.Verdict() != VerifyFailed || !strings.Contains(imp.Output, "TestLabelIsTheOldName") {
+			t.Fatalf("importer run through a link = %s (%s):\n%s\nwant failed on b's test", imp.Verdict(), imp.Reason, imp.Output)
+		}
+		result.TestCheck = v
+		e := newObligationExec(t)
+		e.syncTestGateFacts(testTurn, result)
+		if got := derivedVerify(t, e, testTurn, "/test"); got != VerifyFailed {
+			t.Fatalf("test gate through a link = %s, want failing", got)
 		}
 	})
 

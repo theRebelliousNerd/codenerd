@@ -22,15 +22,21 @@ func TestTurnGate_DerivedRulesMatchOnShardedKernel(t *testing.T) {
 	both := gatePair{t: t, cortex: cortex, single: single}
 
 	const (
-		oldTest    = "/turn_gate_old_test"
-		newTest    = "/turn_gate_new_test"
-		unnamed    = "/turn_gate_unnamed"
-		vetOld     = "/turn_gate_vet_old"
-		vetNew     = "/turn_gate_vet_new"
-		vetDup     = "/turn_gate_vet_dup"
-		checkGreen = "/turn_gate_check_green"
-		checkRed   = "/turn_gate_check_red"
-		checkEarly = "/turn_gate_check_early"
+		oldTest           = "/turn_gate_old_test"
+		newTest           = "/turn_gate_new_test"
+		unnamed           = "/turn_gate_unnamed"
+		vetOld            = "/turn_gate_vet_old"
+		vetNew            = "/turn_gate_vet_new"
+		vetDup            = "/turn_gate_vet_dup"
+		checkGreen        = "/turn_gate_check_green"
+		checkRed          = "/turn_gate_check_red"
+		checkEarly        = "/turn_gate_check_early"
+		impOld            = "/turn_gate_imp_old"
+		impNew            = "/turn_gate_imp_new"
+		impUnnamed        = "/turn_gate_imp_unnamed"
+		impUnfinished     = "/turn_gate_imp_unfinished"
+		ownPass           = "/turn_gate_own_pass"
+		ownOldImpUnfinish = "/turn_gate_own_old_imp_unfinish"
 	)
 
 	both.assert(append(goWrite(oldTest),
@@ -75,11 +81,43 @@ func TestTurnGate_DerivedRulesMatchOnShardedKernel(t *testing.T) {
 		gf("turn_write_seq", ma(checkEarly), int64(2)),
 		gf("turn_check_run", ma(checkEarly), int64(1), int64(0)),
 	)...)
+	// The importer run is a second measurement of /test. An own pass with
+	// no importer facts still passes: the block is absent, so its negation
+	// holds.
+	both.assert(append(goWrite(ownPass),
+		gf("turn_test_measured", ma(ownPass), ma("/passing")),
+	)...)
+	both.assert(append(goWrite(impOld),
+		gf("turn_test_measured", ma(impOld), ma("/passing")),
+		gf("turn_importer_measured", ma(impOld), ma("/failing")),
+		gf("turn_importer_failing_test", ma(impOld), ms("TestAlreadyRed"), ms("red before the turn")),
+		gf("turn_importer_failed_before", ma(impOld), ms("TestAlreadyRed")),
+	)...)
+	both.assert(append(goWrite(impNew),
+		gf("turn_test_measured", ma(impNew), ma("/passing")),
+		gf("turn_importer_measured", ma(impNew), ma("/failing")),
+		gf("turn_importer_failing_test", ma(impNew), ms("TestLabel"), ms("Label = a.widget")),
+	)...)
+	both.assert(append(goWrite(impUnnamed),
+		gf("turn_test_measured", ma(impUnnamed), ma("/passing")),
+		gf("turn_importer_measured", ma(impUnnamed), ma("/failing")),
+	)...)
+	both.assert(append(goWrite(impUnfinished),
+		gf("turn_test_measured", ma(impUnfinished), ma("/passing")),
+		gf("turn_importer_measured", ma(impUnfinished), ma("/unfinished")),
+	)...)
+	both.assert(append(goWrite(ownOldImpUnfinish),
+		gf("turn_test_measured", ma(ownOldImpUnfinish), ma("/failing")),
+		gf("turn_failing_test", ma(ownOldImpUnfinish), ms("TestAlwaysFails"), ms("always fails")),
+		gf("turn_test_failed_before", ma(ownOldImpUnfinish), ms("TestAlwaysFails")),
+		gf("turn_importer_measured", ma(ownOldImpUnfinish), ma("/unfinished")),
+	)...)
 
 	both.parity(
 		"turn_gate", "turn_red_gate", "turn_unmet_gate", "turn_missing_evidence",
 		"turn_own_test_failure", "turn_vet_new", "turn_vet_red",
 		"turn_last_check", "turn_last_test_run",
+		"turn_importer_failure", "turn_importer_blocks", "turn_has_importer_failure",
 	)
 
 	both.gate(oldTest, "/test", "/passing")
@@ -108,6 +146,25 @@ func TestTurnGate_DerivedRulesMatchOnShardedKernel(t *testing.T) {
 	both.has("turn_missing_evidence", checkRed, "/check_not_green")
 	both.lacks("turn_missing_evidence", checkGreen, "/check_not_green")
 	both.has("turn_missing_evidence", checkEarly, "/check_not_green")
+
+	both.gate(ownPass, "/test", "/passing")
+	both.lacks("turn_red_gate", ownPass, "/test")
+	both.gate(impOld, "/test", "/passing")
+	both.lacks("turn_red_gate", impOld, "/test")
+	both.lacks("turn_importer_blocks", impOld, "")
+	both.gate(impNew, "/test", "/failing")
+	both.has("turn_red_gate", impNew, "/test")
+	both.has("turn_importer_failure", impNew, "TestLabel")
+	both.has("turn_importer_blocks", impNew, "")
+	both.gate(impUnnamed, "/test", "/failing")
+	both.has("turn_importer_blocks", impUnnamed, "")
+	both.noGate(impUnfinished, "/test")
+	both.has("turn_unmet_gate", impUnfinished, "/test")
+	both.lacks("turn_red_gate", impUnfinished, "/test")
+	both.has("turn_importer_blocks", impUnfinished, "")
+	both.has("turn_missing_evidence", impUnfinished, "/tests_not_green")
+	both.noGate(ownOldImpUnfinish, "/test")
+	both.has("turn_importer_blocks", ownOldImpUnfinish, "")
 }
 
 func bootGateCortex(t *testing.T) *core.CortexKernel {

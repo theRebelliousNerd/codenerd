@@ -30,17 +30,25 @@ func failedChecksSummary(result *ExecutionResult) string {
 		}
 		parts = append(parts, part)
 	}
-	if result.TestCheck.Verdict() == VerifyFailed {
-		part := "tests fail"
-		// The run's Result already names the failures. Output is the Summary
-		// rendered from it; reading the names back out of that text would
-		// parse our own rendering.
-		if names := failedTopLevels(result.TestCheck.Result); len(names) > 0 {
+	// The run's Result already names the failures. Output is the Summary
+	// rendered from it; reading the names back out of that text would
+	// parse our own rendering. "tests fail" stays the own run's prefix:
+	// a skipped own run must not contain the word, and a closure whose
+	// only red suite is an importer's still has to name that suite.
+	nameFailures := func(label string, v TestVerification) string {
+		part := label
+		if names := failedTopLevels(v.Result); len(names) > 0 {
 			part += ": " + strings.Join(names, ", ")
-		} else if reason := strings.TrimSpace(result.TestCheck.Reason); reason != "" {
+		} else if reason := strings.TrimSpace(v.Reason); reason != "" {
 			part += ": " + reason
 		}
-		parts = append(parts, part)
+		return part
+	}
+	if result.TestCheck.Verdict() == VerifyFailed {
+		parts = append(parts, nameFailures("tests fail", result.TestCheck))
+	}
+	if result.ImporterCheck.Verdict() == VerifyFailed {
+		parts = append(parts, nameFailures("importer tests fail", result.ImporterCheck))
 	}
 	return strings.Join(parts, "; ")
 }

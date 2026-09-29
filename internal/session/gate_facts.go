@@ -85,6 +85,8 @@ func (e *Executor) syncTestGateFacts(turn types.MangleAtom, result *ExecutionRes
 			e.assertTurnFact(fact)
 		}
 	}
+	// The importer run is the other measurement of this same gate.
+	e.syncImporterGateFacts(turn, result)
 }
 
 // syncVetGateFacts replaces this turn's /vet measurements. A conclusive run
@@ -446,13 +448,16 @@ func (e *Executor) derivedGate(turn types.MangleAtom, gate string) (pass, fail b
 
 // testGateRed is the repair loop's question: does policy charge this turn
 // with a test failure? With no kernel there is nothing to ask, and the raw
-// exit is what the loop has. That path does not record a verdict.
+// suite exit is what the loop has (suiteExit: the importer run when it
+// failed or did not finish, otherwise the turn's own). That path does not
+// record a verdict, and it does not attribute: an importer failure that
+// predates the turn is still a failing suite until policy can say otherwise.
 func (e *Executor) testGateRed(turn types.MangleAtom, result *ExecutionResult) bool {
 	if result == nil {
 		return false
 	}
 	if e == nil || e.kernel == nil {
-		return result.TestCheck.Verdict() == VerifyFailed
+		return suiteExit(result) == VerifyFailed
 	}
 	e.syncTestGateFacts(turn, result)
 	_, fail := e.derivedGate(turn, "/test")
@@ -461,13 +466,13 @@ func (e *Executor) testGateRed(turn types.MangleAtom, result *ExecutionResult) b
 
 // testGatePassed is the repair recheck's question, the other side of
 // testGateRed. A failing suite whose every failure predates the turn is
-// passed here and still a failing suite on TestCheck.
+// passed here and still a failing suite on the raw exit.
 func (e *Executor) testGatePassed(turn types.MangleAtom, result *ExecutionResult) bool {
 	if result == nil {
 		return false
 	}
 	if e == nil || e.kernel == nil {
-		return result.TestCheck.Verdict() == VerifyPassed
+		return suiteExit(result) == VerifyPassed
 	}
 	e.syncTestGateFacts(turn, result)
 	pass, _ := e.derivedGate(turn, "/test")

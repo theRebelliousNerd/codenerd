@@ -322,7 +322,13 @@ var hostWitnessPredicates = map[string]struct{}{
 	// turn_last_check would be a second source for the gate.
 	"turn_test_failed_before": {}, "turn_test_measured": {},
 	"turn_own_test_failure": {}, "turn_has_own_test_failure": {}, "turn_has_failing_test": {},
-	"turn_write_seq": {}, "turn_test_run": {},
+	// The importer run of the same /test gate. A model that could write
+	// these could mint or hide an importer charge, or withhold a pass by
+	// asserting /unfinished.
+	"turn_importer_measured": {}, "turn_importer_failing_test": {}, "turn_importer_failed_before": {},
+	"turn_importer_failure": {}, "turn_has_importer_failure": {}, "turn_has_importer_failing_test": {},
+	"turn_importer_blocks": {},
+	"turn_write_seq":       {}, "turn_test_run": {},
 	"turn_last_write":  {},
 	"turn_check_after": {}, "turn_check_after_seq": {}, "turn_last_check": {},
 	"turn_test_after": {}, "turn_test_after_seq": {}, "turn_last_test_run": {},

@@ -41,14 +41,24 @@ func TestGateTests_RunsThePackagesThatImportWhatTheTurnWrote(t *testing.T) {
 	}
 
 	v, _ := gateTests(context.Background(), ws, result, false)
-	if v.Verdict() != VerifyFailed {
-		t.Fatalf("gate = %s (%s), want failed: b's test pins what a returns", v.Verdict(), v.Reason)
+	if v.Verdict() != VerifyPassed {
+		t.Fatalf("own run = %s (%s), want passed: the gate's return is the turn's own package", v.Verdict(), v.Output)
 	}
-	if !strings.Contains(v.Output, "TestLabelIsTheOldName") {
-		t.Errorf("the gate does not name the importer's failing test:\n%s", v.Output)
+	imp := result.ImporterCheck
+	if imp.Verdict() != VerifyFailed {
+		t.Fatalf("importer run = %s (%s), want failed: b's test pins what a returns", imp.Verdict(), imp.Reason)
 	}
-	if !strings.Contains(v.Reason, "import what this turn changed") {
-		t.Errorf("the gate does not say whose tests failed: %q", v.Reason)
+	if !strings.Contains(imp.Output, "TestLabelIsTheOldName") {
+		t.Errorf("the importer run does not name the failing test:\n%s", imp.Output)
+	}
+	if !strings.Contains(imp.Reason, "import what this turn changed") {
+		t.Errorf("the importer run does not say whose tests failed: %q", imp.Reason)
+	}
+	result.TestCheck = v
+	e := newObligationExec(t)
+	e.syncTestGateFacts(testTurn, result)
+	if got := derivedVerify(t, e, testTurn, "/test"); got != VerifyFailed {
+		t.Fatalf("test gate = %s, want failing: TestLabelIsTheOldName did not fail before the turn\n%s", got, imp.Output)
 	}
 }
 
@@ -63,8 +73,18 @@ func TestGateTests_AnImporterThatStillHoldsIsNoFailure(t *testing.T) {
 	result.WrittenPaths = []string{"a/a.go"}
 	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
 
-	if v, _ := gateTests(context.Background(), ws, result, false); v.Verdict() != VerifyPassed {
-		t.Fatalf("gate = %s (%s):\n%s\nwant passed", v.Verdict(), v.Reason, v.Output)
+	v, _ := gateTests(context.Background(), ws, result, false)
+	if v.Verdict() != VerifyPassed {
+		t.Fatalf("own run = %s (%s):\n%s\nwant passed", v.Verdict(), v.Reason, v.Output)
+	}
+	if result.ImporterCheck.Verdict() != VerifyPassed {
+		t.Fatalf("importer run = %s (%s):\n%s\nwant passed", result.ImporterCheck.Verdict(), result.ImporterCheck.Reason, result.ImporterCheck.Output)
+	}
+	result.TestCheck = v
+	e := newObligationExec(t)
+	e.syncTestGateFacts(testTurn, result)
+	if got := derivedVerify(t, e, testTurn, "/test"); got != VerifyPassed {
+		t.Fatalf("test gate = %s, want passing", got)
 	}
 }
 
@@ -84,14 +104,59 @@ func TestGateTests_AnImporterFailingBeforeTheTurnIsNotCharged(t *testing.T) {
 	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
 
 	v, _ := gateTests(context.Background(), ws, result, false)
-	if v.Verdict() != VerifyFailed {
-		t.Fatalf("gate process = %s (%s), want the suite's own failure left in place", v.Verdict(), v.Reason)
+	if v.Verdict() != VerifyPassed {
+		t.Fatalf("own run = %s (%s), want passed: the turn added a function and a's test still holds\n%s", v.Verdict(), v.Reason, v.Output)
 	}
-	if !strings.Contains(v.Output, "TestAlreadyRed") {
-		t.Fatalf("the text does not name the pre-existing failure:\n%s", v.Output)
+	imp := result.ImporterCheck
+	if imp.Verdict() != VerifyFailed {
+		t.Fatalf("importer process = %s (%s), want the suite's own failure left in place", imp.Verdict(), imp.Reason)
 	}
-	if got := derivedVerify(t, testGateExec(t, v), testTurn, "/test"); got != VerifyPassed {
-		t.Fatalf("test gate = %v, want passing: TestAlreadyRed failed before the turn\n%s", got, v.Output)
+	if !strings.Contains(imp.Output, "TestAlreadyRed") {
+		t.Fatalf("the text does not name the pre-existing failure:\n%s", imp.Output)
+	}
+	result.TestCheck = v
+	e := newObligationExec(t)
+	e.syncTestGateFacts(testTurn, result)
+	if got := derivedVerify(t, e, testTurn, "/test"); got != VerifyPassed {
+		t.Fatalf("test gate = %v, want passing: TestAlreadyRed failed before the turn\n%s", got, imp.Output)
+	}
+}
+
+// An importer run that does not finish is not a pass. verifyImporters on a
+// canceled context never lists packages and comes back skipped, which must
+// not block; the unfinished case is the test run after a successful list.
+// verifyTests returns that cancel as itself. Indeterminate is the same
+// /unfinished atom (importer_gate_test.go); a hang is not this test.
+func TestGateTests_AnUnfinishedImporterRunDoesNotPass(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	ws := importerModule(t, "package a\n\nfunc Name() string { return \"widget\" }\n\nfunc Extra() int { return 1 }\n")
+	result := mutationResult()
+	result.WrittenPaths = []string{"a/a.go"}
+	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
+
+	own, _ := gateOwnTests(context.Background(), ws, result, false)
+	if own.Verdict() != VerifyPassed {
+		t.Fatalf("own run = %s (%s), want passed", own.Verdict(), own.Output)
+	}
+	result.TestCheck = own
+	patterns, _ := splitTagGatedPackages(ws, packagesForPaths(result.WrittenPaths))
+	importers := importerPackages(context.Background(), ws, patterns)
+	if len(importers) == 0 {
+		t.Fatal("the fixture has no importer; the cancel would not be a measurement")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	imp := verifyTests(ctx, ws, importers)
+	if imp.Verdict() != VerifyCanceled {
+		t.Fatalf("importer run = %s (%s), want canceled before it started", imp.Verdict(), imp.Reason)
+	}
+	result.ImporterCheck = imp
+	e := newObligationExec(t)
+	e.syncTestGateFacts(testTurn, result)
+	if got := derivedVerify(t, e, testTurn, "/test"); got != VerifySkipped {
+		t.Fatalf("test gate = %s, want neither passing nor failing: the importer run did not finish", got)
 	}
 }
 

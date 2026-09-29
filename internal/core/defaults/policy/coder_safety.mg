@@ -369,19 +369,53 @@ Decl turn_failing_test(Turn, TestName, ErrorMessage) bound [/name, /string, /str
 # no test. turn_test_failed_before is every test the pre-turn baseline
 # failed, when that baseline finished. A failure is this turn's when the
 # head named it and the baseline did not. A failing run that named no test
-# is the turn's: attribution it could not make is not a pass. The gate is
-# red only for the turn's own failures.
+# is the turn's: attribution it could not make is not a pass.
+#
+# The packages that import what the turn wrote are a second run of this
+# same gate (session/importer_gate_facts.go), not a second gate and not a
+# Source column on turn_failing_test. That predicate is the turn's own
+# go test -json run; a Source argument would rewrite every rule that joins
+# it. turn_importer_measured is the importer run's exit: /passing,
+# /failing, or /unfinished when the run timed out or was canceled. R1-18
+# (2026-09-19) hit a four-minute importer budget and still printed
+# "tests ok", because a run that did not finish was treated as no verdict.
+# /unfinished withholds a pass and names no failure, so nothing is
+# repaired. A skipped importer run, or one this turn did not make, asserts
+# nothing, and the own rules stand. A failure is the turn's when the
+# importer head named it and the importer baseline did not.
 Decl turn_test_failed_before(Turn, TestName) bound [/name, /string].
 Decl turn_test_measured(Turn, Outcome) bound [/name, /name].
 Decl turn_own_test_failure(Turn, Name) bound [/name, /string].
 Decl turn_has_own_test_failure(Turn) bound [/name].
 Decl turn_has_failing_test(Turn) bound [/name].
+Decl turn_importer_failed_before(Turn, TestName) bound [/name, /string].
+Decl turn_importer_failing_test(Turn, TestName, ErrorMessage) bound [/name, /string, /string].
+Decl turn_importer_measured(Turn, Outcome) bound [/name, /name].
+Decl turn_importer_failure(Turn, Name) bound [/name, /string].
+Decl turn_has_importer_failure(Turn) bound [/name].
+Decl turn_has_importer_failing_test(Turn) bound [/name].
+Decl turn_importer_blocks(Turn) bound [/name].
 
 turn_own_test_failure(Turn, Name) :-
     turn_failing_test(Turn, Name, _),
     !turn_test_failed_before(Turn, Name).
 turn_has_own_test_failure(Turn) :- turn_own_test_failure(Turn, _).
 turn_has_failing_test(Turn) :- turn_failing_test(Turn, _, _).
+
+turn_importer_failure(Turn, Name) :-
+    turn_importer_failing_test(Turn, Name, _),
+    !turn_importer_failed_before(Turn, Name).
+turn_has_importer_failure(Turn) :- turn_importer_failure(Turn, _).
+turn_has_importer_failing_test(Turn) :- turn_importer_failing_test(Turn, _, _).
+# A run that did not finish, a new importer failure, or a failing run that
+# named no test. The projection is what negation can see.
+turn_importer_blocks(Turn) :- turn_importer_measured(Turn, /unfinished).
+turn_importer_blocks(Turn) :-
+    turn_importer_measured(Turn, /failing),
+    turn_has_importer_failure(Turn).
+turn_importer_blocks(Turn) :-
+    turn_importer_measured(Turn, /failing),
+    !turn_has_importer_failing_test(Turn).
 
 turn_gate(Turn, /test, /failing) :-
     turn_test_measured(Turn, /failing),
@@ -391,12 +425,20 @@ turn_gate(Turn, /test, /failing) :-
 turn_gate(Turn, /test, /failing) :-
     turn_test_measured(Turn, /failing),
     !turn_has_failing_test(Turn).
+turn_gate(Turn, /test, /failing) :-
+    turn_importer_measured(Turn, /failing),
+    turn_has_importer_failure(Turn).
+turn_gate(Turn, /test, /failing) :-
+    turn_importer_measured(Turn, /failing),
+    !turn_has_importer_failing_test(Turn).
 turn_gate(Turn, /test, /passing) :-
-    turn_test_measured(Turn, /passing).
+    turn_test_measured(Turn, /passing),
+    !turn_importer_blocks(Turn).
 turn_gate(Turn, /test, /passing) :-
     turn_test_measured(Turn, /failing),
     turn_has_failing_test(Turn),
-    !turn_has_own_test_failure(Turn).
+    !turn_has_own_test_failure(Turn),
+    !turn_importer_blocks(Turn).
 # turn_doc_write: the written path lies under a path the workspace's nerd.md
 # declares as docs (the executor measures it; assertTurnWrites).
 Decl turn_doc_write(Turn, Path) bound [/name, /string].

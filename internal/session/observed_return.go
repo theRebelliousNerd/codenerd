@@ -89,14 +89,19 @@ func observedReturn(agent, task string, res *ExecutionResult) observation.Return
 			Detail:  firstLine(res.BuildCheck.Output),
 		}
 	}
-	if res.TestCheck.Ran || res.TestCheck.OK || res.TestCheck.Output != "" || res.TestCheck.Outcome != "" {
+	// The observed suite is the turn's own run and the importer run
+	// together (suiteExit): an own pass over a red or unfinished importer
+	// run is not "tests OK". The charge is still the derived /test gate;
+	// this reports what ran and how it exited.
+	if res.TestCheck.Ran || res.TestCheck.OK || res.TestCheck.Output != "" || res.TestCheck.Outcome != "" || res.ImporterCheck.Ran {
+		exit := suiteExit(res)
 		out.Tests = &observation.Verification{
 			Kind:    "tests",
 			Source:  observation.SourceObserved,
-			Ran:     res.TestCheck.Ran,
-			OK:      res.TestCheck.OK,
-			Outcome: string(res.TestCheck.Verdict()),
-			Detail:  firstLine(res.TestCheck.Output),
+			Ran:     res.TestCheck.Ran || res.ImporterCheck.Ran,
+			OK:      exit == VerifyPassed,
+			Outcome: string(exit),
+			Detail:  firstLine(suiteFailureText(res)),
 		}
 	}
 

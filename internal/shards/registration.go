@@ -184,8 +184,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// /test_retention gates are derived from (coder_safety.mg).
 				// They join turn_failing_test, turn_check_run and turn_gate,
 				// which this shard owns; a catch-all home would split those
-				// joins and the gate would never fire.
+				// joins and the gate would never fire. The importer run's
+				// rows join the same /test gate.
 				"turn_test_failed_before", "turn_test_measured",
+				"turn_importer_failed_before", "turn_importer_failing_test", "turn_importer_measured",
 				"turn_write_seq", "turn_test_run",
 				"turn_vet_ran", "turn_vet_finding", "turn_vet_before",
 				"turn_removed_test_ran", "turn_removed_test",

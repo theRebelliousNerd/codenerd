@@ -126,3 +126,36 @@ func containsSubstring(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+// TestObservedReturn_OwnPassOverRedImporters_IsNotTestsOK pins the suite a
+// parent is told about. The turn's own run and the importer run are two
+// measurements of one /test gate (importer_gate_facts.go); an own pass over
+// an importer failure used to reach the parent as "tests OK" once the merged
+// struct was gone, because only TestCheck was published.
+func TestObservedReturn_OwnPassOverRedImporters_IsNotTestsOK(t *testing.T) {
+	t.Parallel()
+
+	res := &ExecutionResult{
+		TestCheck:     TestVerification{Ran: true, OK: true, Output: "ok  example.com/own\n"},
+		ImporterCheck: TestVerification{Ran: true, OK: false, Output: "--- FAIL: TestCaller\ncaller detail\n"},
+	}
+	got := observedReturn("coder", "task", res)
+	if got.Tests == nil {
+		t.Fatal("an importer run was made; the observation must report tests")
+	}
+	if got.Tests.OK {
+		t.Fatal("own pass over a failing importer run was reported as tests OK")
+	}
+	if got.Tests.Outcome != string(VerifyFailed) {
+		t.Fatalf("Outcome = %q, want %q", got.Tests.Outcome, VerifyFailed)
+	}
+	if got.Tests.Detail != "--- FAIL: TestCaller" {
+		t.Fatalf("Detail = %q, want the importer run's first line", got.Tests.Detail)
+	}
+
+	res.ImporterCheck = TestVerification{Ran: true, OK: true}
+	got = observedReturn("coder", "task", res)
+	if got.Tests == nil || !got.Tests.OK || got.Tests.Outcome != string(VerifyPassed) {
+		t.Fatalf("own pass and importer pass must be tests OK, got %+v", got.Tests)
+	}
+}

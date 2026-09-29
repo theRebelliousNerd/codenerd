@@ -362,7 +362,10 @@ func (e *Executor) verifyAndRepairCoverage(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if result == nil || len(result.UncoveredBlocks) == 0 || result.TestCheck.Verdict() != VerifyPassed {
+	// suiteExit, not TestCheck: an own pass over a red importer run is not
+	// "tests pass, write coverage". The coverage round used to see the
+	// merged struct, which was the importer's failure.
+	if result == nil || len(result.UncoveredBlocks) == 0 || suiteExit(result) != VerifyPassed {
 		return nil, nil, nil
 	}
 	workspace := e.workspaceForVerification()

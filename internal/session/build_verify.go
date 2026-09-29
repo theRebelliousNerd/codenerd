@@ -358,6 +358,8 @@ func (e *Executor) verifyAndRepairTests(
 
 	verification, uncovered := gateTests(ctx, workspace, result, true)
 	uncovered = narrowToChangedLines(workspace, result, uncovered)
+	// verification is the turn's own run. The importer run, when this
+	// gate made one, is already on result.ImporterCheck.
 	result.TestCheck = verification
 
 	// Coverage is reported whether or not the tests passed. Green tests over
@@ -371,7 +373,10 @@ func (e *Executor) verifyAndRepairTests(
 			len(uncovered), summarizeUncovered(uncovered))
 	}
 
-	switch verification.Verdict() {
+	// suiteExit, not the own verdict: an importer run that was canceled or
+	// timed out must not fall through into a pass (R1-18). The own run
+	// wins when it is the one that did not finish.
+	switch suiteExit(result) {
 	case VerifyCanceled:
 		return nil, nil, fmt.Errorf("test verification canceled: %w", context.Canceled)
 	case VerifyIndeterminate:
@@ -402,6 +407,9 @@ func (e *Executor) verifyAndRepairTests(
 	// A failure only in packages this turn cannot have broken does not
 	// repair; an unlocated build failure still does, fail closed, and the
 	// guard repairRound installs keeps those writes inside the set.
+	// The guard reads the own run. An importer failure stays this turn's
+	// to repair: the diagnostic is in the caller's file because the turn
+	// changed the contract the caller compiles against.
 	owned := turnOwnedPaths(ctx, result)
 	if foreign, outside := testBuildFailuresOutsideWriteSet(result.TestCheck.Result, owned, workspace); outside {
 		logging.Get(logging.CategorySession).Warn(
@@ -415,10 +423,13 @@ func (e *Executor) verifyAndRepairTests(
 	logging.Get(logging.CategorySession).Warn(
 		"Edits broke the tests; giving the model one repair round with the test output")
 
+	// The seed is the run the suite actually failed on. verification is the
+	// own run; an importer failure's text is on ImporterCheck.
+	seed := suiteFailureText(result)
 	if trp == nil {
 		return nil, nil, fmt.Errorf(
 			"%w: edits broke the tests and no repair is possible (client cannot accept tool results):\n%s",
-			ErrVerificationFailed, verification.Output)
+			ErrVerificationFailed, seed)
 	}
 
 	spec := repairSpec{
@@ -429,14 +440,10 @@ func (e *Executor) verifyAndRepairTests(
 		// a model that has not already read the test it broke cannot.
 		promptFor: func(seed string) string {
 			// repairSpec.promptFor threads the seed as text. The Result is
-			// the test check's when this seed is that check's Output. A
-			// build recheck's seed is compiler text and has no Result;
-			// the previous run's tests would name the wrong files.
-			var res *testfacts.Result
-			if result.TestCheck.Output == seed {
-				res = result.TestCheck.Result
-			}
-			return testRepairPrompt(seed, failingTestSection(workspace, res, result.WrittenPaths)) +
+			// the run this seed was taken from. A build recheck's seed is
+			// compiler text and has no Result; the previous run's tests
+			// would name the wrong files.
+			return testRepairPrompt(seed, failingTestSection(workspace, suiteFailureResult(result, seed), result.WrittenPaths)) +
 				turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents, e.configSnapshot().repairDiffBudget())
 		},
 		// A test repair can break the build, so re-check both, cheapest
@@ -457,20 +464,35 @@ func (e *Executor) verifyAndRepairTests(
 				return false, repairFailure{}, VerifyCanceled
 			}
 			rt, _ := gateTests(epCtx, workspace, result, false)
+			// gateTests stored the importer measurement on result. The own
+			// run is rt, and it stays off result when it did not finish: a
+			// timeout keeps the original failure. suiteExit has to see this
+			// run, so it reads a copy. Returning the own verdict while the
+			// importer run is red would tell the repair loop the suite
+			// passed (repair_loop.go treats anything but Failed as no
+			// verdict).
+			measured := *result
+			measured.TestCheck = rt
 			if rt.Verdict() == VerifyPassed || rt.Verdict() == VerifyFailed {
 				result.TestCheck = rt
+			}
+			switch suiteExit(&measured) {
+			case VerifyCanceled:
+				return false, repairFailure{}, VerifyCanceled
+			case VerifyIndeterminate:
+				return false, repairFailure{Output: suiteFailureText(&measured)}, VerifyIndeterminate
 			}
 			if e.testGatePassed(result.turnAtom(), result) {
 				return true, repairFailure{}, VerifyPassed
 			}
-			return false, repairFailure{Output: rt.Output}, rt.Verdict()
+			return false, repairFailure{Output: suiteFailureText(&measured)}, VerifyFailed
 		},
 		followups: func() []string {
 			runnable, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
 			return repairFollowups(workspace, runnable, result, "tests")
 		},
 	}
-	repaired, repairErrs, rec, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, verification.Output, spec)
+	repaired, repairErrs, rec, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, seed, spec)
 	result.TestCheck.Repair = rec
 	if err != nil {
 		return nil, repairErrs, err
@@ -481,37 +503,35 @@ func (e *Executor) verifyAndRepairTests(
 // gateTests runs the post-edit test gate over the packages the turn wrote:
 // go test (with coverage and baseline attribution) on packages the default
 // tags can build, go vet -tags on packages whose files are all tag-gated, and
-// then -- when those pass -- the tests of the packages that import them
-// (N25, importer_packages.go), because a contract the turn changed is kept by
-// its callers and not by itself.
+// then -- when those pass, or every named failure predates the turn -- the
+// tests of the packages that import them (N25, importer_packages.go), because
+// a contract the turn changed is kept by its callers and not by itself.
+//
+// The return is the turn's own run. The importer run is stored on
+// result.ImporterCheck. The /test rule reads both; this function does not
+// merge them into one verdict.
 func gateTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
 	v, uncovered := gateOwnTests(ctx, workspace, result, withCoverage)
 	// Importers still run when the turn's own named failures all predate it,
-	// so a new importer failure is measured. That comparison does not set
-	// the outcome: the /test rule does, from the run this returns.
+	// so a new importer failure is measured. That comparison schedules the
+	// run. It does not set the outcome.
 	if v.Verdict() != VerifyPassed && !failuresAllPredate(v) {
+		switch v.Verdict() {
+		case VerifyCanceled, VerifyIndeterminate:
+			// This run did not finish. The previous importer measurement
+			// stays: the caller keeps the previous TestCheck for the same
+			// reason (a recheck timeout retains the original failure), and
+			// wiping the importer row while that check still says the suite
+			// passed would derive a pass from a run that did not finish.
+		default:
+			// A conclusive own failure, or a skip, did not run importers.
+			// A measurement from an earlier revision is not this run.
+			result.ImporterCheck = TestVerification{}
+		}
 		return v, uncovered
 	}
-	return mergeImporterVerdict(v, verifyImporters(ctx, workspace, result)), uncovered
-}
-
-// mergeImporterVerdict is what the gate reports once the turn's own packages
-// have passed and the importer check has run.
-//
-// Only an affirmative pass, or a check that had nothing to run, leaves the
-// turn's own pass standing. Anything else is the gate's answer, including a
-// check that produced no verdict: ladder run R1-18 (2026-09-19) hit the
-// four-minute verification budget on six importer packages and still printed
-// "build ok | tests ok", because the old form propagated VerifyFailed alone and
-// everything else fell through to the pass measured on other packages. A
-// timeout is not proof that the importers passed.
-func mergeImporterVerdict(own, imp TestVerification) TestVerification {
-	switch imp.Verdict() {
-	case VerifyPassed, VerifySkipped:
-		return own
-	default:
-		return imp
-	}
+	result.ImporterCheck = verifyImporters(ctx, workspace, result)
+	return v, uncovered
 }
 
 // gateOwnTests is the gate over the turn's own packages.
@@ -956,10 +976,11 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	result.CriticFindings = findings
 
 	// One line carrying every gate's verdict. Reaching this point means the
-	// build and tests already passed — the two hard gates return early
-	// otherwise — so those are true by construction here.
+	// build passed -- that gate returns early otherwise. The tests are not
+	// true by construction: an unfinished importer run returns no error from
+	// the test gate and leaves /test unmet, so the line asks the gate.
 	logging.Get(logging.CategorySession).Info("turn signals: %s",
-		SummarizeTurnSignals(true, true, len(result.UncoveredBlocks), len(findings)))
+		SummarizeTurnSignals(true, e.testGatePassed(result.turnAtom(), result), len(result.UncoveredBlocks), len(findings)))
 
 	if len(findings) == 0 {
 		return nil, nil
@@ -1028,6 +1049,10 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 	if !wroteGo(result.WrittenPaths) {
 		return nil
 	}
+	// Saved before gateTests. A test failure undoes the uplift, and
+	// gateTests has already replaced ImporterCheck with the measurement of
+	// the broken workspace. The restored files are the previous run.
+	prevImp := result.ImporterCheck
 	build := verifyBuild(ctx, workspace, nil)
 	if build.Verdict() == VerifyCanceled {
 		return fmt.Errorf("uplift build re-verification canceled: %w", context.Canceled)
@@ -1042,11 +1067,18 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 		// package is compile-checked, not failed, and the blocks the uplift
 		// left unexecuted reach the coverage round.
 		tests, uncovered = gateTests(ctx, workspace, result, true)
-		if tests.Verdict() == VerifyCanceled {
+		// suiteExit reads the fresh own run. result.TestCheck is still the
+		// pre-uplift verdict until this round is kept.
+		measured := *result
+		measured.TestCheck = tests
+		switch suiteExit(&measured) {
+		case VerifyCanceled:
 			return fmt.Errorf("uplift test re-verification canceled: %w", context.Canceled)
-		}
-		if tests.Verdict() == VerifyFailed {
-			broke, failure = "tests", tests.Output
+		case VerifyFailed:
+			// Raw suite, including an importer failure whose names all
+			// predate the turn. The undo puts the previous workspace back;
+			// the derived charge is not what decides the undo.
+			broke, failure = "tests", suiteFailureText(&measured)
 		}
 	}
 	if broke != "" {
@@ -1070,6 +1102,9 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 		logging.Get(logging.CategorySession).Warn(
 			"The adversarial review's uplift round broke the %s; restored %s as the review found them. Output:\n%s",
 			broke, strings.Join(restored, ", "), failure)
+		if broke == "tests" {
+			result.ImporterCheck = prevImp
+		}
 		return nil
 	}
 	build.Repair = inheritRepair(build.Verdict(), result.BuildCheck.Repair)
@@ -1082,7 +1117,10 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 	result.TestCheck = tests
 	result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
 	result.UntestedPaths = untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths)
-	if tests.Verdict() == VerifyIndeterminate {
+	// Own or importer: a run that did not finish is not a recovered pass.
+	// Canceled already returned. A build failure returned from the undo
+	// above, so this is the test run's measurement.
+	if tests.Verdict() == VerifyIndeterminate || result.ImporterCheck.Verdict() == VerifyIndeterminate {
 		logging.Get(logging.CategorySession).Warn(
 			"Uplift test re-verification timed out; prior pass invalidated, recovery NOT verified")
 	}

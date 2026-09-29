@@ -738,6 +738,11 @@ type ExecutionResult struct {
 	// because the turn text names them after the facts are gone.
 	BuildForeignPackages []string
 	TestCheck            TestVerification
+	// ImporterCheck is the test run of the packages that import what this
+	// turn wrote. It is that run's measurement, not a merged verdict: the
+	// /test rule reads it beside TestCheck. The zero value means this turn
+	// did not run that check.
+	ImporterCheck TestVerification
 	// VetCheck is `go vet` over the packages the turn wrote, judged on the
 	// turn's own files: a finding in a file the turn did not touch is not
 	// this turn's evidence.
@@ -2629,7 +2634,11 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	// buildVerifyTimeout inside runVerificationCommand, the same budget
 	// the build itself just ran under.
 	e.syncBuildGateFacts(context.Background(), turn, result)
-	if state, ok := stateOf(result.TestCheck.Verdict()); ok {
+	// test_state stays the raw suite exit. suiteExit includes an importer
+	// run that failed or did not finish; the charge for that run is the
+	// derived /test gate, which still passes when every named failure
+	// predates the turn.
+	if state, ok := stateOf(suiteExit(result)); ok {
 		e.assertTurnFact(types.Fact{Predicate: "test_state", Args: []any{state}})
 	}
 	e.syncTestGateFacts(turn, result)

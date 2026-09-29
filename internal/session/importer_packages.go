@@ -82,9 +82,15 @@ func listImportPaths(ctx context.Context, workspace string, pkgs []string) map[s
 }
 
 // verifyImporters runs the tests of the packages that import what the turn
-// wrote, and charges the turn only with failures that were not already there
-// before it (attributeTestFailures, over the same preimages). A skipped or
-// unfinished run is no verdict: the turn's own gate stands.
+// wrote. attributeTestFailures records which of those failures also failed
+// before the turn; it does not decide the gate. The /test rule does, from
+// the rows syncImporterGateFacts asserts for this run.
+//
+// A list that fails, or a turn nothing imports, is no measurement: the own
+// gate stands. A test run that does not finish is returned as itself
+// (canceled or indeterminate). That is a measurement. The /test rule
+// withholds a pass for it (R1-18: an importer run that hit its budget was
+// reported as tests ok).
 func verifyImporters(ctx context.Context, workspace string, result *ExecutionResult) TestVerification {
 	workspace = goWorkspace(workspace)
 	own, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
