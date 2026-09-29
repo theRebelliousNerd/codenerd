@@ -84,11 +84,40 @@ func changedElementRefs(cur string, pre PreImage, path string) []string {
 // a future witness rule joins turn_changed_element against code_element, and a
 // near-match joins nothing (internal/mangle/agents.md: a Decl is a contract).
 func elementRefs(cur string, names []string) []string {
-	f, err := parser.ParseFile(token.NewFileSet(), "", cur, parser.SkipObjectResolution)
+	byKey := elementFuncs(cur)
+	if len(byKey) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(names))
+	var out []string
+	for _, name := range names {
+		fn, ok := byKey[name]
+		if !ok || seen[fn.ref] {
+			continue
+		}
+		seen[fn.ref] = true
+		out = append(out, fn.ref)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// elementFunc is one top-level function or method: the code_element ref and
+// the declaration's line span. One parse produces both so the coverage
+// mapping joins a profile block to the same element turn_changed_element
+// names, not to a span a second parser might draw differently.
+type elementFunc struct {
+	ref  string
+	span LineRange
+}
+
+func elementFuncs(src string) map[string]elementFunc {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
 	if err != nil {
 		return nil
 	}
-	byKey := make(map[string]string, len(names))
+	byKey := make(map[string]elementFunc)
 	for _, d := range f.Decls {
 		fn, isFunc := d.(*ast.FuncDecl)
 		if !isFunc {
@@ -102,19 +131,30 @@ func elementRefs(cur string, names []string) []string {
 		if _, dup := byKey[key]; dup {
 			continue
 		}
-		byKey[key] = elementRef(f.Name.Name, fn)
+		byKey[key] = elementFunc{
+			ref: elementRef(f.Name.Name, fn),
+			span: LineRange{
+				Start: fset.Position(fn.Pos()).Line,
+				End:   fset.Position(fn.End()).Line,
+			},
+		}
 	}
-	seen := make(map[string]bool, len(names))
-	var out []string
-	for _, name := range names {
-		ref, ok := byKey[name]
-		if !ok || seen[ref] {
+	return byKey
+}
+
+// elementSpans is elementFuncs keyed by ref, for the coverage mapping.
+func elementSpans(src string) map[string]LineRange {
+	byKey := elementFuncs(src)
+	if len(byKey) == 0 {
+		return nil
+	}
+	out := make(map[string]LineRange, len(byKey))
+	for _, fn := range byKey {
+		if _, ok := out[fn.ref]; ok {
 			continue
 		}
-		seen[ref] = true
-		out = append(out, ref)
+		out[fn.ref] = fn.span
 	}
-	sort.Strings(out)
 	return out
 }
 

@@ -166,6 +166,12 @@ Decl turn_written(Turn, Path, Ext) bound [/name, /string, /string].
 # <pkg> the package clause -- so a future witness rule joins it against
 # code_element directly. No rule reads it yet.
 Decl turn_changed_element(Turn, Ref) bound [/name, /string].
+# turn_element_uncovered is a changed element this turn's coverage run never
+# executed: its span holds at least one statement block, and every one of
+# them has an execution count of 0 (session/turn_element_coverage.go). Ref is
+# the same code_element ref as turn_changed_element. Nothing reads it yet.
+# The file-level turn_uncovered above remains the verdict's coverage debt.
+Decl turn_element_uncovered(Turn, Ref) bound [/name, /string].
 # turn_doc_write: the written path lies under a path the workspace's nerd.md
 # declares as docs (the executor measures it; assertTurnWrites).
 Decl turn_doc_write(Turn, Path) bound [/name, /string].

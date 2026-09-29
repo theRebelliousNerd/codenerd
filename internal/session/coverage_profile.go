@@ -50,8 +50,12 @@ import (
 // gate stack exists to make impossible, so it is recorded here rather than
 // quietly deleted.
 
-// UncoveredBlock is a single uncovered block from a Go coverage profile that
-// belongs to a file the turn wrote.
+// UncoveredBlock is one block from a Go coverage profile that belongs to a
+// file the turn wrote. Count 0 is a block no test executed, which is all this
+// type used to carry. A positive Count is a block the same run did execute:
+// an element is uncovered only when none of its statement blocks ran, so the
+// executed ones have to travel with the profile. The file-level debt drops
+// them again (uncoveredStatementBlocks) before anything records it.
 type UncoveredBlock struct {
 	// File is the import-qualified path as it appears in the profile, e.g.
 	// "codenerd/internal/session/foo.go".
@@ -65,11 +69,26 @@ type UncoveredBlock struct {
 
 	// NumStmts is the number of statements in the block.
 	NumStmts int
+
+	// Count is how many times this run executed the block.
+	Count int
 }
 
 // parseCoverProfile parses a Go coverage profile from r and returns only the
 // blocks whose count is 0 and whose file path has a suffix matching one of
-// writtenFiles.
+// writtenFiles. parseCoverBlocks is the same parse without the count filter:
+// the element mapping needs the blocks this run did execute.
+func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, error) {
+	blocks, err := parseCoverBlocks(r, writtenFiles)
+	if err != nil {
+		return nil, err
+	}
+	return uncoveredStatementBlocks(blocks), nil
+}
+
+// parseCoverBlocks parses a Go coverage profile from r and returns every
+// statement block whose file path has a suffix matching one of writtenFiles,
+// executed or not.
 //
 // The profile format is the one `go test -coverprofile` writes:
 //
@@ -85,7 +104,7 @@ type UncoveredBlock struct {
 // (e.g. "codenerd/internal/session/foo.go") while writtenFiles are
 // workspace-relative (e.g. "internal/session/foo.go"). A block is kept when
 // its File ends with one of the writtenFiles entries after slash-normalisation.
-func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, error) {
+func parseCoverBlocks(r io.Reader, writtenFiles []string) ([]UncoveredBlock, error) {
 	scanner := bufio.NewScanner(r)
 
 	// The first line is the mode line.
@@ -170,10 +189,10 @@ func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, er
 			return nil, fmt.Errorf("malformed coverage line %d: invalid count %q: %w", lineNum, countStr, err)
 		}
 
-		// Only uncovered blocks are surfaced, and only ones with a statement a
-		// test could execute: an empty body (`func main() {}`) is a block of
-		// zero statements, and reporting it asked for a test of nothing.
-		if count != 0 || numStmts == 0 {
+		// An empty body (`func main() {}`) is a block of zero statements, and
+		// reporting it asked for a test of nothing. Executed blocks stay:
+		// dropping them here would make a partly-run function look unrun.
+		if numStmts == 0 {
 			continue
 		}
 
@@ -195,6 +214,7 @@ func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, er
 			StartLine: startLine,
 			EndLine:   endLine,
 			NumStmts:  numStmts,
+			Count:     count,
 		})
 	}
 	if err := scanner.Err(); err != nil {
@@ -203,9 +223,24 @@ func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, er
 	return out, nil
 }
 
+// uncoveredStatementBlocks is the file-level coverage debt: statement blocks
+// this run did not execute. Executed blocks stay on the profile until here so
+// an element can be judged by whether any of its blocks ran.
+func uncoveredStatementBlocks(blocks []UncoveredBlock) []UncoveredBlock {
+	var out []UncoveredBlock
+	for _, b := range blocks {
+		if b.Count == 0 && b.NumStmts > 0 {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
 // verifyTestsWithCoverage runs the packages' tests ONCE and returns both
-// signals: whether they passed, and which blocks in the turn's own files were
-// never executed.
+// signals: whether they passed, and every statement block in the turn's own
+// files, executed or not. narrowToChangedLines is what reduces that to the
+// blocks no test executed; filtering here would throw away the only evidence
+// that a function ran at all.
 //
 // Two separate invocations would be the obvious composition — verifyTests for
 // pass/fail, then uncoveredWrittenCode for coverage — and it would double the
@@ -245,7 +280,7 @@ func verifyTestsWithCoverage(
 	}
 	defer f.Close()
 
-	blocks, perr := parseCoverProfile(f, writtenPaths)
+	blocks, perr := parseCoverBlocks(f, writtenPaths)
 	if perr != nil {
 		logging.Get(logging.CategorySession).Warn(
 			"coverage profile could not be parsed (%v); test verdict stands", perr)

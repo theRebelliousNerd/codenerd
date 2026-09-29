@@ -280,7 +280,17 @@ func vetBrokeTestsPrompt(testOutput string) string {
 // large file reports every uncovered block of the file as code the turn wrote
 // (observed 2026-09-11: 59 blocks for one line); a file with no pre-write
 // snapshot, which the turn created, keeps all its blocks.
-func narrowToChangedLines(workspace string, result *ExecutionResult, uncovered []UncoveredBlock) []UncoveredBlock {
+//
+// blocks is the whole profile for the written files, executed blocks included.
+// The element facts are taken from that whole list first: a function whose
+// false branch never ran still ran if its true branch did, and the uncovered
+// list alone cannot say so. The slice this returns is the file-level debt,
+// executed blocks already dropped.
+func narrowToChangedLines(workspace string, result *ExecutionResult, blocks []UncoveredBlock) []UncoveredBlock {
+	if result != nil {
+		result.ElementUncovered = elementUncoveredRefs(workspace, result, blocks)
+	}
+	uncovered := uncoveredStatementBlocks(blocks)
 	if len(uncovered) == 0 || len(result.PreWriteContents) == 0 {
 		return uncovered
 	}

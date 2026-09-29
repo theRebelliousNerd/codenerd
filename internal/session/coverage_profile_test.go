@@ -226,6 +226,7 @@ func TestVerifyTestsWithCoverage_OneRunGivesBothSignals(t *testing.T) {
 	if len(blocks) == 0 {
 		t.Error("tests passed but Unused is never called; coverage must still report it — that is the whole point of this gate")
 	}
+	var ran, missed int
 	for _, b := range blocks {
 		if !strings.HasSuffix(filepath.ToSlash(b.File), "calc.go") {
 			t.Errorf("reported a block outside the written file: %+v", b)
@@ -233,6 +234,16 @@ func TestVerifyTestsWithCoverage_OneRunGivesBothSignals(t *testing.T) {
 		if b.NumStmts <= 0 {
 			t.Errorf("block reports no statements: %+v", b)
 		}
+		if b.Count > 0 {
+			ran++
+		} else {
+			missed++
+		}
+	}
+	// Both have to come back. Dropping the executed block here makes a
+	// function that ran look like one the run never entered.
+	if ran == 0 || missed == 0 {
+		t.Fatalf("profile blocks = %+v, want the executed function and the one the test never calls", blocks)
 	}
 
 	// A file the turn did not write must never be reported, even though it is
