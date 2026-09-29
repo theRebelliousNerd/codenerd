@@ -5862,3 +5862,28 @@ was the sort's tie-break, unreachable because the dedup keys on the lower-cased 
 its failure: 55 -> 32 tools, 2.77 M -> 1.71 M prompt tokens, 23 -> 7 GiB, three pasted normalizers ->
 one helper, test undone -> test kept. Fixing the blocker was worth more than any brief tweak.
 Verdict honesty held both times: the harness never called either attempt /done.
+
+## 2026-09-29 -- first live runs after the lane stretch (validator phantom-tool symptom)
+
+**Brief** (symptoms only, reproduced first): `cmd/tools/validate_prompt_atoms` accepts an atom whose
+`requires_tools` names a tool that does not exist (`[begin_transaction, read_file]` -> "OK: no issues
+found", exit 0); the shipped corpus had exactly this (`capability/codedom_transaction`, removed by hand in
+`ccc6e070`). A leaf `main` package, chosen so the importer gates stay clear of lanes editing
+`internal/session`.
+
+**Run 1** (00:48, binary 92d45fda, 44 s): **did not boot.** `user agent "RodExpert" declares tool
+"rod_download_browser", which is not a registered tool` -- `nerd init` had written a tool name it never
+defines into `.nerd/agents.json`, and the kernel-catalog commit's new refusal aborted the whole boot. No
+unit test boots against the real workspace; 25 green commits, first live run red in 44 s. Fixed by a lane:
+`2dadb513` (init names only tools it defines; a bad agent is refused alone with a warning).
+
+**Run 2** (01:25-01:29, 4 m, binary 2dadb513 built from `git archive HEAD`; 35 tools offered, edit tools
+included): `working_stop(/read_only_stall)` after 24 rounds, nothing written. Rounds 1-16 read (find_symbol
+x5, get_element x7, package_outline x2, find_text x2); **round 16: the ledger compacted and moved 14
+results behind recall handles** (defaults: `ledger_ceiling_bytes` 65536, `ledger_keep_rounds` 2 -- the whole
+working set but two rounds); rounds 17-24: `recall_context` x8 paging them back, two of which failed
+because the model garbled a 64-hex handle id. The stall detector was right to stop it; the context ledger
+caused the stall. First live measurement of the ledger (it had been "UNMEASURED live" since 2026-09-24).
+Lane L1 (from 01:35): evict stale/superseded before live, no re-eviction of a recalled result, short
+handles, ceiling derived from the model's budget. Rerun the same brief after L1.
+Also: Ollama fell back to CPU during this run (Vulkan discovery hangs on a wedged GPU; not codeNERD).
