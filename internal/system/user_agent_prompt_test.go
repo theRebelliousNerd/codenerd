@@ -1,13 +1,16 @@
 package system
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"codenerd/internal/core"
 	"codenerd/internal/prompt"
 	prsync "codenerd/internal/prompt/sync"
 	"codenerd/internal/session"
@@ -262,8 +265,8 @@ func TestRegisterUserAgentConfigAtomsHonorsDeclaredTools(t *testing.T) {
 		t.Errorf("unregistered verb gained go_build: %v", unknown)
 	}
 
-	// A declared tool the host has not seen registered is refused by name,
-	// and nothing is registered for that file.
+	// A declared tool the host has not seen registered refuses that agent
+	// by name. Boot does not fail, and nothing is registered for it.
 	refused := t.TempDir()
 	writeAgentsJSON(t, refused, []map[string]any{
 		{
@@ -274,16 +277,21 @@ func TestRegisterUserAgentConfigAtomsHonorsDeclaredTools(t *testing.T) {
 		},
 	})
 	refusedProvider := prompt.NewDefaultConfigAtomProvider()
-	err = registerUserAgentConfigAtoms(refusedProvider, kernel, refused)
-	if err == nil || !strings.Contains(err.Error(), "not_a_registered_tool") {
-		t.Fatalf("unregistered tool error = %v, want it to name not_a_registered_tool", err)
+	refusedWarn := captureStderr(t, func() {
+		err = registerUserAgentConfigAtoms(refusedProvider, kernel, refused)
+	})
+	if err != nil {
+		t.Fatalf("unregistered tool must not fail registration: %v", err)
+	}
+	if !strings.Contains(refusedWarn, "GoExpert") || !strings.Contains(refusedWarn, "not_a_registered_tool") {
+		t.Fatalf("warning = %q, want it to name GoExpert and not_a_registered_tool", refusedWarn)
 	}
 	if _, found := refusedProvider.GetAtom("/goexpert"); found {
 		t.Error("atom registered after a refused tool")
 	}
 
 	// bash is a real executable name and is intentionally outside every
-	// persona envelope. Declaring it must fail the same way a typo does.
+	// persona envelope. Declaring it must refuse the agent the same way a typo does.
 	bashWS := t.TempDir()
 	writeAgentsJSON(t, bashWS, []map[string]any{
 		{
@@ -294,13 +302,193 @@ func TestRegisterUserAgentConfigAtomsHonorsDeclaredTools(t *testing.T) {
 		},
 	})
 	bashProvider := prompt.NewDefaultConfigAtomProvider()
-	err = registerUserAgentConfigAtoms(bashProvider, kernel, bashWS)
-	if err == nil || !strings.Contains(err.Error(), "bash") {
-		t.Fatalf("bash error = %v, want it to name bash", err)
+	bashWarn := captureStderr(t, func() {
+		err = registerUserAgentConfigAtoms(bashProvider, kernel, bashWS)
+	})
+	if err != nil {
+		t.Fatalf("bash must not fail registration: %v", err)
+	}
+	if !strings.Contains(bashWarn, "ShellExpert") || !strings.Contains(bashWarn, "bash") {
+		t.Fatalf("warning = %q, want it to name ShellExpert and bash", bashWarn)
 	}
 	if _, found := bashProvider.GetAtom("/shellexpert"); found {
 		t.Error("atom registered after bash was refused")
 	}
+}
+
+// TestRegisterUserAgentConfigAtomsRefusesOnlyTheBadAgent is the boot shape
+// that stopped nerd.exe on 2026-09-29: agents.json with one agent whose
+// tools the host has registered and one whose tool it has not.
+//
+// The bad agent is first, so a loop that returned on the first refusal
+// would drop the good agent too. A list that mixes a registered tool with
+// an unregistered one grants neither: the agent is checked whole before
+// any of its atoms or facts are written.
+func TestRegisterUserAgentConfigAtomsRefusesOnlyTheBadAgent(t *testing.T) {
+	kernel, err := NewDomainCortex(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewDomainCortex: %v", err)
+	}
+	for _, tool := range []string{"go_build", "go_test"} {
+		if err := kernel.Assert(types.Fact{
+			Predicate: "tool_registered",
+			Args:      []any{tool, int64(1)},
+		}); err != nil {
+			t.Fatalf("assert tool_registered(%s): %v", tool, err)
+		}
+	}
+
+	workspace := t.TempDir()
+	writeAgentsJSON(t, workspace, []map[string]any{
+		{
+			"name":   "BadExpert",
+			"type":   "user",
+			"status": "ready",
+			"tools":  []string{"rod_download_browser"},
+		},
+		{
+			"name":   "GoodExpert",
+			"type":   "user",
+			"status": "ready",
+			"tools":  []string{"go_build", "go_test"},
+		},
+		{
+			"name":   "MixedExpert",
+			"type":   "user",
+			"status": "ready",
+			"tools":  []string{"go_build", "not_a_registered_tool"},
+		},
+	})
+
+	provider := prompt.NewDefaultConfigAtomProvider()
+	warn := captureStderr(t, func() {
+		err = registerUserAgentConfigAtoms(provider, kernel, workspace)
+	})
+	if err != nil {
+		t.Fatalf("registration = %v, want boot to continue", err)
+	}
+	for _, needle := range []string{"BadExpert", "rod_download_browser", "MixedExpert", "not_a_registered_tool"} {
+		if !strings.Contains(warn, needle) {
+			t.Errorf("warning %q does not name %s", warn, needle)
+		}
+	}
+	if strings.Contains(warn, "GoodExpert") {
+		t.Errorf("warning named the good agent: %s", warn)
+	}
+
+	for _, verb := range []string{"/goodexpert", "/consult/goodexpert"} {
+		atom, found := provider.GetAtom(verb)
+		if !found {
+			t.Fatalf("no config atom registered for %q", verb)
+		}
+		for _, want := range []string{"go_build", "go_test"} {
+			if !containsString(atom.Tools, want) {
+				t.Errorf("%s: declared tool %q missing from atom grant %v", verb, want, atom.Tools)
+			}
+		}
+		derived, err := prompt.DeriveTurnTools(kernel, verb)
+		if err != nil {
+			t.Fatalf("DeriveTurnTools(%s): %v", verb, err)
+		}
+		for _, want := range []string{"go_build", "go_test"} {
+			if !containsString(derived, want) {
+				t.Errorf("DeriveTurnTools(%s) = %v, missing %q", verb, derived, want)
+			}
+		}
+	}
+
+	for _, verb := range []string{"/badexpert", "/consult/badexpert", "/mixedexpert", "/consult/mixedexpert"} {
+		if _, found := provider.GetAtom(verb); found {
+			t.Errorf("refused agent gained a config atom %s", verb)
+		}
+	}
+	for _, verb := range []string{"/badexpert", "/mixedexpert"} {
+		derived, err := prompt.DeriveTurnTools(kernel, verb)
+		if err != nil {
+			t.Fatalf("DeriveTurnTools(%s): %v", verb, err)
+		}
+		if containsString(derived, "go_build") || containsString(derived, "rod_download_browser") || containsString(derived, "not_a_registered_tool") {
+			t.Errorf("DeriveTurnTools(%s) = %v, refused agent gained a declared tool", verb, derived)
+		}
+	}
+
+	facts := userAgentDeclaredToolFacts(t, kernel)
+	sawGoodBuild, sawGoodTest := false, false
+	for _, fact := range facts {
+		switch fact.verb {
+		case "badexpert", "mixedexpert":
+			t.Errorf("refused agent left a fact: %+v", fact)
+		}
+		switch fact.tool {
+		case "rod_download_browser", "not_a_registered_tool":
+			t.Errorf("unregistered tool left a fact: %+v", fact)
+		}
+		if fact.verb == "goodexpert" && fact.tool == "go_build" {
+			sawGoodBuild = true
+		}
+		if fact.verb == "goodexpert" && fact.tool == "go_test" {
+			sawGoodTest = true
+		}
+	}
+	if !sawGoodBuild || !sawGoodTest {
+		t.Fatalf("good agent facts = %+v, want go_build and go_test", facts)
+	}
+}
+
+type declaredToolFact struct {
+	verb string
+	tool string
+}
+
+func userAgentDeclaredToolFacts(t *testing.T, kernel core.Kernel) []declaredToolFact {
+	t.Helper()
+	facts, err := kernel.Query("user_agent_declared_tool")
+	if err != nil {
+		t.Fatalf("query user_agent_declared_tool: %v", err)
+	}
+	out := make([]declaredToolFact, 0, len(facts))
+	for _, fact := range facts {
+		if len(fact.Args) < 2 {
+			t.Fatalf("user_agent_declared_tool fact has %d args: %+v", len(fact.Args), fact)
+		}
+		out = append(out, declaredToolFact{
+			verb: strings.TrimPrefix(types.ExtractString(fact.Args[0]), "/"),
+			tool: strings.TrimPrefix(types.ExtractString(fact.Args[1]), "/"),
+		})
+	}
+	return out
+}
+
+// captureStderr collects what fn writes to os.Stderr. Boot warnings for a
+// refused agent go there because the file logger is off unless debug_mode is.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stderr pipe: %v", err)
+	}
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&buf, r)
+		close(done)
+	}()
+	os.Stderr = w
+	finished := false
+	defer func() {
+		os.Stderr = old
+		if !finished {
+			_ = w.Close()
+			<-done
+		}
+	}()
+	fn()
+	os.Stderr = old
+	_ = w.Close()
+	<-done
+	finished = true
+	return buf.String()
 }
 
 func writeAgentsJSON(t *testing.T, workspace string, agents []map[string]any) {

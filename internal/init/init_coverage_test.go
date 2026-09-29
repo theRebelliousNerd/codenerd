@@ -2,9 +2,13 @@ package init
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"testing"
 	"time"
 
@@ -439,8 +443,10 @@ func TestGetToolsForAgentType_WhenKnownAgent_ShouldReturnToolsAndPrefs(t *testin
 		{name: "PythonExpert", agent: "PythonExpert", lang: "python", wantTools: true},
 		{name: "TSExpert", agent: "TSExpert", lang: "typescript", wantTools: true},
 		{name: "RustExpert", agent: "RustExpert", lang: "rust", wantTools: true},
-		{name: "RodExpert", agent: "RodExpert", lang: "go", wantTools: true},
-		{name: "BrowserAutomationExpert", agent: "BrowserAutomationExpert", lang: "go", wantTools: true},
+		// No Rod tool is defined. The old "setup" name rod_download_browser
+		// is a download step, and listing it made every Rod workspace fail boot.
+		{name: "RodExpert", agent: "RodExpert", lang: "go", wantTools: false},
+		{name: "BrowserAutomationExpert", agent: "BrowserAutomationExpert", lang: "go", wantTools: false},
 		{name: "DatabaseExpert go", agent: "DatabaseExpert", lang: "go", wantTools: true},
 		{name: "DatabaseExpert python", agent: "DatabaseExpert", lang: "python", wantTools: false},
 		{name: "WebAPIExpert", agent: "WebAPIExpert", lang: "go", wantTools: true},
@@ -465,6 +471,112 @@ func TestGetToolsForAgentType_WhenKnownAgent_ShouldReturnToolsAndPrefs(t *testin
 			}
 		})
 	}
+}
+
+// TestGetToolsForAgentType_OnlyNamesDefinedTools fails when an agent tool
+// list, or a preference value, names something init does not define.
+// The agent and language sets are the switch cases in tools.go, so a new
+// case is covered without being added here. A setup step is not a tool:
+// rod_download_browser used to be RodExpert's only entry.
+func TestGetToolsForAgentType_OnlyNamesDefinedTools(t *testing.T) {
+	defined := definedInitToolNames(t)
+	langs := append(switchStringCases(t, "GetLanguageTools"), "")
+	agents := switchStringCases(t, "GetToolsForAgentType")
+	if len(agents) == 0 {
+		t.Fatal("GetToolsForAgentType has no cases to check")
+	}
+	for _, agent := range agents {
+		for _, lang := range langs {
+			tools, prefs := GetToolsForAgentType(agent, lang)
+			listed := make(map[string]struct{}, len(tools))
+			for _, name := range tools {
+				listed[name] = struct{}{}
+				if _, ok := defined[name]; !ok {
+					t.Errorf("GetToolsForAgentType(%q, %q) tool %q is not defined by init", agent, lang, name)
+				}
+			}
+			for key, name := range prefs {
+				if _, ok := defined[name]; !ok {
+					t.Errorf("GetToolsForAgentType(%q, %q) preference %s=%q is not a defined tool", agent, lang, key, name)
+				}
+				if _, ok := listed[name]; !ok {
+					t.Errorf("GetToolsForAgentType(%q, %q) preference %s=%q is not in that agent's tool list", agent, lang, key, name)
+				}
+			}
+		}
+	}
+}
+
+// definedInitToolNames is every ToolDefinition name GetLanguageTools and
+// GetFrameworkTools return for the languages and frameworks those functions
+// actually switch on.
+func definedInitToolNames(t *testing.T) map[string]struct{} {
+	t.Helper()
+	names := make(map[string]struct{})
+	for _, lang := range switchStringCases(t, "GetLanguageTools") {
+		for _, tool := range GetLanguageTools(lang) {
+			if tool.Name == "" {
+				t.Fatalf("GetLanguageTools(%q) returned a tool with an empty name", lang)
+			}
+			names[tool.Name] = struct{}{}
+		}
+	}
+	for _, framework := range switchStringCases(t, "GetFrameworkTools") {
+		for _, tool := range GetFrameworkTools(framework) {
+			if tool.Name == "" {
+				t.Fatalf("GetFrameworkTools(%q) returned a tool with an empty name", framework)
+			}
+			names[tool.Name] = struct{}{}
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("init defines no tools")
+	}
+	return names
+}
+
+// switchStringCases returns the string case labels of the first switch in
+// funcName, in source order. Nested switches are not included, so a
+// language switch inside an agent case is not mistaken for an agent name.
+func switchStringCases(t *testing.T, funcName string) []string {
+	t.Helper()
+	src, err := os.ReadFile("tools.go")
+	require.NoError(t, err)
+	file, err := parser.ParseFile(token.NewFileSet(), "tools.go", src, 0)
+	require.NoError(t, err)
+	var names []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != funcName || fn.Body == nil {
+			continue
+		}
+		for _, stmt := range fn.Body.List {
+			sw, ok := stmt.(*ast.SwitchStmt)
+			if !ok || sw.Body == nil {
+				continue
+			}
+			for _, item := range sw.Body.List {
+				clause, ok := item.(*ast.CaseClause)
+				if !ok {
+					continue
+				}
+				for _, expr := range clause.List {
+					lit, ok := expr.(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						t.Fatalf("%s: case label %T is not a string", funcName, expr)
+					}
+					name, err := strconv.Unquote(lit.Value)
+					require.NoError(t, err)
+					names = append(names, name)
+				}
+			}
+			break
+		}
+	}
+	if len(names) == 0 {
+		t.Fatalf("%s: no string case labels", funcName)
+	}
+	return names
 }
 
 func TestSaveAndLoadToolsFromFile_WhenRoundTripped_ShouldPreserve(t *testing.T) {

@@ -1992,8 +1992,12 @@ func startOnDemandWatcher(bctx *bootContext) func() {
 // unions them with the /general floor: DeriveTurnTools returns the first
 // non-empty derivation, and a specialist that declared go_build would
 // otherwise lose read_file. A declared name that is neither
-// is_tool_registered nor already inside a persona envelope is refused here,
-// before any atom or fact is written, and the error names the tool.
+// is_tool_registered nor already inside a persona envelope refuses that
+// agent only: no atom and no facts for it, a warning names the agent and
+// the tool, and every other agent is still registered. One agent's tools
+// are all checked before any of that agent's atoms or facts are written,
+// so a later bad name cannot leave a partial grant for the same agent.
+// A kernel failure still returns an error and writes nothing.
 //
 // Every mutation still has to derive permitted(...) in the kernel.
 func registerUserAgentConfigAtoms(provider *prompt.DefaultConfigAtomProvider, kernel core.Kernel, workspace string) error {
@@ -2005,8 +2009,11 @@ func registerUserAgentConfigAtoms(provider *prompt.DefaultConfigAtomProvider, ke
 		return nil
 	}
 
-	// Validate every agent before registering any atom or asserting any
-	// fact, so a later bad tool does not leave an earlier grant behind.
+	// Hard errors (a name that is not a verb, a kernel query failure) still
+	// write nothing: grants are applied only after this loop. A tool the
+	// host has not registered is not one of those errors. It drops that
+	// agent and the loop continues, which is what keeps one optional agent
+	// from stopping boot.
 	grants := make([]userAgentGrant, 0)
 	for _, def := range LoadUserAgentDefinitions(workspace) {
 		name := strings.ToLower(strings.TrimSpace(def.Name))
@@ -2017,9 +2024,15 @@ func registerUserAgentConfigAtoms(provider *prompt.DefaultConfigAtomProvider, ke
 		if !ok {
 			return fmt.Errorf("user agent %q has a name that is not a queryable intent verb", def.Name)
 		}
-		declared, err := userAgentDeclaredTools(kernel, def.Name, def.Tools)
+		declared, refusals, err := userAgentDeclaredTools(kernel, def.Name, def.Tools)
 		if err != nil {
 			return err
+		}
+		if len(refusals) > 0 {
+			for _, refused := range refusals {
+				warnRefusedUserAgent(refused.agent, refused.tool)
+			}
+			continue
 		}
 
 		seen := make(map[string]struct{}, len(base.Tools)+len(declared))
@@ -2098,14 +2111,34 @@ func userAgentCanonicalVerb(name string) (string, bool) {
 	return "/" + name, true
 }
 
+// refusedUserAgentTool is one declared name the host does not know.
+// The agent that named it is skipped whole; the warning prints this pair.
+type refusedUserAgentTool struct {
+	agent string
+	tool  string
+}
+
+// warnRefusedUserAgent is how a bad optional agent stays visible without
+// stopping boot. loadProjectDoc does the same for a malformed nerd.md:
+// stderr is what the operator sees (the boot logger is a no-op unless
+// debug_mode is on), and the boot warning is mirrored into the problems
+// log when file logging is on.
+func warnRefusedUserAgent(agent, tool string) {
+	msg := fmt.Sprintf("user agent %q declares tool %q, which is not a registered tool", agent, tool)
+	fmt.Fprintf(os.Stderr, "Warning: %s\n", msg)
+	logging.Get(logging.CategoryBoot).Warn("%s", msg)
+}
+
 // userAgentDeclaredTools keeps the declared names that the host can see,
 // in order, dropping blanks and duplicates. A name that is not a Mangle
 // tool atom, or that neither is_tool_registered nor persona_tool_allowed
-// derives, is refused. The tool string is interpolated into a query only
-// after the atom-shape check.
-func userAgentDeclaredTools(kernel core.Kernel, agent string, tools []string) ([]string, error) {
+// derives, is a refusal of the whole agent: the declared slice comes back
+// empty so a caller cannot grant the prefix of a list that also named a
+// bad tool. The tool string is interpolated into a query only after the
+// atom-shape check. A query failure is an error, not a refusal.
+func userAgentDeclaredTools(kernel core.Kernel, agent string, tools []string) ([]string, []refusedUserAgentTool, error) {
 	seen := make(map[string]struct{}, len(tools))
-	declared := make([]string, 0, len(tools))
+	pending := make([]string, 0, len(tools))
 	for _, tool := range tools {
 		tool = strings.TrimSpace(tool)
 		if tool == "" {
@@ -2115,34 +2148,52 @@ func userAgentDeclaredTools(kernel core.Kernel, agent string, tools []string) ([
 			continue
 		}
 		seen[tool] = struct{}{}
-		if err := kernelToolIsRegistered(kernel, agent, tool); err != nil {
-			return nil, err
+		pending = append(pending, tool)
+	}
+	if len(pending) == 0 {
+		return nil, nil, nil
+	}
+	if kernel == nil {
+		return nil, nil, fmt.Errorf("user agent tools cannot be recorded: no kernel")
+	}
+	declared := make([]string, 0, len(pending))
+	var refusals []refusedUserAgentTool
+	for _, tool := range pending {
+		ok, err := kernelToolIsRegistered(kernel, agent, tool)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !ok {
+			refusals = append(refusals, refusedUserAgentTool{agent: agent, tool: tool})
+			continue
 		}
 		declared = append(declared, tool)
 	}
-	return declared, nil
+	if len(refusals) > 0 {
+		return nil, refusals, nil
+	}
+	return declared, nil, nil
 }
 
-func kernelToolIsRegistered(kernel core.Kernel, agent, tool string) error {
-	refused := fmt.Errorf("user agent %q declares tool %q, which is not a registered tool", agent, tool)
-	if kernel == nil || !mangleToolName(tool) {
-		return refused
+func kernelToolIsRegistered(kernel core.Kernel, agent, tool string) (bool, error) {
+	if kernel == nil {
+		return false, fmt.Errorf("user agent tools cannot be recorded: no kernel")
+	}
+	if !mangleToolName(tool) {
+		return false, nil
 	}
 	reg, err := kernel.Query(fmt.Sprintf("is_tool_registered(%q)", tool))
 	if err != nil {
-		return fmt.Errorf("user agent %q: is_tool_registered(%q): %w", agent, tool, err)
+		return false, fmt.Errorf("user agent %q: is_tool_registered(%q): %w", agent, tool, err)
 	}
 	if len(reg) > 0 {
-		return nil
+		return true, nil
 	}
 	env, err := kernel.Query(fmt.Sprintf("persona_tool_allowed(Persona, /%s)", tool))
 	if err != nil {
-		return fmt.Errorf("user agent %q: persona_tool_allowed for %q: %w", agent, tool, err)
+		return false, fmt.Errorf("user agent %q: persona_tool_allowed for %q: %w", agent, tool, err)
 	}
-	if len(env) == 0 {
-		return refused
-	}
-	return nil
+	return len(env) > 0, nil
 }
 
 // mangleToolName is the tool-atom shape persona_tool_allowed uses: a
@@ -2208,7 +2259,9 @@ func initFinalExecutors(bctx *bootContext) error {
 
 	// User-defined agents come from .nerd/agents.json. Registration asserts
 	// user_agent_declared_tool so turn_tool_allowed grants the declared
-	// tools; a name the host has not seen registered fails boot.
+	// tools. An agent that names a tool the host has not registered is
+	// refused on its own (no atom, no facts, warning on stderr and in the
+	// boot log) and is not a boot error. A kernel failure still is.
 	atomProvider := prompt.NewDefaultConfigAtomProvider()
 	if err := registerUserAgentConfigAtoms(atomProvider, bctx.kernel, bctx.workspace); err != nil {
 		return err

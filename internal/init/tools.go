@@ -455,10 +455,14 @@ func GetToolsForAgentType(agentName string, language string) ([]string, map[stri
 		}
 
 	case "RodExpert", "BrowserAutomationExpert":
-		tools = []string{"rod_download_browser"}
-		prefs = map[string]string{
-			"setup": "rod_download_browser",
-		}
+		// rod_download_browser is the one-time Chromium download nerd init
+		// runs for a Rod workspace. It is not a tool this package defines
+		// (getGoTools / GetFrameworkTools), and a setup step is not a tool
+		// grant. Writing it into .nerd/agents.json made boot refuse the
+		// workspace (2026-09-29: user agent "RodExpert" declares tool
+		// "rod_download_browser", which is not a registered tool).
+		tools = nil
+		prefs = nil
 
 	case "DatabaseExpert":
 		// Database tools depend on the language
