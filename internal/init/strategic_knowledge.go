@@ -125,13 +125,17 @@ IMPORTANT: Be specific to THIS project, not generic. Extract real insights from 
 	// Use grounded completion if Gemini grounding is available
 	var response string
 	var err error
+	var withheldDocURLs []string
 	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
 		// Get documentation URLs for the project's tech stack
 		docURLs := strategicDocURLs(profile)
 
-		// Enable URL context if we have relevant doc URLs
+		// Enable URL context if we have relevant doc URLs. URLs the
+		// Gemini per-request limit withholds are recorded in the
+		// knowledge limitations below, so the analysis never reads as
+		// if it was grounded against documentation it never saw.
 		if len(docURLs) > 0 {
-			i.grounding.EnableURLContext(docURLs)
+			withheldDocURLs = i.grounding.EnableURLContext(docURLs)
 		}
 
 		response, err = i.withJITPrompt(ctx, "analysis", prompt, &profile, func(ctx context.Context, p string) (string, error) {
@@ -166,6 +170,8 @@ IMPORTANT: Be specific to THIS project, not generic. Extract real insights from 
 		logging.Get(logging.CategoryBoot).Warn("Failed to parse strategic knowledge JSON, using fallback: %v", err)
 		knowledge = i.createFallbackStrategicKnowledge(profile)
 	}
+
+	recordWithheldDocURLs(knowledge, withheldDocURLs)
 
 	return knowledge, nil
 }
@@ -840,4 +846,19 @@ func strategicDocURLs(profile ProjectProfile) []string {
 		}
 	}
 	return research.GetDocURLsForTechs(techs)
+}
+
+// recordWithheldDocURLs appends the documentation URLs the Gemini
+// per-request URL Context limit kept out of the grounding request to the
+// knowledge limitations, naming every URL not sent. The limit is a
+// provider cap, not a choice, and the limitation must survive a fallback
+// parse: a withhold still means the analysis was not grounded against
+// those docs (LC5b).
+func recordWithheldDocURLs(knowledge *StrategicKnowledge, withheld []string) {
+	if knowledge == nil || len(withheld) == 0 {
+		return
+	}
+	knowledge.Limitations = append(knowledge.Limitations,
+		fmt.Sprintf("URL context omitted %d documentation URLs (Gemini per-request limit): %s",
+			len(withheld), strings.Join(withheld, ", ")))
 }

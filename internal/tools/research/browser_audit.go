@@ -8,6 +8,7 @@ package research
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -65,7 +66,10 @@ func executeBrowserAudit(ctx context.Context, args map[string]any) (string, erro
 		return "", err
 	}
 	limits := auditLimitsFromArgs(args)
-	input, auditNotes := buildAuditInput(ctx, kernel, sessionID, repoRoot, limits)
+	input, auditNotes, err := buildAuditInput(ctx, kernel, sessionID, repoRoot, limits)
+	if err != nil {
+		return "", err
+	}
 	discovery, err := browser.DiscoverContract(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("browser audit: %w", err)
@@ -148,15 +152,32 @@ func auditLimitsFromArgs(args map[string]any) browser.RepoTraceLimits {
 	}
 }
 
-func buildAuditInput(ctx context.Context, kernel types.Kernel, sessionID, repoRoot string, limits browser.RepoTraceLimits) (browser.ContractAuditInput, []string) {
-	requestURLs := collectAuditRequestURLs(ctx, kernel, sessionID)
-	formFields := collectAuditFormFields(ctx, kernel, sessionID)
-	routes, routeNote := collectAuditRoutes(ctx, kernel, sessionID)
+// buildAuditInput reads the page facts the audit reasons over. Collector
+// notes (a scan that stopped at the kernel bound) travel into the audit
+// JSON notes; a kernel error fails the audit, because auditing empty
+// evidence as if the page had none would certify a blank page.
+func buildAuditInput(ctx context.Context, kernel types.Kernel, sessionID, repoRoot string, limits browser.RepoTraceLimits) (browser.ContractAuditInput, []string, error) {
+	requestURLs, urlsNote, err := collectAuditRequestURLs(ctx, kernel, sessionID)
+	if err != nil {
+		return browser.ContractAuditInput{}, nil, fmt.Errorf("browser audit: collect request URLs: %w", err)
+	}
+	formFields, fieldsNote, err := collectAuditFormFields(ctx, kernel, sessionID)
+	if err != nil {
+		return browser.ContractAuditInput{}, nil, fmt.Errorf("browser audit: collect form fields: %w", err)
+	}
+	routes, routeNotes, err := collectAuditRoutes(ctx, kernel, sessionID)
+	if err != nil {
+		return browser.ContractAuditInput{}, nil, fmt.Errorf("browser audit: collect routes: %w", err)
+	}
 	mutatingNote := "mutating-control detection is not yet wired"
 	notes := []string{mutatingNote}
-	if routeNote != "" {
-		notes = append(notes, routeNote)
+	if urlsNote != "" {
+		notes = append(notes, urlsNote)
 	}
+	if fieldsNote != "" {
+		notes = append(notes, fieldsNote)
+	}
+	notes = append(notes, routeNotes...)
 	in := browser.ContractAuditInput{
 		RepoRoot:         repoRoot,
 		Routes:           routes,
@@ -165,7 +186,7 @@ func buildAuditInput(ctx context.Context, kernel types.Kernel, sessionID, repoRo
 		MutatingControls: []string{},
 		Limits:           limits,
 	}
-	return in, notes
+	return in, notes, nil
 }
 
 func mergeAuditNotes(discoveryNotes, inputNotes []string) []string {
@@ -256,10 +277,19 @@ func buildAuditReportOutput(sessionID, view string, report browser.AuditReport) 
 	return out
 }
 
-func collectAuditRequestURLs(ctx context.Context, kernel types.Kernel, sessionID string) []string {
+// browserScanLimitNote names the predicate whose kernel scan passed
+// maxBrowserKernelScan: the facts past the scan were not read, so the rows
+// the audit keeps are partial. The note travels with the rows into the
+// audit JSON notes rather than failing the audit, because a bounded scan
+// is a known-degraded read, not a broken kernel (LC5b).
+func browserScanLimitNote(predicate string) string {
+	return fmt.Sprintf("browser audit: %s facts past the kernel scan limit were not read; results are partial", predicate)
+}
+
+func collectAuditRequestURLs(ctx context.Context, kernel types.Kernel, sessionID string) ([]string, string, error) {
 	facts, err := queryScopedBrowserFacts(ctx, kernel, "net_request", "net_request", sessionID)
-	if err != nil {
-		return nil
+	if err != nil && !errors.Is(err, errBrowserKernelScanLimit) {
+		return nil, "", err
 	}
 	var urls []string
 	for _, f := range facts {
@@ -272,17 +302,17 @@ func collectAuditRequestURLs(ctx context.Context, kernel types.Kernel, sessionID
 			continue
 		}
 		urls = append(urls, trim)
-		if len(urls) >= maxBrowserKernelScan {
-			break
-		}
 	}
-	return urls
+	if errors.Is(err, errBrowserKernelScanLimit) {
+		return urls, browserScanLimitNote("net_request"), nil
+	}
+	return urls, "", nil
 }
 
-func collectAuditFormFields(ctx context.Context, kernel types.Kernel, sessionID string) []string {
+func collectAuditFormFields(ctx context.Context, kernel types.Kernel, sessionID string) ([]string, string, error) {
 	facts, err := queryScopedBrowserFacts(ctx, kernel, "input_event", "input_event", sessionID)
-	if err != nil {
-		return nil
+	if err != nil && !errors.Is(err, errBrowserKernelScanLimit) {
+		return nil, "", err
 	}
 	var fields []string
 	for _, f := range facts {
@@ -295,29 +325,45 @@ func collectAuditFormFields(ctx context.Context, kernel types.Kernel, sessionID 
 			continue
 		}
 		fields = append(fields, trim)
-		if len(fields) >= maxBrowserKernelScan {
-			break
-		}
 	}
-	return fields
+	if errors.Is(err, errBrowserKernelScanLimit) {
+		return fields, browserScanLimitNote("input_event"), nil
+	}
+	return fields, "", nil
 }
 
-func collectAuditRoutes(ctx context.Context, kernel types.Kernel, sessionID string) ([]string, string) {
-	if routes := routesFromPredicate(ctx, kernel, sessionID, "navigation_event"); len(routes) > 0 {
-		return routes, ""
+func collectAuditRoutes(ctx context.Context, kernel types.Kernel, sessionID string) ([]string, []string, error) {
+	var notes []string
+	routes, note, err := routesFromPredicate(ctx, kernel, sessionID, "navigation_event")
+	if err != nil {
+		return nil, nil, err
+	}
+	if note != "" {
+		notes = append(notes, note)
+	}
+	if len(routes) > 0 {
+		return routes, notes, nil
 	}
 	if _, ok := browserPredicateSpecs["current_url"]; ok {
-		if routes := routesFromPredicate(ctx, kernel, sessionID, "current_url"); len(routes) > 0 {
-			return routes, ""
+		routes, note, err := routesFromPredicate(ctx, kernel, sessionID, "current_url")
+		if err != nil {
+			return nil, nil, err
+		}
+		if note != "" {
+			notes = append(notes, note)
+		}
+		if len(routes) > 0 {
+			return routes, notes, nil
 		}
 	}
-	return nil, "route facts were unavailable; using URL path segments only"
+	notes = append(notes, "route facts were unavailable; using URL path segments only")
+	return nil, notes, nil
 }
 
-func routesFromPredicate(ctx context.Context, kernel types.Kernel, sessionID, predicate string) []string {
+func routesFromPredicate(ctx context.Context, kernel types.Kernel, sessionID, predicate string) ([]string, string, error) {
 	facts, err := queryScopedBrowserFacts(ctx, kernel, predicate, predicate, sessionID)
-	if err != nil || len(facts) == 0 {
-		return nil
+	if err != nil && !errors.Is(err, errBrowserKernelScanLimit) {
+		return nil, "", err
 	}
 	var routes []string
 	for _, f := range facts {
@@ -330,11 +376,11 @@ func routesFromPredicate(ctx context.Context, kernel types.Kernel, sessionID, pr
 			continue
 		}
 		routes = append(routes, trim)
-		if len(routes) >= maxBrowserKernelScan {
-			break
-		}
 	}
-	return routes
+	if errors.Is(err, errBrowserKernelScanLimit) {
+		return routes, browserScanLimitNote(predicate), nil
+	}
+	return routes, "", nil
 }
 
 func auditCounts(findings []browser.AuditFinding) map[string]int {
