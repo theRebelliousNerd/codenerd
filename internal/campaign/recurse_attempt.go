@@ -22,9 +22,22 @@ const recurseEvidenceLimit = 12000
 // the command that witnesses the fix. Every campaign door (the CLI, chat) runs
 // an attempt the same way it runs any campaign.
 //
-// The phase's own checkpoint is VerifyNone on purpose. The loop re-runs the
-// gates after the attempt and the kernel judges it (recurse_ratchet); a second
-// verdict from inside the attempt would be one the loop never reads.
+// A fix attempt carries its finding's own check as the campaign's acceptance
+// witness (R7): the attempt is done when the gate that reported the finding
+// passes, not when the model says so. The witness runs through the existing
+// acceptance engine -- settleAcceptance runs it once every phase is done and
+// appends remediation turns until it passes or the round budget is spent --
+// so a still-failing check gets further turns inside the attempt instead of
+// costing the loop a whole cycle to learn the finding is still open. Without
+// it settleAcceptance returns satisfied with no witness declared and the
+// attempt completes on the model's word; the ratchet still reverts it a
+// moment later, but the turn that could have fixed it is already over. The
+// phase's own checkpoint stays VerifyNone: the witness is what verifies the
+// phase, the same shape as an acceptance remediation.
+//
+// An attempt with no check declares no witness. That is every improvement:
+// there is no single gate to re-run, only metrics the ratchet reads after
+// the attempt, so completion stays the phases' as before.
 func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 	now := time.Now()
 	campaignID := fmt.Sprintf("/campaign_%s", uuid.New().String()[:8])
@@ -60,6 +73,13 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 		RecurseWave:     a.Pass,
 		TotalPhases:     1,
 		TotalTasks:      1,
+	}
+	// The finding's own check is the acceptance witness: a.Check is the gate
+	// command as run, placeholders expanded (recurse_cycle.sourceOf hands the
+	// reporting run's Argv to the attempt). Copied: the attempt outlives the
+	// loop's gate state, and the engine appends rounds beside the command.
+	if len(a.Check) > 0 {
+		c.Acceptance = &Acceptance{Command: append([]string(nil), a.Check...)}
 	}
 	c.Phases = []Phase{{
 		ID:             phaseID,
