@@ -5959,3 +5959,22 @@ Finding: when a behaviour change contradicts an existing test, the coder keeps t
 keep the test green. A test that pins a value the brief says is wrong should be named in the plan as "update",
 not treated as a constraint -- candidate: the step planner reads the tests that reference an element it is
 told to change and lists them as edits, not as gates.
+
+**Run 7** (10:47-11:27 local, 40 m, binary af5e76a4 built from `git archive HEAD`; three Grok lanes editing
+campaign, session/core and articulation during the run). Brief, symptoms only and deliberately silent about the
+test: the rule generator's system prompt (`feedback.BuildEnhancedSystemPrompt`, loop.go) says "Declared Predicates
+(use ONLY these)" and lists 30 of ~1783, and the user-prompt list (`BuildInitialPromptAdditions`,
+prompt_builder.go) is cut at 100, both with "... and N more". **Landed: `/done`, "artifact_changed", build and
+tests green, "Wrote 2 file(s)".** prompt_builder.go: cut removed -- correct. loop.go: step [1] reports "Removed
+the 30-predicate cap", but the final line is "Restoring the 30-predicate display limit the test requires" and
+loop.go is byte-identical to HEAD: `TestBuildEnhancedSystemPrompt` asserted `"... and 20 more"`. No false red
+from the concurrent lanes (H5a/b/c hold a second time).
+**Findings.** (1) Pinning-test deference is now 2 for 2 (run 6: TotalTimeout). A test that asserts the
+behaviour the brief calls wrong is treated as the spec, and the fix is reverted to satisfy it -- the model does
+not update the test even when that is the whole change. (2) Hollow step report: a step whose edit was later
+reverted is still reported "edited", the turn says it wrote the file, and `artifact_changed` does not check
+that each planned step's net diff survived to the verdict. Both are harness defects, not brief defects:
+candidate gate -- a planned step whose file has an empty net diff at verdict time is `/unmet`, and a test that
+names an element a step changes is an edit site of that step. Completed by the root: loop.go lists every
+predicate, sorted on a copy (GetDeclaredPredicates ranges over a map, so the old "first 30" were a random 30
+per call), and the pinning test now asserts the whole sorted legal set.

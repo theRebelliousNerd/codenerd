@@ -1,6 +1,7 @@
 package feedback
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -131,14 +132,26 @@ func TestBuildEnhancedSystemPrompt(t *testing.T) {
 		t.Error("expected result to contain syntax reminder")
 	}
 
-	// Check truncation behavior
-	manyPreds := make([]string, 50)
-	for i := range 50 {
-		manyPreds[i] = "pred(X)"
+	// The heading says "use ONLY these", so every declared predicate is
+	// listed -- a cut would forbid predicates the kernel accepts -- and in a
+	// stable order whatever order the caller's map produced.
+	manyPreds := make([]string, 0, 50)
+	for i := 49; i >= 0; i-- {
+		manyPreds = append(manyPreds, fmt.Sprintf("pred_%02d/1", i))
 	}
 	result = BuildEnhancedSystemPrompt(base, manyPreds)
-
-	if !strings.Contains(result, "... and 20 more") {
-		t.Error("expected result to truncate and indicate remaining predicates")
+	for _, p := range manyPreds {
+		if !strings.Contains(result, "- "+p+"\n") {
+			t.Fatalf("declared predicate %s missing from the legal set", p)
+		}
+	}
+	if strings.Contains(result, "more\n") {
+		t.Error("the legal set must not end in an unrecoverable '... and N more'")
+	}
+	if strings.Index(result, "pred_00/1") > strings.Index(result, "pred_49/1") {
+		t.Error("predicates must be listed sorted")
+	}
+	if manyPreds[0] != "pred_49/1" {
+		t.Error("the caller's slice must not be reordered")
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -415,13 +416,14 @@ func BuildEnhancedSystemPrompt(basePrompt string, predicates []string) string {
 
 	if len(predicates) > 0 {
 		sb.WriteString("\n## Declared Predicates (use ONLY these):\n")
-		// Show up to 30 most relevant predicates
-		maxShow := 30
-		for i, pred := range predicates {
-			if i >= maxShow {
-				sb.WriteString(fmt.Sprintf("... and %d more\n", len(predicates)-maxShow))
-				break
-			}
+		// Every declared predicate: the heading makes this list the legal
+		// set, so a cut would forbid predicates the kernel accepts. Sorted on
+		// a copy -- GetDeclaredPredicates ranges over a map, and a system
+		// prompt that reorders between calls defeats the provider's prefix
+		// cache.
+		sorted := append([]string(nil), predicates...)
+		sort.Strings(sorted)
+		for _, pred := range sorted {
 			sb.WriteString("- ")
 			sb.WriteString(pred)
 			sb.WriteString("\n")

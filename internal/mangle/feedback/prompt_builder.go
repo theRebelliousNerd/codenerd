@@ -182,18 +182,11 @@ func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string, output
 
 	if len(predicates) > 0 {
 		sb.WriteString("\n## Available Predicates:\n")
-		// Group by category if possible, or just list
-		maxDisplay := 100 // Cap to avoid huge prompts
-		displayed := 0
+		// List every predicate: this list is the model input it must choose from, so it must not be truncated.
 		for _, pred := range predicates {
-			if maxDisplay > 0 && displayed >= maxDisplay {
-				sb.WriteString(fmt.Sprintf("... and %d more\n", len(predicates)-maxDisplay))
-				break
-			}
 			sb.WriteString("- ")
 			sb.WriteString(pred)
 			sb.WriteString("\n")
-			displayed++
 		}
 	}
 
