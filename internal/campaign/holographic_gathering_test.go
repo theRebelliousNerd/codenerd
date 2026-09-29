@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,14 +57,19 @@ func TestGatherHolographicContext_ReachesTheReport(t *testing.T) {
 	}
 }
 
-// TestGatherHolographicContext_BoundsTargets keeps the planning prompt bounded:
-// each section is 1-2 KB and a campaign can name many paths.
-func TestGatherHolographicContext_BoundsTargets(t *testing.T) {
+// TestGatherHolographicContext_RendersEveryTarget pins the old silent cap.
+// Five used to be kept and the rest dropped with no name. Every target that
+// the provider can describe is gathered, and FormatForContext shows each
+// section whole.
+func TestGatherHolographicContext_RendersEveryTarget(t *testing.T) {
 	dir := t.TempDir()
+	const n = 12 // the deleted cap was 5
 	var paths []string
-	for i := 0; i < maxHolographicTargets*3; i++ {
-		name := filepath.Join(dir, "f"+string(rune('a'+i))+".go")
-		src := "package p\n\nfunc F" + string(rune('A'+i)) + "() {}\n"
+	markers := make([]string, n)
+	for i := 0; i < n; i++ {
+		markers[i] = fmt.Sprintf("Marker%02d", i)
+		name := filepath.Join(dir, fmt.Sprintf("f%02d.go", i))
+		src := fmt.Sprintf("package p\n\n// %s does the thing.\nfunc %s() error { return nil }\n", markers[i], markers[i])
 		if err := os.WriteFile(name, []byte(src), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -74,8 +80,51 @@ func TestGatherHolographicContext_BoundsTargets(t *testing.T) {
 	report := &IntelligenceReport{}
 	g.gatherHolographicContext(context.Background(), report, paths, func(string) {})
 
-	if len(report.HolographicSections) > maxHolographicTargets {
-		t.Fatalf("gathered %d sections, want at most %d", len(report.HolographicSections), maxHolographicTargets)
+	if len(report.HolographicSections) != n {
+		t.Fatalf("gathered %d sections, want %d (nothing dropped)", len(report.HolographicSections), n)
+	}
+	if len(report.HolographicUnread) != 0 {
+		t.Fatalf("complete gather left targets unread: %v", report.HolographicUnread)
+	}
+	formatted := report.FormatForContext()
+	if strings.Contains(formatted, "### Not rendered") {
+		t.Fatalf("complete gather named a withheld target:\n%s", formatted)
+	}
+	for i, hs := range report.HolographicSections {
+		if hs.Path != paths[i] {
+			t.Errorf("section %d path = %q, want %q", i, hs.Path, paths[i])
+		}
+		if !strings.Contains(hs.Section, markers[i]) {
+			t.Errorf("section %d does not describe %s:\n%s", i, markers[i], hs.Section)
+		}
+		if !strings.Contains(formatted, hs.Section) {
+			t.Errorf("formatted report cut the section for %s", hs.Path)
+		}
+	}
+}
+
+// TestFormatForContext_HolographicSectionWhole pins the old 4096-character cut.
+// The tail sits past that bound; a truncateField slice would drop it.
+func TestFormatForContext_HolographicSectionWhole(t *testing.T) {
+	const oldCap = 4096
+	body := strings.Repeat("architecture-line\n", (oldCap/len("architecture-line\n"))+40)
+	body += "HOLO_TAIL_MARKER"
+	if len(body) <= oldCap {
+		t.Fatalf("fixture is %d bytes, want longer than the deleted cap %d", len(body), oldCap)
+	}
+
+	report := &IntelligenceReport{
+		HolographicSections: []HolographicSection{{
+			Path:    "big.go",
+			Section: body,
+		}},
+	}
+	formatted := report.FormatForContext()
+	if !strings.Contains(formatted, body) {
+		t.Fatalf("formatted report cut a %d-byte holographic section (deleted cap was %d)", len(body), oldCap)
+	}
+	if strings.Contains(formatted, "### Not rendered") {
+		t.Fatalf("a rendered section was also listed as withheld:\n%s", formatted)
 	}
 }
 
@@ -94,9 +143,13 @@ func TestGatherHolographicContext_Degrades(t *testing.T) {
 
 	dir := t.TempDir()
 	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir)}
-	g.gatherHolographicContext(context.Background(), report, []string{filepath.Join(dir, "missing.go")}, addErr)
+	missing := filepath.Join(dir, "missing.go")
+	g.gatherHolographicContext(context.Background(), report, []string{missing}, addErr)
 	if len(report.HolographicSections) != 0 {
 		t.Fatalf("a missing target should yield no section, got %+v", report.HolographicSections)
+	}
+	if len(report.HolographicUnread) != 0 {
+		t.Fatalf("a missing target was not withheld, it had nothing to render: %v", report.HolographicUnread)
 	}
 	if len(errs) != 0 {
 		t.Fatalf("a missing target is not an operator-facing error: %v", errs)
@@ -104,12 +157,17 @@ func TestGatherHolographicContext_Degrades(t *testing.T) {
 }
 
 // TestGatherHolographicContext_Cancellation: a cancelled campaign must report
-// why it stopped rather than silently returning a partial architecture.
+// why it stopped rather than silently returning a partial architecture. Every
+// target it did not render is named, with the tools that read it.
 func TestGatherHolographicContext_Cancellation(t *testing.T) {
 	dir := t.TempDir()
-	target := filepath.Join(dir, "a.go")
-	if err := os.WriteFile(target, []byte("package p\n\nfunc A() {}\n"), 0o644); err != nil {
-		t.Fatal(err)
+	var paths []string
+	for _, name := range []string{"a.go", "b.go"} {
+		target := filepath.Join(dir, name)
+		if err := os.WriteFile(target, []byte("package p\n\nfunc A() {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, target)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -117,12 +175,30 @@ func TestGatherHolographicContext_Cancellation(t *testing.T) {
 	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir)}
 	report := &IntelligenceReport{}
 	var errs []string
-	g.gatherHolographicContext(ctx, report, []string{target}, func(e string) { errs = append(errs, e) })
+	g.gatherHolographicContext(ctx, report, paths, func(e string) { errs = append(errs, e) })
 
 	if len(errs) == 0 {
 		t.Fatal("cancellation must be reported")
 	}
 	if !strings.Contains(errs[0], "cancelled") {
 		t.Errorf("unexpected error text: %q", errs[0])
+	}
+	if len(report.HolographicSections) != 0 {
+		t.Fatalf("cancelled gather rendered %d sections", len(report.HolographicSections))
+	}
+	if len(report.HolographicUnread) != len(paths) {
+		t.Fatalf("unread = %v, want %v", report.HolographicUnread, paths)
+	}
+	formatted := report.FormatForContext()
+	for _, path := range paths {
+		if !strings.Contains(errs[0], path) {
+			t.Errorf("error does not name left-out target %s: %q", path, errs[0])
+		}
+		if !strings.Contains(formatted, path) {
+			t.Errorf("report does not name left-out target %s:\n%s", path, formatted)
+		}
+	}
+	if !strings.Contains(formatted, "package_outline") || !strings.Contains(formatted, "get_elements") {
+		t.Errorf("left-out targets are not told how to be read:\n%s", formatted)
 	}
 }

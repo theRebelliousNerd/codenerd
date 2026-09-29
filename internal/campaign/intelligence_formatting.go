@@ -10,14 +10,26 @@ import (
 // FORMATTING FOR LLM CONTEXT
 // =============================================================================
 
-// maxHolographicSectionChars bounds one rendered holographic section inside the
-// report.
-//
-// HolographicProvider.PromptSection is already internally capped (8 signatures,
-// 8 types, 8 callers), so this is a backstop against a future change there
-// silently widening a prompt that is assembled here, not a limit the current
-// renderer approaches.
-const maxHolographicSectionChars = 4096
+// holographicUnreadLine names one target gather did not render and the tools
+// that read it. package_outline lists the file's declarations; get_elements
+// reads the file. Those are the same tools the holographic remainder lines
+// name (internal/world/holographic.go).
+func holographicUnreadLine(path string) string {
+	return fmt.Sprintf("`%s` was not rendered; `package_outline` path=%s lists its declarations and `get_elements` reads the file", path, path)
+}
+
+// holographicCancelled is the operator-facing record of a gather that stopped
+// before every target was rendered. The same paths are named on the report,
+// because GatheringErrors is not what FormatForContext shows the model.
+func holographicCancelled(rendered, total int, err error, unread []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "holographic context cancelled after %d/%d targets: %v", rendered, total, err)
+	for _, path := range unread {
+		b.WriteString("; ")
+		b.WriteString(holographicUnreadLine(path))
+	}
+	return b.String()
+}
 
 // FormatForContext formats the intelligence report for LLM context injection.
 func (r *IntelligenceReport) FormatForContext() string {
@@ -43,10 +55,22 @@ func (r *IntelligenceReport) FormatForContext() string {
 	// Holographic context for the campaign's targets. Placed high because it is
 	// the most decision-relevant section a decomposer reads: it says what the
 	// target file offers, what its package holds, and who calls into it.
-	if len(r.HolographicSections) > 0 {
+	// Each section is written whole — a character cap here would cut prose the
+	// model reads. Paths gather stopped before rendering are named with the
+	// tools that read them; a path that produced no section is not a withheld one.
+	if len(r.HolographicSections) > 0 || len(r.HolographicUnread) > 0 {
 		sb.WriteString("## Target Architecture\n\n")
 		for _, hs := range r.HolographicSections {
-			sb.WriteString(truncateField(hs.Section, maxHolographicSectionChars))
+			sb.WriteString(hs.Section)
+			sb.WriteString("\n")
+		}
+		if len(r.HolographicUnread) > 0 {
+			sb.WriteString("### Not rendered\n\n")
+			for _, path := range r.HolographicUnread {
+				sb.WriteString("- ")
+				sb.WriteString(holographicUnreadLine(path))
+				sb.WriteString("\n")
+			}
 			sb.WriteString("\n")
 		}
 	}

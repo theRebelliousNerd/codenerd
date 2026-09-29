@@ -643,48 +643,56 @@ func (g *IntelligenceGatherer) gatherShardAdvice(ctx context.Context, report *In
 	logging.CampaignDebug("Shard advice gathered: %d responses", len(report.ShardAdvice))
 }
 
-// maxHolographicTargets bounds how many target paths contribute a holographic
-// section to the intelligence report.
-//
-// Each rendered section is roughly 1-2 KB, and this report is injected into the
-// decomposer's planning prompt. Five targets is the practical span of a
-// campaign's real focus; beyond that the marginal section describes a file the
-// plan will not touch this phase, and the tokens are better left to the plan.
-const maxHolographicTargets = 5
-
 // gatherHolographicContext renders per-target architectural context.
 //
 // The provider is nil-safe and returns "" for anything it cannot describe — a
-// missing file, a non-Go extension, a cancelled context — so a target that
-// yields nothing is skipped rather than reported as an error. Only a total
-// absence of sections is worth telling the operator about, and even that is
-// ordinary when the campaign targets a directory rather than files.
+// missing file, a non-Go extension — so a target that yields nothing is
+// skipped rather than reported as an error. That absence is ordinary when the
+// campaign targets a directory rather than files, and it is not a cut: there
+// was no section to withhold. Every path that does describe something is kept
+// whole. PromptSection is called without a render budget because the campaign
+// kernel has no holographic_to_render policy (that decision is the session
+// working set's, internal/context/holographic_render.mg); the campaign's own
+// context budget decides later what of this report enters the planning prompt.
+//
+// A cancelled gather is the one case that leaves a target unrendered. Those
+// paths are named, with the tools that read them, both on the error and on
+// the report the model is shown.
 func (g *IntelligenceGatherer) gatherHolographicContext(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
 	if g.holographic == nil {
 		return
 	}
 
-	targets := paths
-	if len(targets) > maxHolographicTargets {
-		targets = targets[:maxHolographicTargets]
-	}
-
-	sections := make([]HolographicSection, 0, len(targets))
-	for _, path := range targets {
+	sections := make([]HolographicSection, 0, len(paths))
+	var unread []string
+	for i, path := range paths {
 		if err := ctx.Err(); err != nil {
-			addError(fmt.Sprintf("holographic context cancelled after %d/%d targets: %v", len(sections), len(targets), err))
+			unread = append(unread, paths[i:]...)
+			addError(holographicCancelled(len(sections), len(paths), err, unread))
 			break
 		}
 		section := g.holographic.PromptSection(ctx, path)
 		if strings.TrimSpace(section) == "" {
+			// PromptSection returns "" on cancellation as well as on a file it
+			// cannot describe. Only the cancellation withheld a section.
+			if err := ctx.Err(); err != nil {
+				unread = append(unread, paths[i:]...)
+				addError(holographicCancelled(len(sections), len(paths), err, unread))
+				break
+			}
 			continue
 		}
 		sections = append(sections, HolographicSection{Path: path, Section: section})
 	}
 
-	if len(sections) == 0 {
+	if len(sections) == 0 && len(unread) == 0 {
 		return
 	}
-	report.HolographicSections = sections
-	logging.CampaignDebug("Holographic context gathered for %d/%d target(s)", len(sections), len(targets))
+	if len(sections) > 0 {
+		report.HolographicSections = sections
+	}
+	if len(unread) > 0 {
+		report.HolographicUnread = unread
+	}
+	logging.CampaignDebug("Holographic context gathered for %d/%d target(s)", len(sections), len(paths))
 }

@@ -177,6 +177,11 @@ type IntelligenceReport struct {
 	// Holographic: per-target architectural context (package surface, type
 	// definitions, impact-ranked callers) for the campaign's target paths.
 	HolographicSections []HolographicSection `json:"holographic_sections,omitempty"`
+	// HolographicUnread are target paths gather stopped before rendering.
+	// A path the provider returned empty for is not listed: there was no
+	// section to withhold. FormatForContext names each path and the tools
+	// that read it.
+	HolographicUnread []string `json:"holographic_unread,omitempty"`
 
 	// Safety: Constitutional pre-check
 	SafetyWarnings []SafetyWarning `json:"safety_warnings"`
@@ -463,12 +468,13 @@ func (g *IntelligenceGatherer) Gather(ctx context.Context, goal string, targetPa
 
 	// 7b. Holographic context for the campaign's targets.
 	//
-	// The gatherer has been handed a *world.HolographicProvider at every one of
-	// its six construction sites since it was written, and stored it in a field
-	// nothing read. This is the read: for the paths the campaign is actually
-	// aiming at, the package surface, the type definitions and the
-	// impact-ranked callers are the highest-signal context a decomposer can
-	// have, and the provider already renders exactly that, already bounded.
+	// For the paths the campaign is aiming at, the package surface, the type
+	// definitions and the impact-ranked callers are the highest-signal context
+	// a decomposer can have. PromptSection renders each target whole: the
+	// campaign kernel does not load the session working set's
+	// holographic_render policy, so this gather has no derived count to slice
+	// to. The campaign context budget is what later decides what enters the
+	// planning prompt.
 	if len(targetPaths) > 0 && g.holographic != nil {
 		eg.Go(func() error {
 			g.gatherHolographicContext(egCtx, report, targetPaths, addError)
