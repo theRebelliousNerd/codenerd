@@ -5887,3 +5887,19 @@ caused the stall. First live measurement of the ledger (it had been "UNMEASURED 
 Lane L1 (from 01:35): evict stale/superseded before live, no re-eviction of a recalled result, short
 handles, ceiling derived from the model's budget. Rerun the same brief after L1.
 Also: Ollama fell back to CPU during this run (Vulkan discovery hangs on a wedged GPU; not codeNERD).
+
+**Run 3** (03:03-03:43, 40 m, binary 63aef15f = run 2 + the ledger fix L1; same brief): **the fix landed
+in substance; the harness verdict was a false red.** No compaction (derived ceiling 400000 bytes), one
+`recall_context`; it wrote `validateRequiresToolsList` in `main.go` (+94) and a 149-line test, ran build x2
+and tests x5, and the pinning gate pinned every condition (each forced branch fails a test it wrote).
+Before -> after, same brief, one policy change: 24 read rounds / 0 writes / 8 recalls / stall ->
+writes + tests + every branch pinned. **Two concurrency effects, both from lanes editing the same tree:**
+(1) at 03:22 its build gate hit a compile error *I* had just introduced in `internal/system/factory.go`
+and `cmd/nerd/cmd_config.go` (unused `nerdinit` after a helper extraction), and its build repair fixed it
+(2 attempts) -- outside its task; that fix rode into commit df15b9d6. That is why its importer gate ran
+5 packages. (2) its final closure went red on `internal/prompt/predicate_selector.go` build errors from a
+limits lane (LC3) mid-edit -- not its code. **What it missed:** the known-tool set is a hand-written
+39-name list, a second copy of the tool registry (the E1 duplication class); the prompt tests already
+build that set from the five `RegisterAll` families. Landed by the root after replacing the list.
+Lesson: codeNERD's gates test importers, so a live run shares fate with every lane editing an importer;
+keep its target and the lanes' scopes import-disjoint, or accept false reds.
