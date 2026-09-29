@@ -535,6 +535,7 @@ unconsumed tdd_violation
 unconsumed test_command
 unconsumed test_depends_on
 unconsumed test_depends_on_transitive
+unconsumed test_executes
 unconsumed test_func_package
 unconsumed test_imports_internal
 unconsumed test_priority
@@ -577,4 +578,6 @@ unconsumed verb_category
 unconsumed verb_pair_relation
 unconsumed violation
 unconsumed warning_suppressed
+unconsumed witness_candidate
+unconsumed witness_owed
 unconsumed zombie_test
