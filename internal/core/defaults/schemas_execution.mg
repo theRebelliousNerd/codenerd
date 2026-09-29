@@ -191,8 +191,6 @@ Decl file_read_error(Path, Error) bound [/string, /string].
 # file_write_error(Path, Error)
 Decl file_write_error(Path, Error) bound [/string, /string].
 
-# file_truncated(Path, Limit)
-
 # dir_read(Path, Count)
 Decl dir_read(Path, Count) bound [/string, /number].
 

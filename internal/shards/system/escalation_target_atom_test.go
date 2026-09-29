@@ -8,9 +8,8 @@ import (
 )
 
 // escalation_needed/3's Target slot is a closed vocabulary of name constants:
-// policy/system_session.mg emits /session_planner, policy/system_ooda.mg emits
-// /ooda_loop, policy/shards.mg and system_core.mg emit /system_health, and
-// campaign_rules.mg emits /campaign. The two Go producers here asserted bare
+// policy/system_session.mg emits /session_planner, policy/shards.mg and
+// system_core.mg emit /system_health, and campaign_rules.mg emits /campaign. The two Go producers here asserted bare
 // Go strings ("session_planner", "constitution_gate") into the same relation,
 // and a bare string without a leading slash becomes a string constant, not a
 // name — so the .mg half and the Go half of one relation never unified. No

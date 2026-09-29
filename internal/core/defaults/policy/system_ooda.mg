@@ -11,7 +11,6 @@
 # Decl action_ready_for_routing(ActionID).
 # Decl next_action(Action).
 # Decl current_ooda_phase(Phase).
-# Decl ooda_stalled(Reason).
 # Decl escalation_needed(Target, Subject, Reason).
 
 # OODA phases: Observe → Orient → Decide → Act
@@ -58,23 +57,3 @@ current_ooda_phase(/observe) :-
     !ooda_phase(/act),
     !ooda_phase(/decide),
     !ooda_phase(/orient).
-
-# OODA loop stalled detection (30 second threshold)
-ooda_stalled("no_action_derived") :-
-    pending_intent(_),
-    ooda_timeout().
-
-# Escalate stalled OODA loop
-escalation_needed(/ooda_loop, "stalled", Reason) :-
-    ooda_stalled(Reason).
-
-# OODA stall escalation actions
-next_action(/escalate_to_user) :-
-    escalation_needed(/ooda_loop, "stalled", _).
-
-next_action(/interrogative_mode) :-
-    ooda_stalled("no_action_derived"),
-    !any_awaiting_clarification(/yes).
-
-clarification_question(/current_intent, "I'm having trouble determining what action to take. Could you rephrase your request?") :-
-    ooda_stalled("no_action_derived").

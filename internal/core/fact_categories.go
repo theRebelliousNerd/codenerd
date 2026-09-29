@@ -41,7 +41,6 @@ var EphemeralPredicates = map[string]bool{
 	"learning_candidate_count": true,
 	"clarification_question":   true,
 	"clarification_option":     true,
-	"ooda_timeout":             true,
 
 	// Tool execution state
 	"tool_invoked": true,

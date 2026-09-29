@@ -336,9 +336,6 @@ Decl checks_passed() bound [].
 # safe_to_commit() - derived: all checks pass, safe to commit
 Decl safe_to_commit() bound [].
 
-# file_truncated(Path, MaxSize) - file content truncated (Bug 6)
-Decl file_truncated(Path, MaxSize) bound [/string, /number].
-
 # =============================================================================
 # SECTION 32: SAFE NEGATION HELPERS
 # =============================================================================
@@ -516,7 +513,7 @@ Decl security_violation(ActionType, Reason, Timestamp) bound [/name, /string, /n
 
 # escalation_needed(Target, Subject, Reason) - needs human intervention
 # Target: system component, a closed vocabulary of name constants
-#         (/system_health, /session_planner, /ooda_loop, /campaign,
+#         (/system_health, /session_planner, /campaign,
 #          /constitution_gate). Go producers must use types.MangleAtom.
 # Subject: entity being escalated - an open identifier (ItemID, PhaseID) or a
 #          composite like "write_file:/some/path.go" from escalationSubject().
@@ -761,8 +758,6 @@ Decl rule_outcome(RuleID, Outcome, Details) bound [/string, /name, /string].
 Decl ooda_phase(Phase) bound [/name].
 Decl has_next_action() bound [].
 Decl current_ooda_phase(Phase) bound [/name].
-Decl ooda_stalled(Reason) bound [/string].
-Decl last_action_time(Timestamp) bound [/number].
 
 # Builtin helper predicates
 # Note: time_diff removed - use fn:minus(Now, Timestamp) inline in rules instead.

@@ -99,7 +99,7 @@ Decl intent_unmapped(VERB, REASON) bound [/name, /name].
 #   promotes to a name constant. Declaring it /string made this the one relation
 #   whose reader disagreed with it: clarification.mg copies IntentID straight
 #   into clarification_question/1, declared /name.
-# Reason: /unmapped_verb, /no_route, /blocked_by_constitution, /ooda_timeout, /no_action_derived
+# Reason: /unmapped_verb, /no_route, /blocked_by_constitution, /no_action_derived
 Decl no_action_reason(INTENTID, REASON) bound [/name, /name].
 
 # learning_candidate(Phrase, Verb, Target, Reason)

@@ -9,35 +9,6 @@ import (
 	"codenerd/internal/types"
 )
 
-func TestEvaluatePolicy_DoesNotAssertOODATimeout(t *testing.T) {
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel() error = %v", err)
-	}
-
-	exec := NewExecutivePolicyShard()
-	exec.SetParentKernel(kernel)
-	exec.DisableBootGuard()
-
-	if err := kernel.Assert(core.Fact{
-		Predicate: "user_intent",
-		Args:      []any{"/current_intent", "/instruction", "/deploy", "", ""},
-	}); err != nil {
-		t.Fatalf("assert user_intent: %v", err)
-	}
-
-	if err := exec.evaluatePolicy(context.Background()); err != nil {
-		t.Fatalf("evaluatePolicy: %v", err)
-	}
-	facts, err := kernel.Query("ooda_timeout")
-	if err != nil {
-		t.Fatalf("Query(ooda_timeout) error = %v", err)
-	}
-	if len(facts) != 0 {
-		t.Fatalf("ooda_timeout was asserted (%d); a pending intent is not a wall clock", len(facts))
-	}
-}
-
 func TestEvaluatePolicy_EmitsEveryDerivedAction(t *testing.T) {
 	kernel, err := core.NewRealKernel()
 	if err != nil {

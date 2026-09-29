@@ -387,6 +387,7 @@ unconsumed patch_rejected
 unconsumed path_of_length
 unconsumed pattern_relation
 unconsumed pattern_verb_pair
+unconsumed pending_intent
 unconsumed pending_permission_check
 unconsumed permission_checked
 unconsumed permission_denied
