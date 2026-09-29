@@ -21,7 +21,15 @@ func TestIsSecretPath_TheDefaultsCatchAWorkspacesOwnKeys(t *testing.T) {
 		{"id_ed25519", true},
 		{"home/.aws/credentials", true},
 		{"gcloud/app_credentials.json", true},
+		{".credentials/client_secret_3115964201-abc.apps.googleusercontent.com.json", true},
+		{"client_secret_3115964201-abc.apps.googleusercontent.com (1).json", true},
+		{"ops/gcp-service-account.json", true},
+		{"service_account_prod.json", true},
+		{".credentials/cross-thread-ingestion-sa-2-20251018.json", true}, // any name in the dir
+		{".secrets/Agents.md", true},
 
+		{"internal/auth/service_account.go", false},
+		{"docs/client_secret_setup.md", false},
 		{"internal/config/config.go", false},
 		{"config.json", false}, // only .nerd/config.json holds the keys
 		{"internal/auth/credentials.go", false},

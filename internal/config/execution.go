@@ -55,6 +55,12 @@ func DefaultSecretPaths() []string {
 		// Credential files by their real shapes (AWS's bare file, gcloud's
 		// JSON), not "credentials*": that would refuse credentials.go.
 		"credentials", "credentials.json", "*_credentials.json",
+		// Google's downloads: the OAuth client file is named client_secret_<id>.json
+		// and a service-account key is saved under a name the user picks, which
+		// in practice carries "service-account"/"service_account". A workspace's
+		// .credentials/ or .secrets/ directory holds keys under any name.
+		"client_secret*.json", "*service-account*.json", "*service_account*.json",
+		".credentials/*", ".secrets/*",
 	}
 }
 
