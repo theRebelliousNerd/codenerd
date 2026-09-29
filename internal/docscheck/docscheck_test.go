@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -461,6 +462,7 @@ func TestWitnessResolves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "sub", "marker.txt"), []byte("here\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gitInitAdd(t, root)
 	c := NewChecker(root)
 	tests := []struct {
 		witness string
@@ -484,9 +486,36 @@ func TestWitnessResolves(t *testing.T) {
 	for _, tt := range tests {
 		// Twice: the second call must serve the identical cached answer.
 		for i := 0; i < 2; i++ {
-			if got := c.witnessResolves(tt.witness); got != tt.want {
+			if got := resolveWitness(t, c, tt.witness); got != tt.want {
 				t.Errorf("witnessResolves(%q) = %v, want %v", tt.witness, got, tt.want)
 			}
+		}
+	}
+}
+
+// resolveWitness fails the test when witness resolution itself errors.
+// A miss is false; a workspace that cannot be listed is an error.
+func resolveWitness(t *testing.T, c *Checker, w string) bool {
+	t.Helper()
+	got, err := c.witnessResolves(w)
+	if err != nil {
+		t.Fatalf("witnessResolves(%q): %v", w, err)
+	}
+	return got
+}
+
+// gitInitAdd makes root its own repository and stages the current tree.
+// git ls-files reads the index, so a commit is not required; ignored names
+// stay untracked. The repo is under t.TempDir, not the codeNERD worktree.
+func gitInitAdd(t *testing.T, root string) {
+	t.Helper()
+	for _, args := range [][]string{{"init"}, {"add", "-A"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = gitCommandEnv()
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
 }
@@ -498,8 +527,145 @@ func TestWitnessMatchIsLineOriented(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "split.go"), []byte("package proof\n\nfunc\nSplitAcrossLines() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if NewChecker(root).witnessResolves("test:SplitAcrossLines") {
+	gitInitAdd(t, root)
+	if resolveWitness(t, NewChecker(root), "test:SplitAcrossLines") {
 		t.Errorf("cross-line func match resolved; grep -E would not match it")
+	}
+}
+
+// TestFileWitnessConfinedToWorkspace pins the file: rules the script does
+// not have: a trailing :<line> is stripped only when it is all digits, and
+// an absolute path, a ".." segment, or a cleaned path that leaves the
+// workspace is unresolved even when the named file exists.
+func TestFileWitnessConfinedToWorkspace(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("out\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sub", "marker.txt"), []byte("in\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "marker.txt"), []byte("root\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// C exists so a grader that cuts file:C:/... at the first colon stats
+	// C and reports a hit.
+	if err := os.WriteFile(filepath.Join(root, "C"), []byte("drive\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	relOut, err := filepath.Rel(root, outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewChecker(root)
+	tests := []struct {
+		witness string
+		want    bool
+	}{
+		{"file:sub/marker.txt", true},
+		{"file:sub/marker.txt:12", true},
+		{"file:./sub/marker.txt", true},
+		{"file:sub\\marker.txt", true},
+		{"file:sub/marker.txt:12extra", false},
+		{"file:sub/marker.txt:", false},
+		{"file:sub/marker.txt:12:34", false},
+		{"file:" + filepath.ToSlash(outside), false},
+		{"file:" + outside, false},
+		{"file:" + filepath.ToSlash(relOut), false},
+		{"file:sub/../marker.txt", false},
+		{"file:C:/no/such", false},
+		{"file::12", false},
+	}
+	for _, tt := range tests {
+		if got := resolveWitness(t, c, tt.witness); got != tt.want {
+			t.Errorf("witnessResolves(%q) = %v, want %v", tt.witness, got, tt.want)
+		}
+	}
+}
+
+// TestWitnessTrackedFilesOnly pins that test, symbol, and predicate
+// witnesses resolve from git ls-files, not from a worktree walk. An ignored
+// crash dump and an untracked file must not satisfy a witness.
+func TestWitnessTrackedFilesOnly(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	trackedGo := "package p\n\nfunc TrackedWitnessTest() {}\n\nfunc GenericWitnessTarget[T any]() {}\n\nfunc GenericMapWitnessTarget[M map[string]int]() {}\n\nvar TrackedWitnessSymbol = 1\n"
+	if err := os.WriteFile(filepath.Join(root, "tracked.go"), []byte(trackedGo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "rules", "tracked.mg"), []byte("tracked_pred(X) :- ok(X).\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("debug_program_ERROR*.mg\nignored.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "debug_program_ERROR_dump.mg"), []byte("dump_only_pred(X) :- true.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ignored.go"), []byte("package p\n\nfunc IgnoredOnlyTest() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInitAdd(t, root)
+	if err := os.WriteFile(filepath.Join(root, "untracked.go"), []byte("package p\n\nfunc UntrackedOnlyTest() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := NewChecker(root)
+	tests := []struct {
+		witness string
+		want    bool
+	}{
+		{"test:TrackedWitnessTest", true},
+		{"test:GenericWitnessTarget", true},
+		{"test:GenericMapWitnessTarget", true},
+		{"symbol:TrackedWitnessSymbol", true},
+		{"predicate:tracked_pred", true},
+		{"predicate:dump_only_pred", false},
+		{"test:IgnoredOnlyTest", false},
+		{"test:UntrackedOnlyTest", false},
+	}
+	for _, tt := range tests {
+		if got := resolveWitness(t, c, tt.witness); got != tt.want {
+			t.Errorf("witnessResolves(%q) = %v, want %v", tt.witness, got, tt.want)
+		}
+	}
+}
+
+// TestWitnessScanRequiresGitRepo pins that a workspace which is not a git
+// repository is an error, not a silent walk of every file on disk. The
+// .go file declares the witness, so a worktree scan would report a hit.
+func TestWitnessScanRequiresGitRepo(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "present_test.go"), []byte("package p\n\nfunc PresentTest() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewChecker(root).witnessResolves("test:PresentTest")
+	if err == nil || got {
+		t.Fatalf("witnessResolves = (%v, %v), want an error and no hit", got, err)
+	}
+	adrDir := filepath.Join(root, "Docs", "architecture", "pkg", "adr")
+	if err := os.MkdirAll(adrDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	adr := "" +
+		"---\n" +
+		"doc-class: governance\n" +
+		"implementation-status: shipped\n" +
+		"last-verified: 2026-09-26\n" +
+		"verified-against: abc\n" +
+		"---\n" +
+		"\n" +
+		"**Witness:** test:PresentTest\n"
+	if err := os.WriteFile(filepath.Join(adrDir, "ADR-001.md"), []byte(adr), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewChecker(root).CheckPackage("pkg"); err == nil {
+		t.Fatal("CheckPackage on a non-repo workspace: want error, got nil")
 	}
 }
 

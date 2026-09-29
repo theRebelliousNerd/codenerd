@@ -1,9 +1,12 @@
 package docscheck
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -61,12 +64,15 @@ var (
 // C:/CodeProjects/codeNERD, which is exactly what a tracked command must
 // not do. A Checker is not safe for concurrent use.
 type Checker struct {
-	root         string
-	witnessCache map[string]bool
-	goFiles      []string
-	mgFiles      []string
-	goListed     bool
-	mgListed     bool
+	root          string
+	witnessCache  map[string]bool
+	tracked       []string
+	trackedErr    error
+	trackedLoaded bool
+	goFiles       []string
+	mgFiles       []string
+	goListed      bool
+	mgListed      bool
 }
 
 // NewChecker returns a Checker rooted at workspaceRoot.
@@ -178,7 +184,11 @@ func (c *Checker) CheckPackage(pkg string) (PackageReport, error) {
 		// The script opens files in text mode, whose universal newlines
 		// turn CRLF into LF before any check runs; normalize the same way
 		// so a CRLF doc gets identical judgements.
-		rep.Problems = append(rep.Problems, c.checkFile(pkg, rel, normalizeText(string(data)), statuses)...)
+		fileProbs, err := c.checkFile(pkg, rel, normalizeText(string(data)), statuses)
+		if err != nil {
+			return PackageReport{}, err
+		}
+		rep.Problems = append(rep.Problems, fileProbs...)
 	}
 	shape, err := c.checkShape(pkg, dir, statuses)
 	if err != nil {
@@ -199,11 +209,11 @@ func normalizeText(s string) string {
 // including invalid values, which the layer rule then ignores the same way.
 // (The script also collects doc classes into a set nothing reads; there is
 // nothing to port there.)
-func (c *Checker) checkFile(pkg, rel, text string, statuses map[string]bool) []Problem {
+func (c *Checker) checkFile(pkg, rel, text string, statuses map[string]bool) ([]Problem, error) {
 	file := archRel(pkg, rel)
 	fm, ok := frontMatter(text)
 	if !ok {
-		return []Problem{{Package: pkg, File: file, Code: CodeMissingFrontMatter, Message: rel + ": no front-matter"}}
+		return []Problem{{Package: pkg, File: file, Code: CodeMissingFrontMatter, Message: rel + ": no front-matter"}}, nil
 	}
 	var probs []Problem
 	dc, st := fm["doc-class"], fm["implementation-status"]
@@ -224,9 +234,13 @@ func (c *Checker) checkFile(pkg, rel, text string, statuses map[string]bool) []P
 		probs = append(probs, c.checkGapTable(pkg, rel, text)...)
 	}
 	if strings.HasPrefix(rel, "adr/") {
-		probs = append(probs, c.checkWitness(pkg, rel, text, st)...)
+		wprobs, err := c.checkWitness(pkg, rel, text, st)
+		if err != nil {
+			return nil, err
+		}
+		probs = append(probs, wprobs...)
 	}
-	return probs
+	return probs, nil
 }
 
 // checkShape ports the package-shape tail of check_pkg: required slots, the
@@ -389,137 +403,372 @@ func (c *Checker) checkGapTable(pkg, rel, text string) []Problem {
 
 // checkWitness ports the adr/*.md branch: every ADR names a **Witness:**,
 // and unless the ADR is accepted-not-implemented the witness must resolve.
-func (c *Checker) checkWitness(pkg, rel, text, status string) []Problem {
+func (c *Checker) checkWitness(pkg, rel, text, status string) ([]Problem, error) {
 	file := archRel(pkg, rel)
 	m := witnessLineRe.FindStringSubmatch(text)
 	if m == nil {
-		return []Problem{{Package: pkg, File: file, Code: CodeNoWitnessLine, Message: rel + ": no **Witness:** line"}}
+		return []Problem{{Package: pkg, File: file, Code: CodeNoWitnessLine, Message: rel + ": no **Witness:** line"}}, nil
 	}
-	if status != "accepted-not-implemented" && !c.witnessResolves(m[1]) {
-		return []Problem{{Package: pkg, File: file, Code: CodeWitnessUnresolved, Message: rel + ": witness does not resolve: " + truncateRunes(m[1], 60)}}
+	if status != "accepted-not-implemented" {
+		ok, err := c.witnessResolves(m[1])
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return []Problem{{Package: pkg, File: file, Code: CodeWitnessUnresolved, Message: rel + ": witness does not resolve: " + truncateRunes(m[1], 60)}}, nil
+		}
 	}
-	return nil
+	return nil, nil
 }
 
 // witnessResolves ports witness_resolves. Witness forms are test:Name,
-// symbol:Name, file:path and predicate:name. Where the script shells out to
-// `git grep`, this scans the worktree in Go: the judgement differs only for
-// a witness whose sole evidence is untracked or ignored (git grep reads
-// tracked files; the scan reads the worktree), and results are cached per
-// checker.
-func (c *Checker) witnessResolves(w string) bool {
+// symbol:Name, file:path and predicate:name. Results are cached per checker.
+//
+// Deliberate differences from scripts/r6_structcheck.py: a file witness drops
+// a trailing :<line> only when that suffix is all digits (the script cuts at
+// the first colon, so file:C:/x becomes C), and a target that is absolute,
+// contains a ".." segment, or whose cleaned path leaves the workspace is
+// unresolved rather than stat'd wherever Join lands. test, symbol, and
+// predicate witnesses resolve only against tracked paths from `git ls-files
+// -z` run in the workspace (exec, no shell); a workspace that is not a git
+// repository is an error, where the script's failed git grep is simply
+// unresolved. A test witness also accepts a generic declaration
+// (func Name[T any](), including nested brackets such as map[K]V), which
+// the script's func\s+Name\s*\( pattern misses. The match stays line-oriented.
+func (c *Checker) witnessResolves(w string) (bool, error) {
 	kind, val, _ := strings.Cut(w, ":")
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	val = strings.Trim(strings.TrimSpace(val), "`")
 	if val == "" {
-		return false
+		return false, nil
 	}
 	if kind == "file" {
-		target := val
-		if i := strings.Index(target, ":"); i >= 0 {
-			target = target[:i]
+		full, ok := fileWitnessPath(c.root, val)
+		if !ok {
+			return false, nil
 		}
-		_, err := os.Stat(filepath.Join(c.root, filepath.FromSlash(target)))
-		return err == nil
+		_, err := os.Stat(full)
+		return err == nil, nil
 	}
-	var pattern, ext string
+	var ext string
+	var match func(string) bool
 	switch kind {
 	case "test":
-		pattern, ext = `func\s+`+regexp.QuoteMeta(val)+`\s*\(`, ".go"
+		ext = ".go"
+		name := val
+		match = func(line string) bool { return testDeclOnLine(line, name) }
 	case "symbol":
-		pattern, ext = `\b`+regexp.QuoteMeta(val)+`\b`, ".go"
+		ext = ".go"
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(val) + `\b`)
+		match = re.MatchString
 	case "predicate":
-		pattern, ext = `\b`+regexp.QuoteMeta(val)+`\s*\(`, ".mg"
+		ext = ".mg"
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(val) + `\s*\(`)
+		match = re.MatchString
 	default:
-		return false
+		return false, nil
 	}
 	key := kind + "\x00" + val
 	if hit, ok := c.witnessCache[key]; ok {
-		return hit
+		return hit, nil
 	}
-	hit := c.searchWorktree(ext, regexp.MustCompile(pattern))
+	hit, err := c.searchTracked(ext, match)
+	if err != nil {
+		return false, err
+	}
 	c.witnessCache[key] = hit
-	return hit
+	return hit, nil
 }
 
-// searchWorktree reports whether the pattern matches any line of any file
-// with the extension under the root. The match is line-by-line because
-// grep -E, which the script shells out to, is line-oriented: a pattern
-// whose \s straddles a newline must not match here either.
-func (c *Checker) searchWorktree(ext string, re *regexp.Regexp) bool {
-	files, err := c.repoFiles(ext)
-	if err != nil {
-		// The script treats a failed grep (nonzero exit) as unresolved.
+// fileWitnessPath is the workspace file a file: value may name. A trailing
+// :<line> is removed only when the suffix is all digits, so file:C:/x keeps
+// the drive colon and file:foo.go:120 keeps the path.
+func fileWitnessPath(root, val string) (string, bool) {
+	target := strings.TrimSpace(val)
+	if i := strings.LastIndex(target, ":"); i >= 0 && allDigits(target[i+1:]) {
+		target = strings.TrimSpace(target[:i])
+	}
+	return workspacePath(root, target)
+}
+
+func allDigits(s string) bool {
+	if s == "" {
 		return false
 	}
-	for _, f := range files {
-		data, err := os.ReadFile(f)
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// workspacePath joins rel onto root when rel stays inside the workspace.
+// Absolute targets, a leading separator, a volume (C: or UNC), a ".."
+// segment, and a cleaned result that Rel reports outside root are refused.
+// filepath.Join would otherwise follow ".." out of root, and on Unix it
+// drops the root when a later element is absolute.
+func workspacePath(root, rel string) (string, bool) {
+	if rel == "" || strings.Contains(rel, "\x00") {
+		return "", false
+	}
+	if filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
+		return "", false
+	}
+	slashed := strings.ReplaceAll(rel, `\`, "/")
+	// file:/dev/null is absolute on Unix. On Windows IsAbs is false for a
+	// leading separator and Join would keep the path under root; refuse it
+	// on both so a rooted witness cannot pass.
+	if strings.HasPrefix(slashed, "/") {
+		return "", false
+	}
+	for _, seg := range strings.Split(slashed, "/") {
+		if seg == ".." {
+			return "", false
+		}
+	}
+	cleaned := filepath.Clean(filepath.FromSlash(slashed))
+	sep := string(filepath.Separator)
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+sep) {
+		return "", false
+	}
+	if filepath.IsAbs(cleaned) || filepath.VolumeName(cleaned) != "" {
+		return "", false
+	}
+	root = filepath.Clean(root)
+	full := filepath.Join(root, cleaned)
+	got, err := filepath.Rel(root, full)
+	if err != nil {
+		return "", false
+	}
+	if got == ".." || strings.HasPrefix(got, ".."+sep) || filepath.IsAbs(got) || filepath.VolumeName(got) != "" {
+		return "", false
+	}
+	return full, true
+}
+
+// testDeclOnLine reports whether line declares func name, optionally with a
+// type-parameter list before '('. The scan is line-oriented: a declaration
+// split across lines does not match.
+func testDeclOnLine(line, name string) bool {
+	if name == "" {
+		return false
+	}
+	rest := line
+	for {
+		i := strings.Index(rest, "func")
+		if i < 0 {
+			return false
+		}
+		if i > 0 && isIdentByte(rest[i-1]) {
+			rest = rest[i+4:]
+			continue
+		}
+		after := rest[i+4:]
+		if len(after) == 0 || !isASCIISpace(after[0]) {
+			rest = rest[i+4:]
+			continue
+		}
+		after = trimASCIISpace(after)
+		if !strings.HasPrefix(after, name) {
+			rest = rest[i+4:]
+			continue
+		}
+		after = after[len(name):]
+		if len(after) > 0 && isIdentByte(after[0]) {
+			rest = rest[i+4:]
+			continue
+		}
+		after = trimASCIISpace(after)
+		if strings.HasPrefix(after, "[") {
+			end := typeParamEnd(after)
+			if end < 0 {
+				rest = rest[i+4:]
+				continue
+			}
+			after = trimASCIISpace(after[end:])
+		}
+		if strings.HasPrefix(after, "(") {
+			return true
+		}
+		rest = rest[i+4:]
+	}
+}
+
+func isASCIISpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\r' || b == '\n' || b == '\v' || b == '\f'
+}
+
+func trimASCIISpace(s string) string {
+	i := 0
+	for i < len(s) && isASCIISpace(s[i]) {
+		i++
+	}
+	return s[i:]
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
+// typeParamEnd returns the index just past the closing ']' of a type-parameter
+// list starting at s[0] == '['. Nested brackets count; a newline ends the
+// list because the match is line-oriented.
+func typeParamEnd(s string) int {
+	if len(s) == 0 || s[0] != '[' {
+		return -1
+	}
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		case '\n':
+			return -1
+		}
+	}
+	return -1
+}
+
+// searchTracked reports whether match hits any line of a tracked file with
+// ext. The match is line-by-line because grep -E is line-oriented: a pattern
+// whose whitespace straddles a newline must not match here either. A missing
+// file is skipped; failure to list tracked files is an error.
+func (c *Checker) searchTracked(ext string, match func(string) bool) (bool, error) {
+	rels, err := c.repoFiles(ext)
+	if err != nil {
+		return false, err
+	}
+	for _, rel := range rels {
+		full, ok := workspacePath(c.root, rel)
+		if !ok {
+			continue
+		}
+		data, err := os.ReadFile(full)
 		if err != nil {
 			continue
 		}
 		for _, line := range strings.Split(string(data), "\n") {
-			if re.MatchString(line) {
-				return true
+			if match(strings.TrimRight(line, "\r")) {
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
 }
 
-// repoFiles lists every file with the extension under the root, sorted for
-// determinism, skipping .git. The list is built once per checker: a grade
-// touches dozens of witnesses against the same tree.
+// repoFiles lists tracked files with the extension. The list is built once
+// per checker: a grade touches dozens of witnesses against the same tree.
 func (c *Checker) repoFiles(ext string) ([]string, error) {
 	switch ext {
-	case ".go":
-		if !c.goListed {
-			files, err := listFilesByExt(c.root, ext)
-			if err != nil {
-				return nil, err
-			}
-			c.goFiles, c.goListed = files, true
-		}
-		return c.goFiles, nil
-	case ".mg":
-		if !c.mgListed {
-			files, err := listFilesByExt(c.root, ext)
-			if err != nil {
-				return nil, err
-			}
-			c.mgFiles, c.mgListed = files, true
-		}
-		return c.mgFiles, nil
+	case ".go", ".mg":
 	default:
 		return nil, fmt.Errorf("unsupported witness extension %q", ext)
 	}
-}
-
-// listFilesByExt walks the root for files with the extension. Only .git is
-// skipped: ignored and untracked files stay visible, which is the one place
-// this port can see more than the script's git grep (see witnessResolves).
-// Unreadable entries are skipped rather than failing the grade.
-func listFilesByExt(root, ext string) ([]string, error) {
-	var files []string
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if d.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(d.Name(), ext) {
-			files = append(files, p)
-		}
-		return nil
-	})
+	if ext == ".go" && c.goListed {
+		return c.goFiles, nil
+	}
+	if ext == ".mg" && c.mgListed {
+		return c.mgFiles, nil
+	}
+	all, err := c.loadTracked()
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(files)
+	var files []string
+	for _, rel := range all {
+		if strings.HasSuffix(rel, ext) {
+			files = append(files, rel)
+		}
+	}
+	if ext == ".go" {
+		c.goFiles, c.goListed = files, true
+	} else {
+		c.mgFiles, c.mgListed = files, true
+	}
 	return files, nil
+}
+
+// loadTracked runs `git ls-files -z` in the workspace. Paths are relative to
+// that directory. A directory that is not inside a git repository (git walks
+// parents; a temp dir with no repo fails) returns the git error instead of
+// scanning the disk.
+func (c *Checker) loadTracked() ([]string, error) {
+	if c.trackedLoaded {
+		return c.tracked, c.trackedErr
+	}
+	c.trackedLoaded = true
+	files, err := gitTrackedFiles(c.root)
+	if err != nil {
+		c.trackedErr = err
+		return nil, err
+	}
+	c.tracked = files
+	return files, nil
+}
+
+// gitTrackedFiles enumerates the index with git itself. No shell: the
+// arguments are the executable and its argv. -z keeps names literal,
+// including ones git would otherwise quote.
+func gitTrackedFiles(root string) ([]string, error) {
+	// -C is resolved from the process cwd. A relative root plus cmd.Dir set
+	// to that same relative path would look up root/root. Abs makes -C name
+	// the workspace even when the caller passed testdata/<fixture>.
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("list tracked files in %s: %w", root, err)
+	}
+	cmd := exec.Command("git", "-C", abs, "ls-files", "-z")
+	cmd.Dir = abs
+	cmd.Env = gitCommandEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		detail := err.Error()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			detail = strings.TrimSpace(string(ee.Stderr))
+		}
+		return nil, fmt.Errorf("list tracked files in %s: %s", root, detail)
+	}
+	if len(out) == 0 {
+		return []string{}, nil
+	}
+	parts := bytes.Split(out, []byte{0})
+	files := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if len(p) == 0 {
+			continue
+		}
+		files = append(files, string(p))
+	}
+	return files, nil
+}
+
+// gitCommandEnv is the process environment for a git subprocess.
+// GIT_OPTIONAL_LOCKS=0 so the read does not take .git/index.lock.
+// GIT_DIR and GIT_WORK_TREE are cleared so -C names the workspace rather
+// than whatever repository the parent process was pointed at.
+func gitCommandEnv() []string {
+	drop := map[string]bool{
+		"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_INDEX_FILE": true,
+		"GIT_OBJECT_DIRECTORY": true, "GIT_OPTIONAL_LOCKS": true,
+	}
+	env := os.Environ()
+	out := make([]string, 0, len(env)+1)
+	for _, e := range env {
+		key, _, ok := strings.Cut(e, "=")
+		if ok && drop[key] {
+			continue
+		}
+		out = append(out, e)
+	}
+	out = append(out, "GIT_OPTIONAL_LOCKS=0")
+	return out
 }
 
 // truncateRunes cuts s to n characters, as Python's s[:n] does.

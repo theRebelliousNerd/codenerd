@@ -3,12 +3,11 @@
 // under Docs/architecture it checks front-matter, required slots, the gap
 // table, ADR witnesses, and the planned/shipped layer rule.
 //
-// The script is the specification and this package mirrors its judgements
-// exactly — same checks, same human report lines — while returning each
-// finding as a structured Problem the harness can point a remediation task
-// at. Where the script hardcodes the workspace root, the caller supplies it
-// (see Checker); where the script shells out to `git grep` for witnesses,
-// the checker scans the worktree in Go.
+// The script is the specification and this package mirrors its judgements —
+// same checks, same human report lines — while returning each finding as a
+// structured Problem the harness can point a remediation task at. Where the
+// script hardcodes the workspace root, the caller supplies it (see Checker).
+// Witness resolution is the exception documented on witnessResolves.
 package docscheck
 
 import (
