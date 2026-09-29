@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -87,7 +86,7 @@ func init() {
 }
 
 func runDomDemo(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	ws, err := os.MkdirTemp("", "nerd-dom-demo-")
@@ -229,7 +228,7 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 }
 
 func runDomInspect(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	target := args[0]
@@ -320,7 +319,7 @@ func runDomInspect(cmd *cobra.Command, args []string) error {
 }
 
 func runDomGet(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	target := args[0]
@@ -382,7 +381,7 @@ func runDomGet(cmd *cobra.Command, args []string) error {
 }
 
 func runDomEdit(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	target := args[0]

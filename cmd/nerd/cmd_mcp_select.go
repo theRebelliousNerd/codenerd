@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"codenerd/internal/core"
 	"codenerd/internal/mcp"
@@ -65,7 +63,7 @@ func init() {
 }
 
 func runMCPSelect(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	store, err := openMCPStore()
@@ -188,7 +186,7 @@ func selectionPathLabel(path string) string {
 }
 
 func runMCPMetrics(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	store, err := openMCPStore()

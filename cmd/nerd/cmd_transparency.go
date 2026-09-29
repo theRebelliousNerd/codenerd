@@ -3,7 +3,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -34,7 +33,7 @@ Shows:
 }
 
 func runGlassbox(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	key := resolveAPIKey(apiKey, workspace)
@@ -109,7 +108,7 @@ Shows:
 }
 
 func runTransparency(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	key := resolveAPIKey(apiKey, workspace)

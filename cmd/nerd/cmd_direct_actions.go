@@ -529,7 +529,7 @@ func reportUndeclaredRootWrites(newEntries []string) {
 
 // runPerceptionTest tests the perception transducer
 func runPerceptionTest(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	input := strings.Join(args, " ")

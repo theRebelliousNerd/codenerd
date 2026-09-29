@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	internalcontext "codenerd/internal/context"
 	"codenerd/internal/core"
@@ -121,7 +119,7 @@ func selectTestContextRun(harness *context_harness.Harness, scenario string, all
 }
 
 func runTestContext(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	var engineMode context_harness.EngineMode

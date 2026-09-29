@@ -2,7 +2,6 @@ package main
 
 import (
 	"codenerd/internal/core"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -45,7 +43,7 @@ func init() {
 }
 
 func runDomApply(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	target := args[0]

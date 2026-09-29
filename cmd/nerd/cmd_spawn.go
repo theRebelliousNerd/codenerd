@@ -93,8 +93,14 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	// Resolve API key
 	key := resolveAPIKey(apiKey, workspace)
 
-	// Boot Cortex to get wired environment
-	cortex, err := coresys.GetOrBootCortex(cmd.Context(), workspace, key, disableSystemShards)
+	// Boot and research share the command context. The only deadline is
+	// --timeout; unset means the research runs until it finishes or the
+	// command is cancelled. Each LLM call inside the researcher still has
+	// its own request bound.
+	ctx, cancel := commandContext(cmd)
+	defer cancel()
+
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, disableSystemShards)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
@@ -108,10 +114,6 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	// Trigger deep research phase (§9.2)
 	// This spawns a researcher shard to build the knowledge base
 	fmt.Printf("Initiating deep research on topic: %s...\n", topic)
-
-	// Use 10 minute timeout for research
-	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
-	defer cancel()
 
 	researchTask := fmt.Sprintf("Research the topic '%s' and generate Mangle facts for the %s agent knowledge base.", topic, name)
 	if _, err := cortex.SpawnTask(ctx, "researcher", researchTask); err != nil {
@@ -128,13 +130,10 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 
 // spawnShard spawns a shard agent
 func spawnShard(cmd *cobra.Command, args []string) error {
-	// Image gen gets a tighter outer budget so missing/slow Gemini cannot hold
-	// the CLI for the full 25m default timeout (live matrix hang).
-	cmdTimeout := timeout
-	if config.IsImageShardType(normalizeShardType(args[0])) && (cmdTimeout <= 0 || cmdTimeout > 3*time.Minute) {
-		cmdTimeout = 3 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(cmd.Context(), cmdTimeout)
+	// Image generation's request bound lives on the image client. This
+	// command adds a deadline only when the user set --timeout; there is
+	// no image-shard clamp and no default wait.
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	shardType := args[0]
@@ -155,7 +154,6 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 	defer cortex.Close()
 
 	normalizedType := normalizeShardType(shardType)
-	waitTimeout := spawnWaitTimeout(cmdTimeout)
 
 	// Fail fast for image shards when Nano Banana 2 client is not wired.
 	// Without this, Spawn could park on BaseShardAgent/queue with no progress.
@@ -175,7 +173,7 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 	if cortex.ShardManager != nil {
 		if cfg, ok := cortex.ShardManager.GetProfile(normalizedType); ok && cfg.Type == types.ShardTypeSystem {
 			var res types.ShardResult
-			res, spawnErr = spawnSystemShardAndWait(ctx, cortex.ShardManager, normalizedType, task, waitTimeout)
+			res, spawnErr = spawnSystemShardAndWait(ctx, cortex.ShardManager, normalizedType, task)
 			result, outcome = res.Result, res.Outcome
 		} else {
 			result, spawnErr = cortex.SpawnTask(ctx, shardType, task)
@@ -228,18 +226,7 @@ func normalizeShardType(input string) string {
 	return strings.TrimLeft(strings.TrimSpace(input), "/")
 }
 
-func spawnWaitTimeout(cmdTimeout time.Duration) time.Duration {
-	waitTimeout := config.GetLLMTimeouts().FollowUpTimeout
-	if waitTimeout <= 0 {
-		waitTimeout = 5 * time.Minute
-	}
-	if cmdTimeout > 0 && cmdTimeout < waitTimeout {
-		return cmdTimeout
-	}
-	return waitTimeout
-}
-
-func spawnSystemShardAndWait(ctx context.Context, manager *coreshards.ShardManager, shardType, task string, waitTimeout time.Duration) (types.ShardResult, error) {
+func spawnSystemShardAndWait(ctx context.Context, manager *coreshards.ShardManager, shardType, task string) (types.ShardResult, error) {
 	if manager == nil {
 		return types.ShardResult{}, fmt.Errorf("shard manager unavailable for system shard %s", shardType)
 	}
@@ -249,16 +236,18 @@ func spawnSystemShardAndWait(ctx context.Context, manager *coreshards.ShardManag
 		return types.ShardResult{}, err
 	}
 
-	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
-	defer cancel()
-
+	// The wait ends when the shard finishes, the command context is
+	// cancelled, or --timeout fires. There is no separate wait clock.
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-waitCtx.Done():
-			return types.ShardResult{}, fmt.Errorf("system shard %s did not complete within %v (id=%s)", shardType, waitTimeout, shardID)
+		case <-ctx.Done():
+			if ctx.Err() == context.DeadlineExceeded {
+				return types.ShardResult{}, fmt.Errorf("system shard %s did not complete before --timeout (id=%s)", shardType, shardID)
+			}
+			return types.ShardResult{}, fmt.Errorf("system shard %s cancelled (id=%s): %w", shardType, shardID, ctx.Err())
 		case <-ticker.C:
 			if res, ok := manager.GetResult(shardID); ok {
 				if res.Error != nil {

@@ -531,7 +531,7 @@ func parseDreamAgentMetaContent(agentName, content string) dreamAgentMeta {
 
 // runShadowSimulation runs shadow mode
 func runShadowSimulation(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	action := strings.Join(args, " ")
@@ -585,8 +585,7 @@ func runShadowSimulation(cmd *cobra.Command, args []string) error {
 // LLM elaboration uses a short direct Complete call — never SpawnTask(researcher),
 // which previously hung after the first kernel line when the JIT spawn path stalled.
 func runWhatIf(cmd *cobra.Command, args []string) error {
-	// Overall budget: boot + kernel + optional LLM elaboration.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	change := strings.Join(args, " ")
@@ -627,7 +626,8 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	// Bounded LLM elaboration (optional). Fail soft so the command always exits.
+	// Optional elaboration is one Complete call. Its bound is
+	// llm_timeouts.per_call_timeout; the command itself has only --timeout.
 	if cortex.LLMClient == nil {
 		fmt.Println("📋 Analysis: (skipped — no LLM client)")
 		return nil
@@ -637,7 +637,7 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 		"Analyze the implications of this hypothetical change in 6-10 bullet points:\n\n%s\n\nCover: affected systems, breakage risk, improvements, and mitigations.",
 		change,
 	)
-	analysisCtx, analysisCancel := context.WithTimeout(ctx, 45*time.Second)
+	analysisCtx, analysisCancel := llmCallContext(ctx)
 	defer analysisCancel()
 
 	wsRoot := strings.TrimSpace(workspace)
@@ -670,7 +670,7 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 
 // runLogicQuery shows kernel facts
 func runLogicQuery(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	fmt.Printf("🧠 Mangle Kernel Facts\n")
@@ -796,7 +796,7 @@ func printKernelFactSummary(cortex *coresys.Cortex) error {
 
 // runAgentsList lists available agents
 func runAgentsList(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	fmt.Printf("🤖 Available Shard Agents\n")
@@ -1140,7 +1140,7 @@ func toolNameFromDescription(description string) string {
 
 // runJITStatus shows JIT compiler status
 func runJITStatus(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	fmt.Printf("⚡ JIT Prompt Compiler Status\n")

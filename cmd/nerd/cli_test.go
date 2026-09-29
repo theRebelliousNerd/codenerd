@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/core"
@@ -251,12 +250,6 @@ func TestSortedLanguageNames(t *testing.T) {
 	want := []string{"c", "go", "python"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("sortedLanguageNames() = %v, want %v", got, want)
-	}
-}
-
-func TestSpawnWaitTimeoutUsesCommandBudget(t *testing.T) {
-	if got := spawnWaitTimeout(10 * time.Millisecond); got != 10*time.Millisecond {
-		t.Fatalf("spawnWaitTimeout() = %v, want 10ms command budget", got)
 	}
 }
 

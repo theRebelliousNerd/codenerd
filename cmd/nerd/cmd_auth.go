@@ -155,7 +155,11 @@ func runAuthCodex(cmd *cobra.Command, args []string) error {
 	probeCfg := cfg.GetCodexCLIConfig()
 
 	fmt.Println("Running noninteractive codex exec readiness probe...")
-	probeCtx, cancel := context.WithTimeout(cmd.Context(), 45*time.Second)
+	// One codex exec. Its bound is codex_cli.timeout (seconds). The command
+	// itself has only --timeout, and that deadline is the parent.
+	cmdCtx, cmdCancel := commandContext(cmd)
+	defer cmdCancel()
+	probeCtx, cancel := context.WithTimeout(cmdCtx, time.Duration(probeCfg.Timeout)*time.Second)
 	defer cancel()
 	probeClient := perception.NewCodexCLIClient(probeCfg)
 	probeResult, probeErr := probeClient.RunHealthProbe(probeCtx)
@@ -226,8 +230,12 @@ func runAuthGrok(cmd *cobra.Command, args []string) error {
 	client := xaioauth.NewClientFromUserConfig(oauthCfg, 0)
 	ts := client.TokenSource()
 
-	// Prefer existing / importable credentials when they already work.
-	probeCtx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+	// The command deadline is --timeout. A health probe is one HTTP call,
+	// bounded by xai_oauth.timeout (seconds; GetXAIOAuthConfig supplies 300
+	// when the field is unset).
+	cmdCtx, cmdCancel := commandContext(cmd)
+	defer cmdCancel()
+	probeCtx, cancel := context.WithTimeout(cmdCtx, time.Duration(oauthCfg.Timeout)*time.Second)
 	defer cancel()
 	if err := ts.Load(); err == nil {
 		fmt.Println("Found SuperGrok credentials; running health probe...")
@@ -296,10 +304,14 @@ func runAuthGrok(cmd *cobra.Command, args []string) error {
 		fmt.Println("Starting device-code login (browser approval)...")
 	}
 
-	httpClient := &http.Client{Timeout: 30 * time.Second}
 	pkgCfg := client.Config()
-	loginCtx, loginCancel := context.WithTimeout(cmd.Context(), 15*time.Minute)
-	defer loginCancel()
+	// Each HTTP call uses the OAuth client's request bound (xai_oauth.timeout;
+	// the client default is 5m when that field is unset). The device-code
+	// poll stops at the authorization server's expires_in (RFC 8628), which
+	// LoginDeviceCode reads from the device-code response. cmdCtx adds a
+	// deadline only when the user set --timeout.
+	httpClient := &http.Client{Timeout: pkgCfg.Timeout}
+	loginCtx := cmdCtx
 
 	creds, err := xaioauth.LoginDeviceCode(loginCtx, httpClient, pkgCfg, func(dc xaioauth.DeviceCodeResponse) {
 		verify := dc.VerificationURIComplete
@@ -321,7 +333,11 @@ func runAuthGrok(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println("✓ Tokens saved")
 
-	probe := client.RunHealthProbe(probeCtx)
+	// Fresh request bound. The pre-login probe context has been running
+	// since before the user approved, so it must not also time out this call.
+	postProbe, postCancel := context.WithTimeout(cmdCtx, time.Duration(oauthCfg.Timeout)*time.Second)
+	defer postCancel()
+	probe := client.RunHealthProbe(postProbe)
 	if probe.Classification == xaioauth.ProbeTierForbidden {
 		fmt.Println("\n⚠️  OAuth login succeeded but inference is tier-gated (HTTP 403).")
 		fmt.Println("   Fall back to metered API: set engine=api, provider=xai, and xai_api_key.")
@@ -353,6 +369,9 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+
+	ctx, cancel := commandContext(cmd)
+	defer cancel()
 
 	engine := cfg.GetEngine()
 	fmt.Printf("Current engine: %s\n\n", engine)
@@ -387,7 +406,8 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 			fmt.Println("  Status: ❌ CLI not installed")
 		} else {
 			fmt.Printf("  Status: ✓ CLI installed (%s)\n", codexPath)
-			probeCtx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			// One codex exec. Bound by codex_cli.timeout; --timeout on ctx wins when shorter.
+			probeCtx, cancel := context.WithTimeout(ctx, time.Duration(cliCfg.Timeout)*time.Second)
 			defer cancel()
 			probeClient := perception.NewCodexCLIClient(cliCfg)
 			probeResult, probeErr := probeClient.RunHealthProbe(probeCtx)
@@ -409,7 +429,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		}
 
 	case "xai-oauth":
-		printSuperGrokAuthStatus(cmd.Context(), cfg)
+		printSuperGrokAuthStatus(ctx, cfg)
 
 	default:
 		fmt.Println("Backend: HTTP API")
@@ -423,7 +443,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		}
 		// Always surface SuperGrok store health so users know if nerd auth grok is needed.
 		fmt.Println()
-		printSuperGrokAuthStatus(cmd.Context(), cfg)
+		printSuperGrokAuthStatus(ctx, cfg)
 	}
 
 	return nil
@@ -447,7 +467,9 @@ func printSuperGrokAuthStatus(ctx context.Context, cfg *config.UserConfig) {
 
 	client := xaioauth.NewClientFromUserConfig(oauthCfg, 0)
 	fmt.Printf("  Credential path: %s\n", client.Config().CredentialPath)
-	probeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	// One health probe. Bound by xai_oauth.timeout; a --timeout already on
+	// ctx wins when it is shorter.
+	probeCtx, cancel := context.WithTimeout(ctx, time.Duration(oauthCfg.Timeout)*time.Second)
 	defer cancel()
 	probe := client.RunHealthProbe(probeCtx)
 

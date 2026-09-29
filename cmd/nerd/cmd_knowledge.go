@@ -3,10 +3,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	coresys "codenerd/internal/system"
 
@@ -45,7 +43,7 @@ var knowledgeSearchCmd = &cobra.Command{
 }
 
 func runKnowledgeList(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	key := resolveAPIKey(apiKey, workspace)
@@ -107,7 +105,7 @@ func runKnowledgeList(cmd *cobra.Command, args []string) error {
 func runKnowledgeSearch(cmd *cobra.Command, args []string) error {
 	query := strings.Join(args, " ")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	key := resolveAPIKey(apiKey, workspace)

@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"codenerd/internal/core"
 	"codenerd/internal/tactile"
@@ -50,8 +49,19 @@ func init() {
 	domReplaceCmd.Flags().BoolVar(&domReplaceGoTest, "test", false, "Run `go test` in workspace after replacement")
 	domReplaceCmd.Flags().BoolVar(&domReplaceDryRun, "dry-run", false, "Only report matches; do not modify files")
 	domReplaceCmd.Flags().BoolVar(&domReplaceAllowLarge, "allow-large", false, "Allow modifying more than --max-files files")
-	domReplaceCmd.Flags().IntVar(&domReplaceMaxFiles, "max-files", 200, "Safety cap: max files to modify unless --allow-large")
+	domReplaceCmd.Flags().IntVar(&domReplaceMaxFiles, "max-files", 0, "Maximum files to modify (0 = no cap). A positive value refuses the batch unless --allow-large")
 	domReplaceCmd.Flags().IntVar(&domDemoDeepWorker, "deep-workers", 0, "Deep fact workers (0=auto)")
+}
+
+// domReplaceOverCap reports whether a positive --max-files refuses this
+// batch. Zero and negative mean no cap (the flag default); --allow-large
+// overrides a cap the user set. The check refuses the whole batch rather
+// than modifying a prefix and dropping the rest.
+func domReplaceOverCap(fileCount int) bool {
+	if domReplaceAllowLarge || domReplaceMaxFiles <= 0 {
+		return false
+	}
+	return fileCount > domReplaceMaxFiles
 }
 
 func runDomReplace(cmd *cobra.Command, args []string) error {
@@ -62,7 +72,7 @@ func runDomReplace(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--scope must be one of: workspace, one-hop")
 	}
 
-	ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Minute)
+	ctx, cancel := commandContext(cmd)
 	defer cancel()
 
 	var re *regexp.Regexp
@@ -163,8 +173,8 @@ func runDomReplace(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if !domReplaceAllowLarge && len(hits) > domReplaceMaxFiles {
-		return fmt.Errorf("refusing to modify %d files (cap=%d). Re-run with --allow-large", len(hits), domReplaceMaxFiles)
+	if domReplaceOverCap(len(hits)) {
+		return fmt.Errorf("refusing to modify %d files (cap=%d). Re-run with --allow-large or --max-files 0", len(hits), domReplaceMaxFiles)
 	}
 
 	editor := tactile.NewFileEditor()
