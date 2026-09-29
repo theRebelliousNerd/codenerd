@@ -23,13 +23,6 @@ import (
 	"codenerd/internal/logging"
 )
 
-// maxRenderedImporters bounds the importer list in the prompt.
-//
-// Six names plus a count. The list answers "is this package load-bearing, and
-// for whom" — a question six examples and a total answer as well as fifty do,
-// at a tenth of the tokens.
-const maxRenderedImporters = 6
-
 // applyImportDimensions splits the target file's parsed imports into
 // first-party and external, and counts its TODO markers.
 //

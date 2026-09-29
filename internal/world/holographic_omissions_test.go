@@ -8,11 +8,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"codenerd/internal/core"
 	"codenerd/internal/tools/catalog"
-	"codenerd/internal/tools/codedom"
 )
 
 // The tools a holographic omission may name. Checked against catalog.Names,
@@ -161,31 +159,15 @@ func TestPromptSection_OmissionsStateTheTrueRemainder(t *testing.T) {
 		}
 	}
 
-	exported := 0
-	for _, sig := range hc.PackageSignatures {
-		if sig.Exported {
-			exported++
-		}
+	// No policy engine stands behind PromptSection, so the signature and type
+	// pools render whole. A remainder there would be a cap that survived the
+	// move onto the budgeted decider; those true remainders are pinned on the
+	// budgeted path. The long parameter is 120 a's and has to arrive whole.
+	if strings.Contains(section, "more exported") || strings.Contains(section, "more among the parsed files") || strings.Contains(section, "more in package `") {
+		t.Errorf("an unbudgeted section truncated the signature or type pool:\n%s", section)
 	}
-	if exported <= maxSigs {
-		t.Fatalf("fixture exported %d signatures, want more than %d so the remainder line exists", exported, maxSigs)
-	}
-	sigPhrase := fmt.Sprintf("and %d more exported among the parsed files of package `p`", exported-maxSigs)
-	if !strings.Contains(section, sigPhrase) {
-		t.Errorf("signature remainder is not the parsed-pool count %q:\n%s", sigPhrase, section)
-	}
-	if strings.Contains(section, "more exported in package `") {
-		t.Errorf("signature remainder claims the whole package while %d files were not parsed:\n%s", hc.FilesUnparsed, section)
-	}
-	if len(hc.PackageTypes) <= maxTypes {
-		t.Fatalf("fixture has %d types, want more than %d", len(hc.PackageTypes), maxTypes)
-	}
-	typePhrase := fmt.Sprintf("and %d more among the parsed files of package `p`", len(hc.PackageTypes)-maxTypes)
-	if !strings.Contains(section, typePhrase) {
-		t.Errorf("type remainder is not the parsed-pool count %q:\n%s", typePhrase, section)
-	}
-	if strings.Contains(section, "more in package `") {
-		t.Errorf("type remainder claims the whole package while files were not parsed:\n%s", section)
+	if !strings.Contains(section, strings.Repeat("a", 120)) {
+		t.Errorf("the long signature was not rendered whole")
 	}
 
 	// No policy engine stands behind PromptSection, so every stored caller
@@ -221,29 +203,11 @@ func TestPromptSection_OmissionsStateTheTrueRemainder(t *testing.T) {
 		t.Errorf("doc comment was cut at 100 characters in the section")
 	}
 
-	data, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	elements := codedom.ElementsFromSource(target, string(data))
-	var longCut bool
-	for _, el := range elements {
-		label := strings.TrimSpace(el.Signature)
-		if label == "" {
-			label = el.Name
-		}
-		n := utf8.RuneCountInString(label)
-		if n <= maxOutlineSignature {
-			continue
-		}
-		longCut = true
-		rest := n - maxOutlineSignature
-		if !strings.Contains(section, fmt.Sprintf("%d more characters", rest)) || !strings.Contains(section, "`get_element`") {
-			t.Errorf("outline cut of %q does not state the %d characters it left off", label, rest)
-		}
-	}
-	if !longCut {
-		t.Fatal("fixture produced no outline signature over maxOutlineSignature")
+	// No policy engine, so the outline does not cut a signature either. The
+	// budgeted character allowance, and the get_element remainder it names,
+	// are pinned in holographic_dimension_budget_test.go.
+	if strings.Contains(section, "more characters") {
+		t.Errorf("an unbudgeted outline cut a signature:\n%s", section)
 	}
 }
 

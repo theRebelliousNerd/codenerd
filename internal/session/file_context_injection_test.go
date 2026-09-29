@@ -28,7 +28,7 @@ func (s *stubFileContext) PromptSection(_ context.Context, filePath string) stri
 	return s.section
 }
 
-func (s *stubFileContext) PromptSectionWithCallerBudget(_ context.Context, filePath string, budgetBytes int, _ func(ctx context.Context, target string, totalCallers, avgBytesPerCaller, budgetBytes int) (int, error)) string {
+func (s *stubFileContext) PromptSectionWithBudget(_ context.Context, filePath string, budgetBytes int, _ func(ctx context.Context, dimension, target string, total, avgBytes, budgetBytes int) (int, error)) string {
 	s.calls = append(s.calls, filePath)
 	s.budgeted = append(s.budgeted, filePath)
 	s.budget = budgetBytes

@@ -36,26 +36,69 @@ func impactFixture(t *testing.T, n int) (*HolographicProvider, string) {
 	return h, target
 }
 
-// budgetedSection renders through a real working set, recording the
-// measurements the renderer asserted. share is the config's caller share,
-// budget the session's render budget in bytes.
-func budgetedSection(t *testing.T, h *HolographicProvider, target string, share, budget int) (section string, total, avg, seenBudget int) {
+// measuredDim is one dimension's pool as the renderer asserted it: how many
+// items, their mean rendered bytes, and the budget it passed.
+type measuredDim struct {
+	total, avg, budget int
+}
+
+// budgetedRender renders through a real working set. tune sets the shares
+// under test; every other share stays at the default. The map records each
+// dimension the renderer measured, and a second measurement of the same
+// dimension fails: one render decides each block once.
+func budgetedRender(t *testing.T, h *HolographicProvider, target string, tune func(*config.WorkingConfig), budget int) (string, map[string]measuredDim) {
 	t.Helper()
 	spans := config.DefaultWorkingConfig()
-	spans.HolographicCallerSharePercent = share
+	if tune != nil {
+		tune(&spans)
+	}
 	set, err := working.NewWorkingSet(t.TempDir(), "budget", spans)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = set.Close() })
-	decide := func(ctx context.Context, tgt string, n, mean, b int) (int, error) {
-		total, avg, seenBudget = n, mean, b
+	seen := map[string]measuredDim{}
+	decide := func(ctx context.Context, dimension, tgt string, n, mean, b int) (int, error) {
 		if tgt != target {
 			t.Errorf("decider target = %q, want %q", tgt, target)
 		}
-		return set.DecideCallerLimit(ctx, tgt, n, mean, b)
+		if _, ok := seen[dimension]; ok {
+			t.Fatalf("dimension %s measured twice", dimension)
+		}
+		seen[dimension] = measuredDim{total: n, avg: mean, budget: b}
+		return set.DecideRenderCount(ctx, dimension, tgt, n, mean, b)
 	}
-	return h.PromptSectionWithCallerBudget(context.Background(), target, budget, decide), total, avg, seenBudget
+	return h.PromptSectionWithBudget(context.Background(), target, budget, decide), seen
+}
+
+// dimensionMeasurement returns the pool the renderer asserted for dimension.
+// A missing dimension means the renderer asked for a different atom than the
+// policy keys on, and the block was withheld.
+func dimensionMeasurement(t *testing.T, seen map[string]measuredDim, dimension string) measuredDim {
+	t.Helper()
+	m, ok := seen[dimension]
+	if !ok {
+		keys := make([]string, 0, len(seen))
+		for k := range seen {
+			keys = append(keys, k)
+		}
+		t.Fatalf("dimension %s was not measured (saw %v)", dimension, keys)
+	}
+	return m
+}
+
+// budgetedSection renders through a real working set, recording the caller
+// measurement. share is the config's caller share, budget the session's
+// render budget in bytes. The fixture also has a signature and an outline,
+// so other dimensions are measured too; this returns only the callers pool,
+// and fails if callers were measured twice or not at all.
+func budgetedSection(t *testing.T, h *HolographicProvider, target string, share, budget int) (section string, total, avg, seenBudget int) {
+	t.Helper()
+	section, seen := budgetedRender(t, h, target, func(c *config.WorkingConfig) {
+		c.HolographicCallersSharePercent = share
+	}, budget)
+	m := dimensionMeasurement(t, seen, holoCallers)
+	return section, m.total, m.avg, m.budget
 }
 
 func countCallerLines(t *testing.T, section, prefix string) int {
@@ -161,8 +204,8 @@ func TestBudgetedCallers_CallGraphFallbackRendersDerivedN(t *testing.T) {
 // the true rest and names callers_of.
 func TestBudgetedCallers_DeciderFailureWithholdsBehindRemainder(t *testing.T) {
 	h, target := impactFixture(t, 10)
-	section := h.PromptSectionWithCallerBudget(context.Background(), target, 1000,
-		func(context.Context, string, int, int, int) (int, error) {
+	section := h.PromptSectionWithBudget(context.Background(), target, 1000,
+		func(context.Context, string, string, int, int, int) (int, error) {
 			return 0, fmt.Errorf("engine unavailable")
 		})
 	if got := countCallerLines(t, section, "- `Fn"); got != 0 {

@@ -51,15 +51,26 @@ type WorkingConfig struct {
 	// StructuralMissLimit is how many structural queries without an answer
 	// open raw search early (working_structural_miss_limit).
 	StructuralMissLimit int `json:"structural_miss_limit,omitempty"`
-	// HolographicCallerSharePercent is the percent of the holographic render
-	// budget the working policy spends on the callers block
-	// (/working_holographic_caller_share_percent). The renderer measures its
-	// pool (how many callers, their mean rendered bytes) and the policy
-	// derives how many to render: all of them when they fit the share, else
-	// the top N of the existing ranking. A percent, not a caller count: the
-	// same share renders more on a wide window and fewer on a narrow one,
-	// and the remainder line stays honest either way.
-	HolographicCallerSharePercent int `json:"holographic_caller_share_percent,omitempty"`
+	// Holographic*SharePercent is the percent of the holographic render budget
+	// the working policy spends on that block
+	// (/working_holographic_<dim>_share_percent). The renderer measures the
+	// pool (how many items, their mean rendered bytes) and the policy derives
+	// how many to render: all of them when they fit the share, else the top N
+	// of the existing ranking. A percent, not a count: the same share renders
+	// more on a wide window and fewer on a narrow one, and the remainder line
+	// stays honest either way. The shares are ceilings, not reservations, so
+	// they are not required to sum to 100.
+	HolographicCallersSharePercent    int `json:"holographic_callers_share_percent,omitempty"`
+	HolographicSignaturesSharePercent int `json:"holographic_signatures_share_percent,omitempty"`
+	HolographicTypesSharePercent      int `json:"holographic_types_share_percent,omitempty"`
+	HolographicImportersSharePercent  int `json:"holographic_importers_share_percent,omitempty"`
+	HolographicOutlineSharePercent    int `json:"holographic_outline_share_percent,omitempty"`
+	// HolographicOutlineSignatureFloor is the minimum runes kept of one
+	// outline signature (/working_holographic_outline_signature_floor). The
+	// per-entry allowance is the outline block's bytes divided by the entries
+	// the count decision kept, and it is never below this floor. It is not a
+	// share of the budget.
+	HolographicOutlineSignatureFloor int `json:"holographic_outline_signature_floor,omitempty"`
 }
 
 // BytesPerToken converts a token budget into the byte count a renderer
@@ -107,21 +118,37 @@ func LedgerCeilingBytesFromContext(window ContextWindowConfig) int {
 // stall span recalling them. An explicit working.ledger_ceiling_bytes still
 // wins over this derivation. The caller share is 2% of the render budget: at
 // a 100000-token budget that is 8000 bytes, about 120 callers at a typical
-// 65 bytes a line, and at an 8000-token budget 640 bytes, about 9 -- the old
-// flat 8 on a narrow window, the pool's own size past it.
+// 65 bytes a line, and at an 8000-token budget (32000 bytes) 640 bytes,
+// about 9 -- the old flat 8 on a narrow window, the pool's own size past it.
+// A typical window is the JIT token budget, 200000 tokens, 800000 bytes at
+// BytesPerToken. Signatures are 2% of that (16000 bytes), which holds the
+// old cap of 8 signature lines. Types are about 40 bytes a line, so 1% of
+// the narrow 32000-byte window is about 8, the old type cap. Importers are
+// 1%, 8000 bytes on the typical window, which holds the old 6. The outline
+// is 2% of the typical window, 16000 bytes, above the old 120 entries at
+// about 80 bytes each (9600). The outline signature floor is 40 runes,
+// enough to show a short method such as `func (t *T) Name`. On that typical
+// window the outline allowance divided by 120 entries is about 133 runes,
+// above the old 100-rune cut, so the floor binds only when a kept entry's
+// share of the block falls under 40.
 func DefaultWorkingConfig() WorkingConfig {
 	return WorkingConfig{
-		LedgerCeilingBytes:            LedgerCeilingBytesFromContext(DefaultContextWindowConfig()),
-		LedgerKeepRounds:              2,
-		NudgeRounds:                   8,
-		CommitRounds:                  16,
-		FinalizeRounds:                16,
-		StallRounds:                   24,
-		RepeatThreshold:               2,
-		RepairReadRounds:              1,
-		StructuralTrials:              4,
-		StructuralMissLimit:           2,
-		HolographicCallerSharePercent: 2,
+		LedgerCeilingBytes:                LedgerCeilingBytesFromContext(DefaultContextWindowConfig()),
+		LedgerKeepRounds:                  2,
+		NudgeRounds:                       8,
+		CommitRounds:                      16,
+		FinalizeRounds:                    16,
+		StallRounds:                       24,
+		RepeatThreshold:                   2,
+		RepairReadRounds:                  1,
+		StructuralTrials:                  4,
+		StructuralMissLimit:               2,
+		HolographicCallersSharePercent:    2,
+		HolographicSignaturesSharePercent: 2,
+		HolographicTypesSharePercent:      1,
+		HolographicImportersSharePercent:  1,
+		HolographicOutlineSharePercent:    2,
+		HolographicOutlineSignatureFloor:  40,
 	}
 }
 
@@ -165,7 +192,12 @@ func (c WorkingConfig) WithDefaults() WorkingConfig {
 		{&c.RepairReadRounds, &d.RepairReadRounds},
 		{&c.StructuralTrials, &d.StructuralTrials},
 		{&c.StructuralMissLimit, &d.StructuralMissLimit},
-		{&c.HolographicCallerSharePercent, &d.HolographicCallerSharePercent},
+		{&c.HolographicCallersSharePercent, &d.HolographicCallersSharePercent},
+		{&c.HolographicSignaturesSharePercent, &d.HolographicSignaturesSharePercent},
+		{&c.HolographicTypesSharePercent, &d.HolographicTypesSharePercent},
+		{&c.HolographicImportersSharePercent, &d.HolographicImportersSharePercent},
+		{&c.HolographicOutlineSharePercent, &d.HolographicOutlineSharePercent},
+		{&c.HolographicOutlineSignatureFloor, &d.HolographicOutlineSignatureFloor},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.def
@@ -199,15 +231,29 @@ func (c WorkingConfig) Check(prefix string) []Problem {
 	atLeast("repair_read_rounds", c.RepairReadRounds, 1, "a repair attempt reads its failure at least once")
 	atLeast("structural_trials", c.StructuralTrials, 1, "a trial is a count of queries")
 	atLeast("structural_miss_limit", c.StructuralMissLimit, 1, "a limit is a count of queries")
-	atLeast("holographic_caller_share_percent", c.HolographicCallerSharePercent, 1, "a zero share withholds every caller on every render")
-	if c.HolographicCallerSharePercent > 100 {
-		out = append(out, Problem{
-			Severity: SeverityError,
-			Path:     prefix + ".holographic_caller_share_percent",
-			Message:  fmt.Sprintf("%d is above 100: a share over the whole budget over-books the render", c.HolographicCallerSharePercent),
-			Fix:      "a percent between 1 and 100, or remove the key for the default",
-		})
+	for _, share := range []struct {
+		field string
+		v     int
+	}{
+		{"holographic_callers_share_percent", c.HolographicCallersSharePercent},
+		{"holographic_signatures_share_percent", c.HolographicSignaturesSharePercent},
+		{"holographic_types_share_percent", c.HolographicTypesSharePercent},
+		{"holographic_importers_share_percent", c.HolographicImportersSharePercent},
+		{"holographic_outline_share_percent", c.HolographicOutlineSharePercent},
+	} {
+		atLeast(share.field, share.v, 1, "a share below 1 withholds that block on every render")
+		if share.v > 100 {
+			out = append(out, Problem{
+				Severity: SeverityError,
+				Path:     prefix + "." + share.field,
+				Message:  fmt.Sprintf("%d is above 100: a share over the whole budget over-books the render", share.v),
+				Fix:      "a percent between 1 and 100, or remove the key for the default",
+			})
+		}
 	}
+	// The floor is a rune count, not a percent, so it has no upper bound.
+	// WithDefaults has already turned an absent 0 into the default.
+	atLeast("holographic_outline_signature_floor", c.HolographicOutlineSignatureFloor, 1, "a floor below 1 keeps no characters of an outline signature")
 	if c.StallRounds < c.CommitRounds {
 		out = append(out, Problem{
 			Severity: SeverityError,
@@ -220,7 +266,8 @@ func (c WorkingConfig) Check(prefix string) []Problem {
 }
 
 // Params are the working spans the policy reads, as config_param rows; the
-// keys are declared config_param_required(/working, Key) in working_set.mg.
+// keys are declared config_param_required(/working, Key) in working_set.mg
+// and holographic_render.mg.
 func (c WorkingConfig) Params() []Param {
 	c = c.WithDefaults()
 	return []Param{
@@ -234,6 +281,11 @@ func (c WorkingConfig) Params() []Param {
 		{Key: "/working_repair_read_rounds", Value: int64(c.RepairReadRounds)},
 		{Key: "/working_structural_trials", Value: int64(c.StructuralTrials)},
 		{Key: "/working_structural_miss_limit", Value: int64(c.StructuralMissLimit)},
-		{Key: "/working_holographic_caller_share_percent", Value: int64(c.HolographicCallerSharePercent)},
+		{Key: "/working_holographic_callers_share_percent", Value: int64(c.HolographicCallersSharePercent)},
+		{Key: "/working_holographic_signatures_share_percent", Value: int64(c.HolographicSignaturesSharePercent)},
+		{Key: "/working_holographic_types_share_percent", Value: int64(c.HolographicTypesSharePercent)},
+		{Key: "/working_holographic_importers_share_percent", Value: int64(c.HolographicImportersSharePercent)},
+		{Key: "/working_holographic_outline_share_percent", Value: int64(c.HolographicOutlineSharePercent)},
+		{Key: "/working_holographic_outline_signature_floor", Value: int64(c.HolographicOutlineSignatureFloor)},
 	}
 }

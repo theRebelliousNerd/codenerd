@@ -90,41 +90,73 @@ func TestWorkingConfig_AKeyInTheFileReachesThePolicy(t *testing.T) {
 	}
 }
 
-// The holographic caller share reaches the policy under its config_param key,
-// defaults to 2, and refuses 101 (over-books the render).
+// The holographic shares reach the policy under their config_param keys.
+// Callers default to 2, the same number the caller block decided with before
+// the dimension was generalized. A share past 100 over-books the render. The
+// outline signature floor is a rune count: below 1 is refused, and it has no
+// percent cap. The old singular holographic_caller_share_percent key is not
+// a config key anymore.
 func TestWorkingConfig_CallerShareReachesThePolicy(t *testing.T) {
-	if got := DefaultWorkingConfig().HolographicCallerSharePercent; got != 2 {
-		t.Fatalf("default holographic_caller_share_percent = %d, want 2", got)
+	def := DefaultWorkingConfig()
+	if def.HolographicCallersSharePercent != 2 || def.HolographicSignaturesSharePercent != 2 ||
+		def.HolographicTypesSharePercent != 1 || def.HolographicImportersSharePercent != 1 ||
+		def.HolographicOutlineSharePercent != 2 || def.HolographicOutlineSignatureFloor != 40 {
+		t.Fatalf("holographic defaults = callers %d, signatures %d, types %d, importers %d, outline %d, floor %d; want 2, 2, 1, 1, 2, 40",
+			def.HolographicCallersSharePercent, def.HolographicSignaturesSharePercent, def.HolographicTypesSharePercent,
+			def.HolographicImportersSharePercent, def.HolographicOutlineSharePercent, def.HolographicOutlineSignatureFloor)
 	}
-	path := writeCampaignConfig(t, `{"working": {"holographic_caller_share_percent": 5}}`)
+	path := writeCampaignConfig(t, `{"working": {"holographic_callers_share_percent": 5}}`)
 	cfg, err := LoadUserConfig(path)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	spans := cfg.GetWorkingConfig()
-	if spans.HolographicCallerSharePercent != 5 {
-		t.Fatalf("holographic_caller_share_percent = %d, want the file's 5", spans.HolographicCallerSharePercent)
+	if spans.HolographicCallersSharePercent != 5 {
+		t.Fatalf("holographic_callers_share_percent = %d, want the file's 5", spans.HolographicCallersSharePercent)
 	}
 	found := false
 	for _, p := range spans.Params() {
-		if p.Key == "/working_holographic_caller_share_percent" && p.Value == 5 {
+		if p.Key == "/working_holographic_callers_share_percent" && p.Value == 5 {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("no /working_holographic_caller_share_percent=5 row in %+v", spans.Params())
+		t.Fatalf("no /working_holographic_callers_share_percent=5 row in %+v", spans.Params())
 	}
 	// 0 is absent (omitempty), like every sibling span, so it takes the
 	// default; only a share past 100 is a contradiction the loader can see.
-	absent, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_caller_share_percent": 0}}`))
+	// An explicit 0 on signatures must not drag the callers value with it.
+	absent, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_callers_share_percent": 0, "holographic_signatures_share_percent": 0}}`))
 	if err != nil {
 		t.Fatalf("a zero share refused to load: %v", err)
 	}
-	if got := absent.GetWorkingConfig().HolographicCallerSharePercent; got != 2 {
-		t.Fatalf("a zero share took %d, want the default 2", got)
+	got := absent.GetWorkingConfig()
+	if got.HolographicCallersSharePercent != 2 || got.HolographicSignaturesSharePercent != 2 {
+		t.Fatalf("zero shares took callers %d, signatures %d; want the defaults 2 and 2", got.HolographicCallersSharePercent, got.HolographicSignaturesSharePercent)
 	}
-	if _, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_caller_share_percent": 101}}`)); err == nil {
+	mixed, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_callers_share_percent": 5, "holographic_signatures_share_percent": 0}}`))
+	if err != nil {
+		t.Fatalf("a zero signature share refused to load: %v", err)
+	}
+	got = mixed.GetWorkingConfig()
+	if got.HolographicCallersSharePercent != 5 || got.HolographicSignaturesSharePercent != 2 {
+		t.Fatalf("mixed shares took callers %d, signatures %d; want 5 and the default 2", got.HolographicCallersSharePercent, got.HolographicSignaturesSharePercent)
+	}
+	if _, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_callers_share_percent": 101}}`)); err == nil {
 		t.Fatal("a share of 101 loaded; the checker must refuse it")
+	}
+	if _, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_outline_signature_floor": -1}}`)); err == nil {
+		t.Fatal("an outline signature floor of -1 loaded; the checker must refuse it")
+	}
+	wide, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_outline_signature_floor": 1000}}`))
+	if err != nil {
+		t.Fatalf("a floor of 1000 refused to load: %v", err)
+	}
+	if got := wide.GetWorkingConfig().HolographicOutlineSignatureFloor; got != 1000 {
+		t.Fatalf("outline signature floor = %d, want 1000 (it is not a percent)", got)
+	}
+	if _, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_caller_share_percent": 5}}`)); err == nil {
+		t.Fatal("the singular holographic_caller_share_percent key loaded; it is not a config key")
 	}
 }
 

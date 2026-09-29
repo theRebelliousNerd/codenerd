@@ -2,11 +2,12 @@ package world
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codenerd/internal/config"
 )
 
 // TestRankSignaturesForTarget_TierOrder pins the three-tier relevance order.
@@ -160,9 +161,9 @@ func TestPromptSection_RanksRealPackage(t *testing.T) {
 	}
 }
 
-// TestPromptSection_TruncationNamesItsPool pins the wording. "and 593 more"
-// beside eight symbols from the target's own file reads like the file has 601
-// exports.
+// TestPromptSection_TruncationNamesItsPool pins the wording. A remainder that
+// called a parsed prefix the whole package reads like the file has hundreds
+// of exports.
 func TestPromptSection_TruncationNamesItsPool(t *testing.T) {
 	dir := t.TempDir()
 	var sb strings.Builder
@@ -178,10 +179,15 @@ func TestPromptSection_TruncationNamesItsPool(t *testing.T) {
 	}
 
 	h := NewHolographicProvider(nil, dir)
-	section := h.PromptSection(context.Background(), filepath.Join(dir, "big.go"))
-	// 40 exported functions, one file, nothing unparsed. The remainder is the
-	// package's, and package_outline is what reads the rest.
-	want := fmt.Sprintf("and %d more exported in package `p`", 40-maxSigs)
+	path := filepath.Join(dir, "big.go")
+	// 40 exported functions, one file, nothing unparsed. Each rendered line
+	// is "- `func FnAa()`\n", 16 bytes. 10% of 1000 is 100 bytes: 100/16 = 6
+	// render, and 34 remain. The remainder is the package's, and
+	// package_outline is what reads the rest.
+	section, _ := budgetedRender(t, h, path, func(c *config.WorkingConfig) {
+		c.HolographicSignaturesSharePercent = 10
+	}, 1000)
+	want := "and 34 more exported in package `p`"
 	if !strings.Contains(section, want) {
 		t.Fatalf("truncation line does not name its pool (want %q):\n%s", want, section)
 	}

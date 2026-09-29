@@ -1239,10 +1239,11 @@ func (e *Executor) withProjectInstructions(systemPrompt string) string {
 // import cycle is possible. Mirrors HolographicProvider.PromptSection and its
 // budgeted sibling. The decider func is spelled literally because a named
 // world type on one side of this seam does not satisfy the other side; the
-// working set's DecideCallerLimit is passed as the value.
+// working set's DecideRenderCount is passed as the value. The dimension is
+// an argument, so this interface does not grow a method per block.
 type FileContextProvider interface {
 	PromptSection(ctx context.Context, filePath string) string
-	PromptSectionWithCallerBudget(ctx context.Context, filePath string, budgetBytes int, decide func(ctx context.Context, target string, totalCallers, avgBytesPerCaller, budgetBytes int) (int, error)) string
+	PromptSectionWithBudget(ctx context.Context, filePath string, budgetBytes int, decide func(ctx context.Context, dimension, target string, total, avgBytes, budgetBytes int) (int, error)) string
 }
 
 // SetFileContextProvider attaches the holographic per-file context provider.
@@ -1281,14 +1282,14 @@ func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target str
 	if p == nil {
 		return systemPrompt
 	}
-	// Inside a working loop the callers block is sized by policy: the budget
+	// Inside a working loop every counted block is sized by policy: the budget
 	// is this turn's token window in bytes (the same window prepareWorkingRequest
-	// measures the request against), and the loop's own engine derives the
+	// measures the request against), and the loop's own engine derives each
 	// count from the measured pool. Outside a loop there is no engine, so the
 	// section renders whole rather than guessing a number.
 	section := ""
 	if loop := activeWorkingLoop(ctx); loop != nil && loop.set != nil {
-		section = p.PromptSectionWithCallerBudget(ctx, target, e.holographicBudgetBytes(), loop.set.DecideCallerLimit)
+		section = p.PromptSectionWithBudget(ctx, target, e.holographicBudgetBytes(), loop.set.DecideRenderCount)
 	} else {
 		section = p.PromptSection(ctx, target)
 	}
@@ -1299,8 +1300,8 @@ func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target str
 	return systemPrompt + "\n\n" + section
 }
 
-// holographicBudgetBytes is the render budget the callers policy divides: the
-// turn's token window in bytes. It is workingWindow's number in the unit the
+// holographicBudgetBytes is the render budget the holographic policy divides:
+// the turn's token window in bytes. It is workingWindow's number in the unit the
 // renderer measures its lines in, converted by the one BytesPerToken the
 // ledger ceiling derives from, not a second literal.
 func (e *Executor) holographicBudgetBytes() int {

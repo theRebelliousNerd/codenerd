@@ -375,18 +375,18 @@ func rankTypesForTarget(all []TypeDefinition, targetBase string, referenced []st
 // It calls GetContextWithContext and returns "" on any error or nil context
 // so callers can concatenate unconditionally.
 //
-// The callers block renders whole: with no policy engine behind this call
-// there is no derived number to slice it to, so nothing is withheld and no
-// remainder line appears. Callers that render through a working set use
-// PromptSectionWithCallerBudget, which sizes the block from the session's
-// budget instead.
+// Every counted block renders whole: with no policy engine behind this call
+// there is no derived number to slice to, so nothing is withheld and no
+// remainder line appears. Renders through a working set use
+// PromptSectionWithBudget, which sizes each block from the session's budget.
 func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string) string {
 	return h.promptSection(ctx, filePath, 0, nil)
 }
 
-// promptSection is the shared renderer. budgetBytes and decide size the
-// callers block; a nil decide renders every caller line.
-func (h *HolographicProvider) promptSection(ctx context.Context, filePath string, budgetBytes int, decide func(ctx context.Context, target string, totalCallers, avgBytesPerCaller, budgetBytes int) (int, error)) string {
+// promptSection is the shared renderer. budgetBytes and decide size each
+// counted block; a nil decide renders every line and does not cut outline
+// signatures.
+func (h *HolographicProvider) promptSection(ctx context.Context, filePath string, budgetBytes int, decide func(ctx context.Context, dimension, target string, total, avgBytes, budgetBytes int) (int, error)) string {
 	if h == nil {
 		return ""
 	}
@@ -460,89 +460,43 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 	}
 
 	// Exported signatures, ranked by relevance to the target file.
+	// Every line is built before any is written, so the policy decides from
+	// the measured pool. sigPool is every exported signature the parse
+	// collected, which is not the whole package when FilesUnparsed is
+	// non-zero; writePoolRemainder says which, and package_outline reads it.
 	base := filepath.Base(filePath)
 	sigs, sigPool := rankSignaturesForTarget(hc.PackageSignatures, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(sigs) > 0 {
 		substantive = true
 		b.WriteString("### Exported signatures\n\n")
-		// Remainder from the pool, then slice. sigPool is every exported
-		// signature the parse collected, which is not the whole package when
-		// FilesUnparsed is non-zero; writePoolRemainder says which.
-		truncated := 0
-		if sigPool > maxSigs {
-			truncated = sigPool - maxSigs
+		lines := make([]string, len(sigs))
+		for i, sig := range sigs {
+			lines[i] = signatureLine(sig, base)
 		}
-		shown := sigs
-		if len(shown) > maxSigs {
-			shown = shown[:maxSigs]
+		shown := resolveRenderedLines(ctx, holoSignatures, filePath, lines, budgetBytes, decide)
+		for _, line := range shown {
+			b.WriteString(line)
 		}
-		for _, sig := range shown {
-			b.WriteString("- `")
-			if sig.Receiver != "" {
-				b.WriteString("func (")
-				b.WriteString(sig.Receiver)
-				b.WriteString(") ")
-				b.WriteString(sig.Name)
-			} else {
-				b.WriteString("func ")
-				b.WriteString(sig.Name)
-			}
-			b.WriteString(sig.Params)
-			if sig.Returns != "" && sig.Returns != "()" {
-				b.WriteString(" ")
-				b.WriteString(sig.Returns)
-			}
-			b.WriteString("`")
-			if sig.File != "" && sig.File != base {
-				b.WriteString(" — `")
-				b.WriteString(sig.File)
-				b.WriteString("`")
-			}
-			b.WriteString("\n")
-		}
-		if truncated > 0 {
-			// Name the pool. "and 593 more" next to eight symbols from the
-			// target's own file reads like the file has 601 exports; saying
-			// "in package core" makes it clear the rest is the package's
-			// surface, which is what the model needs to know before it goes
-			// looking for something. package_outline lists every declaration,
-			// including the ones past this cap and the files that were not parsed.
-			writePoolRemainder(&b, "exported", truncated, hc.FilesUnparsed, packageLabel(hc), pkgDir)
-		}
+		writePoolRemainder(&b, "exported", sigPool-len(shown), hc.FilesUnparsed, packageLabel(hc), pkgDir)
 		b.WriteString("\n")
 	}
 
-	// Type definitions, ranked by relevance to the target file.
+	// Type definitions, ranked by relevance to the target file. Same shape as
+	// the signature block: measure the lines, render the derived prefix, and
+	// let the remainder name the parsed pool.
 	types, typePool := rankTypesForTarget(hc.PackageTypes, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(types) > 0 {
 		substantive = true
 		b.WriteString("### Type definitions\n\n")
-		truncated := 0
-		if typePool > maxTypes {
-			truncated = typePool - maxTypes
+		lines := make([]string, len(types))
+		for i, td := range types {
+			lines[i] = typeLine(td, base)
 		}
-		shown := types
-		if len(shown) > maxTypes {
-			shown = shown[:maxTypes]
+		shown := resolveRenderedLines(ctx, holoTypes, filePath, lines, budgetBytes, decide)
+		for _, line := range shown {
+			b.WriteString(line)
 		}
-		for _, td := range shown {
-			b.WriteString("- `type ")
-			b.WriteString(td.Name)
-			b.WriteString("` — ")
-			b.WriteString(td.Kind)
-			if td.Kind == "struct" && len(td.Fields) > 0 {
-				fmt.Fprintf(&b, " (%d fields)", len(td.Fields))
-			} else if td.Kind == "interface" && len(td.Methods) > 0 {
-				fmt.Fprintf(&b, " (%d methods)", len(td.Methods))
-			}
-			if td.File != "" && td.File != base {
-				fmt.Fprintf(&b, " — `%s`", td.File)
-			}
-			b.WriteString("\n")
-		}
-		if truncated > 0 {
-			writePoolRemainder(&b, "", truncated, hc.FilesUnparsed, packageLabel(hc), pkgDir)
-		}
+		writePoolRemainder(&b, "", typePool-len(shown), hc.FilesUnparsed, packageLabel(hc), pkgDir)
 		b.WriteString("\n")
 	}
 
@@ -550,28 +504,25 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 	//
 	// Rendered because it is the one dimension in the context that is invisible
 	// from the file itself, and the first thing worth knowing before changing
-	// an exported symbol. Bounded to a handful plus a count: the question is
-	// "is this load-bearing, and for whom", which six examples answer as well
-	// as fifty.
+	// an exported symbol. How many are listed is the policy's decision; the
+	// question is still "is this load-bearing, and for whom", and importers_of
+	// reads the rest.
 	if len(hc.DirectImporters) > 0 {
 		substantive = true
 		b.WriteString("### Imported by\n\n")
-		shown := hc.DirectImporters
-		truncated := 0
-		if len(hc.DirectImporters) > maxRenderedImporters {
-			truncated = len(hc.DirectImporters) - maxRenderedImporters
-			shown = hc.DirectImporters[:maxRenderedImporters]
+		lines := make([]string, len(hc.DirectImporters))
+		for i, importer := range hc.DirectImporters {
+			lines[i] = "- `" + importer + "`\n"
 		}
-		for _, importer := range shown {
-			b.WriteString("- `")
-			b.WriteString(importer)
-			b.WriteString("`\n")
+		shown := resolveRenderedLines(ctx, holoImporters, filePath, lines, budgetBytes, decide)
+		for _, line := range shown {
+			b.WriteString(line)
 		}
-		if truncated > 0 {
+		if rest := len(hc.DirectImporters) - len(shown); rest > 0 {
 			// importers_of lists every file that imports the package. The
 			// argument is the import path when the module is known, which is
 			// the form the tool resolves without guessing a package name.
-			fmt.Fprintf(&b, "- … and %d more file(s); `importers_of` package=%s lists every one\n", truncated, h.importerReadArg(filePath, hc))
+			fmt.Fprintf(&b, "- … and %d more file(s); `importers_of` package=%s lists every one\n", rest, h.importerReadArg(filePath, hc))
 		}
 		b.WriteString("\n")
 	}
@@ -603,7 +554,7 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 			lb.WriteString("\n")
 			lines = append(lines, lb.String())
 		}
-		shown := resolveCallerLines(ctx, filePath, lines, budgetBytes, decide)
+		shown := resolveRenderedLines(ctx, holoCallers, filePath, lines, budgetBytes, decide)
 		for _, line := range shown {
 			b.WriteString(line)
 		}
@@ -634,7 +585,7 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 		for _, caller := range callers {
 			lines = append(lines, "- `"+caller+"`\n")
 		}
-		shown := resolveCallerLines(ctx, filePath, lines, budgetBytes, decide)
+		shown := resolveRenderedLines(ctx, holoCallers, filePath, lines, budgetBytes, decide)
 		for _, line := range shown {
 			b.WriteString(line)
 		}
@@ -654,7 +605,7 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 	// its way. It is read fresh on every call, so after an edit the ranges are
 	// the current ones. Observed 2026-09-18: a two-file change spent 40
 	// read_file and 13 grep calls around its 10 edits.
-	if outline := h.targetOutline(filePath); outline != "" {
+	if outline := h.targetOutline(ctx, filePath, budgetBytes, decide); outline != "" {
 		substantive = true
 		b.WriteString(outline)
 	}
@@ -669,18 +620,67 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 	return result + "\n"
 }
 
-// maxOutlineElements bounds the outline a prompt carries; a file with more
-// says how many it left out and points at get_elements, which lists them all.
-const maxOutlineElements = 120
+// signatureLine is one exported-signature row, including its trailing newline,
+// so the policy can measure the bytes the prompt will actually carry.
+func signatureLine(sig SymbolSignature, base string) string {
+	var b strings.Builder
+	b.WriteString("- `")
+	if sig.Receiver != "" {
+		b.WriteString("func (")
+		b.WriteString(sig.Receiver)
+		b.WriteString(") ")
+		b.WriteString(sig.Name)
+	} else {
+		b.WriteString("func ")
+		b.WriteString(sig.Name)
+	}
+	b.WriteString(sig.Params)
+	if sig.Returns != "" && sig.Returns != "()" {
+		b.WriteString(" ")
+		b.WriteString(sig.Returns)
+	}
+	b.WriteString("`")
+	if sig.File != "" && sig.File != base {
+		b.WriteString(" — `")
+		b.WriteString(sig.File)
+		b.WriteString("`")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
 
-// maxOutlineSignature bounds one outline entry. The cut states how many
-// characters were left off and names get_element, which returns the signature
-// whole. A bare ellipsis was a shortened signature presented as the signature.
-const maxOutlineSignature = 100
+// typeLine is one type-definition row, including its trailing newline.
+func typeLine(td TypeDefinition, base string) string {
+	var b strings.Builder
+	b.WriteString("- `type ")
+	b.WriteString(td.Name)
+	b.WriteString("` — ")
+	b.WriteString(td.Kind)
+	if td.Kind == "struct" && len(td.Fields) > 0 {
+		fmt.Fprintf(&b, " (%d fields)", len(td.Fields))
+	} else if td.Kind == "interface" && len(td.Methods) > 0 {
+		fmt.Fprintf(&b, " (%d methods)", len(td.Methods))
+	}
+	if td.File != "" && td.File != base {
+		fmt.Fprintf(&b, " — `%s`", td.File)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
 
 // targetOutline renders the declarations of filePath with their current line
 // ranges, or "" when the file cannot be read or declares nothing.
-func (h *HolographicProvider) targetOutline(filePath string) string {
+//
+// How many entries are listed, and how many runes of each signature, are the
+// working policy's decisions when decide is set. Entry lines are measured
+// before the character cut: the cut is the outline block's allowance divided
+// by the entries the count decision kept, so the count has to be measured on
+// the uncut lines. The "(N more characters)" annotation is not in that mean;
+// it is the honest price of saying a signature was shortened. A nil decide is
+// no policy, so every entry renders and no signature is cut. A bare ellipsis
+// was a shortened signature presented as the signature, which is why the cut
+// names get_element.
+func (h *HolographicProvider) targetOutline(ctx context.Context, filePath string, budgetBytes int, decide func(ctx context.Context, dimension, target string, total, avgBytes, budgetBytes int) (int, error)) string {
 	path := filePath
 	if !filepath.IsAbs(path) && h.workDir != "" {
 		path = filepath.Join(h.workDir, filePath)
@@ -693,35 +693,72 @@ func (h *HolographicProvider) targetOutline(filePath string) string {
 	if len(elements) == 0 {
 		return ""
 	}
+	shown := len(elements)
+	cut := false
+	chars := 0
+	if decide != nil {
+		lines := make([]string, len(elements))
+		for i, el := range elements {
+			lines[i] = outlineEntryLine(el, outlineLabel(el), 0)
+		}
+		kept := resolveRenderedLines(ctx, holoOutline, filePath, lines, budgetBytes, decide)
+		shown = len(kept)
+		if shown > 0 {
+			got, derr := decide(ctx, holoOutlineSignature, filePath, shown, 1, budgetBytes)
+			if derr != nil {
+				logging.WorldDebug("holographic outline signature: policy failed (%v); withholding %d entries behind the remainder line", derr, len(elements))
+				shown = 0
+			} else {
+				cut = true
+				chars = got
+			}
+		}
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "### Outline of %s (%d declarations, line ranges current as of this request)\n\n", filepath.Base(filePath), len(elements))
-	shown := elements
-	if len(shown) > maxOutlineElements {
-		shown = shown[:maxOutlineElements]
-	}
-	for _, el := range shown {
-		label := strings.TrimSpace(el.Signature)
-		if label == "" {
-			label = el.Name
-		}
-		// Cut on runes so the reported remainder is a character count and the
-		// label stays valid UTF-8. len(label) is bytes.
+	for _, el := range elements[:shown] {
+		label := outlineLabel(el)
 		rest := 0
-		if n := utf8.RuneCountInString(label); n > maxOutlineSignature {
-			rest = n - maxOutlineSignature
-			label = string([]rune(label)[:maxOutlineSignature])
+		if cut {
+			label, rest = cutOutlineLabel(label, chars)
 		}
-		if rest > 0 {
-			fmt.Fprintf(&b, "- %d-%d %s `%s…` (%d more characters; `get_element` returns the signature whole)\n", el.StartLine, el.EndLine, el.Type, label, rest)
-		} else {
-			fmt.Fprintf(&b, "- %d-%d %s `%s`\n", el.StartLine, el.EndLine, el.Type, label)
-		}
+		b.WriteString(outlineEntryLine(el, label, rest))
 	}
-	if rest := len(elements) - len(shown); rest > 0 {
+	if rest := len(elements) - shown; rest > 0 {
 		fmt.Fprintf(&b, "- … %d more declarations not listed; `get_elements path=%s` lists every one\n", rest, filePath)
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func outlineLabel(el codedom.CodeElement) string {
+	label := strings.TrimSpace(el.Signature)
+	if label == "" {
+		return el.Name
+	}
+	return label
+}
+
+// outlineEntryLine is one outline row. rest > 0 is the character cut: label is
+// the prefix that was kept, and the line names get_element, which returns the
+// signature whole. The cut is on runes so the remainder is a character count
+// and the label stays valid UTF-8; len(label) is bytes.
+func outlineEntryLine(el codedom.CodeElement, label string, rest int) string {
+	if rest > 0 {
+		return fmt.Sprintf("- %d-%d %s `%s…` (%d more characters; `get_element` returns the signature whole)\n", el.StartLine, el.EndLine, el.Type, label, rest)
+	}
+	return fmt.Sprintf("- %d-%d %s `%s`\n", el.StartLine, el.EndLine, el.Type, label)
+}
+
+func cutOutlineLabel(label string, chars int) (string, int) {
+	if chars < 0 {
+		chars = 0
+	}
+	n := utf8.RuneCountInString(label)
+	if n <= chars {
+		return label, 0
+	}
+	return string([]rune(label)[:chars]), n - chars
 }
 
 // writeUnparsedFiles states how many package files the signature and type
@@ -875,16 +912,6 @@ const maxSiblingFileBytes = 5 * 1024 * 1024
 // caller past this bound. Stopping the walk here made "and N more callers" a
 // count of the stored prefix.
 const maxCallGraphEdges = 100
-
-// maxSigs and maxTypes bound what one prompt section lists. The remainder
-// is computed from the full pool, then the list is sliced. The callers block
-// has no const here: its count is derived by the working policy from the
-// measured pool and the session's budget (PromptSectionWithCallerBudget),
-// and renders whole when no policy answers.
-const (
-	maxSigs  = 8
-	maxTypes = 8
-)
 
 // buildGoContextWithContext builds package-level context for Go files with
 // cancellation and limit protections, served from the package-parse cache when

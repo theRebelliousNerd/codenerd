@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 )
 
@@ -178,39 +179,80 @@ func TestDirectImporters_QuietWithoutKernel(t *testing.T) {
 	}
 }
 
-// TestDirectImporters_Bounded keeps the section short. The question it answers
-// is "is this load-bearing, and for whom" — six examples and a total answer it
-// as well as fifty, at a tenth of the tokens.
+// TestDirectImporters_Bounded keeps the section to the share. Twelve
+// fixed-width importers, so every rendered line is the same length. 10% of
+// (lineLen*40) bytes is lineLen*4, so four render and eight remain.
+// importers_of reads the rest.
 func TestDirectImporters_Bounded(t *testing.T) {
 	dir := t.TempDir()
 	target := writeModule(t, dir)
 
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("kernel: %v", err)
-	}
-	pkgPath := "pkg:example.com/m/internal/lib"
-	for i := 0; i < maxRenderedImporters*4; i++ {
-		f := core.Fact{Predicate: "dependency_link", Args: []any{
-			filepath.Join(dir, "cmd", "a"+string(rune('a'+i)), "main.go"), pkgPath, "example.com/m/internal/lib",
-		}}
-		if err := kernel.Assert(f); err != nil {
-			t.Fatalf("assert: %v", err)
+	const n = 12
+	facts := make([]core.Fact, 0, n)
+	const pkgPath = "pkg:example.com/m/internal/lib"
+	var lineLen int
+	for i := 0; i < n; i++ {
+		p := filepath.ToSlash(filepath.Join(dir, "cmd", fmt.Sprintf("c%02d", i), "main.go"))
+		facts = append(facts, core.Fact{Predicate: "dependency_link", Args: []any{p, pkgPath, "example.com/m/internal/lib"}})
+		if lineLen == 0 {
+			lineLen = len("- `" + p + "`\n")
 		}
 	}
-
-	h := NewHolographicProvider(kernel, dir)
-	section := h.PromptSection(context.Background(), target)
-
-	listed := strings.Count(section, "- `"+filepath.ToSlash(dir))
-	if listed > maxRenderedImporters {
-		t.Errorf("rendered %d importers, want at most %d:\n%s", listed, maxRenderedImporters, section)
+	h := NewHolographicProvider(&stubQuerier{facts: map[string][]core.Fact{
+		"dependency_link": facts,
+	}}, dir)
+	// share 10: budget/10 is the allowance, and lineLen*4 of it renders 4.
+	budget := lineLen * 40
+	section, seen := budgetedRender(t, h, target, func(c *config.WorkingConfig) {
+		c.HolographicImportersSharePercent = 10
+	}, budget)
+	m := dimensionMeasurement(t, seen, holoImporters)
+	if m.total != n || m.avg != lineLen || m.budget != budget {
+		t.Fatalf("measured importers = (%d, %d bytes, budget %d), want (%d, %d, %d)", m.total, m.avg, m.budget, n, lineLen, budget)
 	}
-	want := fmt.Sprintf("and %d more file(s)", maxRenderedImporters*3)
-	if !strings.Contains(section, want) {
-		t.Errorf("truncation remainder is not the true count (want %q):\n%s", want, section)
+	if got := strings.Count(section, "- `"+filepath.ToSlash(filepath.Join(dir, "cmd"))); got != 4 {
+		t.Fatalf("rendered %d importers, want the derived 4:\n%s", got, section)
 	}
-	if !strings.Contains(section, "`importers_of`") {
-		t.Errorf("importer remainder does not name importers_of:\n%s", section)
+	if !strings.Contains(section, "/c00/") || !strings.Contains(section, "/c03/") {
+		t.Fatalf("the first four sorted importers must render:\n%s", section)
+	}
+	if strings.Contains(section, "/c04/") {
+		t.Fatalf("c04 renders past the derived count:\n%s", section)
+	}
+	if !strings.Contains(section, "and 8 more file(s)") || !strings.Contains(section, "`importers_of`") {
+		t.Fatalf("missing the true remainder and importers_of:\n%s", section)
+	}
+}
+
+// Two importers under an allowance that holds them render whole, with no
+// remainder line.
+func TestDirectImporters_FewRenderWhole(t *testing.T) {
+	dir := t.TempDir()
+	target := writeModule(t, dir)
+
+	const pkgPath = "pkg:example.com/m/internal/lib"
+	facts := make([]core.Fact, 0, 2)
+	var lineLen int
+	for i := 0; i < 2; i++ {
+		p := filepath.ToSlash(filepath.Join(dir, "cmd", fmt.Sprintf("c%02d", i), "main.go"))
+		facts = append(facts, core.Fact{Predicate: "dependency_link", Args: []any{p, pkgPath, "example.com/m/internal/lib"}})
+		lineLen = len("- `" + p + "`\n")
+	}
+	h := NewHolographicProvider(&stubQuerier{facts: map[string][]core.Fact{
+		"dependency_link": facts,
+	}}, dir)
+	budget := lineLen * 40
+	section, seen := budgetedRender(t, h, target, func(c *config.WorkingConfig) {
+		c.HolographicImportersSharePercent = 10
+	}, budget)
+	m := dimensionMeasurement(t, seen, holoImporters)
+	if m.total != 2 {
+		t.Fatalf("measured importers = %d, want 2", m.total)
+	}
+	if got := strings.Count(section, "- `"+filepath.ToSlash(filepath.Join(dir, "cmd"))); got != 2 {
+		t.Fatalf("rendered %d importers, want both:\n%s", got, section)
+	}
+	if strings.Contains(section, "more file(s)") {
+		t.Fatalf("a pool that fits states a remainder:\n%s", section)
 	}
 }
