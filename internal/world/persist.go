@@ -49,13 +49,25 @@ func PersistFastSnapshotToDBInRoot(db *store.LocalStore, root string, facts []co
 			Fingerprint: path,
 		}
 		if path != globalWorldFactsPath {
-			info, statErr := os.Stat(types.ResolveWorkspacePath(root, path))
+			abs := types.ResolveWorkspacePath(root, path)
+			info, statErr := os.Stat(abs)
 			if statErr != nil {
 				continue
 			}
-			fp = fileFingerprint(info)
 			meta.Size = info.Size()
 			meta.ModTime = info.ModTime().UnixNano()
+			// Size and mtime are not an identity: a same-size rewrite keeps
+			// both when os.Chtimes puts the mtime back. The fingerprint is the
+			// content stamp, and only when the snapshot hash is a digest
+			// parseContentFingerprint will keep. Any other hash is stored
+			// empty. That string does not parse, so the next reader reparses
+			// and replaces the row. A size:mtime key already on disk fails
+			// the same parse and takes the same path.
+			if contentHashAccepted(meta.Hash) {
+				fp = formatContentFingerprint(stampFromInfo(abs, info, nil), meta.Hash)
+			} else {
+				fp = ""
+			}
 			meta.Fingerprint = fp
 		}
 		if err := db.UpsertWorldFile(meta); err != nil {

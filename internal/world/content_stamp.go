@@ -145,11 +145,28 @@ func resolveContent(path string, cur, stored contentStamp, now int64) (hash stri
 	return hash, true, nil
 }
 
-// formatContentFingerprint is the deep-fact cache key. It carries the stamp
-// and the content hash so the next scan can trust the bytes or, when the
-// stamp moved, notice that the hash did not.
+// formatContentFingerprint is the cache key for fast and deep rows. It
+// carries the stamp and the content hash so the next reader can trust the
+// bytes or, when the stamp moved, notice that the hash did not.
 func formatContentFingerprint(st contentStamp, hash string) string {
 	return fmt.Sprintf("c:%d:%d:%d:%d:%s", st.size, st.mtime, st.gen, stampFlags(st.genOK, st.genIsClock), hash)
+}
+
+// contentHashAccepted reports whether hash is a lowercase SHA-256 digest
+// that parseContentFingerprint will keep. The parser splits on ':' and
+// requires a 64-character final field, which a hex digest satisfies.
+func contentHashAccepted(hash string) bool {
+	if len(hash) != 64 {
+		return false
+	}
+	for i := 0; i < len(hash); i++ {
+		c := hash[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	_, ok := parseContentFingerprint(formatContentFingerprint(contentStamp{}, hash))
+	return ok
 }
 
 func stampFlags(genOK, genIsClock bool) int {
@@ -163,6 +180,9 @@ func stampFlags(genOK, genIsClock bool) int {
 	return flags
 }
 
+// parseContentFingerprint reads a key from formatContentFingerprint.
+// Any other shape, including a legacy "size:mtime" key, returns ok=false.
+// The caller reparses the file and replaces the row.
 func parseContentFingerprint(s string) (contentStamp, bool) {
 	if !strings.HasPrefix(s, "c:") {
 		return contentStamp{}, false

@@ -7,7 +7,6 @@ import (
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"context"
-	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -40,14 +39,6 @@ type IncrementalResult struct {
 
 	// New fields for Mangle integration
 	ProjectLanguage string
-}
-
-// fileFingerprint is the size+mtime key PersistFastSnapshotToDBInRoot stores
-// on fast rows. It is not a content identity: a same-size rewrite can keep
-// it, and os.Chtimes puts the mtime back. Incremental change detection,
-// deep-fact reuse, and FileCache.Get use contentStamp instead.
-func fileFingerprint(info os.FileInfo) string {
-	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 }
 
 // isNonCanonicalWorldPath reports whether a cached world file path was written
