@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 
 	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/system"
 
 	"github.com/spf13/cobra"
 )
@@ -83,6 +86,14 @@ func runConfigCheck(cmd *cobra.Command, _ []string) error {
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), p.String())
 	}
+	// Boot refuses any user agent whose tools name a tool the host has not
+	// registered (a stderr warning, not a boot error), so the file that
+	// "passes" this command can still lose an agent at startup. The sibling
+	// agents.json is checked with boot's own test and reported the same way.
+	for _, p := range checkUserAgentTools() {
+		counts[p.Severity]++
+		fmt.Fprintln(cmd.OutOrStdout(), p.String())
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "\n%s: %d error(s), %d warning(s), %d field(s) left to defaults\n",
 		path, counts[config.SeverityError], counts[config.SeverityWarning], counts[config.SeverityImplicit])
 	if counts[config.SeverityError] > 0 {
@@ -117,6 +128,93 @@ func runConfigFull(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "wrote %s (%d bytes; contains your API keys)\n", out, len(full))
 	return nil
+}
+
+// userAgentsWorkspace is the workspace whose .nerd/agents.json siblings the
+// config being checked. It mirrors userConfigPath: --workspace when given,
+// otherwise the root FindWorkspaceRoot resolves for the default config path.
+func userAgentsWorkspace() string {
+	if workspace != "" {
+		return workspace
+	}
+	if root, err := config.FindWorkspaceRoot(); err == nil {
+		return root
+	}
+	return "."
+}
+
+// checkUserAgentTools reports every sibling agents.json tool boot would
+// refuse, as warning Problems in the same shape as cfg.Check. The loader is
+// boot's (system.LoadUserAgentDefinitions) and the test is boot's
+// (system.RefusedUserAgentTools over a kernel hydrated with the same
+// tool_registered facts), so this command and boot refuse the same entries.
+//
+// A kernel that cannot be built or queried is a warning, not an error: the
+// config file itself is not what failed, and this command exits 1 only for
+// file errors. No agents.json, or an unreadable one, yields nothing, exactly
+// as boot's best-effort load does.
+func checkUserAgentTools() []config.Problem {
+	ws := userAgentsWorkspace()
+	defs := system.LoadUserAgentDefinitions(ws)
+	if len(defs) == 0 {
+		return nil
+	}
+	kernel, err := system.NewDomainCortex(ws)
+	if err != nil {
+		return []config.Problem{{
+			Severity: config.SeverityWarning,
+			Path:     "agents",
+			Message:  fmt.Sprintf("could not verify user agent tools: %v", err),
+			Fix:      "run again; if it persists, boot cannot build its kernel either",
+		}}
+	}
+	hydrateConfigCheckToolFacts(kernel, ws)
+	refusals, err := system.RefusedUserAgentTools(kernel, defs)
+	if err != nil {
+		return []config.Problem{{
+			Severity: config.SeverityWarning,
+			Path:     "agents",
+			Message:  fmt.Sprintf("could not verify user agent tools: %v", err),
+			Fix:      "run again; if it persists, boot cannot query its kernel either",
+		}}
+	}
+	out := make([]config.Problem, 0, len(refusals))
+	for _, r := range refusals {
+		out = append(out, config.Problem{
+			Severity: config.SeverityWarning,
+			Path:     fmt.Sprintf("agents.%s.tools", r.Agent),
+			Message:  fmt.Sprintf("user agent %q declares tool %q, which is not a registered tool; boot refuses this agent", r.Agent, r.Tool),
+			Fix:      fmt.Sprintf("remove %q from the agent's tools in .nerd/agents.json, or register a tool by that name", r.Tool),
+		})
+	}
+	return out
+}
+
+// hydrateConfigCheckToolFacts replays the tool_registered facts boot asserts
+// before it registers user agents (initExecutionLayer), so the refusal test
+// sees the same registry boot does. Static tools come from
+// .nerd/tools/available_tools.json, compiled tools from
+// .nerd/tools/.compiled; both restores batch their facts into one evaluation
+// each. The Ouroboros executor sync boot's HydrateToolsFromDisk would also
+// attempt is skipped there too — the executor is set only later, in
+// initAutopoiesisAndBrowser — so a check without it matches boot exactly.
+// Every failure here is best-effort with boot's warning, for boot's reason:
+// a corrupt tools file must not stop the listing, and the agents it strands
+// are reported as refused, which is what boot does with the file missing.
+func hydrateConfigCheckToolFacts(kernel core.Kernel, ws string) {
+	nerdDir := filepath.Join(ws, ".nerd")
+	registry := core.NewToolRegistry(ws)
+	registry.SetKernel(kernel)
+	if static, err := system.WorkspaceStaticToolDefs(nerdDir); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to load available_tools.json: %v", err)
+	} else if len(static) > 0 {
+		if err := registry.RestoreFromStaticDefs(static); err != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to hydrate static tools: %v", err)
+		}
+	}
+	if err := registry.RestoreFromDisk(filepath.Join(nerdDir, "tools", ".compiled")); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to hydrate tools from disk: %v", err)
+	}
 }
 
 // invokesConfigCommand reports whether the command line's first non-flag word

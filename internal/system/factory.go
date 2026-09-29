@@ -14,7 +14,6 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/features"
-	nerdinit "codenerd/internal/init"
 	"codenerd/internal/jsonl"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -1495,19 +1494,9 @@ func initExecutionLayer(bctx *bootContext) error {
 	// Static tools from available_tools.json plus generated tools from disk.
 	// Warnings are logged, not fatal, so a corrupt tools dir never fails boot.
 	nerdDir := filepath.Join(bctx.workspace, ".nerd")
-	if toolDefs, err := nerdinit.LoadToolsFromFile(nerdDir); err != nil {
+	if staticDefs, err := WorkspaceStaticToolDefs(nerdDir); err != nil {
 		logging.Get(logging.CategorySession).Warn("Failed to load available_tools.json: %v", err)
-	} else if len(toolDefs) > 0 {
-		staticDefs := make([]core.StaticToolDef, len(toolDefs))
-		for i, td := range toolDefs {
-			staticDefs[i] = core.StaticToolDef{
-				Name:          td.Name,
-				Category:      td.Category,
-				Description:   td.Description,
-				Command:       td.Command,
-				ShardAffinity: td.ShardAffinity,
-			}
-		}
+	} else if len(staticDefs) > 0 {
 		if err := bctx.virtualStore.HydrateStaticTools(staticDefs); err != nil {
 			logging.Get(logging.CategorySession).Warn("Failed to hydrate static tools: %v", err)
 		}
