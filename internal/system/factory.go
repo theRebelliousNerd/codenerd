@@ -2042,12 +2042,12 @@ func registerUserAgentConfigAtoms(provider *prompt.DefaultConfigAtomProvider, wo
 // impacted-test tools to the kernel they read.
 //
 // Both used to be built on GetPrimaryRealKernel, the catch-all shard.
-// code_calls, dependency_link, code_element, element_modified and plan_edit
+// code_calls, dependency_link, code_element and element_modified
 // are owned by the world shard, and context_priority_file is derived there
 // from those facts. Measured on NewDomainCortex (2026-09-28): each of those
 // predicates had 0 rows in the catch-all and was present on CortexKernel.Query,
 // so every production turn rendered unordered callers and run_impacted_tests
-// reported "no plan_edit facts found". Neither provider asserts; Query is the
+// reported that no edited refs were found. Neither provider asserts; Query is the
 // whole surface, and CortexKernel already implements it. A non-cortex kernel
 // (a test override) gets no provider, which is what the old type switch did.
 func installContextProviders(kernel core.Kernel, workspace string) session.FileContextProvider {

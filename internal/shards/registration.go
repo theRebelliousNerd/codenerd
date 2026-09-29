@@ -57,7 +57,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			OwnedPredicates: []string{
 				"file_topology", "symbol_graph", "diagnostic", "project_profile",
 				"code_element", "element_visibility", "element_modified",
-				"code_implements", "code_calls", "dependency_link",
+				"code_implements", "code_calls", "code_defines", "dependency_link",
 				"file_dir", "modified", "active_file", "in_scope",
 				"churn_rate", "imports", "file_contains",
 				"file_has_public_api", "package_has_dep", "test_coverage",
@@ -80,7 +80,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// Edit plans and pending mutations are judged against the
 				// dependency graph (coder_impact.mg, coder_safety.mg,
 				// commit_gate.mg).
-				"coder_target", "plan_edit", "pending_edit", "pending_mutation",
+				"coder_target", "pending_edit", "pending_mutation",
 				"modified_function", "modified_file",
 				// Tool domain facts are joined only against file_topology
 				// (tool_routing.mg, policy_mcp.mg).

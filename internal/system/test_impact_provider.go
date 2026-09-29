@@ -35,7 +35,7 @@ import (
 // core.Fact and codedom.FactData are the same shape by construction — codedom
 // declares its own so internal/tools does not import internal/core — so this is
 // a field copy, not a conversion. The querier is the cortex in production
-// (world.FactQuerier): element_modified, plan_edit, code_element and code_calls
+// (world.FactQuerier): element_modified, code_element and code_calls
 // are owned by the world shard, and a *core.RealKernel here was the catch-all,
 // whose Query returned none of them.
 type kernelFactQuerier struct {
@@ -65,7 +65,7 @@ type testImpactProvider struct {
 	projectRoot string
 }
 
-// GetKernel returns the read-only kernel view the tools query for plan_edit.
+// GetKernel returns the read-only kernel view the tools query for element_modified.
 func (p *testImpactProvider) GetKernel() codedom.KernelQuerier {
 	return p.querier
 }

@@ -591,9 +591,9 @@ func (tm *TransactionManager) ToFacts() []Fact {
 
 	// Report the edits at the granularity this type actually has: a file path.
 	//
-	// These were emitted as plan_edit(FilePath) until 2026-09-09. plan_edit is
-	// declared as plan_edit(Ref) — "Element is planned for editing"
-	// (schemas_codedom_polyglot.mg:205) — and every consumer joins it against
+	// These were emitted as plan_edit(FilePath) until 2026-09-09. plan_edit was
+	// declared as plan_edit(Ref) — "Element is planned for editing"; deleted
+	// 2026-09-28, the edited ref lives on element_modified — and every consumer joined it against
 	// code_element's first argument, which is a CodeDOM ref like
 	// `fn:pkg.Name`. A file path never matches one, so four rules in
 	// test_impact.mg derived nothing, and the impacted-test tools' kernel

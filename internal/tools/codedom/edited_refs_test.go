@@ -17,15 +17,10 @@ func (k *factKernel) Query(predicate string) ([]FactData, error) {
 	return k.facts[predicate], nil
 }
 
-// TestEditedRefsFromKernel_PrefersWhatIsActuallyProduced pins the fix for a
-// shape mismatch that made both impacted-test tools return nothing on every
-// real invocation.
-//
-// The no-argument path read plan_edit alone. plan_edit is declared as
-// plan_edit(Ref) and joined against code_element's ref, but its only producer
-// — TransactionManager.ToFacts — wrote FileEdit.FilePath into it. A file path
-// never matches a ref, so the dependency graph matched nothing. element_modified
-// is emitted by every CodeDOM edit handler and carries a real ref.
+// TestEditedRefsFromKernel_PrefersWhatIsActuallyProduced pins the refs a
+// CodeDOM edit actually asserts. element_modified(Ref, SessionID, Timestamp)
+// carries the code_element ref the dependency graph is keyed by
+// (virtual_store_codedom.go, editedElementFacts in virtual_store_tool_facts.go).
 func TestEditedRefsFromKernel_PrefersWhatIsActuallyProduced(t *testing.T) {
 	k := &factKernel{facts: map[string][]FactData{
 		"element_modified": {
@@ -39,26 +34,14 @@ func TestEditedRefsFromKernel_PrefersWhatIsActuallyProduced(t *testing.T) {
 	}
 }
 
-// TestEditedRefsFromKernel_StillReadsPlanEdit keeps the declared predicate in
-// play for a future producer that emits the right shape.
-func TestEditedRefsFromKernel_StillReadsPlanEdit(t *testing.T) {
-	k := &factKernel{facts: map[string][]FactData{
-		"plan_edit": {{Predicate: "plan_edit", Args: []any{"fn:calc.Mul"}}},
-	}}
-	if got := editedRefsFromKernel(k); len(got) != 1 || got[0] != "fn:calc.Mul" {
-		t.Fatalf("got %v, want [fn:calc.Mul]", got)
-	}
-}
-
-// TestEditedRefsFromKernel_Deduplicates: an element edited twice, or named by
-// both predicates, must be analysed once.
+// TestEditedRefsFromKernel_Deduplicates: an element edited twice must be
+// analysed once.
 func TestEditedRefsFromKernel_Deduplicates(t *testing.T) {
 	k := &factKernel{facts: map[string][]FactData{
 		"element_modified": {
 			{Predicate: "element_modified", Args: []any{"fn:calc.Add", "s", int64(1)}},
 			{Predicate: "element_modified", Args: []any{"fn:calc.Add", "s", int64(2)}},
 		},
-		"plan_edit": {{Predicate: "plan_edit", Args: []any{"fn:calc.Add"}}},
 	}}
 	if got := editedRefsFromKernel(k); len(got) != 1 {
 		t.Fatalf("got %v, want one deduplicated ref", got)

@@ -17,7 +17,7 @@ Three instances were found in one audit (2026-09):
 |---|---|---|---|
 | `modified_function` | `<pkg>.<Name>`, joined to `code_calls` | *nothing at all* | the whole caller-impact chain, and the impact-ranked holographic context |
 | `modified_function` (after wiring) | `<pkg>.<Name>` | bare `Name` | same chain, still empty |
-| `plan_edit` | a `code_element` ref | `FileEdit.FilePath` | five rules in `test_impact.mg`; both impacted-test tools returning "none" on every call |
+| `plan_edit` (deleted 2026-09-28) | a `code_element` ref | `FileEdit.FilePath` | five rules in `test_impact.mg`; both impacted-test tools returning "none" on every call -- they now read `element_modified`, which the CodeDOM edit tools emit with the ref |
 
 Before adding or changing a producer:
 
@@ -32,7 +32,7 @@ Before adding or changing a producer:
 3. **If the producer does not know the shape the Decl asks for, do not guess.**
    Emit into a predicate whose contract it can meet, or write a producer where
    the identity is actually known. `TransactionManager` only has file paths, so
-   it emits `modified_file`; `plan_edit` belongs where the element ref is known.
+   it emits `modified_file`; the element ref is asserted as `element_modified` where it is known (the CodeDOM edit tools).
 4. **Prove it end to end.** A unit test on either side passes while the join is
    empty, because each side is self-consistent. Assert the *derived* predicate
    from a real kernel — see `TestImpactChain_EndToEndThroughVirtualStore`.

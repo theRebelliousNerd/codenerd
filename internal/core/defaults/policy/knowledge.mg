@@ -87,15 +87,20 @@ related_context(Content) :-
 
 # Section 25: Holographic Retrieval (Cartographer)
 
-# Bridge world model facts to holographic schema (Fix 15.6)
-# symbol_graph carries no line spans, so both line slots bridge as 0 ("unknown").
-# StartLine/EndLine are /number: the previous "" here put a string in a numeric
-# slot, which the Cartographer's own code_defines facts fill with int64 lines.
-code_defines(File, SymbolID, Type, 0, 0) :-
-    symbol_graph(SymbolID, Type, _, File, _).
-
-code_calls(CallerID, CalleeID) :-
-    dependency_link(CallerID, CalleeID, _).
+# code_defines and code_calls are cartographer EDB, owned by the world shard
+# (internal/world/cartographer.go goSymbolFacts; internal/shards/registration.go).
+# Symbol ids are <pkg>.<Name> and <pkg>.<Recv>.<Name>, with the real line span.
+# code_calls uses that same id, and so does modified_function
+# (internal/core/codedom_modified_symbols.go symbolIDFromRef). impact.mg joins
+# the three.
+#
+# Do not derive either predicate from the fast scan. symbol_graph ids are
+# func:<Name> / method:<recv>.<Name> (internal/world/ast_treesitter.go) and
+# carry no line span; copying them into code_defines put 0,0 rows in this
+# shard, and ShardsFor followed that rule so CortexKernel.Query never read
+# the cartographer rows (they were unowned, so they sat in the catch-all).
+# dependency_link is a file-to-import edge (schemas_world.mg); copying it
+# into code_calls typed a file path as a symbol.
 
 # 1. Callers of the target symbol
 relevant_context(File) :-

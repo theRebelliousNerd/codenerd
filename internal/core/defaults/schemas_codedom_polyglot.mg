@@ -202,8 +202,5 @@ Decl file_imports(Importer, Imported) bound [/string, /string].
 # type_embeds(Type, EmbeddedType) - Type embeds another type (Go struct embedding)
 Decl type_embeds(Type, EmbeddedType) bound [/string, /string].
 
-# plan_edit(Ref) - Element is planned for editing
-Decl plan_edit(Ref) bound [/string].
-
 # modified_file(File) - File has been modified
 Decl modified_file(File) bound [/string].

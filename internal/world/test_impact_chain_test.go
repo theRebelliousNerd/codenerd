@@ -18,7 +18,7 @@ import (
 // meet. W1 proved the call rules from real producer output with the file
 // facts (is_test_file, file_imports, file_package) simulated;
 // W3 gave those their producers in the fast scanner, and these tests now
-// take every input except plan_edit from real producer output — not
+// take every input except the edit trigger from real producer output — not
 // hand-spelled facts that are self-consistent and wrong (see
 // TestImpactChain_EndToEndThroughVirtualStore for why that distinction
 // matters).
@@ -163,13 +163,13 @@ func assertRows(t *testing.T, what string, got []core.Fact, want ...string) {
 	}
 }
 
-// planEdit is the edit trigger the chain reads. plan_edit has no producer
-// in the repo (see the test_impact.mg note): the transaction manager emits
-// modified_file instead. The chain tests assert the edit the way a producer
-// would spell it — a code_element ref — so the test proves the rules fire
-// given the fact, and the missing producer stays visible as a simulation.
-func planEdit(ref string) core.Fact {
-	return core.Fact{Predicate: "plan_edit", Args: []any{ref}}
+// elementModified is the edit trigger the chain reads. CodeDOM edits assert
+// element_modified(Ref, SessionID, Timestamp) (virtual_store_codedom.go and
+// editedElementFacts in virtual_store_tool_facts.go). This test does not
+// dispatch an edit, so it asserts that row in the producer's shape. Every
+// other input is real producer output.
+func elementModified(ref string) core.Fact {
+	return core.Fact{Predicate: "element_modified", Args: []any{ref, "sess", int64(1)}}
 }
 
 // TestCodeElement_WhenTestFunction_ShouldEmitIsTestFunction pins the
@@ -216,15 +216,15 @@ func TestCodeElement_WhenTestFunction_ShouldEmitIsTestFunction(t *testing.T) {
 }
 
 // callsOnlySeed is the single-package scenario: every production producer
-// plus the edit trigger. Only plan_edit is simulated (it still has no
-// producer); is_test_file, file_dir and file_package come from the fast
-// scanner. The fixture has no in-repo imports, so no file_imports row exists
-// and every dependency below must come through the code_calls (R2) and
-// same-package (R3) rules.
+// plus the edit trigger. element_modified is hand-asserted in the producer's
+// shape (this test does not run a CodeDOM edit); is_test_file, file_dir and
+// file_package come from the fast scanner. The fixture has no in-repo imports,
+// so no file_imports row exists and every dependency below must come through
+// the code_calls (R2) and same-package (R3) rules.
 func callsOnlySeed(t *testing.T, root string) []core.Fact {
 	t.Helper()
 	facts := collectTestImpactFacts(t, root)
-	return append(facts, planEdit("fn:p.Target"))
+	return append(facts, elementModified("fn:p.Target"))
 }
 
 // TestTestImpactChain_WhenCallsOnly_ShouldDeriveDirectImpact proves the call
@@ -345,7 +345,7 @@ func collectImportSeed(t *testing.T, root string) []core.Fact {
 	if !found {
 		t.Fatalf("scanner produced no file_imports(%s, %s); seed=%v", impactImportTestFile, impactImportSrcFile, scannerFacts)
 	}
-	return append(append(facts, scannerFacts...), planEdit("fn:q.Target"))
+	return append(append(facts, scannerFacts...), elementModified("fn:q.Target"))
 }
 
 // TestTestImpactChain_WhenFileImports_ShouldDeriveCrossProduct proves the
@@ -410,7 +410,7 @@ func TestTestImpactChain_WhenFileImports_ShouldDeriveCrossProduct(t *testing.T) 
 func TestTestImpactChain_WhenNoTestFileMark_ShouldAccuseTheTests(t *testing.T) {
 	root := writeTestImpactFixture(t)
 	facts := collectProducerFacts(t, root)
-	facts = append(facts, planEdit("fn:p.Target"))
+	facts = append(facts, elementModified("fn:p.Target"))
 	k := seedRealKernel(t, facts)
 
 	assertRows(t, "coverage_gap", queryRows(t, k, "coverage_gap"),
@@ -425,9 +425,9 @@ func TestTestImpactChain_WhenNoTestFileMark_ShouldAccuseTheTests(t *testing.T) {
 // production owns in world. The owned list mirrors
 // DefaultShardPredicateManifests in internal/shards/registration.go (which
 // this package cannot import: shards/system imports world), the same way
-// core's cortex_split_join_test mirrors the entries it needs. method_of,
-// go_tag and code_defines EDB are unowned in production and route to the
-// catch-all here too; derived method_of (codedom_core.mg, from world-owned
+// core's cortex_split_join_test mirrors the entries it needs. method_of and
+// go_tag EDB are unowned in production and route to the catch-all here too
+// (code_defines is world-owned since 2026-09-28, but no chain rule reads it); derived method_of (codedom_core.mg, from world-owned
 // element_parent) is what the chain rules read.
 func newChainCortex(t *testing.T) *core.CortexKernel {
 	t.Helper()
@@ -443,7 +443,7 @@ func newChainCortex(t *testing.T) *core.CortexKernel {
 			"element_parent", "code_interactable", "is_test_function",
 			"active_file", "file_in_scope",
 			"code_calls", "file_imports", "file_dir",
-			"plan_edit", "modified_file", "file_package", "is_test_file",
+			"element_modified", "modified_file", "file_package", "is_test_file",
 			"type_embeds", "go_struct",
 			"assigns", "uses", "guards_block", "guards_return",
 			"error_checked_block", "error_checked_return", "same_scope",

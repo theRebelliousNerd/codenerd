@@ -61,7 +61,7 @@ func TestImpactedTestTools_WiredEndToEnd(t *testing.T) {
 	if strings.Contains(out, "not initialized") {
 		t.Fatalf("provider still unregistered after wiring: %s", out)
 	}
-	// The edited ref comes from the plan_edit fact, and TestAdd calls Add, so
+	// The edited ref comes from the element_modified fact, and TestAdd calls Add, so
 	// the graph must reach it. Anything less means the adapter dropped facts.
 	if !strings.Contains(out, "fn:calc.TestAdd") {
 		t.Fatalf("impacted test not found in output; got: %s", out)

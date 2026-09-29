@@ -59,11 +59,14 @@
 #                      (internal/world/fs.go, incremental_scan.go). The gap
 #                      rule no longer accuses the tests in a scanned workspace.
 #
-#   plan_edit          STILL NO PRODUCER (Decl in
-#                      schemas_codedom_polyglot.mg:206). The transaction
-#                      manager emits modified_file instead (see below), so
-#                      every impacted_test rule that reads plan_edit waits on
-#                      a fact nothing asserts.
+#   element_modified   The edit trigger. A CodeDOM edit asserts
+#                      element_modified(Ref, SessionID, Timestamp) with the
+#                      code_element ref these rules join
+#                      (internal/core/virtual_store_codedom.go, and
+#                      editedElementFacts in virtual_store_tool_facts.go).
+#                      plan_edit was removed: nothing produced it. The
+#                      transaction manager emits modified_file, a file path
+#                      (see below), not an element ref.
 #
 #   modified_file      Its only Go producer is TransactionManager.ToFacts()
 #                      (internal/core/transaction_manager.go), and nothing in
@@ -74,17 +77,18 @@
 #
 # What fires today, given the facts: every rule whose inputs exist --
 # test_depends_on through calls (R2), same-directory (R3) and file imports
-# (R1), its transitive closure, impacted_test through the plan_edit rules,
-# coverage and all three priorities -- proven by
-# internal/world/test_impact_chain_test.go against the real corpus from real
-# producer output. method_of needs no shard attention: it is derived in-world
-# from element_parent (codedom_core.mg), so the transitive method rule fires
-# on the production kernel; the sharded-vs-single parity test guards the
-# colocation. The modified_file impacted_test rule still waits on a producer.
+# (R1), its transitive closure, impacted_test and the priorities through
+# element_modified, coverage and all three priorities -- proven by
+# internal/world/test_impact_chain_test.go against the real corpus. The
+# edit row in that test is hand-asserted in the producer's shape; the test
+# does not dispatch a CodeDOM edit. method_of needs no shard attention: it
+# is derived in-world from element_parent (codedom_core.mg), so the
+# transitive method rule fires on the production kernel; the sharded-vs-single
+# parity test guards the colocation. The modified_file impacted_test rule
+# still waits on a producer.
 #
-# The Go path still carries production test impact (run_impacted_tests
-# reads edited refs from element_modified and walks the graph in Go).
-# These rules are the Mangle path coming up, one producer at a time.
+# run_impacted_tests reads the same element_modified rows and walks the
+# dependency graph in Go.
 
 # =============================================================================
 # SECTION 1: TEST IDENTIFICATION PREDICATES
@@ -160,16 +164,16 @@ test_depends_on_transitive(TestRef, SourceRef) :-
 # =============================================================================
 # SECTION 4: IMPACTED TEST DETECTION
 # =============================================================================
-# Determine which tests are affected by planned edits.
+# Determine which tests are affected by edited elements.
 
 # A test is impacted if we're editing something it depends on
 impacted_test(TestRef) :-
-    plan_edit(TargetRef),
+    element_modified(TargetRef, _, _),
     test_depends_on_transitive(TestRef, TargetRef).
 
 # A test is impacted if it's in the same file as something we're editing
 impacted_test(TestRef) :-
-    plan_edit(TargetRef),
+    element_modified(TargetRef, _, _),
     code_element(TargetRef, _, File, _, _),
     code_element(TestRef, _, File, _, _),
     is_test_function(TestRef).
@@ -232,11 +236,11 @@ coverage_gap(Ref, /no_direct_tests) :-
 
 # High priority detection (helper predicate to avoid stratification)
 # Reordered: impacted_test binds TestRef, test_depends_on shares TestRef and binds
-# TargetRef, then plan_edit shares TargetRef.
+# TargetRef, then element_modified shares TargetRef.
 is_high_priority_test(TestRef) :-
     impacted_test(TestRef),
     test_depends_on(TestRef, TargetRef),
-    plan_edit(TargetRef).
+    element_modified(TargetRef, _, _).
 
 # High priority: Test directly tests the edited function
 test_priority(TestRef, /high) :-
@@ -257,7 +261,7 @@ is_low_priority_test(TestRef) :-
     file_dir(TargetFile, Dir),
     TestFile != TargetFile,
     code_element(TargetRef, _, TargetFile, _, _),
-    plan_edit(TargetRef).
+    element_modified(TargetRef, _, _).
 
 # Low priority: test in the same directory but no dependency
 test_priority(TestRef, /low) :-

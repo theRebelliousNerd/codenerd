@@ -112,7 +112,7 @@ func RunImpactedTestsTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"edited_refs": {
 					Type:        "array",
-					Description: "List of code element refs that were edited. If empty, uses plan_edit facts from kernel.",
+					Description: "List of code element refs that were edited. If empty, uses element_modified facts from the kernel.",
 					Items:       &tools.PropertyItems{Type: "string"},
 				},
 				"include_low_priority": {
@@ -154,7 +154,7 @@ func GetImpactedTestsTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"edited_refs": {
 					Type:        "array",
-					Description: "List of code element refs to check. If empty, uses plan_edit facts from kernel.",
+					Description: "List of code element refs to check. If empty, uses element_modified facts from the kernel.",
 					Items:       &tools.PropertyItems{Type: "string"},
 				},
 				"include_coverage_gaps": {
@@ -170,39 +170,34 @@ func GetImpactedTestsTool() *tools.Tool {
 
 // editedRefsFromKernel collects the CodeDOM refs of everything edited so far.
 //
-// element_modified(Ref, SessionID, Timestamp) is emitted by every CodeDOM edit
-// handler (internal/core/virtual_store_codedom.go) and carries a real ref, so
-// it is the reliable source. plan_edit(Ref) is checked too because the
-// predicate is declared for exactly this and a future producer may fill it;
-// until 2026-09-09 its only producer emitted file paths into it, which matched
-// nothing here and made both tools return "no impacted tests" for every real
-// invocation.
+// element_modified(Ref, SessionID, Timestamp) is what a CodeDOM edit asserts
+// (internal/core/virtual_store_codedom.go, and editedElementFacts in
+// virtual_store_tool_facts.go). The ref is the code_element spelling the
+// dependency graph is keyed by.
 func editedRefsFromKernel(kernel KernelQuerier) []string {
 	if kernel == nil {
 		return nil
 	}
-	seen := make(map[string]struct{}, 8)
+	facts, err := kernel.Query("element_modified")
+	if err != nil {
+		logging.ToolsDebug("impacted tests: element_modified query failed: %v", err)
+		return nil
+	}
+	seen := make(map[string]struct{}, len(facts))
 	var refs []string
-	for _, predicate := range []string{"element_modified", "plan_edit"} {
-		facts, err := kernel.Query(predicate)
-		if err != nil {
-			logging.ToolsDebug("impacted tests: %s query failed: %v", predicate, err)
+	for _, fact := range facts {
+		if len(fact.Args) == 0 {
 			continue
 		}
-		for _, fact := range facts {
-			if len(fact.Args) == 0 {
-				continue
-			}
-			ref, ok := fact.Args[0].(string)
-			if !ok || ref == "" {
-				continue
-			}
-			if _, dup := seen[ref]; dup {
-				continue
-			}
-			seen[ref] = struct{}{}
-			refs = append(refs, ref)
+		ref, ok := fact.Args[0].(string)
+		if !ok || ref == "" {
+			continue
 		}
+		if _, dup := seen[ref]; dup {
+			continue
+		}
+		seen[ref] = struct{}{}
+		refs = append(refs, ref)
 	}
 	return refs
 }
@@ -227,7 +222,7 @@ func executeRunImpactedTests(ctx context.Context, args map[string]any) (string, 
 	}
 
 	if len(editedRefs) == 0 {
-		return "No edited refs specified and no plan_edit facts found in kernel.", nil
+		return "No edited refs specified and no element_modified facts found in kernel.", nil
 	}
 
 	// Build test dependency graph

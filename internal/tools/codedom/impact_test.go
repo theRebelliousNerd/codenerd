@@ -200,7 +200,7 @@ func TestExecuteRunImpactedTests(t *testing.T) {
 		{
 			name:       "missing_refs_error",
 			args:       map[string]any{},
-			wantResult: "No edited refs specified and no plan_edit facts found in kernel.",
+			wantResult: "No edited refs specified and no element_modified facts found in kernel.",
 		},
 	}
 
