@@ -3,6 +3,7 @@ package shards
 import (
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/types"
 )
 
@@ -63,7 +64,10 @@ func DefaultSystemConfig(name string) types.ShardConfig {
 }
 
 // DefaultImageGeneratorConfig returns config for Gemini image shards.
-// Timeout is intentionally tight so missing/slow Gemini cannot hold the CLI.
+// The timeout is the configured image request bound (image.timeout, default
+// 120s), installed by LoadUserConfig: one generation is one request to the
+// image model, so the profile carries a request bound, not a run clock. It
+// stays tight so missing/slow Gemini cannot hold the CLI.
 // The model is not named here: the image client is built from image.model in
 // the user's config, and a literal in this profile would be a second, silent
 // answer to the same question.
@@ -71,7 +75,7 @@ func DefaultImageGeneratorConfig(name string) types.ShardConfig {
 	return types.ShardConfig{
 		Name:    name,
 		Type:    types.ShardTypeEphemeral,
-		Timeout: 2 * time.Minute,
+		Timeout: config.ImageRequestTimeout(),
 		Permissions: []types.ShardPermission{
 			types.PermissionWriteFile,
 			types.PermissionNetwork,

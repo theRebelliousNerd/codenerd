@@ -201,7 +201,7 @@ func TestScopedCommandsHaveNoHardcodedRunClock(t *testing.T) {
 		"cmd_direct_actions.go": 1,
 		"cmd_advanced.go":       5,
 		"cmd_mcp_select.go":     2,
-		"cmd_auth.go":           3,
+		"cmd_auth.go":           4,
 		"cmd_knowledge.go":      2,
 		"cmd_transparency.go":   2,
 		"cmd_systems.go":        7,

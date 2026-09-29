@@ -103,21 +103,26 @@ type tokenResponse struct {
 	ErrorDesc    string `json:"error_description"`
 }
 
-// PollDeviceToken polls the token endpoint until the user approves or the code expires.
+// PollDeviceToken polls the token endpoint until the user approves, the code
+// expires, or the context ends. A positive expiresIn is the authorization
+// server's protocol deadline (RFC 8628); without one the server never named
+// a deadline, so the poll runs until the context ends or the token endpoint
+// reports expired_token. There is no client-side fallback clock.
 func PollDeviceToken(ctx context.Context, httpClient *http.Client, tokenEndpoint, clientID, deviceCode string, interval time.Duration, expiresIn time.Duration) (*Credentials, error) {
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
-	deadline := time.Now().Add(expiresIn)
-	if expiresIn <= 0 {
-		deadline = time.Now().Add(15 * time.Minute)
+	var deadline time.Time
+	hasDeadline := expiresIn > 0
+	if hasDeadline {
+		deadline = time.Now().Add(expiresIn)
 	}
 
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if time.Now().After(deadline) {
+		if hasDeadline && time.Now().After(deadline) {
 			return nil, &AuthRequiredError{Detail: "device authorization timed out"}
 		}
 

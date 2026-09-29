@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	browserspec "codenerd/internal/browser/specs"
@@ -570,6 +571,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 			SetExecutionFileLimits(*DefaultExecutionConfig())
 			SetResearchPolicy(mustResolveResearchDefaults())
 			installDefaultEmbeddingRequestTimeout()
+			installDefaultImageRequestTimeout()
 			SetObservationLimits(DefaultObservationConfig().Resolve())
 			if d, derr := DefaultIntegrationsConfig().ResolveDefaultTimeout(); derr == nil {
 				mcp.SetTransportTimeoutFallback(d)
@@ -662,6 +664,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		return nil, fmt.Errorf("failed to parse user config: %w", eerr)
 	}
 	SetEmbeddingRequestTimeout(embTimeout)
+	SetImageRequestTimeout(imageTimeoutDuration(cfg.GetImageLLMConfig()))
 	SetObservationLimits(cfg.GetObservationConfig().Resolve())
 	integFallback, ierr := cfg.GetIntegrations().ResolveDefaultTimeout()
 	if ierr != nil {
@@ -802,6 +805,20 @@ type ImageLLMConfig struct {
 	// generation; friendly names such as nano-banana-2 are normalised to the
 	// API id. There is no default.
 	Model string `json:"model,omitempty"`
+	// Timeout in seconds for one image generation request (default: 120). One
+	// generation is one request to the image model, so this is a request
+	// bound, not a run clock; the image shard reads it for every Execute.
+	Timeout int `json:"timeout,omitempty"`
+}
+
+// DefaultImageLLMConfig is the image section with every default written down.
+// The model is never defaulted: image.model must be set, and image-client
+// construction fails without it.
+func DefaultImageLLMConfig() ImageLLMConfig {
+	return ImageLLMConfig{
+		Provider: "gemini",
+		Timeout:  120,
+	}
 }
 
 // NanoBanana2ImageModel is the API id the nano-banana-2 aliases map to. It is
@@ -822,19 +839,20 @@ func IsImageShardType(typeName string) bool {
 }
 
 // GetImageLLMConfig returns image-generation settings. The provider defaults
-// to gemini (the only one supported); the model does not default, so an
-// unset image.model fails at client construction instead of quietly picking a
-// tier.
+// to gemini (the only one supported) and the timeout to 120s; the model does
+// not default, so an unset image.model fails at client construction instead
+// of quietly picking a tier. A non-positive timeout means unset.
 func (c *UserConfig) GetImageLLMConfig() ImageLLMConfig {
-	def := ImageLLMConfig{
-		Provider: "gemini",
-	}
+	def := DefaultImageLLMConfig()
 	if c == nil || c.Image == nil {
 		return def
 	}
 	out := *c.Image
 	if out.Provider == "" {
 		out.Provider = def.Provider
+	}
+	if out.Timeout <= 0 {
+		out.Timeout = def.Timeout
 	}
 	// Normalize friendly aliases to API ids.
 	switch strings.ToLower(out.Model) {
@@ -844,6 +862,47 @@ func (c *UserConfig) GetImageLLMConfig() ImageLLMConfig {
 		out.Model = "gemini-3.1-flash-lite-image"
 	}
 	return out
+}
+
+// activeImageRequestTimeout is the process-wide bound one image generation
+// request may take, installed by LoadUserConfig the same way LLM timeouts
+// are: the image shard reads it without opening the config file itself.
+// Stored as nanoseconds.
+var activeImageRequestTimeout atomic.Int64
+
+func init() {
+	installDefaultImageRequestTimeout()
+}
+
+func installDefaultImageRequestTimeout() {
+	SetImageRequestTimeout(imageTimeoutDuration(DefaultImageLLMConfig()))
+}
+
+// imageTimeoutDuration resolves the seconds field to a duration, filling the
+// default when the field is unset or non-positive.
+func imageTimeoutDuration(c ImageLLMConfig) time.Duration {
+	if c.Timeout <= 0 {
+		c.Timeout = DefaultImageLLMConfig().Timeout
+	}
+	return time.Duration(c.Timeout) * time.Second
+}
+
+// SetImageRequestTimeout installs the process-wide image request bound.
+// LoadUserConfig is the production caller; tests install and restore.
+func SetImageRequestTimeout(d time.Duration) {
+	if d <= 0 {
+		panic("config: image request timeout must be positive")
+	}
+	activeImageRequestTimeout.Store(int64(d))
+}
+
+// ImageRequestTimeout is the installed image request bound. Without a load
+// it is the default (120s).
+func ImageRequestTimeout() time.Duration {
+	if n := activeImageRequestTimeout.Load(); n > 0 {
+		return time.Duration(n)
+	}
+	return imageTimeoutDuration(DefaultImageLLMConfig())
 }
 
 // GetOllamaLLMConfig returns Ollama chat settings with defaults.

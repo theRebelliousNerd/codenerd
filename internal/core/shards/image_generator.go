@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -32,7 +32,11 @@ func (a *ImageGeneratorAgent) Execute(ctx context.Context, task string) (string,
 
 	timeout := a.config.Timeout
 	if timeout <= 0 {
-		timeout = 2 * time.Minute
+		// A profile without a timeout still gets the configured image
+		// request bound (image.timeout, default 120s): one generation is
+		// one request to the image model, so a missing profile value must
+		// not become an unbounded call.
+		timeout = config.ImageRequestTimeout()
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

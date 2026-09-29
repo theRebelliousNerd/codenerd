@@ -135,19 +135,20 @@ func runKnowledgeSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	for i, atom := range atoms {
-		fmt.Printf("\n### %d. %s\n", i+1, atom.Concept)
-		fmt.Println(strings.Repeat("─", 40))
-		content := atom.Content
-		if len(content) > 500 {
-			content = content[:500] + "..."
-		}
-		fmt.Println(content)
+		fmt.Println(formatKnowledgeSearchHit(i+1, atom.Concept, atom.Content))
 	}
 
 	fmt.Println()
 	fmt.Println(strings.Repeat("─", 60))
 
 	return nil
+}
+
+// formatKnowledgeSearchHit renders one `nerd knowledge search` hit. The atom
+// prints whole: this is the command's entire output to the user, so cutting
+// it here would silently drop the answer the search just found.
+func formatKnowledgeSearchHit(i int, concept, content string) string {
+	return fmt.Sprintf("\n### %d. %s\n%s\n%s", i, concept, strings.Repeat("─", 40), content)
 }
 
 // truncateStr truncates a string with ellipsis

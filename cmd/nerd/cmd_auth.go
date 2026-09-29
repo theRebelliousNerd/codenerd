@@ -93,9 +93,12 @@ func runAuthClaude(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("✓ Found Claude CLI at: %s\n", claudePath)
 
-	// Check authentication status by trying a simple command
+	// Check authentication status by trying a simple command. The probe runs
+	// on commandContext so the user's --timeout covers it; unset means none.
 	fmt.Println("Checking authentication status...")
-	checkCmd := newExecCommand(cmd.Context(), "claude", "--version")
+	ctx, cancel := commandContext(cmd)
+	defer cancel()
+	checkCmd := newExecCommand(ctx, "claude", "--version")
 	if output, err := checkCmd.CombinedOutput(); err != nil {
 		fmt.Printf("Claude CLI check failed: %s\n", string(output))
 		fmt.Println("\nPlease run 'claude login' to authenticate with your Claude subscription.")
