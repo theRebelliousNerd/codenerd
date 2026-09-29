@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"codenerd/internal/config"
+	working "codenerd/internal/context"
 )
 
 // stubFileContext stands in for world.HolographicProvider through the narrow
@@ -11,11 +14,24 @@ import (
 // internal/world.
 type stubFileContext struct {
 	section string
-	calls   []string
+	// calls records every render by file, whichever method rendered it:
+	// the ledger tests read this to learn which file's view a request
+	// carried. budgeted records only the policy-sized renders, with the
+	// budget the last one was given.
+	calls    []string
+	budgeted []string
+	budget   int
 }
 
 func (s *stubFileContext) PromptSection(_ context.Context, filePath string) string {
 	s.calls = append(s.calls, filePath)
+	return s.section
+}
+
+func (s *stubFileContext) PromptSectionWithCallerBudget(_ context.Context, filePath string, budgetBytes int, _ func(ctx context.Context, target string, totalCallers, avgBytesPerCaller, budgetBytes int) (int, error)) string {
+	s.calls = append(s.calls, filePath)
+	s.budgeted = append(s.budgeted, filePath)
+	s.budget = budgetBytes
 	return s.section
 }
 
@@ -89,6 +105,50 @@ func TestWithFileContext_AppendsAndDegrades(t *testing.T) {
 
 		if got := e.withFileContext(context.Background(), base, "a.go"); got != base {
 			t.Fatalf("provider was not cleared: %q", got)
+		}
+	})
+
+	t.Run("a working loop renders with the live budget", func(t *testing.T) {
+		p := &stubFileContext{section: "## Holographic Context (a.go)\n\nbody"}
+		e := &Executor{}
+		e.SetConfig(ExecutorConfig{TokenBudget: 8000})
+		e.SetFileContextProvider(p)
+		set, err := working.NewWorkingSet(t.TempDir(), "budget", config.DefaultWorkingConfig())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = set.Close() })
+		ctx := context.WithValue(context.Background(), workingLoopKey{}, &workingLoop{set: set, focus: "a.go"})
+
+		got := e.withFileContext(ctx, base, "a.go")
+		if !strings.Contains(got, "Holographic Context") {
+			t.Fatalf("section not appended: %q", got)
+		}
+		if len(p.calls) != 1 || p.calls[0] != "a.go" {
+			t.Fatalf("provider called with %v, want [a.go]", p.calls)
+		}
+		if len(p.budgeted) != 1 || p.budgeted[0] != "a.go" {
+			t.Fatalf("budgeted renders = %v, want [a.go]", p.budgeted)
+		}
+		if want := 8000 * config.BytesPerToken; p.budget != want {
+			t.Fatalf("budget = %d bytes, want the live window %d", p.budget, want)
+		}
+	})
+
+	t.Run("a loop without a set renders whole", func(t *testing.T) {
+		p := &stubFileContext{section: "## Holographic Context (a.go)\n\nbody"}
+		e := &Executor{}
+		e.SetFileContextProvider(p)
+		ctx := context.WithValue(context.Background(), workingLoopKey{}, &workingLoop{})
+
+		if got := e.withFileContext(ctx, base, "a.go"); !strings.Contains(got, "Holographic Context") {
+			t.Fatalf("section not appended: %q", got)
+		}
+		if len(p.calls) != 1 || p.calls[0] != "a.go" {
+			t.Fatalf("provider called with %v, want [a.go]", p.calls)
+		}
+		if len(p.budgeted) != 0 {
+			t.Fatalf("budgeted renders = %v, want none without an engine", p.budgeted)
 		}
 	})
 }

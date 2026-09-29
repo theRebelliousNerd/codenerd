@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/jit/config"
@@ -1235,9 +1236,13 @@ func (e *Executor) withProjectInstructions(systemPrompt string) string {
 // FileContextProvider is the narrow interface for per-file holographic context.
 //
 // Declared in package session so nothing needs to import internal/world and no
-// import cycle is possible. Mirrors HolographicProvider.PromptSection.
+// import cycle is possible. Mirrors HolographicProvider.PromptSection and its
+// budgeted sibling. The decider func is spelled literally because a named
+// world type on one side of this seam does not satisfy the other side; the
+// working set's DecideCallerLimit is passed as the value.
 type FileContextProvider interface {
 	PromptSection(ctx context.Context, filePath string) string
+	PromptSectionWithCallerBudget(ctx context.Context, filePath string, budgetBytes int, decide func(ctx context.Context, target string, totalCallers, avgBytesPerCaller, budgetBytes int) (int, error)) string
 }
 
 // SetFileContextProvider attaches the holographic per-file context provider.
@@ -1276,12 +1281,34 @@ func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target str
 	if p == nil {
 		return systemPrompt
 	}
-	section := p.PromptSection(ctx, target)
+	// Inside a working loop the callers block is sized by policy: the budget
+	// is this turn's token window in bytes (the same window prepareWorkingRequest
+	// measures the request against), and the loop's own engine derives the
+	// count from the measured pool. Outside a loop there is no engine, so the
+	// section renders whole rather than guessing a number.
+	section := ""
+	if loop := activeWorkingLoop(ctx); loop != nil && loop.set != nil {
+		section = p.PromptSectionWithCallerBudget(ctx, target, e.holographicBudgetBytes(), loop.set.DecideCallerLimit)
+	} else {
+		section = p.PromptSection(ctx, target)
+	}
 	if strings.TrimSpace(section) == "" {
 		return systemPrompt
 	}
 	logging.Session("Injected holographic context for %s into system prompt (%d chars)", target, len(section))
 	return systemPrompt + "\n\n" + section
+}
+
+// holographicBudgetBytes is the render budget the callers policy divides: the
+// turn's token window in bytes. It is workingWindow's number in the unit the
+// renderer measures its lines in, converted by the one BytesPerToken the
+// ledger ceiling derives from, not a second literal.
+func (e *Executor) holographicBudgetBytes() int {
+	window := e.configSnapshot().TokenBudget
+	if window <= 0 {
+		window = DefaultTokenBudget()
+	}
+	return window * nerdconfig.BytesPerToken
 }
 
 // projectDocPathArgs are the argument names a write-mutation tool may use to

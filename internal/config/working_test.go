@@ -90,6 +90,44 @@ func TestWorkingConfig_AKeyInTheFileReachesThePolicy(t *testing.T) {
 	}
 }
 
+// The holographic caller share reaches the policy under its config_param key,
+// defaults to 2, and refuses 101 (over-books the render).
+func TestWorkingConfig_CallerShareReachesThePolicy(t *testing.T) {
+	if got := DefaultWorkingConfig().HolographicCallerSharePercent; got != 2 {
+		t.Fatalf("default holographic_caller_share_percent = %d, want 2", got)
+	}
+	path := writeCampaignConfig(t, `{"working": {"holographic_caller_share_percent": 5}}`)
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	spans := cfg.GetWorkingConfig()
+	if spans.HolographicCallerSharePercent != 5 {
+		t.Fatalf("holographic_caller_share_percent = %d, want the file's 5", spans.HolographicCallerSharePercent)
+	}
+	found := false
+	for _, p := range spans.Params() {
+		if p.Key == "/working_holographic_caller_share_percent" && p.Value == 5 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no /working_holographic_caller_share_percent=5 row in %+v", spans.Params())
+	}
+	// 0 is absent (omitempty), like every sibling span, so it takes the
+	// default; only a share past 100 is a contradiction the loader can see.
+	absent, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_caller_share_percent": 0}}`))
+	if err != nil {
+		t.Fatalf("a zero share refused to load: %v", err)
+	}
+	if got := absent.GetWorkingConfig().HolographicCallerSharePercent; got != 2 {
+		t.Fatalf("a zero share took %d, want the default 2", got)
+	}
+	if _, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_caller_share_percent": 101}}`)); err == nil {
+		t.Fatal("a share of 101 loaded; the checker must refuse it")
+	}
+}
+
 func TestWorkingConfig_AnUnknownKeyIsRefused(t *testing.T) {
 	path := writeCampaignConfig(t, `{"working": {"nudge_round": 5}}`)
 	if _, err := LoadUserConfig(path); err == nil {

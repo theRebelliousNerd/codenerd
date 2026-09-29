@@ -36,7 +36,9 @@ func TestRepeatThreshold_IsTheWorkingSectionsKey(t *testing.T) {
 func TestWorkingSection_SuppliesEveryRequiredSpan(t *testing.T) {
 	re := regexp.MustCompile(`config_param_required\(/working, (/[a-z_]+)\)\.`)
 	var required []string
-	for _, m := range re.FindAllStringSubmatch(workingSetPolicy, -1) {
+	// Both policies the engine loads: the working spans and the holographic
+	// render share beside them.
+	for _, m := range re.FindAllStringSubmatch(workingSetPolicy+holographicRenderPolicy, -1) {
 		required = append(required, m[1])
 	}
 	var supplied []string

@@ -51,14 +51,25 @@ type WorkingConfig struct {
 	// StructuralMissLimit is how many structural queries without an answer
 	// open raw search early (working_structural_miss_limit).
 	StructuralMissLimit int `json:"structural_miss_limit,omitempty"`
+	// HolographicCallerSharePercent is the percent of the holographic render
+	// budget the working policy spends on the callers block
+	// (/working_holographic_caller_share_percent). The renderer measures its
+	// pool (how many callers, their mean rendered bytes) and the policy
+	// derives how many to render: all of them when they fit the share, else
+	// the top N of the existing ranking. A percent, not a caller count: the
+	// same share renders more on a wide window and fewer on a narrow one,
+	// and the remainder line stays honest either way.
+	HolographicCallerSharePercent int `json:"holographic_caller_share_percent,omitempty"`
 }
 
-// ledgerBytesPerToken converts the context window's token budget into the
-// ledger's byte count. prompt.EstimateTokens counts (len+3)/4, and the
-// ledger sums bytes, so one token of budget is four bytes of tool result.
-// It is that estimator's unit conversion, not a config knob: a second knob
-// would let the two disagree about how big a result is.
-const ledgerBytesPerToken = 4
+// BytesPerToken converts a token budget into the byte count a renderer
+// measures against. prompt.EstimateTokens counts (len+3)/4, and the ledger
+// and the holographic renderer sum bytes, so one token of budget is four
+// bytes of prompt text. It is that estimator's unit conversion, not a config
+// knob: a second knob, or a second literal 4 somewhere else, would let the
+// two disagree about how big a result is. Exported so the session's budget
+// facts and this derivation divide by the same number.
+const BytesPerToken = 4
 
 // LedgerCeilingBytesFromContext is the working-memory share of the serving
 // model's input budget, in bytes:
@@ -84,7 +95,7 @@ func LedgerCeilingBytesFromContext(window ContextWindowConfig) int {
 	if percent <= 0 {
 		percent = def.WorkingReservePercent
 	}
-	return maxTokens * percent / 100 * ledgerBytesPerToken
+	return maxTokens * percent / 100 * BytesPerToken
 }
 
 // DefaultWorkingConfig is the working section with every field written down.
@@ -94,19 +105,23 @@ func LedgerCeilingBytesFromContext(window ContextWindowConfig) int {
 // on the first live nerd fix of main 2dadb513 (2026-09-29, session
 // 20260929_052520): 14 live results left the request and the model spent the
 // stall span recalling them. An explicit working.ledger_ceiling_bytes still
-// wins over this derivation.
+// wins over this derivation. The caller share is 2% of the render budget: at
+// a 100000-token budget that is 8000 bytes, about 120 callers at a typical
+// 65 bytes a line, and at an 8000-token budget 640 bytes, about 9 -- the old
+// flat 8 on a narrow window, the pool's own size past it.
 func DefaultWorkingConfig() WorkingConfig {
 	return WorkingConfig{
-		LedgerCeilingBytes:  LedgerCeilingBytesFromContext(DefaultContextWindowConfig()),
-		LedgerKeepRounds:    2,
-		NudgeRounds:         8,
-		CommitRounds:        16,
-		FinalizeRounds:      16,
-		StallRounds:         24,
-		RepeatThreshold:     2,
-		RepairReadRounds:    1,
-		StructuralTrials:    4,
-		StructuralMissLimit: 2,
+		LedgerCeilingBytes:            LedgerCeilingBytesFromContext(DefaultContextWindowConfig()),
+		LedgerKeepRounds:              2,
+		NudgeRounds:                   8,
+		CommitRounds:                  16,
+		FinalizeRounds:                16,
+		StallRounds:                   24,
+		RepeatThreshold:               2,
+		RepairReadRounds:              1,
+		StructuralTrials:              4,
+		StructuralMissLimit:           2,
+		HolographicCallerSharePercent: 2,
 	}
 }
 
@@ -150,6 +165,7 @@ func (c WorkingConfig) WithDefaults() WorkingConfig {
 		{&c.RepairReadRounds, &d.RepairReadRounds},
 		{&c.StructuralTrials, &d.StructuralTrials},
 		{&c.StructuralMissLimit, &d.StructuralMissLimit},
+		{&c.HolographicCallerSharePercent, &d.HolographicCallerSharePercent},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.def
@@ -183,6 +199,15 @@ func (c WorkingConfig) Check(prefix string) []Problem {
 	atLeast("repair_read_rounds", c.RepairReadRounds, 1, "a repair attempt reads its failure at least once")
 	atLeast("structural_trials", c.StructuralTrials, 1, "a trial is a count of queries")
 	atLeast("structural_miss_limit", c.StructuralMissLimit, 1, "a limit is a count of queries")
+	atLeast("holographic_caller_share_percent", c.HolographicCallerSharePercent, 1, "a zero share withholds every caller on every render")
+	if c.HolographicCallerSharePercent > 100 {
+		out = append(out, Problem{
+			Severity: SeverityError,
+			Path:     prefix + ".holographic_caller_share_percent",
+			Message:  fmt.Sprintf("%d is above 100: a share over the whole budget over-books the render", c.HolographicCallerSharePercent),
+			Fix:      "a percent between 1 and 100, or remove the key for the default",
+		})
+	}
 	if c.StallRounds < c.CommitRounds {
 		out = append(out, Problem{
 			Severity: SeverityError,
@@ -209,5 +234,6 @@ func (c WorkingConfig) Params() []Param {
 		{Key: "/working_repair_read_rounds", Value: int64(c.RepairReadRounds)},
 		{Key: "/working_structural_trials", Value: int64(c.StructuralTrials)},
 		{Key: "/working_structural_miss_limit", Value: int64(c.StructuralMissLimit)},
+		{Key: "/working_holographic_caller_share_percent", Value: int64(c.HolographicCallerSharePercent)},
 	}
 }

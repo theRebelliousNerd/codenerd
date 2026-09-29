@@ -375,9 +375,18 @@ func rankTypesForTarget(all []TypeDefinition, targetBase string, referenced []st
 // It calls GetContextWithContext and returns "" on any error or nil context
 // so callers can concatenate unconditionally.
 //
-// The output is token-frugal: it summarizes rather than dumps, and caps long
-// lists, because it is injected into every prompt for a file-targeted turn.
+// The callers block renders whole: with no policy engine behind this call
+// there is no derived number to slice it to, so nothing is withheld and no
+// remainder line appears. Callers that render through a working set use
+// PromptSectionWithCallerBudget, which sizes the block from the session's
+// budget instead.
 func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string) string {
+	return h.promptSection(ctx, filePath, 0, nil)
+}
+
+// promptSection is the shared renderer. budgetBytes and decide size the
+// callers block; a nil decide renders every caller line.
+func (h *HolographicProvider) promptSection(ctx context.Context, filePath string, budgetBytes int, decide func(ctx context.Context, target string, totalCallers, avgBytesPerCaller, budgetBytes int) (int, error)) string {
 	if h == nil {
 		return ""
 	}
@@ -568,38 +577,37 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 	}
 
 	// Callers — who calls this file (impact-aware if available).
+	//
+	// Every line is built before any is written, so the policy decides from
+	// the measured pool: how many lines, their mean bytes. The decision
+	// slices the impact ranking; the remainder is the true rest of the pool
+	// queryImpactPriorities returned, and callers_of reads every call site.
 	if len(hc.PrioritizedCallers) > 0 {
 		substantive = true
 		b.WriteString("### Callers (impact-prioritized)\n\n")
-		truncated := 0
-		if len(hc.PrioritizedCallers) > maxCallers {
-			truncated = len(hc.PrioritizedCallers) - maxCallers
-		}
-		shown := hc.PrioritizedCallers
-		if len(shown) > maxCallers {
-			shown = shown[:maxCallers]
-		}
-		for _, c := range shown {
-			b.WriteString("- `")
-			b.WriteString(c.Name)
-			b.WriteString("` — `")
-			b.WriteString(filepath.Base(c.File))
-			b.WriteString("`")
+		lines := make([]string, 0, len(hc.PrioritizedCallers))
+		for _, c := range hc.PrioritizedCallers {
+			var lb strings.Builder
+			lb.WriteString("- `")
+			lb.WriteString(c.Name)
+			lb.WriteString("` — `")
+			lb.WriteString(filepath.Base(c.File))
+			lb.WriteString("`")
 			if c.Priority != 0 {
-				fmt.Fprintf(&b, " (priority %d", c.Priority)
+				fmt.Fprintf(&lb, " (priority %d", c.Priority)
 				if c.Depth != 0 {
-					fmt.Fprintf(&b, ", depth %d", c.Depth)
+					fmt.Fprintf(&lb, ", depth %d", c.Depth)
 				}
-				b.WriteString(")")
+				lb.WriteString(")")
 			}
-			b.WriteString("\n")
+			lb.WriteString("\n")
+			lines = append(lines, lb.String())
 		}
-		if truncated > 0 {
-			// The prioritized list is the full set queryImpactPriorities
-			// returned. callers_of reads every call site; this line is only
-			// the impact-ranked prefix.
-			writeCallerRemainder(&b, truncated, 0, 0)
+		shown := resolveCallerLines(ctx, filePath, lines, budgetBytes, decide)
+		for _, line := range shown {
+			b.WriteString(line)
 		}
+		writeCallerRemainder(&b, len(lines)-len(shown), 0, 0)
 		b.WriteString("\n")
 	} else if len(hc.CallGraph) > 0 || hc.CallGraphEdges > 0 {
 		substantive = true
@@ -620,14 +628,15 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		if totalCallers < len(callers) {
 			totalCallers = len(callers)
 		}
-		shown := callers
-		if len(shown) > maxCallers {
-			shown = shown[:maxCallers]
+		// Measured lines, like the prioritized branch: the policy slices the
+		// stored prefix, while the remainder counts the full walk.
+		lines := make([]string, 0, len(callers))
+		for _, caller := range callers {
+			lines = append(lines, "- `"+caller+"`\n")
 		}
-		for _, caller := range shown {
-			b.WriteString("- `")
-			b.WriteString(caller)
-			b.WriteString("`\n")
+		shown := resolveCallerLines(ctx, filePath, lines, budgetBytes, decide)
+		for _, line := range shown {
+			b.WriteString(line)
 		}
 		edges := hc.CallGraphEdges
 		if edges < len(hc.CallGraph) {
@@ -867,12 +876,14 @@ const maxSiblingFileBytes = 5 * 1024 * 1024
 // count of the stored prefix.
 const maxCallGraphEdges = 100
 
-// maxSigs, maxTypes and maxCallers bound what one prompt section lists. The
-// remainder is computed from the full pool, then the list is sliced.
+// maxSigs and maxTypes bound what one prompt section lists. The remainder
+// is computed from the full pool, then the list is sliced. The callers block
+// has no const here: its count is derived by the working policy from the
+// measured pool and the session's budget (PromptSectionWithCallerBudget),
+// and renders whole when no policy answers.
 const (
-	maxSigs    = 8
-	maxTypes   = 8
-	maxCallers = 8
+	maxSigs  = 8
+	maxTypes = 8
 )
 
 // buildGoContextWithContext builds package-level context for Go files with

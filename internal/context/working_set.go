@@ -24,6 +24,9 @@ import (
 //go:embed working_set.mg
 var workingSetPolicy string
 
+//go:embed holographic_render.mg
+var holographicRenderPolicy string
+
 // WorkingSet is a tool loop's task-private policy scope and its durable
 // observations: the working policy (working_set.mg) decides the loop's regime,
 // steering and stops, and what its context ledger carries. It never writes
@@ -59,7 +62,7 @@ func NewWorkingSet(root, scope string, spans config.WorkingConfig) (*WorkingSet,
 	if err != nil {
 		return nil, err
 	}
-	if err = engine.LoadSchemaString(schemas + "\n" + params + "\n" + workingSetPolicy); err != nil {
+	if err = engine.LoadSchemaString(schemas + "\n" + params + "\n" + workingSetPolicy + "\n" + holographicRenderPolicy); err != nil {
 		_ = engine.Close()
 		return nil, err
 	}

@@ -188,26 +188,28 @@ func TestPromptSection_OmissionsStateTheTrueRemainder(t *testing.T) {
 		t.Errorf("type remainder claims the whole package while files were not parsed:\n%s", section)
 	}
 
-	// The undercount the storage cap used to render: unique callers in the
-	// stored prefix, minus the names shown. The section must say the true
-	// remainder instead.
+	// No policy engine stands behind PromptSection, so every stored caller
+	// renders and the remainder is the full walk minus what is shown: the
+	// callers past the storage cap, still counted. A remainder computed from
+	// the stored prefix alone would say 0 here (all 100 stored names shown),
+	// hiding the 20 the walk counted past them.
 	storedCallers := map[string]struct{}{}
 	for _, e := range hc.CallGraph {
 		storedCallers[e.Caller] = struct{}{}
 	}
-	undercount := len(storedCallers) - maxCallers
-	trueOmitted := hc.CallerCount - maxCallers
-	if undercount == trueOmitted {
-		t.Fatalf("fixture does not distinguish the stored-prefix remainder (%d) from the true one", undercount)
+	for name := range storedCallers {
+		if !strings.Contains(section, "`"+name+"`") {
+			t.Errorf("stored caller %s is not rendered:\n%s", name, section)
+		}
+	}
+	trueOmitted := hc.CallerCount - len(storedCallers)
+	if trueOmitted <= 0 {
+		t.Fatalf("fixture does not leave callers past the storage cap (walk %d, stored %d)", hc.CallerCount, len(storedCallers))
 	}
 	callerPhrase := fmt.Sprintf("and %d more callers (%d matching call-graph edges, %d not stored here)",
 		trueOmitted, hc.CallGraphEdges, hc.CallGraphEdges-len(hc.CallGraph))
 	if !strings.Contains(section, callerPhrase) {
 		t.Errorf("caller remainder is not the true count %q:\n%s", callerPhrase, section)
-	}
-	wrong := fmt.Sprintf("and %d more callers", undercount)
-	if strings.Contains(section, wrong) {
-		t.Errorf("section states the stored-prefix undercount %q:\n%s", wrong, section)
 	}
 	if strings.Contains(section, "`fn:") {
 		t.Errorf("a duplicate fn: row was rendered as a caller:\n%s", section)
@@ -289,16 +291,17 @@ func expectUnparsedGoFiles(t *testing.T, dir string) int {
 	return len(names) - parsed
 }
 
-// TestPromptSection_PrioritizedCallerRemainderNamesTheTool pins the impact
-// branch, which is a different pool from the call graph. The list is not
-// sliced before the count, and the line names callers_of.
-func TestPromptSection_PrioritizedCallerRemainderNamesTheTool(t *testing.T) {
+// TestPromptSection_PrioritizedCallersRenderWhole pins the impact branch,
+// which is a different pool from the call graph. No policy engine stands
+// behind PromptSection, so all ten render and no remainder line appears; the
+// budgeted remainder is pinned in holographic_caller_budget_test.go.
+func TestPromptSection_PrioritizedCallersRenderWhole(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target.go")
 	if err := os.WriteFile(target, []byte("package p\n\nfunc Target() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	const n = maxCallers + 2
+	const n = 10
 	facts := make([]core.Fact, 0, n)
 	for i := 0; i < n; i++ {
 		facts = append(facts, core.Fact{
@@ -310,11 +313,12 @@ func TestPromptSection_PrioritizedCallerRemainderNamesTheTool(t *testing.T) {
 		"context_priority_file": facts,
 	}}, dir)
 	section := h.PromptSection(context.Background(), target)
-	want := fmt.Sprintf("and %d more callers; `callers_of` lists every call site", n-maxCallers)
-	if !strings.Contains(section, want) {
-		t.Fatalf("prioritized remainder = missing %q:\n%s", want, section)
+	for i := 0; i < n; i++ {
+		if name := fmt.Sprintf("Fn%02d", i); !strings.Contains(section, "`"+name+"`") {
+			t.Errorf("prioritized caller %s is not rendered:\n%s", name, section)
+		}
 	}
-	if strings.Contains(section, "not stored here") {
-		t.Fatalf("prioritized remainder was mixed with the call-graph storage cap:\n%s", section)
+	if strings.Contains(section, "more callers") {
+		t.Fatalf("an unbounded render states a caller remainder:\n%s", section)
 	}
 }
