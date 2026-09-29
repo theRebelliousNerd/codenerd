@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -185,6 +187,273 @@ func TestWaitForStableBrowserTreatsNetworkFailureAsCompletion(t *testing.T) {
 	if result["status"] != "stable" || result["duration_ms"].(int64) < 50 {
 		t.Fatalf("failed request did not complete stability tracking: %+v", result)
 	}
+}
+
+func TestBrowserManglePagesTheWholeResult(t *testing.T) {
+	const total = 30
+	facts := make([]types.Fact, total)
+	for i := range facts {
+		facts[i] = types.Fact{
+			Predicate: "console_event",
+			Args:      []any{"session-a", "info", fmt.Sprintf("m-%02d", i), int64(i + 1)},
+		}
+	}
+	kernel := &browserReasoningKernel{facts: facts}
+	mgr := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	SetBrowserRuntime(mgr, kernel)
+	defer ClearBrowserManager(mgr)
+
+	firstRaw, err := executeBrowserMangle(context.Background(), map[string]any{
+		"operation": "query", "session_id": "session-a",
+		"query": "console_event(S, Level, Message, T)", "view": "full",
+	})
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	first, decoded := browserMangleMessages(t, firstRaw)
+	if decoded["count"] != float64(total) || decoded["truncated"] != true {
+		t.Fatalf("count/truncated = %v/%v, want %d/true", decoded["count"], decoded["truncated"], total)
+	}
+	wantHint := fmt.Sprintf("%d more facts, page with offset=%d", total-defaultBrowserReasonItems, defaultBrowserReasonItems)
+	if decoded["facts_hint"] != wantHint {
+		t.Fatalf("facts_hint = %v, want %q", decoded["facts_hint"], wantHint)
+	}
+	if len(first) != defaultBrowserReasonItems || first[0] != fmt.Sprintf("m-%02d", total-1) {
+		t.Fatalf("first page = %v, want %d newest facts starting at m-%02d", first, defaultBrowserReasonItems, total-1)
+	}
+
+	secondRaw, err := executeBrowserMangle(context.Background(), map[string]any{
+		"operation": "query", "session_id": "session-a",
+		"query": "console_event(S, Level, Message, T)", "view": "full",
+		"offset": defaultBrowserReasonItems,
+	})
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	second, decoded := browserMangleMessages(t, secondRaw)
+	if decoded["truncated"] != false {
+		t.Fatalf("second page still truncated: %s", secondRaw)
+	}
+	if _, ok := decoded["facts_hint"]; ok {
+		t.Fatalf("second page named a remainder: %v", decoded["facts_hint"])
+	}
+	got := append(append([]string{}, first...), second...)
+	if len(got) != total {
+		t.Fatalf("paged %d messages, want %d", len(got), total)
+	}
+	for i, message := range got {
+		want := fmt.Sprintf("m-%02d", total-1-i)
+		if message != want {
+			t.Fatalf("paged[%d] = %q, want %q", i, message, want)
+		}
+	}
+}
+
+func TestBrowserMangleHonorsMaxItemsAboveTheOldCap(t *testing.T) {
+	const total = 120 // the deleted maxBrowserReasonItems cap was 100
+	facts := make([]types.Fact, total)
+	for i := range facts {
+		facts[i] = types.Fact{
+			Predicate: "console_event",
+			Args:      []any{"session-a", "info", fmt.Sprintf("c-%03d", i), int64(i + 1)},
+		}
+	}
+	kernel := &browserReasoningKernel{facts: facts}
+	mgr := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	SetBrowserRuntime(mgr, kernel)
+	defer ClearBrowserManager(mgr)
+
+	raw, err := executeBrowserMangle(context.Background(), map[string]any{
+		"operation": "query", "session_id": "session-a",
+		"query": "console_event(S, Level, Message, T)", "view": "full",
+		"max_items": total,
+	})
+	if err != nil {
+		t.Fatalf("executeBrowserMangle: %v", err)
+	}
+	messages, decoded := browserMangleMessages(t, raw)
+	if decoded["truncated"] != false {
+		t.Fatalf("explicit window covering every fact was truncated: %s", raw)
+	}
+	if _, ok := decoded["facts_hint"]; ok {
+		t.Fatalf("whole result carried a paging hint: %v", decoded["facts_hint"])
+	}
+	if len(messages) != total {
+		t.Fatalf("returned %d facts, want all %d", len(messages), total)
+	}
+}
+
+func TestBrowserMangleReadKeepsFactsFromLaterPredicates(t *testing.T) {
+	// click_event sorts before console_event. The old read stopped once it
+	// had max_items+1 facts, so a later predicate's newer facts were dropped
+	// before the newest-first sort. The read is whole now; paging happens after.
+	facts := make([]types.Fact, 0, 33)
+	for i := 0; i < 30; i++ {
+		facts = append(facts, types.Fact{
+			Predicate: "click_event",
+			Args:      []any{"session-a", fmt.Sprintf("click-%02d", i), int64(i + 1)},
+		})
+	}
+	for i := 0; i < 3; i++ {
+		facts = append(facts, types.Fact{
+			Predicate: "console_event",
+			Args:      []any{"session-a", "info", fmt.Sprintf("console-%d", i), int64(1000 + i)},
+		})
+	}
+	kernel := &browserReasoningKernel{facts: facts}
+	mgr := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	SetBrowserRuntime(mgr, kernel)
+	defer ClearBrowserManager(mgr)
+
+	raw, err := executeBrowserMangle(context.Background(), map[string]any{
+		"operation": "read", "session_id": "session-a", "view": "full", "max_items": 5,
+	})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	_, decoded := browserMangleMessages(t, raw)
+	if decoded["count"] != float64(33) || decoded["truncated"] != true {
+		t.Fatalf("count/truncated = %v/%v, want 33/true (%s)", decoded["count"], decoded["truncated"], raw)
+	}
+	rows, _ := decoded["facts"].([]any)
+	if len(rows) != 5 {
+		t.Fatalf("window = %d, want 5", len(rows))
+	}
+	consoles := 0
+	for _, item := range rows {
+		row, _ := item.(map[string]any)
+		if row["predicate"] == "console_event" {
+			consoles++
+		}
+	}
+	if consoles != 3 {
+		t.Fatalf("first page kept %d console facts, want all 3 newer ones: %s", consoles, raw)
+	}
+}
+
+func TestBrowserMangleScanLimitIsAnError(t *testing.T) {
+	facts := make([]types.Fact, maxBrowserKernelScan+1)
+	for index := range facts {
+		facts[index] = types.Fact{Predicate: "console_event", Args: []any{"session-a", "info", index, int64(index)}}
+	}
+	kernel := &browserReasoningKernel{facts: facts}
+	mgr := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	SetBrowserRuntime(mgr, kernel)
+	defer ClearBrowserManager(mgr)
+
+	output, err := executeBrowserMangle(context.Background(), map[string]any{
+		"operation": "query", "session_id": "session-a",
+		"query": "console_event(S, Level, Message, T)", "view": "full", "max_items": 10,
+	})
+	if !errors.Is(err, errBrowserKernelScanLimit) {
+		t.Fatalf("expected scan-limit error, got %v output %q", err, output)
+	}
+	if output != "" {
+		t.Fatalf("scan limit returned a payload: %s", output)
+	}
+}
+
+func TestPageBrowserFactsHugeWindowDoesNotWrap(t *testing.T) {
+	facts := make([]types.Fact, 8)
+	got, end := pageBrowserFacts(facts, 5, math.MaxInt)
+	if end != 8 || len(got) != 3 {
+		t.Fatalf("huge window = len %d end %d, want 3 facts ending at 8", len(got), end)
+	}
+}
+
+func TestPageReasonSectionsNamesTheRemainder(t *testing.T) {
+	const n = 30
+	rows := make([]map[string]any, n)
+	for i := range rows {
+		rows[i] = map[string]any{"id": i}
+	}
+	data := map[string]any{"failed_requests": rows, "note": "kept-whole"}
+
+	if got := reasonWindow(map[string]any{}, "compact", defaultBrowserReasonItems); got != defaultCompactReasonItems {
+		t.Fatalf("compact default window = %d, want %d", got, defaultCompactReasonItems)
+	}
+	page := pageReasonSections(data, 0, defaultCompactReasonItems)
+	if page["note"] != "kept-whole" {
+		t.Fatalf("non-row section = %v", page["note"])
+	}
+	window, _ := page["failed_requests"].([]map[string]any)
+	if len(window) != defaultCompactReasonItems || page["failed_requests_truncated"] != true || page["failed_requests_total"] != n {
+		t.Fatalf("first page markers = len %d truncated %v total %v", len(window), page["failed_requests_truncated"], page["failed_requests_total"])
+	}
+	wantHint := fmt.Sprintf("%d more rows, page with offset=%d", n-defaultCompactReasonItems, defaultCompactReasonItems)
+	if page["failed_requests_hint"] != wantHint {
+		t.Fatalf("hint = %v, want %q", page["failed_requests_hint"], wantHint)
+	}
+
+	// An explicit max_items is the model's window in both views. The old
+	// compact path used min(max, 10) and every path capped at 100.
+	compactArgs := map[string]any{"max_items": 25}
+	view, maxItems, offset, err := normalizeReasonView(compactArgs)
+	if err != nil || view != "compact" || maxItems != 25 || offset != 0 {
+		t.Fatalf("normalize compact = %s %d %d %v", view, maxItems, offset, err)
+	}
+	if got := reasonWindow(compactArgs, view, maxItems); got != 25 {
+		t.Fatalf("explicit compact window = %d, want 25", got)
+	}
+	fullArgs := map[string]any{"view": "full", "max_items": 150}
+	view, maxItems, _, err = normalizeReasonView(fullArgs)
+	if err != nil || view != "full" || maxItems != 150 {
+		t.Fatalf("normalize full = %s %d %v", view, maxItems, err)
+	}
+	if got := reasonWindow(fullArgs, view, maxItems); got != 150 {
+		t.Fatalf("explicit full window = %d, want 150 (old cap was 100)", got)
+	}
+	whole := pageReasonSections(data, 0, 150)
+	wholeRows, _ := whole["failed_requests"].([]map[string]any)
+	if len(wholeRows) != n {
+		t.Fatalf("window covering the section returned %d rows", len(wholeRows))
+	}
+	if _, ok := whole["failed_requests_truncated"]; ok {
+		t.Fatalf("whole section was marked truncated: %v", whole["failed_requests_hint"])
+	}
+
+	var ids []int
+	for off := 0; off < n; {
+		paged := pageReasonSections(data, off, defaultCompactReasonItems)
+		part, _ := paged["failed_requests"].([]map[string]any)
+		for _, row := range part {
+			ids = append(ids, row["id"].(int))
+		}
+		if len(part) == 0 {
+			t.Fatal("empty page before the rows were exhausted")
+		}
+		off += len(part)
+	}
+	if len(ids) != n {
+		t.Fatalf("paged %d ids, want %d", len(ids), n)
+	}
+	for i, id := range ids {
+		if id != i {
+			t.Fatalf("paged[%d] = %d", i, id)
+		}
+	}
+
+	if _, _, offset, err = normalizeReasonView(map[string]any{"offset": -4}); err != nil || offset != 0 {
+		t.Fatalf("negative offset = %d, %v", offset, err)
+	}
+}
+
+func browserMangleMessages(t *testing.T, raw string) ([]string, map[string]any) {
+	t.Helper()
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, raw)
+	}
+	facts, _ := decoded["facts"].([]any)
+	messages := make([]string, 0, len(facts))
+	for _, item := range facts {
+		row, _ := item.(map[string]any)
+		args, _ := row["args"].([]any)
+		if len(args) >= 3 {
+			messages = append(messages, fmt.Sprint(args[2]))
+		}
+	}
+	return messages, decoded
 }
 
 func TestCorrelateBrowserFailuresUsesBoundedTimestampWindow(t *testing.T) {

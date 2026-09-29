@@ -21,17 +21,36 @@ import (
 )
 
 const (
+	// defaultBrowserReasonItems sizes one paging window over browser facts,
+	// not the evidence: every fact stays reachable via offset, so the
+	// window is paging rather than a cut. OPEN (limits cleanup 2026-09-29):
+	// the value must come from internal/config, but that package is
+	// outside this lane's scope. There is deliberately no hard cap: an
+	// explicit max_items is the model's own choice and is honored as
+	// given, exactly like browser_act's window (browser_progressive.go).
 	defaultBrowserReasonItems = 20
-	maxBrowserReasonItems     = 100
+	// defaultCompactReasonItems is the same window for the compact reason
+	// view when max_items is absent: compact stays the cheap rung of the
+	// summary/compact/full ladder. Same OPEN as above.
+	defaultCompactReasonItems = 10
 	defaultBrowserTimeout     = 10 * time.Second
 	maxBrowserTimeout         = 30 * time.Second
 	defaultBrowserPoll        = 200 * time.Millisecond
 	minBrowserPoll            = 50 * time.Millisecond
 	maxBrowserPoll            = time.Second
 	maxBrowserConditions      = 10
-	maxBrowserKernelScan      = 2000
-	defaultReasonWindow       = 5 * time.Minute
-	maxReasonWindow           = 24 * time.Hour
+	// maxBrowserKernelScan bounds ONE kernel predicate scan. It protects
+	// the process: a pathological kernel (tens of thousands of facts under
+	// one predicate, or a callback kernel that yields unboundedly) turns
+	// every browser_mangle query — and every wait poll, which re-queries —
+	// into an unbounded memory and CPU sink. A trip returns
+	// errBrowserKernelScanLimit. Every caller in this file propagates that
+	// error, so the model gets a failure instead of a shortened fact list.
+	// browser_audit.go's collectors still swallow the error (and therefore
+	// drop the partial scan with no note). That silent cut is in that file.
+	maxBrowserKernelScan = 2000
+	defaultReasonWindow  = 5 * time.Minute
+	maxReasonWindow      = 24 * time.Hour
 )
 
 type browserPredicateSpec struct {
@@ -83,7 +102,7 @@ var errBrowserKernelScanLimit = errors.New("browser kernel scan limit reached")
 func BrowserMangleTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "browser_mangle",
-		Description: `Read and wait on session-scoped browser facts in the live Cortex kernel. Operations: query, read, temporal, evaluate, await_fact, await_conditions. Results are capped; waits are cancelable and fresh-only by default. Rule submission and fact mutation are intentionally unavailable because they could change constitutional reality.`,
+		Description: `Read and wait on session-scoped browser facts in the live Cortex kernel. Operations: query, read, temporal, evaluate, await_fact, await_conditions. Results page through a max_items window starting at offset; when facts continue past the window the result names the remainder and the offset that reaches it. Waits are cancelable and fresh-only by default. Rule submission and fact mutation are intentionally unavailable because they could change constitutional reality.`,
 		Category:    tools.CategoryResearch,
 		Priority:    72,
 		Execute:     executeBrowserMangle,
@@ -103,7 +122,8 @@ func BrowserMangleTool() *tools.Tool {
 				"timeout_ms":       {Type: "integer", Default: 10000, Description: "Hard-capped at 30000"},
 				"poll_interval_ms": {Type: "integer", Default: 200, Description: "Clamped to 50..1000"},
 				"view":             {Type: "string", Default: "compact", Enum: []any{"summary", "compact", "full"}},
-				"max_items":        {Type: "integer", Default: 20, Description: "Hard-capped at 100"},
+				"max_items":        {Type: "integer", Default: 20, Description: "Results window size; every fact stays reachable via offset"},
+				"offset":           {Type: "integer", Default: 0, Description: "Fact offset where the max_items window starts (default: 0)"},
 			},
 		},
 	}
@@ -140,7 +160,7 @@ func BrowserWaitTool() *tools.Tool {
 func BrowserReasonTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "browser_reason",
-		Description: `Diagnose one browser session from fresh live Cortex facts. Topics: health, next_best_action, blocking_issue, why_failed, what_changed_since. Summary is cheapest; compact adds key evidence; full remains capped. Current-route scoping is enabled by default.`,
+		Description: `Diagnose one browser session from fresh live Cortex facts. Topics: health, next_best_action, blocking_issue, why_failed, what_changed_since. Summary is cheapest; compact pages key evidence through a small window and full through a larger one, and every row stays reachable via offset. Current-route scoping is enabled by default.`,
 		Category:    tools.CategoryResearch,
 		Priority:    73,
 		Execute:     executeBrowserReason,
@@ -150,7 +170,8 @@ func BrowserReasonTool() *tools.Tool {
 				"session_id":       {Type: "string"},
 				"topic":            {Type: "string", Default: "health", Enum: []any{"health", "next_best_action", "blocking_issue", "why_failed", "what_changed_since"}},
 				"view":             {Type: "string", Default: "compact", Enum: []any{"summary", "compact", "full"}},
-				"max_items":        {Type: "integer", Default: 20, Description: "Hard-capped at 100"},
+				"max_items":        {Type: "integer", Default: 20, Description: "Per-section window size; every row stays reachable via offset"},
+				"offset":           {Type: "integer", Default: 0, Description: "Row offset where the max_items window starts (default: 0)"},
 				"time_window_ms":   {Type: "integer", Default: 300000, Description: "Clamped to 0..86400000"},
 				"since_navigation": {Type: "boolean", Default: true},
 			},
@@ -168,7 +189,7 @@ func executeBrowserMangle(ctx context.Context, args map[string]any) (string, err
 		return "", fmt.Errorf("browser mangle: session_id is required")
 	}
 	operation := strings.ToLower(strings.TrimSpace(stringArg(args, "operation")))
-	view, maxItems, err := normalizeReasonView(args)
+	view, maxItems, offset, err := normalizeReasonView(args)
 	if err != nil {
 		return "", fmt.Errorf("browser mangle: %w", err)
 	}
@@ -185,7 +206,7 @@ func executeBrowserMangle(ctx context.Context, args map[string]any) (string, err
 	case "read", "evaluate":
 		predicate := strings.TrimSpace(stringArg(args, "predicate"))
 		if predicate == "" && operation == "read" {
-			facts, err = readBrowserFacts(ctx, kernel, sessionID, maxItems+1)
+			facts, err = readBrowserFacts(ctx, kernel, sessionID)
 		} else {
 			if _, ok := browserPredicateSpecs[predicate]; !ok {
 				return "", fmt.Errorf("browser mangle: predicate %q is not exposed", predicate)
@@ -229,15 +250,16 @@ func executeBrowserMangle(ctx context.Context, args map[string]any) (string, err
 
 	sortFactsNewest(facts)
 	total := len(facts)
-	truncated := total > maxItems
-	if truncated {
-		facts = facts[:maxItems]
-	}
+	facts, end := pageBrowserFacts(facts, offset, maxItems)
+	truncated := end < total
 	output := map[string]any{
 		"success": true, "operation": operation, "session_id": sessionID, "view": view,
 		"count": total, "truncated": truncated,
 		"summary":          fmt.Sprintf("%s returned %d browser fact(s)", operation, total),
 		"evidence_handles": []string{fmt.Sprintf("browser:%s:mangle:%s", sessionID, operation)},
+	}
+	if truncated {
+		output["facts_hint"] = fmt.Sprintf("%d more facts, page with offset=%d", total-end, end)
 	}
 	if view != "summary" {
 		output["facts"] = publicBrowserFacts(getBrowserManager(), facts, view == "full")
@@ -296,7 +318,7 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 	if sessionID == "" {
 		return "", fmt.Errorf("browser reason: session_id is required")
 	}
-	view, maxItems, err := normalizeReasonView(args)
+	view, maxItems, offset, err := normalizeReasonView(args)
 	if err != nil {
 		return "", fmt.Errorf("browser reason: %w", err)
 	}
@@ -332,7 +354,11 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 	sinceNavigation := boolArg(args, "since_navigation", true)
 	navigationSince := int64(0)
 	if sinceNavigation {
-		navigationSince = latestBrowserTimestamp(ctx, kernel, "navigation_event", sessionID)
+		watermark, watermarkErr := latestBrowserTimestamp(ctx, kernel, "navigation_event", sessionID)
+		if watermarkErr != nil {
+			return "", fmt.Errorf("browser reason: navigation watermark: %w", watermarkErr)
+		}
+		navigationSince = watermark
 		if navigationSince > since {
 			since = navigationSince
 		}
@@ -406,10 +432,8 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 	if topic == "what_changed_since" {
 		data["changes"] = mergeReasonChanges(rootCauses, failed, netFailures, slow, visibleErrors)
 	}
-	if view == "compact" {
-		data = truncateReasonSections(data, minInt(maxItems, 10))
-	} else if view == "full" {
-		data = truncateReasonSections(data, maxItems)
+	if view == "compact" || view == "full" {
+		data = pageReasonSections(data, offset, reasonWindow(args, view, maxItems))
 	}
 
 	evidenceHandles := []string{
@@ -506,23 +530,25 @@ func queryScopedBrowserFacts(ctx context.Context, kernel types.Kernel, query, pr
 	return result, nil
 }
 
-func readBrowserFacts(ctx context.Context, kernel types.Kernel, sessionID string, maxItems int) ([]types.Fact, error) {
+// readBrowserFacts collects every session-scoped fact across the exposed
+// predicates. The old maxItems early-stop cut the collection mid-sweep in
+// predicate-alphabetical order — before the caller's newest-first sort — so
+// the window could hold stale facts while newer ones from later predicates
+// were silently dropped. Collection is whole now; the caller sorts and
+// pages (limits cleanup 2026-09-29).
+func readBrowserFacts(ctx context.Context, kernel types.Kernel, sessionID string) ([]types.Fact, error) {
 	predicates := make([]string, 0, len(browserPredicateSpecs))
 	for predicate := range browserPredicateSpecs {
 		predicates = append(predicates, predicate)
 	}
 	sort.Strings(predicates)
-	result := make([]types.Fact, 0, maxItems)
+	var result []types.Fact
 	for _, predicate := range predicates {
 		facts, err := queryScopedBrowserFacts(ctx, kernel, predicate, predicate, sessionID)
 		if err != nil {
 			return nil, err
 		}
 		result = append(result, facts...)
-		if len(result) >= maxItems {
-			result = result[:maxItems]
-			break
-		}
 	}
 	return result, nil
 }
@@ -712,10 +738,15 @@ func activeRequestCount(requests []types.Fact, watermark int64, completionGroups
 	return active
 }
 
-func latestBrowserTimestamp(ctx context.Context, kernel types.Kernel, predicate, sessionID string) int64 {
+// latestBrowserTimestamp reports the newest timestamp for one predicate,
+// or the query error. A scan-guard trip used to collapse to zero here,
+// which silently widened the diagnosis window and reported a bogus
+// navigation_since_ms of 0; the error now propagates so the caller fails
+// loudly instead (limits cleanup 2026-09-29).
+func latestBrowserTimestamp(ctx context.Context, kernel types.Kernel, predicate, sessionID string) (int64, error) {
 	facts, err := queryScopedBrowserFacts(ctx, kernel, predicate, predicate, sessionID)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	spec := browserPredicateSpecs[predicate]
 	latest := int64(0)
@@ -724,7 +755,7 @@ func latestBrowserTimestamp(ctx context.Context, kernel types.Kernel, predicate,
 			latest = ts
 		}
 	}
-	return latest
+	return latest, nil
 }
 
 func filterFactsByTime(facts []types.Fact, spec browserPredicateSpec, after, before int64) []types.Fact {
@@ -973,40 +1004,96 @@ func mergeReasonChanges(groups ...[]types.Fact) []map[string]any {
 	return publicBrowserFacts(getBrowserManager(), merged, true)
 }
 
-func truncateReasonSections(data map[string]any, maxItems int) map[string]any {
+// pageBrowserFacts windows facts to [offset, offset+maxItems), newest-first
+// as sorted by the caller. It returns the window and the end index for the
+// paging hint; every fact stays reachable by paging with offset. The window
+// is compared to the remaining length so a huge max_items cannot wrap
+// offset+maxItems and panic the slice.
+func pageBrowserFacts(facts []types.Fact, offset, maxItems int) ([]types.Fact, int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(facts) {
+		offset = len(facts)
+	}
+	end := len(facts)
+	if maxItems > 0 && maxItems < end-offset {
+		end = offset + maxItems
+	}
+	return facts[offset:end], end
+}
+
+// pageReasonSections windows every []map section to
+// [offset, offset+window). The old truncateReasonSections cut each section
+// at the window with a bare boolean and no way to reach the rest; now a
+// windowed section carries its total and a hint naming the remainder and
+// the offset that reaches it. Sections fitting the window are stored whole
+// with no marker. One offset applies uniformly: short sections simply
+// exhaust first (limits cleanup 2026-09-29).
+func pageReasonSections(data map[string]any, offset, window int) map[string]any {
+	if offset < 0 {
+		offset = 0
+	}
 	result := make(map[string]any, len(data))
 	for key, value := range data {
-		switch rows := value.(type) {
-		case []map[string]any:
-			if len(rows) > maxItems {
-				result[key] = rows[:maxItems]
-				result[key+"_truncated"] = true
-			} else {
-				result[key] = rows
-			}
-		default:
+		rows, ok := value.([]map[string]any)
+		if !ok {
 			result[key] = value
+			continue
+		}
+		start := offset
+		if start > len(rows) {
+			start = len(rows)
+		}
+		end := len(rows)
+		// Compare to the remainder so a huge window cannot wrap start+window.
+		if window > 0 && window < end-start {
+			end = start + window
+		}
+		result[key] = rows[start:end]
+		if end < len(rows) {
+			result[key+"_truncated"] = true
+			result[key+"_total"] = len(rows)
+			result[key+"_hint"] = fmt.Sprintf("%d more rows, page with offset=%d", len(rows)-end, end)
 		}
 	}
 	return result
 }
 
-func normalizeReasonView(args map[string]any) (string, int, error) {
+// reasonWindow resolves the per-section paging window. An explicit positive
+// max_items is the model's own choice and is honored as given in both
+// views; when max_items is absent, compact defaults to the cheap rung and
+// full to the default window. The old compact min(max,10) silently
+// tightened an explicit request; it is gone (limits cleanup 2026-09-29).
+func reasonWindow(args map[string]any, view string, maxItems int) int {
+	if value, ok := argInt(args, "max_items"); ok && value > 0 {
+		return value
+	}
+	if view == "compact" {
+		return defaultCompactReasonItems
+	}
+	return maxItems
+}
+
+func normalizeReasonView(args map[string]any) (string, int, int, error) {
 	view := strings.ToLower(strings.TrimSpace(stringArg(args, "view")))
 	if view == "" {
 		view = "compact"
 	}
 	if view != "summary" && view != "compact" && view != "full" {
-		return "", 0, fmt.Errorf("unsupported view %q", view)
+		return "", 0, 0, fmt.Errorf("unsupported view %q", view)
 	}
+	// No hard cap: an explicit max_items is the model's own paging window
+	// and is honored as given. Non-positive values select the default.
 	maxItems := intArg(args, "max_items", defaultBrowserReasonItems)
 	if maxItems <= 0 {
 		maxItems = defaultBrowserReasonItems
 	}
-	if maxItems > maxBrowserReasonItems {
-		maxItems = maxBrowserReasonItems
+	offset := intArg(args, "offset", 0)
+	if offset < 0 {
+		offset = 0
 	}
-	return view, maxItems, nil
+	return view, maxItems, offset, nil
 }
 
 func boundedTimeout(args map[string]any) time.Duration {
@@ -1065,11 +1152,4 @@ func stringSliceArg(value any) []string {
 	default:
 		return nil
 	}
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
