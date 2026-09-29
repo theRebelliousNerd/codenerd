@@ -9,10 +9,10 @@ import (
 
 // buildSessionContext is the JIT compiler's fallback: it runs when compilation
 // FAILED, which is exactly when the system is already degraded and least able
-// to absorb a context-window error on top. Every list was capped at 20 elements
-// and no element's length was capped at all, so one shard returning a 4 MB
-// summary — a reviewer dumping a file, a tester pasting full `go test` output —
-// put 4 MB into the next prompt.
+// to absorb a context-window error on top. List items are rendered whole; a
+// line and the assembled block are not. Five hundred payloads of 200KB still
+// have to come back under the block ceiling with a visible marker, or one
+// shard summary becomes the next prompt.
 func TestBuildSessionContext_Bounds(t *testing.T) {
 	blob := strings.Repeat("B", 200_000)
 	many := func(n int, s string) []string {

@@ -647,15 +647,33 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 		sb.WriteString("You are in simulation mode. Describe what you WOULD do, but do not actually perform any actions.\n\n")
 	}
 
-	// Current diagnostics (highest priority)
+	// Safety constraints come first. A hidden blocked action or safety warning
+	// is a safety defect: the model can take the action, or miss the warning,
+	// because the line that forbade it was never shown. The block ceiling below
+	// keeps a head and a tail (a third of the ceiling) and drops the middle;
+	// with the lists uncapped, any section but the first can land in that
+	// middle, so this one is written where the clamp keeps the most.
+	if len(ctx.BlockedActions) > 0 || len(ctx.SafetyWarnings) > 0 {
+		sb.WriteString("\nSAFETY CONSTRAINTS:\n")
+		for _, blocked := range ctx.BlockedActions {
+			sb.WriteString(fmt.Sprintf("  BLOCKED: %s\n", sessionContextLine(blocked)))
+		}
+		for _, warning := range ctx.SafetyWarnings {
+			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", sessionContextLine(warning)))
+		}
+	}
+
+	// Every list below is rendered whole. A count that ends in "... and N more"
+	// hides items the model is then told to address, and none of these slices
+	// has a typed tool that lists the omitted remainder: the lines are
+	// blackboard text already in hand (a diagnostic, a failing test name, a
+	// blocked action), not a query a tool can re-run. git_log, callers_of and
+	// importers_of answer different questions and do not return this slice.
+	//
+	// Current diagnostics (highest priority). The heading says "must address".
 	if len(ctx.CurrentDiagnostics) > 0 {
 		sb.WriteString("\nCURRENT BUILD/LINT ERRORS (must address):\n")
-		maxCount := 20
-		for i, diag := range ctx.CurrentDiagnostics {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more build/lint errors\n", len(ctx.CurrentDiagnostics)-maxCount))
-				break
-			}
+		for _, diag := range ctx.CurrentDiagnostics {
 			sb.WriteString(fmt.Sprintf("  %s\n", sessionContextLine(diag)))
 		}
 	}
@@ -666,12 +684,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 		if ctx.TDDRetryCount > 0 {
 			sb.WriteString(fmt.Sprintf("  TDD Retry: %d (fix root cause, not symptoms)\n", ctx.TDDRetryCount))
 		}
-		maxCount := 20
-		for i, test := range ctx.FailingTests {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more failing tests\n", len(ctx.FailingTests)-maxCount))
-				break
-			}
+		for _, test := range ctx.FailingTests {
 			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(test)))
 		}
 	}
@@ -679,12 +692,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Recent findings from other shards
 	if len(ctx.RecentFindings) > 0 {
 		sb.WriteString("\nRECENT FINDINGS:\n")
-		maxCount := 20
-		for i, finding := range ctx.RecentFindings {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more findings\n", len(ctx.RecentFindings)-maxCount))
-				break
-			}
+		for _, finding := range ctx.RecentFindings {
 			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(finding)))
 		}
 	}
@@ -692,25 +700,15 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Reflection hits (System 2 memory)
 	if len(ctx.ReflectionHits) > 0 {
 		sb.WriteString("\nREFLECTION HITS:\n")
-		maxCount := 20
-		for i, hit := range ctx.ReflectionHits {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more reflection hits\n", len(ctx.ReflectionHits)-maxCount))
-				break
-			}
+		for _, hit := range ctx.ReflectionHits {
 			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(hit)))
 		}
 	}
 
-	// Impacted files
+	// Impacted files. get_impacted_tests lists tests, not this file set.
 	if len(ctx.ImpactedFiles) > 0 {
 		sb.WriteString("\nIMPACTED FILES:\n")
-		maxCount := 20
-		for i, file := range ctx.ImpactedFiles {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more impacted files\n", len(ctx.ImpactedFiles)-maxCount))
-				break
-			}
+		for _, file := range ctx.ImpactedFiles {
 			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(file)))
 		}
 	}
@@ -722,25 +720,21 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// read by none. Wiring its input without this would have been a producer
 	// feeding a field nobody consumes — the same defect from the other end.
 	//
-	// This is the one place on this branch where prompt CONTENT grows, so the
-	// cost is worth naming: the producers cap themselves at 10 (kernel
-	// dependency_link) and 30 (after graph memory appends), and this renders at
-	// most 15, so the section is bounded at roughly 150 tokens. What it buys is
-	// the grounding that stops an edit breaking a caller the model never saw.
+	// Every edge is rendered. The section exists so an edit does not break a
+	// caller the model never saw, and no typed tool lists this blackboard
+	// slice: callers_of and importers_of take a symbol or a package, not
+	// these lines. A count here hides the caller the section was added to show.
 	if len(ctx.DependencyContext) > 0 {
 		sb.WriteString("\nDEPENDENCIES OF FILES IN FOCUS:\n")
-		maxCount := 15
-		for i, dep := range ctx.DependencyContext {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more\n", len(ctx.DependencyContext)-maxCount))
-				break
-			}
+		for _, dep := range ctx.DependencyContext {
 			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(dep)))
 		}
 	}
 
-	// Git context (Chesterton's Fence)
-	if ctx.GitBranch != "" || len(ctx.GitRecentCommits) > 0 {
+	// Git context (Chesterton's Fence). Modified files open the section on
+	// their own: the names used to render only when a branch or a commit
+	// was also set, so a dirty tree with neither showed nothing.
+	if ctx.GitBranch != "" || ctx.GitUnstagedCount > 0 || len(ctx.GitModifiedFiles) > 0 || len(ctx.GitRecentCommits) > 0 {
 		sb.WriteString("\nGIT CONTEXT:\n")
 		if ctx.GitBranch != "" {
 			sb.WriteString(fmt.Sprintf("  Branch: %s\n", ctx.GitBranch))
@@ -749,16 +743,20 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 			sb.WriteString(fmt.Sprintf("  Unstaged changes: %d\n", ctx.GitUnstagedCount))
 		}
 		if len(ctx.GitModifiedFiles) > 0 {
+			// The count alone hid every path. git_diff shows a diff, not this
+			// fact's file list, so the names are rendered with the count.
 			sb.WriteString(fmt.Sprintf("  Modified files: %d\n", len(ctx.GitModifiedFiles)))
+			for _, file := range ctx.GitModifiedFiles {
+				sb.WriteString(fmt.Sprintf("    - %s\n", sessionContextLine(file)))
+			}
 		}
 		if len(ctx.GitRecentCommits) > 0 {
+			// Chesterton's fence: a commit the model cannot see is a reason
+			// the code exists that it cannot weigh. git_log answers a fresh
+			// history query (its own default count is 10); it does not return
+			// this fact's omitted lines.
 			sb.WriteString("  Recent commits (context for why code exists):\n")
-			maxCount := 20
-			for i, commit := range ctx.GitRecentCommits {
-				if i >= maxCount {
-					sb.WriteString(fmt.Sprintf("    - ... and %d more commits\n", len(ctx.GitRecentCommits)-maxCount))
-					break
-				}
+			for _, commit := range ctx.GitRecentCommits {
 				sb.WriteString(fmt.Sprintf("    - %s\n", sessionContextLine(commit)))
 			}
 		}
@@ -783,12 +781,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Prior shard outputs (cross-shard context)
 	if len(ctx.PriorShardOutputs) > 0 {
 		sb.WriteString("\nPRIOR SHARD RESULTS:\n")
-		maxCount := 20
-		for i, output := range ctx.PriorShardOutputs {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more prior shard results\n", len(ctx.PriorShardOutputs)-maxCount))
-				break
-			}
+		for _, output := range ctx.PriorShardOutputs {
 			status := "SUCCESS"
 			if !output.Success {
 				status = "FAILED"
@@ -802,12 +795,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Recent actions
 	if len(ctx.RecentActions) > 0 {
 		sb.WriteString("\nRECENT SESSION ACTIONS:\n")
-		maxCount := 20
-		for i, action := range ctx.RecentActions {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more recent actions\n", len(ctx.RecentActions)-maxCount))
-				break
-			}
+		for _, action := range ctx.RecentActions {
 			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(action)))
 		}
 	}
@@ -815,32 +803,19 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Domain knowledge (Type B specialists)
 	if len(ctx.KnowledgeAtoms) > 0 || len(ctx.SpecialistHints) > 0 {
 		sb.WriteString("\nDOMAIN KNOWLEDGE:\n")
-		maxCount := 20
-		for i, atom := range ctx.KnowledgeAtoms {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more knowledge atoms\n", len(ctx.KnowledgeAtoms)-maxCount))
-				break
-			}
+		for _, atom := range ctx.KnowledgeAtoms {
 			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(atom)))
 		}
-		for i, hint := range ctx.SpecialistHints {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more hints\n", len(ctx.SpecialistHints)-maxCount))
-				break
-			}
+		for _, hint := range ctx.SpecialistHints {
 			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", sessionContextLine(hint)))
 		}
 	}
 
-	// Available tools (Ouroboros-generated)
+	// Available tools (Ouroboros-generated). A hidden name is a tool the
+	// model cannot call, and nothing lists the names this section omitted.
 	if len(ctx.AvailableTools) > 0 {
 		sb.WriteString("\nAVAILABLE TOOLS:\n")
-		maxCount := 20
-		for i, tool := range ctx.AvailableTools {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  - ... and %d more tools\n", len(ctx.AvailableTools)-maxCount))
-				break
-			}
+		for _, tool := range ctx.AvailableTools {
 			sb.WriteString(fmt.Sprintf("  - %s: %s\n", tool.Name, sessionContextLine(tool.Description)))
 			if tool.BinaryPath != "" {
 				sb.WriteString(fmt.Sprintf("    Binary: %s\n", tool.BinaryPath))
@@ -848,39 +823,21 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 		}
 	}
 
-	// Safety constraints
-	if len(ctx.BlockedActions) > 0 || len(ctx.SafetyWarnings) > 0 {
-		sb.WriteString("\nSAFETY CONSTRAINTS:\n")
-		maxCount := 20
-		for i, blocked := range ctx.BlockedActions {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  BLOCKED: ... and %d more blocked actions\n", len(ctx.BlockedActions)-maxCount))
-				break
-			}
-			sb.WriteString(fmt.Sprintf("  BLOCKED: %s\n", sessionContextLine(blocked)))
-		}
-		for i, warning := range ctx.SafetyWarnings {
-			if i >= maxCount {
-				sb.WriteString(fmt.Sprintf("  WARNING: ... and %d more safety warnings\n", len(ctx.SafetyWarnings)-maxCount))
-				break
-			}
-			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", sessionContextLine(warning)))
-		}
-	}
-
-	// Compressed history (if small enough)
+	// Compressed history stays behind this gate. It is one blob, not a list,
+	// and it is the last section: a multi-megabyte history would occupy the
+	// block ceiling's whole tail and push the lists above it into the dropped
+	// middle. Under the gate it is rendered whole.
 	if ctx.CompressedHistory != "" && len(ctx.CompressedHistory) < 1500 {
 		sb.WriteString("\nSESSION HISTORY (compressed):\n")
 		sb.WriteString(ctx.CompressedHistory)
 		sb.WriteString("\n")
 	}
 
-	// Every section above caps its ELEMENT COUNT at 20 and (since this pass)
-	// each element's length. Twelve sections x 20 elements x the per-line cap
-	// is still ~120 KB, so the block gets a ceiling of its own. Head+tail: the
-	// head carries diagnostics and failing tests (what is broken), the tail
-	// carries safety constraints and compressed history (what must not be
-	// done). Cutting either end blind loses one of those.
+	// Lists above are not count-capped. Each line still is, and a shard that
+	// returned hundreds of line-capped rows — or one payload that arrived as
+	// a summary — can pass this ceiling. Head+tail: the head carries the
+	// safety constraints (what must not be done), then diagnostics and failing
+	// tests (what is broken); the tail carries compressed history.
 	return types.ClampText(sb.String(), maxSessionContextChars, "session context")
 }
 
@@ -888,10 +845,13 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 //
 // This is the fallback assembler: it runs when JIT compilation fails, which is
 // exactly when the system is already degraded and least able to absorb a
-// context-window error on top. Every list here was count-capped at 20 and
-// length-capped nowhere, so one shard that returned a 4 MB summary — a
-// reviewer dumping a whole file, a tester pasting full `go test` output —
-// put 4 MB into the next prompt.
+// context-window error on top. List items are rendered whole: a count that
+// hides a diagnostic, a failing test, or a blocked action asks the model to
+// act on a line it cannot see, and none of these slices has a typed tool that
+// returns the hidden remainder. What stays bounded is one line and the
+// assembled block. A reviewer that returned a 4 MB summary — a whole file, or
+// full `go test` output pasted into a slot sized for a label — must not become
+// the next prompt.
 const (
 	// maxSessionContextLineChars caps one blackboard line. These are meant to
 	// be one-line facts: a failing test name, a diagnostic, a finding, a

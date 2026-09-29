@@ -1,6 +1,7 @@
 package articulation
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -37,27 +38,26 @@ func TestDependenciesOfFilesInFocusReachThePrompt(t *testing.T) {
 	}
 }
 
-// The section is bounded, and it has to be: this is the one place on this
-// branch where prompt CONTENT grows, and an unbounded list of edges from a
-// session that touched fifty files would crowd out the sections that were
-// already earning their tokens.
-func TestTheDependencySectionIsBounded(t *testing.T) {
+// Every edge is rendered. The old cap of 15 hid the rest behind "... and N
+// more", and no tool lists this blackboard slice, so a model that stopped at
+// fifteen edges would edit as if the hidden callers did not exist.
+func TestTheDependencySectionRendersEveryEdge(t *testing.T) {
 	deps := make([]string, 0, 40)
 	for i := 0; i < 40; i++ {
-		deps = append(deps, "a.go imports b")
+		deps = append(deps, fmt.Sprintf("file-%02d.go imports pkg-%02d", i, i))
 	}
 	pa := &PromptAssembler{}
 	got := pa.buildSessionContext(&PromptContext{SessionCtx: &types.SessionContext{
 		DependencyContext: deps,
 	}})
 
-	if n := strings.Count(got, "a.go imports b"); n > 15 {
-		t.Errorf("the dependency section rendered %d entries, cap is 15", n)
+	for _, dep := range deps {
+		if !strings.Contains(got, dep) {
+			t.Errorf("dependency section lost %q", dep)
+		}
 	}
-	// And it must SAY it elided, or a model reading fifteen edges will believe
-	// those are all of them.
-	if !strings.Contains(got, "and 25 more") {
-		t.Errorf("the section was cut with no notice that anything is missing:\n%s", got)
+	if strings.Contains(got, "and 25 more") || strings.Contains(got, "... and") {
+		t.Errorf("dependency section still hides edges:\n%s", got)
 	}
 }
 
