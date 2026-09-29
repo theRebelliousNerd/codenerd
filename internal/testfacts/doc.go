@@ -7,4 +7,9 @@
 // 2026-09-26). The toolchain already emits a structured event stream
 // (test2json); this package parses that stream instead of the blob, so
 // repeats collapse to counts while every line stays recallable.
+//
+// Failure and build-failure files are workspace-relative slash paths
+// (types.CanonicalPath against the directory Parse was given), so they
+// join the world model's file facts. A file outside that directory keeps
+// its absolute slash form.
 package testfacts

@@ -18,7 +18,7 @@ func TestOK(t *testing.T) {
 // failures, and the test's own output lines intact.
 func TestParsePass(t *testing.T) {
 	dir := writeModule(t, map[string]string{"ok_test.go": passSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	if res.Status != StatusPass {
 		t.Fatalf("Status = %q, want pass", res.Status)
 	}
@@ -64,7 +64,7 @@ func TestErr(t *testing.T) {
 // so only failing tests contribute failures.
 func TestParseErrorf(t *testing.T) {
 	dir := writeModule(t, map[string]string{"bad_test.go": errSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	if res.Status != StatusFail {
 		t.Fatalf("Status = %q, want fail", res.Status)
 	}
@@ -108,7 +108,7 @@ func TestSkipIt(t *testing.T) { t.Skip("not today") }
 // skipped test skips, and only the failing leaf yields a Failure.
 func TestParseSubtestsAndSkip(t *testing.T) {
 	dir := writeModule(t, map[string]string{"sub_test.go": subSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	p := res.Packages[0]
 	names := map[string]Status{}
 	for _, ct := range p.Tests {
@@ -149,7 +149,7 @@ func TestParseSubtestsAndSkip(t *testing.T) {
 // parser resolves to no-test-files rather than a bare skip.
 func TestParseNoTestFiles(t *testing.T) {
 	dir := writeModule(t, map[string]string{"doc.go": "package nt\n"})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	if res.Status != StatusNoTestFiles {
 		t.Fatalf("Status = %q, want no-test-files", res.Status)
 	}

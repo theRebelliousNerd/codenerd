@@ -16,10 +16,11 @@ func TestSummaryShowsBuildFailure(t *testing.T) {
 		"calc.go":        "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
 		"broken_test.go": "package verifyprobe\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { neverWritten() }\n",
 	})
-	if out := verificationOutput(parseJSONTest(t, runJSONTest(t, broken, "."))); !summaryShowsBuildFailure(out) {
+	if out := verificationOutput(parseJSONTest(t, broken, runJSONTest(t, broken, "."))); !summaryShowsBuildFailure(out) {
 		t.Errorf("a build failure's Summary does not read as one:\n%s", out)
 	}
-	failing := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, failingModule()), ".")))
+	failingDir := jsonTestModule(t, failingModule())
+	failing := verificationOutput(parseJSONTest(t, failingDir, runJSONTest(t, failingDir, ".")))
 	if summaryShowsBuildFailure(failing) {
 		t.Errorf("an ordinary test failure reads as a build failure:\n%s", failing)
 	}
@@ -42,7 +43,7 @@ func TestVerificationOutput_RepeatFloodIsOneLine(t *testing.T) {
 	if len(stream) < 20000 {
 		t.Fatalf("the flood fixture printed %d bytes; want a stream big enough to matter", len(stream))
 	}
-	out := verificationOutput(parseJSONTest(t, stream))
+	out := verificationOutput(parseJSONTest(t, dir, stream))
 	if n := strings.Count(out, "flood-line"); n != 1 {
 		t.Errorf("the flood line appears %d times in %d bytes; want exactly once with a count", n, len(out))
 	}

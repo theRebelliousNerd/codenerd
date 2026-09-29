@@ -26,7 +26,7 @@ func TestFailingTestSection_RendersTheFailingTestFromThePackageTheRunnerNamed(t 
 		"internal/probe/extract.go":    "package probe\n\nfunc Extract(string) string { return \"\" }\n",
 		"internal/probe/probe_test.go": failingProbeTest,
 	})
-	res := parseJSONTest(t, runJSONTest(t, ws, "./internal/probe/"))
+	res := parseJSONTest(t, ws, runJSONTest(t, ws, "./internal/probe/"))
 
 	section := failingTestSection(ws, res, nil)
 	if !strings.Contains(section, "internal/probe/probe_test.go: TestExtents") {
@@ -40,7 +40,7 @@ func TestFailingTestSection_RendersTheFailingTestFromThePackageTheRunnerNamed(t 
 	if strings.Contains(section, "func TestOther") {
 		t.Errorf("the section carries a test that did not fail:\n%s", section)
 	}
-	pass := parseJSONTest(t, jsonStream(t,
+	pass := parseJSONTest(t, ws, jsonStream(t,
 		jsonEvent{Action: "pass", Package: "probe/internal/probe", Test: "TestOther"},
 		jsonEvent{Action: "pass", Package: "probe/internal/probe"},
 	))
@@ -63,7 +63,7 @@ func TestFailingTestSection_FindsTheTestBesideTheTurnsOwnWrite(t *testing.T) {
 	// events are the fail protocol; a real `go test` of this tree would
 	// name probe/internal/probe, which would find the file without the
 	// written path.
-	res := parseJSONTest(t, jsonStream(t,
+	res := parseJSONTest(t, ws, jsonStream(t,
 		jsonEvent{Action: "output", Package: "probe/elsewhere", Test: "TestExtents", Output: "    x_test.go:1: boom\n"},
 		jsonEvent{Action: "fail", Package: "probe/elsewhere", Test: "TestExtents"},
 		jsonEvent{Action: "fail", Package: "probe/elsewhere"},
@@ -81,11 +81,12 @@ func TestTestRepairPrompt_StopsAskingForAReadItCannotDo(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
-	out := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, map[string]string{
+	dir := jsonTestModule(t, map[string]string{
 		"calc.go": "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
 		"calc_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
 			"func TestAdd(t *testing.T) { if Add(2, 3) != 999 { t.Fatal(\"intentional failure\") } }\n",
-	}), ".")))
+	})
+	out := verificationOutput(parseJSONTest(t, dir, runJSONTest(t, dir, ".")))
 	withSource := testRepairPrompt(out, "\nThe failing tests, as they are on disk:\nx_test.go: TestAdd\n")
 	if strings.Contains(withSource, "Read the failing test and the code under test") {
 		t.Errorf("the prompt still asks for a read it has already answered:\n%s", withSource)

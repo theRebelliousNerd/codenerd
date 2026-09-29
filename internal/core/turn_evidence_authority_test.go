@@ -49,6 +49,11 @@ func TestModelCannotAssertTurnDone(t *testing.T) {
 		"build_state(/passing).",
 		"build_state(/failing).",
 		"test_state(/passing).",
+		"failing_test(\"TestName\", \"message\").",
+		"test_case(\"pkg\", \"TestName\", /fail, 1).",
+		"test_failure_at(\"pkg\", \"TestName\", \"file_test.go\", 1, \"message\", 1).",
+		"test_build_failure(\"pkg\", \"file_test.go\", 1, \"message\").",
+		"test_output_repeat(\"line\", 2).",
 	}
 
 	// The most permissive policy there is: everything allowed, no prefixes, no
@@ -102,7 +107,9 @@ func TestPlannerPrefixPolicyCannotReachBuildState(t *testing.T) {
 func TestModelObservationPolicyNamesNoHostWitness(t *testing.T) {
 	policy := ModelObservationPolicy()
 	for _, witness := range []string{
-		"build_state", "test_state", "turn_evidence", "turn_executed",
+		"build_state", "test_state", "failing_test", "test_case",
+		"test_failure_at", "test_build_failure", "test_output_repeat",
+		"turn_evidence", "turn_executed",
 		"turn_verified", "turn_done", "turn_acceptance", "turn_cost",
 	} {
 		if _, named := policy.AllowedPredicates[witness]; named {
@@ -116,7 +123,6 @@ func TestModelObservationPolicyNamesNoHostWitness(t *testing.T) {
 func TestModelObservationPolicyStillAdmitsObservations(t *testing.T) {
 	allowed := []string{
 		"observation(\"key\", \"what you saw\").",
-		"failing_test(\"TestName\", \"message\").",
 		"modified(\"path/file.go\").",
 		"task_completed(\"task_id\").",
 	}

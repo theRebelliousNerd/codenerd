@@ -111,10 +111,12 @@ func jsonStream(t *testing.T, evs ...jsonEvent) string {
 	return b.String()
 }
 
-// parseJSONTest parses a stream, failing the test on a read error.
-func parseJSONTest(t *testing.T, stream string) *testfacts.Result {
+// parseJSONTest parses a stream whose go command ran in dir, failing the
+// test on a read error. dir is the workspace Parse canonicalises against;
+// "" leaves a relative path cleaned but unanchored.
+func parseJSONTest(t *testing.T, dir, stream string) *testfacts.Result {
 	t.Helper()
-	res, err := testfacts.Parse(strings.NewReader(stream))
+	res, err := testfacts.Parse(dir, strings.NewReader(stream))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -137,7 +139,8 @@ func TestFailedTopLevels(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
-	res := parseJSONTest(t, runJSONTest(t, jsonTestModule(t, failingModule()), "."))
+	dir := jsonTestModule(t, failingModule())
+	res := parseJSONTest(t, dir, runJSONTest(t, dir, "."))
 	got := failedTopLevels(res)
 	want := []string{"TestOops", "TestSub"}
 	if len(got) != len(want) {
@@ -174,7 +177,7 @@ func TestParseTestJSON_BuildFailure(t *testing.T) {
 		"calc.go":        "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
 		"broken_test.go": "package verifyprobe\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { neverWritten() }\n",
 	})
-	res := parseTestJSON([]byte(runJSONTest(t, dir, ".")))
+	res := parseTestJSON(dir, []byte(runJSONTest(t, dir, ".")))
 	if len(res.BuildFailures) == 0 {
 		t.Fatalf("a test file calling an undefined function produced no build failures:\n%s", res.Summary())
 	}
@@ -193,7 +196,8 @@ func TestVerificationOutput_KeepsFailuresCompact(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
-	res := parseJSONTest(t, runJSONTest(t, jsonTestModule(t, failingModule()), "."))
+	dir := jsonTestModule(t, failingModule())
+	res := parseJSONTest(t, dir, runJSONTest(t, dir, "."))
 	out := verificationOutput(res)
 	for _, want := range []string{"FAIL verifyprobe TestOops", "wrong value", "FAIL verifyprobe TestSub/case_one", "sub boom"} {
 		if !strings.Contains(out, want) {
@@ -209,7 +213,7 @@ func TestVerificationOutput_KeepsFailuresCompact(t *testing.T) {
 }
 
 func TestVerificationOutput_RetainsUnparseableLines(t *testing.T) {
-	res := parseTestJSON([]byte("still testing...\n"))
+	res := parseTestJSON("", []byte("still testing...\n"))
 	if !strings.Contains(verificationOutput(res), "still testing...") {
 		t.Errorf("a timeout's partial line was dropped: %q", verificationOutput(res))
 	}

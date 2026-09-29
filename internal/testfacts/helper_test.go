@@ -90,11 +90,13 @@ func childEnv() []string {
 	return append(env, "GOPROXY=off")
 }
 
-// parseString parses s, failing the test on a read error (strings do not
-// produce any; the check keeps the helper honest).
-func parseString(t *testing.T, s string) *Result {
+// parseString parses s as a `go test -json` stream whose command ran in dir.
+// dir is the workspace the files are canonicalised against; "" leaves a
+// relative path cleaned but unanchored. A read error fails the test
+// (strings do not produce any; the check keeps the helper honest).
+func parseString(t *testing.T, dir, s string) *Result {
 	t.Helper()
-	res, err := Parse(strings.NewReader(s))
+	res, err := Parse(dir, strings.NewReader(s))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}

@@ -23,12 +23,17 @@ func (r *Result) Summary() string {
 			bf.Package, bf.File, bf.Line, bf.Column, bf.Message)
 	}
 	for _, f := range firstFailures(r.Failures) {
-		if f.File == "" {
+		switch {
+		case f.Test == "" && f.File == "":
+			fmt.Fprintf(&b, "FAIL %s: %s\n", f.Package, f.Message)
+		case f.Test == "":
+			fmt.Fprintf(&b, "FAIL %s %s:%d: %s\n", f.Package, f.File, f.Line, f.Message)
+		case f.File == "":
 			fmt.Fprintf(&b, "FAIL %s %s: %s\n", f.Package, f.Test, f.Message)
-			continue
+		default:
+			fmt.Fprintf(&b, "FAIL %s %s %s:%d: %s\n",
+				f.Package, f.Test, f.File, f.Line, f.Message)
 		}
-		fmt.Fprintf(&b, "FAIL %s %s %s:%d: %s\n",
-			f.Package, f.Test, f.File, f.Line, f.Message)
 	}
 	for _, rp := range r.Repeats {
 		fmt.Fprintf(&b, "repeated %dx: %s\n", rp.Count, rp.Line)

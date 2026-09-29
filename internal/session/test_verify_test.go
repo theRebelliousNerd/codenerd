@@ -370,11 +370,12 @@ func TestTestRepairPrompt_ForbidsWeakeningTheTest(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
-	out := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, map[string]string{
+	dir := jsonTestModule(t, map[string]string{
 		"calc.go": "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
 		"calc_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
 			"func TestAdd(t *testing.T) { if Add(2, 3) != 999 { t.Fatal(\"intentional failure\") } }\n",
-	}), ".")))
+	})
+	out := verificationOutput(parseJSONTest(t, dir, runJSONTest(t, dir, ".")))
 	p := testRepairPrompt(out, "")
 
 	if !strings.Contains(p, out) {
@@ -416,7 +417,7 @@ func TestTestBuildFailed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res := parseTestJSON([]byte(runJSONTest(t, tc.dir, tc.args...)))
+			res := parseTestJSON(tc.dir, []byte(runJSONTest(t, tc.dir, tc.args...)))
 			if got := testBuildFailed(res); got != tc.want {
 				t.Errorf("testBuildFailed = %v; want %v:\n%s", got, tc.want, res.Summary())
 			}
@@ -425,7 +426,7 @@ func TestTestBuildFailed(t *testing.T) {
 	if testBuildFailed(nil) {
 		t.Error("testBuildFailed(nil) = true; want false")
 	}
-	if testBuildFailed(parseTestJSON(nil)) {
+	if testBuildFailed(parseTestJSON("", nil)) {
 		t.Error("testBuildFailed on an empty stream = true; want false")
 	}
 }
@@ -434,10 +435,11 @@ func TestTestRepairPrompt_BuildFailureBlamesTheTestFile(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
-	out := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, map[string]string{
+	dir := jsonTestModule(t, map[string]string{
 		"calc.go":        "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
 		"broken_test.go": "package verifyprobe\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { neverWritten() }\n",
-	}), ".")))
+	})
+	out := verificationOutput(parseJSONTest(t, dir, runJSONTest(t, dir, ".")))
 	p := testRepairPrompt(out, "")
 
 	for _, want := range []string{"do not compile", "the test file is what is wrong", "Do NOT add, alias or re-export"} {

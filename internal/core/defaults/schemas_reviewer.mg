@@ -132,8 +132,40 @@ Decl nesting_depth(File, Function, Depth) bound [/string, /string, /number].
 # 41.8 Test State Predicates
 # -----------------------------------------------------------------------------
 
-# failing_test(TestName, ErrorMessage) - details of failing tests
+# failing_test(TestName, ErrorMessage) - details of failing tests.
+# TestName is empty when the package failed before any test ran (a build
+# failure or an init panic): no test name exists to record, and an import
+# path must not be stored as one. The message is then the first compiler
+# diagnostic, or the panic text. The Decl has no package, so two packages
+# with the same message collapse to one fact; the file stays on
+# test_failure_at / test_build_failure, which carry the package.
+# context_compilation.mg only tests failing_test(_, _) for existence.
 Decl failing_test(TestName, ErrorMessage) bound [/string, /string].
+
+# test_case(Pkg, Test, Status, ElapsedMs)
+# One row per test that reached a verdict. Status is /pass, /fail, or /skip.
+# ElapsedMs is whole milliseconds. Measured by `go test -json`.
+# The package column is Pkg: Package is a Mangle keyword (doc_problem above).
+Decl test_case(Pkg, Test, Status, ElapsedMs) bound [/string, /string, /name, /number].
+
+# test_failure_at(Pkg, Test, File, Line, Message, Count)
+# One row per distinct failure (package, test, file, line, message).
+# File is the workspace-relative canonical path (absolute slash only when
+# the file is outside the workspace) so it joins file_topology. Test is ""
+# for a package-level init panic. Count is how many times that same line
+# was printed.
+Decl test_failure_at(Pkg, Test, File, Line, Message, Count) bound [/string, /string, /string, /number, /string, /number].
+
+# test_build_failure(Pkg, File, Line, Message)
+# One compiler diagnostic. File is the same canonical identity as
+# test_failure_at. The column stays on the Go result for the summary; the
+# fact joins on the file.
+Decl test_build_failure(Pkg, File, Line, Message) bound [/string, /string, /number, /string].
+
+# test_output_repeat(Line, Count)
+# One output line printed more than once, with the full count. The line is
+# the raw text, kept for recall; nothing is cut.
+Decl test_output_repeat(Line, Count) bound [/string, /number].
 
 # -----------------------------------------------------------------------------
 # 41.9 Constitutional Safety Predicates

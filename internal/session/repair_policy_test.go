@@ -30,8 +30,8 @@ func TestRepairFailureDigest_SameSummaryIsTheSameFailure(t *testing.T) {
 	dir := jsonTestModule(t, files("broken"))
 	first := runJSONTest(t, dir, ".")
 	second := runJSONTest(t, dir, ".")
-	a := verificationOutput(parseJSONTest(t, first))
-	b := verificationOutput(parseJSONTest(t, second))
+	a := verificationOutput(parseJSONTest(t, dir, first))
+	b := verificationOutput(parseJSONTest(t, dir, second))
 	if repairFailureDigest(a) != repairFailureDigest(b) {
 		t.Fatalf("the same failure digested differently:\n%s\n---\n%s", a, b)
 	}
@@ -41,7 +41,8 @@ func TestRepairFailureDigest_SameSummaryIsTheSameFailure(t *testing.T) {
 	if !strings.Contains(a, "broken") {
 		t.Fatalf("the Summary lost the failure message:\n%s", a)
 	}
-	other := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, files("still broken")), ".")))
+	otherDir := jsonTestModule(t, files("still broken"))
+	other := verificationOutput(parseJSONTest(t, otherDir, runJSONTest(t, otherDir, ".")))
 	if repairFailureDigest(a) == repairFailureDigest(other) {
 		t.Fatal("a different failure message digested the same")
 	}

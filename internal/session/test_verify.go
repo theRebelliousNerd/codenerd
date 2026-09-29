@@ -274,7 +274,7 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 
 	out, outcome, reason := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, command[0], command[1:], verifyTestRunner)
 	elapsed := time.Since(start)
-	res := parseTestJSON(out)
+	res := parseTestJSON(workspace, out)
 
 	switch outcome {
 	case VerifyPassed:

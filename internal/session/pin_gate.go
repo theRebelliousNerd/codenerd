@@ -650,7 +650,7 @@ func runPinUnit(ctx context.Context, workspace string, u pinUnit, runArg string,
 	}
 	args := append([]string{"test", "-json", "-overlay", overlayPath, "-count=1", "-timeout", bound.String(), "-run", runArg}, pkgs...)
 	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
-	res := parseTestJSON(out)
+	res := parseTestJSON(workspace, out)
 	switch outcome {
 	case VerifyFailed:
 		if testBuildFailed(res) {
@@ -677,7 +677,7 @@ func pinBaseline(ctx context.Context, workspace, runArg string, names, pkgs []st
 	start := time.Now()
 	args := append([]string{"test", "-json", "-count=1", "-run", runArg}, pkgs...)
 	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
-	res := parseTestJSON(out)
+	res := parseTestJSON(workspace, out)
 	switch {
 	case outcome != VerifyPassed:
 		return 0, fmt.Sprintf("they did not pass on their own (%s%s)", outcome, suffixed(reason))

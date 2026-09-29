@@ -146,7 +146,7 @@ func TestSyntheticStreams(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.check(t, parseString(t, tc.stream))
+			tc.check(t, parseString(t, "", tc.stream))
 		})
 	}
 }

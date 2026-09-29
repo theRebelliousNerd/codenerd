@@ -121,7 +121,7 @@ func runBaselineTests(ctx context.Context, workspace, overlayPath, runArg string
 	out, outcome, _ := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
 	switch outcome {
 	case VerifyPassed, VerifyFailed:
-		return parseTestJSON(out), outcome
+		return parseTestJSON(workspace, out), outcome
 	default:
 		return nil, outcome
 	}

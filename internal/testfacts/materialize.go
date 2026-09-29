@@ -18,7 +18,7 @@ func (a *accumulator) result() *Result {
 	// package over sorted ImportPaths, not by package entry.
 	for _, ip := range slices.Sorted(maps.Keys(a.buildOut)) {
 		pkgName := stripVariant(ip)
-		for _, bf := range parseBuildLines(pkgName, buildLines[ip]) {
+		for _, bf := range parseBuildLines(a.loc, pkgName, buildLines[ip]) {
 			res.BuildFailures = append(res.BuildFailures, bf)
 		}
 	}
@@ -66,7 +66,7 @@ func (a *accumulator) result() *Result {
 		})
 	}
 	slices.SortFunc(res.Packages, func(x, y *Package) int { return strings.Compare(x.Name, y.Name) })
-	res.Failures = extractFailures(res.Packages)
+	res.Failures = extractFailures(a.loc, res.Packages)
 	res.Repeats = countRepeats(res.Packages, res.Raw)
 	res.Raw = append([]string(nil), a.raw...)
 	res.Status = overallStatus(res.Packages)

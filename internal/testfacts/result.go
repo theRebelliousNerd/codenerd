@@ -86,20 +86,26 @@ type Test struct {
 	Output []string
 }
 
-// Failure is one `file.go:NN: message` line from a failing test's output,
-// a continuation of such a line, or a panic record. t.Log, t.Errorf, and
-// t.Fatalf share one output format, so every matching line in a failing
-// test counts; passing and skipped tests contribute none.
+// Failure is one distinct `file.go:NN: message` from a failing test's
+// output, a continuation of such a line, a panic record, or a
+// package-level panic (Test is empty: an init panic never starts a test).
+// t.Log, t.Errorf, and t.Fatalf share one output format, so every matching
+// line in a failing test counts; passing and skipped tests contribute
+// none. File is workspace-relative slash form, or absolute slash form
+// when the file is outside the workspace.
 type Failure struct {
 	Package string
 	Test    string
 	File    string
 	Line    int
 	Message string
+	// Count is how many times this package, test, file, line, and message
+	// was printed. One t.Errorf in a loop is one Failure.
+	Count int
 }
 
 // BuildFailure is one compiler diagnostic (`file.go:line:col: message`)
-// from a build-output event.
+// from a build-output event. File uses the same identity as Failure.File.
 type BuildFailure struct {
 	Package string
 	File    string

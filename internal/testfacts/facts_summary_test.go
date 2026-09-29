@@ -22,7 +22,7 @@ func TestErr(t *testing.T) { t.Errorf("kaboom") }
 // what kernel insertion calls.
 func TestFactsMixedRun(t *testing.T) {
 	dir := writeModule(t, map[string]string{"mx_test.go": mixSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	facts := res.Facts()
 	if len(facts) != 4 {
 		t.Fatalf("facts = %v, want 4", facts)
@@ -47,8 +47,9 @@ func TestFactsMixedRun(t *testing.T) {
 		types.MangleString("example.com/mod"),
 		types.MangleString("TestErr"),
 		types.MangleString("mx_test.go"),
-		7,
+		int64(7),
 		types.MangleString("kaboom"),
+		int64(1),
 	})
 	assertFact(t, facts[3], PredFailingTest, []any{
 		types.MangleString("TestErr"),
@@ -77,29 +78,38 @@ func assertFact(t *testing.T, f types.Fact, pred string, want []any) {
 	}
 }
 
-// A real build failure yields one test_build_failure fact.
+// A real build failure yields the compiler diagnostic and a package-level
+// failing_test. The repair rule only tests failing_test(_, _) for existence;
+// the file stays on test_build_failure, which carries the package. Test is
+// empty because no test ran, so the name cannot be mistaken for one that did.
 func TestFactsBuildFailure(t *testing.T) {
 	dir := writeModule(t, map[string]string{"bf_test.go": buildFailSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	facts := res.Facts()
-	if len(facts) != 1 {
-		t.Fatalf("facts = %v, want 1", facts)
+	if len(facts) != 2 {
+		t.Fatalf("facts = %v, want 2", facts)
 	}
 	assertFact(t, facts[0], PredTestBuildFailure, []any{
 		types.MangleString("example.com/mod"),
-		types.MangleString("./bf_test.go"),
-		5,
+		types.MangleString("bf_test.go"),
+		int64(5),
 		types.MangleString("undefined: undefinedSymbol"),
 	})
-	if _, err := facts[0].ToAtom(); err != nil {
-		t.Errorf("ToAtom: %v", err)
+	assertFact(t, facts[1], PredFailingTest, []any{
+		types.MangleString(""),
+		types.MangleString("undefined: undefinedSymbol"),
+	})
+	for _, f := range facts {
+		if _, err := f.ToAtom(); err != nil {
+			t.Errorf("ToAtom: %v", err)
+		}
 	}
 }
 
 // A real flood yields one test_output_repeat fact with the full count.
 func TestFactsRepeat(t *testing.T) {
 	dir := writeModule(t, map[string]string{"fl_test.go": floodSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	facts := res.Facts()
 	found := false
 	for _, f := range facts {
@@ -109,7 +119,7 @@ func TestFactsRepeat(t *testing.T) {
 		found = true
 		assertFact(t, f, PredTestOutputRepeat, []any{
 			types.MangleString("flood line standing by"),
-			10000,
+			int64(10000),
 		})
 		if _, err := f.ToAtom(); err != nil {
 			t.Errorf("ToAtom: %v", err)
@@ -125,7 +135,7 @@ func TestFactsRepeat(t *testing.T) {
 // of this stream is unique.
 func TestSummaryFailExact(t *testing.T) {
 	dir := writeModule(t, map[string]string{"bad_test.go": errSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	want := "FAIL example.com/mod TestErr bad_test.go:6: wrong value: got 1 want 2\n" +
 		"packages: 1 (fail 1); tests: 1 (fail 1)\n"
 	if got := res.Summary(); got != want {
@@ -137,8 +147,8 @@ func TestSummaryFailExact(t *testing.T) {
 // tally with its build-failed package.
 func TestSummaryBuildExact(t *testing.T) {
 	dir := writeModule(t, map[string]string{"bf_test.go": buildFailSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
-	want := "build-failed example.com/mod ./bf_test.go:5:33: undefined: undefinedSymbol\n" +
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
+	want := "build-failed example.com/mod bf_test.go:5:33: undefined: undefinedSymbol\n" +
 		"packages: 1 (build-failed 1); tests: 0 (none)\n"
 	if got := res.Summary(); got != want {
 		t.Errorf("summary = %q, want %q", got, want)
@@ -149,7 +159,7 @@ func TestSummaryBuildExact(t *testing.T) {
 // empty test name, and "" for unknown names.
 func TestOutputRecall(t *testing.T) {
 	dir := writeModule(t, map[string]string{"bad_test.go": errSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	got := res.Output("example.com/mod", "TestErr")
 	for _, want := range []string{"=== RUN   TestErr", "wrong value: got 1 want 2", "--- FAIL: TestErr"} {
 		if !strings.Contains(got, want) {

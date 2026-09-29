@@ -12,7 +12,8 @@ func TestResponsePresentsGateSummary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
-	out := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, failingModule()), ".")))
+	dir := jsonTestModule(t, failingModule())
+	out := verificationOutput(parseJSONTest(t, dir, runJSONTest(t, dir, ".")))
 	if !responsePresentsTestRunnerOutput(out) {
 		t.Fatalf("the gate Summary was not recognised as test output:\n%s", out)
 	}
@@ -38,7 +39,7 @@ func TestResponsePresentsBuildFailureSummary(t *testing.T) {
 		"calc.go":        "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
 		"broken_test.go": "package verifyprobe\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { neverWritten() }\n",
 	})
-	out := verificationOutput(parseJSONTest(t, runJSONTest(t, dir, ".")))
+	out := verificationOutput(parseJSONTest(t, dir, runJSONTest(t, dir, ".")))
 	if !responsePresentsTestRunnerOutput(out) {
 		t.Fatalf("a build-failure Summary was not recognised as test output:\n%s", out)
 	}

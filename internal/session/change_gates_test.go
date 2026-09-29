@@ -383,7 +383,7 @@ func TestFailedChecksSummary_NamesWhatFailed(t *testing.T) {
 			"func TestA(t *testing.T) { t.Fatal(\"boom\") }\n" +
 			"func TestB(t *testing.T) { t.Run(\"sub\", func(t *testing.T) { t.Fatal(\"sub\") }) }\n",
 	})
-	res := parseJSONTest(t, runJSONTest(t, dir, "."))
+	res := parseJSONTest(t, dir, runJSONTest(t, dir, "."))
 	result := &ExecutionResult{
 		BuildCheck: BuildVerification{Outcome: VerifyPassed},
 		TestCheck:  TestVerification{Outcome: VerifyFailed, Output: verificationOutput(res), Result: res},

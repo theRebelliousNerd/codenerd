@@ -11,7 +11,7 @@ import (
 func TestRawOnlyStream(t *testing.T) {
 	stream := "go: cannot load module: network down\n" +
 		"panic: runtime error before tests\n"
-	res := parseString(t, stream)
+	res := parseString(t, "", stream)
 	if res.Status != StatusUnknown {
 		t.Fatalf("Status = %q, want unknown", res.Status)
 	}
@@ -31,7 +31,7 @@ func TestRawOnlyStream(t *testing.T) {
 func TestRawMixedWithEvents(t *testing.T) {
 	dir := writeModule(t, map[string]string{"ok_test.go": passSrc})
 	stream := "unexpected stderr from wrapper\n" + runGoTestJSON(t, dir, ".")
-	res := parseString(t, stream)
+	res := parseString(t, dir, stream)
 	if len(res.Raw) != 1 || res.Raw[0] != "unexpected stderr from wrapper" {
 		t.Fatalf("Raw = %q", res.Raw)
 	}
@@ -44,7 +44,7 @@ func TestRawMixedWithEvents(t *testing.T) {
 // blank line is still one kept raw line (only the trailing newline is a
 // terminator rather than a line).
 func TestEmptyStream(t *testing.T) {
-	res := parseString(t, "")
+	res := parseString(t, "", "")
 	if res.Status != StatusUnknown {
 		t.Errorf("Status = %q, want unknown", res.Status)
 	}
@@ -54,7 +54,7 @@ func TestEmptyStream(t *testing.T) {
 	if got := res.Summary(); got != "empty result: no events parsed\n" {
 		t.Errorf("summary = %q", got)
 	}
-	blank := parseString(t, "\n")
+	blank := parseString(t, "", "\n")
 	if len(blank.Raw) != 1 || blank.Raw[0] != "" {
 		t.Errorf("blank stream Raw = %q, want one empty line", blank.Raw)
 	}

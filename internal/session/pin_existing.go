@@ -65,7 +65,7 @@ func pinnedByExistingTests(ctx context.Context, workspace string, u pinUnit) (bo
 	// better be sure.
 	args := []string{"test", "-json", "-overlay", overlayPath, "-count=1", "-failfast", "./..."}
 	out, outcome, _ := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
-	res := parseTestJSON(out)
+	res := parseTestJSON(workspace, out)
 	switch outcome {
 	case VerifyFailed:
 		if failed := failedTestNames(res); len(failed) > 0 {

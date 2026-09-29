@@ -1,7 +1,6 @@
 package testfacts
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -19,7 +18,7 @@ func TestBroken(t *testing.T) { undefinedSymbol() }
 // the file, line, column, and message the compiler printed.
 func TestParseBuildFailure(t *testing.T) {
 	dir := writeModule(t, map[string]string{"bf_test.go": buildFailSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	if res.Status != StatusBuildFailed {
 		t.Fatalf("Status = %q, want build-failed", res.Status)
 	}
@@ -37,8 +36,8 @@ func TestParseBuildFailure(t *testing.T) {
 	if bf.Package != "example.com/mod" {
 		t.Errorf("Package = %q", bf.Package)
 	}
-	if bf.File != "./bf_test.go" || bf.Line != 5 || bf.Column != 33 {
-		t.Errorf("BuildFailure = %+v, want ./bf_test.go:5:33", bf)
+	if bf.File != "bf_test.go" || bf.Line != 5 || bf.Column != 33 {
+		t.Errorf("BuildFailure = %+v, want bf_test.go:5:33", bf)
 	}
 	if bf.Message != "undefined: undefinedSymbol" {
 		t.Errorf("Message = %q", bf.Message)
@@ -61,7 +60,7 @@ func TestPanic(t *testing.T) { panic("kaboom panic") }
 // frames the repanicked trace starts with.
 func TestParsePanic(t *testing.T) {
 	dir := writeModule(t, map[string]string{"panic_test.go": panicSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	p := res.Packages[0]
 	ct := findTest(t, p, "TestPanic")
 	if ct.Status != StatusFail {
@@ -77,13 +76,11 @@ func TestParsePanic(t *testing.T) {
 	if f.Message != "kaboom panic" {
 		t.Errorf("Message = %q, want the bare panic message", f.Message)
 	}
-	// Panic frames arrive slash-spelled even on Windows (observed
-	// `C:/Users/...` from a windows/amd64 run), and every File the
-	// package produces keeps that one spelling -- so the expectation
-	// sheds filepath's backslashes instead of the parser gaining them.
-	wantFile := strings.ReplaceAll(filepath.Join(dir, "panic_test.go"), "\\", "/")
-	if f.File != wantFile {
-		t.Errorf("File = %q, want %q", f.File, wantFile)
+	// The frame arrives absolute (`C:/Users/.../panic_test.go`, slash-spelled
+	// even on Windows). CanonicalPath against the run directory is the
+	// workspace-relative identity file facts use.
+	if f.File != "panic_test.go" {
+		t.Errorf("File = %q, want panic_test.go", f.File)
 	}
 	if f.Line != 5 {
 		t.Errorf("Line = %d, want 5", f.Line)
@@ -104,7 +101,7 @@ func TestMulti(t *testing.T) {
 // failing_test.
 func TestParseMultipleFailures(t *testing.T) {
 	dir := writeModule(t, map[string]string{"ml_test.go": multiSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	if len(res.Failures) != 2 {
 		t.Fatalf("Failures = %+v, want 2", res.Failures)
 	}
@@ -130,7 +127,7 @@ func TestParent(t *testing.T) {
 // markers as continuations: markers terminate the message.
 func TestParseParentMarkersNotContinuations(t *testing.T) {
 	dir := writeModule(t, map[string]string{"par_test.go": parentSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	if len(res.Failures) != 2 {
 		t.Fatalf("Failures = %+v, want 2", res.Failures)
 	}

@@ -20,11 +20,14 @@ import (
 // Summary. The one reader of published text is summaryShowsBuildFailure,
 // because the repair prompt is handed a string (see its comment).
 
-// parseTestJSON parses one `go test -json` stdout. Parse's only error is a
-// read failure, which a byte slice cannot produce; the result is never nil,
-// so gates use it without a fallback path.
-func parseTestJSON(out []byte) *testfacts.Result {
-	res, _ := testfacts.Parse(bytes.NewReader(out))
+// parseTestJSON parses one `go test -json` stdout. dir is the directory the
+// go command ran in: Parse canonicalises failure files against it, so a
+// basename, a ./ diagnostic, and an absolute frame for one file become one
+// workspace-relative path. Parse's only error is a read failure, which a
+// byte slice cannot produce; the result is never nil, so gates use it
+// without a fallback path.
+func parseTestJSON(dir string, out []byte) *testfacts.Result {
+	res, _ := testfacts.Parse(dir, bytes.NewReader(out))
 	if res == nil {
 		return &testfacts.Result{Status: testfacts.StatusUnknown}
 	}

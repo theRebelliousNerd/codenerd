@@ -6,14 +6,20 @@ import (
 	"strings"
 )
 
-// Parse reads a `go test -json` stream into a Result. Output chunks are
-// accumulated per test, package, and build target and split into lines
-// only after the whole stream is read, because one Output field can end
-// mid-line. The only error Parse returns is a read failure, with whatever
-// was parsed so far alongside it; unparseable content degrades to Raw,
-// never to an error that loses it.
-func Parse(r io.Reader) (*Result, error) {
-	a := newAccumulator()
+// Parse reads a `go test -json` stream that the go command produced with
+// dir as its working directory. dir is the workspace root the command ran
+// in: failure files are canonicalised against it, so a basename, a
+// `./` diagnostic, and an absolute frame for one file become one
+// workspace-relative path. A file outside dir keeps its absolute slash
+// form. An empty dir leaves relative paths cleaned but unanchored.
+//
+// Output chunks are accumulated per test, package, and build target and
+// split into lines only after the whole stream is read, because one
+// Output field can end mid-line. The only error Parse returns is a read
+// failure, with whatever was parsed so far alongside it; unparseable
+// content degrades to Raw, never to an error that loses it.
+func Parse(dir string, r io.Reader) (*Result, error) {
+	a := newAccumulator(dir)
 	br := bufio.NewReader(r)
 	for {
 		line, err := br.ReadString('\n')
@@ -48,14 +54,16 @@ type pkgAcc struct {
 }
 
 type accumulator struct {
+	loc         locator
 	pkgs        map[string]*pkgAcc
 	buildOut    map[string]*strings.Builder
 	buildFailed map[string]bool
 	raw         []string
 }
 
-func newAccumulator() *accumulator {
+func newAccumulator(dir string) *accumulator {
 	return &accumulator{
+		loc:         newLocator(dir),
 		pkgs:        make(map[string]*pkgAcc),
 		buildOut:    make(map[string]*strings.Builder),
 		buildFailed: make(map[string]bool),

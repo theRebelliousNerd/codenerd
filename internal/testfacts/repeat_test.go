@@ -24,7 +24,7 @@ func TestFlood(t *testing.T) {
 // single Repeat with its count, while every line stays in the outputs.
 func TestRepeatFlood(t *testing.T) {
 	dir := writeModule(t, map[string]string{"fl_test.go": floodSrc})
-	res := parseString(t, runGoTestJSON(t, dir, "."))
+	res := parseString(t, dir, runGoTestJSON(t, dir, "."))
 	if res.Status != StatusPass {
 		t.Fatalf("Status = %q, want pass", res.Status)
 	}
