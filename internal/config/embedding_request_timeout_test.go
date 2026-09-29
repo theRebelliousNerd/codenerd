@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"codenerd/internal/embedding"
 )
 
 func restoreInstalledTimeouts(t *testing.T) {
@@ -17,6 +19,17 @@ func restoreInstalledTimeouts(t *testing.T) {
 		SetLLMTimeouts(llm)
 		SetEmbeddingRequestTimeout(emb)
 	})
+}
+
+func TestSetEmbeddingRequestTimeout_PublishesOllamaBound(t *testing.T) {
+	restoreInstalledTimeouts(t)
+	SetEmbeddingRequestTimeout(90 * time.Second)
+	if got := EmbeddingRequestTimeout(); got != 90*time.Second {
+		t.Fatalf("config bound = %s, want 90s", got)
+	}
+	if got := embedding.EmbedRequestTimeout(); got != 90*time.Second {
+		t.Fatalf("ollama bound = %s, want 90s published from embedding.request_timeout", got)
+	}
 }
 
 func TestEmbeddingRequestTimeout_DefaultIs60s(t *testing.T) {
@@ -34,6 +47,11 @@ func TestEmbeddingRequestTimeout_DefaultIs60s(t *testing.T) {
 		if _, err := (EmbeddingConfig{RequestTimeout: raw}).ResolvedRequestTimeout(); err == nil {
 			t.Fatalf("RequestTimeout %q parsed", raw)
 		}
+	}
+	restoreInstalledTimeouts(t)
+	installDefaultEmbeddingRequestTimeout()
+	if got := embedding.EmbedRequestTimeout(); got != 60*time.Second {
+		t.Fatalf("default ollama bound = %s, want 60s published from embedding.request_timeout", got)
 	}
 }
 

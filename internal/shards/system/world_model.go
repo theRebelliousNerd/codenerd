@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
@@ -98,7 +99,7 @@ func DefaultWorldModelConfig() WorldModelConfig {
 			"*.bin", "*.dat",
 		},
 		TickInterval:       5 * time.Second,
-		MaxFilesPerScan:    100,
+		MaxFilesPerScan:    config.DefaultWorldConfig().ResolvedMaxFilesPerScan(),
 		HashOnlyLargeFiles: true,
 		LargeFileThreshold: 1024 * 1024, // 1MB
 		EnableSymbolGraph:  true,
@@ -129,6 +130,15 @@ type WorldModelIngestorShard struct {
 
 	// Running state
 	running bool
+}
+
+// WorldModelConfigFor is the ingestor config at shard construction.
+// MaxFilesPerScan comes from the loaded world section: an absent key is the
+// default (100); a non-positive value stays unbounded.
+func WorldModelConfigFor(world config.WorldConfig) WorldModelConfig {
+	cfg := DefaultWorldModelConfig()
+	cfg.MaxFilesPerScan = world.ResolvedMaxFilesPerScan()
+	return cfg
 }
 
 // NewWorldModelIngestorShard creates a new World Model Ingestor shard.

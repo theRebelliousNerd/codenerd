@@ -72,20 +72,20 @@ func NewOllamaEngine(endpoint, model string, dimensions int) (*OllamaEngine, err
 		logging.EmbeddingDebug("Ollama model %q resolved to its tag: %s", "embeddinggemma", model)
 	}
 
-	logging.Embedding("Creating Ollama engine: endpoint=%s, model=%s, timeout=60s (auto-pull enabled)", endpoint, model)
+	// One embed HTTP call. The bound is embedding.request_timeout, published
+	// into this package by config.SetEmbeddingRequestTimeout: this package
+	// cannot import config, because config imports embedding. Zero means
+	// nothing has been published yet, and the caller's context is then the
+	// only bound. A model pull uses its own client in pullModel.
+	timeout := EmbedRequestTimeout()
+	logging.Embedding("Creating Ollama engine: endpoint=%s, model=%s, timeout=%s (auto-pull enabled)", endpoint, model, timeout)
 
 	engine := &OllamaEngine{
 		endpoint:   strings.TrimRight(endpoint, "/"),
 		model:      model,
 		dimensions: dimensions,
 		client: &http.Client{
-			// 60 seconds allows for:
-			// - Ollama cold starts (model loading)
-			// - High load scenarios (multiple concurrent requests)
-			// - Larger text embeddings
-			// Individual operations like JIT compilation use their own sub-deadlines.
-			// Model pulls use a separate longer-timeout client in pullModel.
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 	}
 
@@ -483,7 +483,15 @@ func (e *OllamaEngine) pullModel(ctx context.Context, name string) error {
 		return err
 	}
 
-	// Pulls can take a long time (hundreds of MB). Use a dedicated client.
+	// One POST /api/pull (stream:false) is one request: the body is the
+	// download. It does not follow the caller's context deadline. EnsureModel
+	// runs under embed and boot contexts (embedding.request_timeout, and the
+	// short ensure at engine init) that are shorter than a model download,
+	// and a cancelled caller still aborts this request through ctx. The
+	// client timeout is the bound for that one download. There is no
+	// embedding.pull_timeout key yet (it belongs on EmbeddingConfig); until
+	// that key exists the bound stays 30 minutes, the time a multi-hundred-MB
+	// pull has been given.
 	pullClient := &http.Client{Timeout: 30 * time.Minute}
 	req, err := http.NewRequestWithContext(ctx, "POST", e.endpoint+"/api/pull", bytes.NewReader(payload))
 	if err != nil {

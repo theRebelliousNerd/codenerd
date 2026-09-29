@@ -1859,6 +1859,7 @@ func initShardManagement(bctx *bootContext) error {
 		Workspace:    bctx.workspace,
 		JITCompiler:  bctx.jitCompiler,
 		JITConfig:    bctx.jitCfg,
+		World:        bctx.appCfg.GetWorldConfig(),
 	}
 	if bctx.providerCfgForClassification != nil {
 		if classClient, classErr := perception.NewClassificationClientFromConfig(bctx.providerCfgForClassification); classErr == nil && classClient != nil {

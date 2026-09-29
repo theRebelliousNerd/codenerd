@@ -53,9 +53,9 @@ type EmbeddingConfig struct {
 	// RequestTimeout bounds one embedding HTTP call (a single Embed or
 	// EmbedWithTask). It is a request bound, not a run clock. Default 60s,
 	// the bound pattern-learning embeds carried as a literal. The Ollama
-	// engine's socket timeout is still its own 60s literal
-	// (internal/embedding/ollama.go) and will cap an Ollama embed at 60s
-	// until that client reads this field.
+	// engine cannot import this package (config imports embedding), so
+	// SetEmbeddingRequestTimeout also publishes the bound into the embedding
+	// package, and the Ollama client's Timeout is that published value.
 	RequestTimeout string `yaml:"request_timeout" json:"request_timeout,omitempty"`
 }
 
@@ -236,6 +236,8 @@ func SetEmbeddingRequestTimeout(d time.Duration) {
 		panic("config: embedding request timeout must be positive")
 	}
 	activeEmbeddingRequestTimeout.Store(int64(d))
+	// The Ollama client lives in a package that cannot import config.
+	embedding.SetEmbedRequestTimeout(d)
 }
 
 // EmbeddingRequestTimeout is the installed embedding request bound. Without a

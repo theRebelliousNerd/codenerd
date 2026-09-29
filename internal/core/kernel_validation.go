@@ -307,7 +307,10 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 				// The program will not compile either, and healing here would
 				// persist every learned rule commented out.
 				if heal && !errors.Is(err, mangle.ErrGrantPathUnknown) {
-					emitHealed("# SELF-HEALED: " + err.Error())
+					// Schema errors quote the available-predicate list and
+					// can span lines. The same marker the syntax path uses
+					// keeps every continuation inside a comment.
+					emitHealed(healMarkerLine("", err.Error()))
 				} else {
 					emitRaw()
 				}
@@ -322,7 +325,7 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 				logging.Get(logging.CategoryKernel).Warn("Startup validation: %s", errMsg)
 
 				if heal {
-					emitHealed("# SELF-HEALED: " + loopErr)
+					emitHealed(healMarkerLine("", loopErr))
 				} else {
 					emitRaw()
 				}

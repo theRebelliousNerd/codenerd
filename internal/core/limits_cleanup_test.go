@@ -175,6 +175,74 @@ func TestTraceQuery_DeepChainMarksDepthGuardHonestly(t *testing.T) {
 	}
 }
 
+// A schema refusal whose text spans lines must stay inside comments. The
+// reason is installed on the host-witness map for this test only: the
+// validator returns that string raw, and the heal site used to concatenate
+// it after "# SELF-HEALED: " so the second line landed as source.
+func TestValidateLearnedRulesContent_SchemaHealKeepsMultilineErrorCommented(t *testing.T) {
+	const pred = "zz_multiline_host_probe"
+	prev, had := learnedHostOnlyHeads[pred]
+	learnedHostOnlyHeads[pred] = "because\nthe reason spans lines"
+	t.Cleanup(func() {
+		if had {
+			learnedHostOnlyHeads[pred] = prev
+			return
+		}
+		delete(learnedHostOnlyHeads, pred)
+	})
+
+	k := setupMockKernel(t)
+	res := k.validateLearnedRulesContent(pred+"(\"x\").\n", "", true)
+	if res.stats.InvalidRules == 0 {
+		t.Fatalf("stats = %+v, want the protected fact counted invalid", res.stats)
+	}
+	assertHealedFileCommented(t, res.healedText)
+	if !strings.Contains(res.healedText, "the reason spans lines") {
+		t.Errorf("healed text dropped the error detail: %q", res.healedText)
+	}
+	if strings.Contains(res.healedText, "\nthe reason spans lines") {
+		t.Errorf("error continuation is not comment-prefixed: %q", res.healedText)
+	}
+}
+
+// Loop-risk heals go through the same marker. The detector's text is one
+// line today; a multi-line detail still has to stay commented, so the marker
+// must be healMarkerLine's, not a raw concatenation.
+func TestValidateLearnedRulesContent_LoopHealKeepsMarkerCommented(t *testing.T) {
+	k := setupMockKernel(t)
+	const rule = "next_action(/system_start)."
+	res := k.validateLearnedRulesContent(rule+"\n", "", true)
+	if res.stats.InvalidRules == 0 {
+		t.Fatalf("stats = %+v, want the unconditional next_action healed", res.stats)
+	}
+	const detail = "infinite loop risk: unconditional next_action for system action will fire every tick"
+	want := healMarkerLine("", detail)
+	if !strings.Contains(res.healedText, want) {
+		t.Errorf("healed text missing loop marker %q\nfull:\n%s", want, res.healedText)
+	}
+	assertHealedFileCommented(t, res.healedText)
+	// The one-line message cannot tell concatenation from healMarkerLine.
+	// A detail that spans lines can, and this is the helper the loop site calls.
+	multi := healMarkerLine("", detail+"\nsecond line of the loop diagnostic")
+	for _, line := range strings.Split(multi, "\n") {
+		if !strings.HasPrefix(line, "#") {
+			t.Errorf("loop marker helper leaked an uncommented line: %q", line)
+		}
+	}
+}
+
+func assertHealedFileCommented(t *testing.T, healed string) {
+	t.Helper()
+	for _, line := range strings.Split(healed, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "#") {
+			t.Errorf("healed text leaked an uncommented line: %q (full: %q)", line, healed)
+		}
+	}
+}
+
 // A healed marker may embed a multi-line error; every line must stay inside
 // a comment so the healed file keeps parsing.
 func TestSyntaxHealMarker_MultilineErrorStaysCommented(t *testing.T) {

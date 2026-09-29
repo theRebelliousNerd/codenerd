@@ -193,8 +193,9 @@ func (t *ProofTreeTracer) TraceQuery(ctx context.Context, query string) (*Deriva
 			}
 		}
 
-		// Build the derivation node with its tree
-		node := t.buildDerivationNode(ctx, fact, "", 0)
+		// Build the derivation node with its tree. visited is per root:
+		// a premise shared by two answers still expands under each.
+		node := t.buildDerivationNode(ctx, fact, "", 0, make(map[string]bool))
 		trace.RootNodes = append(trace.RootNodes, node)
 		trace.AllNodes = append(trace.AllNodes, t.flattenTree(node)...)
 	}
@@ -219,8 +220,31 @@ func (t *ProofTreeTracer) TraceQuery(ctx context.Context, query string) (*Deriva
 	return trace, nil
 }
 
+// maxProofDepth bounds proof-tree recursion. findPremises can walk a cycle:
+// it skips a body predicate only when that predicate is the rule's own name,
+// so mutually recursive rules (A's premises mention B, B's mention A) and the
+// first-argument join both come back to a fact already on the path. Cycle
+// detection terminates those repeats. The depth guard stays for a premise
+// chain that never repeats a fact; without it a long chain recurses until
+// the stack gives out. A capped or cyclic node is marked, never rendered as
+// a complete leaf.
+const maxProofDepth = 10
+
+const (
+	// proofDepthNote rides on RuleName — the field both renderers print —
+	// when premises exist but were not expanded because the trace hit
+	// maxProofDepth.
+	proofDepthNote = " (chain continues past depth limit)"
+	// proofCycleNote marks a premise that repeats a fact already on the
+	// current path: the full expansion sits at the ancestor occurrence.
+	proofCycleNote = " (cycle: expanded above)"
+)
+
 // buildDerivationNode builds a derivation node and recursively finds premises.
-func (t *ProofTreeTracer) buildDerivationNode(ctx context.Context, fact Fact, parentID string, depth int) *DerivationNode {
+// visited holds the facts on the current path. It is path-scoped (entries are
+// removed on unwind), so a premise shared by two branches still renders fully
+// under each.
+func (t *ProofTreeTracer) buildDerivationNode(ctx context.Context, fact Fact, parentID string, depth int, visited map[string]bool) *DerivationNode {
 	t.mu.Lock()
 	t.nodeIDSeq++
 	nodeID := fmt.Sprintf("node_%d", t.nodeIDSeq)
@@ -240,11 +264,26 @@ func (t *ProofTreeTracer) buildDerivationNode(ctx context.Context, fact Fact, pa
 	node.Source = source
 	node.RuleName = ruleName
 
-	// If IDB, try to find premises (recursively build the tree)
-	if source == SourceIDB && depth < 10 { // Limit recursion depth
+	if source == SourceIDB {
+		key := fact.String()
+		if visited[key] {
+			node.RuleName += proofCycleNote
+			return node
+		}
 		premises := t.findPremises(ctx, fact, ruleName)
+		if len(premises) == 0 {
+			return node
+		}
+		if depth >= maxProofDepth {
+			// Guard tripped with premises still to show: say so on the
+			// node instead of rendering a leaf that reads as complete.
+			node.RuleName += proofDepthNote
+			return node
+		}
+		visited[key] = true
+		defer delete(visited, key)
 		for _, premise := range premises {
-			child := t.buildDerivationNode(ctx, premise, nodeID, depth+1)
+			child := t.buildDerivationNode(ctx, premise, nodeID, depth+1, visited)
 			node.Children = append(node.Children, child)
 		}
 	}

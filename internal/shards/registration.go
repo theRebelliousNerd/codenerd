@@ -482,6 +482,10 @@ type RegistryContext struct {
 	Workspace    string
 	JITCompiler  *prompt.JITPromptCompiler
 	JITConfig    config.JITConfig
+	// World is the loaded world section. The world-model ingestor reads
+	// MaxFilesPerScan from it at construction. The zero value resolves to
+	// the default cap (100); a non-positive cap stays unbounded.
+	World config.WorldConfig
 	// NERD-EVOLVE-START: P1P2-model-tiering
 	// ClassificationClient, when non-nil, is used by the PerceptionFirewallShard
 	// for intent classification calls instead of the main LLMClient.
@@ -632,7 +636,7 @@ func (r *shardFactoryRegistrar) registerSystemShards() {
 	})
 
 	r.sm.RegisterShard("world_model_ingestor", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewWorldModelIngestorShard()
+		shard := system.NewWorldModelIngestorShardWithConfig(system.WorldModelConfigFor(r.ctx.World))
 		shard.SetParentKernel(r.ctx.Kernel)
 		shard.SetVirtualStore(r.ctx.VirtualStore)
 		shard.SetLLMClient(r.ctx.LLMClient)
