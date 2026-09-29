@@ -631,3 +631,92 @@ func TestEditFileTool_Execute_AcceptsValidGoEdit(t *testing.T) {
 		t.Fatalf("valid edit refused: %v", err)
 	}
 }
+
+func pinExclusionEnv(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("CGO_ENABLED", "1")
+	t.Setenv("CODENERD_WORKSPACE_ROOT", dir)
+}
+
+func TestWriteFile_RefusesAddedBuildExclusion(t *testing.T) {
+	dir := t.TempDir()
+	pinExclusionEnv(t, dir)
+	target := filepath.Join(dir, "a.go")
+	compiled := "package p\n\nfunc A() {}\n"
+	if err := os.WriteFile(target, []byte(compiled), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ignored := "//go:build ignore\n\npackage p\n\nfunc A() {}\n"
+	_, err := executeWriteFile(context.Background(), map[string]any{"path": target, "content": ignored})
+	if err == nil || !strings.Contains(err.Error(), "excludes") {
+		t.Fatalf("err = %v, want the added ignore refused", err)
+	}
+	data, _ := os.ReadFile(target)
+	if string(data) != compiled {
+		t.Fatalf("refused write landed: %q", data)
+	}
+
+	kept := "//go:build ignore\n\npackage p\n\nfunc B() {}\n"
+	if err := os.WriteFile(target, []byte(ignored), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeWriteFile(context.Background(), map[string]any{"path": target, "content": kept}); err != nil {
+		t.Fatalf("rewriting a file that already excluded: %v", err)
+	}
+	data, _ = os.ReadFile(target)
+	if !strings.Contains(string(data), "func B()") || !strings.Contains(string(data), "go:build ignore") {
+		t.Fatalf("already-excluded rewrite = %q", data)
+	}
+
+	mention := "package p\n\nfunc A() {\n\t// Never add //go:build ignore here.\n}\n"
+	if _, err := executeWriteFile(context.Background(), map[string]any{"path": filepath.Join(dir, "m.go"), "content": mention}); err != nil {
+		t.Fatalf("a mention after the package clause was refused: %v", err)
+	}
+}
+
+func TestEditFile_RefusesAddedBuildExclusion(t *testing.T) {
+	dir := t.TempDir()
+	pinExclusionEnv(t, dir)
+	target := filepath.Join(dir, "a.go")
+	compiled := "package p\n\nfunc A() {}\n"
+	if err := os.WriteFile(target, []byte(compiled), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := executeEditFile(context.Background(), map[string]any{
+		"path": target, "old_text": "package p\n", "new_text": "//go:build ignore\n\npackage p\n",
+	})
+	if err == nil || !strings.Contains(err.Error(), "excludes") {
+		t.Fatalf("err = %v, want the added ignore refused", err)
+	}
+	data, _ := os.ReadFile(target)
+	if string(data) != compiled {
+		t.Fatalf("refused edit landed: %q", data)
+	}
+
+	ignored := "//go:build ignore\n\npackage p\n\nfunc A() {}\n"
+	if err := os.WriteFile(target, []byte(ignored), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeEditFile(context.Background(), map[string]any{
+		"path": target, "old_text": "func A()", "new_text": "func B()",
+	}); err != nil {
+		t.Fatalf("editing a file that already excluded: %v", err)
+	}
+	data, _ = os.ReadFile(target)
+	if !strings.Contains(string(data), "func B()") || !strings.Contains(string(data), "go:build ignore") {
+		t.Fatalf("already-excluded edit = %q", data)
+	}
+
+	mentionTarget := filepath.Join(dir, "m.go")
+	if err := os.WriteFile(mentionTarget, []byte(compiled), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeEditFile(context.Background(), map[string]any{
+		"path":     mentionTarget,
+		"old_text": "func A() {}",
+		"new_text": "func A() {\n\t// Never add //go:build ignore here.\n}",
+	}); err != nil {
+		t.Fatalf("a mention after the package clause was refused: %v", err)
+	}
+}

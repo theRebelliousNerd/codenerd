@@ -348,6 +348,11 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 	if err := tools.RejectUnparseableGo(path, []byte(content)); err != nil {
 		return "", err
 	}
+	// A file that parses can still be hidden: //go:build ignore is valid Go.
+	// before is nil for a new file; a file that already excluded stays writable.
+	if err := tools.RejectAddedBuildExclusion(root, path, before, []byte(content)); err != nil {
+		return "", err
+	}
 
 	if err := atomicfile.WriteFilePreservingMode(path, []byte(content), 0o644); err != nil {
 		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
@@ -493,6 +498,10 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 	newContent = tactile.NormalizeLineEnding(newContent, originalEnding)
 
 	if err := tools.RejectUnparseableGo(path, []byte(newContent)); err != nil {
+		return "", err
+	}
+	// content is the bytes read above; newContent is what would be written.
+	if err := tools.RejectAddedBuildExclusion(root, path, content, []byte(newContent)); err != nil {
 		return "", err
 	}
 

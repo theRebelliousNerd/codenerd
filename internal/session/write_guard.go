@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"codenerd/internal/projectdoc"
+	"codenerd/internal/tools"
 )
 
 // WriteGuard is asked before a write-mutation tool touches the workspace,
@@ -195,7 +196,7 @@ func guardWrite(ctx context.Context, toolName string, args map[string]any, works
 	if err := guardWritePaths(ctx, args, workspace); err != nil {
 		return err
 	}
-	return refuseAddedBuildExclusion(toolName, args, workspace)
+	return tools.RefuseAddedBuildExclusion(toolName, args, workspace)
 }
 
 func guardWritePaths(ctx context.Context, args map[string]any, workspace string) error {

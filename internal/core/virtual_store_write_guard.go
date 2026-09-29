@@ -67,6 +67,20 @@ func (v *VirtualStore) toolWriteGuard() tools.WriteGuard {
 				return fmt.Errorf("blocked by nerd.md: %s is write-protected (%s)", target, reason)
 			}
 		}
+		// tools.Global().Execute reaches here with no session guardWrite.
+		// The projection lives in tools so core does not import session;
+		// both gates call it.
+		root := ""
+		if v != nil {
+			root = v.workspaceRoot
+			if root == "" {
+				root = v.workingDir
+			}
+		}
+		if err := tools.RefuseAddedBuildExclusion(toolName, args, root); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Warn("tool-layer guard blocked %s: %v", toolName, err)
+			return err
+		}
 		return v.PreflightDestructiveToolCall(ctx, "registry-preflight", toolName, args)
 	}
 }

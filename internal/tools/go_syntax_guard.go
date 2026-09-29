@@ -26,15 +26,15 @@ func RejectUnparseableGo(path string, content []byte) error {
 }
 
 // RejectGoSyntaxRegression refuses a write that turns Go source that parses
-// into source that does not. A file that already fails to parse stays editable
-// so a broken file can be repaired incrementally; non-Go paths and parseable
-// results return nil.
+// into source that does not, and a write that adds a build constraint hiding
+// the file. A file that already fails to parse stays editable so a broken
+// file can be repaired; the exclusion check still runs on that repair,
+// because //go:build ignore parses, and a repair of a broken file can add
+// one. lines.go calls this with the resolved path and no workspace, so the
+// module that owns the path supplies the gate tags.
 func RejectGoSyntaxRegression(path string, before, after []byte) error {
-	if err := RejectUnparseableGo(path, after); err != nil {
-		if RejectUnparseableGo(path, before) != nil {
-			return nil
-		}
+	if err := RejectUnparseableGo(path, after); err != nil && RejectUnparseableGo(path, before) == nil {
 		return err
 	}
-	return nil
+	return RejectAddedBuildExclusion(moduleRootForTags(path), path, before, after)
 }

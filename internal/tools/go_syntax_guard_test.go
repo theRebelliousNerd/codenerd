@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -70,4 +71,58 @@ func TestRejectGoSyntaxRegression(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Lines.go calls RejectGoSyntaxRegression with no workspace. The check has
+// to refuse an added ignore, spare a file that already had one, spare a
+// mention after the package clause, and spare a sqlite_vec constraint in
+// this module (the walk to go.mod is what supplies that tag).
+func TestRejectGoSyntaxRegression_BuildExclusion(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("CGO_ENABLED", "1")
+	compiled := "package p\n\nfunc A() int { return 1 }\n"
+	ignored := "//go:build ignore\n\n" + compiled
+	mention := "package p\n\nfunc A() int {\n\t// Never add //go:build ignore here.\n\treturn 1\n}\n"
+
+	t.Run("added ignore", func(t *testing.T) {
+		err := RejectGoSyntaxRegression("foo.go", []byte(compiled), []byte(ignored))
+		if err == nil || !strings.Contains(err.Error(), "excludes") {
+			t.Fatalf("err = %v, want the added ignore refused", err)
+		}
+	})
+	t.Run("already ignored", func(t *testing.T) {
+		next := "//go:build ignore\n\npackage p\n\nfunc B() int { return 1 }\n"
+		if err := RejectGoSyntaxRegression("foo.go", []byte(ignored), []byte(next)); err != nil {
+			t.Fatalf("a file that already excluded was refused: %v", err)
+		}
+	})
+	t.Run("mention", func(t *testing.T) {
+		if err := RejectGoSyntaxRegression("foo.go", []byte(compiled), []byte(mention)); err != nil {
+			t.Fatalf("a mention after the package clause was refused: %v", err)
+		}
+	})
+	t.Run("sqlite_vec in this module", func(t *testing.T) {
+		// path is relative, so the module walk starts at the package directory
+		// go test runs in, which is inside this repo. sqlite_vec is a gate tag.
+		next := "//go:build sqlite_vec\n\n" + compiled
+		if err := RejectGoSyntaxRegression("foo.go", []byte(compiled), []byte(next)); err != nil {
+			t.Fatalf("sqlite_vec in this module was refused: %v", err)
+		}
+	})
+	t.Run("sqlite_vec outside this module", func(t *testing.T) {
+		outside := filepath.Join(t.TempDir(), "x.go")
+		next := "//go:build sqlite_vec\n\n" + compiled
+		err := RejectGoSyntaxRegression(outside, []byte(compiled), []byte(next))
+		if err == nil || !strings.Contains(err.Error(), "excludes") {
+			t.Fatalf("err = %v, want sqlite_vec refused where the module has no gate tag", err)
+		}
+	})
+	t.Run("broken repair adds ignore", func(t *testing.T) {
+		before := "package p\n\nfunc (\n"
+		after := "//go:build ignore\n\npackage p\n\nfunc (\n"
+		err := RejectGoSyntaxRegression("foo.go", []byte(before), []byte(after))
+		if err == nil || !strings.Contains(err.Error(), "excludes") {
+			t.Fatalf("err = %v, want a repair that adds ignore refused", err)
+		}
+	})
 }
