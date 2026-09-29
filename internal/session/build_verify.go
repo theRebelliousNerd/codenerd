@@ -712,9 +712,10 @@ func (e *Executor) repairRound(
 // turn on a hallucinated defect is worse than no critic, because the cost lands
 // on correct code. So: findings become one advisory round, never an error.
 //
-// Only high and medium findings trigger the round. Low-severity output from a
-// reviewer asked to look hard at code is mostly style, and paying a full model
-// round for it on every write turn is how a useful signal turns into a tax.
+// Only high and medium findings trigger the round (turn_needs_uplift,
+// coder_safety.mg). Low-severity output from a reviewer asked to look hard at
+// code is mostly style, and paying a full model round for it on every write
+// turn is how a useful signal turns into a tax.
 func (e *Executor) verifyAndUpliftWithCritic(
 	ctx context.Context,
 	trp types.ToolResultsProvider,
@@ -832,7 +833,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		logging.Get(logging.CategorySession).Info(
 			"Adversarial review: %d finding(s) cite code this turn did not change; not charged to it", len(offChange))
 	}
-	worth := findingsWorthUplift(onChange)
+	worth := e.actionableCriticFindings(result.turnAtom(), onChange)
 	logging.Get(logging.CategorySession).Warn(
 		"Adversarial review reported %d finding(s), %d worth acting on", len(findings), len(worth))
 	if len(worth) == 0 {

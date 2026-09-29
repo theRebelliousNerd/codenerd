@@ -464,7 +464,7 @@ func (e *Executor) verifyAndRepairRemovedTests(
 	}
 	workspace := e.workspaceForVerification()
 	removed := removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents)
-	if len(removed) == 0 {
+	if !e.removedTestsGateRed(result.turnAtom(), removed) {
 		return nil, nil, nil
 	}
 	if trp == nil {
@@ -482,7 +482,7 @@ func (e *Executor) verifyAndRepairRemovedTests(
 		promptFor:    removedTestsRepairPrompt,
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			removed = removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents)
-			if len(removed) > 0 {
+			if e.removedTestsGateRed(result.turnAtom(), removed) {
 				return false, repairFailure{Output: missing()}, VerifyFailed
 			}
 			v, _ := gateOwnTests(epCtx, workspace, result, false)
@@ -507,7 +507,7 @@ func (e *Executor) verifyAndRepairRemovedTests(
 		},
 	}
 	repaired, repairErrs, _, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, missing(), spec)
-	if err != nil && errors.Is(err, ErrVerificationFailed) && len(removed) > 0 {
+	if err != nil && errors.Is(err, ErrVerificationFailed) && e.removedTestsGateRed(result.turnAtom(), removed) {
 		return nil, repairErrs, removedTestsError(removed)
 	}
 	return repaired, repairErrs, err

@@ -53,7 +53,7 @@ func TestVerifyAndUpliftWithCritic_AddsNoClockOfItsOwn(t *testing.T) {
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
 	critic := &deadlineCritic{}
-	e := &Executor{config: cfg, llmClient: critic}
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
 	uplift := &deadlineUplift{}
 
 	e.verifyAndUpliftWithCritic(context.Background(), uplift, "", nil, nil, nil,

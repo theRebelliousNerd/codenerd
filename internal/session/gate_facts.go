@@ -2,14 +2,16 @@ package session
 
 import (
 	"path/filepath"
+	"strings"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
-// The /test, /vet, /check and /test_run gates are derived (coder_safety.mg).
-// These helpers assert the measurements and read the derived turn_gate back.
-// They do not choose the verdict. /build and /pinned stay asserted in
+// The /test, /vet, /check, /test_run and /test_retention gates are derived
+// (coder_safety.mg), and so is the critic's triage (turn_needs_uplift).
+// These helpers assert the measurements and read the derived verdicts back.
+// They do not choose them. /build and /pinned stay asserted in
 // recordBuildState: one source per gate.
 
 // retractTurnPredicates removes this turn's rows of each predicate and drops
@@ -219,6 +221,150 @@ func (e *Executor) vetGatePassed(turn types.MangleAtom, result *ExecutionResult)
 	e.syncVetGateFacts(turn, result)
 	pass, _ := e.derivedGate(turn, "/vet")
 	return pass
+}
+
+// syncRemovedTestGateFacts replaces this turn's /test_retention measurements
+// with the listing as it stands now: the marker, and one row per test the
+// turn removed and has not put back. A repair round restores tests; the
+// previous rows would otherwise stay red after the restoration.
+func (e *Executor) syncRemovedTestGateFacts(turn types.MangleAtom, removed []string) {
+	if e == nil || e.kernel == nil || turn == "" {
+		return
+	}
+	e.retractTurnPredicates(turn, "turn_removed_test_ran", "turn_removed_test")
+	e.assertTurnFact(types.Fact{Predicate: "turn_removed_test_ran", Args: []any{turn}})
+	for _, name := range removed {
+		if name == "" {
+			continue
+		}
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_removed_test",
+			Args:      []any{turn, types.MangleString(name)},
+		})
+	}
+}
+
+// removedTestsGateRed is the /removed_tests round's question and the
+// closure's: does policy charge this turn with a removed test? With no
+// kernel there is nothing to ask, and a verdict that cannot be read
+// discharges nothing, so both fall back to the raw measurement: names still
+// missing fail, as before. That fallback is not a second verdict; it is what
+// the round does when the executive is silent.
+func (e *Executor) removedTestsGateRed(turn types.MangleAtom, removed []string) bool {
+	if e == nil || e.kernel == nil {
+		return len(removed) > 0
+	}
+	e.syncRemovedTestGateFacts(turn, removed)
+	pass, fail := e.derivedGate(turn, "/test_retention")
+	if !pass && !fail {
+		return len(removed) > 0
+	}
+	return fail
+}
+
+// syncCriticGateFacts replaces this turn's critic triage inputs with the
+// on-change findings as parsed now: one row per finding with its index and
+// its severity atom. The review runs once per turn; the retract keeps a
+// second run from triaging the first run's findings alongside its own.
+func (e *Executor) syncCriticGateFacts(turn types.MangleAtom, findings []CriticFinding) {
+	if e == nil || e.kernel == nil || turn == "" {
+		return
+	}
+	e.retractTurnPredicates(turn, "turn_critic_finding")
+	for i, finding := range findings {
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_critic_finding",
+			Args:      []any{turn, int64(i), criticSeverityAtom(finding.Severity)},
+		})
+	}
+}
+
+// criticSeverityAtom is the severity word as a severity_rank atom: high,
+// medium and low case-insensitively, anything else /unknown, which ranks
+// lowest. The parser admits only the first three, so /unknown is a
+// hand-built finding's; it must not triage as if it were low.
+func criticSeverityAtom(sev string) types.MangleAtom {
+	switch strings.ToLower(strings.TrimSpace(sev)) {
+	case "high":
+		return types.MangleAtom("/high")
+	case "medium":
+		return types.MangleAtom("/medium")
+	case "low":
+		return types.MangleAtom("/low")
+	default:
+		return types.MangleAtom("/unknown")
+	}
+}
+
+// actionableCriticFindings is the critic round's triage: the on-change
+// findings policy charges the turn with, in the reviewer's order, or nil.
+// Go parses (parseCriticFindings) and locates (findingsOnChange); whether a
+// finding is worth an uplift round is turn_needs_uplift's, and the findings
+// it names come back as turn_critic_actionable. With no kernel there is no
+// triage: the review is recorded by the caller and no round runs, which is
+// what "advisory" means.
+func (e *Executor) actionableCriticFindings(turn types.MangleAtom, onChange []CriticFinding) []CriticFinding {
+	if e == nil || e.kernel == nil || turn == "" || len(onChange) == 0 {
+		return nil
+	}
+	e.syncCriticGateFacts(turn, onChange)
+	if !e.criticNeedsUplift(turn) {
+		return nil
+	}
+	actionable := e.criticActionableSet(turn)
+	var out []CriticFinding
+	for i, finding := range onChange {
+		if actionable[int64(i)] {
+			out = append(out, finding)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// criticNeedsUplift is the round's question: does policy charge this turn
+// with an actionable finding? An unreadable verdict charges nothing; the
+// review stays recorded and the turn continues without the round.
+func (e *Executor) criticNeedsUplift(turn types.MangleAtom) bool {
+	facts, err := e.kernel.Query("turn_needs_uplift")
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("gate facts: query turn_needs_uplift: %v", err)
+		return false
+	}
+	for _, fact := range facts {
+		rest := fact.Args
+		if len(rest) == 0 || types.ExtractString(rest[0]) != string(turn) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// criticActionableSet is the findings policy named, by index.
+func (e *Executor) criticActionableSet(turn types.MangleAtom) map[int64]bool {
+	out := map[int64]bool{}
+	facts, err := e.kernel.Query("turn_critic_actionable")
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("gate facts: query turn_critic_actionable: %v", err)
+		return out
+	}
+	for _, fact := range facts {
+		rest := fact.Args
+		if len(rest) == 0 || types.ExtractString(rest[0]) != string(turn) {
+			continue
+		}
+		rest = rest[1:]
+		if len(rest) == 0 {
+			continue
+		}
+		if idx, ok := types.ExtractInt64(rest[0]); ok {
+			out[idx] = true
+		}
+	}
+	return out
 }
 
 // testRunGatePassed is the /test_run repair's question. The receipts are

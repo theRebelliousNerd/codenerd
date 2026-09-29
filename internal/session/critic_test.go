@@ -16,7 +16,8 @@ import (
 // neither asks whether the edits are right. An adversarial reviewer closes
 // that gap, but a reviewer rewarded for activity invents defects in sound
 // code — which is worse than missing one. These tests pin the pure half of
-// that reviewer: prompt construction, response parsing, and triage.
+// that reviewer: prompt construction and response parsing. Triage is
+// derived (turn_needs_uplift) and pinned in critic_triage_test.go.
 
 func TestBuildCriticPrompt(t *testing.T) {
 	cases := []struct {
@@ -298,119 +299,6 @@ func TestParseCriticFindings(t *testing.T) {
 	}
 }
 
-func TestFindingsWorthUplift(t *testing.T) {
-	cases := []struct {
-		name     string
-		findings []CriticFinding
-		want     []CriticFinding
-		wantNil  bool
-	}{
-		{
-			name:    "nil input",
-			wantNil: true,
-		},
-		{
-			name:     "empty slice",
-			findings: []CriticFinding{},
-			wantNil:  true,
-		},
-		{
-			name: "only low returns nil",
-			findings: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "low", Claim: "style"},
-				{File: "b.go", Line: 2, Severity: "low", Claim: "nit"},
-			},
-			wantNil: true,
-		},
-		{
-			name: "only high",
-			findings: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "high", Claim: "h1"},
-				{File: "b.go", Line: 2, Severity: "high", Claim: "h2"},
-			},
-			want: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "high", Claim: "h1"},
-				{File: "b.go", Line: 2, Severity: "high", Claim: "h2"},
-			},
-		},
-		{
-			name: "only medium",
-			findings: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "medium", Claim: "m1"},
-			},
-			want: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "medium", Claim: "m1"},
-			},
-		},
-		{
-			name: "mixed severities filters low",
-			findings: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "high", Claim: "h1"},
-				{File: "b.go", Line: 2, Severity: "low", Claim: "l1"},
-				{File: "c.go", Line: 3, Severity: "medium", Claim: "m1"},
-				{File: "d.go", Line: 4, Severity: "low", Claim: "l2"},
-			},
-			want: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "high", Claim: "h1"},
-				{File: "c.go", Line: 3, Severity: "medium", Claim: "m1"},
-			},
-		},
-		{
-			name: "case insensitive high medium",
-			findings: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "HIGH", Claim: "h1"},
-				{File: "b.go", Line: 2, Severity: "Medium", Claim: "m1"},
-				{File: "c.go", Line: 3, Severity: "LOW", Claim: "l1"},
-				{File: "d.go", Line: 4, Severity: "Low", Claim: "l2"},
-			},
-			want: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "HIGH", Claim: "h1"},
-				{File: "b.go", Line: 2, Severity: "Medium", Claim: "m1"},
-			},
-		},
-		{
-			name: "unknown severity ignored",
-			findings: []CriticFinding{
-				{File: "a.go", Line: 1, Severity: "critical", Claim: "c1"},
-				{File: "b.go", Line: 2, Severity: "high", Claim: "h1"},
-			},
-			want: []CriticFinding{
-				{File: "b.go", Line: 2, Severity: "high", Claim: "h1"},
-			},
-		},
-		{
-			name: "preserves order and fields",
-			findings: []CriticFinding{
-				{File: "z.go", Line: 9, Severity: "medium", Claim: "m"},
-				{File: "a.go", Line: 1, Severity: "high", Claim: "h"},
-			},
-			want: []CriticFinding{
-				{File: "z.go", Line: 9, Severity: "medium", Claim: "m"},
-				{File: "a.go", Line: 1, Severity: "high", Claim: "h"},
-			},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := findingsWorthUplift(tc.findings)
-			if tc.wantNil {
-				if got != nil {
-					t.Fatalf("findingsWorthUplift(%v) = %v; want nil", tc.findings, got)
-				}
-				return
-			}
-			if len(got) != len(tc.want) {
-				t.Fatalf("findingsWorthUplift(%v) len=%d want %d; got=%v want=%v", tc.findings, len(got), len(tc.want), got, tc.want)
-			}
-			for i := range got {
-				if got[i] != tc.want[i] {
-					t.Errorf("findingsWorthUplift()[%d] = %+v; want %+v", i, got[i], tc.want[i])
-				}
-			}
-		})
-	}
-}
-
 func TestCriticFinding_Fields(t *testing.T) {
 	// Pin the struct shape: the four fields the spec requires must exist
 	// and round-trip through construction. A coverage gate checks the type
@@ -427,15 +315,17 @@ func TestCriticFinding_Fields(t *testing.T) {
 }
 
 func TestParseAndUpliftIntegration(t *testing.T) {
-	// End-to-end: parse then filter — low findings are dropped for uplift.
+	// End-to-end: parse then triage through the kernel — low findings are
+	// dropped for uplift.
 	resp := "FINDING a.go:1 high: h1\nFINDING b.go:2 low: l1\nFINDING c.go:3 medium: m1"
 	parsed := parseCriticFindings(resp)
 	if len(parsed) != 3 {
 		t.Fatalf("parseCriticFindings integration: got %d want 3: %v", len(parsed), parsed)
 	}
-	uplift := findingsWorthUplift(parsed)
+	e := &Executor{kernel: realKernel(t)}
+	uplift := e.actionableCriticFindings(types.MangleAtom("/turn_uplift_integration"), parsed)
 	if len(uplift) != 2 {
-		t.Fatalf("findingsWorthUplift integration: got %d want 2: %v", len(uplift), uplift)
+		t.Fatalf("actionableCriticFindings integration: got %d want 2: %v", len(uplift), uplift)
 	}
 	for _, f := range uplift {
 		if f.Severity != "high" && f.Severity != "medium" {
@@ -467,7 +357,7 @@ func TestBuildCriticPrompt_RoundTripWithParser(t *testing.T) {
 // the turn that created this file: the branch that rejects a FINDING line whose
 // severity is not high/medium/low. `go test` was green at the same moment.
 //
-// The branch matters. Severity is what findingsWorthUplift triages on, so a
+// The branch matters. Severity is what turn_needs_uplift triages on, so a
 // reviewer that invents a severity ("critical", "warn", "P0") must not have its
 // finding silently admitted with an unrecognised level and then be triaged as
 // if it were low.
@@ -617,35 +507,6 @@ func TestFormatUpliftPrompt_AllowsRejectingAFinding(t *testing.T) {
 	}
 	if !strings.Contains(p, "finding is wrong") {
 		t.Error("uplift prompt does not let the model reject a mistaken finding")
-	}
-}
-
-func TestCriticSeverityRank(t *testing.T) {
-	cases := []struct {
-		name string
-		sev  string
-		want int
-	}{
-		{"high", "high", 3},
-		{"medium", "medium", 2},
-		{"low", "low", 1},
-		{"unknown", "unknown", 0},
-		{"empty", "", 0},
-		{"critical is not a severity", "critical", 0},
-		{"high uppercase", "HIGH", 3},
-		{"medium mixed case", "Medium", 2},
-		{"low uppercase", "LOW", 1},
-		{"high with spaces", "  high  ", 3},
-		{"medium with spaces", " medium ", 2},
-		{"low with newline", "\tlow\n", 1},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := CriticSeverityRank(tc.sev)
-			if got != tc.want {
-				t.Errorf("CriticSeverityRank(%q) = %d; want %d", tc.sev, got, tc.want)
-			}
-		})
 	}
 }
 
@@ -878,7 +739,7 @@ func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T
 
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
-	e := &Executor{config: cfg, llmClient: critic}
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
 
 	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
 
@@ -924,7 +785,7 @@ func TestVerifyAndUpliftWithCritic_LowSeverityDoesNotFireUplift(t *testing.T) {
 
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
-	e := &Executor{config: cfg, llmClient: critic}
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
 	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
 
 	if _, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result); err != nil {
@@ -952,7 +813,7 @@ func TestVerifyAndUpliftWithCritic_NoFindingsCostsNothingExtra(t *testing.T) {
 
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
-	e := &Executor{config: cfg, llmClient: critic}
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
 	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
 
 	errs, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result)

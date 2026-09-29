@@ -161,7 +161,7 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 		result.VetCheck = fresh
 	}
 	if ran["/removed_tests"] {
-		if removed := removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents); len(removed) > 0 {
+		if removed := removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents); e.removedTestsGateRed(result.turnAtom(), removed) {
 			return removedTestsError(removed)
 		}
 	}

@@ -328,6 +328,13 @@ var hostWitnessPredicates = map[string]struct{}{
 	"turn_test_after": {}, "turn_test_after_seq": {}, "turn_last_test_run": {},
 	"turn_vet_ran": {}, "turn_vet_finding": {}, "turn_vet_before": {},
 	"turn_vet_before_key": {}, "turn_vet_new": {}, "turn_has_vet_new": {},
+	// The retention gate and critic triage (coder_safety.mg). A model that
+	// could write the removal rows could turn /test_retention red; one that
+	// could write critic findings or their conclusions could force an uplift
+	// round the host's critic never asked for.
+	"turn_removed_test_ran": {}, "turn_removed_test": {}, "turn_has_removed_test": {},
+	"turn_critic_finding": {}, "turn_critic_actionable": {},
+	"turn_has_critic_actionable": {}, "turn_needs_uplift": {},
 	// The turn's own report admitting unfinished work (Q-14): a model able to
 	// retract or never assert it would decide its own verdict; asserting it
 	// only withholds, but it is the host's reading, not the model's.

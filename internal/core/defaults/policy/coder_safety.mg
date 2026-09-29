@@ -176,6 +176,55 @@ turn_gate(Turn, /vet, /passing) :-
     turn_vet_ran(Turn),
     !turn_has_vet_new(Turn).
 
+# A turn that deleted tests it found, and did not put them back, fails: a
+# test is a contract the system already had, and a suite made green by losing
+# one is not green (session/test_removal_guard.go measures the removal; the
+# /removed_tests round, turn_rounds.mg, is the repair chance). The executor
+# asserts turn_removed_test_ran when it measures, and one turn_removed_test
+# row per test still missing; the gate is derived here, and the round and the
+# closure read it instead of re-deciding from the listing. The gate is owed
+# exactly when the measurement ran: every write turn is measured, at the
+# round and again at the closure (recordBuildState), so in production the
+# gate is always owed and always decided, while a turn whose removals were
+# never measured owes no retention verdict.
+Decl turn_removed_test_ran(Turn) bound [/name].
+Decl turn_removed_test(Turn, Name) bound [/name, /string].
+Decl turn_has_removed_test(Turn) bound [/name].
+turn_has_removed_test(Turn) :- turn_removed_test(Turn, _).
+turn_gate(Turn, /test_retention, /failing) :-
+    turn_removed_test_ran(Turn),
+    turn_has_removed_test(Turn).
+turn_gate(Turn, /test_retention, /passing) :-
+    turn_removed_test_ran(Turn),
+    !turn_has_removed_test(Turn).
+turn_owes_gate(Turn, /test_retention) :- turn_removed_test_ran(Turn).
+
+# The critic's triage: which on-change findings are worth an uplift round.
+# Go parses the reviewer's response and keeps the findings that cite changed
+# lines (session/critic.go parses the FINDING lines; findingsOnChange keeps
+# the ones inside the reviewed windows, with the path matching Mangle cannot
+# do). The remaining question is severity, and it is policy's: Go asserts one
+# turn_critic_finding row per on-change finding with its index and its
+# severity atom (/high, /medium, /low, /unknown for anything else -- the
+# parser admits only the first three, so /unknown is a hand-built finding's,
+# and ranks lowest). severity_rank is delegation.mg's table, shared, not a Go
+# switch; the bar is /medium there, named, not a number. turn_needs_uplift is
+# the round's question; turn_critic_actionable names the findings the uplift
+# prompt carries, by index. /critical sorts above /high in the shared table
+# but the critic never emits it: the parser rejects severities outside the
+# three it knows, and the normalizer maps them to /unknown instead.
+Decl turn_critic_finding(Turn, Idx, Severity) bound [/name, /number, /name].
+Decl turn_critic_actionable(Turn, Idx) bound [/name, /number].
+Decl turn_has_critic_actionable(Turn) bound [/name].
+Decl turn_needs_uplift(Turn) bound [/name].
+turn_critic_actionable(Turn, Idx) :-
+    turn_critic_finding(Turn, Idx, Sev),
+    severity_rank(Sev, Rank),
+    severity_rank(/medium, Bar),
+    Rank >= Bar.
+turn_has_critic_actionable(Turn) :- turn_critic_actionable(Turn, _).
+turn_needs_uplift(Turn) :- turn_has_critic_actionable(Turn).
+
 # What a write owes is policy, not a property of the gate code (external audit
 # N01, 2026-09-19). Until then the compile and test gates ran only when a .go
 # file was written while turn_verified demanded both green for every write, so
@@ -544,6 +593,8 @@ turn_missing_evidence(Turn, /change_unwitnessed) :- turn_unverified(Turn), turn_
 turn_missing_evidence(Turn, /vet_not_clean) :- turn_unverified(Turn), turn_vet_red(Turn).
 turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_unmet_gate(Turn, /pinned).
 turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_red_gate(Turn, /pinned).
+turn_missing_evidence(Turn, /tests_removed) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test_retention).
+turn_missing_evidence(Turn, /tests_removed) :- turn_unverified(Turn), turn_red_gate(Turn, /test_retention).
 turn_missing_evidence(Turn, /self_reported_incomplete) :- turn_unverified(Turn), turn_self_reported_incomplete(Turn).
 
 # A red build is a failed turn, not merely an unverified one. turn_executed

@@ -165,14 +165,19 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// joined against its attempts.
 				"repair_restart",
 				"turn_gate",
-				// Measurements the /test, /vet, /check and /test_run gates are
-				// derived from (coder_safety.mg). They join turn_failing_test,
-				// turn_check_run and turn_gate, which this shard owns; a
-				// catch-all home would split those joins and the gate would
-				// never fire.
+				// Measurements the /test, /vet, /check, /test_run and
+				// /test_retention gates are derived from (coder_safety.mg).
+				// They join turn_failing_test, turn_check_run and turn_gate,
+				// which this shard owns; a catch-all home would split those
+				// joins and the gate would never fire.
 				"turn_test_failed_before", "turn_test_measured",
 				"turn_write_seq", "turn_test_run",
 				"turn_vet_ran", "turn_vet_finding", "turn_vet_before",
+				"turn_removed_test_ran", "turn_removed_test",
+				// The critic's on-change findings, triaged by the same
+				// policy (turn_needs_uplift); the uplift prompt joins the
+				// actionable ones back by index.
+				"turn_critic_finding",
 				// The post-edit rounds a turn ran, and its write-tool count
 				// (turn_rounds.mg), beside the gates they schedule.
 				"turn_round_ran", "turn_write_tools",

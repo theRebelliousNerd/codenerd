@@ -293,42 +293,6 @@ func parseCriticFindings(response string) []CriticFinding {
 	return out
 }
 
-// findingsWorthUplift returns only high and medium severity findings, in the
-// reviewer's order.
-//
-// Low-severity findings are noise for the uplift gate: they describe style
-// nits or minor suggestions that do not justify a repair round. The threshold
-// is CriticSeverityRank's, which is case-insensitive to match the parser's
-// normalization and ranks an unknown severity lowest.
-func findingsWorthUplift(findings []CriticFinding) []CriticFinding {
-	var out []CriticFinding
-	for _, f := range findings {
-		if SeverityAtLeast(f.Severity, "medium") {
-			out = append(out, f)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// CriticSeverityRank maps a severity string to a numeric rank for ordering.
-// It returns 3 for "high", 2 for "medium", 1 for "low" and 0 for anything
-// else, case-insensitively.
-func CriticSeverityRank(sev string) int {
-	switch strings.ToLower(strings.TrimSpace(sev)) {
-	case "high":
-		return 3
-	case "medium":
-		return 2
-	case "low":
-		return 1
-	default:
-		return 0
-	}
-}
-
 // criticMaxFileBytes bounds how much of a written file is shown to the
 // reviewer. A turn that rewrites a very large file would otherwise blow the
 // context budget on a secondary signal; truncation costs some review quality,

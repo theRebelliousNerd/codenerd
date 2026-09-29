@@ -2697,8 +2697,8 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 		return
 	}
 	// /build and /pinned are this function's assertions. /test, /vet,
-	// /test_run and /check are derived (coder_safety.mg): asserting
-	// turn_gate for them here would be a second source for one gate.
+	// /test_run, /check and /test_retention are derived (coder_safety.mg):
+	// asserting turn_gate for them here would be a second source for one gate.
 	// test_state stays the raw suite exit. A suite that fails only on tests
 	// that already failed is still a failing suite; the turn is not charged
 	// for it, and that charge is the derived gate, not this fact.
@@ -2721,6 +2721,8 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	}
 	e.syncTestGateFacts(turn, result)
 	e.syncVetGateFacts(turn, result)
+	e.syncRemovedTestGateFacts(turn, removedTestFunctions(
+		e.workspaceForVerification(), result.WrittenPaths, result.PreWriteContents))
 	// Writes recorded on the result, and a test run recorded only on the
 	// pointer, join the clock the tool loop already uses. The turn argument
 	// is the key the caller is closing, which is not always result.turnAtom().
