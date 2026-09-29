@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 
@@ -108,17 +108,21 @@ func markSearchGuardTrip(result string, tripped bool) string {
 		"results past the cut were not parsed]"
 }
 
+// duckDuckGoSearchURL formats the search URL. A variable, not a
+// constant, so tests can point the search at a local server;
+// production never sets it.
+var duckDuckGoSearchURL = "https://html.duckduckgo.com/html/?q=%s"
+
 // searchDuckDuckGo performs a search using DuckDuckGo HTML interface.
 // maxResults <= 0 means every result the page holds. It also reports
 // whether the body guard tripped so the caller can mark the cut.
 func searchDuckDuckGo(ctx context.Context, query string, maxResults int) ([]SearchResult, bool, error) {
-	// DuckDuckGo HTML search URL
-	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
+	searchURL := fmt.Sprintf(duckDuckGoSearchURL, url.QueryEscape(query))
 
 	// Per-request network bound, not a run clock: it caps one HTTP round
-	// trip. OPEN (limits cleanup 2026-09-29): the value must come from
-	// internal/config, but that package is outside this lane's scope.
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// trip. From research.web_search_timeout; the installed policy is
+	// the defaults until LoadUserConfig installs the file.
+	ctx, cancel := context.WithTimeout(ctx, config.ResolvedResearchPolicy().WebSearchTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)

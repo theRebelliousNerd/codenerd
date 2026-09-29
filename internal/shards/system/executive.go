@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
@@ -108,6 +109,16 @@ type ExecutivePolicyShard struct {
 	feedbackLoop          *feedback.FeedbackLoop
 	budgetExhaustedLogged bool // Prevents repeated "budget exhausted" warnings
 
+	// predicateSelector retains the JIT predicate selector handed to the
+	// feedback loop, so a SetJITConfig that arrives after SetParentKernel
+	// (the production order: registration wires the kernel first) can
+	// still apply the configured bounds. predicateLimit/predicateVecLimit
+	// are the last configured bounds; non-positive means "no config
+	// arrived" and takes the JIT defaults.
+	predicateSelector *prompt.PredicateSelector
+	predicateLimit    int
+	predicateVecLimit int
+
 	// Boot guard: prevents action execution until first user interaction
 	// This ensures session rehydration doesn't trigger old actions
 	bootGuardActive bool
@@ -157,9 +168,42 @@ func (e *ExecutivePolicyShard) SetParentKernel(k types.Kernel) {
 	}
 	if rk != nil {
 		if corpus := rk.GetPredicateCorpus(); corpus != nil {
-			e.feedbackLoop.SetPredicateSelector(prompt.NewPredicateSelector(corpus))
+			selector := prompt.NewPredicateSelector(corpus)
+			e.applyPredicateLimits(selector)
+			e.predicateSelector = selector
+			e.feedbackLoop.SetPredicateSelector(selector)
 		}
 	}
+}
+
+// SetJITConfig stores the effective JIT configuration and applies the
+// configured predicate bounds to the attached selector. Registration wires
+// the kernel (and the selector) before it injects this config, so without
+// the re-application a configured jit.predicate_limit would never reach it.
+func (e *ExecutivePolicyShard) SetJITConfig(cfg config.JITConfig) {
+	e.BaseSystemShard.SetJITConfig(cfg)
+	e.predicateLimit = cfg.PredicateLimit
+	e.predicateVecLimit = cfg.PredicateVecLimit
+	e.applyPredicateLimits(e.predicateSelector)
+}
+
+// applyPredicateLimits stamps the configured predicate bounds onto sel. A
+// non-positive bound means "no config arrived" (direct construction, or a
+// zero RegistryContext) and takes the JIT default — the same bound
+// NewPredicateSelector already carries, so the call is idempotent.
+func (e *ExecutivePolicyShard) applyPredicateLimits(sel *prompt.PredicateSelector) {
+	if sel == nil {
+		return
+	}
+	limit, vec := e.predicateLimit, e.predicateVecLimit
+	if limit <= 0 {
+		limit = config.DefaultJITConfig().PredicateLimit
+	}
+	if vec <= 0 {
+		vec = config.DefaultJITConfig().PredicateVecLimit
+	}
+	sel.SetMaxPredicates(limit)
+	sel.SetVectorLimit(vec)
 }
 
 // SetLearningStore sets the learning store for persistent autopoiesis.

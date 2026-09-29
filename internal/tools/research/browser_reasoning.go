@@ -15,30 +15,26 @@ import (
 	"time"
 
 	"codenerd/internal/browser"
+	"codenerd/internal/config"
 	"codenerd/internal/mangle"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
 const (
-	// defaultBrowserReasonItems sizes one paging window over browser facts,
-	// not the evidence: every fact stays reachable via offset, so the
-	// window is paging rather than a cut. OPEN (limits cleanup 2026-09-29):
-	// the value must come from internal/config, but that package is
-	// outside this lane's scope. There is deliberately no hard cap: an
-	// explicit max_items is the model's own choice and is honored as
-	// given, exactly like browser_act's window (browser_progressive.go).
-	defaultBrowserReasonItems = 20
-	// defaultCompactReasonItems is the same window for the compact reason
-	// view when max_items is absent: compact stays the cheap rung of the
-	// summary/compact/full ladder. Same OPEN as above.
-	defaultCompactReasonItems = 10
-	defaultBrowserTimeout     = 10 * time.Second
-	maxBrowserTimeout         = 30 * time.Second
-	defaultBrowserPoll        = 200 * time.Millisecond
-	minBrowserPoll            = 50 * time.Millisecond
-	maxBrowserPoll            = time.Second
-	maxBrowserConditions      = 10
+	// The reason paging windows (research.browser_reason_items and
+	// research.browser_reason_compact_items) are read from the installed
+	// research policy at the call sites below, not kept here: every fact
+	// stays reachable via offset, so the window is paging rather than a
+	// cut, and there is deliberately no hard cap — an explicit max_items
+	// is the model's own choice and is honored as given, exactly like
+	// browser_act's window (browser_progressive.go).
+	defaultBrowserTimeout = 10 * time.Second
+	maxBrowserTimeout     = 30 * time.Second
+	defaultBrowserPoll    = 200 * time.Millisecond
+	minBrowserPoll        = 50 * time.Millisecond
+	maxBrowserPoll        = time.Second
+	maxBrowserConditions  = 10
 	// maxBrowserKernelScan bounds ONE kernel predicate scan. It protects
 	// the process: a pathological kernel (tens of thousands of facts under
 	// one predicate, or a callback kernel that yields unboundedly) turns
@@ -100,6 +96,7 @@ var errBrowserKernelScanLimit = errors.New("browser kernel scan limit reached")
 // BrowserMangleTool returns bounded, read-only access to browser facts in the
 // live Cortex kernel.
 func BrowserMangleTool() *tools.Tool {
+	reasonDefault := config.ResolvedResearchPolicy().BrowserReasonItems
 	return &tools.Tool{
 		Name:        "browser_mangle",
 		Description: `Read and wait on session-scoped browser facts in the live Cortex kernel. Operations: query, read, temporal, evaluate, await_fact, await_conditions. Results page through a max_items window starting at offset; when facts continue past the window the result names the remainder and the offset that reaches it. Waits are cancelable and fresh-only by default. Rule submission and fact mutation are intentionally unavailable because they could change constitutional reality.`,
@@ -122,7 +119,7 @@ func BrowserMangleTool() *tools.Tool {
 				"timeout_ms":       {Type: "integer", Default: 10000, Description: "Hard-capped at 30000"},
 				"poll_interval_ms": {Type: "integer", Default: 200, Description: "Clamped to 50..1000"},
 				"view":             {Type: "string", Default: "compact", Enum: []any{"summary", "compact", "full"}},
-				"max_items":        {Type: "integer", Default: 20, Description: "Results window size; every fact stays reachable via offset"},
+				"max_items":        {Type: "integer", Default: reasonDefault, Description: "Results window size; every fact stays reachable via offset"},
 				"offset":           {Type: "integer", Default: 0, Description: "Fact offset where the max_items window starts (default: 0)"},
 			},
 		},
@@ -158,6 +155,7 @@ func BrowserWaitTool() *tools.Tool {
 
 // BrowserReasonTool returns bounded session diagnosis from the live kernel.
 func BrowserReasonTool() *tools.Tool {
+	reasonDefault := config.ResolvedResearchPolicy().BrowserReasonItems
 	return &tools.Tool{
 		Name:        "browser_reason",
 		Description: `Diagnose one browser session from fresh live Cortex facts. Topics: health, next_best_action, blocking_issue, why_failed, what_changed_since. Summary is cheapest; compact pages key evidence through a small window and full through a larger one, and every row stays reachable via offset. Current-route scoping is enabled by default.`,
@@ -170,7 +168,7 @@ func BrowserReasonTool() *tools.Tool {
 				"session_id":       {Type: "string"},
 				"topic":            {Type: "string", Default: "health", Enum: []any{"health", "next_best_action", "blocking_issue", "why_failed", "what_changed_since"}},
 				"view":             {Type: "string", Default: "compact", Enum: []any{"summary", "compact", "full"}},
-				"max_items":        {Type: "integer", Default: 20, Description: "Per-section window size; every row stays reachable via offset"},
+				"max_items":        {Type: "integer", Default: reasonDefault, Description: "Per-section window size; every row stays reachable via offset"},
 				"offset":           {Type: "integer", Default: 0, Description: "Row offset where the max_items window starts (default: 0)"},
 				"time_window_ms":   {Type: "integer", Default: 300000, Description: "Clamped to 0..86400000"},
 				"since_navigation": {Type: "boolean", Default: true},
@@ -1070,7 +1068,7 @@ func reasonWindow(args map[string]any, view string, maxItems int) int {
 		return value
 	}
 	if view == "compact" {
-		return defaultCompactReasonItems
+		return config.ResolvedResearchPolicy().BrowserReasonCompactItems
 	}
 	return maxItems
 }
@@ -1084,10 +1082,12 @@ func normalizeReasonView(args map[string]any) (string, int, int, error) {
 		return "", 0, 0, fmt.Errorf("unsupported view %q", view)
 	}
 	// No hard cap: an explicit max_items is the model's own paging window
-	// and is honored as given. Non-positive values select the default.
-	maxItems := intArg(args, "max_items", defaultBrowserReasonItems)
+	// and is honored as given. Non-positive values select the configured
+	// default (research.browser_reason_items).
+	reasonDefault := config.ResolvedResearchPolicy().BrowserReasonItems
+	maxItems := intArg(args, "max_items", reasonDefault)
 	if maxItems <= 0 {
-		maxItems = defaultBrowserReasonItems
+		maxItems = reasonDefault
 	}
 	offset := intArg(args, "offset", 0)
 	if offset < 0 {

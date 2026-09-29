@@ -5,10 +5,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sync"
-	"time"
 	"unicode/utf8"
 
 	"codenerd/internal/browser"
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
@@ -142,26 +142,19 @@ func executeBrowserNavigate(ctx context.Context, args map[string]any) (string, e
 		safeURL, session.ID, session.Status), nil
 }
 
-// BrowserExtract limits for bounded evidence reads.
-//
-// defaultBrowserExtractMaxChars and maxBrowserExtractMaxChars size one
-// paging window, not the content: every rune stays reachable via offset,
-// so the window clamp is paging rather than a cut. OPEN (limits cleanup
-// 2026-09-29): both values must come from internal/config, but that
-// package is outside this lane's scope.
-const (
-	defaultBrowserExtractMaxChars = 8000
-	maxBrowserExtractMaxChars     = 32000
-	// Per-request extraction bound, not a run clock: it caps one DOM
-	// read. Same OPEN as above: the value belongs in internal/config.
-	defaultBrowserExtractTimeout = 10 * time.Second
-)
+// BrowserExtract limits for bounded evidence reads come from the
+// installed research policy (research.browser_extract_max_chars[_cap]
+// and research.browser_extract_timeout), read at each call site below.
+// The window sizes one paging window, not the content: every rune
+// stays reachable via offset, so the window clamp is paging rather
+// than a cut.
 
 // BrowserExtractTool returns a tool for extracting content from a browser page.
 func BrowserExtractTool() *tools.Tool {
+	extract := config.ResolvedResearchPolicy()
 	return &tools.Tool{
 		Name:        "browser_extract",
-		Description: "Extract bounded, redacted text from the current browser page. Extraction honors caller cancellation and a 10s maximum duration. Combined text and optional HTML are returned through a max_chars window starting at offset; when content continues past the window the result names the remainder and the offset that reaches it.",
+		Description: fmt.Sprintf("Extract bounded, redacted text from the current browser page. Extraction honors caller cancellation and a %s maximum duration. Combined text and optional HTML are returned through a max_chars window starting at offset; when content continues past the window the result names the remainder and the offset that reaches it.", extract.BrowserExtractTimeout),
 		Category:    tools.CategoryResearch,
 		Priority:    55,
 		Execute:     executeBrowserExtract,
@@ -184,8 +177,8 @@ func BrowserExtractTool() *tools.Tool {
 				},
 				"max_chars": {
 					Type:        "integer",
-					Description: "Combined text/HTML window in runes, excluding the paging notice (default: 8000, hard cap: 32000)",
-					Default:     defaultBrowserExtractMaxChars,
+					Description: fmt.Sprintf("Combined text/HTML window in runes, excluding the paging notice (default: %d, hard cap: %d)", extract.BrowserExtractMaxChars, extract.BrowserExtractMaxCharsCap),
+					Default:     extract.BrowserExtractMaxChars,
 				},
 				"offset": {
 					Type:        "integer",
@@ -271,15 +264,17 @@ func executeBrowserExtract(ctx context.Context, args map[string]any) (string, er
 	return result, nil
 }
 
-// resolveBrowserExtractMaxChars clamps caller max_chars to the conservative
-// default and hard cap. Non-positive or missing values select the default.
+// resolveBrowserExtractMaxChars clamps caller max_chars to the configured
+// default and hard cap (research.browser_extract_max_chars[_cap]).
+// Non-positive or missing values select the default.
 func resolveBrowserExtractMaxChars(args map[string]any) int {
-	maxChars := intArg(args, "max_chars", defaultBrowserExtractMaxChars)
+	policy := config.ResolvedResearchPolicy()
+	maxChars := intArg(args, "max_chars", policy.BrowserExtractMaxChars)
 	if maxChars <= 0 {
-		return defaultBrowserExtractMaxChars
+		return policy.BrowserExtractMaxChars
 	}
-	if maxChars > maxBrowserExtractMaxChars {
-		return maxBrowserExtractMaxChars
+	if maxChars > policy.BrowserExtractMaxCharsCap {
+		return policy.BrowserExtractMaxCharsCap
 	}
 	return maxChars
 }
@@ -296,8 +291,9 @@ func resolveBrowserExtractOffset(args map[string]any) int {
 
 // withBrowserExtractDeadline caps the whole extraction while preserving any
 // earlier caller cancellation/deadline. It does not alter manager-owned pages.
+// The bound is research.browser_extract_timeout.
 func withBrowserExtractDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, defaultBrowserExtractTimeout)
+	return context.WithTimeout(ctx, config.ResolvedResearchPolicy().BrowserExtractTimeout)
 }
 
 // boundBrowserExtractChars windows value to the [offset, offset+maxChars)

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 
@@ -84,9 +84,9 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 
 	// Fetch the page.
 	// Per-request network bound, not a run clock: it caps one HTTP round
-	// trip. OPEN (limits cleanup 2026-09-29): the value must come from
-	// internal/config, but that package is outside this lane's scope.
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	// trip. From research.web_fetch_timeout; the installed policy is the
+	// defaults until LoadUserConfig installs the file.
+	ctx, cancel := context.WithTimeout(ctx, config.ResolvedResearchPolicy().WebFetchTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)

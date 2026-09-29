@@ -7,6 +7,7 @@ import (
 	"maps"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
@@ -122,6 +123,48 @@ func (m *MCPClientManager) WaitForDiscovery(ctx context.Context) error {
 	}
 }
 
+// transportTimeoutFallbackNanos is the transport timeout used when a
+// server's configured timeout is missing, unparseable or non-positive.
+// It is installed from integrations.default_timeout by LoadUserConfig;
+// the 30s here is the last resort for a process that never loaded a
+// config (direct API use, unit tests), because this package cannot
+// import internal/config back. The parity test in internal/config pins
+// it to that default.
+var transportTimeoutFallbackNanos atomic.Int64
+
+func init() {
+	transportTimeoutFallbackNanos.Store(int64(30 * time.Second))
+}
+
+// SetTransportTimeoutFallback installs the transport fallback timeout.
+// A non-positive value resets the 30s last resort. LoadUserConfig is
+// the production caller; tests install and restore.
+func SetTransportTimeoutFallback(d time.Duration) {
+	if d <= 0 {
+		d = 30 * time.Second
+	}
+	transportTimeoutFallbackNanos.Store(int64(d))
+}
+
+// DefaultTransportTimeout is the installed transport fallback timeout.
+func DefaultTransportTimeout() time.Duration {
+	if d := time.Duration(transportTimeoutFallbackNanos.Load()); d > 0 {
+		return d
+	}
+	return 30 * time.Second
+}
+
+// resolveTransportTimeout parses one server's configured timeout,
+// falling back to the installed default for: parse errors, empty
+// strings ("0s" parses fine but produces a useless zero timeout), and
+// explicit non-positive values like "-1s".
+func resolveTransportTimeout(raw string) time.Duration {
+	if timeout, err := time.ParseDuration(raw); err == nil && timeout > 0 {
+		return timeout
+	}
+	return DefaultTransportTimeout()
+}
+
 // Connect establishes connection to a specific MCP server.
 func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 	if serverID == "" {
@@ -144,13 +187,7 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 
 	// Create transport based on protocol
 	var transport MCPTransport
-	timeout, err := time.ParseDuration(cfg.Timeout)
-	if err != nil || timeout <= 0 {
-		// Fall back to default for: parse errors, empty string ("0s" parses
-		// fine but produces a useless zero/negative timeout), and explicit
-		// non-positive values like "-1s".
-		timeout = 30 * time.Second
-	}
+	timeout := resolveTransportTimeout(cfg.Timeout)
 
 	// Reject explicitly empty protocol — switch below would also reject it,
 	// but this surfaces a clearer error message.

@@ -203,8 +203,9 @@ func TestProjectRead_WhenLinesAreNotLineShaped_ShouldStillBound(t *testing.T) {
 
 	r := ProjectRead(precondition.Read{Path: "bundle.js", Content: src.String()}, ReadLimits{})
 
-	if len(r.Region) > maxRegionBytes+4001 {
-		t.Errorf("region is %d bytes against a %d-byte ceiling; a line count is not a cost bound", len(r.Region), maxRegionBytes)
+	ceiling := DefaultReadLimits().MaxRegionBytes
+	if len(r.Region) > ceiling+4001 {
+		t.Errorf("region is %d bytes against a %d-byte ceiling; a line count is not a cost bound", len(r.Region), ceiling)
 	}
 	if r.Elided == 0 {
 		t.Error("a bounded projection of an oversized file must report that it dropped something")
@@ -404,8 +405,9 @@ func TestProjectRead_WhenTheFileIsOneEnormousLine_ShouldStillBound(t *testing.T)
 	oneLine := strings.Repeat("payload,", 40000)
 	r := ProjectRead(precondition.Read{Path: "bundle.min.js", Content: oneLine}, ReadLimits{})
 
-	if len(r.Region) > maxRegionBytes {
-		t.Fatalf("region is %d bytes for a single-line file against a %d-byte ceiling", len(r.Region), maxRegionBytes)
+	ceiling := DefaultReadLimits().MaxRegionBytes
+	if len(r.Region) > ceiling {
+		t.Fatalf("region is %d bytes for a single-line file against a %d-byte ceiling", len(r.Region), ceiling)
 	}
 	if r.RegionCut == 0 {
 		t.Error("a cut region that does not announce itself reads as the whole line, and a halved record reads as a whole one")

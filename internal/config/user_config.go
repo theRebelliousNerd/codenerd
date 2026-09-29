@@ -11,6 +11,7 @@ import (
 	browserspec "codenerd/internal/browser/specs"
 	"codenerd/internal/features"
 	"codenerd/internal/logging"
+	"codenerd/internal/mcp"
 )
 
 // UserConfig holds ALL codeNERD configuration from .nerd/config.json.
@@ -190,6 +191,12 @@ type UserConfig struct {
 	// individual durations. See LLMTimeoutsConfig.
 	LLMTimeouts *LLMTimeoutsConfig `json:"llm_timeouts,omitempty"`
 
+	// Research is the per-request bounds the research tools read for one
+	// network round trip or one evidence window (research.go). It is not
+	// part of llm_timeouts: those bound LLM calls, these bound researcher
+	// HTTP fetches and browser evidence paging.
+	Research *ResearchConfig `json:"research,omitempty"`
+
 	// World model scanning/AST parsing configuration
 	World *WorldConfig `json:"world,omitempty"`
 
@@ -207,6 +214,11 @@ type UserConfig struct {
 	// Retrieval is the thresholds the kernel decides an issue-driven sparse
 	// retrieval pass's hand-off to the model with (retrieval.go).
 	Retrieval *RetrievalConfig `json:"retrieval,omitempty"`
+
+	// Observation is the bounds of the file-read projection the model is
+	// shown (observation.go). It is not part of execution: those ceilings
+	// refuse reads, these shape the view of a read that succeeds.
+	Observation *ObservationConfig `json:"observation,omitempty"`
 
 	// Usage is token metering: price overrides and the raw event log
 	// (usage.go).
@@ -552,6 +564,11 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			SetExecutionFileLimits(*DefaultExecutionConfig())
+			SetResearchPolicy(mustResolveResearchDefaults())
+			SetObservationLimits(DefaultObservationConfig().Resolve())
+			if d, derr := DefaultIntegrationsConfig().ResolveDefaultTimeout(); derr == nil {
+				mcp.SetTransportTimeoutFallback(d)
+			}
 			return cfg, nil // Return empty config if file doesn't exist
 		}
 		return nil, fmt.Errorf("failed to read user config: %w", err)
@@ -626,6 +643,21 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	}
 	SetLLMTimeouts(timeouts)
 	SetExecutionFileLimits(cfg.GetExecution())
+	// The research tools, the file-read projection and the MCP transports
+	// read these without opening the config file themselves.
+	researchPolicy, rerr := cfg.GetResearchConfig().Resolve()
+	if rerr != nil {
+		// Unreachable: Check refused the file above when these were wrong.
+		return nil, fmt.Errorf("failed to parse user config: %w", rerr)
+	}
+	SetResearchPolicy(researchPolicy)
+	SetObservationLimits(cfg.GetObservationConfig().Resolve())
+	integFallback, ierr := cfg.GetIntegrations().ResolveDefaultTimeout()
+	if ierr != nil {
+		// Unreachable for the same reason.
+		return nil, fmt.Errorf("failed to parse user config: %w", ierr)
+	}
+	mcp.SetTransportTimeoutFallback(integFallback)
 	if cfg.LLMTimeouts != nil {
 		logging.Get(logging.CategoryBoot).Info(
 			"LLM timeouts: profile=%q http=%s per_call=%s streaming=%s max_retries=%d",
@@ -1326,12 +1358,17 @@ func (c *UserConfig) GetWorldConfig() WorldConfig {
 // By default, no external MCP servers are configured.
 // Internal capabilities (code analysis, browser automation) use internal packages directly.
 func (c *UserConfig) GetIntegrations() IntegrationsConfig {
-	if c.Integrations != nil {
-		return *c.Integrations
+	if c != nil && c.Integrations != nil {
+		cfg := *c.Integrations
+		if cfg.DefaultTimeout == "" {
+			cfg.DefaultTimeout = DefaultIntegrationsConfig().DefaultTimeout
+		}
+		return cfg
 	}
 	// Return empty - no default MCP servers. User configures external servers as needed.
 	return IntegrationsConfig{
-		Servers: make(map[string]MCPServerIntegration),
+		DefaultTimeout: DefaultIntegrationsConfig().DefaultTimeout,
+		Servers:        make(map[string]MCPServerIntegration),
 	}
 }
 
@@ -1525,6 +1562,8 @@ func DefaultUserConfig() *UserConfig {
 	sessionCfg := DefaultSessionConfig()
 	routingCfg := DefaultRoutingConfig()
 	retrievalCfg := DefaultRetrievalConfig()
+	observationCfg := DefaultObservationConfig()
+	researchCfg := DefaultResearchConfig()
 	uiCfg := DefaultUIConfig()
 	delegationCfg := DefaultDelegationConfig()
 	workingCfg := DefaultWorkingConfig()
@@ -1553,6 +1592,8 @@ func DefaultUserConfig() *UserConfig {
 		Session:                      &sessionCfg,
 		Routing:                      &routingCfg,
 		Retrieval:                    &retrievalCfg,
+		Observation:                  &observationCfg,
+		Research:                     &researchCfg,
 		Usage:                        &UsageConfig{},
 		Delegation:                   &delegationCfg,
 		Working:                      &workingCfg,

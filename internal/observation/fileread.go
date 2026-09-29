@@ -56,6 +56,11 @@ type ReadLimits struct {
 	MaxRegionLines int
 	PadLines       int
 	MaxOutline     int
+	// MaxRegionBytes bounds the shown region regardless of its line
+	// count. It is a field, not a constant, so the value in force
+	// comes from observation.max_region_bytes through the caller that
+	// builds these limits; a non-positive value takes the default.
+	MaxRegionBytes int
 }
 
 // DefaultReadLimits sizes a projection for making one edit.
@@ -66,9 +71,12 @@ type ReadLimits struct {
 // lines of padding is what a region gets on top of the code element it was
 // snapped out to — enough to see the declaration on either side, and the only
 // context at all for a hit in a config file or a top-level comment, where there
-// is no element to snap to.
+// is no element to snap to. The 24KiB byte ceiling is what bounds a region
+// whose lines are not line-shaped. These values mirror
+// config.DefaultObservationConfig, which is what production reads
+// resolve; the parity test pins the two together.
 func DefaultReadLimits() ReadLimits {
-	return ReadLimits{MaxRegionLines: 400, PadLines: 8, MaxOutline: 60}
+	return ReadLimits{MaxRegionLines: 400, PadLines: 8, MaxOutline: 60, MaxRegionBytes: 24 << 10}
 }
 
 func (l ReadLimits) resolved() ReadLimits {
@@ -82,19 +90,11 @@ func (l ReadLimits) resolved() ReadLimits {
 	if l.MaxOutline <= 0 {
 		l.MaxOutline = def.MaxOutline
 	}
+	if l.MaxRegionBytes <= 0 {
+		l.MaxRegionBytes = def.MaxRegionBytes
+	}
 	return l
 }
-
-// maxRegionBytes bounds the shown region regardless of its line count.
-//
-// A line ceiling alone is not a ceiling. Four hundred lines of a minified
-// bundle, a base64 asset or a generated lookup table can be megabytes, and a
-// codec whose whole purpose is a bounded cost per observation must not have a
-// shape of input that walks straight through it. It never reaches a model as
-// a silent cut: lines it sheds are counted in Elided, bytes it cuts from an
-// unbreakable line are counted in RegionCut, and Text announces both with the
-// range the next read should ask for.
-const maxRegionBytes = 24 << 10
 
 // EncodeRead projects a file read and retains it under a precondition handle.
 //
@@ -151,7 +151,7 @@ func ProjectRead(r precondition.Read, limits ReadLimits) FileReadResult {
 
 	lo = max(1, lo-limits.PadLines)
 	hi = min(total, hi+limits.PadLines)
-	lo, hi = budgetRegion(lines, lo, hi, anchorStart, anchorEnd, limits.MaxRegionLines)
+	lo, hi = budgetRegion(lines, lo, hi, anchorStart, anchorEnd, limits.MaxRegionLines, limits.MaxRegionBytes)
 
 	region := precondition.Region(lines, lo, hi)
 	result.Start, result.End = lo, hi
@@ -163,8 +163,8 @@ func ProjectRead(r precondition.Read, limits ReadLimits) FileReadResult {
 	// without this a shape of input walks straight through both ceilings and
 	// the whole file lands in context. The cut is at the tail of that one line
 	// and is announced, because a silently halved line reads as a whole record.
-	if len(region) > maxRegionBytes {
-		cut := trimToRune(region[:maxRegionBytes])
+	if len(region) > limits.MaxRegionBytes {
+		cut := trimToRune(region[:limits.MaxRegionBytes])
 		result.RegionCut = len(region) - len(cut)
 		region = cut
 	}
@@ -206,7 +206,7 @@ func ProjectRead(r precondition.Read, limits ReadLimits) FileReadResult {
 // Context goes first, on purpose. The lines the caller asked about are the
 // reason the read happened; surrendering those to keep the padding would answer
 // a question nobody asked.
-func budgetRegion(lines []string, lo, hi, anchorStart, anchorEnd, maxLines int) (int, int) {
+func budgetRegion(lines []string, lo, hi, anchorStart, anchorEnd, maxLines, maxBytes int) (int, int) {
 	if anchorEnd-anchorStart+1 > maxLines {
 		anchorEnd = anchorStart + maxLines - 1
 	}
@@ -224,7 +224,7 @@ func budgetRegion(lines []string, lo, hi, anchorStart, anchorEnd, maxLines int) 
 	// four-hundred-line region once per trimmed line is quadratic on exactly
 	// the oversized input this branch exists to handle.
 	size := regionBytes(lines, lo, hi)
-	for hi > lo && size > maxRegionBytes {
+	for hi > lo && size > maxBytes {
 		switch {
 		case hi > anchorEnd:
 			size -= lineCost(lines, hi)

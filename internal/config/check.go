@@ -303,6 +303,26 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Working.Check("working")...)
 	}
 
+	// --- research ---
+	if c.Research != nil {
+		out = append(out, c.Research.Check("research")...)
+	}
+
+	// --- observation ---
+	if c.Observation != nil {
+		out = append(out, c.Observation.Check("observation")...)
+	}
+
+	// --- integrations ---
+	if c.Integrations != nil {
+		out = append(out, c.Integrations.Check("integrations")...)
+	}
+
+	// --- jit ---
+	if c.JIT != nil {
+		out = append(out, c.JIT.Check("jit")...)
+	}
+
 	// --- everything the file leaves to a default ---
 	if raw != nil {
 		for _, path := range ImplicitFields(raw) {

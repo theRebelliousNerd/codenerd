@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/atomicfile"
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/observation/precondition"
@@ -99,6 +100,10 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 	// the session workspace the edit tools resolve against. A workspace-relative
 	// identity would be two strings for one file, and a precondition is refused
 	// outright when the two sides name it differently.
+	// The projection bounds come from observation.* via the installed
+	// policy: observation is a leaf package and cannot read config, so the
+	// caller that builds ReadLimits passes the resolved values in.
+	obsLimits := config.ResolvedObservationLimits()
 	result := observation.EncodeRead(precondition.Read{
 		Path:      path,
 		Display:   tools.WorkspaceDisplayPath(tools.WithWorkspaceRoot(ctx, v.workingDir), path),
@@ -106,7 +111,12 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 		Start:     start,
 		End:       end,
 		Truncated: false,
-	}, observation.ReadLimits{})
+	}, observation.ReadLimits{
+		MaxRegionLines: obsLimits.MaxRegionLines,
+		PadLines:       obsLimits.PadLines,
+		MaxOutline:     obsLimits.MaxOutline,
+		MaxRegionBytes: obsLimits.MaxRegionBytes,
+	})
 
 	logging.VirtualStore("File read: path=%s, size=%d", path, info.Size())
 	return ActionResult{

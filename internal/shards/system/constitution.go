@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
@@ -134,6 +135,16 @@ type ConstitutionGateShard struct {
 
 	// Mangle feedback loop for autopoiesis rule generation
 	feedbackLoop *feedback.FeedbackLoop
+
+	// predicateSelector retains the JIT predicate selector handed to the
+	// feedback loop, so a SetJITConfig that arrives after SetParentKernel
+	// (the production order: registration wires the kernel first) can
+	// still apply the configured bounds. predicateLimit/predicateVecLimit
+	// are the last configured bounds; non-positive means "no config
+	// arrived" and takes the JIT defaults.
+	predicateSelector *prompt.PredicateSelector
+	predicateLimit    int
+	predicateVecLimit int
 
 	// Audit trail
 	violations []SecurityViolation
@@ -266,9 +277,42 @@ func (c *ConstitutionGateShard) SetParentKernel(k types.Kernel) {
 	}
 	if rk != nil {
 		if corpus := rk.GetPredicateCorpus(); corpus != nil {
-			c.feedbackLoop.SetPredicateSelector(prompt.NewPredicateSelector(corpus))
+			selector := prompt.NewPredicateSelector(corpus)
+			c.applyPredicateLimits(selector)
+			c.predicateSelector = selector
+			c.feedbackLoop.SetPredicateSelector(selector)
 		}
 	}
+}
+
+// SetJITConfig stores the effective JIT configuration and applies the
+// configured predicate bounds to the attached selector. Registration wires
+// the kernel (and the selector) before it injects this config, so without
+// the re-application a configured jit.predicate_limit would never reach it.
+func (c *ConstitutionGateShard) SetJITConfig(cfg config.JITConfig) {
+	c.BaseSystemShard.SetJITConfig(cfg)
+	c.predicateLimit = cfg.PredicateLimit
+	c.predicateVecLimit = cfg.PredicateVecLimit
+	c.applyPredicateLimits(c.predicateSelector)
+}
+
+// applyPredicateLimits stamps the configured predicate bounds onto sel. A
+// non-positive bound means "no config arrived" (direct construction, or a
+// zero RegistryContext) and takes the JIT default — the same bound
+// NewPredicateSelector already carries, so the call is idempotent.
+func (c *ConstitutionGateShard) applyPredicateLimits(sel *prompt.PredicateSelector) {
+	if sel == nil {
+		return
+	}
+	limit, vec := c.predicateLimit, c.predicateVecLimit
+	if limit <= 0 {
+		limit = config.DefaultJITConfig().PredicateLimit
+	}
+	if vec <= 0 {
+		vec = config.DefaultJITConfig().PredicateVecLimit
+	}
+	sel.SetMaxPredicates(limit)
+	sel.SetVectorLimit(vec)
 }
 
 // Execute runs the Constitution Gate's continuous safety loop.

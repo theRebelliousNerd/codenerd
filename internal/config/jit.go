@@ -1,5 +1,7 @@
 package config
 
+import "fmt"
+
 // JITConfig configures the JIT Prompt Compiler.
 // The JIT compiler dynamically assembles system prompts from YAML atoms
 // based on the current context (operational mode, shard type, language, etc.).
@@ -121,4 +123,39 @@ func DefaultJITConfig() JITConfig {
 		PredicateVecLimit:           200,
 		FallbackIdentityMaxBytes:    1024 * 1024,
 	}
+}
+
+// Check reports the contradictions in the predicate-selector bounds,
+// addressed under prefix ("jit"). Absent fields are defaulted first, so
+// only what the file says can be wrong. Only the selector bounds are
+// checked here: the token budgets above are clamped, not refused, by
+// GetEffectiveJITConfig, and clamping plus refusing would disagree about
+// the same file.
+func (c JITConfig) Check(prefix string) []Problem {
+	d := DefaultJITConfig()
+	lim, vec := c.PredicateLimit, c.PredicateVecLimit
+	if lim == 0 {
+		lim = d.PredicateLimit
+	}
+	if vec == 0 {
+		vec = d.PredicateVecLimit
+	}
+	var out []Problem
+	for _, f := range []struct {
+		name string
+		v    int
+	}{
+		{"predicate_limit", lim},
+		{"predicate_vec_limit", vec},
+	} {
+		if f.v < 1 {
+			out = append(out, Problem{
+				Severity: SeverityError,
+				Path:     prefix + "." + f.name,
+				Message:  fmt.Sprintf("%d is below 1", f.v),
+				Fix:      "a count of at least 1, or remove the key for the default",
+			})
+		}
+	}
+	return out
 }

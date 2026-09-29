@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"codenerd/internal/articulation"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
@@ -66,6 +67,11 @@ type MangleRepairShard struct {
 	*BaseSystemShard
 	corpus            *core.PredicateCorpus
 	predicateSelector *prompt.PredicateSelector
+	// predicateLimit/predicateVecLimit are the last configured bounds
+	// (SetJITConfig); non-positive means "no config arrived" and takes
+	// the JIT defaults. Guarded by m.mu like the selector.
+	predicateLimit    int
+	predicateVecLimit int
 	promptAssembler   *articulation.PromptAssembler
 	preValidator      *feedback.PreValidator
 	errorClassifier   *feedback.ErrorClassifier
@@ -110,6 +116,7 @@ func (m *MangleRepairShard) SetParentKernel(k types.Kernel) {
 	defer m.mu.Unlock()
 	if m.corpus != nil && m.predicateSelector == nil {
 		m.predicateSelector = prompt.NewPredicateSelector(m.corpus)
+		m.applyPredicateLimitsLocked(m.predicateSelector)
 		logging.SystemShards("[MangleRepair] PredicateSelector initialized")
 	}
 	m.attachVectorStoreLocked()
@@ -124,9 +131,45 @@ func (m *MangleRepairShard) SetCorpus(corpus *core.PredicateCorpus) {
 		logging.SystemShards("[MangleRepair] PredicateCorpus attached")
 		// Auto-create PredicateSelector when corpus is set
 		m.predicateSelector = prompt.NewPredicateSelector(corpus)
+		m.applyPredicateLimitsLocked(m.predicateSelector)
 		logging.SystemShards("[MangleRepair] PredicateSelector initialized")
 		m.attachVectorStoreLocked()
 	}
+}
+
+// SetJITConfig stores the effective JIT configuration and applies the
+// configured predicate bounds to the attached selector. Registration
+// wires the corpus (and the selector) before it injects this config,
+// so without the re-application a configured jit.predicate_limit
+// would never reach it. An externally attached selector keeps the
+// bounds its caller gave it until this arrives.
+func (m *MangleRepairShard) SetJITConfig(cfg config.JITConfig) {
+	m.BaseSystemShard.SetJITConfig(cfg)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.predicateLimit = cfg.PredicateLimit
+	m.predicateVecLimit = cfg.PredicateVecLimit
+	m.applyPredicateLimitsLocked(m.predicateSelector)
+}
+
+// applyPredicateLimitsLocked stamps the configured predicate bounds
+// onto sel; the caller holds m.mu. A non-positive bound means "no
+// config arrived" (direct construction, or a zero RegistryContext)
+// and takes the JIT default — the same bound NewPredicateSelector
+// already carries, so the call is idempotent.
+func (m *MangleRepairShard) applyPredicateLimitsLocked(sel *prompt.PredicateSelector) {
+	if sel == nil {
+		return
+	}
+	limit, vec := m.predicateLimit, m.predicateVecLimit
+	if limit <= 0 {
+		limit = config.DefaultJITConfig().PredicateLimit
+	}
+	if vec <= 0 {
+		vec = config.DefaultJITConfig().PredicateVecLimit
+	}
+	sel.SetMaxPredicates(limit)
+	sel.SetVectorLimit(vec)
 }
 
 // SetPredicateSelector sets the predicate selector for targeted context selection.

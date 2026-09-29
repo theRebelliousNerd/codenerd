@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
@@ -276,9 +275,9 @@ const fetchURLGuardBytes = 1 << 20
 // fetchURL fetches content from a URL with timeout and optional auth.
 func fetchURL(ctx context.Context, url, apiKey string) (string, error) {
 	// Per-request network bound, not a run clock: it caps one HTTP round
-	// trip. OPEN (limits cleanup 2026-09-29): the value must come from
-	// internal/config, but that package is outside this lane's scope.
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// trip. From research.context7_timeout; the installed policy is the
+	// defaults until LoadUserConfig installs the file.
+	ctx, cancel := context.WithTimeout(ctx, config.ResolvedResearchPolicy().Context7Timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)

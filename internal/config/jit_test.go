@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The JIT injection bounds are tunables owned by .nerd/config.json. These
 // pin their defaults and the GetJITConfig overlay so a zero value keeps
@@ -33,6 +36,41 @@ func TestDefaultJITConfig_InjectionLimits(t *testing.T) {
 		if seen[name] != w {
 			t.Errorf("DefaultJITConfig().%s = %d, want %d", name, seen[name], w)
 		}
+	}
+}
+
+// A negative predicate bound is a contradiction that refuses the file with
+// the key named; zero still means "unset" and takes the default.
+func TestJITConfig_CheckPredicateBounds(t *testing.T) {
+	if p := DefaultJITConfig().Check("jit"); len(p) != 0 {
+		t.Errorf("defaults fail their own check: %+v", p)
+	}
+	if p := (JITConfig{}).Check("jit"); len(p) != 0 {
+		t.Errorf("absent bounds fail their own check: %+v", p)
+	}
+	bad := JITConfig{PredicateLimit: -1, PredicateVecLimit: -2}
+	problems := bad.Check("jit")
+	if len(problems) != 2 {
+		t.Fatalf("problems = %+v, want two errors", problems)
+	}
+	for _, p := range problems {
+		if p.Severity != SeverityError {
+			t.Errorf("problem %+v is not an error", p)
+		}
+	}
+	paths := problems[0].Path + " " + problems[1].Path
+	if !strings.Contains(paths, "jit.predicate_limit") || !strings.Contains(paths, "jit.predicate_vec_limit") {
+		t.Errorf("problems name %q, want both predicate keys", paths)
+	}
+	wired := (&UserConfig{JIT: &JITConfig{PredicateLimit: -1}}).Check(nil)
+	found := false
+	for _, p := range wired {
+		if p.Severity == SeverityError && p.Path == "jit.predicate_limit" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("UserConfig.Check did not surface jit.predicate_limit: %+v", wired)
 	}
 }
 

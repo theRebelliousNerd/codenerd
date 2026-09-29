@@ -88,17 +88,18 @@ func createBrowserExtractSession(t *testing.T, ctx context.Context, mgr *browser
 }
 
 func TestBrowserExtractResolveMaxChars(t *testing.T) {
+	policy := pinResearchDefaults(t)
 	cases := []struct {
 		name string
 		args map[string]any
 		want int
 	}{
-		{name: "missing selects default", args: map[string]any{}, want: defaultBrowserExtractMaxChars},
-		{name: "zero selects default", args: map[string]any{"max_chars": 0}, want: defaultBrowserExtractMaxChars},
-		{name: "negative selects default", args: map[string]any{"max_chars": -5}, want: defaultBrowserExtractMaxChars},
+		{name: "missing selects default", args: map[string]any{}, want: policy.BrowserExtractMaxChars},
+		{name: "zero selects default", args: map[string]any{"max_chars": 0}, want: policy.BrowserExtractMaxChars},
+		{name: "negative selects default", args: map[string]any{"max_chars": -5}, want: policy.BrowserExtractMaxChars},
 		{name: "small honored", args: map[string]any{"max_chars": 100}, want: 100},
 		{name: "float64 honored", args: map[string]any{"max_chars": float64(250)}, want: 250},
-		{name: "over cap clamped", args: map[string]any{"max_chars": maxBrowserExtractMaxChars + 1000}, want: maxBrowserExtractMaxChars},
+		{name: "over cap clamped", args: map[string]any{"max_chars": policy.BrowserExtractMaxCharsCap + 1000}, want: policy.BrowserExtractMaxCharsCap},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -333,7 +334,8 @@ func TestBrowserExtractLiveLongParentStillBoundsMissingSelector(t *testing.T) {
 	defer ClearBrowserManager(mgr)
 	start := time.Now()
 	_, err := BrowserExtractTool().Execute(ctx, map[string]any{"session_id": sessionID, "selector": "#absent"})
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > defaultBrowserExtractTimeout+5*time.Second {
+	extractTimeout := pinResearchDefaults(t).BrowserExtractTimeout
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > extractTimeout+5*time.Second {
 		t.Fatalf("long parent must not extend the extraction deadline: elapsed=%v err=%v", time.Since(start), err)
 	}
 	if ctx.Err() != nil {

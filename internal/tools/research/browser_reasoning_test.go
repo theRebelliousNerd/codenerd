@@ -190,6 +190,7 @@ func TestWaitForStableBrowserTreatsNetworkFailureAsCompletion(t *testing.T) {
 }
 
 func TestBrowserManglePagesTheWholeResult(t *testing.T) {
+	window := pinResearchDefaults(t).BrowserReasonItems
 	const total = 30
 	facts := make([]types.Fact, total)
 	for i := range facts {
@@ -214,18 +215,18 @@ func TestBrowserManglePagesTheWholeResult(t *testing.T) {
 	if decoded["count"] != float64(total) || decoded["truncated"] != true {
 		t.Fatalf("count/truncated = %v/%v, want %d/true", decoded["count"], decoded["truncated"], total)
 	}
-	wantHint := fmt.Sprintf("%d more facts, page with offset=%d", total-defaultBrowserReasonItems, defaultBrowserReasonItems)
+	wantHint := fmt.Sprintf("%d more facts, page with offset=%d", total-window, window)
 	if decoded["facts_hint"] != wantHint {
 		t.Fatalf("facts_hint = %v, want %q", decoded["facts_hint"], wantHint)
 	}
-	if len(first) != defaultBrowserReasonItems || first[0] != fmt.Sprintf("m-%02d", total-1) {
-		t.Fatalf("first page = %v, want %d newest facts starting at m-%02d", first, defaultBrowserReasonItems, total-1)
+	if len(first) != window || first[0] != fmt.Sprintf("m-%02d", total-1) {
+		t.Fatalf("first page = %v, want %d newest facts starting at m-%02d", first, window, total-1)
 	}
 
 	secondRaw, err := executeBrowserMangle(context.Background(), map[string]any{
 		"operation": "query", "session_id": "session-a",
 		"query": "console_event(S, Level, Message, T)", "view": "full",
-		"offset": defaultBrowserReasonItems,
+		"offset": window,
 	})
 	if err != nil {
 		t.Fatalf("second page: %v", err)
@@ -362,6 +363,7 @@ func TestPageBrowserFactsHugeWindowDoesNotWrap(t *testing.T) {
 }
 
 func TestPageReasonSectionsNamesTheRemainder(t *testing.T) {
+	policy := pinResearchDefaults(t)
 	const n = 30
 	rows := make([]map[string]any, n)
 	for i := range rows {
@@ -369,18 +371,18 @@ func TestPageReasonSectionsNamesTheRemainder(t *testing.T) {
 	}
 	data := map[string]any{"failed_requests": rows, "note": "kept-whole"}
 
-	if got := reasonWindow(map[string]any{}, "compact", defaultBrowserReasonItems); got != defaultCompactReasonItems {
-		t.Fatalf("compact default window = %d, want %d", got, defaultCompactReasonItems)
+	if got := reasonWindow(map[string]any{}, "compact", policy.BrowserReasonItems); got != policy.BrowserReasonCompactItems {
+		t.Fatalf("compact default window = %d, want %d", got, policy.BrowserReasonCompactItems)
 	}
-	page := pageReasonSections(data, 0, defaultCompactReasonItems)
+	page := pageReasonSections(data, 0, policy.BrowserReasonCompactItems)
 	if page["note"] != "kept-whole" {
 		t.Fatalf("non-row section = %v", page["note"])
 	}
 	window, _ := page["failed_requests"].([]map[string]any)
-	if len(window) != defaultCompactReasonItems || page["failed_requests_truncated"] != true || page["failed_requests_total"] != n {
+	if len(window) != policy.BrowserReasonCompactItems || page["failed_requests_truncated"] != true || page["failed_requests_total"] != n {
 		t.Fatalf("first page markers = len %d truncated %v total %v", len(window), page["failed_requests_truncated"], page["failed_requests_total"])
 	}
-	wantHint := fmt.Sprintf("%d more rows, page with offset=%d", n-defaultCompactReasonItems, defaultCompactReasonItems)
+	wantHint := fmt.Sprintf("%d more rows, page with offset=%d", n-policy.BrowserReasonCompactItems, policy.BrowserReasonCompactItems)
 	if page["failed_requests_hint"] != wantHint {
 		t.Fatalf("hint = %v, want %q", page["failed_requests_hint"], wantHint)
 	}
@@ -414,7 +416,7 @@ func TestPageReasonSectionsNamesTheRemainder(t *testing.T) {
 
 	var ids []int
 	for off := 0; off < n; {
-		paged := pageReasonSections(data, off, defaultCompactReasonItems)
+		paged := pageReasonSections(data, off, policy.BrowserReasonCompactItems)
 		part, _ := paged["failed_requests"].([]map[string]any)
 		for _, row := range part {
 			ids = append(ids, row["id"].(int))
