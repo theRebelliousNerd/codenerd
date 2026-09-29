@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
+	"codenerd/internal/tools"
 )
 
 // =============================================================================
@@ -361,10 +363,9 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 		newLines = strings.Split(strings.TrimSuffix(newContent, "\n"), "\n")
 	}
 
-	// Resolve which symbols this range touches BEFORE the edit and the scope
-	// refresh: afterwards the line numbers have moved, and the elements the
-	// edit removed are gone from the scope entirely.
-	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, v.factPath(path), startLine, endLine)
+	// Bytes, not the scope's line map. The scope refresh below moves every
+	// line number, and a deleted element is gone from the scope entirely.
+	before, canDiff := sourceForDiff(path)
 
 	result, err := editor.EditLines(path, startLine, endLine, newLines)
 	if err != nil {
@@ -376,7 +377,7 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 
 	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
 	factsToAdd = append(factsToAdd, result.Facts...)
-	factsToAdd = append(factsToAdd, modifiedSymbols...)
+	factsToAdd = append(factsToAdd, v.factsFromChangedSource(ctx, req.SessionID, path, before, canDiff)...)
 
 	// Refresh scope if active with retry
 	if scope != nil && scope.IsInScope(path) {
@@ -437,10 +438,7 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 
 	newLines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
 
-	// An insertion after line N lands inside whatever element spans N, so the
-	// range is the single line it follows. Resolved before the edit, while the
-	// scope's line numbers still describe the file on disk.
-	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, v.factPath(path), afterLine, afterLine)
+	before, canDiff := sourceForDiff(path)
 
 	result, err := editor.InsertLines(path, afterLine, newLines)
 	if err != nil {
@@ -452,7 +450,7 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 
 	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
 	factsToAdd = append(factsToAdd, result.Facts...)
-	factsToAdd = append(factsToAdd, modifiedSymbols...)
+	factsToAdd = append(factsToAdd, v.factsFromChangedSource(ctx, req.SessionID, path, before, canDiff)...)
 
 	// Refresh scope if active with retry
 	if scope != nil && scope.IsInScope(path) {
@@ -504,9 +502,7 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 		return ActionResult{Success: false, Error: "delete_lines requires 'start_line' and 'end_line' in payload"}, nil
 	}
 
-	// Resolve before the delete: after it the element may not exist at all,
-	// and a deleted function is precisely the one whose callers matter most.
-	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, v.factPath(path), startLine, endLine)
+	before, canDiff := sourceForDiff(path)
 
 	result, err := editor.DeleteLines(path, startLine, endLine)
 	if err != nil {
@@ -518,7 +514,7 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 
 	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
 	factsToAdd = append(factsToAdd, result.Facts...)
-	factsToAdd = append(factsToAdd, modifiedSymbols...)
+	factsToAdd = append(factsToAdd, v.factsFromChangedSource(ctx, req.SessionID, path, before, canDiff)...)
 
 	// Refresh scope if active with retry
 	if scope != nil && scope.IsInScope(path) {
@@ -545,6 +541,53 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 		},
 		FactsToAdd: factsToAdd,
 	}, nil
+}
+
+// sourceForDiff reads the bytes RecordChangedSource diffs. A missing file is
+// an empty before-image, because insert_lines creates a file that was not
+// there. Any other read error means the before-image is unknown, and the
+// caller must not pretend the file was empty.
+func sourceForDiff(path string) (string, bool) {
+	b, err := os.ReadFile(path)
+	if err == nil {
+		return string(b), true
+	}
+	if os.IsNotExist(err) {
+		return "", true
+	}
+	return "", false
+}
+
+// factsFromChangedSource is the element_modified / modified_function /
+// modified batch for one line edit. impacted_test joins element_modified
+// (policy/test_impact.mg). The registry's edit_lines, insert_lines and
+// delete_lines produce that fact from RecordChangedSource, and these handlers
+// use the same diff (they once resolved a line range against the CodeDOM
+// scope and emitted modified_function alone, never element_modified).
+// editedElementFacts is what the registry sink asserts from the same slice,
+// so the two paths name the same elements.
+func (v *VirtualStore) factsFromChangedSource(ctx context.Context, sessionID, abs, before string, canDiff bool) []Fact {
+	if !canDiff {
+		return nil
+	}
+	after, ok := sourceForDiff(abs)
+	if !ok {
+		return nil
+	}
+	root := v.workspaceRoot
+	if root == "" {
+		root = v.workingDir
+	}
+	if root != "" {
+		if existing, has := ctx.Value(tools.CtxKeyWorkspaceRoot).(string); !has || existing == "" {
+			ctx = tools.WithWorkspaceRoot(ctx, root)
+		}
+	}
+	edits := tools.RecordChangedSource(ctx, abs, before, after)
+	if len(edits) == 0 {
+		return nil
+	}
+	return editedElementFacts(sessionID, time.Now().Unix(), edits)
 }
 
 // =============================================================================

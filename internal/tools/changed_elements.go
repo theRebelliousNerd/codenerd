@@ -70,11 +70,17 @@ func ChangedElements(rel, before, after string) []EditedElement {
 	return edits
 }
 
-// RecordChangedSource records the elements a line or file edit changed.
-// abs is the contained path the tool wrote; the fact carries the
-// workspace-relative name the element verbs use.
-func RecordChangedSource(ctx context.Context, abs, before, after string) {
-	RecordEdit(ctx, ChangedElements(WorkspaceDisplayPath(ctx, abs), before, after)...)
+// RecordChangedSource records the elements a line or file edit changed and
+// returns that same slice. abs is the contained path the tool wrote; the
+// fact carries the workspace-relative name the element verbs use.
+//
+// The registry ignores the return and lets its completion sink assert the
+// rows. VirtualStore's line handlers assert from the return, so both paths
+// share this one diff instead of each naming the elements itself.
+func RecordChangedSource(ctx context.Context, abs, before, after string) []EditedElement {
+	edits := ChangedElements(WorkspaceDisplayPath(ctx, abs), before, after)
+	RecordEdit(ctx, edits...)
+	return edits
 }
 
 func elementsOf(rel, src string, removed bool) []EditedElement {
