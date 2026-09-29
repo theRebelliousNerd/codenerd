@@ -22,20 +22,21 @@ import (
 // =============================================================================
 // These methods integrate Mangle's impact analysis with holographic context,
 // providing prioritized caller information for targeted code review.
-
-// maxPrioritizedCallers limits the number of callers included to prevent prompt explosion.
-const maxPrioritizedCallers = 10
-
-// maxCallerBodyLines limits individual caller body size.
-const maxCallerBodyLines = 50
+//
+// Callers are not capped here and their bodies are not pasted. PromptSection
+// (holographic.go) is the model-facing list and it already says how many names
+// it left out; a cap in front of that list made the count a lie. The body
+// view names each caller and its file:line span so get_element / read_file
+// can return the function whole. A 50-line slice ending in "// ... (truncated)"
+// was the model being shown a prefix and told it was the function.
 
 // queryImpactPriorities returns the kernel's impact-ranked callers, without
 // fetching any function bodies.
 //
 // This is the half of the impact analysis the prompt path needs.
 // PromptSection renders caller names, files, priorities and depths — never
-// bodies — so making it pay for up to ten file reads and AST parses would put
-// I/O on the turn's critical path for text that is discarded.
+// bodies — so making it pay for a file read and an AST parse per caller would
+// put I/O on the turn's critical path for text that is discarded.
 //
 // Returns nil when there is no kernel, when neither impact predicate is
 // derivable, or when the analysis found nothing. All three are ordinary: the
@@ -101,12 +102,12 @@ func (h *HolographicProvider) applyImpactPriorities(ctx context.Context, hc *Hol
 }
 
 // BuildWithImpactPriorities builds holographic context enhanced with impact
-// analysis from the kernel, including the body of each prioritized caller.
+// analysis from the kernel, including the file:line span of each caller.
 //
 // The ranking itself now comes from GetContextWithContext, which every caller
-// gets. What this adds is the bodies: it is for consumers that want to show or
-// reason over the calling code, not just name it. PromptSection deliberately
-// does not use it — see queryImpactPriorities.
+// gets. What this adds is the span: identity plus the lines get_element and
+// read_file need to return the body whole. PromptSection deliberately does
+// not use it — see queryImpactPriorities.
 func (h *HolographicProvider) BuildWithImpactPriorities(ctx context.Context, file string) (*HolographicContext, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("context cannot be nil")
@@ -165,12 +166,12 @@ func impactPriorityToScale(raw int) (priority, depth int) {
 	}
 }
 
-// rankPrioritizedCallers sorts by priority then depth and caps the list.
+// rankPrioritizedCallers sorts by priority, then depth, then name.
 //
-// Split out from ResolvePrioritizedCallers because the prompt path wants the
-// ranking and not the bodies: PromptSection renders names, files and priorities
-// only, so fetching up to ten function bodies to build it would be file I/O on
-// the turn's critical path for text that is never emitted.
+// It does not drop callers. PromptSection is the model-facing cap and it
+// names how many it left out; slicing here first made that remainder a count
+// of the already-sliced list, and the only record of the rest was a debug log.
+// The prompt path still does not fetch bodies — see queryImpactPriorities.
 func rankPrioritizedCallers(callers []PrioritizedCaller) []PrioritizedCaller {
 	sort.SliceStable(callers, func(i, j int) bool {
 		if callers[i].Priority != callers[j].Priority {
@@ -183,21 +184,17 @@ func rankPrioritizedCallers(callers []PrioritizedCaller) []PrioritizedCaller {
 		// every turn; an order that shuffles costs prompt-cache hits.
 		return callers[i].Name < callers[j].Name
 	})
-
-	if len(callers) > maxPrioritizedCallers {
-		logging.WorldDebug("rankPrioritizedCallers: limiting callers from %d to %d",
-			len(callers), maxPrioritizedCallers)
-		callers = callers[:maxPrioritizedCallers]
-	}
 	return callers
 }
 
-// ResolvePrioritizedCallers sorts, limits, and fetches bodies for prioritized callers.
-// It optimizes by sorting and limiting *before* fetching bodies to avoid unnecessary I/O.
+// ResolvePrioritizedCallers sorts callers and records each function's line span.
+//
+// The span is what the model view prints. The source is not copied onto the
+// caller: a pasted body, even a whole one, is not a tool result the working
+// ledger can archive, and a prefix of it was previously labelled "(truncated)".
 func (h *HolographicProvider) ResolvePrioritizedCallers(ctx context.Context, callers []PrioritizedCaller) ([]PrioritizedCaller, error) {
 	callers = rankPrioritizedCallers(callers)
 
-	// Fetch function bodies for prioritized callers with caching
 	cache := newFileContentCache()
 
 	for i := range callers {
@@ -207,13 +204,14 @@ func (h *HolographicProvider) ResolvePrioritizedCallers(ctx context.Context, cal
 		default:
 		}
 
-		body, fetchErr := h.fetchFunctionBody(callers[i].File, callers[i].Name, cache)
-		if fetchErr != nil {
-			logging.WorldDebug("ResolvePrioritizedCallers: could not fetch body for %s:%s: %v",
-				callers[i].File, callers[i].Name, fetchErr)
+		start, end, locErr := h.locateCallerLines(callers[i].File, callers[i].Name, cache)
+		if locErr != nil {
+			logging.WorldDebug("ResolvePrioritizedCallers: could not locate %s:%s: %v",
+				callers[i].File, callers[i].Name, locErr)
 			continue
 		}
-		callers[i].Body = body
+		callers[i].StartLine = start
+		callers[i].EndLine = end
 	}
 
 	return callers, nil
@@ -381,11 +379,33 @@ func newFileContentCache() *fileContentCache {
 	}
 }
 
-// fetchFunctionBody retrieves the body of a function from a file.
+// fetchFunctionBody retrieves the whole body of a function from a file.
 // Uses AST parsing for Go files, falls back to regex for other languages.
+// The returned text is the span locateCallerLines names; it is not cut.
 func (h *HolographicProvider) fetchFunctionBody(file, funcName string, cache *fileContentCache) (string, error) {
+	content, _, start, end, err := h.callerSpan(file, funcName, cache)
+	if err != nil {
+		return "", err
+	}
+	return h.extractLineRange(content, start, end)
+}
+
+// locateCallerLines is the model-view half of fetchFunctionBody: the 1-based
+// inclusive line span, without copying the source onto the caller.
+func (h *HolographicProvider) locateCallerLines(file, funcName string, cache *fileContentCache) (start, end int, err error) {
+	_, _, start, end, err = h.callerSpan(file, funcName, cache)
+	return start, end, err
+}
+
+// callerSpan resolves, reads and locates one function.
+//
+// A file past 5 MiB is not loaded. That bound protects the process from
+// slurping a generated table to find one function; it is not a cut of what
+// the model sees. Location fails, and the caller view names the file so
+// read_file can return it whole.
+func (h *HolographicProvider) callerSpan(file, funcName string, cache *fileContentCache) (content, resolved string, start, end int, err error) {
 	if file == "" {
-		return "", fmt.Errorf("empty file path")
+		return "", "", 0, 0, fmt.Errorf("empty file path")
 	}
 
 	// Resolve relative paths against workDir and verify workspace bounds (security check)
@@ -402,14 +422,12 @@ func (h *HolographicProvider) fetchFunctionBody(file, funcName string, cache *fi
 		// Verify that absPath has cleanWorkDir as prefix to block path traversal
 		rel, relErr := filepath.Rel(cleanWorkDir, absPath)
 		if relErr != nil || strings.HasPrefix(rel, "..") {
-			return "", fmt.Errorf("security violation: path traversal detected: %s is outside workspace %s", file, h.workDir)
+			return "", "", 0, 0, fmt.Errorf("security violation: path traversal detected: %s is outside workspace %s", file, h.workDir)
 		}
 		resolvedPath = absPath
 	} else if !filepath.IsAbs(file) {
-		return "", fmt.Errorf("cannot resolve relative path %s with empty workDir", file)
+		return "", "", 0, 0, fmt.Errorf("cannot resolve relative path %s with empty workDir", file)
 	}
-
-	var content string
 
 	if cache != nil {
 		if c, ok := cache.contents[resolvedPath]; ok {
@@ -420,15 +438,15 @@ func (h *HolographicProvider) fetchFunctionBody(file, funcName string, cache *fi
 	if content == "" {
 		info, statErr := os.Stat(resolvedPath)
 		if statErr != nil {
-			return "", fmt.Errorf("failed to stat file %s: %w", resolvedPath, statErr)
+			return "", "", 0, 0, fmt.Errorf("failed to stat file %s: %w", resolvedPath, statErr)
 		}
-		if info.Size() > 5*1024*1024 { // 5MB limit
-			return "", fmt.Errorf("file too large: %s (%d bytes)", resolvedPath, info.Size())
+		if info.Size() > 5*1024*1024 {
+			return "", "", 0, 0, fmt.Errorf("file too large: %s (%d bytes)", resolvedPath, info.Size())
 		}
 
-		b, err := os.ReadFile(resolvedPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to read file %s: %w", resolvedPath, err)
+		b, readErr := os.ReadFile(resolvedPath)
+		if readErr != nil {
+			return "", "", 0, 0, fmt.Errorf("failed to read file %s: %w", resolvedPath, readErr)
 		}
 		content = string(b)
 		if cache != nil {
@@ -436,19 +454,21 @@ func (h *HolographicProvider) fetchFunctionBody(file, funcName string, cache *fi
 		}
 	}
 
-	// For Go files, use AST parsing
 	if strings.HasSuffix(file, ".go") {
-		return h.extractGoFunctionBody(content, funcName, resolvedPath, cache)
+		start, end, err = h.goFunctionSpan(content, funcName, resolvedPath, cache)
+	} else {
+		start, end, err = h.regexFunctionSpan(content, funcName)
 	}
-
-	// For other files, use regex-based extraction
-	return h.extractFunctionBodyRegex(content, funcName)
+	if err != nil {
+		return "", "", 0, 0, err
+	}
+	return content, resolvedPath, start, end, nil
 }
 
-// extractGoFunctionBody uses Go's AST parser to extract a function body.
-func (h *HolographicProvider) extractGoFunctionBody(content, funcName, file string, cache *fileContentCache) (string, error) {
+// goFunctionSpan uses Go's AST parser to locate a function.
+func (h *HolographicProvider) goFunctionSpan(content, funcName, file string, cache *fileContentCache) (int, int, error) {
 	if funcName == "" {
-		return "", fmt.Errorf("empty function name")
+		return 0, 0, fmt.Errorf("empty function name")
 	}
 
 	var node *ast.File
@@ -466,7 +486,7 @@ func (h *HolographicProvider) extractGoFunctionBody(content, funcName, file stri
 		fset = token.NewFileSet()
 		node, err = parser.ParseFile(fset, "", content, parser.ParseComments)
 		if err != nil {
-			return "", fmt.Errorf("failed to parse Go file: %w", err)
+			return 0, 0, fmt.Errorf("failed to parse Go file: %w", err)
 		}
 		if cache != nil {
 			cache.asts[file] = node
@@ -486,13 +506,15 @@ func (h *HolographicProvider) extractGoFunctionBody(content, funcName, file stri
 	})
 
 	if targetFunc == nil {
-		return "", fmt.Errorf("function %s not found", funcName)
+		return 0, 0, fmt.Errorf("function %s not found", funcName)
 	}
 
 	startLine := fset.Position(targetFunc.Pos()).Line
 	endLine := fset.Position(targetFunc.End()).Line
-
-	return h.extractLineRange(content, startLine, endLine)
+	if endLine < startLine {
+		return 0, 0, fmt.Errorf("function %s has an empty span", funcName)
+	}
+	return startLine, endLine, nil
 }
 
 var globalFunctionPatterns = []*regexp.Regexp{
@@ -506,10 +528,12 @@ var globalFunctionPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?:public|private|protected)?\s*\w+\s+([^\s(]+)\s*\(`),
 }
 
-// extractFunctionBodyRegex uses regex to find function bodies in non-Go files.
-func (h *HolographicProvider) extractFunctionBodyRegex(content, funcName string) (string, error) {
+// regexFunctionSpan locates a function in a non-Go file. The end line is the
+// brace walk's close, or the last line of the file when the walk cannot close
+// it — never a fixed prefix of the function.
+func (h *HolographicProvider) regexFunctionSpan(content, funcName string) (int, int, error) {
 	if funcName == "" {
-		return "", fmt.Errorf("empty function name")
+		return 0, 0, fmt.Errorf("empty function name")
 	}
 
 	lines := strings.Split(content, "\n")
@@ -523,15 +547,15 @@ func (h *HolographicProvider) extractFunctionBodyRegex(content, funcName string)
 			if len(matches) > 1 {
 				for j := 1; j < len(matches); j++ {
 					if matches[j] == funcName {
-						endLine := h.findFunctionEnd(lines, i)
-						return h.extractLineRange(content, i+1, endLine+1)
+						endIdx := h.findFunctionEnd(lines, i)
+						return i + 1, endIdx + 1, nil
 					}
 				}
 			}
 		}
 	}
 
-	return "", fmt.Errorf("function %s not found with regex patterns", funcName)
+	return 0, 0, fmt.Errorf("function %s not found with regex patterns", funcName)
 }
 
 // findFunctionEnd finds the closing brace of a function by tracking depth.
@@ -641,12 +665,20 @@ func (h *HolographicProvider) findFunctionEnd(lines []string, startIdx int) int 
 		}
 	}
 
-	// Fallback: return a reasonable range
-	endIdx := min(startIdx+maxCallerBodyLines, len(lines)-1)
-	return endIdx
+	// The brace walk could not close the function (unbalanced source, or a
+	// language whose block is not braces). The span runs through the last
+	// line of the file. A 50-line guess here was what the model was shown,
+	// with the rest omitted; a span that is too wide is a wider read, which
+	// the model can narrow, and it is not a silent cut.
+	if len(lines) == 0 {
+		return startIdx
+	}
+	return len(lines) - 1
 }
 
-// extractLineRange extracts lines from content with truncation.
+// extractLineRange returns the requested lines whole. startLine and endLine
+// are 1-based, endLine inclusive. A range is not shortened: the caller view
+// names a span, and a body fetched for a test is the whole span.
 func (h *HolographicProvider) extractLineRange(content string, startLine, endLine int) (string, error) {
 	lines := strings.Split(content, "\n")
 
@@ -663,20 +695,7 @@ func (h *HolographicProvider) extractLineRange(content string, startLine, endLin
 		return "", fmt.Errorf("invalid line range: %d-%d", startLine, endLine)
 	}
 
-	// Apply max lines limit
-	lineCount := endIdx - startIdx
-	truncated := false
-	if lineCount > maxCallerBodyLines {
-		endIdx = startIdx + maxCallerBodyLines
-		truncated = true
-	}
-
-	result := strings.Join(lines[startIdx:endIdx], "\n")
-	if truncated {
-		result += "\n// ... (truncated)"
-	}
-
-	return result, nil
+	return strings.Join(lines[startIdx:endIdx], "\n"), nil
 }
 
 // FormatWithPriorities formats the holographic context with priority annotations.
@@ -724,19 +743,33 @@ func (hc *HolographicContext) FormatWithPriorities() string {
 			sb.WriteString(fmt.Sprintf("Call depth: %d hops from target\n", caller.Depth))
 		}
 
-		if caller.Body != "" {
+		switch {
+		case caller.StartLine > 0 && caller.EndLine >= caller.StartLine:
+			// The body is not pasted. This string is concatenated into a
+			// prompt, not returned as a tool result the working ledger can
+			// archive, and a prefix labelled "(truncated)" was the model
+			// treating a slice as the function. get_element and read_file
+			// return the span whole.
+			fmt.Fprintf(&sb, "`%s:%d-%d` — body not pasted; `get_element` or `read_file` on that span returns it whole.\n\n",
+				caller.File, caller.StartLine, caller.EndLine)
+		case caller.Body != "":
+			// A caller supplied the source directly. It is shown whole.
 			sb.WriteString("```go\n")
 			sb.WriteString(caller.Body)
 			if !strings.HasSuffix(caller.Body, "\n") {
 				sb.WriteString("\n")
 			}
 			sb.WriteString("```\n\n")
-		} else {
-			sb.WriteString("(body not available)\n\n")
+		default:
+			fmt.Fprintf(&sb, "Span not located for `%s`", caller.Name)
+			if caller.File != "" {
+				fmt.Fprintf(&sb, " in `%s`. `read_file` path=%q returns the file whole.", caller.File, caller.File)
+			}
+			sb.WriteString("\n\n")
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("**Summary:** %d prioritized callers included\n",
+	sb.WriteString(fmt.Sprintf("**Summary:** %d prioritized callers listed; none omitted.\n",
 		len(hc.PrioritizedCallers)))
 
 	return sb.String()

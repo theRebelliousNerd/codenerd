@@ -176,20 +176,21 @@ func TestImpactPriorityToScale(t *testing.T) {
 	}
 }
 
-// TestRankPrioritizedCallers_StableAndCapped pins two properties the prompt
+// TestRankPrioritizedCallers_StableAndComplete pins two properties the prompt
 // path depends on: a deterministic order (a section that shuffles between turns
-// throws away prompt-cache hits) and a hard cap on how many callers can reach
-// the model.
-func TestRankPrioritizedCallers_StableAndCapped(t *testing.T) {
+// throws away prompt-cache hits) and that ranking does not drop callers.
+// PromptSection is the model-facing cap and it names its own remainder; a cap
+// here made that remainder a count of an already-sliced list.
+func TestRankPrioritizedCallers_StableAndComplete(t *testing.T) {
 	var callers []PrioritizedCaller
-	for i := 0; i < maxPrioritizedCallers*3; i++ {
+	for i := 0; i < 30; i++ {
 		callers = append(callers, PrioritizedCaller{Name: string(rune('a'+i%26)) + "fn", Priority: 50, Depth: 2})
 	}
 	callers = append(callers, PrioritizedCaller{Name: "zzTop", Priority: 100, Depth: 1})
 
 	first := rankPrioritizedCallers(append([]PrioritizedCaller(nil), callers...))
-	if len(first) != maxPrioritizedCallers {
-		t.Fatalf("ranked list length = %d, want the %d cap", len(first), maxPrioritizedCallers)
+	if len(first) != len(callers) {
+		t.Fatalf("ranked list length = %d, want every caller (%d)", len(first), len(callers))
 	}
 	if first[0].Name != "zzTop" {
 		t.Errorf("highest priority did not sort first, got %q", first[0].Name)

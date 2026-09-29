@@ -2,6 +2,7 @@ package world
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,5 +227,51 @@ func TestDependencyLink_WhenResolved_ShouldBeDeduplicatedAndSelfFree(t *testing.
 	}
 	if to, _ := byPred["file_imports"][0].Args[1].(string); to != "pkg/b.go" {
 		t.Errorf("file_imports imported = %q, want pkg/b.go", to)
+	}
+}
+
+// The old 50_000 cap dropped the sorted tail. One past that count must still
+// emit every file->file edge and its file_imports row, including the last
+// file, which is the one the tail drop discarded.
+func TestResolveDependencyLinks_PastFormerCap_KeepsEveryEdge(t *testing.T) {
+	const n = 50001
+	files := make([]string, n)
+	for i := range files {
+		files[i] = fmt.Sprintf("pkg/f%05d.go", i)
+	}
+	idx := &repoFileIndex{
+		goFilesByDir: map[string][]string{"pkg": files},
+		all:          map[string]struct{}{},
+		goModule:     "example.com/app",
+	}
+	raw := []Fact{{
+		Predicate: "dependency_link",
+		Args:      []any{"cmd/main.go", "pkg:example.com/app/pkg", "example.com/app/pkg"},
+	}}
+	got := resolveDependencyLinksWithIndex(idx, raw)
+	if len(got) != 2*n {
+		t.Fatalf("resolved facts = %d, want %d (edge + file_imports for every file)", len(got), 2*n)
+	}
+	links, imports := 0, 0
+	seenLast := false
+	last := files[n-1]
+	for _, f := range got {
+		switch f.Predicate {
+		case "dependency_link":
+			links++
+			if to, _ := f.Args[1].(string); to == last {
+				seenLast = true
+			}
+		case "file_imports":
+			imports++
+		default:
+			t.Errorf("unexpected predicate %s", f.Predicate)
+		}
+	}
+	if links != n || imports != n {
+		t.Fatalf("dependency_link=%d file_imports=%d, want %d each", links, imports, n)
+	}
+	if !seenLast {
+		t.Fatalf("sorted tail %s was dropped", last)
 	}
 }

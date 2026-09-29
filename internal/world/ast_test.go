@@ -1,6 +1,7 @@
 package world
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +78,44 @@ def standalone_function():
 	}
 
 	t.Logf("Found %d facts", len(facts))
+}
+
+// A class whose base list is longer than the old 100-character signature cut
+// must keep the whole header. The body is not part of the signature slot.
+func TestPythonClassSignature_LongBaseIsWhole(t *testing.T) {
+	base := strings.Repeat("B", 180)
+	src := fmt.Sprintf("class Widget(%s):\n    x = 1\n", base)
+	parser := NewTreeSitterParser()
+	defer parser.Close()
+
+	facts, err := parser.ParsePython("widget.py", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signature string
+	for _, fact := range facts {
+		if fact.Predicate != "symbol_graph" || len(fact.Args) < 5 {
+			continue
+		}
+		id, _ := fact.Args[0].(string)
+		if id != "class:Widget" {
+			continue
+		}
+		signature, _ = fact.Args[4].(string)
+	}
+	if signature == "" {
+		t.Fatal("symbol_graph class:Widget has no signature")
+	}
+	want := "class Widget(" + base + "):"
+	if signature != want {
+		t.Fatalf("signature = %q, want the whole header %q", signature, want)
+	}
+	if strings.Contains(signature, "...") {
+		t.Fatalf("signature was shortened: %s", signature)
+	}
+	if strings.Contains(signature, "x = 1") {
+		t.Fatalf("signature included the body: %s", signature)
+	}
 }
 
 func TestASTParser_ParseRust(t *testing.T) {

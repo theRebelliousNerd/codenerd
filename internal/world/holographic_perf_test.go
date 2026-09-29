@@ -65,15 +65,23 @@ func LowPriority() {
 		t.Errorf("Expected third caller to be LowPriority, got %s", resolved[2].Name)
 	}
 
-	// Verify bodies were fetched
+	// The view is a line span, not a pasted body.
+	wantSpan := map[string][2]int{
+		"HighPriority":   {3, 5},
+		"MediumPriority": {7, 9},
+		"LowPriority":    {11, 13},
+	}
 	for _, c := range resolved {
-		if c.Body == "" {
-			t.Errorf("Expected body for %s, got empty", c.Name)
+		span := wantSpan[c.Name]
+		if c.StartLine != span[0] || c.EndLine != span[1] {
+			t.Errorf("%s span = %d-%d, want %d-%d", c.Name, c.StartLine, c.EndLine, span[0], span[1])
+		}
+		if c.Body != "" {
+			t.Errorf("%s body was pasted (%d bytes); the view is the line span", c.Name, len(c.Body))
 		}
 	}
 
-	// Case 2: Limiting
-	// Create more callers than maxPrioritizedCallers (10)
+	// Case 2: nothing is dropped past the old cap of 10.
 	manyCallers := make([]PrioritizedCaller, 15)
 	for i := range 15 {
 		manyCallers[i] = PrioritizedCaller{
@@ -89,8 +97,13 @@ func LowPriority() {
 		t.Fatalf("ResolvePrioritizedCallers (many) failed: %v", err)
 	}
 
-	if len(resolvedMany) != 10 {
-		t.Errorf("Expected 10 callers (limited), got %d", len(resolvedMany))
+	if len(resolvedMany) != len(manyCallers) {
+		t.Errorf("callers were dropped: got %d, want %d", len(resolvedMany), len(manyCallers))
+	}
+	for _, c := range resolvedMany {
+		if c.StartLine != 3 || c.EndLine != 5 {
+			t.Errorf("HighPriority span = %d-%d, want 3-5", c.StartLine, c.EndLine)
+		}
 	}
 
 	// Verify the top priority ones are kept

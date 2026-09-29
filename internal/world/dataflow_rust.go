@@ -388,28 +388,73 @@ func (ctx *rustExtractionCtx) extractRustTryOperator(n *sitter.Node) {
 		return
 	}
 
-	varName := ""
-	if inner.Type() == "identifier" {
-		varName = ctx.getText(inner)
-	} else if inner.Type() == "call_expression" || inner.Type() == "method_call_expression" {
-		// For call?.method() patterns, extract the call
-		varName = ctx.getText(inner)
-		// Truncate for readability
-		if len(varName) > 30 {
-			varName = varName[:30] + "..."
+	// Identifiers keep the raw "/name" spelling uses/assigns join on.
+	// A call is not a name: rustExprAtom spells the whole expression, and
+	// that spelling already carries the leading '/'. Prefixing it again
+	// would miss the join, and dropping the identifier's '/' would store
+	// the name as a string (ToAtom does that for a MangleAtom with no
+	// slash) so error_checked_return would no longer unify with uses.
+	var checked core.MangleAtom
+	switch inner.Type() {
+	case "identifier":
+		if name := ctx.getText(inner); name != "" {
+			checked = core.MangleAtom("/" + name)
 		}
+	case "call_expression", "method_call_expression":
+		// The ? applies to the call expression, not to a bound name. Spell the
+		// whole expression as one atom: a 30-character cut plus "..." mapped
+		// two different long calls onto one atom, and the cut was not what
+		// made the spelling legal.
+		checked = rustExprAtom(ctx.getText(inner))
 	}
 
-	if varName != "" {
+	if checked != "" {
 		// ? operator is error checked via propagation
 		ctx.emit(core.Fact{
 			Predicate: "error_checked_return",
 			Args: []any{
-				core.MangleAtom("/" + varName),
+				checked,
 				ctx.path,
 				int64(line),
 			},
 		})
+	}
+}
+
+// rustExprAtom spells a Rust expression as a Mangle name constant without
+// shortening it.
+//
+// Name constants are '/' plus [A-Za-z0-9._~%-] (the Mangle CONSTANT token).
+// Every other byte, including '%', is percent-encoded, so the mapping is
+// injective: an expression and the encoding of a different expression cannot
+// land on the same atom, and the atom still parses. Identifiers do not come
+// through here; uses/assigns keep the raw "/name" spelling those facts join on.
+func rustExprAtom(expr string) core.MangleAtom {
+	if expr == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(expr) + 1)
+	b.WriteByte('/')
+	for i := 0; i < len(expr); i++ {
+		c := expr[i]
+		if mangleConstantByte(c) && c != '%' {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return core.MangleAtom(b.String())
+}
+
+func mangleConstantByte(c byte) bool {
+	switch {
+	case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		return true
+	case c == '.' || c == '-' || c == '_' || c == '~' || c == '%':
+		return true
+	default:
+		return false
 	}
 }
 

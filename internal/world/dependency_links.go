@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"codenerd/internal/core"
-	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -41,15 +40,14 @@ import (
 // test_file_for's conservative pairing. Languages whose imports name a single
 // file (Python modules, JS/TS relative specifiers, Rust modules) resolve
 // exactly, one edge per import.
-
-// maxResolvedDependencyLinks bounds the file->file expansion. Package-level
-// fan-out is quadratic-ish (importers x files-in-package): codeNERD itself
-// yields ~46k edges from ~2.1k import statements, and a monorepo an order of
-// magnitude larger would blow past the kernel's 250k EDB ceiling and evict
-// facts that matter more. On overflow the tail is dropped (edges are emitted in
-// sorted order so full and incremental scans drop the SAME tail and stay
-// identical) and a warning names the count.
-const maxResolvedDependencyLinks = 50000
+//
+// There is no local cap on the expansion. This repo is on the order of 46k
+// file->file edges, and a fixed 50_000 used to drop the sorted tail before
+// the kernel saw it: impact rules then under-reported, which is the unsafe
+// direction for a write gate, and the only record was a log line. The kernel's
+// EDB ceiling is core_limits.max_facts_in_kernel, enforced in
+// addFactIfNewLocked, which rejects the fact that does not fit and returns
+// the rejection. That ceiling is the bound.
 
 // repoFileIndex maps the workspace file set into the shapes import resolution
 // needs. Built once per scan; canonical (workspace-relative, slash) paths only.
@@ -169,9 +167,9 @@ func resolveDependencyLinksWithIndex(idx *repoFileIndex, facts []core.Fact) []co
 		}
 	}
 
-	// Sorted so a truncated tail is the same tail on every scanner and every
-	// run; an unstable truncation would make full and incremental scans
-	// disagree about which edges exist.
+	// Sorted so a full scan and an incremental scan emit the same edges in the
+	// same order. Both paths share this function; an unstable order would make
+	// their replace-sets disagree about a fact that both derived.
 	sort.Slice(edges, func(i, j int) bool {
 		if edges[i].from != edges[j].from {
 			return edges[i].from < edges[j].from
@@ -179,17 +177,10 @@ func resolveDependencyLinksWithIndex(idx *repoFileIndex, facts []core.Fact) []co
 		return edges[i].to < edges[j].to
 	})
 
-	if len(edges) > maxResolvedDependencyLinks {
-		logging.WorldWarn("dependency_link resolution truncated: %d edges exceed the %d cap; impact analysis under-reports for the dropped tail",
-			len(edges), maxResolvedDependencyLinks)
-		edges = edges[:maxResolvedDependencyLinks]
-	}
-
 	// file_imports rides the same resolved edge: test_impact.mg joins
 	// file_imports(TestFile, SourceFile) against code_element's file slot,
 	// and this resolution is the single definition of "file imports file" in
-	// the world model. Same edges, same deterministic truncation tail, so
-	// full and incremental scans agree exactly.
+	// the world model. Same edges, so full and incremental scans agree exactly.
 	out := make([]core.Fact, 0, 2*len(edges))
 	for _, e := range edges {
 		out = append(out, core.Fact{

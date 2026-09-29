@@ -342,7 +342,11 @@ def foo() {
 `
 	// Since regex matching doesn't ignore block comments, it will match the first occurrence.
 	// This exposes the limitation.
-	body, err := h.extractFunctionBodyRegex(content, "foo")
+	start, end, err := h.regexFunctionSpan(content, "foo")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	body, err := h.extractLineRange(content, start, end)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -421,12 +425,14 @@ func TestExtractLineRange_HugeFunction(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	lines := strings.Split(result, "\n")
-	if len(lines) > 55 {
-		t.Errorf("Expected truncation, got %d lines", len(lines))
+	if strings.Contains(result, "(truncated)") {
+		t.Fatalf("a long range was cut: %d bytes", len(result))
 	}
-	if !strings.Contains(result, "(truncated)") {
-		t.Error("Expected truncated warning")
+	// Join puts the newline between lines, so the last line has no trailing
+	// newline. 5000 lines, first and last intact, is the whole range.
+	lines := strings.Split(result, "\n")
+	if len(lines) != 5000 || lines[0] != "line 1" || lines[4999] != "line 5000" {
+		t.Fatalf("range did not contain the whole function, lines=%d", len(lines))
 	}
 }
 
@@ -463,8 +469,8 @@ func TestResolvePrioritizedCallers_MassiveFactCount(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if len(resolved) > 10 {
-		t.Errorf("Expected callers to be limited, got %d", len(resolved))
+	if len(resolved) != len(callers) {
+		t.Errorf("callers were dropped: got %d, want %d", len(resolved), len(callers))
 	}
 }
 
@@ -760,20 +766,20 @@ func TestExtractLineRange(t *testing.T) {
 			want:      "line1\nline2\nline3\nline4\nline5",
 		},
 		{
-			name:      "truncation_missing_trailing",
+			name:      "long_range_missing_trailing",
 			content:   strings.Repeat("line\n", 60) + "line61",
 			startLine: 1,
 			endLine:   62,
 			wantErr:   false,
-			want:      strings.Join(strings.Split(strings.Repeat("line\n", 60)+"line61", "\n")[:50], "\n") + "\n// ... (truncated)",
+			want:      strings.Repeat("line\n", 60) + "line61",
 		},
 		{
-			name:      "truncation_present_trailing",
+			name:      "long_range_present_trailing",
 			content:   strings.Repeat("line\n", 60),
 			startLine: 1,
 			endLine:   61,
 			wantErr:   false,
-			want:      strings.Join(strings.Split(strings.Repeat("line\n", 60), "\n")[:50], "\n") + "\n// ... (truncated)",
+			want:      strings.Repeat("line\n", 60),
 		},
 	}
 
@@ -831,7 +837,7 @@ func TestFindFunctionEnd(t *testing.T) {
 				"    return",
 			},
 			startIdx: 0,
-			want:     1, // Falls back to startIdx + maxCallerBodyLines or len-1
+			want:     1, // unclosed: the span runs through the last line
 		},
 
 		{
@@ -1208,4 +1214,115 @@ type EmptyInterface interface{}
 	b, err = json.Marshal(defs[1])
 	require.NoError(t, err)
 	assert.NotContains(t, string(b), `"methods"`, "nil slices with omitempty should not be serialized")
+}
+
+func TestFormatWithPriorities_ListsEveryCallerBySpan(t *testing.T) {
+	callers := make([]PrioritizedCaller, 12)
+	for i := range callers {
+		callers[i] = PrioritizedCaller{
+			Name:      fmt.Sprintf("caller%02d", i),
+			File:      fmt.Sprintf("caller%02d.go", i),
+			StartLine: 3,
+			EndLine:   40 + i,
+			Priority:  10 + i,
+			Depth:     1,
+		}
+	}
+	formatted := (&HolographicContext{PrioritizedCallers: callers, ImpactPriority: 21}).FormatWithPriorities()
+	for _, c := range callers {
+		if !strings.Contains(formatted, c.Name) {
+			t.Errorf("caller %s was not listed", c.Name)
+		}
+		want := fmt.Sprintf("`%s:%d-%d`", c.File, c.StartLine, c.EndLine)
+		if !strings.Contains(formatted, want) {
+			t.Errorf("missing span %s", want)
+		}
+	}
+	if !strings.Contains(formatted, "12 prioritized callers listed; none omitted") {
+		t.Errorf("summary did not say every caller was listed:\n%s", formatted)
+	}
+	if strings.Contains(formatted, "(truncated)") {
+		t.Errorf("span view carried a truncation marker:\n%s", formatted)
+	}
+	if strings.Contains(formatted, "```go") {
+		t.Errorf("span view pasted a body fence:\n%s", formatted)
+	}
+}
+
+func TestFormatWithPriorities_SuppliedBodyIsWhole(t *testing.T) {
+	body := strings.Repeat("line\n", 80) + "// tail-marker\n"
+	formatted := (&HolographicContext{
+		PrioritizedCallers: []PrioritizedCaller{{
+			Name:     "Long",
+			File:     "long.go",
+			Body:     body,
+			Priority: 80,
+			Depth:    1,
+		}},
+	}).FormatWithPriorities()
+	if !strings.Contains(formatted, "// tail-marker") {
+		t.Fatal("a supplied body was not shown whole")
+	}
+	if strings.Contains(formatted, "(truncated)") {
+		t.Fatal("a supplied body was marked truncated")
+	}
+}
+
+func TestCallerView_LongFunctionIsASpanNotAPrefix(t *testing.T) {
+	dir := t.TempDir()
+	var src strings.Builder
+	src.WriteString("package p\n\nfunc Big() {\n")
+	for i := range 80 {
+		fmt.Fprintf(&src, "\t_ = %d\n", i)
+	}
+	src.WriteString("}\n")
+	file := filepath.Join(dir, "big.go")
+	if err := os.WriteFile(file, []byte(src.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHolographicProvider(nil, dir)
+	body, err := h.fetchFunctionBody(file, "Big", newFileContentCache())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "_ = 79") || strings.Contains(body, "(truncated)") {
+		t.Fatalf("fetched body is not the whole function:\n%s", body)
+	}
+
+	resolved, err := h.ResolvePrioritizedCallers(context.Background(), []PrioritizedCaller{{
+		Name: "Big", File: file, Priority: 80, Depth: 1,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved) != 1 {
+		t.Fatalf("resolved %d callers", len(resolved))
+	}
+	// package / blank / func through the closing brace: lines 3-84.
+	if resolved[0].StartLine != 3 || resolved[0].EndLine != 84 {
+		t.Fatalf("span = %d-%d, want 3-84", resolved[0].StartLine, resolved[0].EndLine)
+	}
+	if resolved[0].Body != "" {
+		t.Fatal("resolve pasted the body onto the caller")
+	}
+	formatted := (&HolographicContext{PrioritizedCallers: resolved}).FormatWithPriorities()
+	if !strings.Contains(formatted, fmt.Sprintf("%s:3-84", file)) {
+		t.Fatalf("view did not name the whole span:\n%s", formatted)
+	}
+	if strings.Contains(formatted, "_ = 79") || strings.Contains(formatted, "(truncated)") {
+		t.Fatalf("view pasted or cut the body:\n%s", formatted)
+	}
+}
+
+func TestFindFunctionEnd_UnclosedReachesLastLine(t *testing.T) {
+	h := &HolographicProvider{}
+	lines := make([]string, 81)
+	lines[0] = "func foo() {"
+	for i := 1; i < len(lines); i++ {
+		lines[i] = "x"
+	}
+	if got := h.findFunctionEnd(lines, 0); got != len(lines)-1 {
+		t.Fatalf("unclosed span ended at %d, want the last line %d", got, len(lines)-1)
+	}
 }

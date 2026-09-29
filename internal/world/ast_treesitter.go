@@ -378,10 +378,11 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 			if nameNode != nil {
 				name := getText(nameNode)
 				id := fmt.Sprintf("class:%s", name)
-				signature := getText(n.Child(0))
-				if len(signature) > 100 {
-					signature = signature[:100] + "..."
-				}
+				// The header, body excluded, with no length cut. A 100-character
+				// slice stored "..." in the signature slot, so two long bases
+				// became one symbol_graph fact. The slot is a /string; the
+				// kernel ceiling, not a prefix, bounds how large a fact may be.
+				signature := pythonClassSignature(n, content)
 				visibility := "public"
 				if strings.HasPrefix(name, "_") {
 					visibility = "protected"
@@ -447,6 +448,29 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 	}
 	walk(node)
 	return facts
+}
+
+// pythonClassSignature is the class header, body excluded.
+//
+// symbol_graph's Signature slot is a string. The previous cut kept 100
+// characters and wrote "...", so two classes with a long shared base list
+// stored the same signature. The header is kept whole; the kernel's fact
+// ceiling is what refuses a fact that does not fit.
+func pythonClassSignature(n *sitter.Node, content string) string {
+	if n == nil {
+		return ""
+	}
+	start := int(n.StartByte())
+	end := int(n.EndByte())
+	if body := n.ChildByFieldName("body"); body != nil {
+		if b := int(body.StartByte()); b >= start {
+			end = b
+		}
+	}
+	if start < 0 || end < start || end > len(content) {
+		return ""
+	}
+	return strings.TrimSpace(content[start:end])
 }
 
 // ParseRust parses Rust code using tree-sitter

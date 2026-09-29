@@ -80,12 +80,19 @@ type HolographicContext struct {
 
 // PrioritizedCaller represents a caller function with impact analysis metadata.
 // Used by the impact-aware context builder to provide targeted review context.
+//
+// StartLine and EndLine are the 1-based inclusive span of the function. The
+// model view names that span and does not paste the body: get_element and
+// read_file return it whole. Body is set only when a caller already holds the
+// source; it is never a prefix with a truncation marker.
 type PrioritizedCaller struct {
-	Name     string `json:"name"`     // Function/method name
-	File     string `json:"file"`     // Source file path
-	Body     string `json:"body"`     // Function body (may be truncated)
-	Priority int    `json:"priority"` // Priority from context_priority query (higher = more important)
-	Depth    int    `json:"depth"`    // Distance in call graph (1 = direct caller)
+	Name      string `json:"name"`                 // Function/method name
+	File      string `json:"file"`                 // Source file path
+	Body      string `json:"body,omitempty"`       // Whole function, when a caller supplied it
+	StartLine int    `json:"start_line,omitempty"` // 1-based inclusive
+	EndLine   int    `json:"end_line,omitempty"`   // 1-based inclusive
+	Priority  int    `json:"priority"`             // Priority from context_priority query (higher = more important)
+	Depth     int    `json:"depth"`                // Distance in call graph (1 = direct caller)
 }
 
 // SymbolSignature represents a function or method signature available in package scope.
