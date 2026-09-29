@@ -220,9 +220,11 @@ safe_action(/run_build) :- test_framework(_).
 # the old tables then handed that persona /bash, /run_command and /run_check.
 # Those three are registered and the old rules granted them. The factory never
 # offered them, and the repo contract forbids offering a free-form shell by
-# default, so they are absent here on purpose. Parity is the gate: no verb
-# gains a tool the factory withheld, and every tool the factory offered is
-# named below. persona/1 and verb_has_specialist stay; delegation, campaign
+# default, so bash and run_command are absent here on purpose. run_check is
+# absent from this static envelope too; turn_catalog offers it only when the
+# turn carries a declared campaign check and its persona edits. Parity is the
+# gate: no verb gains a static tool the factory withheld, and every tool the
+# factory offered is named below. persona/1 and verb_has_specialist stay; delegation, campaign
 # and prompt_northstar still read them. They do not decide this catalog.
 #
 # search_expand rides with search_code. search_code elides the matching lines
@@ -352,7 +354,9 @@ persona_envelope(/tool_generator, /core).
 persona_tool_allowed(P, T) :- persona_envelope(P, G), envelope_tool(G, T).
 
 # Coder extras. run_tests is here because the factory offered it; the old
-# persona table did not. bash, run_command and run_check are not.
+# persona table did not. bash and run_command are not. run_check is not a
+# static extra either: turn_catalog offers it only on a turn that carries a
+# declared campaign check and whose persona edits.
 persona_tool_allowed(/coder, /write_file).
 persona_tool_allowed(/coder, /edit_file).
 persona_tool_allowed(/coder, /delete_file).
@@ -504,6 +508,33 @@ turn_tool_allowed(V, T) :-
 turn_tool_allowed(V, T) :-
     user_agent_declared_tool(V, _),
     persona_tool_allowed(/general, T).
+
+# The catalog of ONE turn. turn_tool_allowed is the static envelope.
+# turn_catalog is that envelope for the turn whose turn_verb was asserted,
+# plus run_check when the turn carries a declared campaign check and its
+# persona edits (editing_persona, coder_safety.mg). The executor and the
+# spawner read this one projection. A rule that added run_check to
+# turn_tool_allowed from any turn's turn_declared_check would hand it to
+# every concurrent coder turn.
+#
+# The second rule is the /general floor DeriveTurnTools reads itself when
+# it is called without a turn and verb_has_persona is false. Spawn asserts
+# no user_intent, so the floor above does not fire for it; the floor has to
+# live in this projection or the spawn path would be a second Go query.
+# Verb is bound by turn_verb before the negation.
+Decl turn_catalog(Turn, Tool) bound [/name, /name].
+turn_catalog(Turn, Tool) :-
+    turn_verb(Turn, Verb),
+    turn_tool_allowed(Verb, Tool).
+turn_catalog(Turn, Tool) :-
+    turn_verb(Turn, Verb),
+    persona_tool_allowed(/general, Tool),
+    !verb_has_persona(Verb).
+turn_catalog(Turn, /run_check) :-
+    turn_declared_check(Turn),
+    turn_verb(Turn, Verb),
+    verb_persona(Verb, Persona),
+    editing_persona(Persona).
 
 # =============================================================================
 # SECTION 6: Subagent Spawning

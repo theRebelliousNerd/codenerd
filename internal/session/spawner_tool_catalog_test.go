@@ -38,15 +38,21 @@ func TestSpawnerCatalogFailureFailClosesPromptAndConfig(t *testing.T) {
 	}
 }
 
-// countingKernel delegates to a real kernel and counts turn-catalog reads.
+// countingKernel delegates to a real kernel and counts catalog reads.
+// turn_catalog is the one projection a spawn reads; a turn_tool_allowed
+// query beside it would be a second Go union.
 type countingKernel struct {
 	types.Kernel
 	catalogQueries int
+	staticQueries  int
 }
 
 func (k *countingKernel) Query(q string) ([]types.Fact, error) {
-	if strings.HasPrefix(q, "turn_tool_allowed(") {
+	switch {
+	case strings.HasPrefix(q, "turn_catalog("):
 		k.catalogQueries++
+	case strings.HasPrefix(q, "turn_tool_allowed("):
+		k.staticQueries++
 	}
 	return k.Kernel.Query(q)
 }
@@ -72,8 +78,8 @@ func TestSpawnerDerivesTurnCatalogOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-	if k.catalogQueries != 1 {
-		t.Errorf("spawn issued %d turn_tool_allowed queries, want 1: one derivation feeds prompt and allowlist", k.catalogQueries)
+	if k.catalogQueries != 1 || k.staticQueries != 0 {
+		t.Errorf("spawn issued %d turn_catalog and %d turn_tool_allowed queries, want 1 and 0: one projection feeds prompt and allowlist", k.catalogQueries, k.staticQueries)
 	}
 	allowed := agent.config.EffectiveAgentRuntimeConfig.AllowedTools
 	if len(compiledTools) == 0 || len(allowed) == 0 {

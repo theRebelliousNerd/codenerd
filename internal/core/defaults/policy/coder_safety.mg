@@ -82,7 +82,7 @@ Decl turn_acceptance(Turn, Contract, Snapshot) bound [/name, /string, /string].
 Decl turn_self_reported_incomplete(Turn) bound [/name].
 Decl has_turn_acceptance(Turn) bound [/name].
 # turn_gate is THIS turn's post-edit gate as the session executor measured it
-# (recordBuildState): Gate is /build, /test, /vet, /test_run or /pinned;
+# (recordBuildState): Gate is /build, /test, /vet, /test_run, /pinned or /check;
 # Verdict is /passing or /failing, and only an affirmative verdict is ever
 # asserted. The verdict rules below read the evidence of the turn they judge
 # and nothing else.
@@ -232,6 +232,31 @@ behavior_change_intent(/create).
 behavior_change_intent(/implement).
 turn_owes_gate(Turn, /pinned) :- turn_verb(Turn, Verb), behavior_change_intent(Verb), turn_write_class(Turn, /go).
 
+# A campaign turn whose context carries a declared acceptance check and that
+# wrote owes a run_check that exited 0 after its last write. The executor
+# asserts turn_declared_check from the check on the task context
+# (tools.CampaignCheckFrom); it does not decide who owes the gate.
+# spawnTask attaches that check to every task, including /review, and
+# turn_catalog offers run_check only to an editing persona. A reviewer who
+# wrote must not owe a gate it was never offered the tool to meet. The
+# campaign's own acceptance round stays the authority; this is the turn's
+# evidence that it ran the same judge.
+Decl turn_declared_check(Turn) bound [/name].
+Decl editing_persona(Persona) bound [/name].
+# turn_check_run is the host's receipt of each run_check this turn started
+# (sequence, exit). "Last run since the last write" is the executor's
+# turn_gate(/check), the same place /test_run is decided; no rule recomputes
+# it from these facts.
+Decl turn_check_run(Turn, Seq, ExitCode) bound [/name, /number, /number].
+editing_persona(/coder).
+editing_persona(/tester).
+# Owed exactly when this turn's catalog offered run_check and the turn wrote:
+# the offer (turn_catalog, intent_routing_rules.mg) is the one place that
+# decides who may run the check, so the obligation cannot drift from it.
+turn_owes_gate(Turn, /check) :-
+    turn_catalog(Turn, /run_check),
+    has_turn_written(Turn).
+
 # An owed gate is met by this turn's affirmative verdict and nothing older; a
 # gate that recorded both verdicts is red, so the green one cannot carry it.
 turn_unmet_gate(Turn, Gate) :- turn_owes_gate(Turn, Gate), !turn_gate(Turn, Gate, /passing).
@@ -362,6 +387,8 @@ turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_unm
 turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /test).
 turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test_run).
 turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /test_run).
+turn_missing_evidence(Turn, /check_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /check).
+turn_missing_evidence(Turn, /check_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /check).
 turn_missing_evidence(Turn, /tests_not_written) :- turn_unverified(Turn), turn_has_untested(Turn).
 turn_missing_evidence(Turn, /changed_code_unexecuted) :- turn_unverified(Turn), turn_has_uncovered(Turn).
 turn_missing_evidence(Turn, /vet_not_clean) :- turn_unverified(Turn), turn_vet_red(Turn).

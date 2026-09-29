@@ -156,7 +156,7 @@ func TestTurnCatalog_KernelEnvelope(t *testing.T) {
 		if want == nil {
 			t.Fatalf("persona %s has no envelope", persona)
 		}
-		got, derr := e.turnDerivedTools(verb)
+		got, derr := e.turnDerivedTools(nil, verb)
 		if derr != nil {
 			t.Errorf("%s: %v", verb, derr)
 			continue
@@ -199,12 +199,12 @@ func TestTurnCatalog_KernelEnvelope(t *testing.T) {
 	}
 
 	// Normalization the factory used to do inside GetAtom / ResolveAllowedTools.
-	general, gerr := e.turnDerivedTools("/general")
+	general, gerr := e.turnDerivedTools(nil, "/general")
 	if gerr != nil {
 		t.Fatal(gerr)
 	}
 	for _, verb := range []string{"", "/FIX", "not an atom", "/consult/", "/verb_invented_next_quarter"} {
-		got, derr := e.turnDerivedTools(verb)
+		got, derr := e.turnDerivedTools(nil, verb)
 		if derr != nil {
 			t.Errorf("%q: %v", verb, derr)
 			continue
@@ -222,7 +222,7 @@ func TestTurnCatalog_KernelEnvelope(t *testing.T) {
 // kernel, no envelope, loudly. The caller fail-closes to an empty catalog.
 func TestTurnDerivedTools_NilKernelFailsClosed(t *testing.T) {
 	e := NewExecutor(nil, nil, nil, nil, nil, nil)
-	if _, err := e.turnDerivedTools("/fix"); err == nil {
+	if _, err := e.turnDerivedTools(nil, "/fix"); err == nil {
 		t.Fatal("nil kernel derived tools; want an error (caller fail-closes)")
 	}
 }
@@ -232,7 +232,7 @@ func TestTurnDerivedTools_NilKernelFailsClosed(t *testing.T) {
 // tool, and it is not the /general floor either: the query did not succeed.
 func TestTurnDerivedTools_QueryErrorFailsClosed(t *testing.T) {
 	e := &Executor{kernel: &MockKernel{QueryError: errors.New("kernel unavailable")}}
-	tools, err := e.turnDerivedTools("/fix")
+	tools, err := e.turnDerivedTools(nil, "/fix")
 	if err == nil {
 		t.Fatalf("query error derived %v; want an error", tools)
 	}

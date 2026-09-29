@@ -174,7 +174,7 @@ func TestTurnCatalogSize(t *testing.T) {
 		t.Fatalf("NewRealKernel: %v", err)
 	}
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
-	envelope, err := e.turnDerivedTools("/create")
+	envelope, err := e.turnDerivedTools(nil, "/create")
 	if err != nil {
 		t.Fatalf("turnDerivedTools(/create): %v", err)
 	}

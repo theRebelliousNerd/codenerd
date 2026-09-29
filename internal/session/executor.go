@@ -791,6 +791,20 @@ type ExecutionResult struct {
 	// turn_owes_gate, external audit N01).
 	TestRunSinceLastWrite *tools.TestRun
 
+	// CheckSinceLastWrite is the last campaign acceptance command the tool
+	// layer recorded after this turn's last successful write, or nil when
+	// none has run since it; every successful write resets it. It is the
+	// /check gate's measurement, the same shape as TestRunSinceLastWrite: a
+	// turn that carries a declared check and wrote is verified by a run_check
+	// that exited 0 once it had stopped writing. The campaign's acceptance
+	// round stays the authority; this is the turn's own evidence.
+	CheckSinceLastWrite *tools.AcceptanceRun
+
+	// checkSeq numbers the run_check receipts asserted as turn_check_run.
+	checkSeq int
+	// checkDeclared is set once turn_declared_check is asserted for this turn.
+	checkDeclared bool
+
 	// turn is this turn's key in the kernel (turnAtom), minted on first use:
 	// a forcing round asks the policy what the turn's writes owe before the
 	// closure asserts its verdict, and both ask about the same turn.
@@ -1080,6 +1094,14 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// into the working loop's anchor; the pass's facts leave with the turn.
 	ctx, releaseRetrieval := e.retrieveForTurn(ctx, intentID, input)
 	defer releaseRetrieval()
+
+	// The catalog is one projection, turn_catalog(Turn, Tool): the static
+	// envelope, plus run_check when this context carries a declared campaign
+	// check and the persona edits. Asserted before the compile so the prompt
+	// and the tool loop read the same turn. A precompiled config is not
+	// re-derived; the facts still stand so the /check gate can see the check.
+	e.prepareTurnCatalog(ctx, result, intent.Verb)
+	ctx = withCatalogTurn(ctx, result.turnAtom())
 
 	// 2. ORIENT: Build compilation context from intent + world state
 	compilationCtx := e.buildCompilationContext(ctx, intent)
@@ -1431,12 +1453,15 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 	return cc
 }
 
-// resolveAvailableTools populates cc.AvailableTools with the kernel's
-// turn_tool_allowed envelope BEFORE prompt compilation, so Mangle can gate
-// tool-specific atoms on the same catalog the tool loop will enforce.
-// A precompiled EffectiveAgentRuntimeConfig (subagent injection) wins, and
-// is copied so one turn cannot alias the next. A failed or empty derivation
-// leaves the catalog empty: no tools is not all tools.
+// resolveAvailableTools populates cc.AvailableTools with the kernel's turn
+// catalog BEFORE prompt compilation, so Mangle can gate tool-specific atoms
+// on the same catalog the tool loop will enforce. When the context carries
+// this turn, that catalog is turn_catalog(Turn, Tool); otherwise it is the
+// static turn_tool_allowed envelope. A precompiled
+// EffectiveAgentRuntimeConfig (subagent injection) wins and is not
+// re-derived: the spawner already froze the catalog the prompt was compiled
+// against. It is copied so one turn cannot alias the next. A failed or empty
+// derivation leaves the catalog empty: no tools is not all tools.
 func (e *Executor) resolveAvailableTools(ctx context.Context, cc *prompt.CompilationContext, intent perception.Intent) {
 	if cc == nil {
 		return
@@ -1452,7 +1477,7 @@ func (e *Executor) resolveAvailableTools(ctx context.Context, cc *prompt.Compila
 	if verb == "" {
 		verb = "/general"
 	}
-	tools, err := e.turnDerivedTools(verb)
+	tools, err := e.turnDerivedTools(ctx, verb)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("Tool envelope resolution failed for %q: %v (compiling with empty catalog)", verb, err)
 		cc.AvailableTools = nil
@@ -1494,7 +1519,7 @@ func (e *Executor) compileConfig(ctx context.Context, result *prompt.Compilation
 		}
 		cfg = generated
 	}
-	tools, err := e.turnDerivedTools(intentVerb)
+	tools, err := e.turnDerivedTools(ctx, intentVerb)
 	if err != nil {
 		return nil, err
 	}
@@ -2682,6 +2707,10 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	record("", types.MangleAtom("/test_run"), result.testRunVerdict())
 	// Nor does the pinning gate.
 	record("", types.MangleAtom("/pinned"), result.PinCheck.Verdict())
+	// Nor the campaign acceptance check. Same shape as /test_run: the last
+	// run_check since the last write, decided here rather than recomputed
+	// from the turn_check_run receipts.
+	record("", types.MangleAtom("/check"), result.checkVerdict())
 	// Coverage debt rides with the gates: asserted here, retracted with them.
 	// The corpus withholds turn_verified while any holds and names it as
 	// turn_missing_evidence(Turn, /tests_not_written) or
@@ -2947,6 +2976,8 @@ func missingEvidenceSentence(atom string) string {
 		return "go vet reports problems this turn introduced"
 	case "/test_run_not_green":
 		return "no test run passed after this turn's last write"
+	case "/check_not_green":
+		return "the campaign acceptance check did not pass after this turn's last write"
 	case "/change_not_pinned":
 		return "a change this turn made is pinned by no test it wrote: the tests still pass with the change taken out"
 	case "/self_reported_incomplete":

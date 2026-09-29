@@ -144,6 +144,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// build state their negations read.
 				"turn_evidence", "turn_acceptance", "turn_created_source", "build_state",
 				"turn_created_test", "turn_written", "turn_changed_element", "turn_element_uncovered", "turn_doc_write", "turn_verb",
+				// The campaign check this turn was handed, and each run_check
+				// receipt. turn_owes_gate(/check) and turn_catalog join them
+				// with turn_verb here; a catch-all home would split the join
+				// and the gate would never fire.
+				"turn_declared_check", "turn_check_run",
 				// The turn's own report admitting unfinished work
 				// (session/admission_audit.go), negated by turn_verified.
 				"turn_self_reported_incomplete",

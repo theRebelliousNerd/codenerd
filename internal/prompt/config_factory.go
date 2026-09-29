@@ -167,12 +167,22 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 	return cfg, nil
 }
 
-// DeriveTurnTools is the turn's tool envelope: whatever
-// turn_tool_allowed(Verb, Tool) derives (policy/intent_routing_rules.mg),
-// before a turn's withholdings narrow it. The session executor, the
-// spawner and the prompt tests all call this so they name the same verb
-// the policy does. Prompt cannot import session, which is why it lives
-// here rather than next to the executor.
+// DeriveTurnTools is the turn's tool envelope, before a turn's withholdings
+// narrow it. The session executor, the spawner and the prompt tests all call
+// this so they name the same verb the policy does. Prompt cannot import
+// session, which is why it lives here rather than next to the executor.
+//
+// With no turn (the variadic omitted or empty), the envelope is whatever
+// turn_tool_allowed(Verb, Tool) derives. A verb with no verb_persona fact
+// gets the /general floor: the policy derives that floor from user_intent
+// when a turn has asserted one, and this call reads it itself when
+// verb_has_persona is false, because that caller has not asserted turn_verb.
+//
+// With a turn atom, the envelope is the one projection turn_catalog(Turn, Tool)
+// (intent_routing_rules.mg): the static envelope for that turn, plus run_check
+// when the turn carries a declared campaign check and its persona edits. The
+// caller has already asserted the turn's facts. This does not union a second
+// query, and it does not assert.
 //
 // Only the verb naming happens here, and it mirrors the factory's lookup.
 // An empty verb is /general. /consult/<name> resolves to /<name> (GetAtom).
@@ -181,31 +191,50 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 // contains one. Anything not shaped like a Mangle atom falls back to
 // /general. Which tools a verb gets is the kernel's answer.
 //
-// A verb with no verb_persona fact gets the /general floor. The policy
-// derives that floor from user_intent when a turn has asserted one; the
-// spawner compiles a config without asserting user_intent, so the same
-// floor is read here when verb_has_persona is false. A persona-bearing
-// verb that derives nothing is a broken projection: an empty catalog is
-// not "all tools", and the caller fail-closes.
-func DeriveTurnTools(kernel types.Kernel, verb string) ([]string, error) {
+// A persona-bearing verb that derives nothing is a broken projection: an
+// empty catalog is not "all tools", and the caller fail-closes.
+func DeriveTurnTools(kernel types.Kernel, verb string, turn ...string) ([]string, error) {
 	if kernel == nil {
 		return nil, fmt.Errorf("turn catalog: no kernel to derive the tool envelope from")
 	}
-	verb = canonicalTurnVerb(verb)
-	derived, err := queryTurnTools(kernel, verb)
-	if err != nil {
-		return nil, err
+	if len(turn) > 1 {
+		return nil, fmt.Errorf("turn catalog: at most one turn atom")
 	}
+	if len(turn) == 1 && turn[0] != "" {
+		if !validCatalogTurn(turn[0]) {
+			return nil, fmt.Errorf("turn catalog: %q is not a turn atom", turn[0])
+		}
+		// The predicate is named in Query's argument: the conclusions gate only
+		// counts a read it can see there, and a string built beside the call
+		// is invisible to it.
+		facts, err := kernel.Query(fmt.Sprintf("turn_catalog(%s, Tool)", turn[0]))
+		if err != nil {
+			return nil, fmt.Errorf("turn catalog: turn_catalog(%s, Tool) failed: %w", turn[0], err)
+		}
+		derived := toolsFromQuery(facts)
+		if len(derived) == 0 {
+			return nil, fmt.Errorf("turn catalog: turn_catalog(%s, Tool) derived no tools; the policy projection is missing or broken", turn[0])
+		}
+		slices.Sort(derived)
+		return derived, nil
+	}
+	verb = canonicalTurnVerb(verb)
+	facts, err := kernel.Query(fmt.Sprintf("turn_tool_allowed(%s, Tool)", verb))
+	if err != nil {
+		return nil, fmt.Errorf("turn catalog: turn_tool_allowed(%s, Tool) failed: %w", verb, err)
+	}
+	derived := toolsFromQuery(facts)
 	if len(derived) == 0 {
 		has, herr := kernel.Query(fmt.Sprintf("verb_has_persona(%s)", verb))
 		if herr != nil {
 			return nil, fmt.Errorf("turn catalog: verb_has_persona(%s) failed: %w", verb, herr)
 		}
 		if len(has) == 0 && verb != "/general" {
-			derived, err = queryTurnTools(kernel, "/general")
+			facts, err = kernel.Query("turn_tool_allowed(/general, Tool)")
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("turn catalog: turn_tool_allowed(/general, Tool) failed: %w", err)
 			}
+			derived = toolsFromQuery(facts)
 		}
 		if len(derived) == 0 {
 			return nil, fmt.Errorf("turn catalog: turn_tool_allowed(%s, Tool) derived no tools; the policy projection is missing or broken", verb)
@@ -213,6 +242,13 @@ func DeriveTurnTools(kernel types.Kernel, verb string) ([]string, error) {
 	}
 	slices.Sort(derived)
 	return derived, nil
+}
+
+// CanonicalTurnVerb is the atom a turn_verb fact and a catalog query share.
+// The session asserts it; DeriveTurnTools applies the same normalization
+// when it is asked without a turn.
+func CanonicalTurnVerb(verb string) string {
+	return canonicalTurnVerb(verb)
 }
 
 // canonicalTurnVerb is the atom DeriveTurnTools queries. It is the same
@@ -253,11 +289,29 @@ func queryableIntentVerb(verb string) bool {
 	return true
 }
 
-func queryTurnTools(kernel types.Kernel, verb string) ([]string, error) {
-	facts, err := kernel.Query(fmt.Sprintf("turn_tool_allowed(%s, Tool)", verb))
-	if err != nil {
-		return nil, fmt.Errorf("turn catalog: turn_tool_allowed(%s, Tool) failed: %w", verb, err)
+// validCatalogTurn admits only the atom newTurnAtom mints (/turn_<pid>_<seq>,
+// both decimal). The turn is interpolated into a query, so anything else
+// would turn caller state into a query fragment.
+func validCatalogTurn(turn string) bool {
+	const prefix = "/turn_"
+	if !strings.HasPrefix(turn, prefix) {
+		return false
 	}
+	pid, seq, ok := strings.Cut(turn[len(prefix):], "_")
+	if !ok || pid == "" || seq == "" || strings.Contains(seq, "_") {
+		return false
+	}
+	for _, part := range []string{pid, seq} {
+		for i := 0; i < len(part); i++ {
+			if part[i] < '0' || part[i] > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func toolsFromQuery(facts []types.Fact) []string {
 	seen := make(map[string]struct{}, len(facts))
 	derived := make([]string, 0, len(facts))
 	for _, f := range facts {
@@ -274,7 +328,7 @@ func queryTurnTools(kernel types.Kernel, verb string) ([]string, error) {
 		seen[tool] = struct{}{}
 		derived = append(derived, tool)
 	}
-	return derived, nil
+	return derived
 }
 
 // GenerateFallback creates a minimal config for when JIT compilation fails.

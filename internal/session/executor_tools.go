@@ -980,6 +980,7 @@ func (e *Executor) executeAndRecordToolCall(
 		}
 	}
 	toolCtx, testRuns := tools.WithTestRunLog(ctx)
+	toolCtx, checkRuns := tools.WithAcceptanceRunLog(toolCtx)
 	// A test call that names no packages tests what this turn wrote, the same
 	// packages verifyTests runs after the turn, and not the whole module.
 	toolCtx = tools.WithTestScope(toolCtx, func() []string { return packagesForPaths(result.WrittenPaths) })
@@ -997,6 +998,20 @@ func (e *Executor) executeAndRecordToolCall(
 		last := runs[len(runs)-1]
 		result.TestRunSinceLastWrite = &last
 	}
+	// A run_check is an acceptance command the tool layer started and
+	// recorded (tools.AcceptanceRun). The last one since the last write is
+	// the /check gate; every one is also a turn_check_run receipt. A run
+	// before a write stays in the receipt log and drops out of the gate.
+	if runs := checkRuns(); len(runs) > 0 {
+		last := runs[len(runs)-1]
+		result.CheckSinceLastWrite = &last
+		if e.kernel != nil {
+			for _, run := range runs {
+				result.checkSeq++
+				e.assertTurnCheckRun(result, run.ExitCode)
+			}
+		}
+	}
 	memoryErr := e.recordWorkingResult(ctx, call, out, err)
 	if err != nil {
 		return out, errors.Join(err, memoryErr)
@@ -1007,6 +1022,7 @@ func (e *Executor) executeAndRecordToolCall(
 		result.SuccessfulWriteTools++
 		// A run before this write says nothing about what the write left.
 		result.TestRunSinceLastWrite = nil
+		result.CheckSinceLastWrite = nil
 		if err := recordWrittenPaths(result, call.Input, e.workspaceForVerification()); err != nil {
 			logging.Get(logging.CategorySession).Warn(
 				"successful write %s returned invalid target metadata: %v", call.Name, err)

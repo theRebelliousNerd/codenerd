@@ -297,6 +297,14 @@ var hostWitnessPredicates = map[string]struct{}{
 	// What a behaviour change owes (N22): the turn's intent and the table
 	// of intents that owe /pinned.
 	"turn_verb": {}, "behavior_change_intent": {},
+	// The campaign check a turn was handed (prepareTurnCatalog, from
+	// tools.CampaignCheckFrom) and each run_check receipt. A model that
+	// could write turn_declared_check could offer itself run_check; one
+	// that could write editing_persona could add its persona to the table
+	// that is offered the tool; one that could write turn_catalog could
+	// put a tool on a turn's envelope directly. turn_check_run is the
+	// host's receipt, not the model's.
+	"turn_declared_check": {}, "turn_check_run": {}, "editing_persona": {}, "turn_catalog": {},
 	// The turn's own report admitting unfinished work (Q-14): a model able to
 	// retract or never assert it would decide its own verdict; asserting it
 	// only withholds, but it is the host's reading, not the model's.

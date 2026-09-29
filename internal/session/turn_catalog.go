@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -17,14 +18,19 @@ import (
 const subagentReturnHandlePrefix = "obs:sa:"
 
 // turnDerivedTools resolves the turn's tool envelope from the kernel
-// (prompt.DeriveTurnTools, policy/intent_routing_rules.mg
-// turn_tool_allowed/2), before turnWithheldTools narrows it for the turn
-// at hand. The derivation lives in prompt so the executor, the spawner
-// and the prompt tests share one normalization; prompt cannot import
-// session. A nil kernel fails closed: no tools is not all tools.
-func (e *Executor) turnDerivedTools(verb string) ([]string, error) {
+// (prompt.DeriveTurnTools), before turnWithheldTools narrows it for the
+// turn at hand. A context carrying this turn's atom reads the one
+// projection turn_catalog(Turn, Tool); without one it reads the static
+// turn_tool_allowed envelope, which is what the golden-catalog tests and
+// the prompt package call. The derivation lives in prompt so the executor,
+// the spawner and the prompt tests share one normalization; prompt cannot
+// import session. A nil kernel fails closed: no tools is not all tools.
+func (e *Executor) turnDerivedTools(ctx context.Context, verb string) ([]string, error) {
 	if e == nil || e.kernel == nil {
 		return nil, fmt.Errorf("turn catalog: no kernel to derive the tool envelope from")
+	}
+	if turn, ok := catalogTurnFrom(ctx); ok {
+		return prompt.DeriveTurnTools(e.kernel, verb, string(turn))
 	}
 	return prompt.DeriveTurnTools(e.kernel, verb)
 }

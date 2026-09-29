@@ -31,10 +31,9 @@ func codedomCoreRequires(t *testing.T) []string {
 }
 
 // The spawner's compile must see the tools the subagent is handed.
-// generateConfig derives the turn catalog from the kernel AFTER compiling,
-// so compilationCtx.AvailableTools is empty at selection time and the
-// requires_tools gate strips every tool-gated atom (all the CodeDOM
-// guidance) from a subagent that is then handed exactly those tools.
+// generateConfig derives the turn catalog once and feeds that slice to
+// both the compile and AllowedTools, so a requires_tools gate (the CodeDOM
+// guidance) is not stripped from a prompt for tools the subagent holds.
 func TestSpawnerFixPromptCompiledAgainstItsTools(t *testing.T) {
 	k, err := core.NewRealKernel()
 	if err != nil {

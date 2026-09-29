@@ -702,7 +702,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	// One derivation feeds both the prompt and cfg.AllowedTools below; a
 	// failed derivation fail-closes both (no tools, and the prompt compiled
 	// against none). No tools is not all tools.
-	tools, derr := prompt.DeriveTurnTools(s.kernel, intentVerb)
+	tools, derr := s.deriveSpawnTools(ctx, intentVerb)
 	if derr != nil {
 		logging.Get(logging.CategorySession).Warn("turn catalog: %v; spawned config has no tools", derr)
 		tools = nil

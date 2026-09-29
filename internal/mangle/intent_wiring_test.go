@@ -26,6 +26,9 @@ func TestIntentWiring(t *testing.T) {
 Decl file_contains(FilePath, Pattern).
 Decl file_imports(Importer, Imported).
 Decl file_dir(Path, Dir).
+Decl turn_verb(Turn, Verb).
+Decl turn_declared_check(Turn).
+Decl editing_persona(Persona).
 Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message).
 Decl pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message).
 # Mock Schema Declarations
@@ -215,6 +218,9 @@ func TestGroundedWebSearchRouting(t *testing.T) {
 Decl file_contains(FilePath, Pattern).
 Decl file_imports(Importer, Imported).
 Decl file_dir(Path, Dir).
+Decl turn_verb(Turn, Verb).
+Decl turn_declared_check(Turn).
+Decl editing_persona(Persona).
 Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message).
 Decl pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message).
 Decl user_intent(ID, Category, Verb, Target, Constraint).
