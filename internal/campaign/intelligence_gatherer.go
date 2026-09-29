@@ -179,8 +179,8 @@ type IntelligenceReport struct {
 	HolographicSections []HolographicSection `json:"holographic_sections,omitempty"`
 	// HolographicUnread are target paths gather stopped before rendering.
 	// A path the provider returned empty for is not listed: there was no
-	// section to withhold. FormatForContext names each path and the tools
-	// that read it.
+	// section to withhold. formatIntelligenceContext names each path and the
+	// tools that read it.
 	HolographicUnread []string `json:"holographic_unread,omitempty"`
 
 	// Safety: Constitutional pre-check

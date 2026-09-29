@@ -48,7 +48,7 @@ func TestGatherHolographicContext_ReachesTheReport(t *testing.T) {
 	}
 
 	// And it must reach the prompt, not just the struct.
-	formatted := report.FormatForContext()
+	formatted := formatIntelligenceContext(report)
 	if !strings.Contains(formatted, "## Target Architecture") {
 		t.Fatalf("holographic context is gathered but never rendered:\n%s", formatted)
 	}
@@ -59,7 +59,7 @@ func TestGatherHolographicContext_ReachesTheReport(t *testing.T) {
 
 // TestGatherHolographicContext_RendersEveryTarget pins the old silent cap.
 // Five used to be kept and the rest dropped with no name. Every target that
-// the provider can describe is gathered, and FormatForContext shows each
+// the provider can describe is gathered, and the planning formatter shows each
 // section whole.
 func TestGatherHolographicContext_RendersEveryTarget(t *testing.T) {
 	dir := t.TempDir()
@@ -86,7 +86,7 @@ func TestGatherHolographicContext_RendersEveryTarget(t *testing.T) {
 	if len(report.HolographicUnread) != 0 {
 		t.Fatalf("complete gather left targets unread: %v", report.HolographicUnread)
 	}
-	formatted := report.FormatForContext()
+	formatted := formatIntelligenceContext(report)
 	if strings.Contains(formatted, "### Not rendered") {
 		t.Fatalf("complete gather named a withheld target:\n%s", formatted)
 	}
@@ -103,9 +103,9 @@ func TestGatherHolographicContext_RendersEveryTarget(t *testing.T) {
 	}
 }
 
-// TestFormatForContext_HolographicSectionWhole pins the old 4096-character cut.
+// TestFormatIntelligenceContext_HolographicSectionWhole pins the old 4096-character cut.
 // The tail sits past that bound; a truncateField slice would drop it.
-func TestFormatForContext_HolographicSectionWhole(t *testing.T) {
+func TestFormatIntelligenceContext_HolographicSectionWhole(t *testing.T) {
 	const oldCap = 4096
 	body := strings.Repeat("architecture-line\n", (oldCap/len("architecture-line\n"))+40)
 	body += "HOLO_TAIL_MARKER"
@@ -119,7 +119,7 @@ func TestFormatForContext_HolographicSectionWhole(t *testing.T) {
 			Section: body,
 		}},
 	}
-	formatted := report.FormatForContext()
+	formatted := formatIntelligenceContext(report)
 	if !strings.Contains(formatted, body) {
 		t.Fatalf("formatted report cut a %d-byte holographic section (deleted cap was %d)", len(body), oldCap)
 	}
@@ -189,7 +189,7 @@ func TestGatherHolographicContext_Cancellation(t *testing.T) {
 	if len(report.HolographicUnread) != len(paths) {
 		t.Fatalf("unread = %v, want %v", report.HolographicUnread, paths)
 	}
-	formatted := report.FormatForContext()
+	formatted := formatIntelligenceContext(report)
 	for _, path := range paths {
 		if !strings.Contains(errs[0], path) {
 			t.Errorf("error does not name left-out target %s: %q", path, errs[0])

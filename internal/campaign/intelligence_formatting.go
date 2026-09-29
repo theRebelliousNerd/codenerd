@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -20,7 +21,7 @@ func holographicUnreadLine(path string) string {
 
 // holographicCancelled is the operator-facing record of a gather that stopped
 // before every target was rendered. The same paths are named on the report,
-// because GatheringErrors is not what FormatForContext shows the model.
+// because GatheringErrors is not what formatIntelligenceContext shows the model.
 func holographicCancelled(rendered, total int, err error, unread []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "holographic context cancelled after %d/%d targets: %v", rendered, total, err)
@@ -31,23 +32,33 @@ func holographicCancelled(rendered, total int, err error, unread []string) strin
 	return b.String()
 }
 
-// FormatForContext formats the intelligence report for LLM context injection.
-func (r *IntelligenceReport) FormatForContext() string {
+// formatIntelligenceContext is the planning prompt's rendering of an intelligence
+// report. buildPlanProposalContext is the production caller.
+//
+// A second formatter used to render a different section set, and it was the
+// only one that carried holographic context, so the planner never saw the
+// campaign's targets. This is the union: every section the planning prompt
+// already injected, plus the codebase overview, target architecture, advisory
+// summary, coverage gaps, and architecture hints the other one rendered.
+func formatIntelligenceContext(intel *IntelligenceReport) string {
+	if intel == nil {
+		return ""
+	}
+
 	var sb strings.Builder
+	sb.WriteString("INTELLIGENCE REPORT (from 12 systems):\n\n")
+	sb.WriteString(fmt.Sprintf("Gathered: %s (took %v)\n\n", intel.GatheredAt.Format(time.RFC3339), intel.Duration))
 
-	sb.WriteString("# INTELLIGENCE REPORT\n\n")
-	sb.WriteString(fmt.Sprintf("Gathered: %s (took %v)\n\n", r.GatheredAt.Format(time.RFC3339), r.Duration))
-
-	// Codebase Overview
 	sb.WriteString("## Codebase Overview\n")
-	sb.WriteString(fmt.Sprintf("- Files scanned: %d\n", len(r.FileTopology)))
-	sb.WriteString(fmt.Sprintf("- Symbols indexed: %d\n", len(r.SymbolGraph)))
-	if len(r.LanguageBreakdown) > 0 {
+	sb.WriteString(fmt.Sprintf("- Files scanned: %d\n", len(intel.FileTopology)))
+	sb.WriteString(fmt.Sprintf("- Symbols indexed: %d\n", len(intel.SymbolGraph)))
+	if len(intel.LanguageBreakdown) > 0 {
 		sb.WriteString("- Languages: ")
-		langs := make([]string, 0, len(r.LanguageBreakdown))
-		for lang, count := range r.LanguageBreakdown {
+		langs := make([]string, 0, len(intel.LanguageBreakdown))
+		for lang, count := range intel.LanguageBreakdown {
 			langs = append(langs, fmt.Sprintf("%s (%d)", lang, count))
 		}
+		sort.Strings(langs)
 		sb.WriteString(strings.Join(langs, ", ") + "\n")
 	}
 	sb.WriteString("\n")
@@ -58,15 +69,15 @@ func (r *IntelligenceReport) FormatForContext() string {
 	// Each section is written whole — a character cap here would cut prose the
 	// model reads. Paths gather stopped before rendering are named with the
 	// tools that read them; a path that produced no section is not a withheld one.
-	if len(r.HolographicSections) > 0 || len(r.HolographicUnread) > 0 {
+	if len(intel.HolographicSections) > 0 || len(intel.HolographicUnread) > 0 {
 		sb.WriteString("## Target Architecture\n\n")
-		for _, hs := range r.HolographicSections {
+		for _, hs := range intel.HolographicSections {
 			sb.WriteString(hs.Section)
 			sb.WriteString("\n")
 		}
-		if len(r.HolographicUnread) > 0 {
+		if len(intel.HolographicUnread) > 0 {
 			sb.WriteString("### Not rendered\n\n")
-			for _, path := range r.HolographicUnread {
+			for _, path := range intel.HolographicUnread {
 				sb.WriteString("- ")
 				sb.WriteString(holographicUnreadLine(path))
 				sb.WriteString("\n")
@@ -75,86 +86,133 @@ func (r *IntelligenceReport) FormatForContext() string {
 		}
 	}
 
-	// High Churn Files (Chesterton's Fence)
-	if len(r.GitChurnHotspots) > 0 {
-		sb.WriteString("## High Churn Files (Chesterton's Fence)\n")
-		sb.WriteString("⚠️ These files change frequently. Understand WHY before modifying.\n\n")
-		for i, h := range r.GitChurnHotspots {
-			if i >= 10 {
-				sb.WriteString(fmt.Sprintf("... and %d more\n", len(r.GitChurnHotspots)-10))
-				break
+	// Churn hotspots (Chesterton's Fence). Every hotspot is named. Stopping
+	// at 10 and appending "and N more" left files the planner could not name.
+	// Gather already keeps at most MaxChurnHotspots.
+	if len(intel.GitChurnHotspots) > 0 {
+		sb.WriteString("## HIGH-CHURN FILES (Chesterton's Fence - understand before modifying)\n")
+		for _, ch := range intel.GitChurnHotspots {
+			sb.WriteString(fmt.Sprintf("- %s: %d changes (%s)\n", ch.Path, ch.ChurnRate, ch.Reason))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Historical patterns. Confidence >= 0.5 is the live selection rule, not a
+	// count cap: lower-confidence patterns were never injected into the plan.
+	if len(intel.HistoricalPatterns) > 0 {
+		sb.WriteString("## LEARNED PATTERNS (from previous sessions)\n")
+		for _, lp := range intel.HistoricalPatterns {
+			if lp.Confidence >= 0.5 {
+				sb.WriteString(fmt.Sprintf("- [%s] %s (%.0f%% confidence)\n", lp.ShardType, lp.Description, lp.Confidence*100))
 			}
-			sb.WriteString(fmt.Sprintf("- `%s`: %d changes\n", h.Path, h.ChurnRate))
 		}
 		sb.WriteString("\n")
 	}
 
-	// Historical Patterns
-	if len(r.HistoricalPatterns) > 0 {
-		sb.WriteString("## Learned Patterns\n")
-		for i, p := range r.HistoricalPatterns {
-			if i >= 10 {
-				break
+	if len(intel.SafetyWarnings) > 0 {
+		sb.WriteString("## SAFETY WARNINGS (constitutional pre-check)\n")
+		for _, sw := range intel.SafetyWarnings {
+			sb.WriteString(fmt.Sprintf("- %s on %s: blocked by rule '%s'\n", sw.Action, sw.Path, sw.RuleViolated))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Every tool is named with its description whole. A 15-tool cap hid tools
+	// the planner would then treat as missing. Gather already keeps at most
+	// MaxMCPTools. Descriptions are not passed through truncateField.
+	if len(intel.MCPToolsAvailable) > 0 {
+		sb.WriteString("## AVAILABLE TOOLS (from MCP servers)\n")
+		for _, mt := range intel.MCPToolsAvailable {
+			sb.WriteString(fmt.Sprintf("- %s: %s\n", mt.Name, mt.Description))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(intel.ToolGaps) > 0 {
+		sb.WriteString("## TOOL GAPS (capabilities needed but not available)\n")
+		for _, tg := range intel.ToolGaps {
+			sb.WriteString(fmt.Sprintf("- %s: %s (confidence: %.0f%%)\n", tg.Name, tg.Purpose, tg.Confidence*100))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Shard advice at confidence >= 0.6 is the live selection rule.
+	if len(intel.ShardAdvice) > 0 {
+		sb.WriteString("## EXPERT RECOMMENDATIONS\n")
+		for _, sa := range intel.ShardAdvice {
+			if sa.Confidence >= 0.6 {
+				sb.WriteString(fmt.Sprintf("### %s (%.0f%% confidence)\n%s\n\n", sa.FromSpec, sa.Confidence*100, sa.Advice))
 			}
-			sb.WriteString(fmt.Sprintf("- %s (%.0f%% confidence)\n", p.Description, p.Confidence*100))
 		}
+	}
+
+	// AdvisorySummary is written whole. Gather already digests each response;
+	// cutting the digest again dropped text the planner cannot re-read.
+	if intel.AdvisorySummary != "" {
+		sb.WriteString(intel.AdvisorySummary)
 		sb.WriteString("\n")
 	}
 
-	// Safety Warnings
-	if len(r.SafetyWarnings) > 0 {
-		sb.WriteString("## ⚠️ Safety Warnings\n")
-		for _, w := range r.SafetyWarnings {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s (severity: %s)\n", w.Action, w.RuleViolated, w.Severity))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Available Tools
-	if len(r.MCPToolsAvailable) > 0 {
-		sb.WriteString("## Available MCP Tools\n")
-		for i, t := range r.MCPToolsAvailable {
-			if i >= 10 {
-				sb.WriteString(fmt.Sprintf("... and %d more tools\n", len(r.MCPToolsAvailable)-10))
-				break
+	if len(intel.TestCoverage) > 0 {
+		sb.WriteString("## TEST COVERAGE (by path)\n")
+		lowCoverage := make([]string, 0)
+		for path, cov := range intel.TestCoverage {
+			if cov < 0.5 {
+				lowCoverage = append(lowCoverage, fmt.Sprintf("- %s: %.0f%%", path, cov*100))
 			}
-			sb.WriteString(fmt.Sprintf("- `%s`: %s\n", t.Name, truncateField(t.Description, 2048)))
+		}
+		// TestCoverage is a map: sorted so the prompt is byte-stable across runs.
+		sort.Strings(lowCoverage)
+		if len(lowCoverage) > 0 {
+			sb.WriteString("Low coverage areas:\n")
+			for _, lc := range lowCoverage {
+				sb.WriteString(lc + "\n")
+			}
+		} else {
+			sb.WriteString("All areas have adequate test coverage.\n")
 		}
 		sb.WriteString("\n")
 	}
 
-	// Tool Gaps
-	if len(r.ToolGaps) > 0 {
-		sb.WriteString("## Tool Gaps Detected\n")
-		for _, g := range r.ToolGaps {
-			sb.WriteString(fmt.Sprintf("- %s: %s (confidence: %.0f%%)\n", g.Name, g.Purpose, g.Confidence*100))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Expert Advice
-	if r.AdvisorySummary != "" {
-		sb.WriteString(truncateField(r.AdvisorySummary, 8192))
-		sb.WriteString("\n")
-	}
-
-	// Test Coverage
-	if len(r.UncoveredPaths) > 0 {
+	if len(intel.UncoveredPaths) > 0 {
 		sb.WriteString("## Test Coverage Gaps\n")
-		for i, p := range r.UncoveredPaths {
-			if i >= 10 {
-				break
-			}
+		for _, p := range intel.UncoveredPaths {
 			sb.WriteString(fmt.Sprintf("- %s\n", p))
 		}
 		sb.WriteString("\n")
 	}
 
-	// Architecture Hints
-	if len(r.ArchitectureHints) > 0 {
+	if len(intel.CodePatterns) > 0 {
+		sb.WriteString("## DETECTED CODE PATTERNS\n")
+		for _, cp := range intel.CodePatterns {
+			files := ""
+			if len(cp.Files) > 0 {
+				files = strings.Join(cp.Files, ", ")
+			}
+			sb.WriteString(fmt.Sprintf("- %s in %s\n", cp.Name, files))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(intel.ArchitectureHints) > 0 {
 		sb.WriteString("## Architecture Hints\n")
-		for _, h := range r.ArchitectureHints {
+		for _, h := range intel.ArchitectureHints {
 			sb.WriteString(fmt.Sprintf("- %s\n", h))
+		}
+		sb.WriteString("\n")
+	}
+
+	// The goal is the identity of the prior campaign, so it is written whole.
+	// A fixed prefix cannot be recovered. The list itself is already bounded
+	// at gather by MaxPreviousCampaigns.
+	if len(intel.PreviousCampaigns) > 0 {
+		sb.WriteString("## RELEVANT PREVIOUS CAMPAIGNS\n")
+		for _, ca := range intel.PreviousCampaigns {
+			status := fmt.Sprintf("failed (%.0f%%)", ca.SuccessRate*100)
+			if ca.SuccessRate > 0.5 {
+				status = fmt.Sprintf("succeeded (%.0f%%)", ca.SuccessRate*100)
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %s - %s\n", ca.CampaignID, ca.Goal, status))
 		}
 		sb.WriteString("\n")
 	}

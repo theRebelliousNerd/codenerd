@@ -160,7 +160,7 @@ func (d *Decomposer) buildPlanProposalContext(ctx context.Context, campaignID st
 
 	// Add intelligence report context (from Step 0)
 	if d.lastIntelligence != nil {
-		intelContext := d.formatIntelligenceContext(d.lastIntelligence)
+		intelContext := formatIntelligenceContext(d.lastIntelligence)
 		if intelContext != "" {
 			contextBuilder.WriteString(intelContext)
 			contextBuilder.WriteString("\n")

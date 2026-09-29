@@ -206,8 +206,8 @@ func TestIntelligenceGatherer_ParseFloatArg_StringFallback(t *testing.T) {
 // =============================================================================
 
 func TestIntelligenceReport_FormatForContext_MassiveFields(t *testing.T) {
-	// Verify that massive text fields in the report are safely truncated
-	// and don't cause OOM during FormatForContext.
+	// Advisory text and MCP descriptions are rendered whole. A 50KB field
+	// used to be cut by truncateField; the planner then could not read it.
 	massive := strings.Repeat("A", 50000) // 50KB string
 
 	report := &IntelligenceReport{
@@ -223,19 +223,12 @@ func TestIntelligenceReport_FormatForContext_MassiveFields(t *testing.T) {
 		},
 	}
 
-	formatted := report.FormatForContext()
+	formatted := formatIntelligenceContext(report)
 	if formatted == "" {
-		t.Fatal("FormatForContext should not return empty string")
+		t.Fatal("formatIntelligenceContext should not return empty string")
 	}
-
-	// The massive advisory summary should be truncated
-	if strings.Contains(formatted, massive) {
-		t.Error("FormatForContext should truncate massive advisory summary")
-	}
-
-	// Tool description should be truncated
-	if len(formatted) > 100000 {
-		t.Errorf("FormatForContext output too large: %d bytes (expected <100KB)", len(formatted))
+	if strings.Count(formatted, massive) < 2 {
+		t.Fatalf("advisory summary and MCP description must both be whole, count=%d len=%d", strings.Count(formatted, massive), len(formatted))
 	}
 }
 
@@ -307,10 +300,10 @@ func TestIntelligenceGatherer_Concurrency_NoRace(t *testing.T) {
 			if report == nil {
 				t.Error("concurrent Gather returned nil report")
 			}
-			// Exercise FormatForContext concurrently too
-			formatted := report.FormatForContext()
+			// Exercise the planning formatter concurrently too
+			formatted := formatIntelligenceContext(report)
 			if formatted == "" {
-				t.Error("FormatForContext returned empty in concurrent execution")
+				t.Error("formatIntelligenceContext returned empty in concurrent execution")
 			}
 		})
 	}

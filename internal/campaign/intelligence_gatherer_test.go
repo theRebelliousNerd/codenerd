@@ -183,11 +183,11 @@ func TestIntelligenceReport_FormatForContext(t *testing.T) {
 		ArchitectureHints: []string{"Standard Go project"},
 	}
 
-	formatted := report.FormatForContext()
+	formatted := formatIntelligenceContext(report)
 
 	// Check that key sections are present
 	if formatted == "" {
-		t.Fatal("FormatForContext should not return empty string")
+		t.Fatal("formatIntelligenceContext should not return empty string")
 	}
 	if !strings.Contains(formatted, "INTELLIGENCE REPORT") {
 		t.Error("should contain INTELLIGENCE REPORT header")
@@ -195,17 +195,23 @@ func TestIntelligenceReport_FormatForContext(t *testing.T) {
 	if !strings.Contains(formatted, "Codebase Overview") {
 		t.Error("should contain Codebase Overview")
 	}
-	if !strings.Contains(formatted, "High Churn Files") {
-		t.Error("should contain High Churn Files section")
+	if !strings.Contains(formatted, "HIGH-CHURN FILES") {
+		t.Error("should contain HIGH-CHURN FILES section")
 	}
 	if !strings.Contains(formatted, "hot.go") {
 		t.Error("should contain hot.go churn hotspot")
 	}
-	if !strings.Contains(formatted, "Safety Warnings") {
-		t.Error("should contain Safety Warnings")
+	if !strings.Contains(formatted, "SAFETY WARNINGS") {
+		t.Error("should contain SAFETY WARNINGS")
+	}
+	if !strings.Contains(formatted, "dangerous_pattern") {
+		t.Error("should contain the safety rule")
 	}
 	if !strings.Contains(formatted, "Architecture Hints") {
 		t.Error("should contain Architecture Hints")
+	}
+	if !strings.Contains(formatted, "uncovered.go") {
+		t.Error("should contain uncovered.go")
 	}
 }
 
