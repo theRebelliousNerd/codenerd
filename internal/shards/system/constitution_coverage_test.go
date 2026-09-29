@@ -716,14 +716,15 @@ func TestBuildLegislatorSemanticQuery_WhenEmpty_ShouldReturnEmpty(t *testing.T) 
 	}
 }
 
-func TestBuildLegislatorSemanticQuery_WhenLong_ShouldTruncate(t *testing.T) {
+func TestBuildLegislatorSemanticQuery_WhenLong_ShouldReturnWhole(t *testing.T) {
 	var long strings.Builder
 	for range 700 {
 		long.WriteString("a")
 	}
 	result := buildLegislatorSemanticQuery(long.String())
-	if len(result) > 600 {
-		t.Errorf("result len = %d, should be truncated to 600", len(result))
+	want := "mangle rule " + long.String()
+	if result != want {
+		t.Errorf("result len = %d, want the whole %d-char query; the tail must reach retrieval", len(result), len(want))
 	}
 }
 

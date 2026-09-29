@@ -68,10 +68,13 @@ type WorldModelConfig struct {
 	ExcludePatterns []string // File patterns to exclude
 
 	// Performance
-	TickInterval       time.Duration // How often to scan for changes
-	MaxFilesPerScan    int           // Limit files per tick
-	HashOnlyLargeFiles bool          // Skip content analysis for large files
-	LargeFileThreshold int64         // Bytes threshold for "large"
+	TickInterval time.Duration // How often to scan for changes
+	// MaxFilesPerScan bounds the changed files processed per tick. Files past
+	// the cap keep their stale entries and are picked up on the next tick, so
+	// the cap defers work instead of dropping it. Non-positive means unbounded.
+	MaxFilesPerScan    int
+	HashOnlyLargeFiles bool  // Skip content analysis for large files
+	LargeFileThreshold int64 // Bytes threshold for "large"
 
 	// Features
 	EnableSymbolGraph  bool // Parse AST for symbols
@@ -410,15 +413,11 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 // performIncrementalScan checks for changes since last scan.
 func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) error {
 	changedFiles := 0
+	deferredFiles := 0
 	batchFacts := make([]types.Fact, 0)
 
 	err := filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
-			return nil
-		}
-
-		// Limit files per scan
-		if changedFiles >= w.config.MaxFilesPerScan {
 			return nil
 		}
 
@@ -446,6 +445,15 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 
 		// Check if file changed
 		if exists && existing.LastModified.Equal(info.ModTime()) {
+			return nil
+		}
+
+		// Bounded work per tick: past the cap the file is counted as
+		// deferred, not processed and not forgotten — its entry stays
+		// stale, so the next tick picks it up. The count is checked after
+		// the change test so unchanged files never consume the budget.
+		if w.config.MaxFilesPerScan > 0 && changedFiles >= w.config.MaxFilesPerScan {
+			deferredFiles++
 			return nil
 		}
 
@@ -495,6 +503,13 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 
 	if err != nil {
 		return err
+	}
+
+	// The remainder is deferred, not dropped: every file counted here kept a
+	// stale entry, so the next tick's change test still sees it as changed.
+	if deferredFiles > 0 {
+		logging.SystemShardsDebug("[WorldModel] incremental scan deferred %d changed files past MaxFilesPerScan=%d; the next tick picks them up",
+			deferredFiles, w.config.MaxFilesPerScan)
 	}
 
 	// Persist all facts to knowledge.db in one batch after the scan

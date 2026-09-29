@@ -112,8 +112,8 @@ func TestCacheKey_SeparatesQuestionAndContext(t *testing.T) {
 
 // finalizeMatches sorts score-descending with a name tiebreak: scores are
 // quantized weight sums, so ties are common, and the input map iterates
-// randomly — without the tiebreak, truncation at MaxSpecialists would keep a
-// different specialist from run to run.
+// randomly — without the tiebreak the executive would see a different order
+// from run to run. Every qualifying match is returned; nothing is cut.
 func TestFinalizeMatches_TiebreakDeterministic(t *testing.T) {
 	mk := func(name string, score float64) *SpecialistMatch {
 		return &SpecialistMatch{AgentName: name, Score: score}
@@ -124,10 +124,16 @@ func TestFinalizeMatches_TiebreakDeterministic(t *testing.T) {
 		"c": mk("c", 0.7),
 		"d": mk("d", 0.9),
 	}
+	want := []string{"a", "b", "d", "c"}
 	for i := 0; i < 10; i++ {
-		got := finalizeMatches(in, 2)
-		if len(got) != 2 || got[0].AgentName != "a" || got[1].AgentName != "b" {
-			t.Fatalf("run %d: got %v, want [a b]", i, got)
+		got := finalizeMatches(in)
+		if len(got) != len(want) {
+			t.Fatalf("run %d: got %d matches %v, want all %d in order %v", i, len(got), got, len(want), want)
+		}
+		for j, w := range want {
+			if got[j].AgentName != w {
+				t.Fatalf("run %d: got %v, want %v", i, got, want)
+			}
 		}
 	}
 }

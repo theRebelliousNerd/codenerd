@@ -697,6 +697,19 @@ func (m *MangleRepairShard) checkInfiniteLoopRisk(rule string) []string {
 	return errors
 }
 
+// formatSelectedPredicate renders one predicate reference line for the repair
+// prompt. The description passes whole: a 50-rune cut hid the argument gloss
+// the model needs to use the predicate correctly, and the selector already
+// bounds how many predicates are injected.
+func formatSelectedPredicate(p prompt.SelectedPredicate) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("- `%s/%d`", p.Name, p.Arity))
+	if p.Description != "" {
+		sb.WriteString(fmt.Sprintf(" - %s", p.Description))
+	}
+	return sb.String()
+}
+
 // buildRepairPrompt builds a prompt for LLM repair.
 // Uses PredicateSelector to inject only ~60 relevant predicates instead of all 799.
 func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corpus *core.PredicateCorpus, lastResponse, lastParseErr string) string {
@@ -734,7 +747,9 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 		if lastResponse != "" {
 			sb.WriteString("Previous output (invalid):\n")
 			sb.WriteString("```text\n")
-			sb.WriteString(truncateForLog(lastResponse, 800))
+			// The invalid output passes whole: the model repairs it, and a
+			// cut at 800 bytes hid the exact syntax it must not repeat.
+			sb.WriteString(lastResponse)
 			sb.WriteString("\n```\n")
 		}
 		sb.WriteString("\n")
@@ -764,14 +779,7 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 			for domain, preds := range byDomain {
 				sb.WriteString(fmt.Sprintf("### %s\n", domain))
 				for _, p := range preds {
-					sb.WriteString(fmt.Sprintf("- `%s/%d`", p.Name, p.Arity))
-					if p.Description != "" {
-						desc := p.Description
-						if len(desc) > 50 {
-							desc = desc[:50] + "..."
-						}
-						sb.WriteString(fmt.Sprintf(" - %s", desc))
-					}
+					sb.WriteString(formatSelectedPredicate(p))
 					sb.WriteString("\n")
 				}
 				sb.WriteString("\n")

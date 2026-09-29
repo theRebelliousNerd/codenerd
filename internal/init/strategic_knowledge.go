@@ -494,13 +494,13 @@ func (i *Initializer) analyzeDocBatch(ctx context.Context, batch []DocumentInfo)
 		// Build analysis prompt
 		var docList strings.Builder
 		for idx, doc := range batch {
-			// Include path, title, and first 500 chars as preview
-			preview := doc.Content
-			if len(preview) > 500 {
-				preview = preview[:500] + "..."
-			}
-			docList.WriteString(fmt.Sprintf("\n[%d] %s\nTitle: %s\nSize: %d bytes\nPreview:\n%s\n---\n",
-				idx, doc.Path, doc.Title, doc.Size, preview))
+			// Include path, title, and the whole content: a 500-char
+			// preview misclassified documents whose architecture signal
+			// sits past byte 500. Same include-all stance as
+			// buildRelevantDocContent; the size line stays so the
+			// judgement sees how much it was given.
+			docList.WriteString(fmt.Sprintf("\n[%d] %s\nTitle: %s\nSize: %d bytes\nContent:\n%s\n---\n",
+				idx, doc.Path, doc.Title, doc.Size, doc.Content))
 		}
 
 		prompt := fmt.Sprintf(`You are analyzing documentation files to determine which are strategically relevant for understanding a codebase.

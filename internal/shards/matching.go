@@ -308,13 +308,14 @@ func ShouldSpecialistExecuteTask(name string, confidence float64) bool {
 
 // VerbSpecialistConfig defines which specialists are relevant for each verb.
 // The coordination topology for a verb is execution_mode in
-// policy/delegation.mg. This struct is the matcher: confidence, patterns,
-// and how many specialists to keep.
+// policy/delegation.mg. This struct is the matcher: confidence and patterns.
+// It deliberately carries no count cap: every qualifying match reaches the
+// executive, which asserts them as specialist_match facts and lets policy
+// (specialist_should_execute) pick. Go measures, Mangle selects.
 type VerbSpecialistConfig struct {
 	MinConfidence   float64  // Minimum score to include a specialist
 	PreferPatterns  []string // Prefer these technology patterns for this verb
 	ExcludePatterns []string // Exclude these patterns for this verb
-	MaxSpecialists  int      // Maximum number of specialists to match
 	IncludeGeneric  bool     // Whether to include the generic shard too
 }
 
@@ -322,42 +323,35 @@ type VerbSpecialistConfig struct {
 var DefaultVerbConfigs = map[string]VerbSpecialistConfig{
 	"/review": {
 		MinConfidence:  0.3,
-		MaxSpecialists: 3,
 		IncludeGeneric: true,
 	},
 	"/fix": {
 		MinConfidence:   0.4,
-		MaxSpecialists:  2,
 		IncludeGeneric:  true,
 		PreferPatterns:  []string{"golang", "react", "sql", "security"},
 		ExcludePatterns: []string{"testing"},
 	},
 	"/refactor": {
 		MinConfidence:  0.35,
-		MaxSpecialists: 2,
 		IncludeGeneric: true,
 		PreferPatterns: []string{"golang", "react", "concurrency", "api"},
 	},
 	"/create": {
 		MinConfidence:  0.35,
-		MaxSpecialists: 2,
 		IncludeGeneric: true,
 	},
 	"/test": {
 		MinConfidence:  0.4,
-		MaxSpecialists: 2,
 		IncludeGeneric: true,
 		PreferPatterns: []string{"testing", "golang", "react"},
 	},
 	"/debug": {
 		MinConfidence:  0.4,
-		MaxSpecialists: 2,
 		IncludeGeneric: true,
 		PreferPatterns: []string{"concurrency", "security", "api"},
 	},
 	"/security": {
 		MinConfidence:  0.3,
-		MaxSpecialists: 3,
 		IncludeGeneric: true,
 		PreferPatterns: []string{"security", "api", "sql"},
 	},
@@ -425,7 +419,7 @@ func MatchSpecialistsForTask(ctx context.Context, verb string, files []string, r
 		}
 	}
 
-	return finalizeMatches(agentMatches, config.MaxSpecialists)
+	return finalizeMatches(agentMatches)
 }
 
 // getAvailableAgents builds a set of available agents from the registry for quick lookup.
@@ -550,8 +544,11 @@ func updateAgentMatch(agentMatches map[string]*SpecialistMatch, agentLower strin
 	}
 }
 
-// finalizeMatches normalizes, sorts, and truncates the matched specialists.
-func finalizeMatches(agentMatches map[string]*SpecialistMatch, maxSpecialists int) []SpecialistMatch {
+// finalizeMatches normalizes and sorts the matched specialists. Every
+// qualifying match is returned: cutting the list to N here silently withheld
+// eligible specialists from the executive, which asserts all matches as
+// specialist_match facts and lets policy pick.
+func finalizeMatches(agentMatches map[string]*SpecialistMatch) []SpecialistMatch {
 	// Convert to slice and normalize score
 	var matches []SpecialistMatch
 	for _, m := range agentMatches {
@@ -563,8 +560,8 @@ func finalizeMatches(agentMatches map[string]*SpecialistMatch, maxSpecialists in
 
 	// Sort by score descending, agent name ascending on ties. Scores are
 	// quantized sums (0.3/0.4/0.5 weights), so ties are common — and the
-	// input map iterates randomly, so an untied sort would truncate a
-	// different specialist from run to run at MaxSpecialists.
+	// input map iterates randomly, so an untied sort would hand the
+	// executive a different order from run to run.
 	slices.SortStableFunc(matches, func(a, b SpecialistMatch) int {
 		if a.Score != b.Score {
 			if a.Score > b.Score {
@@ -574,11 +571,6 @@ func finalizeMatches(agentMatches map[string]*SpecialistMatch, maxSpecialists in
 		}
 		return strings.Compare(a.AgentName, b.AgentName)
 	})
-
-	// Limit to max specialists
-	if maxSpecialists > 0 && len(matches) > maxSpecialists {
-		matches = matches[:maxSpecialists]
-	}
 
 	return matches
 }

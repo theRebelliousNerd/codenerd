@@ -288,7 +288,7 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 				logging.Get(logging.CategoryKernel).Warn("Startup validation: %s", errMsg)
 
 				if heal {
-					emitHealed("# SELF-HEALED: syntax error: " + syntaxErr.Error())
+					emitHealed(healMarkerLine("syntax error: ", syntaxErr.Error()))
 				} else {
 					emitRaw()
 				}
@@ -345,7 +345,7 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 			logging.Get(logging.CategoryKernel).Warn("Startup validation: %s", errMsg)
 
 			if heal {
-				emitHealed("# SELF-HEALED: malformed statement: " + syntaxErr.Error())
+				emitHealed(healMarkerLine("malformed statement: ", syntaxErr.Error()))
 			} else {
 				emitRaw()
 			}
@@ -586,39 +586,18 @@ func (k *RealKernel) GetSchemas() string {
 }
 
 // checkSyntax attempts to parse a single Mangle rule/fact to validate syntax.
-// Returns nil if syntax is valid, error otherwise.
+// Returns nil if syntax is valid, the full parse error otherwise: location
+// and detail reach the self-healing loop and the operator uncut. Callers that
+// embed the message in the healed file sanitize it with healMarkerLine, which
+// keeps every error line inside a comment instead of cutting the diagnostic.
 func checkSyntax(ruleText string) error {
-	// Wrap in minimal program context for parsing
-	programText := ruleText
+	_, err := parseUnit(strings.NewReader(ruleText))
+	return err
+}
 
-	// Try parsing
-	_, err := parseUnit(strings.NewReader(programText))
-	if err != nil {
-		// CRITICAL: Return ONLY the first line of error to prevent multi-line
-		// error messages from corrupting the healed file.
-		errStr := err.Error()
-
-		// Take only first line
-		if idx := strings.Index(errStr, "\n"); idx > 0 {
-			errStr = errStr[:idx]
-		}
-
-		// Strip line/column prefix (e.g., "1:7 ") since we're parsing single rules
-		if idx := strings.Index(errStr, " "); idx > 0 {
-			if strings.Contains(errStr[:idx], ":") {
-				parts := strings.SplitN(errStr, " ", 2)
-				if len(parts) > 1 {
-					errStr = parts[1]
-				}
-			}
-		}
-
-		// Truncate to avoid extremely long error messages
-		if len(errStr) > 100 {
-			errStr = errStr[:100] + "..."
-		}
-
-		return fmt.Errorf("%s", errStr)
-	}
-	return nil
+// healMarkerLine builds a "# SELF-HEALED: ..." marker whose detail may span
+// lines: every continuation line is comment-prefixed, so a multi-line error
+// cannot leak uncommented text into the healed file.
+func healMarkerLine(prefix, detail string) string {
+	return "# SELF-HEALED: " + prefix + strings.ReplaceAll(detail, "\n", "\n# ")
 }

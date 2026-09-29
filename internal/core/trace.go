@@ -38,7 +38,7 @@ func (k *RealKernel) TraceQuery(ctx context.Context, query string) (*mangle.Deri
 			Timestamp: time.Now(), // approximate
 		}
 
-		node := k.buildDerivationNode(ctx, mangleFact, "", 0)
+		node := k.buildDerivationNode(ctx, mangleFact, "", 0, make(map[string]bool))
 		trace.RootNodes = append(trace.RootNodes, node)
 		trace.AllNodes = append(trace.AllNodes, k.flattenTree(node)...)
 	}
@@ -48,8 +48,30 @@ func (k *RealKernel) TraceQuery(ctx context.Context, query string) (*mangle.Deri
 	return trace, nil
 }
 
-// buildDerivationNode recursively builds the proof tree for a fact.
-func (k *RealKernel) buildDerivationNode(ctx context.Context, fact mangle.Fact, parentID string, depth int) *mangle.DerivationNode {
+// maxTraceDepth bounds proof-tree recursion. Recursive rules resolve their
+// premises through a first-argument heuristic that can walk a cycle (rule A's
+// premises mention rule B whose premises mention rule A again), so without a
+// backstop the trace would recurse until the stack gives out. Cycle detection
+// below terminates true repeats; this stays as the guard for pathological
+// premise fans. A capped node is marked, never silently cut.
+const maxTraceDepth = 10
+
+const (
+	// traceDepthNote rides on RuleName — the only node field both
+	// renderers print — when premises exist but were not expanded
+	// because the trace hit maxTraceDepth.
+	traceDepthNote = " (chain continues past depth limit)"
+	// traceCycleNote marks a premise that repeats a fact already on the
+	// current path: the full expansion sits at the ancestor occurrence.
+	traceCycleNote = " (cycle: expanded above)"
+)
+
+// buildDerivationNode recursively builds the proof tree for a fact. visited
+// holds the facts on the current path, so a premise that repeats one is a
+// cycle and is attached as a marked leaf instead of recursing forever. The
+// set is path-scoped (entries are removed on unwind), so a premise shared by
+// two branches still renders fully under each.
+func (k *RealKernel) buildDerivationNode(ctx context.Context, fact mangle.Fact, parentID string, depth int, visited map[string]bool) *mangle.DerivationNode {
 	// Generate a simple unique ID
 	nodeID := fmt.Sprintf("node_%d_%d", time.Now().UnixNano(), depth)
 
@@ -68,10 +90,26 @@ func (k *RealKernel) buildDerivationNode(ctx context.Context, fact mangle.Fact, 
 	node.RuleName = ruleName
 
 	// Recursively find premises if it is a derived fact
-	if source == mangle.SourceIDB && depth < 10 { // Depth limit to prevent cycles
+	if source == mangle.SourceIDB {
+		key := fact.String()
+		if visited[key] {
+			node.RuleName += traceCycleNote
+			return node
+		}
 		premises := k.findPremises(ctx, fact, ruleName)
+		if len(premises) == 0 {
+			return node
+		}
+		if depth >= maxTraceDepth {
+			// Guard tripped with premises still to show: say so on the
+			// node instead of rendering a leaf that reads as complete.
+			node.RuleName += traceDepthNote
+			return node
+		}
+		visited[key] = true
+		defer delete(visited, key)
 		for _, premise := range premises {
-			child := k.buildDerivationNode(ctx, premise, nodeID, depth+1)
+			child := k.buildDerivationNode(ctx, premise, nodeID, depth+1, visited)
 			node.Children = append(node.Children, child)
 		}
 	}

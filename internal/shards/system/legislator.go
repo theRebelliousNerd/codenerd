@@ -418,16 +418,19 @@ func (l *LegislatorShard) getSystemPrompt(ctx context.Context, directive string)
 	return jitPrompt
 }
 
+// buildLegislatorSemanticQuery prefixes the directive for the JIT prompt-atom
+// vector search. The directive passes whole: nothing between here and the
+// model bounds the query input (EmbedQuery forwards it verbatim to
+// engine.Embed, and the sibling query paths UserIntent.Target and tool_purpose
+// already embed unbounded text), so the old 600-char prefix only silently
+// dropped the tail of long constraints from retrieval. A query a provider
+// refuses degrades to lexical search at the call site instead.
 func buildLegislatorSemanticQuery(directive string) string {
 	directive = strings.TrimSpace(directive)
 	if directive == "" {
 		return ""
 	}
-	query := "mangle rule " + directive
-	if len(query) > 600 {
-		query = query[:600]
-	}
-	return query
+	return "mangle rule " + directive
 }
 
 // buildLegislatorPrompt constructs the user prompt for directive compilation.

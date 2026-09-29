@@ -466,6 +466,32 @@ func chunkDocument(content string, maxChars int) []string {
 	return chunks
 }
 
+// buildAtomsSummary groups stored atoms by concept category and formats them
+// for the synthesis prompt. Atom content passes whole: a 200-char cut fed the
+// synthesis model truncated context for every long insight.
+func buildAtomsSummary(atoms []store.KnowledgeAtom) (string, map[string][]string) {
+	categories := make(map[string][]string)
+	for _, atom := range atoms {
+		parts := strings.SplitN(atom.Concept, "/", 3)
+		category := "other"
+		if len(parts) >= 2 {
+			category = parts[1] // e.g., "architecture", "philosophy"
+		}
+		categories[category] = append(categories[category], atom.Content)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## Extracted Knowledge Atoms\n\n")
+	for category, contents := range categories {
+		sb.WriteString(fmt.Sprintf("### %s\n", category))
+		for _, content := range contents {
+			sb.WriteString(fmt.Sprintf("- %s\n", content))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String(), categories
+}
+
 // SynthesizeFromStoredAtoms performs a second pass over stored knowledge atoms
 // to create the final strategic knowledge synthesis.
 func (i *Initializer) SynthesizeFromStoredAtoms(
@@ -488,30 +514,7 @@ func (i *Initializer) SynthesizeFromStoredAtoms(
 	}
 
 	// Build synthesis context from stored atoms
-	var atomsSummary strings.Builder
-	atomsSummary.WriteString("## Extracted Knowledge Atoms\n\n")
-
-	// Group atoms by concept category
-	categories := make(map[string][]string)
-	for _, atom := range atoms {
-		parts := strings.SplitN(atom.Concept, "/", 3)
-		category := "other"
-		if len(parts) >= 2 {
-			category = parts[1] // e.g., "architecture", "philosophy"
-		}
-		categories[category] = append(categories[category], atom.Content)
-	}
-
-	for category, contents := range categories {
-		atomsSummary.WriteString(fmt.Sprintf("### %s\n", category))
-		for _, content := range contents {
-			if len(content) > 200 {
-				content = content[:200] + "..."
-			}
-			atomsSummary.WriteString(fmt.Sprintf("- %s\n", content))
-		}
-		atomsSummary.WriteString("\n")
-	}
+	atomsSummary, categories := buildAtomsSummary(atoms)
 
 	// Synthesis prompt
 	prompt := fmt.Sprintf(`You are synthesizing extracted knowledge into strategic understanding.
@@ -549,7 +552,7 @@ Respond with JSON matching this structure:
   "learning_mechanisms": ["mechanism 1", ...],
   "future_directions": ["direction 1", ...]
 }
-`, state.TotalProcessed, len(atoms), keysFromMap(categories), atomsSummary.String())
+`, state.TotalProcessed, len(atoms), keysFromMap(categories), atomsSummary)
 
 	// Use grounded completion if available
 	var response string
