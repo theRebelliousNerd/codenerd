@@ -158,6 +158,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// The edit sites a brief names, beside turn_verb:
 				// turn_needs_step_plan (turn_steps.mg) joins the two.
 				"turn_brief_site",
+				// What each planned step's pass measured (turn_steps.mg).
+				// step_next_action and the coverage join read them; a
+				// catch-all home would split that join and the commit
+				// retry would never fire.
+				"step_execution", "step_no_change_evidence", "step_retried",
 				// A repair episode's attempts (repair_episode.mg), with the
 				// turn facts they are cleaned up with.
 				"repair_attempt",

@@ -221,6 +221,9 @@ func TestRunToolLoop_PlannedSteps_RunsEachStepAsItsOwnPass(t *testing.T) {
 	if !anyContains(client.anchors, "create a.txt and b.txt") {
 		t.Fatalf("the task itself must be in every anchor; anchors: %q", client.anchors)
 	}
+	if n := commitRetryAnchors(client.anchors); n != 0 {
+		t.Fatalf("commit-regime retries = %d, want none when every step wrote; anchors: %q", n, client.anchors)
+	}
 }
 
 // A step whose first pass only read gets one more pass with reading closed:
@@ -262,6 +265,9 @@ func TestRunToolLoop_PlannedSteps_RetriesAStepThatMadeNoEditWithReadingClosed(t 
 	if !closed {
 		t.Fatalf("no pass was offered a catalog without the read tool; catalogs: %v", client.catalogs)
 	}
+	if n := commitRetryAnchors(client.anchors); n != 1 {
+		t.Fatalf("commit-regime retries = %d, want exactly one; anchors: %q", n, client.anchors)
+	}
 }
 
 // A step that makes no edit in either pass is reported and fails the turn,
@@ -293,6 +299,9 @@ func TestRunToolLoop_PlannedSteps_ReportsAStepThatNeverEdited(t *testing.T) {
 	if wrapped := wrapToolLoopError(err); !errors.Is(wrapped, ErrStepsIncomplete) || strings.HasPrefix(wrapped.Error(), "LLM generation failed") {
 		t.Fatalf("the turn must surface the incomplete plan as itself, got %v", wrapped)
 	}
+	if n := commitRetryAnchors(client.anchors); n != 1 {
+		t.Fatalf("commit-regime retries = %d, want exactly one for the step that never wrote; anchors: %q", n, client.anchors)
+	}
 }
 
 // A step whose condition does not hold is reported, not failed: the model
@@ -323,6 +332,9 @@ func TestRunToolLoop_PlannedSteps_AStepThatNeedsNoChangeIsReportedNotFailed(t *t
 	if !strings.Contains(result.StepReport, "[2] b.txt :: create it — edited") {
 		t.Fatalf("report = %q", result.StepReport)
 	}
+	if n := commitRetryAnchors(client.anchors); n != 1 {
+		t.Fatalf("commit-regime retries = %d, want exactly one before the no-change evidence; anchors: %q", n, client.anchors)
+	}
 }
 
 // A NO CHANGE NEEDED line without evidence still fails: the step made no
@@ -342,6 +354,9 @@ func TestRunToolLoop_PlannedSteps_NoChangeWithoutEvidenceStillFails(t *testing.T
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if !errors.Is(err, ErrStepsIncomplete) {
 		t.Fatalf("err = %v, want ErrStepsIncomplete", err)
+	}
+	if n := commitRetryAnchors(client.anchors); n != 1 {
+		t.Fatalf("commit-regime retries = %d, want exactly one; anchors: %q", n, client.anchors)
 	}
 }
 
@@ -403,8 +418,24 @@ func TestRunToolLoop_PlannedSteps_AStepOnAFileAlreadyEditedIsNotAFailure(t *test
 	if !strings.Contains(result.StepReport, "[2] a.txt :: add the import it needs — no edit (file edited in step 1)") {
 		t.Fatalf("report = %q", result.StepReport)
 	}
-	if !anyContains(client.anchors, "This step's first pass made no edit. Reading is closed") {
-		t.Fatalf("the covered step must still have been given its second pass; anchors: %q", client.anchors)
+	if n := commitRetryAnchors(client.anchors); n != 1 {
+		t.Fatalf("commit-regime retries = %d, want exactly one for the step whose file was already edited; anchors: %q", n, client.anchors)
+	}
+}
+
+// A turn that reaches planned steps with no kernel cannot decide the retry
+// or the verdict in Go. Production does not: planTurnSteps asks
+// briefNeedsStepPlan, which is false without a kernel, so runToolLoop never
+// calls this.
+func TestRunPlannedSteps_NoKernelDoesNotDecide(t *testing.T) {
+	e := &Executor{}
+	_, _, err := e.runPlannedSteps(context.Background(), "system", "task",
+		[]workStep{{File: "a.txt", Change: "one"}, {File: "b.txt", Change: "two"}},
+		&config.EffectiveAgentRuntimeConfig{},
+		&prompt.CompilationContext{},
+		&ExecutionResult{})
+	if err == nil || errors.Is(err, ErrStepsIncomplete) {
+		t.Fatalf("err = %v, want a refusal to decide, not a Go completeness verdict", err)
 	}
 }
 
@@ -473,12 +504,13 @@ func TestRunToolLoop_PlannedSteps_OnlyForChangeTasksWithAWriteTool(t *testing.T)
 // closing sentence, so a task run in steps is described by the ledger and
 // not by whatever the last pass claimed.
 func TestWorkStepReport_ListsEveryStep(t *testing.T) {
+	// CoveredBy is the coverage join's answer, read back before the report.
+	// Which step covers which is turn_steps.mg, not this formatter.
 	steps := []workStep{
 		{File: "a.go", Change: "add the field", Edited: true, Calls: 3, Note: "Added the field.\nmore"},
 		{File: "b.go", Change: "call it", Edited: false, Calls: 9, Note: "task unresolved: read_only_stall"},
-		{File: "a.go", Change: "add the import", Edited: false, Calls: 2},
+		{File: "a.go", Change: "add the import", Edited: false, Calls: 2, CoveredBy: 1},
 	}
-	markCoveredSteps(steps)
 	got := workStepReport(steps)
 	for _, want := range []string{
 		"Planned steps: 3, edited: 1.",
@@ -493,9 +525,23 @@ func TestWorkStepReport_ListsEveryStep(t *testing.T) {
 	if strings.Contains(got, "more") {
 		t.Errorf("only the first line of a note belongs in the report:\n%s", got)
 	}
-	if missing := unfinishedSteps(steps); len(missing) != 1 || missing[0] != "[2] b.go" {
-		t.Errorf("unfinished = %v, want only the file no step edited", missing)
+}
+
+// commitRetryAnchors counts entries into the commit regime. One entry is
+// several anchors: the tool loop re-sends the same step anchor on every
+// model round of that pass (the write, then the closing sentence).
+func commitRetryAnchors(anchors []string) int {
+	const marker = "This step's first pass made no edit. Reading is closed"
+	n := 0
+	inRetry := false
+	for _, a := range anchors {
+		hit := strings.Contains(a, marker)
+		if hit && !inRetry {
+			n++
+		}
+		inRetry = hit
 	}
+	return n
 }
 
 // planRetryClient fails the first failFirst planning calls with a timeout

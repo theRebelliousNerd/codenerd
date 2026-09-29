@@ -344,6 +344,15 @@ var hostWitnessPredicates = map[string]struct{}{
 	// What the planner is spent on: the sites the host measured in the
 	// brief, and the conclusion drawn from them.
 	"turn_brief_site": {}, "turn_brief_site_count": {}, "turn_needs_step_plan": {},
+	// Planned-step retry and completeness (turn_steps.mg). A model that
+	// could write the pass's writes could skip the commit retry or close a
+	// step it never edited; one that could write the projections or the
+	// verdict could declare the plan complete.
+	"step_execution": {}, "step_no_change_evidence": {}, "step_retried": {},
+	"step_cover_candidate": {}, "step_file_covered": {},
+	"step_has_retried": {}, "step_has_no_change": {}, "step_has_cover": {},
+	"step_unresolved": {}, "step_next_action": {},
+	"turn_has_step": {}, "turn_has_unresolved_step": {}, "turn_steps_verdict": {},
 	// What a repair episode does next (repair_episode.mg): a model that
 	// could write repair_attempt could keep its own episode alive.
 	"repair_attempt": {}, "repair_attempt_count": {}, "repair_exhausted": {}, "repair_not_converging": {},

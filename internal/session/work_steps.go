@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -25,10 +26,13 @@ import (
 // names one file and one line lands in a handful of tool calls. So the
 // executive divides the task once, up front, and runs each step as its own
 // narrow pass with the file named, the way a repair round already runs: the
-// model plans, the harness sequences. A step that makes no edit gets one more
-// pass with reading closed; a step that still makes none is reported, and
-// the turn fails rather than claiming the task. A step may instead conclude,
-// with evidence, that its change is not needed, and that is reported, not failed.
+// model plans, the harness sequences. A step that makes no edit is asked once
+// more, under the commit regime, when turn_steps.mg derives
+// step_next_action(/retry_commit); a step that policy leaves unresolved is
+// reported and the turn fails rather than claiming the task. A step may
+// instead conclude, with evidence, that its change is not needed: Go reads
+// the "NO CHANGE NEEDED:" marker and the policy counts that evidence as
+// covering the step, so it is reported, not failed.
 
 // ErrStepsIncomplete marks a planned task some of whose steps made no edit.
 // Wrapped so errors.Is can tell it from a provider failure.
@@ -46,6 +50,7 @@ Rules: one step per file region the task says to change; keep the task's own num
 // this one made no edit: a planner that splits an import out of the change
 // that needs it produces a step the first pass has already done, and that
 // is not a missed edit. Zero when the step edited or nothing covers it.
+// The number is step_file_covered's, read back for the report.
 type workStep struct {
 	File      string
 	Change    string
@@ -286,35 +291,182 @@ func workStepAnchor(task string, steps []workStep, current int, retry bool) stri
 	return b.String()
 }
 
-// markCoveredSteps records, for every step that made no edit, the earliest
-// step that edited the same file. The task's guarantee is per file: every
-// file the plan names was edited, whichever of its steps did it.
-func markCoveredSteps(steps []workStep) {
-	for i := range steps {
-		if steps[i].Edited {
-			continue
-		}
-		for j := range steps {
-			if j != i && steps[j].Edited && steps[j].File == steps[i].File {
-				steps[i].CoveredBy = j + 1
-				break
-			}
-		}
+// nthArg returns args[i] when i is in range. The index is a call argument so
+// the executive-literal budget does not see an arity check as a knob.
+func nthArg(args []any, i int) (any, bool) {
+	if i < 0 || i >= len(args) {
+		return nil, false
 	}
+	return args[i], true
 }
 
-// unfinishedSteps are the steps whose file no step edited.
-func unfinishedSteps(steps []workStep) []string {
-	var missing []string
-	for i, s := range steps {
-		if s.NoChange != "" {
+func factTurn(f types.Fact) string {
+	arg, ok := nthArg(f.Args, 0)
+	if !ok {
+		return ""
+	}
+	return types.ExtractString(arg)
+}
+
+func factNumber(f types.Fact, i int) (int64, bool) {
+	arg, ok := nthArg(f.Args, i)
+	if !ok {
+		return 0, false
+	}
+	return types.ExtractInt64(arg)
+}
+
+// dropTurnFacts removes this turn's recorded facts that match, so a replaced
+// step_execution row is not retracted again by its stale copy at cleanup.
+func (e *Executor) dropTurnFacts(match func(types.Fact) bool) []types.Fact {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var dropped []types.Fact
+	kept := make([]types.Fact, 0, len(e.turnFacts))
+	for _, fact := range e.turnFacts {
+		if match(fact) {
+			dropped = append(dropped, fact)
 			continue
 		}
-		if !s.Edited && s.CoveredBy == 0 {
-			missing = append(missing, fmt.Sprintf("[%d] %s", i+1, s.File))
+		kept = append(kept, fact)
+	}
+	e.turnFacts = kept
+	return dropped
+}
+
+func (e *Executor) rememberTurnFacts(facts []types.Fact) {
+	if len(facts) == 0 {
+		return
+	}
+	e.mu.Lock()
+	e.turnFacts = append(e.turnFacts, facts...)
+	e.mu.Unlock()
+}
+
+// recordStepPass asserts step_execution for one step, replacing the row a
+// first pass left behind. The policy reads that one row: a stale zero-write
+// row beside the retry's writes would still be an unresolved step.
+func (e *Executor) recordStepPass(turn types.MangleAtom, step int, file string, writes, calls int) error {
+	dropped := e.dropTurnFacts(func(f types.Fact) bool {
+		n, ok := factNumber(f, 1)
+		return f.Predicate == "step_execution" && factTurn(f) == string(turn) && ok && n == int64(step)
+	})
+	if len(dropped) > 0 {
+		if err := e.kernel.RetractExactFactsBatch(dropped); err != nil {
+			e.rememberTurnFacts(dropped)
+			return fmt.Errorf("retract step_execution: %w", err)
 		}
 	}
-	return missing
+	fact := types.Fact{Predicate: "step_execution", Args: []any{
+		turn, int64(step), types.MangleString(file), int64(writes), int64(calls),
+	}}
+	if !e.assertTurnFact(fact) {
+		return fmt.Errorf("assert step_execution failed")
+	}
+	return nil
+}
+
+// stepCommitRetry is the policy's answer after a pass was recorded:
+// step_next_action(/retry_commit) when that pass wrote nothing and the
+// commit retry has not been spent. A failed query is not a retry — deciding
+// one here would be a second copy of the rule.
+func (e *Executor) stepCommitRetry(turn types.MangleAtom, step int) (bool, error) {
+	rows, err := e.kernel.Query("step_next_action")
+	if err != nil {
+		return false, fmt.Errorf("step_next_action: %w", err)
+	}
+	for _, f := range rows {
+		if factTurn(f) != string(turn) {
+			continue
+		}
+		n, ok := factNumber(f, 1)
+		action, actionOK := nthArg(f.Args, 2)
+		if !ok || !actionOK || n != int64(step) {
+			continue
+		}
+		if types.ExtractString(action) == "/retry_commit" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// derivedStepOutcome reads the coverage join back onto the steps, for the
+// report, and the plan's verdict. missing names each unresolved step the way
+// the incomplete-plan error states it. The rules are turn_steps.mg.
+func (e *Executor) derivedStepOutcome(turn types.MangleAtom, steps []workStep) (verdict string, missing []string, err error) {
+	covered, err := e.kernel.Query("step_file_covered")
+	if err != nil {
+		return "", nil, fmt.Errorf("step_file_covered: %w", err)
+	}
+	for _, f := range covered {
+		if factTurn(f) != string(turn) {
+			continue
+		}
+		stepN, okStep := factNumber(f, 1)
+		by, okBy := factNumber(f, 2)
+		if !okStep || !okBy {
+			continue
+		}
+		idx := int(stepN) - 1
+		if idx < 0 || idx >= len(steps) {
+			continue
+		}
+		steps[idx].CoveredBy = int(by)
+	}
+	unresolved, err := e.kernel.Query("step_unresolved")
+	if err != nil {
+		return "", nil, fmt.Errorf("step_unresolved: %w", err)
+	}
+	var gaps []struct {
+		n    int64
+		file string
+	}
+	for _, f := range unresolved {
+		if factTurn(f) != string(turn) {
+			continue
+		}
+		n, ok := factNumber(f, 1)
+		file, fileOK := nthArg(f.Args, 2)
+		if !ok || !fileOK {
+			continue
+		}
+		gaps = append(gaps, struct {
+			n    int64
+			file string
+		}{n, types.ExtractString(file)})
+	}
+	sort.Slice(gaps, func(i, j int) bool { return gaps[i].n < gaps[j].n })
+	for _, g := range gaps {
+		missing = append(missing, fmt.Sprintf("[%d] %s", g.n, g.file))
+	}
+	verdicts, err := e.kernel.Query("turn_steps_verdict")
+	if err != nil {
+		return "", nil, fmt.Errorf("turn_steps_verdict: %w", err)
+	}
+	var sawComplete, sawIncomplete bool
+	for _, f := range verdicts {
+		if factTurn(f) != string(turn) {
+			continue
+		}
+		v, ok := nthArg(f.Args, 1)
+		if !ok {
+			continue
+		}
+		switch types.ExtractString(v) {
+		case "/incomplete":
+			sawIncomplete = true
+		case "/complete":
+			sawComplete = true
+		}
+	}
+	switch {
+	case sawIncomplete:
+		verdict = "/incomplete"
+	case sawComplete:
+		verdict = "/complete"
+	}
+	return verdict, missing, nil
 }
 
 // workStepReport is the ledger the turn surfaces: every step, whether it
@@ -500,9 +652,10 @@ func (e *Executor) stepSystemPrompt(
 }
 
 // runPlannedSteps runs each step as its own pass of the tool loop, gives a
-// step that made no edit one more pass with reading closed, verifies the
-// whole once, and reports. A step's own failure (a policy stop, a provider
-// error) ends that step, not the task; a cancelled context ends the task.
+// step the policy says wrote nothing one more pass with reading closed,
+// verifies the whole once, and reports. A step's own failure (a policy stop,
+// a provider error) ends that step, not the task; a cancelled context ends
+// the task.
 func (e *Executor) runPlannedSteps(
 	ctx context.Context,
 	systemPrompt, task string,
@@ -511,6 +664,13 @@ func (e *Executor) runPlannedSteps(
 	compilationCtx *prompt.CompilationContext,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
+	// planTurnSteps refuses a turn with no kernel (briefNeedsStepPlan), so
+	// production never enters here without one. A retry or a completeness
+	// check written beside that miss would be a second copy of turn_steps.mg.
+	if e == nil || e.kernel == nil {
+		return nil, nil, errors.New("planned steps need a kernel; the retry and the verdict are derived")
+	}
+	turn := result.turnAtom()
 	var toolErrs []string
 	var last *types.LLMToolResponse
 	for i := range steps {
@@ -522,6 +682,7 @@ func (e *Executor) runPlannedSteps(
 		stepCtx := *compilationCtx
 		stepCtx.IntentTarget = step.File
 		writesBefore, callsBefore := result.SuccessfulWriteTools, result.ToolCallsExecuted
+		stepNum := i + 1
 
 		// The window is compiled for THIS step, when the step starts: the
 		// turn's prompt was selected for the task as a whole and the project's
@@ -537,12 +698,26 @@ func (e *Executor) runPlannedSteps(
 				return last, toolErrs, err
 			}
 			step.Note = err.Error()
-			logging.Get(logging.CategorySession).Warn("Step %d/%d (%s) ended in error: %v", i+1, len(steps), step.File, err)
+			logging.Get(logging.CategorySession).Warn("Step %d/%d (%s) ended in error: %v", stepNum, len(steps), step.File, err)
 		}
-		if result.SuccessfulWriteTools == writesBefore {
+		passCalls := result.ToolCallsExecuted - callsBefore
+		if recErr := e.recordStepPass(turn, stepNum, step.File, result.SuccessfulWriteTools-writesBefore, passCalls); recErr != nil {
+			result.StepReport = workStepReport(steps)
+			return last, toolErrs, fmt.Errorf("step %d (%s): %w", stepNum, step.File, recErr)
+		}
+		retry, askErr := e.stepCommitRetry(turn, stepNum)
+		if askErr != nil {
+			result.StepReport = workStepReport(steps)
+			return last, toolErrs, fmt.Errorf("step %d (%s): %w", stepNum, step.File, askErr)
+		}
+		if retry {
+			if !e.assertTurnFact(types.Fact{Predicate: "step_retried", Args: []any{turn, int64(stepNum)}}) {
+				result.StepReport = workStepReport(steps)
+				return last, toolErrs, fmt.Errorf("step %d (%s): the commit retry could not be recorded", stepNum, step.File)
+			}
 			logging.Get(logging.CategorySession).Warn(
 				"Step %d/%d (%s) made no edit in %d tool call(s); one more pass with reading closed",
-				i+1, len(steps), step.File, result.ToolCallsExecuted-callsBefore)
+				stepNum, len(steps), step.File, passCalls)
 			retried, retryErrs, retryErr := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, i, true), cfg, &stepCtx, result, toolLoopPass{regime: commitRegime})
 			toolErrs = append(toolErrs, retryErrs...)
 			if retryErr != nil {
@@ -551,12 +726,18 @@ func (e *Executor) runPlannedSteps(
 					return last, toolErrs, retryErr
 				}
 				step.Note = retryErr.Error()
-				logging.Get(logging.CategorySession).Warn("Step %d/%d (%s) retry ended in error: %v", i+1, len(steps), step.File, retryErr)
+				logging.Get(logging.CategorySession).Warn("Step %d/%d (%s) retry ended in error: %v", stepNum, len(steps), step.File, retryErr)
 			}
 			if retried != nil {
 				resp = retried
 			}
+			if recErr := e.recordStepPass(turn, stepNum, step.File, result.SuccessfulWriteTools-writesBefore, result.ToolCallsExecuted-callsBefore); recErr != nil {
+				result.StepReport = workStepReport(steps)
+				return last, toolErrs, fmt.Errorf("step %d (%s): %w", stepNum, step.File, recErr)
+			}
 		}
+		// Edited and Calls record the measurement for the anchor and the
+		// report. The retry above and the verdict below are the policy's.
 		step.Edited = result.SuccessfulWriteTools > writesBefore
 		step.Calls = result.ToolCallsExecuted - callsBefore
 		if resp != nil {
@@ -570,10 +751,18 @@ func (e *Executor) runPlannedSteps(
 		}
 		if !step.Edited {
 			step.NoChange = noChangeEvidence(step.Note)
+			if step.NoChange != "" && !e.assertTurnFact(types.Fact{Predicate: "step_no_change_evidence", Args: []any{turn, int64(stepNum), types.MangleString(step.NoChange)}}) {
+				result.StepReport = workStepReport(steps)
+				return last, toolErrs, fmt.Errorf("step %d (%s): the no-change evidence could not be recorded", stepNum, step.File)
+			}
 		}
-		logging.Session("Step %d/%d %s: edited=%v, %d tool call(s)", i+1, len(steps), step.File, step.Edited, step.Calls)
+		logging.Session("Step %d/%d %s: edited=%v, %d tool call(s)", stepNum, len(steps), step.File, step.Edited, step.Calls)
 	}
-	markCoveredSteps(steps)
+	verdict, missing, outcomeErr := e.derivedStepOutcome(turn, steps)
+	if outcomeErr != nil {
+		result.StepReport = workStepReport(steps)
+		return last, toolErrs, outcomeErr
+	}
 	result.StepReport = workStepReport(steps)
 	if last == nil {
 		last = &types.LLMToolResponse{Text: result.StepReport}
@@ -597,9 +786,12 @@ func (e *Executor) runPlannedSteps(
 	if verifyErr != nil {
 		return verified, toolErrs, verifyErr
 	}
-	if missing := unfinishedSteps(steps); len(missing) > 0 {
+	if verdict == "/incomplete" {
 		return verified, toolErrs, fmt.Errorf("%w: %d of %d step(s) made no edit and nothing else edited the file (%s)\n%s",
 			ErrStepsIncomplete, len(missing), len(steps), strings.Join(missing, ", "), result.StepReport)
+	}
+	if verdict != "/complete" {
+		return verified, toolErrs, fmt.Errorf("step policy derived no verdict for the %d planned step(s)\n%s", len(steps), result.StepReport)
 	}
 	return verified, toolErrs, nil
 }
