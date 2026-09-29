@@ -13,16 +13,16 @@ import (
 //
 // Why its own section instead of llm_timeouts: those bound LLM calls (one
 // HTTP call to a model vendor, a slot wait, an articulation call). These
-// bound researcher HTTP fetches and browser evidence paging — different
+// bound research browser page reads and browser evidence paging — different
 // vendors, different latency profiles, different owners. Every value here
 // bounds one request or one paging window, never a run: a windowed result
 // names the remainder and the offset that reaches it.
 type ResearchConfig struct {
-	// WebFetchTimeout bounds one web_fetch HTTP round trip.
+	// WebFetchTimeout bounds one web_fetch browser page read.
 	WebFetchTimeout string `json:"web_fetch_timeout,omitempty"`
-	// Context7Timeout bounds one context7_fetch HTTP round trip.
+	// Context7Timeout bounds one context7_fetch browser page read.
 	Context7Timeout string `json:"context7_timeout,omitempty"`
-	// WebSearchTimeout bounds one web_search HTTP round trip.
+	// WebSearchTimeout bounds one web_search browser page read.
 	WebSearchTimeout string `json:"web_search_timeout,omitempty"`
 	// BrowserExtractTimeout bounds one browser_extract DOM read.
 	BrowserExtractTimeout string `json:"browser_extract_timeout,omitempty"`
@@ -43,6 +43,13 @@ type ResearchConfig struct {
 	// view when max_items is absent: compact stays the cheap rung of the
 	// summary/compact/full ladder.
 	BrowserReasonCompactItems int `json:"browser_reason_compact_items,omitempty"`
+
+	// BrowserHeadless is whether research page reads (web_fetch, web_search,
+	// context7_fetch) launch their own headless Chrome. Default true: a read
+	// does not pop a window when browser.headless is false. False uses the
+	// boot-bound browser manager, which may be headed. A pointer so an absent
+	// key stays the default rather than false.
+	BrowserHeadless *bool `json:"browser_headless,omitempty"`
 }
 
 // DefaultResearchConfig is the research section with every field written
@@ -59,6 +66,7 @@ func DefaultResearchConfig() ResearchConfig {
 		BrowserExtractMaxCharsCap: 32000,
 		BrowserReasonItems:        20,
 		BrowserReasonCompactItems: 10,
+		BrowserHeadless:           boolPtr(true),
 	}
 }
 
@@ -98,6 +106,11 @@ func (c ResearchConfig) WithDefaults() ResearchConfig {
 	if c.BrowserReasonCompactItems == 0 {
 		c.BrowserReasonCompactItems = d.BrowserReasonCompactItems
 	}
+	if c.BrowserHeadless == nil {
+		// Copy the bool. Aliasing d.BrowserHeadless would let a caller mutate
+		// the process default through the returned struct.
+		c.BrowserHeadless = boolPtr(*d.BrowserHeadless)
+	}
 	return c
 }
 
@@ -114,6 +127,7 @@ type ResearchPolicy struct {
 	BrowserExtractMaxCharsCap int
 	BrowserReasonItems        int
 	BrowserReasonCompactItems int
+	BrowserHeadless           bool
 }
 
 // Resolve defaults, checks and parses the section. Every problem Check
@@ -131,6 +145,10 @@ func (c ResearchConfig) Resolve() (ResearchPolicy, error) {
 		v, _ := time.ParseDuration(s) // Check parsed every one of these
 		return v
 	}
+	headless := true
+	if c.BrowserHeadless != nil {
+		headless = *c.BrowserHeadless
+	}
 	return ResearchPolicy{
 		WebFetchTimeout:           d(c.WebFetchTimeout),
 		Context7Timeout:           d(c.Context7Timeout),
@@ -140,6 +158,7 @@ func (c ResearchConfig) Resolve() (ResearchPolicy, error) {
 		BrowserExtractMaxCharsCap: c.BrowserExtractMaxCharsCap,
 		BrowserReasonItems:        c.BrowserReasonItems,
 		BrowserReasonCompactItems: c.BrowserReasonCompactItems,
+		BrowserHeadless:           headless,
 	}, nil
 }
 

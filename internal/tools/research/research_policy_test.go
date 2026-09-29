@@ -136,6 +136,7 @@ func TestBrowserExtractTool_SchemaReadsInstalledPolicy(t *testing.T) {
 // The web_fetch bound is the installed policy: a hanging server must fail
 // fast, and the failure must be the deadline, not the hang.
 func TestExecuteWebFetch_TimeoutReadsInstalledPolicy(t *testing.T) {
+	withBoundResearchRuntime(t)
 	installResearchPolicy(t, func(p *config.ResearchPolicy) {
 		p.WebFetchTimeout = 50 * time.Millisecond
 	})
@@ -156,12 +157,13 @@ func TestExecuteWebFetch_TimeoutReadsInstalledPolicy(t *testing.T) {
 
 // Same bound, one layer down: context7_fetch reads research.context7_timeout.
 func TestFetchURL_TimeoutReadsInstalledPolicy(t *testing.T) {
+	withBoundResearchRuntime(t)
 	installResearchPolicy(t, func(p *config.ResearchPolicy) {
 		p.Context7Timeout = 50 * time.Millisecond
 	})
 	ts := hangingServer(t)
 	start := time.Now()
-	_, err := fetchURL(context.Background(), ts.URL, "")
+	_, err := fetchURL(context.Background(), ts.URL)
 	if elapsed := time.Since(start); err == nil || elapsed > 4*time.Second {
 		t.Errorf("fetchURL err=%v elapsed=%v: want a fast deadline failure", err, elapsed)
 	}
@@ -169,6 +171,7 @@ func TestFetchURL_TimeoutReadsInstalledPolicy(t *testing.T) {
 
 // Same bound for web_search, pointed at a local server.
 func TestSearchDuckDuckGo_TimeoutReadsInstalledPolicy(t *testing.T) {
+	withBoundResearchRuntime(t)
 	installResearchPolicy(t, func(p *config.ResearchPolicy) {
 		p.WebSearchTimeout = 50 * time.Millisecond
 	})

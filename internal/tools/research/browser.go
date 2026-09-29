@@ -22,20 +22,22 @@ var (
 	browserMgrMu       sync.RWMutex
 )
 
-// getBrowserManager returns the shared browser session manager.
+// getBrowserManager returns the browser session manager boot bound with
+// SetBrowserRuntime. A nil manager means the runtime is not bound: this
+// does not construct a fallback. A hidden nil-kernel manager would let a
+// research read run before the kernel can see DOM facts.
 func getBrowserManager() *browser.SessionManager {
 	browserMgrMu.RLock()
-	mgr := browserMgr
-	browserMgrMu.RUnlock()
-	if mgr != nil {
-		return mgr
-	}
-	browserMgrMu.Lock()
-	defer browserMgrMu.Unlock()
-	if browserMgr == nil {
-		browserMgr = browser.NewSessionManager(browser.DefaultConfig(), nil)
-	}
+	defer browserMgrMu.RUnlock()
 	return browserMgr
+}
+
+func requireBoundBrowser() (*browser.SessionManager, error) {
+	mgr := getBrowserManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("browser runtime is not bound; boot must call research.SetBrowserRuntime before browser tools run")
+	}
+	return mgr, nil
 }
 
 // SetBrowserRuntime binds both browser control and browser reasoning to one
@@ -105,7 +107,10 @@ func executeBrowserNavigate(ctx context.Context, args map[string]any) (string, e
 
 	sessionID, _ := args["session_id"].(string)
 
-	mgr := getBrowserManager()
+	mgr, boundErr := requireBoundBrowser()
+	if boundErr != nil {
+		return "", boundErr
+	}
 	safeURL := mgr.SanitizeForEvidence(url)
 	logging.BrowserDebug("Browser navigate: url=%s, session=%s", safeURL, sessionID)
 
@@ -210,7 +215,10 @@ func executeBrowserExtract(ctx context.Context, args map[string]any) (string, er
 
 	logging.BrowserDebug("Browser extract: session=%s, selector=%s", sessionID, selector)
 
-	mgr := getBrowserManager()
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
 
 	page, ok := mgr.Page(sessionID)
 	if !ok || page == nil {
@@ -358,7 +366,10 @@ func executeBrowserScreenshot(ctx context.Context, args map[string]any) (string,
 
 	logging.BrowserDebug("Browser screenshot: session=%s, full_page=%v", sessionID, fullPage)
 
-	mgr := getBrowserManager()
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
 
 	data, err := mgr.Screenshot(ctx, sessionID, fullPage)
 	if err != nil {
@@ -409,7 +420,10 @@ func executeBrowserClick(ctx context.Context, args map[string]any) (string, erro
 
 	logging.BrowserDebug("Browser click: session=%s, selector=%s", sessionID, selector)
 
-	mgr := getBrowserManager()
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
 
 	if err := mgr.Click(ctx, sessionID, selector); err != nil {
 		return "", fmt.Errorf("failed to click: %w", err)
@@ -465,7 +479,10 @@ func executeBrowserType(ctx context.Context, args map[string]any) (string, error
 
 	logging.BrowserDebug("Browser type: session=%s, selector=%s, text_len=%d", sessionID, selector, len(text))
 
-	mgr := getBrowserManager()
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
 
 	if err := mgr.Type(ctx, sessionID, selector, text); err != nil {
 		return "", fmt.Errorf("failed to type: %w", err)
@@ -503,7 +520,11 @@ func executeBrowserClose(ctx context.Context, args map[string]any) (string, erro
 
 	logging.BrowserDebug("Browser close: session=%s", sessionID)
 
-	if err := getBrowserManager().CloseSession(ctx, sessionID); err != nil {
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
+	if err := mgr.CloseSession(ctx, sessionID); err != nil {
 		return "", fmt.Errorf("failed to close browser session: %w", err)
 	}
 	logging.Browser("Browser session closed: %s", sessionID)

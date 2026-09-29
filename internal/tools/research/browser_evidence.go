@@ -33,6 +33,11 @@ func BrowserEvidenceTool() *tools.Tool {
 }
 
 func executeBrowserEvidence(_ context.Context, args map[string]any) (string, error) {
+	// Every browser tool needs the manager boot bound; without it the
+	// helpers below would dereference nil. Refuse here, before any of them run.
+	if _, err := requireBoundBrowser(); err != nil {
+		return "", err
+	}
 	manager := getBrowserManager()
 	sessionID := strings.TrimSpace(stringArg(args, "session_id"))
 	if sessionID == "" {
@@ -81,5 +86,9 @@ func recordBrowserToolEvidence(sessionID, eventType string, data map[string]any)
 	if strings.TrimSpace(sessionID) == "" {
 		return
 	}
-	_, _ = getBrowserManager().RecordEvidence(sessionID, eventType, data)
+	mgr := getBrowserManager()
+	if mgr == nil {
+		return
+	}
+	_, _ = mgr.RecordEvidence(sessionID, eventType, data)
 }

@@ -3,8 +3,6 @@ package research
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 
 	"codenerd/internal/config"
@@ -56,10 +54,14 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 
 	logging.ResearcherDebug("Context7 fetch: topic=%s, repo=%s, max_docs=%d", topic, repo, maxDocs)
 
-	// Check for API key (optional - some sources work without it)
+	// A Context7 bearer is not a credential for the documentation URLs
+	// this tool reads (raw GitHub files). It is not sent. The key is
+	// still detected so the log can say whether one is configured.
 	apiKey := config.AutoDetectContext7APIKey()
 	if apiKey == "" {
 		logging.ResearcherDebug("No Context7 API key configured, using public access")
+	} else {
+		logging.ResearcherDebug("Context7 API key is configured; research page reads do not send it")
 	}
 
 	// If no repo specified, try to infer from topic
@@ -74,7 +76,7 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 		parts := strings.Split(repo, "/")
 		if len(parts) == 2 {
 			owner, repoName := parts[0], parts[1]
-			docs, err := fetchLlmsTxt(ctx, owner, repoName, apiKey, maxDocs)
+			docs, err := fetchLlmsTxt(ctx, owner, repoName, maxDocs)
 			if err == nil && len(docs) > 0 {
 				results = append(results, docs...)
 			}
@@ -85,7 +87,7 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 	if len(results) == 0 && repo != "" {
 		parts := strings.Split(repo, "/")
 		if len(parts) == 2 {
-			docs, err := fetchCommonDocs(ctx, parts[0], parts[1], apiKey, maxDocs)
+			docs, err := fetchCommonDocs(ctx, parts[0], parts[1], maxDocs)
 			if err == nil {
 				results = append(results, docs...)
 			}
@@ -156,19 +158,27 @@ func inferRepo(topic string) string {
 	return ""
 }
 
+// rawGitHubFileURL builds a raw documentation URL. A variable, not a
+// constant, so tests can point reads at a local server; production never
+// sets it. Absolute links inside an llms.txt stay absolute and still go
+// through the same browser read.
+var rawGitHubFileURL = func(owner, repo, ref, path string) string {
+	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repo, ref, strings.TrimPrefix(path, "/"))
+}
+
 // fetchLlmsTxt fetches and parses the llms.txt file from a GitHub repo.
-func fetchLlmsTxt(ctx context.Context, owner, repo, apiKey string, maxDocs int) ([]string, error) {
+func fetchLlmsTxt(ctx context.Context, owner, repo string, maxDocs int) ([]string, error) {
 	locations := []string{
-		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/llms.txt", owner, repo),
-		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/master/llms.txt", owner, repo),
-		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/.llms.txt", owner, repo),
+		rawGitHubFileURL(owner, repo, "main", "llms.txt"),
+		rawGitHubFileURL(owner, repo, "master", "llms.txt"),
+		rawGitHubFileURL(owner, repo, "main", ".llms.txt"),
 	}
 
 	for _, url := range locations {
-		content, err := fetchURL(ctx, url, apiKey)
+		content, err := fetchURL(ctx, url)
 		if err == nil && len(content) > 10 {
 			logging.Researcher("Found llms.txt at %s", url)
-			return parseLlmsTxt(ctx, owner, repo, content, apiKey, maxDocs)
+			return parseLlmsTxt(ctx, owner, repo, content, maxDocs)
 		}
 	}
 
@@ -182,7 +192,7 @@ func fetchLlmsTxt(ctx context.Context, owner, repo, apiKey string, maxDocs int) 
 // maxDocs still bounds how many documents are fetched, but the cap is never
 // silent: when linked docs are left unfetched the result names them and the
 // max_docs argument that raises the bound (limits cleanup 2026-09-29).
-func parseLlmsTxt(ctx context.Context, owner, repo, content, apiKey string, maxDocs int) ([]string, error) {
+func parseLlmsTxt(ctx context.Context, owner, repo, content string, maxDocs int) ([]string, error) {
 	var results []string
 	lines := strings.Split(content, "\n")
 	docCount := 0
@@ -217,15 +227,14 @@ func parseLlmsTxt(ctx context.Context, owner, repo, content, apiKey string, maxD
 
 		// Resolve relative paths to GitHub raw URLs
 		if !strings.HasPrefix(docURL, "http") {
-			docURL = fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/%s",
-				owner, repo, strings.TrimPrefix(docURL, "/"))
+			docURL = rawGitHubFileURL(owner, repo, "main", docURL)
 		}
 
 		if docCount >= maxDocs {
 			skipped++
 			continue
 		}
-		content, err := fetchURL(ctx, docURL, apiKey)
+		content, err := fetchURL(ctx, docURL)
 		if err == nil && len(content) > 50 {
 			results = append(results, fmt.Sprintf("## Source: %s\n\n%s", docURL, content))
 			docCount++
@@ -239,7 +248,7 @@ func parseLlmsTxt(ctx context.Context, owner, repo, content, apiKey string, maxD
 }
 
 // fetchCommonDocs fetches common documentation files from a GitHub repo.
-func fetchCommonDocs(ctx context.Context, owner, repo, apiKey string, maxDocs int) ([]string, error) {
+func fetchCommonDocs(ctx context.Context, owner, repo string, maxDocs int) ([]string, error) {
 	commonPaths := []string{
 		"README.md",
 		"docs/README.md",
@@ -255,8 +264,8 @@ func fetchCommonDocs(ctx context.Context, owner, repo, apiKey string, maxDocs in
 			break
 		}
 
-		url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/%s", owner, repo, path)
-		content, err := fetchURL(ctx, url, apiKey)
+		url := rawGitHubFileURL(owner, repo, "main", path)
+		content, err := fetchURL(ctx, url)
 		if err == nil && len(content) > 100 {
 			results = append(results, fmt.Sprintf("## Source: %s\n\n%s", url, content))
 		}
@@ -272,43 +281,30 @@ func fetchCommonDocs(ctx context.Context, owner, repo, apiKey string, maxDocs in
 // it never reaches the model as a silent truncation.
 const fetchURLGuardBytes = 1 << 20
 
-// fetchURL fetches content from a URL with timeout and optional auth.
-func fetchURL(ctx context.Context, url, apiKey string) (string, error) {
-	// Per-request network bound, not a run clock: it caps one HTTP round
-	// trip. From research.context7_timeout; the installed policy is the
+// fetchURL reads one documentation URL through the browser. Plain and
+// markdown responses come back as the rendered text (Chrome wraps them in
+// <pre>). HTML comes back as the rendered document, not a second markdown
+// conversion: callers keep the source text they asked to archive.
+func fetchURL(ctx context.Context, url string) (string, error) {
+	// Per-request bound, not a run clock: it caps one browser page read.
+	// From research.context7_timeout; the installed policy is the
 	// defaults until LoadUserConfig installs the file.
 	ctx, cancel := context.WithTimeout(ctx, config.ResolvedResearchPolicy().Context7Timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	page, err := readBrowserPage(ctx, url)
 	if err != nil {
 		return "", err
 	}
-
-	req.Header.Set("User-Agent", "codeNERD/1.0 (Context7 Research Tool)")
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+	body := page.Text
+	ct := strings.ToLower(page.ContentType)
+	if strings.Contains(ct, "text/html") || strings.Contains(ct, "xhtml") {
+		body = page.HTML
 	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, fetchURLGuardBytes+1))
-	if err != nil {
-		return "", err
-	}
-	if len(body) > fetchURLGuardBytes {
-		return string(body[:fetchURLGuardBytes]) +
-			"\n\n[fetch guard: source exceeded the 1MB single-document guard; " +
+	cut, tripped := cutGuardBytes(body, fetchURLGuardBytes)
+	if tripped {
+		return cut + "\n\n[fetch guard: source exceeded the 1MB single-document guard; " +
 			"content continues beyond what was read]", nil
 	}
-
-	return string(body), nil
+	return body, nil
 }

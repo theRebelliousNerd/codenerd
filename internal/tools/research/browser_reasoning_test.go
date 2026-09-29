@@ -120,6 +120,12 @@ func TestQueryScopedBrowserFactsReportsScanTruncation(t *testing.T) {
 }
 
 func TestWaitForBrowserConditionsRequiresFreshFact(t *testing.T) {
+	// A successful wait redacts fact args through the bound manager. There is
+	// no fallback manager when the runtime is unbound.
+	mgr := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	SetBrowserRuntime(mgr, nil)
+	t.Cleanup(func() { ClearBrowserManager(mgr) })
+
 	now := time.Now()
 	kernel := &browserReasoningKernel{facts: []types.Fact{{
 		Predicate: "console_event", Args: []any{"session-a", "error", "old", now.Add(-time.Second).UnixMilli()},

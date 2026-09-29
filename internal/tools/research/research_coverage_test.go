@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/browser"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 
@@ -59,10 +60,10 @@ type mockGroundingClient struct {
 	lastGroundingSrc    []string
 }
 
-func (m *mockGroundingClient) SetEnableWebSearch(enable bool) { m.googleSearchEnabled = enable }
+func (m *mockGroundingClient) SetEnableWebSearch(enable bool)    { m.googleSearchEnabled = enable }
 func (m *mockGroundingClient) SetEnableURLContext(enable bool)   { m.urlContextEnabled = enable }
 func (m *mockGroundingClient) SetURLContextURLs(urls []string)   { m.urlContextURLs = urls }
-func (m *mockGroundingClient) IsWebSearchEnabled() bool       { return m.googleSearchEnabled }
+func (m *mockGroundingClient) IsWebSearchEnabled() bool          { return m.googleSearchEnabled }
 func (m *mockGroundingClient) IsURLContextEnabled() bool         { return m.urlContextEnabled }
 func (m *mockGroundingClient) GetLastGroundingSources() []string { return m.lastGroundingSrc }
 
@@ -89,14 +90,16 @@ func (m *mockThinkingClient) GetLastThoughtSignature() string { return m.thought
 func TestParseLlmsTxt_WhenDocExceedsOldCut_ShouldReturnWhole(t *testing.T) {
 	// The old code cut every doc at 8000 chars with "[...truncated...]".
 	// Docs now come back whole; the ledger sizes them for the window.
+	withBoundResearchRuntime(t)
 	big := strings.Repeat("0123456789abcdef", 800) // 12800 chars
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprint(w, big)
 	}))
 	defer ts.Close()
 
 	docs, err := parseLlmsTxt(context.Background(), "o", "r",
-		"[big]("+ts.URL+"/big.md)", "", 10)
+		"[big]("+ts.URL+"/big.md)", 10)
 	if err != nil {
 		t.Fatalf("parseLlmsTxt: %v", err)
 	}
@@ -112,14 +115,16 @@ func TestParseLlmsTxt_WhenDocExceedsOldCut_ShouldReturnWhole(t *testing.T) {
 }
 
 func TestParseLlmsTxt_WhenMaxDocsCapped_ShouldNameRemaining(t *testing.T) {
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprint(w, strings.Repeat("doc content padding ", 5))
 	}))
 	defer ts.Close()
 
 	docs, err := parseLlmsTxt(context.Background(), "o", "r",
 		fmt.Sprintf("[a](%s/a)\n[b](%s/b)\n[c](%s/c)", ts.URL, ts.URL, ts.URL),
-		"", 1)
+		1)
 	if err != nil {
 		t.Fatalf("parseLlmsTxt: %v", err)
 	}
@@ -133,13 +138,15 @@ func TestParseLlmsTxt_WhenMaxDocsCapped_ShouldNameRemaining(t *testing.T) {
 }
 
 func TestFetchURL_WhenBodyExceedsGuard_ShouldMarkNotSilentlyCut(t *testing.T) {
+	withBoundResearchRuntime(t)
 	payload := strings.Repeat("z", fetchURLGuardBytes+100)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprint(w, payload)
 	}))
 	defer ts.Close()
 
-	got, err := fetchURL(context.Background(), ts.URL, "")
+	got, err := fetchURL(context.Background(), ts.URL)
 	if err != nil {
 		t.Fatalf("fetchURL: %v", err)
 	}
@@ -177,12 +184,9 @@ func TestExecuteContext7_WhenNoTopicArg_ShouldReturnError(t *testing.T) {
 }
 
 func TestExecuteContext7_WhenNoDocsFound_ShouldReturnHelpfulMessage(t *testing.T) {
-	mock := NewMockTransport()
-	// No responders registered — all requests will 404
-
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
+	pinLocalGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
 
 	result, err := executeContext7(context.Background(), map[string]any{
 		"topic": "nonexistent-lib-xyz",
@@ -201,20 +205,13 @@ func TestExecuteContext7_WhenNoDocsFound_ShouldReturnHelpfulMessage(t *testing.T
 }
 
 func TestExecuteContext7_WhenMaxDocsLimitsResults_ShouldRespectLimit(t *testing.T) {
-	mock := NewMockTransport()
-
-	// llms.txt with 3 entries
-	llmsTxt := "- docs/a.md: A\n- docs/b.md: B\n- docs/c.md: C\n"
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/llms.txt", llmsTxt, 200)
-
 	longContent := strings.Repeat("x", 60) // > 50 chars
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/docs/a.md", longContent, 200)
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/docs/b.md", longContent, 200)
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/docs/c.md", longContent, 200)
-
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
+	pinLocalGitHubFiles(t, map[string]string{
+		"/owner/repo/main/llms.txt":  "- docs/a.md: A\n- docs/b.md: B\n- docs/c.md: C\n",
+		"/owner/repo/main/docs/a.md": longContent,
+		"/owner/repo/main/docs/b.md": longContent,
+		"/owner/repo/main/docs/c.md": longContent,
+	})
 
 	result, err := executeContext7(context.Background(), map[string]any{
 		"topic":    "test",
@@ -236,16 +233,13 @@ func TestExecuteContext7_WhenMaxDocsLimitsResults_ShouldRespectLimit(t *testing.
 // =============================================================================
 
 func TestParseLlmsTxt_WhenCommentAndBlankLines_ShouldSkipThem(t *testing.T) {
-	mock := NewMockTransport()
 	longContent := strings.Repeat("documentation content ", 10)
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/docs/real.md", longContent, 200)
-
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
+	pinLocalGitHubFiles(t, map[string]string{
+		"/owner/repo/main/docs/real.md": longContent,
+	})
 
 	content := "# Comment line\n\n> Blockquote\n- docs/real.md: Real Doc\n"
-	results, err := parseLlmsTxt(context.Background(), "owner", "repo", content, "", 10)
+	results, err := parseLlmsTxt(context.Background(), "owner", "repo", content, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -255,16 +249,13 @@ func TestParseLlmsTxt_WhenCommentAndBlankLines_ShouldSkipThem(t *testing.T) {
 }
 
 func TestParseLlmsTxt_WhenMarkdownLink_ShouldExtractURL(t *testing.T) {
-	mock := NewMockTransport()
 	longContent := strings.Repeat("documentation content ", 10)
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/docs/guide.md", longContent, 200)
-
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
+	pinLocalGitHubFiles(t, map[string]string{
+		"/owner/repo/main/docs/guide.md": longContent,
+	})
 
 	content := "[Getting Started](docs/guide.md)\n"
-	results, err := parseLlmsTxt(context.Background(), "owner", "repo", content, "", 10)
+	results, err := parseLlmsTxt(context.Background(), "owner", "repo", content, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -274,40 +265,37 @@ func TestParseLlmsTxt_WhenMarkdownLink_ShouldExtractURL(t *testing.T) {
 }
 
 func TestParseLlmsTxt_WhenAbsoluteURL_ShouldNotPrefixGitHub(t *testing.T) {
-	mock := NewMockTransport()
+	withBoundResearchRuntime(t)
 	longContent := strings.Repeat("external documentation ", 10)
-	mock.RegisterResponder("https://example.com/docs.md", longContent, 200)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprint(w, longContent)
+	}))
+	defer ts.Close()
 
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
-
-	content := "https://example.com/docs.md\n"
-	results, err := parseLlmsTxt(context.Background(), "owner", "repo", content, "", 10)
+	content := ts.URL + "/docs.md\n"
+	results, err := parseLlmsTxt(context.Background(), "owner", "repo", content, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(results) != 1 {
 		t.Errorf("expected 1 result from absolute URL, got %d", len(results))
 	}
-	if len(results) > 0 && !strings.Contains(results[0], "https://example.com/docs.md") {
+	if len(results) > 0 && !strings.Contains(results[0], ts.URL+"/docs.md") {
 		t.Errorf("expected source URL in result, got %s", results[0])
 	}
 }
 
 func TestParseLlmsTxt_WhenMaxDocsReached_ShouldStop(t *testing.T) {
-	mock := NewMockTransport()
 	longContent := strings.Repeat("y", 60)
-	mock.RegisterResponder("https://raw.githubusercontent.com/o/r/main/d1.md", longContent, 200)
-	mock.RegisterResponder("https://raw.githubusercontent.com/o/r/main/d2.md", longContent, 200)
-	mock.RegisterResponder("https://raw.githubusercontent.com/o/r/main/d3.md", longContent, 200)
-
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
+	pinLocalGitHubFiles(t, map[string]string{
+		"/o/r/main/d1.md": longContent,
+		"/o/r/main/d2.md": longContent,
+		"/o/r/main/d3.md": longContent,
+	})
 
 	content := "d1.md\nd2.md\nd3.md\n"
-	results, err := parseLlmsTxt(context.Background(), "o", "r", content, "", 2)
+	results, err := parseLlmsTxt(context.Background(), "o", "r", content, 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -325,15 +313,12 @@ func TestParseLlmsTxt_WhenMaxDocsReached_ShouldStop(t *testing.T) {
 // =============================================================================
 
 func TestFetchCommonDocs_WhenREADMEExists_ShouldReturnIt(t *testing.T) {
-	mock := NewMockTransport()
 	readmeContent := strings.Repeat("readme content ", 20) // > 100 chars
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/README.md", readmeContent, 200)
+	pinLocalGitHubFiles(t, map[string]string{
+		"/owner/repo/main/README.md": readmeContent,
+	})
 
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
-
-	results, err := fetchCommonDocs(context.Background(), "owner", "repo", "", 10)
+	results, err := fetchCommonDocs(context.Background(), "owner", "repo", 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -346,14 +331,11 @@ func TestFetchCommonDocs_WhenREADMEExists_ShouldReturnIt(t *testing.T) {
 }
 
 func TestFetchCommonDocs_WhenNothingFound_ShouldReturnEmpty(t *testing.T) {
-	mock := NewMockTransport()
-	// No responders — all 404
+	pinLocalGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
 
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
-
-	results, err := fetchCommonDocs(context.Background(), "owner", "repo", "", 10)
+	results, err := fetchCommonDocs(context.Background(), "owner", "repo", 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -363,17 +345,14 @@ func TestFetchCommonDocs_WhenNothingFound_ShouldReturnEmpty(t *testing.T) {
 }
 
 func TestFetchCommonDocs_WhenMaxDocsReached_ShouldStop(t *testing.T) {
-	mock := NewMockTransport()
 	longContent := strings.Repeat("z", 120) // > 100 chars
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/README.md", longContent, 200)
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/docs/README.md", longContent, 200)
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/documentation/README.md", longContent, 200)
+	pinLocalGitHubFiles(t, map[string]string{
+		"/owner/repo/main/README.md":               longContent,
+		"/owner/repo/main/docs/README.md":          longContent,
+		"/owner/repo/main/documentation/README.md": longContent,
+	})
 
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
-
-	results, err := fetchCommonDocs(context.Background(), "owner", "repo", "", 1)
+	results, err := fetchCommonDocs(context.Background(), "owner", "repo", 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -387,15 +366,17 @@ func TestFetchCommonDocs_WhenMaxDocsReached_ShouldStop(t *testing.T) {
 // =============================================================================
 
 func TestFetchURL_WhenSuccessful_ShouldReturnBody(t *testing.T) {
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ua := r.Header.Get("User-Agent"); !strings.Contains(ua, "codeNERD") {
 			t.Errorf("expected codeNERD user-agent, got %q", ua)
 		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprint(w, "response body")
 	}))
 	defer ts.Close()
 
-	content, err := fetchURL(context.Background(), ts.URL, "")
+	content, err := fetchURL(context.Background(), ts.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -404,17 +385,20 @@ func TestFetchURL_WhenSuccessful_ShouldReturnBody(t *testing.T) {
 	}
 }
 
-func TestFetchURL_WhenAuthHeaderSet_ShouldIncludeBearer(t *testing.T) {
+// A Context7 API key is not a credential for the raw documentation URLs
+// this reader loads, so the browser read must not attach it.
+func TestFetchURL_DoesNotSendAuthorization(t *testing.T) {
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if auth != "Bearer test-key-123" {
-			t.Errorf("expected Bearer auth, got %q", auth)
+		if auth := r.Header.Get("Authorization"); auth != "" {
+			t.Errorf("page read sent Authorization %q", auth)
 		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprint(w, "ok")
 	}))
 	defer ts.Close()
 
-	content, err := fetchURL(context.Background(), ts.URL, "test-key-123")
+	content, err := fetchURL(context.Background(), ts.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -424,12 +408,13 @@ func TestFetchURL_WhenAuthHeaderSet_ShouldIncludeBearer(t *testing.T) {
 }
 
 func TestFetchURL_WhenNon200_ShouldReturnError(t *testing.T) {
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer ts.Close()
 
-	_, err := fetchURL(context.Background(), ts.URL, "")
+	_, err := fetchURL(context.Background(), ts.URL)
 	if err == nil {
 		t.Error("expected error for 403")
 	}
@@ -439,13 +424,15 @@ func TestFetchURL_WhenNon200_ShouldReturnError(t *testing.T) {
 }
 
 func TestFetchURL_WhenInvalidURL_ShouldReturnError(t *testing.T) {
-	_, err := fetchURL(context.Background(), "://invalid", "")
+	withBoundResearchRuntime(t)
+	_, err := fetchURL(context.Background(), "://invalid")
 	if err == nil {
 		t.Error("expected error for invalid URL")
 	}
 }
 
 func TestFetchURL_WhenContextCanceled_ShouldReturnError(t *testing.T) {
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(5 * time.Second) // delay to trigger context cancel
 		fmt.Fprint(w, "too late")
@@ -455,7 +442,7 @@ func TestFetchURL_WhenContextCanceled_ShouldReturnError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately cancel
 
-	_, err := fetchURL(ctx, ts.URL, "")
+	_, err := fetchURL(ctx, ts.URL)
 	if err == nil {
 		t.Error("expected error for canceled context")
 	}
@@ -1363,6 +1350,7 @@ func TestExecuteWebFetch_WhenEmptyURL_ShouldReturnError(t *testing.T) {
 }
 
 func TestExecuteWebFetch_WhenMarkdownContentType_ShouldReturnAsIs(t *testing.T) {
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/markdown")
 		fmt.Fprint(w, "# Heading\n\nParagraph content")
@@ -1383,6 +1371,7 @@ func TestExecuteWebFetch_WhenMarkdownContentType_ShouldReturnAsIs(t *testing.T) 
 func TestExecuteWebFetch_WhenNoMaxLength_ShouldReturnWhole(t *testing.T) {
 	// Limits cleanup 2026-09-29: the old 50000 default cut is gone; an
 	// unpaged fetch returns the content whole for the ledger to size.
+	withBoundResearchRuntime(t)
 	payload := strings.Repeat("y", 60000)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
@@ -1402,6 +1391,7 @@ func TestExecuteWebFetch_WhenNoMaxLength_ShouldReturnWhole(t *testing.T) {
 }
 
 func TestExecuteWebFetch_WhenMaxLengthSet_ShouldPageWithOffsetHint(t *testing.T) {
+	withBoundResearchRuntime(t)
 	payload := strings.Repeat("x", 1000)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
@@ -1433,6 +1423,7 @@ func TestExecuteWebFetch_WhenMaxLengthSet_ShouldPageWithOffsetHint(t *testing.T)
 }
 
 func TestExecuteWebFetch_WhenBodyExceedsGuard_ShouldMarkNotSilentlyCut(t *testing.T) {
+	withBoundResearchRuntime(t)
 	payload := strings.Repeat("z", webFetchGuardBytes+100)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
@@ -1473,6 +1464,7 @@ func TestHtmlToMarkdown_WhenNestingPastGuard_ShouldMarkSkippedLevels(t *testing.
 }
 
 func TestExecuteWebFetch_WhenIncludeLinksIsFalse_ShouldExcludeLinks(t *testing.T) {
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<html><body><a href="http://example.com">Link Text</a></body></html>`)
@@ -1612,19 +1604,24 @@ func TestExecuteWebSearch_WhenEmptyQuery_ShouldReturnError(t *testing.T) {
 func TestExecuteWebSearch_WhenManyResults_ShouldReturnAllPastOldCap(t *testing.T) {
 	// Limits cleanup 2026-09-29: the old default-10 plus hard-30 cap is
 	// gone. An unpaged search returns every result the page holds.
+	// The page is a local DuckDuckGo-shaped document: the parser runs on
+	// the rendered DOM, and the default suite does not call the public site.
+	withBoundResearchRuntime(t)
 	var sb strings.Builder
 	sb.WriteString("<html><body>")
 	for i := range 35 {
 		sb.WriteString(fmt.Sprintf(`<div class="result results_links"><a class="result__a" href="https://ex%d.com">Title %d</a></div>`, i, i))
 	}
 	sb.WriteString("</body></html>")
-
-	mock := NewMockTransport()
-	mock.RegisterResponder("https://html.duckduckgo.com", sb.String(), 200)
-
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
+	body := sb.String()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(ts.Close)
+	prevURL := duckDuckGoSearchURL
+	duckDuckGoSearchURL = ts.URL + "/html/?q=%s"
+	t.Cleanup(func() { duckDuckGoSearchURL = prevURL })
 
 	result, err := executeWebSearch(context.Background(), map[string]any{
 		"query": "test search",
@@ -1882,6 +1879,10 @@ func TestExecuteBrowserClose_WhenEmptySessionID_ShouldReturnError(t *testing.T) 
 }
 
 func TestExecuteBrowserClose_WhenValidSessionID_ShouldCloseSession(t *testing.T) {
+	mgr := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	SetBrowserRuntime(mgr, nil)
+	t.Cleanup(func() { ClearBrowserManager(mgr) })
+
 	result, err := executeBrowserClose(context.Background(), map[string]any{
 		"session_id": "test-session-123",
 	})

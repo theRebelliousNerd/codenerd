@@ -10,7 +10,7 @@ import (
 )
 
 func TestWebFetchTool_Execute_Success(t *testing.T) {
-	// Mock server
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprintln(w, `<html><body><h1>Hello World</h1><p>Test content.</p></body></html>`)
@@ -36,6 +36,7 @@ func TestWebFetchTool_Execute_Success(t *testing.T) {
 }
 
 func TestWebFetchTool_Execute_PlainText(t *testing.T) {
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprintln(w, `Just plain text.`)
@@ -54,6 +55,7 @@ func TestWebFetchTool_Execute_PlainText(t *testing.T) {
 }
 
 func TestWebFetchTool_Execute_404(t *testing.T) {
+	withBoundResearchRuntime(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))

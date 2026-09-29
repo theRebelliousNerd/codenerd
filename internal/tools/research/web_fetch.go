@@ -3,8 +3,6 @@ package research
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
 
@@ -82,56 +80,33 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 
 	logging.ResearcherDebug("Web fetch: url=%s, max_length=%d, offset=%d", url, maxLength, offset)
 
-	// Fetch the page.
-	// Per-request network bound, not a run clock: it caps one HTTP round
-	// trip. From research.web_fetch_timeout; the installed policy is the
+	// Per-request bound, not a run clock: it caps one browser page read.
+	// From research.web_fetch_timeout; the installed policy is the
 	// defaults until LoadUserConfig installs the file.
 	ctx, cancel := context.WithTimeout(ctx, config.ResolvedResearchPolicy().WebFetchTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; codeNERD/1.0; +https://github.com/codenerd)")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-
-	resp, err := http.DefaultClient.Do(req)
+	page, err := readBrowserPage(ctx, url)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch URL: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	// The guard is process protection: a hostile page must not exhaust
+	// memory. When it trips the result names the cut. Plain and markdown
+	// responses are the rendered text (Chrome wraps them in <pre>); HTML
+	// is the rendered document, then the existing markdown conversion.
+	source := page.HTML
+	if plainResearchBody(page) {
+		source = page.Text
 	}
+	source, guardTripped := cutGuardBytes(source, webFetchGuardBytes)
 
-	// Read the body behind a process-protection guard: without it a
-	// hostile or runaway response (Content-Length lies; bodies stream
-	// until OOM) exhausts process memory. When the guard trips the result
-	// carries an explicit marker naming the cut, so it never reaches the
-	// model as a silent truncation.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchGuardBytes+1))
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-	guardTripped := len(body) > webFetchGuardBytes
-	if guardTripped {
-		body = body[:webFetchGuardBytes]
-	}
-
-	contentType := resp.Header.Get("Content-Type")
-
-	// If it's already plain text or markdown, return as-is
-	if strings.Contains(contentType, "text/plain") ||
-		strings.Contains(contentType, "text/markdown") {
-		result := pageRunes(string(body), offset, maxLength)
+	if plainResearchBody(page) {
+		result := pageRunes(source, offset, maxLength)
 		return markGuardTrip(result, guardTripped), nil
 	}
 
-	// Convert HTML to markdown
-	markdown, err := htmlToMarkdown(string(body), url, includeLinks)
+	markdown, err := htmlToMarkdown(source, url, includeLinks)
 	if err != nil {
 		return "", fmt.Errorf("failed to convert to markdown: %w", err)
 	}

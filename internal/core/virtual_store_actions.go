@@ -822,6 +822,12 @@ func (v *VirtualStore) handleModularTool(ctx context.Context, req ActionRequest)
 		args["topic"] = req.Target
 	case ActionWebFetch:
 		args["url"] = req.Target
+	case ActionWebSearch:
+		// Kernel actions carry the search string in Target. An explicit
+		// target wins; an empty target still lets a payload query through.
+		if req.Target != "" {
+			args["query"] = req.Target
+		}
 	case ActionBrowserNavigate:
 		args["url"] = req.Target
 		if sid, ok := req.Payload["session_id"].(string); ok {

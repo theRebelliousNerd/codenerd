@@ -37,6 +37,11 @@ func BrowserObserveTool() *tools.Tool {
 }
 
 func executeBrowserObserve(ctx context.Context, args map[string]any) (string, error) {
+	// Every browser tool needs the manager boot bound; without it the
+	// helpers below would dereference nil. Refuse here, before any of them run.
+	if _, err := requireBoundBrowser(); err != nil {
+		return "", err
+	}
 	visibleOnly := true
 	if value, ok := args["visible_only"].(bool); ok {
 		visibleOnly = value
@@ -90,6 +95,11 @@ func BrowserActTool() *tools.Tool {
 }
 
 func executeBrowserAct(ctx context.Context, args map[string]any) (string, error) {
+	// Every browser tool needs the manager boot bound; without it the
+	// helpers below would dereference nil. Refuse here, before any of them run.
+	if _, err := requireBoundBrowser(); err != nil {
+		return "", err
+	}
 	operations, err := decodeActionOperations(args["operations"])
 	if err != nil {
 		return "", err

@@ -179,6 +179,11 @@ func BrowserReasonTool() *tools.Tool {
 }
 
 func executeBrowserMangle(ctx context.Context, args map[string]any) (string, error) {
+	// Every browser tool needs the manager boot bound; without it the
+	// helpers below would dereference nil. Refuse here, before any of them run.
+	if _, err := requireBoundBrowser(); err != nil {
+		return "", err
+	}
 	kernel := getBrowserKernel()
 	if kernel == nil {
 		return "", fmt.Errorf("browser mangle: live Cortex kernel is not bound")
@@ -270,6 +275,11 @@ func executeBrowserMangle(ctx context.Context, args map[string]any) (string, err
 }
 
 func executeBrowserWait(ctx context.Context, args map[string]any) (string, error) {
+	// Every browser tool needs the manager boot bound; without it the
+	// helpers below would dereference nil. Refuse here, before any of them run.
+	if _, err := requireBoundBrowser(); err != nil {
+		return "", err
+	}
 	kernel := getBrowserKernel()
 	if kernel == nil {
 		return "", fmt.Errorf("browser wait: live Cortex kernel is not bound")
@@ -309,6 +319,11 @@ func executeBrowserWait(ctx context.Context, args map[string]any) (string, error
 }
 
 func executeBrowserReason(ctx context.Context, args map[string]any) (string, error) {
+	// Every browser tool needs the manager boot bound; without it the
+	// helpers below would dereference nil. Refuse here, before any of them run.
+	if _, err := requireBoundBrowser(); err != nil {
+		return "", err
+	}
 	kernel := getBrowserKernel()
 	if kernel == nil {
 		return "", fmt.Errorf("browser reason: live Cortex kernel is not bound")

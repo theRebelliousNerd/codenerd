@@ -2,7 +2,6 @@ package research
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"testing"
 )
@@ -14,16 +13,12 @@ import (
 // dropped and all three docs came back.
 func TestContext7_StringMaxDocsHonoredEndToEnd(t *testing.T) {
 	const docBody = "# Doc\nThis body is deliberately longer than fifty characters so the parser keeps it."
-	mock := NewMockTransport()
-	mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/llms.txt",
-		"- docs/one.md: One\n- docs/two.md: Two\n- docs/three.md: Three", 200)
-	for _, name := range []string{"one", "two", "three"} {
-		mock.RegisterResponder("https://raw.githubusercontent.com/owner/repo/main/docs/"+name+".md",
-			docBody, 200)
-	}
-	oldTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = mock
-	defer func() { http.DefaultClient.Transport = oldTransport }()
+	pinLocalGitHubFiles(t, map[string]string{
+		"/owner/repo/main/llms.txt":      "- docs/one.md: One\n- docs/two.md: Two\n- docs/three.md: Three",
+		"/owner/repo/main/docs/one.md":   docBody,
+		"/owner/repo/main/docs/two.md":   docBody,
+		"/owner/repo/main/docs/three.md": docBody,
+	})
 
 	tool := Context7Tool()
 	ctx := context.Background()

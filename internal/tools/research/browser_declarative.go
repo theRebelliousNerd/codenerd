@@ -50,6 +50,11 @@ func BrowserTestTool() *tools.Tool {
 }
 
 func executeBrowserTest(ctx context.Context, args map[string]any) (string, error) {
+	// Every browser tool needs the manager boot bound; without it the
+	// helpers below would dereference nil. Refuse here, before any of them run.
+	if _, err := requireBoundBrowser(); err != nil {
+		return "", err
+	}
 	operation := strings.ToLower(strings.TrimSpace(stringArg(args, "operation")))
 	view, err := browserTestView(args)
 	if err != nil {

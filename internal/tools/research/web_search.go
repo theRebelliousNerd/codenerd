@@ -3,8 +3,6 @@ package research
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -119,42 +117,19 @@ var duckDuckGoSearchURL = "https://html.duckduckgo.com/html/?q=%s"
 func searchDuckDuckGo(ctx context.Context, query string, maxResults int) ([]SearchResult, bool, error) {
 	searchURL := fmt.Sprintf(duckDuckGoSearchURL, url.QueryEscape(query))
 
-	// Per-request network bound, not a run clock: it caps one HTTP round
-	// trip. From research.web_search_timeout; the installed policy is
-	// the defaults until LoadUserConfig installs the file.
+	// Per-request bound, not a run clock: it caps one browser page read.
+	// From research.web_search_timeout; the installed policy is the
+	// defaults until LoadUserConfig installs the file.
 	ctx, cancel := context.WithTimeout(ctx, config.ResolvedResearchPolicy().WebSearchTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers to look like a browser
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
-
-	resp, err := http.DefaultClient.Do(req)
+	page, err := readBrowserPage(ctx, searchURL)
 	if err != nil {
 		return nil, false, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, webSearchGuardBytes+1))
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to read response: %w", err)
-	}
-	guardTripped := len(body) > webSearchGuardBytes
-	if guardTripped {
-		body = body[:webSearchGuardBytes]
-	}
-
-	results, err := parseDuckDuckGoResults(string(body), maxResults)
+	body, guardTripped := cutGuardBytes(page.HTML, webSearchGuardBytes)
+	results, err := parseDuckDuckGoResults(body, maxResults)
 	return results, guardTripped, err
 }
 

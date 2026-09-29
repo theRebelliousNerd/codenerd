@@ -102,6 +102,10 @@ func TestSubtractBrowserFactsUsesPerAssertionBaseline(t *testing.T) {
 }
 
 func TestBrowserTestInvalidRedactsErrors(t *testing.T) {
+	manager := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	SetBrowserRuntime(manager, nil)
+	defer ClearBrowserManager(manager)
+
 	raw, err := browserTestInvalid("run", fmt.Errorf("password=secret-value"))
 	if err != nil {
 		t.Fatalf("browserTestInvalid: %v", err)

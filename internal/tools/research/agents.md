@@ -27,3 +27,10 @@ Do not change browser authority, manager lifetime, or other sessions from
 this tool. Keep each result bounded (one window); never return unbounded DOM
 or HTML — but never silently drop content either: anything past the window
 must be named with the offset that reaches it.
+
+Page reads go through the browser (2026-09-29): `web_fetch`, `web_search` and
+`context7_fetch` call `readBrowserPage` (isolated tab, load + DOM stability,
+always closed), headless unless `research.browser_headless` is false. Do not
+add a `net/http` page read. Browser tools refuse with `requireBoundBrowser`
+when boot bound no manager; there is no fallback manager. Spec:
+`Docs/architecture/tools/13-RESEARCH-READS-THROUGH-BROWSER.md`.

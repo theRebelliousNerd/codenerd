@@ -50,6 +50,11 @@ func BrowserSpecsTool() *tools.Tool {
 }
 
 func executeBrowserSpecs(ctx context.Context, args map[string]any) (string, error) {
+	// Every browser tool needs the manager boot bound; without it the
+	// helpers below would dereference nil. Refuse here, before any of them run.
+	if _, err := requireBoundBrowser(); err != nil {
+		return "", err
+	}
 	manager := getBrowserManager()
 	config := manager.SpecsConfig()
 	operation := strings.ToLower(strings.TrimSpace(stringArg(args, "operation")))

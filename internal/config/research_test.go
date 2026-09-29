@@ -21,14 +21,28 @@ func TestDefaultResearchConfig(t *testing.T) {
 		got.BrowserReasonItems != 20 || got.BrowserReasonCompactItems != 10 {
 		t.Errorf("default windows = %+v", got)
 	}
+	if got.BrowserHeadless == nil || !*got.BrowserHeadless {
+		t.Errorf("default browser_headless = %v, want true", got.BrowserHeadless)
+	}
+}
+
+// ResearchConfig carries a *bool, so two default structs are not comparable
+// by address. The resolved policy is the value the tools actually read.
+func resolvedResearch(t *testing.T, c ResearchConfig) ResearchPolicy {
+	t.Helper()
+	p, err := c.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	return p
 }
 
 func TestGetResearchConfig_Overlay(t *testing.T) {
 	var nilCfg *UserConfig
-	if got := nilCfg.GetResearchConfig(); got != DefaultResearchConfig() {
+	if got := resolvedResearch(t, nilCfg.GetResearchConfig()); got != resolvedResearch(t, DefaultResearchConfig()) {
 		t.Errorf("nil config = %+v, want defaults", got)
 	}
-	if got := (&UserConfig{}).GetResearchConfig(); got != DefaultResearchConfig() {
+	if got := resolvedResearch(t, (&UserConfig{}).GetResearchConfig()); got != resolvedResearch(t, DefaultResearchConfig()) {
 		t.Errorf("absent section = %+v, want defaults", got)
 	}
 	cfg := &UserConfig{Research: &ResearchConfig{
@@ -48,6 +62,18 @@ func TestGetResearchConfig_Overlay(t *testing.T) {
 		got.BrowserReasonItems != 33 || got.BrowserReasonCompactItems != 44 {
 		t.Errorf("set section = %+v, want the set values", got)
 	}
+	if got.BrowserHeadless == nil || !*got.BrowserHeadless {
+		t.Errorf("absent browser_headless = %v, want true", got.BrowserHeadless)
+	}
+	off := false
+	explicit := (&UserConfig{Research: &ResearchConfig{BrowserHeadless: &off}}).GetResearchConfig()
+	if explicit.BrowserHeadless == nil || *explicit.BrowserHeadless {
+		t.Errorf("explicit false browser_headless = %v", explicit.BrowserHeadless)
+	}
+	resolved, err := explicit.Resolve()
+	if err != nil || resolved.BrowserHeadless {
+		t.Fatalf("explicit false resolved browser_headless = %v, %v", resolved.BrowserHeadless, err)
+	}
 }
 
 func TestResearchConfig_Resolve(t *testing.T) {
@@ -63,6 +89,9 @@ func TestResearchConfig_Resolve(t *testing.T) {
 	}
 	if p.BrowserExtractMaxChars != 8000 || p.BrowserReasonCompactItems != 10 {
 		t.Errorf("absent windows did not take defaults: %+v", p)
+	}
+	if !p.BrowserHeadless {
+		t.Errorf("absent browser_headless = false, want true")
 	}
 	if _, err := (ResearchConfig{WebFetchTimeout: "bogus"}).Resolve(); err == nil {
 		t.Error("Resolve accepted an unparseable duration")
@@ -122,8 +151,8 @@ func TestLoadUserConfig_InstallsResearchPolicy(t *testing.T) {
 	got := ResolvedResearchPolicy()
 	if got.WebFetchTimeout != 61*time.Second || got.BrowserExtractMaxChars != 111 ||
 		got.BrowserExtractMaxCharsCap != 222 || got.BrowserReasonItems != 33 ||
-		got.BrowserReasonCompactItems != 44 {
-		t.Errorf("installed policy = %+v, want the set values", got)
+		got.BrowserReasonCompactItems != 44 || !got.BrowserHeadless {
+		t.Errorf("installed policy = %+v, want the set values and default headless", got)
 	}
 	if _, err := LoadUserConfig(filepath.Join(dir, "missing.json")); err != nil {
 		t.Fatalf("LoadUserConfig (missing): %v", err)
@@ -142,5 +171,19 @@ func TestLoadUserConfig_RefusesBadResearch(t *testing.T) {
 	_, err := LoadUserConfig(path)
 	if err == nil || !strings.Contains(err.Error(), "research.web_fetch_timeout") {
 		t.Errorf("LoadUserConfig error = %v, want research.web_fetch_timeout named", err)
+	}
+}
+
+func TestLoadUserConfig_ResearchBrowserHeadlessFalse(t *testing.T) {
+	t.Cleanup(func() { SetResearchPolicy(mustResolveResearchDefaults()) })
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"research":{"browser_headless":false}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadUserConfig(path); err != nil {
+		t.Fatalf("LoadUserConfig: %v", err)
+	}
+	if got := ResolvedResearchPolicy(); got.BrowserHeadless {
+		t.Fatalf("installed browser_headless = true, want false")
 	}
 }
