@@ -3,15 +3,15 @@ doc-class: shipped
 subsystem: orient
 implementation-status: shipped
 last-verified: 2026-09-29
-verified-against: e056692c
+verified-against: bb7bafac
 supersedes: []
 ---
 
-# WIRING-AND-NOT-BUILT — Orientation Wiring Audit
+# WIRING-AND-NOT-BUILT — Orientation & Spec Alignment Wiring Audit
 
-> Verified 2026-09-29 against `e056692c` (`main`).
+> Verified 2026-09-29 against `bb7bafac` (`main`).
 
-This document records the exact state of wiring between initialization, documentation ingestion, world scanning, and North Star synchronization. It catalogues what is wired and reachable, what exists but is disconnected, and what the high-level architecture assumes that the codebase does not currently perform.
+This document records the exact state of wiring between initialization, documentation ingestion, world scanning, North Star synchronization, dependency graphing, turn safety gates, and technical debt detection. It catalogues what is wired and reachable, what exists but is disconnected, and what the high-level architecture assumes that the codebase does not currently perform.
 
 ---
 
@@ -37,6 +37,14 @@ The following paths are actively executed during normal CLI invocations:
    - Guardian boot calls `SyncVisionAuthority` (`internal/northstar/bridge.go:436-534`), synchronizing `.nerd/northstar.json` and `.nerd/northstar_knowledge.db`.
 8. **Interactive Clarification UI Seam**:
    - `cmd/nerd/chat/process_dream_delegation.go:26` (`kernelClarification`) and `cmd/nerd/chat/model_handlers.go:417, 539` render interactive clarification requests and handle option selection.
+9. **Workspace DAG Generation**:
+   - `internal/campaign/recurse_workspace.go:59-92` (`DeriveWorkspaceDAG`) scans package directories across Go, Python, JavaScript/TypeScript, and Rust, collapsing circular dependencies via Tarjan's SCC algorithm (`recurse_workspace.go:139-226`).
+10. **Kahn Topological Sort for Sweep Sweeps**:
+    - `internal/campaign/recurse_plan.go:108-133` asserts sweep graph facts, and `internal/core/defaults/policy/recurse.mg:377-386` computes `recurse_node_ready` for bottom-up package ordering in `nerd campaign recurse` (`cmd/nerd/cmd_campaign_recurse.go:42-80`).
+11. **Static AST Unreferenced Symbol Scanner**:
+    - `internal/world/structure_index.go:759-793` (`StructureIndex.Unreferenced`) computes unreferenced declarations in Go code by comparing usage counts to declaration counts.
+12. **CodeDOM Repoint and Delete**:
+    - `internal/tools/codedom/repoint.go:310-342` (`repointAndDelete`) rewrites uses and deletes Go package-level declarations in one atomic file commit.
 
 ---
 
@@ -50,6 +58,10 @@ The following paths are actively executed during normal CLI invocations:
    `internal/world/dataflow.go:607` (`ExtractDataFlowForDirectory`) has zero production callers outside `dataflow_test.go`.
 4. **`git blame` Tooling**:
    `git blame` is permitted by tool gates (`internal/projectdoc/tool_gate.go:547-548`), but is never called by any scanner, analyzer, or initialization routine.
+5. **`docscheck` Problem Facts in Runtime Kernel**:
+   `internal/docscheck/problem.go:55-101` generates `doc_problem(Pkg, File, Code, Message)` facts, declared in `internal/core/defaults/schemas_reviewer.mg:83`. However, no production Go code asserts these facts into the kernel during live execution; `docscheck` runs exclusively as a standalone CLI tool (`cmd/nerd/cmd_docs.go:85`).
+6. **Dark Field Static Scanner**:
+   `cmd/tools/audit_dark_fields/main.go:1-77` audits unwritten exported struct fields as an offline developer script. It asserts zero facts into Mangle and is uncalled by session executors or scanners.
 
 ---
 
@@ -64,3 +76,7 @@ The following paths are actively executed during normal CLI invocations:
 | Document ingestion is comprehensive and lossless. | `cmd/nerd/chat/northstar_llm.go:201-203` truncates documents exceeding 10,000 characters. | Specifications lose requirements, architectures lose components, inducing hallucinations. |
 | Scanners discern source code from seed data and fixtures. | All unignored files are ingested into topology (`internal/world/fs.go:330-348`). | Megabytes of seed data, answer keys, and test fixtures pollute code search and CodeDOM memory. |
 | Research tools respect internal enterprise boundaries. | `internal/tools/research/web_search.go:138` and `context7.go:293` blindly fetch external URLs. | Internal private packages trigger public search engine queries, leaking names and failing lookups. |
+| **Code DAG and Spec DAG are unified to determine codebase readiness.** | **The two graphs are completely disjoint.** The Code DAG (`internal/campaign/recurse_workspace.go:59-92`) and North Star specification schema (`schemas_misc.mg:44-96`) share zero relations. `recurse_cycle.go:21-40` evaluates only compiler/linter gate findings (`gates.Finding`), completely blind to specifications and gap matrices. | codeNERD cannot derive whether code is aligned with specs, cannot suggest what to work on next from spec gaps, and cannot trace requirements to AST symbols. |
+| **A change that leaves specs misaligned is refused.** | `internal/core/defaults/policy/coder_safety.mg:674-676` and `internal/session/executor.go:2879-2915` verify turns based on compiler/test/vet gates only. Spec files owe zero updates. | Specifications drift behind implementation immediately upon code mutation, rendering specs obsolete. |
+| **codeNERD detects orphaned code and asks the operator to classify it.** | Zero orphan detection exists. `kernelClarification` (`cmd/nerd/chat/process_dream_delegation.go:26-62`) handles only ambiguous intent strings; no durable classification store exists. | Un-specced code accumulates indefinitely or is destroyed arbitrarily by ungrounded agents. |
+| **Next work item is derived from the DAG of code vs spec.** | No `/next` command exists (`cmd/nerd/chat/commands.go:55-265`). `next_action` (`capabilities.mg:20-51`) is an internal agent dispatcher, not a user suggestion. | Users receive no foundations-up guidance on what to build next. |

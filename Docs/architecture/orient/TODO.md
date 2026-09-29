@@ -3,13 +3,13 @@ doc-class: governance
 subsystem: orient
 implementation-status: target-state
 last-verified: 2026-09-29
-verified-against: e056692c
+verified-against: bb7bafac
 supersedes: []
 ---
 
-# TODO — Orientation Build Queue
+# TODO — Orientation & Spec Alignment Build Queue
 
-This document specifies the leaf implementation tasks for `internal/orient` and its initialization hooks. Every item is traceable directly to an identifier in [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
+This document specifies the leaf implementation tasks for `internal/orient`, spec alignment, what-next planning, and refactoring transactions. Every item is traceable directly to an identifier in [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
 
 ---
 
@@ -58,3 +58,35 @@ This document specifies the leaf implementation tasks for `internal/orient` and 
 - [ ] `TODO-ORIENT-26` (`GAP-ORIENT-11`, Lane `O1`): Implement `internal/config/merge.go` executing surgical, byte-preserving JSON patches on `.nerd/config.json`.
 - [ ] `TODO-ORIENT-27` (`GAP-ORIENT-12`, Lane `O1`): Implement `internal/orient/questions.mg` deriving `orient_question` and serializing `.nerd/orientation/questions.json`.
 - [ ] `TODO-ORIENT-28` (`GAP-ORIENT-12`, Lane `O1`): Wire first-boot TUI clarification loop in `cmd/nerd/chat` to present orientation questions and persist answers to `.nerd/orientation/answers.json`.
+
+---
+
+## Phase 5: Spec Alignment, Native Templates & Technical Debt Sensors
+
+- [ ] `TODO-ORIENT-29` (`GAP-ORIENT-14`, Lane TBD): Implement `internal/orient/spec_units.go` extracting code units, spec units, and dependencies into bipartite unit graph facts.
+- [ ] `TODO-ORIENT-30` (`GAP-ORIENT-14`, Lane TBD): Implement link transduction client in `internal/orient/spec_links.go` proposing candidate pairs and recording model confidence claims.
+- [ ] `TODO-ORIENT-31` (`GAP-ORIENT-15`, Lane TBD): Implement `internal/orient/spec_status.mg` deriving status atoms (`/aligned`, `/behind`, `/ahead`, `/missing`, `/stale`, `/not_trending`) using git committer timestamps (`%ct`).
+- [ ] `TODO-ORIENT-32` (`GAP-ORIENT-17`, Lane TBD): Implement `internal/orient/spec_templates.go` discovering foreign repository spec schemas into `repo_spec_template` facts.
+- [ ] `TODO-ORIENT-33` (`GAP-ORIENT-17`, Lane TBD): Generalize `internal/docscheck/docscheck.go` into runtime sensor asserting `doc_problem` facts into the live kernel.
+- [ ] `TODO-ORIENT-34` (`GAP-ORIENT-20`, Lane TBD): Implement `internal/orient/debt_sensors.go` extracting unreferenced symbols, forwarding shims, deprecated tags, and dark fields into Mangle debt facts.
+
+---
+
+## Phase 6: Foundations-Up Planning, Spec-First Gate & Orphan Dialogue
+
+- [ ] `TODO-ORIENT-35` (`GAP-ORIENT-18`, Lane TBD): Implement `internal/orient/what_next.mg` extending Kahn topological sort over the unit graph to derive `unit_ready(Unit)` and `what_next(Unit, Rank, Why)`.
+- [ ] `TODO-ORIENT-36` (`GAP-ORIENT-19`, Lane TBD): Implement `start_from(Kind)` seed direction filtering and parametric weight loading from `config_param`.
+- [ ] `TODO-ORIENT-37` (`GAP-ORIENT-18`, Lane TBD): Register `/next` chat command in `cmd/nerd/chat/commands.go` and add CLI entry point `nerd next [--from <kind>] [--json]` in `cmd/nerd/cmd_next.go`.
+- [ ] `TODO-ORIENT-38` (`GAP-ORIENT-18`, Lane TBD): Wire unit status and `what_next` findings into `internal/campaign/recurse_policy.go` for campaign recursion sweeps.
+- [ ] `TODO-ORIENT-39` (`GAP-ORIENT-16`, Lane TBD): Conjoin `!turn_has_spec_misalignment(Turn)` into `coder_safety.mg:675` and wire `turn_missing_evidence(Turn, /spec_misaligned)` into `internal/session/executor.go`.
+- [ ] `TODO-ORIENT-40` (`GAP-ORIENT-21`, Lane TBD): Implement orphan code identification in `internal/orient/orphans.mg`, excluding entry points, tests, and excluded tree treatments.
+- [ ] `TODO-ORIENT-41` (`GAP-ORIENT-21`, Lane TBD): Wire orphan questions through `cmd/nerd/chat/process_dream_delegation.go` (`kernelClarification`) with package grouping and session capping.
+- [ ] `TODO-ORIENT-42` (`GAP-ORIENT-21`, Lane TBD): Implement `.nerd/orientation/answers.json` persistence and boot re-assertion in `internal/orient/answers.go`.
+
+---
+
+## Phase 7: Atomic Transactional Refactoring
+
+- [ ] `TODO-ORIENT-43` (`GAP-ORIENT-22`, Lane TBD): Generalize `repointAndDelete` (`internal/tools/codedom/repoint.go:310`) to support methods, cross-file moves, and polyglot files in `internal/tools/codedom/cleanup_transaction.go`.
+- [ ] `TODO-ORIENT-44` (`GAP-ORIENT-22`, Lane TBD): Implement pre-commit in-memory AST syntax validation across all staged files in `cleanup_transaction.go`.
+- [ ] `TODO-ORIENT-45` (`GAP-ORIENT-22`, Lane TBD): Wire post-commit compiler (`verifyBuild`) and impacted test execution (`run_impacted_tests.go`) with automated `git checkout` rollback on failure.

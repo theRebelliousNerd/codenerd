@@ -3,17 +3,17 @@ doc-class: shipped
 subsystem: orient
 implementation-status: shipped
 last-verified: 2026-09-29
-verified-against: e056692c
+verified-against: bb7bafac
 supersedes: []
 ---
 
 # 02 — Current State — Initialization, Scanning, and Documentation Today
 
-> Verified 2026-09-29 against `e056692c` (`main`). Every claim in this document reflects source code inspected directly in the repository.
+> Verified 2026-09-29 against `bb7bafac` (`main`). Every claim in this document reflects source code inspected directly in the repository.
 
-This document describes the exact behavior of codeNERD's initialization (`internal/init`), world scanning (`internal/world`), strategic documentation ingest, agent selection, and North Star synchronization as they exist today.
+This document describes the exact behavior of codeNERD's initialization (`internal/init`), world scanning (`internal/world`), strategic documentation ingest, agent selection, North Star synchronization, specification checking, dependency graphing, turn safety gates, and technical debt detection as they exist today.
 
-As of commit `e056692c`, package `internal/orient` has **not shipped**. There is no dedicated orientation engine, no git history streaming pass, no multi-agent ecosystem parser, and no non-interactive North Star derivation engine in production. The systems currently performing repository onboarding are distributed across `internal/init`, `internal/world`, `cmd/nerd`, and `internal/northstar`.
+As of commit `bb7bafac`, package `internal/orient` has **not shipped**. There is no dedicated orientation engine, no git history streaming pass, no multi-agent ecosystem parser, and no non-interactive North Star derivation engine in production. The systems currently performing repository onboarding and codebase analysis are distributed across `internal/init`, `internal/world`, `cmd/nerd`, `internal/campaign`, `internal/session`, and `internal/northstar`.
 
 ---
 
@@ -113,13 +113,7 @@ The canonical North Star domain model lives in `internal/northstar/types.go:27-3
 ### The Complete Disconnection from `init`
 
 1. In `internal/init/initializer.go:796-804`, Phase 1 executes:
-   ```go
-   northstarStore, err := northstar.NewStore(nerdDir)
-   if err != nil { ... } else {
-       northstarStore.Close()
-       ...
-   }
-   ```
+   `northstarStore, err := northstar.NewStore(nerdDir)`
    The store is opened purely to run SQLite schema migrations, and is closed immediately. No vision record is created, no `northstar.json` is exported, and no `northstar.mg` is emitted.
 2. In `internal/init/initializer.go:1447`, the final output explicitly commands:
    `Use '/northstar' to define your project vision`.
@@ -148,3 +142,86 @@ There is **zero non-interactive path** to derive a North Star directly from repo
 2. **Filesystem Modification Time Awareness** — `internal/world/content_stamp.go:18-207` acknowledges that filesystem modification timestamps (`mtime`) are volatile across checkouts, clones, and branch switches. However, repository document ranking in `GatherProjectDocumentation` ignores git committer dates entirely.
 3. **Git Blame** — `internal/projectdoc/tool_gate.go:547-548` includes `git blame` in the permitted read-only tool list, but it is never executed by any scanner or analysis function in the codebase.
 4. **Mangle Policy Scope** — While `internal/context/working_set.mg:183-205` derives `working_stale` and `working_superseded` for model context observations during active sessions, and `internal/core/defaults/jit_compiler.mg:184-264` derives prompt atom supersession, **no Mangle policy exists to rank, supersede, or detect lineages across repository documentation, code trees, or external agent skills**.
+
+---
+
+## 7. Specification Checking and Project Contracts Today
+
+1. **Static Documentation Linter (`docscheck`)**:
+   - `internal/docscheck/docscheck.go:66-150` implements `Checker.CheckPackage`, validating front-matter schemas, package slots, gap matrices, and ADR witnesses.
+   - It is strictly hardcoded to codeNERD's internal layout: `ArchDir()` resolves to `Docs/architecture/<pkg>` (`docscheck.go:85`), and witness scans restrict file extensions to `.go` and `.mg` (`docscheck.go:674`).
+   - Execution is purely CLI-driven via `nerd docs check` (`cmd/nerd/cmd_docs.go:85`).
+   - `internal/docscheck/problem.go:55-101` maps findings to `doc_problem(Pkg, File, Code, Message)` facts, declared in `internal/core/defaults/schemas_reviewer.mg:83`. However, these facts are never asserted into the active session kernel during live development.
+2. **Project Policy Surface (`nerd.md`)**:
+   - `internal/projectdoc/nerdmd.go:48-128` parses `nerd.md` front-matter schema `nerd/v1`, loaded via `LoadAll` (`internal/system/factory.go:1339`).
+   - Emits operational facts: `project_doc`, `project_command`, `project_forbidden_path`, `project_requirement`, `project_convention`, `module_northstar`, `module_requirement` (`internal/projectdoc/facts.go:61-120`).
+   - `nerd.md` acts as a project configuration and write-safety boundary (`internal/projectdoc/tool_gate.go:37-80`), not an architectural or behavioral specification.
+
+---
+
+## 8. Campaign Decomposition and Recursion Today
+
+1. **Unstructured Document Decomposition**:
+   - When campaigns ingest documents (`internal/campaign/decomposer_documents.go:22-78`), files matching `.md` and `.txt` are embedded into SQLite vector tables (`decomposer_documents.go:265-307`).
+   - Requirements are extracted via a single LLM prompt capped at 30 snippets (`internal/campaign/decomposer_requirements.go:19-150`).
+   - Zero parsing of structured Markdown tables, exit criteria, or formal specification matrices occurs.
+2. **Blind Campaign Recursion**:
+   - `nerd campaign recurse` (`cmd/nerd/cmd_campaign_recurse.go:42-80` and `internal/campaign/recurse_policy.go:66-106`) sweeps package import DAGs bottom-up.
+   - It selects the next task via `recurse_next` (`recurse_policy.go:87-95`), prioritized strictly by compiler and linter gate findings (`gates.Finding`, lines 66-85).
+   - Recurse cycles completely ignore `Docs/architecture` gap tables, specifications, and North Star requirements.
+
+---
+
+## 9. Dependency Graphs, Kahn Ordering, and Graph Disjointness Today
+
+1. **Code Workspace DAG**:
+   - `DeriveWorkspaceDAG` (`internal/campaign/recurse_workspace.go:59-92`) parses imports across Go (`go list`), Python, JS/TS, and Rust into `workspaceGraph` nodes (`recurse_workspace.go:94-105`).
+   - Collapses cycles into strongly connected components via Tarjan's algorithm (`recurse_workspace.go:139-226`) and closes the DAG with `wiring`, `review`, and `bench` nodes (`recurse_workspace.go:228-249`).
+2. **Kahn Topological Ordering in Mangle**:
+   - `internal/campaign/recurse_plan.go:108-133` asserts `subsystem_node(ID)`, `subsystem_node_ord(ID, Ord)`, and `subsystem_depends(ID, Dep)`.
+   - `internal/core/defaults/policy/recurse.mg:377-386` computes Kahn ordering: `recurse_node_ready(ID, Ord) :- subsystem_node(ID), subsystem_node_ord(ID, Ord), !recurse_visited_id(ID), !recurse_dep_unvisited(ID).`
+   - This ordering is consumed exclusively by `nerd campaign recurse` for compiler sweep loops.
+3. **World Model Dependency Facts**:
+   - Cartographer emits `dependency_link` (`internal/world/dependency_links.go:12-51`), `file_imports`, and `code_calls` (`internal/world/cartographer.go:273-279`).
+   - Bounded demand-driven reachability in Mangle (`internal/core/defaults/policy/system_world.mg:61-88`) bounds search to length $\le 15$ to avoid kernel exhaustion.
+4. **Complete Disconnection from Specifications**:
+   - The Code DAG and North Star specification schema (`schemas_misc.mg:44-96`) are entirely disjoint.
+   - Zero predicates or Go data structures join code units to specification units; no realization edges exist.
+
+---
+
+## 10. Turn Completion Gates and Missing Evidence Today
+
+1. **Session Turn Verification**:
+   - `internal/core/defaults/policy/coder_safety.mg:632-633` defines `turn_done(Turn) :- turn_executed(Turn), turn_verified(Turn)`.
+   - Lines 674-676 derive `turn_verified` based on write evidence, build gates, test gates, coverage debt, and vet findings.
+   - `consumeTurnDoneSignal` (`internal/session/executor.go:2879-2915`) consumes `turn_done` and `turn_missing_evidence`.
+2. **Zero Spec Obligations**:
+   - All evaluated gates (`/build`, `/test`, `/check`, `/vet`, `/test_run`, `/pinned`) are mechanical toolchain checks (`coder_safety.mg:500-580`).
+   - There is no gate verifying whether a specification was updated, whether a gap was closed, or whether new public surfaces possess architectural documentation.
+
+---
+
+## 11. Technical Debt Detection and CodeDOM Refactoring Today
+
+1. **Unreferenced Symbols**:
+   - `StructureIndex.Unreferenced` (`internal/world/structure_index.go:759-793`) identifies unreferenced declarations in Go code by comparing usage counts to declaration counts.
+   - Output is rendered as human-readable text; no facts are asserted into Mangle.
+2. **Dark Struct Fields**:
+   - `cmd/tools/audit_dark_fields/main.go:1-77` audits Go struct fields that production code reads but never writes, checked against a baseline text file.
+   - It runs as an offline developer script with zero runtime kernel integration.
+3. **CodeDOM Repoint and Delete**:
+   - `repointAndDelete` (`internal/tools/codedom/repoint.go:310-342` and `element_edit.go:566-568`) deletes an element and rewrites call sites across specified paths in one atomic write.
+   - It is strictly restricted to Go package-level names; methods are refused (`repoint.go:312`), cross-file moves are unsupported, and non-Go languages are excluded. It checks syntax but does not execute compiler or test gates inside the transaction.
+
+---
+
+## 12. Clarification Dialogues and Persistence Today
+
+1. **Kernel Clarification UI Seam**:
+   - `kernelClarification` (`cmd/nerd/chat/process_dream_delegation.go:26-62`) queries `clarification_question(/current_intent, Question)` and `clarification_option(/current_intent, Verb, Label)` from `internal/core/defaults/policy/clarification.mg:42-88`.
+   - It is triggered solely when a user prompt cannot be mapped to a known verb (`intent_unmapped`).
+2. **Zero Orphan Classification or Shared Persistence**:
+   - Zero code queries orphaned or un-specced functions to prompt the user.
+   - No schema or persistence mechanism exists to record whether un-specced code is a feature, an experiment, or trash.
+   - No committed team-shared answers file exists in version control.
