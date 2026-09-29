@@ -143,13 +143,15 @@ func TestPackageParseCache_InvalidatesOnNewFile(t *testing.T) {
 // append into silent corruption of every later reader.
 func TestPackageParseCache_DeepCopiesBothWays(t *testing.T) {
 	src := &packageParse{
-		goFiles:    []string{"a.go"},
-		allGoFiles: []string{"a.go"},
-		signatures: []SymbolSignature{{Name: "A"}},
-		types:      []TypeDefinition{{Name: "T", Kind: "struct", Fields: []string{"X int"}}},
-		constants:  []ConstDefinition{{Name: "C"}},
-		imports:    map[string][]string{"a.go": {"context"}},
-		pkgName:    map[string]string{"a.go": "p"},
+		goFiles:         []string{"a.go"},
+		allGoFiles:      []string{"a.go"},
+		filesUnparsed:   1,
+		skippedSiblings: []SkippedSibling{{File: "big.go", Size: 9}},
+		signatures:      []SymbolSignature{{Name: "A"}},
+		types:           []TypeDefinition{{Name: "T", Kind: "struct", Fields: []string{"X int"}}},
+		constants:       []ConstDefinition{{Name: "C"}},
+		imports:         map[string][]string{"a.go": {"context"}},
+		pkgName:         map[string]string{"a.go": "p"},
 	}
 
 	c := newPackageParseCache()
@@ -159,6 +161,8 @@ func TestPackageParseCache_DeepCopiesBothWays(t *testing.T) {
 	src.signatures[0].Name = "MUTATED"
 	src.types[0].Fields[0] = "MUTATED"
 	src.imports["a.go"][0] = "MUTATED"
+	src.skippedSiblings[0].File = "MUTATED"
+	src.filesUnparsed = 99
 
 	got, ok := c.get("/dir", "fp")
 	if !ok {
@@ -172,6 +176,9 @@ func TestPackageParseCache_DeepCopiesBothWays(t *testing.T) {
 	}
 	if got.imports["a.go"][0] != "context" {
 		t.Errorf("imports map aliased the caller's slice: %q", got.imports["a.go"][0])
+	}
+	if got.filesUnparsed != 1 || len(got.skippedSiblings) != 1 || got.skippedSiblings[0].File != "big.go" {
+		t.Errorf("unparsed-file record aliased the caller: %+v filesUnparsed=%d", got.skippedSiblings, got.filesUnparsed)
 	}
 
 	// Mutating what get returned must not reach the cache either.

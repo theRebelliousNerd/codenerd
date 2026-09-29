@@ -450,6 +450,9 @@ func TestQueryRelationships_DeeplyRecursiveGraph(t *testing.T) {
 	if strings.Contains(prompt, "caller_50") {
 		t.Error("Expected call relationships to be truncated in prompt")
 	}
+	if !strings.Contains(prompt, "5000 matching call-graph edges are not listed") || !strings.Contains(prompt, "`callers_of`") {
+		t.Errorf("truncated call graph does not state its true count:\n%s", prompt)
+	}
 }
 
 func TestResolvePrioritizedCallers_MassiveFactCount(t *testing.T) {

@@ -194,11 +194,22 @@ func (hc *HolographicContext) FormatForPrompt() string {
 		sb.WriteString("- Has corresponding test file: yes\n")
 	}
 
-	// Call graph (if populated)
-	if len(hc.CallGraph) > 0 && len(hc.CallGraph) < 20 {
+	// Call graph. A short list is printed. A longer one is not pasted: the line
+	// states how many edges were left out, including edges the storage cap
+	// counted and did not store. callers_of reads the call sites.
+	switch {
+	case len(hc.CallGraph) > 0 && len(hc.CallGraph) < 20 && hc.CallGraphEdges <= len(hc.CallGraph):
 		sb.WriteString("\n### Call Relationships\n")
 		for _, edge := range hc.CallGraph {
 			sb.WriteString(fmt.Sprintf("- %s → %s\n", edge.Caller, edge.Callee))
+		}
+	default:
+		total := len(hc.CallGraph)
+		if hc.CallGraphEdges > total {
+			total = hc.CallGraphEdges
+		}
+		if total > 0 {
+			fmt.Fprintf(&sb, "\n### Call Relationships\n%d matching call-graph edges are not listed; `callers_of` lists every call site\n", total)
 		}
 	}
 

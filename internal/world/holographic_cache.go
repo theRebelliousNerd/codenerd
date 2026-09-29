@@ -42,16 +42,19 @@ const maxCachedPackages = 64
 // packageParse is everything buildGoContext can learn from a directory's bytes.
 // It is a pure function of those bytes, which is what makes it cacheable.
 type packageParse struct {
-	// goFiles is every non-test .go file in the directory, in read order,
-	// after the maxPackageFilesToParse cap.
-	goFiles []string
-	// allGoFiles is the uncapped list, used for the sibling roster so the
-	// model is told the real package size even when parsing was truncated.
-	allGoFiles []string
-	signatures []SymbolSignature
-	types      []TypeDefinition
-	constants  []ConstDefinition
-	imports    map[string][]string
+	// goFiles is the name-ordered prefix of allGoFiles that the parse attempted,
+	// at most maxPackageFilesToParse. filesUnparsed is how many of allGoFiles
+	// did not parse. skippedSiblings names the ones over maxSiblingFileBytes.
+	// All three are a function of the directory bytes, so they stay in the cache
+	// and applyTo copies them onto the context the prompt reads.
+	goFiles         []string
+	allGoFiles      []string
+	filesUnparsed   int
+	skippedSiblings []SkippedSibling
+	signatures      []SymbolSignature
+	types           []TypeDefinition
+	constants       []ConstDefinition
+	imports         map[string][]string
 	// pkgName maps a file's base name to its package clause. Held per file
 	// because a directory can legally hold `foo` and `foo_test`.
 	pkgName map[string]string
@@ -190,12 +193,14 @@ func (p *packageParse) clone() *packageParse {
 		return nil
 	}
 	out := &packageParse{
-		goFiles:    append([]string(nil), p.goFiles...),
-		allGoFiles: append([]string(nil), p.allGoFiles...),
-		signatures: append([]SymbolSignature(nil), p.signatures...),
-		constants:  append([]ConstDefinition(nil), p.constants...),
-		imports:    make(map[string][]string, len(p.imports)),
-		pkgName:    make(map[string]string, len(p.pkgName)),
+		goFiles:         append([]string(nil), p.goFiles...),
+		allGoFiles:      append([]string(nil), p.allGoFiles...),
+		filesUnparsed:   p.filesUnparsed,
+		skippedSiblings: append([]SkippedSibling(nil), p.skippedSiblings...),
+		signatures:      append([]SymbolSignature(nil), p.signatures...),
+		constants:       append([]ConstDefinition(nil), p.constants...),
+		imports:         make(map[string][]string, len(p.imports)),
+		pkgName:         make(map[string]string, len(p.pkgName)),
 	}
 	out.types = make([]TypeDefinition, len(p.types))
 	for i, td := range p.types {
@@ -288,6 +293,8 @@ func (p *packageParse) applyTo(hc *HolographicContext, targetFile string) {
 	hc.PackageSignatures = p.signatures
 	hc.PackageTypes = p.types
 	hc.PackageConstants = p.constants
+	hc.FilesUnparsed = p.filesUnparsed
+	hc.SkippedSiblings = append([]SkippedSibling(nil), p.skippedSiblings...)
 	if hc.PackageImports == nil {
 		hc.PackageImports = make(map[string][]string, len(p.imports))
 	}

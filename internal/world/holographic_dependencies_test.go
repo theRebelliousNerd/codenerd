@@ -2,6 +2,7 @@ package world
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,7 +206,11 @@ func TestDirectImporters_Bounded(t *testing.T) {
 	if listed > maxRenderedImporters {
 		t.Errorf("rendered %d importers, want at most %d:\n%s", listed, maxRenderedImporters, section)
 	}
-	if !strings.Contains(section, "more file(s)") {
-		t.Errorf("truncation is silent:\n%s", section)
+	want := fmt.Sprintf("and %d more file(s)", maxRenderedImporters*3)
+	if !strings.Contains(section, want) {
+		t.Errorf("truncation remainder is not the true count (want %q):\n%s", want, section)
+	}
+	if !strings.Contains(section, "`importers_of`") {
+		t.Errorf("importer remainder does not name importers_of:\n%s", section)
 	}
 }

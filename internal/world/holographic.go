@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -55,7 +56,23 @@ type HolographicContext struct {
 	ExternalDeps    []string     `json:"external_deps"`    // Third-party dependencies
 
 	// Semantic Relationships (from knowledge graph)
-	CallGraph []CallEdge `json:"call_graph"` // Who calls what
+	CallGraph []CallEdge `json:"call_graph"` // Who calls what, up to maxCallGraphEdges
+
+	// CallerCount is the number of distinct callers on matching code_calls
+	// edges, and CallGraphEdges is the number of those edges. CallGraph stores
+	// at most maxCallGraphEdges of them. These two are the full walk:
+	// PromptSection's "and N more" is computed from them, so the storage cap
+	// cannot shrink the pool the remainder counts.
+	CallerCount    int `json:"caller_count,omitempty"`
+	CallGraphEdges int `json:"call_graph_edges,omitempty"`
+
+	// FilesUnparsed is how many non-test Go files in the package directory did
+	// not parse: past maxPackageFilesToParse, over maxSiblingFileBytes, or a
+	// parse error. SkippedSiblings names the oversized ones. The signature and
+	// type pools are only the files that parsed, so the prompt states this
+	// count beside them.
+	FilesUnparsed   int              `json:"files_unparsed,omitempty"`
+	SkippedSiblings []SkippedSibling `json:"skipped_siblings,omitempty"`
 
 	// Code Quality Signals
 	TestCoverage float64 `json:"test_coverage"` // If known from facts
@@ -104,7 +121,15 @@ type SymbolSignature struct {
 	File       string `json:"file"`                  // Which file defines this
 	Line       int    `json:"line"`                  // Line number
 	Exported   bool   `json:"exported"`              // Starts with uppercase?
-	DocComment string `json:"doc_comment,omitempty"` // First line of doc comment
+	DocComment string `json:"doc_comment,omitempty"` // First line of the doc comment, kept whole
+}
+
+// SkippedSibling is a package file the holographic parse did not read because
+// it is larger than maxSiblingFileBytes. The prompt names it; a log line was
+// the only record, and the signature list then looked complete.
+type SkippedSibling struct {
+	File string `json:"file"`
+	Size int64  `json:"size"`
 }
 
 // TypeDefinition represents a struct or interface in the package.
@@ -416,17 +441,30 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		b.WriteString("**Tests**: no\n\n")
 	}
 
+	// Files the package parse did not read. Stated before the signature and
+	// type lists those files are missing from, so "and N more" on those lists
+	// is not read as the whole package.
+	pkgDir := filepath.Dir(filePath)
+	if hc.FilesUnparsed > 0 || len(hc.SkippedSiblings) > 0 {
+		substantive = true
+		writeUnparsedFiles(&b, hc, pkgDir)
+	}
+
 	// Exported signatures, ranked by relevance to the target file.
-	const maxSigs = 8
 	base := filepath.Base(filePath)
 	sigs, sigPool := rankSignaturesForTarget(hc.PackageSignatures, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(sigs) > 0 {
 		substantive = true
 		b.WriteString("### Exported signatures\n\n")
-		shown := sigs
+		// Remainder from the pool, then slice. sigPool is every exported
+		// signature the parse collected, which is not the whole package when
+		// FilesUnparsed is non-zero; writePoolRemainder says which.
 		truncated := 0
-		if len(shown) > maxSigs {
+		if sigPool > maxSigs {
 			truncated = sigPool - maxSigs
+		}
+		shown := sigs
+		if len(shown) > maxSigs {
 			shown = shown[:maxSigs]
 		}
 		for _, sig := range shown {
@@ -458,22 +496,24 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 			// target's own file reads like the file has 601 exports; saying
 			// "in package core" makes it clear the rest is the package's
 			// surface, which is what the model needs to know before it goes
-			// looking for something.
-			fmt.Fprintf(&b, "- … and %d more exported in package `%s`\n", truncated, packageLabel(hc))
+			// looking for something. package_outline lists every declaration,
+			// including the ones past this cap and the files that were not parsed.
+			writePoolRemainder(&b, "exported", truncated, hc.FilesUnparsed, packageLabel(hc), pkgDir)
 		}
 		b.WriteString("\n")
 	}
 
 	// Type definitions, ranked by relevance to the target file.
-	const maxTypes = 8
 	types, typePool := rankTypesForTarget(hc.PackageTypes, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(types) > 0 {
 		substantive = true
 		b.WriteString("### Type definitions\n\n")
-		shown := types
 		truncated := 0
-		if len(shown) > maxTypes {
+		if typePool > maxTypes {
 			truncated = typePool - maxTypes
+		}
+		shown := types
+		if len(shown) > maxTypes {
 			shown = shown[:maxTypes]
 		}
 		for _, td := range shown {
@@ -492,7 +532,7 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 			b.WriteString("\n")
 		}
 		if truncated > 0 {
-			fmt.Fprintf(&b, "- … and %d more in package `%s`\n", truncated, packageLabel(hc))
+			writePoolRemainder(&b, "", truncated, hc.FilesUnparsed, packageLabel(hc), pkgDir)
 		}
 		b.WriteString("\n")
 	}
@@ -509,9 +549,9 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		b.WriteString("### Imported by\n\n")
 		shown := hc.DirectImporters
 		truncated := 0
-		if len(shown) > maxRenderedImporters {
-			truncated = len(shown) - maxRenderedImporters
-			shown = shown[:maxRenderedImporters]
+		if len(hc.DirectImporters) > maxRenderedImporters {
+			truncated = len(hc.DirectImporters) - maxRenderedImporters
+			shown = hc.DirectImporters[:maxRenderedImporters]
 		}
 		for _, importer := range shown {
 			b.WriteString("- `")
@@ -519,20 +559,24 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 			b.WriteString("`\n")
 		}
 		if truncated > 0 {
-			fmt.Fprintf(&b, "- … and %d more file(s)\n", truncated)
+			// importers_of lists every file that imports the package. The
+			// argument is the import path when the module is known, which is
+			// the form the tool resolves without guessing a package name.
+			fmt.Fprintf(&b, "- … and %d more file(s); `importers_of` package=%s lists every one\n", truncated, h.importerReadArg(filePath, hc))
 		}
 		b.WriteString("\n")
 	}
 
 	// Callers — who calls this file (impact-aware if available).
-	const maxCallers = 8
 	if len(hc.PrioritizedCallers) > 0 {
 		substantive = true
 		b.WriteString("### Callers (impact-prioritized)\n\n")
-		shown := hc.PrioritizedCallers
 		truncated := 0
+		if len(hc.PrioritizedCallers) > maxCallers {
+			truncated = len(hc.PrioritizedCallers) - maxCallers
+		}
+		shown := hc.PrioritizedCallers
 		if len(shown) > maxCallers {
-			truncated = len(shown) - maxCallers
 			shown = shown[:maxCallers]
 		}
 		for _, c := range shown {
@@ -551,10 +595,13 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 			b.WriteString("\n")
 		}
 		if truncated > 0 {
-			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+			// The prioritized list is the full set queryImpactPriorities
+			// returned. callers_of reads every call site; this line is only
+			// the impact-ranked prefix.
+			writeCallerRemainder(&b, truncated, 0, 0)
 		}
 		b.WriteString("\n")
-	} else if len(hc.CallGraph) > 0 {
+	} else if len(hc.CallGraph) > 0 || hc.CallGraphEdges > 0 {
 		substantive = true
 		b.WriteString("### Callers\n\n")
 		seen := make(map[string]struct{}, len(hc.CallGraph))
@@ -565,10 +612,16 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 				callers = append(callers, e.Caller)
 			}
 		}
-		truncated := 0
+		// Names come from the stored edges. The count comes from the full
+		// walk (CallerCount), which includes callers that only appear on
+		// edges past maxCallGraphEdges. Falling back to len(callers) covers a
+		// context whose CallGraph was filled in directly.
+		totalCallers := hc.CallerCount
+		if totalCallers < len(callers) {
+			totalCallers = len(callers)
+		}
 		shown := callers
 		if len(shown) > maxCallers {
-			truncated = len(shown) - maxCallers
 			shown = shown[:maxCallers]
 		}
 		for _, caller := range shown {
@@ -576,9 +629,11 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 			b.WriteString(caller)
 			b.WriteString("`\n")
 		}
-		if truncated > 0 {
-			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+		edges := hc.CallGraphEdges
+		if edges < len(hc.CallGraph) {
+			edges = len(hc.CallGraph)
 		}
+		writeCallerRemainder(&b, totalCallers-len(shown), edges, len(hc.CallGraph))
 		b.WriteString("\n")
 	}
 
@@ -609,8 +664,9 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 // says how many it left out and points at get_elements, which lists them all.
 const maxOutlineElements = 120
 
-// maxOutlineSignature bounds one outline entry; a longer signature is cut with
-// a visible ellipsis (get_element returns it whole).
+// maxOutlineSignature bounds one outline entry. The cut states how many
+// characters were left off and names get_element, which returns the signature
+// whole. A bare ellipsis was a shortened signature presented as the signature.
 const maxOutlineSignature = 100
 
 // targetOutline renders the declarations of filePath with their current line
@@ -639,16 +695,94 @@ func (h *HolographicProvider) targetOutline(filePath string) string {
 		if label == "" {
 			label = el.Name
 		}
-		if len(label) > maxOutlineSignature {
-			label = label[:maxOutlineSignature] + "…"
+		// Cut on runes so the reported remainder is a character count and the
+		// label stays valid UTF-8. len(label) is bytes.
+		rest := 0
+		if n := utf8.RuneCountInString(label); n > maxOutlineSignature {
+			rest = n - maxOutlineSignature
+			label = string([]rune(label)[:maxOutlineSignature])
 		}
-		fmt.Fprintf(&b, "- %d-%d %s `%s`\n", el.StartLine, el.EndLine, el.Type, label)
+		if rest > 0 {
+			fmt.Fprintf(&b, "- %d-%d %s `%s…` (%d more characters; `get_element` returns the signature whole)\n", el.StartLine, el.EndLine, el.Type, label, rest)
+		} else {
+			fmt.Fprintf(&b, "- %d-%d %s `%s`\n", el.StartLine, el.EndLine, el.Type, label)
+		}
 	}
 	if rest := len(elements) - len(shown); rest > 0 {
 		fmt.Fprintf(&b, "- … %d more declarations not listed; `get_elements path=%s` lists every one\n", rest, filePath)
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// writeUnparsedFiles states how many package files the signature and type
+// pools leave out, and names the tools that read them. package_outline lists
+// every declaration in the directory; get_elements reads one file.
+func writeUnparsedFiles(b *strings.Builder, hc *HolographicContext, pkgDir string) {
+	if hc == nil || (hc.FilesUnparsed <= 0 && len(hc.SkippedSiblings) == 0) {
+		return
+	}
+	b.WriteString("### Package files not parsed\n\n")
+	if hc.FilesUnparsed == 1 {
+		fmt.Fprintf(b, "- 1 of the package's Go files was not parsed, so the signature and type lists are not the whole package. `package_outline` path=%s lists every declaration; `get_elements` reads one file.\n", pkgDir)
+	} else if hc.FilesUnparsed > 1 {
+		fmt.Fprintf(b, "- %d of the package's Go files were not parsed, so the signature and type lists are not the whole package. `package_outline` path=%s lists every declaration; `get_elements` reads one file.\n", hc.FilesUnparsed, pkgDir)
+	}
+	for _, s := range hc.SkippedSiblings {
+		fmt.Fprintf(b, "- `%s` (%d bytes) exceeds the %d-byte sibling parse bound and was not parsed.\n", filepath.Base(s.File), s.Size, maxSiblingFileBytes)
+	}
+	b.WriteString("\n")
+}
+
+// writePoolRemainder is the "and N more" line for signatures (kind "exported")
+// and types (kind ""). N is the remainder of the parsed pool. When files were
+// not parsed, the line says so instead of calling that remainder the package.
+// package_outline reads the declarations either way.
+func writePoolRemainder(b *strings.Builder, kind string, truncated, filesUnparsed int, pkg, pkgDir string) {
+	if truncated <= 0 {
+		return
+	}
+	qual := "in package"
+	if filesUnparsed > 0 {
+		qual = "among the parsed files of package"
+	}
+	if kind != "" {
+		fmt.Fprintf(b, "- … and %d more %s %s `%s`; `package_outline` path=%s lists every declaration\n", truncated, kind, qual, pkg, pkgDir)
+		return
+	}
+	fmt.Fprintf(b, "- … and %d more %s `%s`; `package_outline` path=%s lists every declaration\n", truncated, qual, pkg, pkgDir)
+}
+
+// writeCallerRemainder states callers left off the list. omittedCallers is the
+// true remainder of distinct callers, not the remainder of the stored edges.
+// When matchingEdges exceeds storedEdges, those edges were counted and not
+// stored; the line says both numbers. callers_of lists every call site.
+func writeCallerRemainder(b *strings.Builder, omittedCallers, matchingEdges, storedEdges int) {
+	unstored := matchingEdges - storedEdges
+	if unstored < 0 {
+		unstored = 0
+	}
+	switch {
+	case omittedCallers > 0 && unstored > 0:
+		fmt.Fprintf(b, "- … and %d more callers (%d matching call-graph edges, %d not stored here); `callers_of` lists every call site\n", omittedCallers, matchingEdges, unstored)
+	case omittedCallers > 0:
+		fmt.Fprintf(b, "- … and %d more callers; `callers_of` lists every call site\n", omittedCallers)
+	case unstored > 0:
+		fmt.Fprintf(b, "- … %d of %d matching call-graph edges are not stored here; `callers_of` lists every call site\n", unstored, matchingEdges)
+	}
+}
+
+// importerReadArg is the package argument importers_of resolves: the module
+// import path when go.mod can name it, otherwise the package clause, otherwise
+// the directory.
+func (h *HolographicProvider) importerReadArg(filePath string, hc *HolographicContext) string {
+	if arg := h.packageImportPath(filePath); arg != "" {
+		return arg
+	}
+	if hc != nil && hc.TargetPkg != "" {
+		return hc.TargetPkg
+	}
+	return filepath.ToSlash(filepath.Dir(filePath))
 }
 
 // getContextInternal is the shared cancellable context generator.
@@ -715,16 +849,31 @@ func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath s
 	return hc, nil
 }
 
-// maxPackageFilesToParse caps how many sibling files one directory contributes
-// to a holographic context. A package with more files than this is already past
-// the point where listing its symbols helps the model, and parsing all of them
-// costs real time on the turn's critical path.
+// maxPackageFilesToParse caps how many sibling files one directory is parsed
+// for signatures. Parsing every file of a large package sits on the turn's
+// critical path. Files past the cap are not dropped from the count: PromptSection
+// says how many were not parsed. Slicing the list and then counting signatures
+// reported a package remainder that left those files out.
 const maxPackageFilesToParse = 100
 
-// maxSiblingFileBytes skips generated monsters. A 5 MB .go file is a generated
-// table, not something whose signatures the model needs, and parsing it can
-// dominate the whole package.
+// maxSiblingFileBytes skips a generated monster. A 5 MB .go file is a generated
+// table, and parsing it can dominate the package. The skip is named in the
+// prompt with its size. A log line alone left a hole in the signature list.
 const maxSiblingFileBytes = 5 * 1024 * 1024
+
+// maxCallGraphEdges bounds how many matching code_calls edges are stored on
+// CallGraph. The walk still counts every matching edge and every distinct
+// caller past this bound. Stopping the walk here made "and N more callers" a
+// count of the stored prefix.
+const maxCallGraphEdges = 100
+
+// maxSigs, maxTypes and maxCallers bound what one prompt section lists. The
+// remainder is computed from the full pool, then the list is sliced.
+const (
+	maxSigs    = 8
+	maxTypes   = 8
+	maxCallers = 8
+)
 
 // buildGoContextWithContext builds package-level context for Go files with
 // cancellation and limit protections, served from the package-parse cache when
@@ -778,12 +927,18 @@ func (h *HolographicProvider) parsePackage(ctx context.Context, dir string, entr
 		p.allGoFiles = append(p.allGoFiles, filepath.Join(dir, name))
 	}
 
-	p.goFiles = p.allGoFiles
-	if len(p.goFiles) > maxPackageFilesToParse {
-		logging.Get(logging.CategoryWorld).Warn("buildGoContext: package too large (%d files), limiting parsing to first %d", len(p.goFiles), maxPackageFilesToParse)
-		p.goFiles = p.goFiles[:maxPackageFilesToParse]
+	// Name order, not ReadDir order. The cap's omitted set has to be a function
+	// of the directory, so "N files were not parsed" is the same on every
+	// machine. ReadDir order is not.
+	sort.Strings(p.allGoFiles)
+	if len(p.allGoFiles) > maxPackageFilesToParse {
+		logging.Get(logging.CategoryWorld).Warn("buildGoContext: package too large (%d files), limiting parsing to first %d", len(p.allGoFiles), maxPackageFilesToParse)
+		p.goFiles = append([]string(nil), p.allGoFiles[:maxPackageFilesToParse]...)
+	} else {
+		p.goFiles = append([]string(nil), p.allGoFiles...)
 	}
 
+	parsed := 0
 	fset := token.NewFileSet()
 	for _, goFile := range p.goFiles {
 		select {
@@ -793,18 +948,38 @@ func (h *HolographicProvider) parsePackage(ctx context.Context, dir string, entr
 		}
 
 		if info, statErr := os.Stat(goFile); statErr == nil && info.Size() > maxSiblingFileBytes {
-			logging.Get(logging.CategoryWorld).Warn("buildGoContext: skipping huge sibling file: %s (%d bytes)", goFile, info.Size())
+			h.noteOversizedSibling(p, goFile, info.Size())
 			continue
 		}
 		if err := h.parseGoFileInto(p, fset, goFile); err != nil {
 			logging.WorldDebug("HolographicProvider: failed to parse %s: %v", goFile, err)
-			// Continue with other files
+			// A file that did not parse is counted below. Continue with the rest.
+			continue
+		}
+		parsed++
+	}
+	// Files past the cap were not walked by the loop above. Stat them so an
+	// oversized one is named, not folded into the count with no identity.
+	for _, goFile := range p.allGoFiles[len(p.goFiles):] {
+		if info, statErr := os.Stat(goFile); statErr == nil && info.Size() > maxSiblingFileBytes {
+			h.noteOversizedSibling(p, goFile, info.Size())
 		}
 	}
+	// Full list minus what parsed. Computed here, after the walk, never from
+	// the already-sliced goFiles length alone: a huge file inside the cap and
+	// a file past the cap are both absent from the signature pool.
+	p.filesUnparsed = len(p.allGoFiles) - parsed
 
 	narrowLocalRefs(p)
 
 	return p, nil
+}
+
+// noteOversizedSibling records a file the parse skipped for size and logs it.
+// The prompt reads the record; the log is not the model's only copy.
+func (h *HolographicProvider) noteOversizedSibling(p *packageParse, goFile string, size int64) {
+	logging.Get(logging.CategoryWorld).Warn("buildGoContext: skipping huge sibling file: %s (%d bytes)", goFile, size)
+	p.skippedSiblings = append(p.skippedSiblings, SkippedSibling{File: goFile, Size: size})
 }
 
 // readPackageClause fills TargetPkg for a file the package parse did not cover
@@ -964,14 +1139,15 @@ func (h *HolographicProvider) extractFuncSignature(fset *token.FileSet, fn *ast.
 		sig.Returns = formatFieldList(fset, fn.Type.Results)
 	}
 
-	// Doc comment (first line only)
+	// First line of the doc comment, kept whole. A 100-character cut plus "..."
+	// stored a shortened comment as the comment, and this field has no
+	// remainder line in front of the model. The file is already refused above
+	// maxSiblingFileBytes, which is the bound on how long the line can be; a
+	// second cut under that would be an omission with no true count.
 	if fn.Doc != nil && len(fn.Doc.List) > 0 {
 		text := strings.TrimPrefix(fn.Doc.List[0].Text, "//")
 		text = strings.TrimPrefix(text, "/*")
 		text = strings.TrimSpace(text)
-		if len(text) > 100 {
-			text = text[:100] + "..."
-		}
 		sig.DocComment = text
 	}
 
@@ -1135,18 +1311,18 @@ func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context,
 		return
 	}
 
-	const maxCallGraphEdges = 100 // Cap to prevent prompt & serialization bloat
+	// Storage cap only. The loop does not break at it: edges past the cap are
+	// counted into CallGraphEdges and their callers into CallerCount, which is
+	// what PromptSection's remainder is computed from. fn: rows are duplicates
+	// of a bare row (see below) and are not part of either count.
 	edgeCount := 0
+	callerSeen := make(map[string]struct{})
 
 	for _, fact := range callFacts {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-		}
-
-		if edgeCount >= maxCallGraphEdges {
-			break
 		}
 
 		if len(fact.Args) < 2 {
@@ -1157,23 +1333,35 @@ func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context,
 
 		// Dual CodeDOM-ref rows (fn:pkg.Name, emitted for the test-impact
 		// joins) carry the same edge as a bare row this walk already
-		// matches: skipping them keeps the call graph from listing every
-		// edge twice and halves the pressure on the cap below. A bare
-		// cartographer ID never starts with "fn:".
+		// matches: counting them would double CallGraphEdges and make the
+		// remainder a lie in the other direction. A bare cartographer ID
+		// never starts with "fn:".
 		if strings.HasPrefix(caller, "fn:") || strings.HasPrefix(callee, "fn:") {
 			continue
 		}
 
-		// Check if caller or callee is in our file
+		matched := false
 		for _, sym := range fileSymbols {
 			if strings.Contains(caller, sym) || strings.Contains(callee, sym) {
-				hc.CallGraph = append(hc.CallGraph, CallEdge{
-					Caller: caller,
-					Callee: callee,
-				})
-				edgeCount++
+				matched = true
 				break
 			}
+		}
+		if !matched {
+			continue
+		}
+
+		hc.CallGraphEdges++
+		if _, ok := callerSeen[caller]; !ok {
+			callerSeen[caller] = struct{}{}
+			hc.CallerCount++
+		}
+		if edgeCount < maxCallGraphEdges {
+			hc.CallGraph = append(hc.CallGraph, CallEdge{
+				Caller: caller,
+				Callee: callee,
+			})
+			edgeCount++
 		}
 	}
 }

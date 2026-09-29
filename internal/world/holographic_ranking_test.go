@@ -2,6 +2,7 @@ package world
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,8 +179,17 @@ func TestPromptSection_TruncationNamesItsPool(t *testing.T) {
 
 	h := NewHolographicProvider(nil, dir)
 	section := h.PromptSection(context.Background(), filepath.Join(dir, "big.go"))
-	if !strings.Contains(section, "more exported in package `p`") {
-		t.Fatalf("truncation line does not name its pool:\n%s", section)
+	// 40 exported functions, one file, nothing unparsed. The remainder is the
+	// package's, and package_outline is what reads the rest.
+	want := fmt.Sprintf("and %d more exported in package `p`", 40-maxSigs)
+	if !strings.Contains(section, want) {
+		t.Fatalf("truncation line does not name its pool (want %q):\n%s", want, section)
+	}
+	if !strings.Contains(section, "`package_outline`") {
+		t.Fatalf("signature remainder does not name a tool that reads the rest:\n%s", section)
+	}
+	if strings.Contains(section, "among the parsed files") {
+		t.Fatalf("a fully parsed package was described as a partial parse:\n%s", section)
 	}
 }
 
