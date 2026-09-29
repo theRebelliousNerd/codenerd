@@ -2622,6 +2622,10 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 	}
 	e.assertTurnVerb(turn, verb, result)
 	e.assertTurnWrites(turn, result)
+	// The changed elements ride the closure with the writes: they measure the
+	// workspace as the last post-edit round left it, and no forcing round
+	// consults them yet.
+	e.assertTurnElements(turn, result)
 }
 
 // recordBuildState asserts this turn's mechanical gate verdicts as the facts

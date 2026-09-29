@@ -159,6 +159,13 @@ turn_vet_red(Turn) :- turn_gate(Turn, /vet, /failing).
 # whose path was not recorded -- owes both Go gates: the cautious side, as
 # before.
 Decl turn_written(Turn, Path, Ext) bound [/name, /string, /string].
+# turn_changed_element is the functions and methods of a written .go file whose
+# body or signature this turn changed or added (the executor measures it at the
+# closure, beside turn_written; internal/session/turn_elements.go). Ref is a
+# code_element ref -- fn:<pkg>.<Name>, fn:<pkg>.<Recv>.<Name> for a method,
+# <pkg> the package clause -- so a future witness rule joins it against
+# code_element directly. No rule reads it yet.
+Decl turn_changed_element(Turn, Ref) bound [/name, /string].
 # turn_doc_write: the written path lies under a path the workspace's nerd.md
 # declares as docs (the executor measures it; assertTurnWrites).
 Decl turn_doc_write(Turn, Path) bound [/name, /string].

@@ -286,7 +286,7 @@ var hostWitnessPredicates = map[string]struct{}{
 	"turn_created_test": {}, "turn_test_coverage": {}, "turn_missing_test": {},
 	// What a write owes (N01): write_class is the table a model could
 	// otherwise extend to reclassify its own code as documentation.
-	"turn_written": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
+	"turn_written": {}, "turn_changed_element": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
 	"turn_doc_write": {},
 	"turn_owes_gate": {}, "turn_unmet_gate": {}, "turn_red_gate": {}, "has_unmet_gate": {}, "has_red_gate": {},
 	// What a behaviour change owes (N22): the turn's intent and the table
