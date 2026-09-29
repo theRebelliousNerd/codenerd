@@ -429,7 +429,13 @@ func (p *GoCodeParser) extractStructTags(body string) []string {
 	return tags
 }
 
-// extractReceiverTypeInfo extracts the type name and pointer-ness from a method receiver.
+// extractReceiverTypeInfo extracts the receiver base type and whether a pointer
+// was unwrapped. Type arguments (IndexExpr, IndexListExpr) and parentheses are
+// not part of the name, and stars unwrap through them: func (b *Box[T]) Get,
+// func (b Box[T]) Get and func (b (Box[T])) Get all name Box. The session's
+// elementReceiver (internal/session/turn_elements.go) applies the same unwrap,
+// so both emit fn:<pkg>.Box.Get. A receiver that is not a named type after
+// that unwrap yields an empty name, and parseFuncDecl keeps the bare fn ref.
 func extractReceiverTypeInfo(expr ast.Expr) (typeName string, isPointer bool) {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -437,6 +443,12 @@ func extractReceiverTypeInfo(expr ast.Expr) (typeName string, isPointer bool) {
 	case *ast.StarExpr:
 		name, _ := extractReceiverTypeInfo(t.X)
 		return name, true
+	case *ast.IndexExpr:
+		return extractReceiverTypeInfo(t.X)
+	case *ast.IndexListExpr:
+		return extractReceiverTypeInfo(t.X)
+	case *ast.ParenExpr:
+		return extractReceiverTypeInfo(t.X)
 	}
 	return "", false
 }

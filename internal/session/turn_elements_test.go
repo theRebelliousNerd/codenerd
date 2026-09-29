@@ -82,10 +82,9 @@ func TestTurnChangedElement_RecordsChangedAndAddedFunctions(t *testing.T) {
 
 // The refs are code_element refs: the world's Go parser produces the same
 // strings for the same file, so a future witness rule joins them directly.
-// The generic-receiver case pins the exact match, quirk included: the world's
-// receiver reader keeps identifiers and pointers only
-// (extractReceiverTypeInfo in internal/world/go_parser.go), so a method on
-// Box[T] is fn:<pkg>.Get in both places, not fn:<pkg>.Box.Get.
+// A generic receiver keeps its base type in both places: a method on Box[T]
+// is fn:<pkg>.Box.Get, never fn:<pkg>.Get, so a same-named plain function
+// cannot discharge the method's witness obligation.
 func TestTurnChangedElement_RefsMatchWorldCodeElements(t *testing.T) {
 	worldRefs := func(content string) map[string]bool {
 		t.Helper()
@@ -114,11 +113,38 @@ func TestTurnChangedElement_RefsMatchWorldCodeElements(t *testing.T) {
 	genericAfter := genericBefore + "\nfunc (b *Box[T]) Get() T { return b.v }\n"
 	got = changedElementRefs(genericAfter, existed(genericBefore), "box.go")
 	refs = worldRefs(genericAfter)
-	if len(got) != 1 {
-		t.Fatalf("generic method refs = %v, want one", got)
+	if len(got) != 1 || got[0] != "fn:elemprobe.Box.Get" {
+		t.Fatalf("generic method refs = %v, want [fn:elemprobe.Box.Get]", got)
 	}
 	if !refs[got[0]] {
 		t.Errorf("turn_changed_element ref %q is not a code_element ref the world produces for the same file", got[0])
+	}
+
+	// A plain func Get beside methods on Box[T] and Pair[A, B]: every
+	// receiver spelling (pointer, value, multi-parameter, parenthesized)
+	// keeps its base type, so each declaration gets its own ref and the
+	// turn facts stay byte-identical to the world elements.
+	collideBefore := "package elemprobe\n\ntype Box[T any] struct{ v T }\n\ntype Pair[A any, B any] struct{ a A; b B }\n"
+	collideAfter := collideBefore +
+		"\nfunc Get() int { return 1 }\n" +
+		"\nfunc (b Box[T]) Get() T { return b.v }\n" +
+		"\nfunc (p *Pair[A, B]) First() A { return p.a }\n" +
+		"\nfunc (b (Box[T])) Size() int { return 0 }\n"
+	got = changedElementRefs(collideAfter, existed(collideBefore), "box.go")
+	refs = worldRefs(collideAfter)
+	collideWant := []string{"fn:elemprobe.Box.Get", "fn:elemprobe.Box.Size", "fn:elemprobe.Get", "fn:elemprobe.Pair.First"}
+	if len(got) != len(collideWant) {
+		t.Fatalf("colliding-name refs = %v, want %v", got, collideWant)
+	}
+	for i := range collideWant {
+		if got[i] != collideWant[i] {
+			t.Fatalf("colliding-name refs = %v, want %v", got, collideWant)
+		}
+	}
+	for _, ref := range got {
+		if !refs[ref] {
+			t.Errorf("turn_changed_element ref %q is not a code_element ref the world produces for the same file", ref)
+		}
 	}
 }
 
@@ -130,5 +156,41 @@ func TestTurnChangedElement_ModelCannotAssert(t *testing.T) {
 	}
 	if kept, _ := core.FilterMangleUpdates(nil, []string{update}, core.ModelObservationPolicy()); len(kept) != 0 {
 		t.Errorf("the model can assert %s through the observation policy", update)
+	}
+}
+
+// A turn that changes only a _test.go file, a go-tool-ignored fixture, or an
+// init function owes no turn_changed_element facts: a witness rule must not
+// demand a test of a test, a testdata fixture is not built, and init has no
+// ref that names which one changed.
+func TestTurnChangedElement_SkipsTestsFixturesAndInit(t *testing.T) {
+	testBefore := "package elemprobe\n\nimport \"testing\"\n\nfunc TestGreet(t *testing.T) {}\n"
+	testAfter := "package elemprobe\n\nimport \"testing\"\n\nfunc TestGreet(t *testing.T) { if Greet(\"x\") == \"\" { t.Fatal(\"empty\") } }\n"
+	fixtureBefore := "package elemprobe\n\nfunc Fixture() int { return 1 }\n"
+	fixtureAfter := "package elemprobe\n\nfunc Fixture() int { return 2 }\n"
+	initBefore := "package elemprobe\n\nvar Started = \"\"\n\nfunc init() { Started = \"old\" }\n"
+	initAfter := "package elemprobe\n\nvar Started = \"\"\n\nfunc init() { Started = \"new\" }\n"
+	ws := writeBaselineModule(t, map[string]string{
+		"go.mod":              elemGoMod,
+		"calc_test.go":        testAfter,
+		"testdata/fixture.go": fixtureAfter,
+		"_old/legacy.go":      fixtureAfter,
+		"calc.go":             initAfter,
+	})
+	e := newObligationExec(t)
+	e.config.WorkspaceRoot = ws
+
+	result := writeTurnResult()
+	result.WrittenPaths = []string{"calc_test.go", "testdata/fixture.go", "_old/legacy.go", "calc.go"}
+	result.PreWriteContents = map[string]PreImage{
+		"calc_test.go":        existed(testBefore),
+		"testdata/fixture.go": existed(fixtureBefore),
+		"_old/legacy.go":      existed(fixtureBefore),
+		"calc.go":             existed(initBefore),
+	}
+	e.assertTurnEvidence(testTurn, "/fix", result)
+
+	if got := queryCount(t, e, "turn_changed_element"); got != 0 {
+		t.Errorf("turn_changed_element = %d for test/fixture/init-only changes, want 0", got)
 	}
 }

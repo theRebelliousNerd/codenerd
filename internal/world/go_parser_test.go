@@ -87,3 +87,71 @@ func TestGoCodeParser_ImplementsInterface(t *testing.T) {
 
 // TODO: Implement TestGoParser_Parse_PathTraversal
 // Vector: State Conflicts/Security. Use path "../../../../etc/passwd". Verify Ref URI sanitization.
+
+// TestGoCodeParser_GenericReceiverRef pins the method ref for every generic
+// receiver spelling: the base type survives IndexExpr, IndexListExpr,
+// ParenExpr and Star unwrapping, so Box[T].Get is fn:<pkg>.Box.Get and never
+// collapses onto a plain func Get with the same name.
+func TestGoCodeParser_GenericReceiverRef(t *testing.T) {
+	src := `package elemprobe
+
+type Box[T any] struct{ v T }
+
+type Pair[A any, B any] struct{ a A; b B }
+
+func Get() int { return 1 }
+
+func (b *Box[T]) Get() T { return b.v }
+
+func (b Box[T]) Clone() Box[T] { return b }
+
+func (p *Pair[A, B]) First() A { return p.a }
+
+func (b (Box[T])) Size() int { return 0 }
+`
+	elems, err := NewGoCodeParser(t.TempDir()).Parse("box.go", []byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := make(map[string]CodeElement)
+	for _, elem := range elems {
+		if elem.Type != ElementFunction && elem.Type != ElementMethod {
+			continue
+		}
+		if _, dup := got[elem.Ref]; dup {
+			t.Errorf("duplicate element ref %q: a generic method collapsed onto a same-named function", elem.Ref)
+		}
+		got[elem.Ref] = elem
+	}
+	wants := []struct {
+		ref    string
+		typ    ElementType
+		parent string
+	}{
+		{"fn:elemprobe.Get", ElementFunction, ""},
+		{"fn:elemprobe.Box.Get", ElementMethod, "struct:elemprobe.Box"},
+		{"fn:elemprobe.Box.Clone", ElementMethod, "struct:elemprobe.Box"},
+		{"fn:elemprobe.Pair.First", ElementMethod, "struct:elemprobe.Pair"},
+		{"fn:elemprobe.Box.Size", ElementMethod, "struct:elemprobe.Box"},
+	}
+	if len(got) != len(wants) {
+		refs := make([]string, 0, len(got))
+		for ref := range got {
+			refs = append(refs, ref)
+		}
+		t.Fatalf("function/method refs = %v, want %d elements", refs, len(wants))
+	}
+	for _, w := range wants {
+		elem, ok := got[w.ref]
+		if !ok {
+			t.Errorf("missing element ref %q", w.ref)
+			continue
+		}
+		if elem.Type != w.typ {
+			t.Errorf("ref %q type = %v, want %v", w.ref, elem.Type, w.typ)
+		}
+		if elem.Parent != w.parent {
+			t.Errorf("ref %q parent = %q, want %q", w.ref, elem.Parent, w.parent)
+		}
+	}
+}

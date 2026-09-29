@@ -28,7 +28,10 @@ func (e *Executor) assertTurnElements(turn types.MangleAtom, result *ExecutionRe
 	}
 	workspace := e.workspaceForVerification()
 	for _, path := range result.WrittenPaths {
-		if !strings.HasSuffix(strings.ToLower(path), ".go") {
+		// pinUnits skips the same paths: a _test.go change is a test of a test,
+		// and a file under testdata or a directory named with a leading "_" or
+		// "." is one the go tool never builds.
+		if !strings.HasSuffix(strings.ToLower(path), ".go") || isTestPath(path) || ignoredByGoTool(path) {
 			continue
 		}
 		pre, ok := preImageFor(workspace, path, result.PreWriteContents)
@@ -55,6 +58,11 @@ func (e *Executor) assertTurnElements(turn types.MangleAtom, result *ExecutionRe
 // code_element refs. A file whose only changes are outside its functions (a
 // constant, a type) reports the file, not an element, and contributes nothing
 // here: only functions and methods have refs to witness.
+//
+// A changed init asserts nothing. funcDecls leaves every init out of those
+// names: one file may declare several, and the name does not say which one
+// changed, so there is no single ref to assert. fn:<pkg>.init would name all
+// of them.
 func changedElementRefs(cur string, pre PreImage, path string) []string {
 	var names []string
 	for _, u := range fileUnits(path, cur, pre) {
@@ -87,6 +95,10 @@ func elementRefs(cur string, names []string) []string {
 			continue
 		}
 		key := funcKey(fn)
+		// A second declaration with this key is the same ref: valid Go has one
+		// function or method per key, and an illegal redeclaration (or a
+		// receiver the spec rejects, which funcKey spells as the bare name)
+		// does not name a different element.
 		if _, dup := byKey[key]; dup {
 			continue
 		}
@@ -115,23 +127,34 @@ func elementRef(pkg string, fn *ast.FuncDecl) string {
 	return "fn:" + pkg + "." + fn.Name.Name
 }
 
-// elementReceiver is the receiver the world's Go parser carries in the ref:
-// the identifier, pointers unwrapped, anything else dropped
-// (extractReceiverTypeInfo in internal/world/go_parser.go). It mirrors that
-// function rather than funcKey on purpose: a generic receiver's type arguments
-// survive in the pin gate's key ("Box.Get") but not in the code_element ref
-// ("fn:<pkg>.Get"), and the ref is what must match.
+// elementReceiver is the receiver base type the world's Go parser carries in
+// the ref (extractReceiverTypeInfo in internal/world/go_parser.go). Stars,
+// type arguments and parentheses unwrap, the same shapes funcKey drops, so
+// func (b *Box[T]) Get, func (b Box[T]) Get and func (b (Box[T])) Get all
+// name Box. The ref is fn:<pkg>.Box.Get, not fn:<pkg>.Get: a plain func Get
+// is a different element. A receiver that is not a named type after that
+// unwrap is dropped, and the ref is then the bare function, matching funcKey.
 func elementReceiver(fn *ast.FuncDecl) string {
 	if fn.Recv == nil || len(fn.Recv.List) == 0 {
 		return ""
 	}
 	expr := fn.Recv.List[0].Type
 	for {
-		star, ok := expr.(*ast.StarExpr)
-		if !ok {
-			break
+		switch t := expr.(type) {
+		case *ast.StarExpr:
+			expr = t.X
+			continue
+		case *ast.IndexExpr:
+			expr = t.X
+			continue
+		case *ast.IndexListExpr:
+			expr = t.X
+			continue
+		case *ast.ParenExpr:
+			expr = t.X
+			continue
 		}
-		expr = star.X
+		break
 	}
 	if id, ok := expr.(*ast.Ident); ok {
 		return id.Name
