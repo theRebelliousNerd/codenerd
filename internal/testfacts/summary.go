@@ -14,6 +14,18 @@ import (
 // tally. Its size follows the content -- no caps -- and it never inlines
 // a whole test body; Output recalls any one test's full output.
 func (r *Result) Summary() string {
+	return r.SummaryWith(nil)
+}
+
+// SummaryWith renders Summary with a per-failure annotation on each FAIL
+// entry and caller-supplied extra lines before the tally. annotate maps
+// the rendered first failure per test to the text appended to that entry's
+// first physical line (empty means none); nil annotates nothing, so
+// Summary is the no-annotation case of this one renderer. extra lines are
+// single physical lines without a trailing newline (empty ones skipped),
+// placed after the repeats where an orphan FAIL line used to be inserted
+// by editing the rendered text.
+func (r *Result) SummaryWith(annotate func(Failure) string, extra ...string) string {
 	if r == nil {
 		return "empty result: no events parsed\n"
 	}
@@ -23,23 +35,51 @@ func (r *Result) Summary() string {
 			bf.Package, bf.File, bf.Line, bf.Column, bf.Message)
 	}
 	for _, f := range firstFailures(r.Failures) {
-		switch {
-		case f.Test == "" && f.File == "":
-			fmt.Fprintf(&b, "FAIL %s: %s\n", f.Package, f.Message)
-		case f.Test == "":
-			fmt.Fprintf(&b, "FAIL %s %s:%d: %s\n", f.Package, f.File, f.Line, f.Message)
-		case f.File == "":
-			fmt.Fprintf(&b, "FAIL %s %s: %s\n", f.Package, f.Test, f.Message)
-		default:
-			fmt.Fprintf(&b, "FAIL %s %s %s:%d: %s\n",
-				f.Package, f.Test, f.File, f.Line, f.Message)
+		entry := failLine(f)
+		if annotate != nil {
+			if ann := annotate(f); ann != "" {
+				entry = spliceAnnotation(entry, ann)
+			}
 		}
+		b.WriteString(entry)
 	}
 	for _, rp := range r.Repeats {
 		fmt.Fprintf(&b, "repeated %dx: %s\n", rp.Count, rp.Line)
 	}
+	for _, line := range extra {
+		if line == "" {
+			continue
+		}
+		b.WriteString(line + "\n")
+	}
 	b.WriteString(r.tally() + "\n")
 	return b.String()
+}
+
+// failLine is the FAIL entry Summary renders for one first failure.
+func failLine(f Failure) string {
+	switch {
+	case f.Test == "" && f.File == "":
+		return fmt.Sprintf("FAIL %s: %s\n", f.Package, f.Message)
+	case f.Test == "":
+		return fmt.Sprintf("FAIL %s %s:%d: %s\n", f.Package, f.File, f.Line, f.Message)
+	case f.File == "":
+		return fmt.Sprintf("FAIL %s %s: %s\n", f.Package, f.Test, f.Message)
+	default:
+		return fmt.Sprintf("FAIL %s %s %s:%d: %s\n",
+			f.Package, f.Test, f.File, f.Line, f.Message)
+	}
+}
+
+// spliceAnnotation appends the annotation to the entry's first physical
+// line. The message prints raw and can hold newlines (a panic stack), so
+// appending at the end would bury the handle on a continuation line the
+// model does not read as the test's line.
+func spliceAnnotation(entry, ann string) string {
+	if i := strings.IndexByte(entry, '\n'); i >= 0 {
+		return entry[:i] + " " + ann + entry[i:]
+	}
+	return entry + " " + ann
 }
 
 // tally folds the run into one line: package and test verdict counts

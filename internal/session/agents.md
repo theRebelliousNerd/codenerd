@@ -103,7 +103,7 @@
 
 - Resolve the tool envelope BEFORE prompt compilation: `resolveAvailableTools`
   populates `CompilationContext.AvailableTools` from the precompiled config when
-  present, else from `ConfigFactory.ResolveAllowedTools` for the turn verb
+  present, else from the kernel turn catalog (`turnDerivedTools` / `prompt.DeriveTurnTools`) for the turn verb
   (including the `/general` fallback). Fail closed on resolution error (empty
   catalog, capability atoms omitted); never add tools to make a prompt compile.
   `compileConfig` must grant exactly what resolution promised for the same

@@ -183,10 +183,79 @@ func TestNilResult(t *testing.T) {
 	if got := res.Summary(); got != "empty result: no events parsed\n" {
 		t.Errorf("Summary = %q", got)
 	}
+	if got := res.SummaryWith(func(Failure) string { return "ANN" }, "FAIL p T"); got != "empty result: no events parsed\n" {
+		t.Errorf("SummaryWith on nil = %q", got)
+	}
 	if facts := res.Facts(); facts != nil {
 		t.Errorf("Facts = %v, want nil", facts)
 	}
 	if out := res.Output("p", "T"); out != "" {
 		t.Errorf("Output = %q, want empty", out)
+	}
+}
+
+// SummaryWith with no annotation renders exactly Summary: one renderer,
+// the bare case is the annotated case with nothing to add.
+func TestSummaryWithNilEqualsSummary(t *testing.T) {
+	res := annotateFixture()
+	if got, want := res.SummaryWith(nil), res.Summary(); got != want {
+		t.Errorf("SummaryWith(nil) = %q, want Summary %q", got, want)
+	}
+	var nilFn func(Failure) string
+	if got, want := res.SummaryWith(nilFn), res.Summary(); got != want {
+		t.Errorf("SummaryWith(nil func) = %q, want Summary %q", got, want)
+	}
+}
+
+// The annotation lands on the entry's first physical line. The message
+// prints raw and can hold newlines, so the handle must not end up on a
+// continuation line.
+func TestSummaryWithAnnotatesFirstLineOnly(t *testing.T) {
+	res := annotateFixture()
+	got := res.SummaryWith(func(Failure) string { return "ANN" })
+	lines := strings.Split(got, "\n")
+	if lines[0] != "FAIL p TestA a_test.go:4: first ANN" {
+		t.Errorf("first line = %q", lines[0])
+	}
+	if lines[1] != "second" {
+		t.Errorf("continuation line = %q, want it bare", lines[1])
+	}
+	if strings.Contains(res.Summary(), "ANN") {
+		t.Errorf("Summary carries an annotation:\n%s", res.Summary())
+	}
+}
+
+// Extra lines render after the repeats and before the tally, where an
+// orphan FAIL line used to be inserted by editing the rendered text.
+func TestSummaryWithExtraBeforeTally(t *testing.T) {
+	res := annotateFixture()
+	extra := "FAIL p TestOrphan recall_context id=\"9\" returns this test's full output"
+	got := res.SummaryWith(nil, extra)
+	lines := strings.Split(strings.TrimSpace(got), "\n")
+	if len(lines) != 4 || lines[2] != extra {
+		t.Fatalf("extra line misplaced:\n%s", got)
+	}
+	if !strings.HasPrefix(lines[3], "packages: ") {
+		t.Errorf("last line = %q, want the tally", lines[3])
+	}
+	if strings.Contains(res.Summary(), "TestOrphan") {
+		t.Errorf("Summary carries the extra line:\n%s", res.Summary())
+	}
+}
+
+// annotateFixture is one failing test with a two-line message: enough to
+// place an annotation and an extra line without running go test.
+func annotateFixture() *Result {
+	return &Result{
+		Status: StatusFail,
+		Packages: []*Package{{
+			Name:   "p",
+			Status: StatusFail,
+			Tests:  []*Test{{Name: "TestA", Status: StatusFail}},
+		}},
+		Failures: []Failure{{
+			Package: "p", Test: "TestA", File: "a_test.go", Line: 4,
+			Message: "first\nsecond", Count: 1,
+		}},
 	}
 }

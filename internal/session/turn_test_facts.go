@@ -98,6 +98,12 @@ func scopeTurnTestFact(predicate string, args []any) (types.Fact, bool) {
 // is still on Result, and inventing a second store would not be
 // recall_context.
 //
+// The handles render with the summary: the archive maps package+test to
+// its record id, and SummaryWith puts each id on its own failure's line.
+// Re-rendering from the Result (not editing v.Output text) keeps a message
+// that resembles another failure's line from misplacing a handle, and a
+// second pass renders the same text.
+//
 // Save is called directly, not through recordWorkingResult. That hook is the
 // effect boundary of a tool call: it moves the loop's focus to the file the
 // call named, and a test log is not a file the turn is editing.
@@ -109,32 +115,45 @@ func annotateFailingTestRecall(ctx context.Context, v *TestVerification) {
 	if loop == nil || loop.set == nil {
 		return
 	}
-	text := v.Output
-	if strings.TrimSpace(text) == "" {
-		text = verificationOutput(v.Result)
-	}
-	notes, orphans := archiveFailingOutputs(ctx, loop.set, v.Result)
-	if len(notes) == 0 && len(orphans) == 0 {
+	handles, orphans := archiveFailingOutputs(ctx, loop.set, v.Result)
+	if len(handles) == 0 && len(orphans) == 0 {
 		return
 	}
-	text = applyRecallNotes(text, notes)
-	for _, line := range orphans {
-		text = insertRecallLine(text, line)
+	var annotate func(testfacts.Failure) string
+	if len(handles) > 0 {
+		annotate = func(f testfacts.Failure) string {
+			if id, ok := handles[[2]string{f.Package, f.Test}]; ok {
+				return failingOutputPhrase(id)
+			}
+			return ""
+		}
 	}
-	v.Output = text
+	v.Output = verificationOutputWithRecall(v.Result, annotate, orphans)
 }
 
-// recallNote is one summary line and the working-set id of that test's output.
-type recallNote struct {
-	line string
-	id   string
+// verificationOutputWithRecall renders what verificationOutput does — the
+// Result's Summary plus any raw lines — but with recall handles on the FAIL
+// lines and orphan lines before the tally. It mirrors verificationOutput in
+// testfacts_helpers.go (a file this change does not own); keep the raw
+// handling in step with it.
+func verificationOutputWithRecall(res *testfacts.Result, annotate func(testfacts.Failure) string, orphans []string) string {
+	if res == nil {
+		return ""
+	}
+	out := res.SummaryWith(annotate, orphans...)
+	if len(res.Raw) > 0 {
+		out += strings.Join(res.Raw, "\n") + "\n"
+	}
+	return strings.TrimSpace(out)
 }
 
-// archiveFailingOutputs saves every failing test body that has text. notes
-// are the Result's own FAIL lines (first failure per test). orphans are
-// failing tests that printed nothing the failure parser kept — a parent
-// that failed only because a child did — so they have no FAIL line to extend.
-func archiveFailingOutputs(ctx context.Context, set *working.WorkingSet, res *testfacts.Result) (notes []recallNote, orphans []string) {
+// archiveFailingOutputs saves every failing test body that has text. handles
+// maps package+test to the working-set id of that test's output, for the
+// Result's own FAIL lines (first failure per test). orphans are failing
+// tests that printed nothing the failure parser kept — a parent that failed
+// only because a child did — so they have no FAIL line to annotate; their
+// lines render before the tally through SummaryWith's extra lines.
+func archiveFailingOutputs(ctx context.Context, set *working.WorkingSet, res *testfacts.Result) (handles map[[2]string]string, orphans []string) {
 	if set == nil || res == nil {
 		return nil, nil
 	}
@@ -154,7 +173,10 @@ func archiveFailingOutputs(ctx context.Context, set *working.WorkingSet, res *te
 			logging.Get(logging.CategorySession).Warn("failing test output for %s %s was not archived: %v", f.Package, f.Test, err)
 			continue
 		}
-		notes = append(notes, recallNote{line: failSummaryLine(f), id: id})
+		if handles == nil {
+			handles = make(map[[2]string]string)
+		}
+		handles[key] = id
 	}
 	for _, p := range res.Packages {
 		for _, test := range p.Tests {
@@ -178,7 +200,7 @@ func archiveFailingOutputs(ctx context.Context, set *working.WorkingSet, res *te
 			orphans = append(orphans, fmt.Sprintf("FAIL %s %s %s", p.Name, test.Name, failingOutputPhrase(id)))
 		}
 	}
-	return notes, orphans
+	return handles, orphans
 }
 
 // saveFailingOutput writes one test's full output and returns the id
@@ -219,75 +241,4 @@ func saveFailingOutput(ctx context.Context, set *working.WorkingSet, pkg, test, 
 // (recall_context id="...").
 func failingOutputPhrase(id string) string {
 	return fmt.Sprintf("recall_context id=%q returns this test's full output", id)
-}
-
-// failSummaryLine is the FAIL line testfacts.Summary renders for one first
-// failure. The handle is appended to that line; a different spelling would
-// leave the handle off the line the model reads.
-func failSummaryLine(f testfacts.Failure) string {
-	switch {
-	case f.Test == "" && f.File == "":
-		return fmt.Sprintf("FAIL %s: %s", f.Package, f.Message)
-	case f.Test == "":
-		return fmt.Sprintf("FAIL %s %s:%d: %s", f.Package, f.File, f.Line, f.Message)
-	case f.File == "":
-		return fmt.Sprintf("FAIL %s %s: %s", f.Package, f.Test, f.Message)
-	default:
-		return fmt.Sprintf("FAIL %s %s %s:%d: %s", f.Package, f.Test, f.File, f.Line, f.Message)
-	}
-}
-
-// applyRecallNotes appends each saved id to its FAIL line. Summary prints the
-// failure message raw, and a message can hold newlines (a panic stack, a
-// continuation line the failure parser kept), so the entry is often more
-// than one physical line. The handle goes on the first of those: that is the
-// line that names the test. A line that is not in the summary is logged and
-// left: the body is stored, and the model was not told the id.
-func applyRecallNotes(text string, notes []recallNote) string {
-	if len(notes) == 0 {
-		return text
-	}
-	parts := strings.Split(text, "\n")
-	for i, part := range parts {
-		for n := range notes {
-			if notes[n].id == "" || !failLineMatches(part, notes[n].line) {
-				continue
-			}
-			parts[i] = part + " " + failingOutputPhrase(notes[n].id)
-			notes[n].id = ""
-			break
-		}
-	}
-	for _, n := range notes {
-		if n.id == "" {
-			continue
-		}
-		logging.Get(logging.CategorySession).Warn("failing-test summary line was not found; recall id %s is not on it: %s", n.id, n.line)
-	}
-	return strings.Join(parts, "\n")
-}
-
-// failLineMatches reports whether a physical summary line is the start of
-// the FAIL entry Summary rendered for one failure. A single-line message
-// matches the whole entry. A message that contains newlines matches only
-// its first physical line, which still begins with the FAIL prefix.
-func failLineMatches(part, entry string) bool {
-	if part == entry {
-		return true
-	}
-	first, rest, ok := strings.Cut(entry, "\n")
-	return ok && rest != "" && part == first
-}
-
-// insertRecallLine puts a line for a failing test that had no FAIL line of
-// its own just before the tally, which Summary writes last.
-func insertRecallLine(text, line string) string {
-	if text == "" {
-		return line
-	}
-	i := strings.LastIndex(text, "\n")
-	if i < 0 {
-		return line + "\n" + text
-	}
-	return text[:i+1] + line + "\n" + text[i+1:]
 }

@@ -72,9 +72,9 @@ result, err := registry.Execute(ctx, "read_file", map[string]any{
 Tools are routed via intent in `internal/core/defaults/policy/intent_routing_rules.mg`:
 
 ```mangle
-modular_tool_allowed(/read_file, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/write_file, Intent) :- verb_category(Intent, /code).
-modular_tool_allowed(/web_search, Intent) :- verb_category(Intent, /research).
+turn_tool_allowed(Verb, Tool) :-
+    verb_persona(Verb, Persona),
+    persona_tool_allowed(Persona, Tool).
 ```
 
 ## Research Tools

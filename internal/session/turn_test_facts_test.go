@@ -486,6 +486,75 @@ func TestFailingTestRecall_MultilineMessageNamesTheHandle(t *testing.T) {
 	}
 }
 
+// A failure whose message contains another failure's FAIL line still gets
+// its own handle on its own line. Text matching misplaces it: the
+// continuation line equals the other entry, so the other test's handle
+// lands on the continuation and the real line stays bare. Rendering the
+// handle with the entry cannot confuse the two.
+func TestFailingTestRecall_ResemblingMessageKeepsOwnHandle(t *testing.T) {
+	mimicked := "FAIL p TestB b_test.go:8: b broke"
+	res := &testfacts.Result{
+		Status: testfacts.StatusFail,
+		Packages: []*testfacts.Package{{
+			Name:   "p",
+			Status: testfacts.StatusFail,
+			Tests: []*testfacts.Test{
+				{Name: "TestA", Status: testfacts.StatusFail, Output: []string{"a-body-line"}},
+				{Name: "TestB", Status: testfacts.StatusFail, Output: []string{"b-body-line"}},
+			},
+		}},
+		Failures: []testfacts.Failure{
+			{Package: "p", Test: "TestA", File: "a_test.go", Line: 4, Message: "first line\n" + mimicked, Count: 1},
+			{Package: "p", Test: "TestB", File: "b_test.go", Line: 8, Message: "b broke", Count: 1},
+		},
+	}
+	rendered := verificationOutput(res)
+	if strings.Count(rendered, mimicked) != 2 {
+		t.Fatalf("the fixture does not mimic the other entry twice:\n%s", rendered)
+	}
+	e := newObligationExec(t)
+	ctx := inTurnWorkingLoop(t, e)
+	v := TestVerification{Ran: true, OK: false, Output: rendered, Outcome: VerifyFailed, Result: res}
+	annotateFailingTestRecall(ctx, &v)
+	ids := recallIDs(t, v.Output)
+	if len(ids) != 2 || ids[0] == ids[1] {
+		t.Fatalf("recall ids = %v, want two distinct ids\n%s", ids, v.Output)
+	}
+	lines := strings.Split(v.Output, "\n")
+	if len(lines) < 4 {
+		t.Fatalf("annotated summary has %d lines, want at least 4:\n%s", len(lines), v.Output)
+	}
+	if !strings.Contains(lines[0], "TestA") || !strings.Contains(lines[0], `id="`+ids[0]+`"`) {
+		t.Fatalf("TestA's line does not carry its own handle %q: %q", ids[0], lines[0])
+	}
+	if lines[1] != mimicked {
+		t.Fatalf("continuation line = %q, want the bare mimicked text", lines[1])
+	}
+	if !strings.Contains(lines[2], `id="`+ids[1]+`"`) {
+		t.Fatalf("TestB's line does not carry its own handle %q: %q", ids[1], lines[2])
+	}
+	recall := tools.ContextRecallFrom(ctx)
+	bodyA, err := recall.Recall(ctx, ids[0], 0, 0)
+	if err != nil {
+		t.Fatalf("recall %s: %v", ids[0], err)
+	}
+	if !strings.Contains(bodyA, "a-body-line") || strings.Contains(bodyA, "b-body-line") {
+		t.Fatalf("recall %s mixed the bodies: %s", ids[0], bodyA)
+	}
+	bodyB, err := recall.Recall(ctx, ids[1], 0, 0)
+	if err != nil {
+		t.Fatalf("recall %s: %v", ids[1], err)
+	}
+	if !strings.Contains(bodyB, "b-body-line") || strings.Contains(bodyB, "a-body-line") {
+		t.Fatalf("recall %s mixed the bodies: %s", ids[1], bodyB)
+	}
+	once := v.Output
+	annotateFailingTestRecall(ctx, &v)
+	if v.Output != once {
+		t.Fatalf("annotating twice changed the summary:\n%s", v.Output)
+	}
+}
+
 func TestTurnTestFacts_ModelCannotAssert(t *testing.T) {
 	updates := []string{
 		`turn_test_failure_at(/turn_test, "p", "TestA", "a_test.go", 4, "from-a", 1).`,

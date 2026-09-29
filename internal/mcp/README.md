@@ -88,7 +88,7 @@ embedded under `internal/core/defaults/`:
 | `internal/core/defaults/schemas_mcp.mg` | Decls (EDB + IDB names), loaded by `kernel_init.go` |
 | `internal/core/defaults/policy/policy_mcp.mg` | Section 50 selection rules and 50.10 control-plane gating, loaded by the `defaults/policy/*.mg` sweep |
 | `internal/core/defaults/policy/constitution.mg` | `safe_action` for the five `mcp_*` verbs |
-| `internal/core/defaults/policy/intent_routing_rules.mg` | `modular_tool_allowed` for the five verbs |
+| `internal/core/defaults/policy/intent_routing_rules.mg` | `envelope_tool` / `turn_tool_allowed` for the five verbs |
 
 The model-facing verbs are registered from `internal/tools/mcpctl/`, which
 imports this package. Nothing here imports it back.
