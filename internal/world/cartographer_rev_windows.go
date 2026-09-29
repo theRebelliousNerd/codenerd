@@ -42,7 +42,42 @@ type fileIDExtdDirInfo struct {
 	FileID          [16]byte
 }
 
+// dirContentGens is fileContentGen's clock for every non-directory child,
+// from one FileIdExtdDirectoryInfo query. The world scan uses it so a no-op
+// pass does not open each file; opening each file for ChangeTime made a warm
+// pass over internal/ take 12s (2026-09-29).
+func dirContentGens(dir string) (map[string]fileGen, bool) {
+	entries, err := windowsDirEntries(dir)
+	if err != nil {
+		return nil, false
+	}
+	return entries, true
+}
+
 func windowsDirRevs(dir string) ([]goFileRev, error) {
+	entries, err := windowsDirEntries(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]goFileRev, 0, len(entries))
+	for name, g := range entries {
+		if !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		out = append(out, goFileRev{
+			name:       name,
+			size:       g.size,
+			mtime:      g.mtime,
+			gen:        g.gen,
+			genOK:      g.genOK,
+			genIsClock: g.genIsClock,
+		})
+	}
+	slices.SortFunc(out, func(a, b goFileRev) int { return cmp.Compare(a.name, b.name) })
+	return out, nil
+}
+
+func windowsDirEntries(dir string) (map[string]fileGen, error) {
 	p16, err := windows.UTF16PtrFromString(dir)
 	if err != nil {
 		return nil, err
@@ -63,7 +98,7 @@ func windowsDirRevs(dir string) ([]goFileRev, error) {
 
 	header := int(unsafe.Sizeof(fileIDExtdDirInfo{}))
 	buf := make([]byte, 64*1024)
-	var out []goFileRev
+	out := make(map[string]fileGen)
 	for {
 		err = windows.GetFileInformationByHandleEx(h, windows.FileIdExtdDirectoryInfo, &buf[0], uint32(len(buf)))
 		if err != nil {
@@ -88,15 +123,14 @@ func windowsDirRevs(dir string) ([]goFileRev, error) {
 				return nil, windows.ERROR_INVALID_DATA
 			}
 			name := string(utf16.Decode(unsafe.Slice((*uint16)(unsafe.Pointer(&buf[nameAt])), nameLen/2)))
-			if name != "." && name != ".." && strings.HasSuffix(name, ".go") && info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
-				out = append(out, goFileRev{
-					name:       name,
+			if name != "." && name != ".." && info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
+				out[name] = fileGen{
 					size:       info.EndOfFile,
 					mtime:      info.LastWriteTime.Nanoseconds(),
 					gen:        info.ChangeTime.Nanoseconds(),
 					genOK:      true,
 					genIsClock: true,
-				})
+				}
 			}
 			if info.NextEntryOffset == 0 {
 				break
@@ -108,7 +142,6 @@ func windowsDirRevs(dir string) ([]goFileRev, error) {
 			offset = next
 		}
 	}
-	slices.SortFunc(out, func(a, b goFileRev) int { return cmp.Compare(a.name, b.name) })
 	return out, nil
 }
 

@@ -76,6 +76,11 @@ func TestScanWorkspace_BlindSpotFix(t *testing.T) {
 }
 
 func TestScanWorkspace_CacheBehavior(t *testing.T) {
+	// Chtimes puts mtime in 2023 and leaves the content generation on this
+	// call. A negative quantum is what makes that generation old enough to
+	// trust, which is the condition the hack below is trying to exercise.
+	useStableContentStamp(t)
+
 	// Create temp workspace
 	tmpDir, err := os.MkdirTemp("", "cache_test")
 	if err != nil {
@@ -139,16 +144,22 @@ func TestScanWorkspace_CacheBehavior(t *testing.T) {
 	if entry.Hash != hash1 {
 		t.Errorf("Cache hash mismatch: got %s, want %s", entry.Hash, hash1)
 	}
+	if !entry.GenOK {
+		t.Fatal("cache entry has no content generation; a matching size and mtime must not be enough to reuse a hash")
+	}
 
 	// 3. Hack the Cache (Simulate "Hash Reuse")
-	// We change the hash in the cache BUT keep the mtime/size of the file the same.
+	// We change the hash in the cache BUT keep the stamp of the file the same.
 	// If the scanner reuses the cache, it will return the HACKED hash.
 	// If it reads the file, it will return the TRUE hash.
 	hackedHash := "HACKED_HASH_12345"
 	cache.Entries[filePath] = CacheEntry{
-		Hash:    hackedHash,
-		ModTime: entry.ModTime,
-		Size:    entry.Size,
+		Hash:       hackedHash,
+		ModTime:    entry.ModTime,
+		Size:       entry.Size,
+		Gen:        entry.Gen,
+		GenOK:      entry.GenOK,
+		GenIsClock: entry.GenIsClock,
 	}
 	cache.Dirty = true
 	if err := cache.Save(); err != nil {

@@ -52,6 +52,7 @@ func EnsureDeepFactsInRoot(ctx context.Context, root string, paths []string, db 
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	gens := &dirGenSnapshot{}
 
 	loadFacts := make([]core.Fact, 0)
 	retractFacts := make([]core.Fact, 0)
@@ -71,7 +72,7 @@ func EnsureDeepFactsInRoot(ctx context.Context, root string, paths []string, db 
 			if err != nil {
 				return
 			}
-			fp := fileFingerprint(info)
+			cur := stampFromInfo(fsPath, info, gens.of(filepath.Dir(fsPath)))
 
 			// Load cached deep facts for retraction and/or reuse.
 			var cachedFacts []core.Fact
@@ -91,8 +92,29 @@ func EnsureDeepFactsInRoot(ctx context.Context, root string, paths []string, db 
 				}
 			}
 
-			if len(cachedFacts) > 0 && cachedFp == fp {
-				// Reuse cached deep facts.
+			stored, _ := parseContentFingerprint(cachedFp)
+			hash, changed, hashErr := resolveContent(fsPath, cur, stored, time.Now().UnixNano())
+			if hashErr != nil {
+				// Could not read the bytes. Put the previous rows back so the
+				// retract above is not a deletion.
+				if len(cachedFacts) > 0 {
+					mu.Lock()
+					loadFacts = append(loadFacts, cachedFacts...)
+					mu.Unlock()
+				}
+				return
+			}
+			fp := formatContentFingerprint(cur, hash)
+			if len(cachedFacts) > 0 && !changed {
+				// Bytes match. A moved mtime still reuses the parse; write the
+				// new stamp so the next call can trust it without hashing.
+				if db != nil && fp != cachedFp {
+					inputs := make([]store.WorldFactInput, 0, len(cachedFacts))
+					for _, f := range cachedFacts {
+						inputs = append(inputs, store.WorldFactInput{Predicate: f.Predicate, Args: f.Args})
+					}
+					_ = db.ReplaceWorldFactsForFile(canonical, "deep", fp, inputs)
+				}
 				mu.Lock()
 				loadFacts = append(loadFacts, cachedFacts...)
 				mu.Unlock()

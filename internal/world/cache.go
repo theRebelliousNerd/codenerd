@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // CacheEntry represents cached metadata for a single file.
@@ -16,6 +17,13 @@ type CacheEntry struct {
 	Hash    string `json:"hash"`
 	ModTime int64  `json:"mod_time"`
 	Size    int64  `json:"size"`
+	// Gen is the content generation observed with Hash (NTFS ChangeTime,
+	// inode ctime elsewhere). GenOK false is a legacy entry, or a generation
+	// that could not be read: the next lookup hashes instead of trusting
+	// size and mtime.
+	Gen        int64 `json:"gen,omitempty"`
+	GenOK      bool  `json:"gen_ok,omitempty"`
+	GenIsClock bool  `json:"gen_is_clock,omitempty"`
 }
 
 // FileCache manages file metadata caching to avoid re-hashing unchanged files.
@@ -39,6 +47,11 @@ type FileCache struct {
 	// cache file that never saved) was invisible.
 	hits   atomic.Int64
 	misses atomic.Int64
+
+	// gens is this object's directory-query snapshot. It is not saved. The
+	// next scan constructs a new FileCache and reads generations again; a
+	// snapshot kept across a later rewrite would miss a restored mtime.
+	gens dirGenSnapshot
 }
 
 // cacheOwnerDir resolves the workspace that owns the file-cache manifest for a
@@ -184,45 +197,93 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	return atomicfile.Replace(tmp, path)
 }
 
-// Get returns the hash if the file hasn't changed.
+// Get returns the stored hash when it still names the file's bytes.
 //
-// ModTime is compared at nanosecond resolution. Earlier this used Unix()
-// (second resolution) — fast write-write cycles (formatter rewrites on
-// IDE save, go-generate loops, test fixtures regenerated in-place)
-// landed within the same second and bypassed invalidation, returning
-// stale hashes whose facts then drifted from disk content. UnixNano
-// gives 1-ns resolution which matches the OS stat granularity on all
-// supported platforms.
+// A hit is the contentStamp pre-check: size, mtime, and content generation
+// unchanged and older than symbolStampQuantum, so the file is not read. A
+// miss hashes. The hash is still returned when it equals the stored one — a
+// touch that did not change bytes — and the stamp is refreshed so the next
+// lookup can hit. A same-size rewrite whose mtime was restored does not hit:
+// the generation moved, the hash differs, and Get returns false.
+//
+// Hits count pre-check trusts only. A hash that happened to match is a miss
+// in the effectiveness counters; the scan did read the file.
 func (c *FileCache) Get(path string, info os.FileInfo) (string, bool) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	entry, ok := c.Entries[path]
+	c.mu.RUnlock()
 	if !ok {
 		c.misses.Add(1)
 		return "", false
 	}
 
-	// Check if file matches cache
-	if entry.ModTime == info.ModTime().UnixNano() && entry.Size == info.Size() {
+	gen, genOK, isClock := c.observeGen(path, info)
+	cur := contentStamp{
+		size:       info.Size(),
+		mtime:      info.ModTime().UnixNano(),
+		gen:        gen,
+		genOK:      genOK,
+		genIsClock: isClock,
+	}
+	stored := stampFromEntry(entry)
+	now := time.Now().UnixNano()
+	if stored.trusts(cur, now) {
 		c.hits.Add(1)
 		return entry.Hash, true
 	}
 
+	hash, err := calculateHash(path)
+	if err != nil || hash != entry.Hash {
+		c.misses.Add(1)
+		return "", false
+	}
 	c.misses.Add(1)
-	return "", false
+	c.storeStamp(path, info, hash, gen, genOK, isClock)
+	return hash, true
 }
 
-// Update updates the cache with a new hash.
+// Update updates the cache with a new hash and the generation observed now.
 func (c *FileCache) Update(path string, info os.FileInfo, hash string) {
+	gen, genOK, isClock := c.observeGen(path, info)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
 	c.Entries[path] = CacheEntry{
-		Hash:    hash,
-		ModTime: info.ModTime().UnixNano(),
-		Size:    info.Size(),
+		Hash:       hash,
+		ModTime:    info.ModTime().UnixNano(),
+		Size:       info.Size(),
+		Gen:        gen,
+		GenOK:      genOK,
+		GenIsClock: isClock,
 	}
+	c.Dirty = true
+}
+
+func (c *FileCache) observeGen(path string, info os.FileInfo) (int64, bool, bool) {
+	return contentGeneration(path, info, c.gens.of(filepath.Dir(path)))
+}
+
+// storeStamp records hash as the bytes at info's stamp. A concurrent Update
+// that stored a different hash wins; refreshing metadata must not clobber a
+// newer content identity. An unchanged entry is left clean so a young file,
+// re-read because its timestamp is still inside the tick, does not rewrite
+// the manifest on every scan.
+func (c *FileCache) storeStamp(path string, info os.FileInfo, hash string, gen int64, genOK, genIsClock bool) {
+	next := CacheEntry{
+		Hash:       hash,
+		ModTime:    info.ModTime().UnixNano(),
+		Size:       info.Size(),
+		Gen:        gen,
+		GenOK:      genOK,
+		GenIsClock: genIsClock,
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if prev, ok := c.Entries[path]; ok {
+		if prev.Hash != hash || prev == next {
+			return
+		}
+	}
+	c.Entries[path] = next
 	c.Dirty = true
 }
 

@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"codenerd/internal/types"
 )
@@ -165,17 +164,22 @@ func TestScanners_WhenSameWorkspace_ShouldProduceIdenticalPathIdentities(t *test
 				assertCanonicalIdentity(t, "full scan", p)
 			}
 
-			// Prime the incremental cache, then touch every file so the delta
-			// path (not the full fallback) re-derives all of them.
+			// Prime the incremental cache, then rewrite every file so the delta
+			// path (not the full fallback) re-derives all of them. A timestamp
+			// touch of identical bytes is not a change: the hash matches, so
+			// the file stays out of the delta. Appending a byte forces it.
 			if _, err := scanner.ScanWorkspaceIncremental(ctx, root, nil, IncrementalOptions{}); err != nil {
 				t.Fatalf("priming incremental scan: %v", err)
 			}
-			future := time.Now().Add(2 * time.Second)
 			if err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() || strings.Contains(p, ".nerd") {
 					return nil
 				}
-				return os.Chtimes(p, future, future)
+				body, readErr := os.ReadFile(p)
+				if readErr != nil {
+					return readErr
+				}
+				return os.WriteFile(p, append(body, '\n'), info.Mode())
 			}); err != nil {
 				t.Fatal(err)
 			}

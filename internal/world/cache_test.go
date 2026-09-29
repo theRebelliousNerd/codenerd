@@ -129,23 +129,27 @@ func TestFileCache_LoadAndSave(t *testing.T) {
 }
 
 func TestFileCache_GetAndUpdate(t *testing.T) {
+	// The pre-check trusts a stamp only once it is older than the quantum.
+	// A negative quantum makes the just-written file eligible, so this test
+	// still observes a hit when the stored hash is not the file's bytes.
+	useStableContentStamp(t)
+
 	tempDir := t.TempDir()
 	cache := NewFileCache(tempDir)
-
-	filePath := "test/file.go"
-	info := &testFileInfo{
-		name:    "file.go",
-		size:    100,
-		modTime: time.Unix(1000, 0),
+	filePath := filepath.Join(tempDir, "file.go")
+	if err := os.WriteFile(filePath, []byte("package p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	// Test Get on missing entry
 	hash, ok := cache.Get(filePath, info)
 	if ok {
 		t.Errorf("Expected Get to return false for missing entry, got true with hash %s", hash)
 	}
 
-	// Test Update
 	expectedHash := "myhash123"
 	cache.Update(filePath, info, expectedHash)
 
@@ -153,7 +157,6 @@ func TestFileCache_GetAndUpdate(t *testing.T) {
 		t.Error("Expected cache to be dirty after Update")
 	}
 
-	// Test Get on existing entry
 	hash, ok = cache.Get(filePath, info)
 	if !ok {
 		t.Error("Expected Get to return true for existing entry")
@@ -162,11 +165,12 @@ func TestFileCache_GetAndUpdate(t *testing.T) {
 		t.Errorf("Expected hash %s, got %s", expectedHash, hash)
 	}
 
-	// Test Get on existing entry with modified info
+	// Mtime moved and the stored hash is not the content hash, so the
+	// lookup cannot return it.
 	changedInfo := &testFileInfo{
-		name:    "file.go",
-		size:    100,
-		modTime: time.Unix(1001, 0), // Mod time changed
+		name:    info.Name(),
+		size:    info.Size(),
+		modTime: info.ModTime().Add(time.Second),
 	}
 	hash, ok = cache.Get(filePath, changedInfo)
 	if ok {

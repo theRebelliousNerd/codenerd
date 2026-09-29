@@ -42,11 +42,10 @@ type IncrementalResult struct {
 	ProjectLanguage string
 }
 
-// fileFingerprint returns a cheap content-identity hint built from size +
-// mtime. The mtime is captured at NANOSECOND resolution so back-to-back
-// writes within the same second (formatter on save, go-generate loops)
-// still invalidate the cache. Earlier this used Unix() (second
-// resolution), which let stale facts persist across rapid edits.
+// fileFingerprint is the size+mtime key PersistFastSnapshotToDBInRoot stores
+// on fast rows. It is not a content identity: a same-size rewrite can keep
+// it, and os.Chtimes puts the mtime back. Incremental change detection,
+// deep-fact reuse, and FileCache.Get use contentStamp instead.
 func fileFingerprint(info os.FileInfo) string {
 	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 }
@@ -129,6 +128,8 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	patterns := s.config.IgnorePatterns
 
 	currentFiles := make(map[string]os.FileInfo)
+	currentStamps := make(map[string]contentStamp)
+	var walkGens dirGenSnapshot
 	dirFacts := make([]core.Fact, 0)
 	var fileCount, dirCount int
 
@@ -178,6 +179,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			return nil
 		}
 		currentFiles[path] = info
+		currentStamps[path] = stampFromInfo(path, info, walkGens.of(filepath.Dir(path)))
 		fileCount++
 		return nil
 	}); err != nil {
@@ -219,17 +221,32 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 
 	changed := make([]string, 0)
 	newFiles := make([]string, 0)
+	now := time.Now().UnixNano()
 	for path, info := range currentFiles {
-		if prev, ok := prevEntries[path]; ok {
-			// Nanosecond comparison — see fileFingerprint comment. First scan
-			// after upgrade may flag every row as changed (one-time re-scan);
-			// steady state stabilises after that.
-			if prev.ModTime == info.ModTime().UnixNano() && prev.Size == info.Size() {
-				continue
-			}
-			changed = append(changed, path)
-		} else {
+		prev, ok := prevEntries[path]
+		if !ok {
 			newFiles = append(newFiles, path)
+			continue
+		}
+		// Size and mtime are only a pre-check, and only together with the
+		// content generation. A legacy entry has no generation, so it is
+		// hashed once and the stamp is stored; the file is a change only
+		// when that hash differs. A touch of identical bytes refreshes the
+		// stamp and stays out of changed, so SkipWhenUnchanged can still
+		// return Unchanged.
+		stored := stampFromEntry(prev)
+		cur := currentStamps[path]
+		hash, contentChanged, hashErr := resolveContent(path, cur, stored, now)
+		if hashErr != nil {
+			logging.WorldWarn("incremental scan: leaving stored rows for %s: %v", path, hashErr)
+			continue
+		}
+		if contentChanged {
+			changed = append(changed, path)
+			continue
+		}
+		if !stored.trusts(cur, now) {
+			cache.storeStamp(path, info, hash, cur.gen, cur.genOK, cur.genIsClock)
 		}
 	}
 
@@ -444,7 +461,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			newFacts = append(newFacts, ft)
 			newFacts = append(newFacts, additional...)
 			if db != nil {
-				fp := fileFingerprint(info)
+				fp := formatContentFingerprint(currentStamps[path], hash)
 				meta := store.WorldFileMeta{
 					// Canonical, matching PersistFastSnapshotToDB and the
 					// retraction lookup above. Absolute keys here made full and
@@ -898,7 +915,13 @@ func refreshSiblingCallRows(ctx context.Context, root string, db *store.LocalSto
 			for i, f := range mapped {
 				inputs[i] = store.WorldFactInput{Predicate: f.Predicate, Args: f.Args}
 			}
-			if err := db.ReplaceWorldFactsForFile(canonical, "deep", fileFingerprint(info), inputs); err != nil {
+			sum, sumErr := calculateHash(p)
+			if sumErr != nil {
+				logging.WorldWarn("sibling call rows: hash %s: %v", canonical, sumErr)
+				sum = ""
+			}
+			fp := formatContentFingerprint(stampFromInfo(p, info, nil), sum)
+			if err := db.ReplaceWorldFactsForFile(canonical, "deep", fp, inputs); err != nil {
 				logging.WorldWarn("sibling call rows: store %s: %v", canonical, err)
 				continue
 			}

@@ -26,6 +26,27 @@ func TestWindowsDirRevsAgreeWithStat(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkDirRevs(t, dir)
+	gens, ok := dirContentGens(dir)
+	if !ok {
+		t.Fatal("dirContentGens")
+	}
+	note := filepath.Join(dir, "note.txt")
+	noteInfo, err := os.Stat(note)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, ok := gens["note.txt"]
+	if !ok {
+		t.Fatal("note.txt missing from directory query")
+	}
+	gen, genOK, isClock := fileContentGen(note, noteInfo)
+	if !genOK || !isClock || g.gen != gen || g.size != noteInfo.Size() || g.mtime != noteInfo.ModTime().UnixNano() {
+		t.Fatalf("note.txt directory gen %d handle %d ok %v size %d/%d mtime %d/%d",
+			g.gen, gen, genOK, g.size, noteInfo.Size(), g.mtime, noteInfo.ModTime().UnixNano())
+	}
+	if _, isDir := gens["sub.go"]; isDir {
+		t.Fatal("directory sub.go included in dirContentGens")
+	}
 	// Package directory and a larger sibling. go test's working directory
 	// is the package under test.
 	checkDirRevs(t, ".")

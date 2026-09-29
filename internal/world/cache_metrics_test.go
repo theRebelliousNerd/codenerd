@@ -110,6 +110,11 @@ func TestFileCache_WhenSaved_ShouldLeaveNoTempFiles(t *testing.T) {
 // effectiveness metric at all, so a cache that had quietly stopped matching was
 // indistinguishable from a cold one.
 func TestFileCache_WhenLookedUp_ShouldReportHitRate(t *testing.T) {
+	// The file was just created, so its timestamps are inside the quantum.
+	// Trust has to be allowed or the warm lookup hashes and, finding the
+	// stored sentinel is not the content hash, counts a second miss.
+	useStableContentStamp(t)
+
 	root := t.TempDir()
 	file := filepath.Join(root, "a.go")
 	if err := os.WriteFile(file, []byte("package a\n"), 0o644); err != nil {
