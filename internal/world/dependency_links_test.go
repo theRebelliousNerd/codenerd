@@ -203,10 +203,28 @@ func TestDependencyLink_WhenResolved_ShouldBeDeduplicatedAndSelfFree(t *testing.
 		{Predicate: "dependency_link", Args: []any{"pkg/a.go", "pkg:example.com/app/pkg", "example.com/app/pkg"}},
 	}
 	got := resolveDependencyLinksWithIndex(idx, raw)
-	if len(got) != 1 {
-		t.Fatalf("expected exactly one resolved edge (dedup, no self-edge), got %d: %v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("expected the resolved edge plus its file_imports row (dedup, no self-edge), got %d: %v", len(got), got)
 	}
-	if to, _ := got[0].Args[1].(string); to != "pkg/b.go" {
+	byPred := make(map[string][]Fact)
+	for _, f := range got {
+		byPred[f.Predicate] = append(byPred[f.Predicate], f)
+	}
+	if len(byPred["dependency_link"]) != 1 {
+		t.Fatalf("expected exactly one dependency_link edge, got %v", byPred["dependency_link"])
+	}
+	if to, _ := byPred["dependency_link"][0].Args[1].(string); to != "pkg/b.go" {
 		t.Errorf("resolved edge target = %q, want pkg/b.go", to)
+	}
+	// file_imports rides the same resolved edge, so the same dedup and
+	// self-edge rules apply to it without a second code path.
+	if len(byPred["file_imports"]) != 1 {
+		t.Fatalf("expected exactly one file_imports row beside the edge, got %v", byPred["file_imports"])
+	}
+	if from, _ := byPred["file_imports"][0].Args[0].(string); from != "pkg/a.go" {
+		t.Errorf("file_imports importer = %q, want pkg/a.go", from)
+	}
+	if to, _ := byPred["file_imports"][0].Args[1].(string); to != "pkg/b.go" {
+		t.Errorf("file_imports imported = %q, want pkg/b.go", to)
 	}
 }

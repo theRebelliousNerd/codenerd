@@ -116,6 +116,16 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 					Predicate: "symbol_graph",
 					Args:      []any{id, "/package", "/public", path, fmt.Sprintf("package %s", name)},
 				})
+				// file_package is the same clause as a file key: the test-impact
+				// chain (test_impact.mg test_func_package) and coder_impact.mg's
+				// cross-package check join File against code_element's file slot,
+				// so path here must stay the canonical identity every caller
+				// passes in. Test files skip this walker in the fast scans, and
+				// their row comes from goTestFileHeaderFacts with this spelling.
+				facts = append(facts, Fact{
+					Predicate: "file_package",
+					Args:      []any{path, name},
+				})
 			}
 
 		case "function_declaration":

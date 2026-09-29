@@ -341,6 +341,14 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 				Predicate: "file_dir",
 				Args:      []any{canonical, canonicalDir(canonical)},
 			})
+			// is_test_file mirrors the full scan (fs.go): the scanner already
+			// classifies the file, and the chain negates this mark.
+			if isTest {
+				additional = append(additional, core.Fact{
+					Predicate: "is_test_file",
+					Args:      []any{canonical},
+				})
+			}
 			// test_file_for(TestFile, SourceFile): pairing computed by the world
 			// scanner because Mangle has no string manipulation for the x_test.go
 			// convention. Coverage is deliberately conservative: a source file
@@ -356,6 +364,14 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 						Predicate: "test_file_for",
 						Args:      []any{types.MangleString(canonical), types.MangleString(sourceCanonical)},
 					})
+				}
+			}
+			if isTest && lang == "go" {
+				// Test Go files skip the tree-sitter walker below (as in the full
+				// scan), so the header-only parse supplies their file_package row
+				// and import tokens; resolution into edges happens below.
+				if content, readErr := os.ReadFile(path); readErr == nil {
+					additional = append(additional, goTestFileHeaderFacts(canonical, content)...)
 				}
 			}
 			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {

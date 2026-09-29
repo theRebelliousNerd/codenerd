@@ -10,6 +10,8 @@ package world
 //	writer                     owns                                   cadence
 //	------                     ----                                   -------
 //	Scanner (full/incremental) topology, symbols, imports, entry pts   every scan
+//	                             + test-impact file facts (file_package,
+//	                               is_test_file, file_imports)
 //	Cartographer / deep scan   code_defines/code_calls + data flow     on demand (/scan --deep)
 //	(reserved, no writer)      symbol_defined/referenced/diagnostics   never
 //	CodeDOM scope (session)    active_file, code_element, file_in_scope session lifetime
@@ -49,6 +51,14 @@ var ScannerPredicates = []string{
 	"dependency_link",
 	"entry_point",
 	"project_language",
+	// Test-impact file facts (test_impact_facts.go): re-derived by every
+	// full scan and per changed file by every delta scan. SessionScope
+	// must never claim these: the scope replace-set in
+	// internal/core/virtual_store.go wipes by predicate globally, so a
+	// dual listing would delete world knowledge on every open_file.
+	"file_package",
+	"is_test_file",
+	"file_imports",
 }
 
 // DeepPredicates are produced by the Cartographer (EnsureDeepFacts) and the

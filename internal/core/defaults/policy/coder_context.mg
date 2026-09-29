@@ -33,7 +33,9 @@ coder_context_priority(File, 75) :-
 # Interface definitions have high priority
 coder_context_priority(File, 70) :-
     coder_target(Target),
-    same_package(File, Target),
+    file_dir(Target, D),
+    file_dir(File, D),
+    File != Target,
     is_interface_file(File).
 
 # -----------------------------------------------------------------------------
@@ -51,10 +53,13 @@ include_in_context(File) :-
     coder_target(Target),
     test_file_for(File, Target).
 
-# Include type definitions
+# Include type definitions in the target's directory.
+# Target is bound; file_dir binds the directory, then the other file.
 include_in_context(File) :-
     coder_target(Target),
-    same_package(File, Target),
+    file_dir(Target, D),
+    file_dir(File, D),
+    File != Target,
     type_definition_file(File).
 
 # -----------------------------------------------------------------------------

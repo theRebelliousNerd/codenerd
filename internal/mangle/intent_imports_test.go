@@ -26,7 +26,7 @@ func TestIntentImports(t *testing.T) {
 # the corpus supplies in production.
 Decl file_contains(FilePath, Pattern).
 Decl file_imports(Importer, Imported).
-Decl same_package(File1, File2).
+Decl file_dir(Path, Dir).
 Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message).
 Decl pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message).
 # Mock Schema Declarations

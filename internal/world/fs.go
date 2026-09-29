@@ -361,6 +361,16 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				Predicate: "file_dir",
 				Args:      []any{canonical, dir},
 			})
+			// is_test_file: the scanner already classifies the file, and the
+			// test-impact chain negates this mark to keep coverage_gap from
+			// accusing the tests themselves. All languages: the predicate is
+			// language-agnostic and the classification is already done.
+			if isTest {
+				additionalFacts = append(additionalFacts, core.Fact{
+					Predicate: "is_test_file",
+					Args:      []any{canonical},
+				})
+			}
 			// test_file_for(TestFile, SourceFile): pairing computed by the world
 			// scanner because Mangle has no string manipulation for the x_test.go
 			// convention. Coverage is deliberately conservative: a source file
@@ -376,6 +386,18 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 						Predicate: "test_file_for",
 						Args:      []any{types.MangleString(canonical), types.MangleString(sourceCanonical)},
 					})
+				}
+			}
+			// Test Go files skip the tree-sitter walker below, so their package
+			// row and import tokens come from a header-only parse instead: without
+			// the tokens, no file_imports edge ever leaves a test file and the
+			// file-import test_depends_on rule stays dead. Non-test files get both
+			// from ParseGo, spelled identically.
+			if isTest && lang == "go" {
+				if content, err := os.ReadFile(path); err == nil {
+					additionalFacts = append(additionalFacts, goTestFileHeaderFacts(canonical, content)...)
+				} else {
+					logging.Get(logging.CategoryWorld).Warn("Failed to read test file for header facts: %s - %v", path, err)
 				}
 			}
 			// If not a test file and supported language, extract symbols

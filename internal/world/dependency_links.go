@@ -185,11 +185,20 @@ func resolveDependencyLinksWithIndex(idx *repoFileIndex, facts []core.Fact) []co
 		edges = edges[:maxResolvedDependencyLinks]
 	}
 
-	out := make([]core.Fact, 0, len(edges))
+	// file_imports rides the same resolved edge: test_impact.mg joins
+	// file_imports(TestFile, SourceFile) against code_element's file slot,
+	// and this resolution is the single definition of "file imports file" in
+	// the world model. Same edges, same deterministic truncation tail, so
+	// full and incremental scans agree exactly.
+	out := make([]core.Fact, 0, 2*len(edges))
 	for _, e := range edges {
 		out = append(out, core.Fact{
 			Predicate: "dependency_link",
 			Args:      []any{e.from, e.to, e.imp},
+		})
+		out = append(out, core.Fact{
+			Predicate: "file_imports",
+			Args:      []any{e.from, e.to},
 		})
 	}
 	return out

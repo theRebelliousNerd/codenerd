@@ -1,6 +1,7 @@
 package world
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -14,10 +15,13 @@ import (
 // impacted_test, coverage_gap and test_priority from the facts the world
 // scanners produce. Until W1 it derived nothing: is_test_function had no
 // producer, and code_calls used a bare spelling no code_element join could
-// meet. These tests prove the chain lives, on the real policy corpus, from
-// real producer output — not hand-spelled facts that are self-consistent
-// and wrong (see TestImpactChain_EndToEndThroughVirtualStore for why that
-// distinction matters).
+// meet. W1 proved the call rules from real producer output with the file
+// facts (is_test_file, file_imports, file_package) simulated;
+// W3 gave those their producers in the fast scanner, and these tests now
+// take every input except plan_edit from real producer output — not
+// hand-spelled facts that are self-consistent and wrong (see
+// TestImpactChain_EndToEndThroughVirtualStore for why that distinction
+// matters).
 
 const (
 	impactSrcFile  = "p/app.go"
@@ -39,12 +43,12 @@ func writeTestImpactFixture(t *testing.T) string {
 	return root
 }
 
-// collectTestImpactFacts runs the production producers over the fixture:
+// collectProducerFacts runs the scope and deep producers over the fixture:
 // FileScope for the CodeDOM layer (code_element + element_* +
 // is_test_function + language facts) and the Cartographer for the deep
 // layer (code_defines + code_calls). Both label facts with the canonical
 // file identity, so the joins below prove the production spelling.
-func collectTestImpactFacts(t *testing.T, root string) []core.Fact {
+func collectProducerFacts(t *testing.T, root string) []core.Fact {
 	t.Helper()
 	scope := NewFileScope(root)
 	if err := scope.Open(filepath.Join(root, impactTestFile)); err != nil {
@@ -61,6 +65,34 @@ func collectTestImpactFacts(t *testing.T, root string) []core.Fact {
 		facts = append(facts, deep...)
 	}
 	return facts
+}
+
+// collectScannerFileFacts runs the production fast scanner over the fixture
+// and keeps the test-impact file facts: file_package, is_test_file,
+// file_imports and the file_dir companion the same-directory joins group
+// on. The filter keeps each scenario's seed focused; every kept row is real
+// producer output, spelled exactly as the .mg joins read it.
+func collectScannerFileFacts(t *testing.T, root string) []core.Fact {
+	t.Helper()
+	facts, err := NewScanner().ScanWorkspaceCtx(context.Background(), root)
+	if err != nil {
+		t.Fatalf("scan %s: %v", root, err)
+	}
+	var out []core.Fact
+	for _, f := range facts {
+		switch f.Predicate {
+		case "file_package", "is_test_file", "file_imports", "file_dir":
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// collectTestImpactFacts is the whole production seed: scope and deep facts
+// plus the fast scanner's file facts.
+func collectTestImpactFacts(t *testing.T, root string) []core.Fact {
+	t.Helper()
+	return append(collectProducerFacts(t, root), collectScannerFileFacts(t, root)...)
 }
 
 func seedRealKernel(t *testing.T, facts []core.Fact) *core.RealKernel {
@@ -140,14 +172,6 @@ func planEdit(ref string) core.Fact {
 	return core.Fact{Predicate: "plan_edit", Args: []any{ref}}
 }
 
-func fact(pred string, args ...string) core.Fact {
-	anyArgs := make([]any, len(args))
-	for i, a := range args {
-		anyArgs[i] = a
-	}
-	return core.Fact{Predicate: pred, Args: anyArgs}
-}
-
 // TestCodeElement_WhenTestFunction_ShouldEmitIsTestFunction pins the
 // producer: which elements get the marker, and that the marker carries the
 // element's own ref — the exact spelling test_impact.mg joins on.
@@ -191,23 +215,25 @@ func TestCodeElement_WhenTestFunction_ShouldEmitIsTestFunction(t *testing.T) {
 	}
 }
 
-// callsOnlySeed is the call-path scenario: producer facts plus the edit
-// trigger and the test-file mark (both simulated: neither has a producer).
-// file_imports and same_package are deliberately absent, so every derived
-// row below must come through the code_calls rules.
+// callsOnlySeed is the single-package scenario: every production producer
+// plus the edit trigger. Only plan_edit is simulated (it still has no
+// producer); is_test_file, file_dir and file_package come from the fast
+// scanner. The fixture has no in-repo imports, so no file_imports row exists
+// and every dependency below must come through the code_calls (R2) and
+// same-package (R3) rules.
 func callsOnlySeed(t *testing.T, root string) []core.Fact {
 	t.Helper()
 	facts := collectTestImpactFacts(t, root)
-	return append(facts,
-		planEdit("fn:p.Target"),
-		fact("is_test_file", impactTestFile),
-	)
+	return append(facts, planEdit("fn:p.Target"))
 }
 
 // TestTestImpactChain_WhenCallsOnly_ShouldDeriveDirectImpact proves the call
-// rule lives: TestTarget calls Target (dual fn: row from the Cartographer),
-// the edit targets Target, and the chain derives the dependency, the
-// impact, the high priority and the coverage gap for Helper.
+// and same-directory rules live on real inputs: TestTarget calls Target (dual
+// fn: row from the Cartographer), the scanner marks the test file, keys both
+// files to their shared directory and reports both packages, and the chain
+// derives the dependency, the impact, both priorities, the package selection
+// and the coverage gap for Helper — with the scanner's is_test_file mark
+// keeping the gap from accusing the tests themselves.
 func TestTestImpactChain_WhenCallsOnly_ShouldDeriveDirectImpact(t *testing.T) {
 	root := writeTestImpactFixture(t)
 	k := seedRealKernel(t, callsOnlySeed(t, root))
@@ -216,9 +242,16 @@ func TestTestImpactChain_WhenCallsOnly_ShouldDeriveDirectImpact(t *testing.T) {
 		row("is_test_function", "fn:p.TestTarget"),
 		row("is_test_function", "fn:p.TestMethod"),
 	)
+	// No in-repo imports in this fixture, so the file-import rule (R1) has
+	// nothing to join; this pins that the scenario exercises R2 and R3 only.
+	if rows := queryRows(t, k, "file_imports"); len(rows) != 0 {
+		t.Fatalf("single-package fixture produced file_imports rows %v; the R2/R3 isolation is broken", rows)
+	}
 	// The fn:t.Fail / fn:s.M callees are the Cartographer's best-effort
 	// selector edges (t.Fail, s.M): they join nothing downstream, but R2
-	// derives them without needing a code_element for the callee.
+	// derives them without needing a code_element for the callee. R3 (same
+	// directory + referenced symbol, on the scanner's real file_dir rows)
+	// can only re-derive what R2 already found here.
 	assertRows(t, "test_depends_on", queryRows(t, k, "test_depends_on"),
 		row("test_depends_on", "fn:p.TestTarget", "fn:p.Target"),
 		row("test_depends_on", "fn:p.TestTarget", "fn:t.Fail"),
@@ -237,10 +270,11 @@ func TestTestImpactChain_WhenCallsOnly_ShouldDeriveDirectImpact(t *testing.T) {
 	assertRows(t, "impacted_test_file", queryRows(t, k, "impacted_test_file"),
 		row("impacted_test_file", impactTestFile),
 	)
-	// TestMethod is not impacted and no same_package rows exist, so it has
-	// no priority at all here; S3 gives it /low.
+	// TestMethod is not impacted, but the scanner's real file_dir rows in
+	// the edited file's directory still earn it /low.
 	assertRows(t, "test_priority", queryRows(t, k, "test_priority"),
 		row("test_priority", "fn:p.TestTarget", "/high"),
+		row("test_priority", "fn:p.TestMethod", "/low"),
 	)
 	assertRows(t, "has_test_coverage", queryRows(t, k, "has_test_coverage"),
 		row("has_test_coverage", "fn:p.Target"),
@@ -248,61 +282,93 @@ func TestTestImpactChain_WhenCallsOnly_ShouldDeriveDirectImpact(t *testing.T) {
 	assertRows(t, "coverage_gap", queryRows(t, k, "coverage_gap"),
 		row("coverage_gap", "fn:p.Helper", "/no_direct_tests"),
 	)
-	// Package-level selection needs file_package, which has no producer
-	// and is not simulated in this scenario: nothing may derive.
-	if rows := queryRows(t, k, "impacted_test_package"); len(rows) != 0 {
-		t.Errorf("impacted_test_package derived %v without file_package rows", rows)
+	// Package-level selection from the scanner's real file_package rows.
+	assertRows(t, "test_func_package", queryRows(t, k, "test_func_package"),
+		row("test_func_package", "fn:p.TestTarget", "p"),
+		row("test_func_package", "fn:p.TestMethod", "p"),
+	)
+	assertRows(t, "impacted_test_package", queryRows(t, k, "impacted_test_package"),
+		row("impacted_test_package", "p"),
+	)
+}
+
+const (
+	impactImportSrcFile  = "q/lib.go"
+	impactImportTestFile = "p/app_test.go"
+)
+
+// writeTestImpactImportFixture lays out a two-package workspace: q/lib.go
+// holds the struct, method and functions, and p/app_test.go imports the q
+// package and tests it. Unlike the single-package fixture, this one has a
+// genuine in-repo import for the scanner to resolve into file_imports.
+func writeTestImpactImportFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeWorkspaceFile(t, root, "go.mod", "module example.com/impact\n\ngo 1.26\n")
+	writeWorkspaceFile(t, root, impactImportSrcFile,
+		"package q\n\ntype S struct{ N int }\n\nfunc (s *S) M() int { return s.N }\n\nfunc Target() int { return 1 }\n\nfunc Helper() int { return 2 }\n")
+	writeWorkspaceFile(t, root, impactImportTestFile,
+		"package p\n\nimport (\n\t\"testing\"\n\n\t\"example.com/impact/q\"\n)\n\nfunc TestTarget(t *testing.T) {\n\tif q.Target() != 1 {\n\t\tt.Fail()\n\t}\n}\n\nfunc TestMethod(t *testing.T) {\n\ts := &q.S{}\n\tif s.M() != 0 {\n\t\tt.Fail()\n\t}\n}\n\nfunc helperInTest(t *testing.T) { t.Helper() }\n")
+	return root
+}
+
+// collectImportSeed runs every production producer over the import fixture:
+// the scope (which follows the test file's import into q/lib.go, so both
+// files' code_elements are present), the Cartographer over both files, and
+// the fast scanner's file facts — including the real file_imports edge.
+func collectImportSeed(t *testing.T, root string) []core.Fact {
+	t.Helper()
+	scope := NewFileScope(root)
+	if err := scope.Open(filepath.Join(root, impactImportTestFile)); err != nil {
+		t.Fatalf("open test file: %v", err)
 	}
+	facts := scope.ScopeFacts()
+	cart := NewCartographer()
+	defer cart.Close()
+	for _, rel := range []string{impactImportSrcFile, impactImportTestFile} {
+		deep, err := cart.MapFileAs(filepath.Join(root, filepath.FromSlash(rel)), rel)
+		if err != nil {
+			t.Fatalf("map %s: %v", rel, err)
+		}
+		facts = append(facts, deep...)
+	}
+	scannerFacts := collectScannerFileFacts(t, root)
+	// The edge this scenario exists for must be in the scanner's output,
+	// not hand-made: fail here rather than asserting a vacuous chain.
+	found := false
+	for _, f := range scannerFacts {
+		if f.Predicate == "file_imports" && len(f.Args) == 2 &&
+			fmt.Sprint(f.Args[0]) == impactImportTestFile && fmt.Sprint(f.Args[1]) == impactImportSrcFile {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("scanner produced no file_imports(%s, %s); seed=%v", impactImportTestFile, impactImportSrcFile, scannerFacts)
+	}
+	return append(append(facts, scannerFacts...), planEdit("fn:q.Target"))
 }
 
-// TestTestImpactChain_WhenSamePackage_ShouldDeriveLowPriority adds only the
-// same_package edge. R3 (same package + referenced symbol) can only
-// re-derive what R2 already found here, so the dependency set must be
-// identical to the calls-only scenario — while TestMethod gains /low.
-func TestTestImpactChain_WhenSamePackage_ShouldDeriveLowPriority(t *testing.T) {
-	root := writeTestImpactFixture(t)
-	seed := append(callsOnlySeed(t, root), fact("same_package", impactTestFile, impactSrcFile))
-	k := seedRealKernel(t, seed)
-
-	assertRows(t, "test_depends_on", queryRows(t, k, "test_depends_on"),
-		row("test_depends_on", "fn:p.TestTarget", "fn:p.Target"),
-		row("test_depends_on", "fn:p.TestTarget", "fn:t.Fail"),
-		row("test_depends_on", "fn:p.TestMethod", "fn:s.M"),
-		row("test_depends_on", "fn:p.TestMethod", "fn:t.Fail"),
-	)
-	assertRows(t, "impacted_test", queryRows(t, k, "impacted_test"),
-		row("impacted_test", "fn:p.TestTarget"),
-	)
-	assertRows(t, "test_priority", queryRows(t, k, "test_priority"),
-		row("test_priority", "fn:p.TestTarget", "/high"),
-		row("test_priority", "fn:p.TestMethod", "/low"),
-	)
-}
-
-// TestTestImpactChain_WhenFileImports_ShouldDeriveCrossProduct adds the
-// file_imports edge: R1 derives every test-to-element pair across the two
-// files, so TestMethod is impacted too (by the same edit), both tests are
-// high priority, and Helper is covered, leaving no gap.
+// TestTestImpactChain_WhenFileImports_ShouldDeriveCrossProduct proves the
+// file-import rule (R1) lives on a real import: the scanner resolves the
+// test file's import of q into file_imports, R1 derives every
+// test-to-element pair across the two files, so TestMethod is impacted too
+// (by the same edit), both tests are high priority, and Helper is covered,
+// leaving no gap.
 func TestTestImpactChain_WhenFileImports_ShouldDeriveCrossProduct(t *testing.T) {
-	root := writeTestImpactFixture(t)
-	seed := append(callsOnlySeed(t, root),
-		fact("file_imports", impactTestFile, impactSrcFile),
-		fact("same_package", impactTestFile, impactSrcFile),
-		fact("file_package", impactTestFile, "p"),
-		fact("file_package", impactSrcFile, "p"),
-	)
-	k := seedRealKernel(t, seed)
+	root := writeTestImpactImportFixture(t)
+	k := seedRealKernel(t, collectImportSeed(t, root))
 
 	assertRows(t, "test_depends_on", queryRows(t, k, "test_depends_on"),
-		row("test_depends_on", "fn:p.TestTarget", "struct:p.S"),
-		row("test_depends_on", "fn:p.TestTarget", "fn:p.S.M"),
-		row("test_depends_on", "fn:p.TestTarget", "fn:p.Target"),
-		row("test_depends_on", "fn:p.TestTarget", "fn:p.Helper"),
+		row("test_depends_on", "fn:p.TestTarget", "struct:q.S"),
+		row("test_depends_on", "fn:p.TestTarget", "fn:q.S.M"),
+		row("test_depends_on", "fn:p.TestTarget", "fn:q.Target"),
+		row("test_depends_on", "fn:p.TestTarget", "fn:q.Helper"),
 		row("test_depends_on", "fn:p.TestTarget", "fn:t.Fail"),
-		row("test_depends_on", "fn:p.TestMethod", "struct:p.S"),
-		row("test_depends_on", "fn:p.TestMethod", "fn:p.S.M"),
-		row("test_depends_on", "fn:p.TestMethod", "fn:p.Target"),
-		row("test_depends_on", "fn:p.TestMethod", "fn:p.Helper"),
+		row("test_depends_on", "fn:p.TestMethod", "struct:q.S"),
+		row("test_depends_on", "fn:p.TestMethod", "fn:q.S.M"),
+		row("test_depends_on", "fn:p.TestMethod", "fn:q.Target"),
+		row("test_depends_on", "fn:p.TestMethod", "fn:q.Helper"),
 		row("test_depends_on", "fn:p.TestMethod", "fn:s.M"),
 		row("test_depends_on", "fn:p.TestMethod", "fn:t.Fail"),
 	)
@@ -311,15 +377,15 @@ func TestTestImpactChain_WhenFileImports_ShouldDeriveCrossProduct(t *testing.T) 
 	// path is consistent (its rows are already in the R1 cross-product)
 	// but contributes nothing distinguishable here.
 	assertRows(t, "test_depends_on_transitive", queryRows(t, k, "test_depends_on_transitive"),
-		row("test_depends_on_transitive", "fn:p.TestTarget", "struct:p.S"),
-		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:p.S.M"),
-		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:p.Target"),
-		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:p.Helper"),
+		row("test_depends_on_transitive", "fn:p.TestTarget", "struct:q.S"),
+		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:q.S.M"),
+		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:q.Target"),
+		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:q.Helper"),
 		row("test_depends_on_transitive", "fn:p.TestTarget", "fn:t.Fail"),
-		row("test_depends_on_transitive", "fn:p.TestMethod", "struct:p.S"),
-		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:p.S.M"),
-		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:p.Target"),
-		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:p.Helper"),
+		row("test_depends_on_transitive", "fn:p.TestMethod", "struct:q.S"),
+		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:q.S.M"),
+		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:q.Target"),
+		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:q.Helper"),
 		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:s.M"),
 		row("test_depends_on_transitive", "fn:p.TestMethod", "fn:t.Fail"),
 	)
@@ -343,14 +409,14 @@ func TestTestImpactChain_WhenFileImports_ShouldDeriveCrossProduct(t *testing.T) 
 	}
 }
 
-// TestTestImpactChain_WhenNoTestFileMark_ShouldAccuseTheTests pins the cost
-// of the missing is_test_file producer: without test-file marks the gap
-// rule's negation is vacuous and the tests themselves are reported as
-// coverage gaps. The scenarios above simulate the producer; this one shows
-// what production derives until it exists.
+// TestTestImpactChain_WhenNoTestFileMark_ShouldAccuseTheTests is the negative
+// control for the scanner's is_test_file mark: seeded from scope and deep
+// facts alone, without a scan, the gap rule's negation is vacuous and the
+// tests themselves are reported as coverage gaps. The scenarios above prove
+// the mark excludes them; this one proves the mark is what excludes them.
 func TestTestImpactChain_WhenNoTestFileMark_ShouldAccuseTheTests(t *testing.T) {
 	root := writeTestImpactFixture(t)
-	facts := collectTestImpactFacts(t, root)
+	facts := collectProducerFacts(t, root)
 	facts = append(facts, planEdit("fn:p.Target"))
 	k := seedRealKernel(t, facts)
 
@@ -383,7 +449,7 @@ func newChainCortex(t *testing.T) *core.CortexKernel {
 			"code_element", "element_signature", "element_visibility",
 			"element_parent", "code_interactable", "is_test_function",
 			"active_file", "file_in_scope",
-			"code_calls", "file_imports", "same_package",
+			"code_calls", "file_imports", "file_dir",
 			"plan_edit", "modified_file", "file_package", "is_test_file",
 			"type_embeds", "go_struct",
 			"assigns", "uses", "guards_block", "guards_return",
@@ -413,12 +479,7 @@ func newChainCortex(t *testing.T) *core.CortexKernel {
 // goes quiet here while the single side keeps deriving.
 func TestTestImpactChain_WhenSharded_ShouldMatchSingleKernel(t *testing.T) {
 	root := writeTestImpactFixture(t)
-	seed := append(callsOnlySeed(t, root),
-		fact("file_imports", impactTestFile, impactSrcFile),
-		fact("same_package", impactTestFile, impactSrcFile),
-		fact("file_package", impactTestFile, "p"),
-		fact("file_package", impactSrcFile, "p"),
-	)
+	seed := callsOnlySeed(t, root)
 	single := seedRealKernel(t, seed)
 	sharded := newChainCortex(t)
 	for _, f := range seed {

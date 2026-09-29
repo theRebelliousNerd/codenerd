@@ -237,10 +237,6 @@ Decl instruction_contains_write(FilePath) bound [/string].
 # file_package(FilePath, PackageName) - maps file to its Go package
 Decl file_package(FilePath, PackageName) bound [/string, /string].
 
-# same_package(File1, File2) - files are in the same Go package
-# Computed by Go: checks if file_package(File1, P) and file_package(File2, P)
-Decl same_package(File1, File2) bound [/string, /string].
-
 # tdd_state(State) - current TDD phase state
 # State: /red (tests failing), /green (tests passing), /refactor
 Decl tdd_state(State) bound [/name].

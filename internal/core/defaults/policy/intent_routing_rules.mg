@@ -27,10 +27,6 @@
 
 # Internal predicates defined only in this file (or missing from defaults)
 # These declarations ensure standalone validation works correctly
-# Decl for same_package intentionally omitted: internal/core/defaults declares it
-# identically, and a second Decl makes the whole program fail analysis with
-# "declared more than once" — which is why this file could never be loaded
-# into the kernel alongside the constitution.
 # Decl for diagnostic intentionally omitted: internal/core/defaults declares it
 # identically, and a second Decl makes the whole program fail analysis with
 # "declared more than once" — which is why this file could never be loaded
@@ -542,10 +538,13 @@ complex_target(T) :- target_contains_multiple_files(T).
 # High priority: directly referenced files
 context_priority(Path, 100) :- user_intent(_, _, _, Path, _), file_exists(Path).
 
-# Medium priority: files in same package
+# Medium priority: files in the same directory as the target.
+# Target is bound; file_dir binds the directory, then the other file.
 context_priority(Path, 70) :-
     user_intent(_, _, _, Target, _),
-    same_package(Target, Path),
+    file_dir(Target, D),
+    file_dir(Path, D),
+    Target != Path,
     file_exists(Path).
 
 # Lower priority: imported files

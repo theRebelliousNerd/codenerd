@@ -59,7 +59,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"code_element", "element_visibility", "element_modified",
 				"code_implements", "code_calls", "dependency_link",
 				"file_dir", "modified", "active_file", "in_scope",
-				"churn_rate", "same_package", "imports", "file_contains",
+				"churn_rate", "imports", "file_contains",
 				"file_has_public_api", "package_has_dep", "test_coverage",
 				"test_failed", "modified_interface", "impact_graph",
 				"recent_change_by_other", "coder_context_priority",

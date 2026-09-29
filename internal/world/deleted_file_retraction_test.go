@@ -74,6 +74,20 @@ func TestIncrementalScan_WhenAFileIsDeleted_ShouldRetractAllOfItsFacts(t *testin
 	factsFor := func(res *IncrementalResult, sel func(*IncrementalResult) []coreFact, rel string) []coreFact {
 		var out []coreFact
 		for _, f := range sel(res) {
+			if isPairPredicate(f.Predicate) {
+				// A fact naming two files belongs to its owner (argument 0,
+				// the file whose parse produced it), not to both: attributing
+				// it to either side counts file_imports(keep.go, alpha.go) as
+				// keep.go's retraction when alpha.go is deleted, although the
+				// untouched file retracts nothing. This matches groupFactsByPath,
+				// which files such a fact under its first file argument.
+				if len(f.Args) > 0 {
+					if s, ok := f.Args[0].(string); ok && s == rel {
+						out = append(out, f)
+					}
+				}
+				continue
+			}
 			for _, a := range f.Args {
 				if s, ok := a.(string); ok && s == rel {
 					out = append(out, f)
@@ -139,6 +153,19 @@ func TestIncrementalScan_WhenAFileIsDeleted_ShouldRetractAllOfItsFacts(t *testin
 	if got := len(factsFor(second, retractFactsOf, "keep.go")); got != 0 {
 		t.Errorf("keep.go was not modified or deleted, but %d of its facts were retracted", got)
 	}
+}
+
+// isPairPredicate reports whether a predicate names two files, with the
+// producing (owning) file in argument 0: file_imports pairs, resolved
+// dependency_link edges (raw tokens name one file, so owner attribution
+// agrees with any-argument matching for them), and test_file_for, which
+// groupFactsByPath files under the test file.
+func isPairPredicate(pred string) bool {
+	switch pred {
+	case "file_imports", "dependency_link", "test_file_for":
+		return true
+	}
+	return false
 }
 
 // Small aliases so the assertions above read as prose rather than as

@@ -27,6 +27,11 @@ var pathArgIndexes = map[string][]int{
 	"entry_point":    {0},
 	"code_defines":   {0},
 	"function_scope": {0},
+	// Test-impact file facts: all slots are canonical file identities, and
+	// the full/incremental parity assertion below covers them like the rest.
+	"file_package": {0},
+	"is_test_file": {0},
+	"file_imports": {0, 1},
 }
 
 // factPathArgs returns the path identities carried by a fact.

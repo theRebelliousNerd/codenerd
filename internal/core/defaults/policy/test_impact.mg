@@ -9,9 +9,9 @@
 # (internal/world/test_dependency.go) because Mangle doesn't have
 # string matching functions (fn:match, fn:basename, fn:dirname, etc.).
 #
-# NOTE (2026-09-28, W1): the inventory below was verified 2026-09-11 and
-# parts of it have since been wired. It is kept as the record of what was
-# starved, with the current state of each entry.
+# NOTE (2026-09-28, W1; updated 2026-09-29, W3): the inventory below was
+# verified 2026-09-11 and parts of it have since been wired. It is kept as
+# the record of what was starved, with the current state of each entry.
 #
 #   is_test_function   WAS: no producer. NOW: CodeElement.ToFacts
 #                      (internal/world/code_elements.go) asserts it for every
@@ -31,16 +31,33 @@
 #                      mappers emit bare rows only (their refs key on file
 #                      path + parentage the walker cannot reconstruct).
 #
-#   file_imports       STILL NO PRODUCER (Decl in
-#                      schemas_codedom_polyglot.mg:200). The live file-to-file
-#                      edge is dependency_link(CallerID, CalleeID, ImportPath).
-#                      Until one of them feeds these rules, the file-import
-#                      test_depends_on rule and the modified_file
-#                      impacted_test rule derive nothing.
+#   file_imports       WAS: no producer. NOW: the import resolver
+#                      (internal/world/dependency_links.go) emits a
+#                      file_imports row beside every resolved in-workspace
+#                      dependency_link edge, on the full and incremental scan
+#                      paths alike. Test Go files contribute their imports via
+#                      a header-only parse (test_impact_facts.go), since the
+#                      fast scans skip them in the tree-sitter walker.
 #
-#   same_package       STILL NO PRODUCER (Decl in schemas_shards.mg:242), so
-#                      the same-package test_depends_on rule derives nothing
-#                      and no test can be /low priority.
+#   directory join     The same-directory rules join file_dir
+#                      (schemas_world.mg; emitted beside every file_topology
+#                      row in fs.go and incremental_scan.go). canonicalDir
+#                      spells that directory the same way for every file in
+#                      it, so an external test file (package p_test) meets
+#                      its sources. The pair relation is not stored: one
+#                      directory of 274 Go files is 74,802 ordered pairs, and
+#                      the repo total (302,284) exceeds the 250k EDB ceiling.
+#
+#   file_package       WAS: no producer. NOW: the tree-sitter Go walker's
+#                      package_clause branch emits the row for non-test Go
+#                      files and the header-only parse (test_impact_facts.go)
+#                      for test Go files, both spelling (canonical path,
+#                      package-clause name).
+#
+#   is_test_file       WAS: no producer. NOW: the fast scanner marks every
+#                      file its isTestFile classification flags, all languages
+#                      (internal/world/fs.go, incremental_scan.go). The gap
+#                      rule no longer accuses the tests in a scanned workspace.
 #
 #   plan_edit          STILL NO PRODUCER (Decl in
 #                      schemas_codedom_polyglot.mg:206). The transaction
@@ -55,18 +72,15 @@
 #                      production code calls Begin or AddEdit, so no
 #                      transaction is ever opened and ToFacts returns empty.
 #
-#   is_test_file       STILL NO PRODUCER (Decl in schemas_shards.mg:288).
-#                      coverage_gap negates it, so until it is wired the gap
-#                      rule accuses the tests themselves (pinned by
-#                      TestTestImpactChain_WhenNoTestFileMark_ShouldAccuseTheTests).
-#
-# What fires today, given the facts: the code_calls test_depends_on rule,
-# its transitive closure, the same-file impacted_test rule, coverage and
-# priority -- proven by internal/world/test_impact_chain_test.go against
-# the real corpus from real producer output. method_of needs no shard
-# attention: it is derived in-world from element_parent (codedom_core.mg),
-# so the transitive method rule fires on the production kernel; the
-# sharded-vs-single parity test guards the colocation.
+# What fires today, given the facts: every rule whose inputs exist --
+# test_depends_on through calls (R2), same-directory (R3) and file imports
+# (R1), its transitive closure, impacted_test through the plan_edit rules,
+# coverage and all three priorities -- proven by
+# internal/world/test_impact_chain_test.go against the real corpus from real
+# producer output. method_of needs no shard attention: it is derived in-world
+# from element_parent (codedom_core.mg), so the transitive method rule fires
+# on the production kernel; the sharded-vs-single parity test guards the
+# colocation. The modified_file impacted_test rule still waits on a producer.
 #
 # The Go path still carries production test impact (run_impacted_tests
 # reads edited refs from element_modified and walks the graph in Go).
@@ -78,8 +92,9 @@
 # is_test_function is asserted by CodeElement.ToFacts
 # (internal/world/code_elements.go), which runs wherever code_element facts
 # are produced. It is declared here because it is declared nowhere else;
-# the companion test-file/package predicates live in schemas_shards.mg
-# (is_test_file, same_package) and still await producers (see above).
+# the companion test-file predicates live in schemas_shards.mg
+# (is_test_file, file_package); both are produced by the fast scanner
+# (see above). Same-directory grouping joins file_dir (schemas_world.mg).
 
 Decl is_test_function(Ref).
 
@@ -103,12 +118,16 @@ test_depends_on(TestRef, SourceRef) :-
     is_test_function(TestRef),
     code_calls(TestRef, SourceRef).
 
-# Test depends on source if they share the same package and test references source symbol
-# Reordered: bind TestFile, then same_package joins to SourceFile, then code_element shares SourceFile.
+# Test depends on source when they share a directory and the test references the source symbol.
+# TestFile is bound above; file_dir binds the directory, then the other file in it.
+# Premise order is load-bearing: the engine evaluates left to right and counts
+# the intermediate solution set against the fact limit.
 test_depends_on(TestRef, SourceRef) :-
     is_test_function(TestRef),
     code_element(TestRef, _, TestFile, _, _),
-    same_package(TestFile, SourceFile),
+    file_dir(TestFile, Dir),
+    file_dir(SourceFile, Dir),
+    TestFile != SourceFile,
     code_element(SourceRef, _, SourceFile, _, _),
     test_references_symbol(TestRef, SourceRef).
 
@@ -228,18 +247,19 @@ test_priority(TestRef, /medium) :-
     impacted_test(TestRef),
     !is_high_priority_test(TestRef).
 
-# Low priority detection (helper predicate)
-# Reordered: bind TestRef and its file, then same_package joins to TargetFile,
-# then code_element and plan_edit share TargetRef via TargetFile.
+# Low priority: a test that shares the edited file's directory but is not impacted.
+# TestFile is bound above; file_dir binds the directory, then the other file in it.
 is_low_priority_test(TestRef) :-
     is_test_function(TestRef),
     !impacted_test(TestRef),
     code_element(TestRef, _, TestFile, _, _),
-    same_package(TestFile, TargetFile),
+    file_dir(TestFile, Dir),
+    file_dir(TargetFile, Dir),
+    TestFile != TargetFile,
     code_element(TargetRef, _, TargetFile, _, _),
     plan_edit(TargetRef).
 
-# Low priority: Test in same package but no dependency
+# Low priority: test in the same directory but no dependency
 test_priority(TestRef, /low) :-
     is_low_priority_test(TestRef).
 
@@ -259,9 +279,6 @@ impacted_test_file(File) :-
 # SECTION 9: HELPER PREDICATES
 # =============================================================================
 # Supporting predicates for test analysis.
-
-# same_package is already declared in schemas_shards.mg
-# (Mangle has no fn:dirname, so assertion happens in Go)
 
 # Test references a symbol (simplified - could be enhanced with AST analysis)
 test_references_symbol(TestRef, SourceRef) :-
