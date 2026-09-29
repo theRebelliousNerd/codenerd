@@ -86,6 +86,7 @@ subcommand falls through `rootCmd.RunE` (`cmd/nerd/main.go:137-167`) to
 | `nerd dream` / `shadow` / `whatif` / `logic` / `agents` / `tool` / `jit` / `dom` / `embedding` | `cmd/nerd/main.go:281-290`, `cmd/nerd/cmd_advanced.go` | 5 |
 | `nerd northstar` | `cmd/nerd/main.go:293-295`, `cmd/nerd/cmd_northstar.go` | 5 |
 | `nerd init` / `nerd scan` | `cmd/nerd/cmd_init_scan.go` | 6 |
+| `nerd init` (foreign repo onboarding) / first-boot TUI | `cmd/nerd/cmd_init_scan.go:126`, `cmd/nerd/cmd_chat.go:24` | 12 (`Docs/journeys/12-foreign-repo-onboarding.md`) |
 | `nerd world` / `retrieve` / `memory` / `knowledge` / `context-stats` / `snapshot` / `audit` / `meter` / `usage` | `cmd/nerd/main.go:298-311` | 6 + introspection |
 | `nerd spawn` / `define-agent` | `cmd/nerd/cmd_spawn.go` | shard-direct |
 | `nerd query` / `status` / `why` / `logs` / `glassbox` / `transparency` / `reflection` | `cmd/nerd/main.go:243-260,318-322` | introspection |

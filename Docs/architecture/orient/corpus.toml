@@ -1,0 +1,7 @@
+schema_version = 1
+id = "orient"
+kind = "planned"
+source_roots = ["internal/orient"]
+entrypoint = "README.md"
+implemented_spec = "IMPLEMENTED_SPEC.md"
+verified_on = "2026-09-29"
