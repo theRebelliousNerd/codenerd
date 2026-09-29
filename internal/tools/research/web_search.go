@@ -39,8 +39,7 @@ func WebSearchTool() *tools.Tool {
 				},
 				"max_results": {
 					Type:        "integer",
-					Description: "Maximum number of results to return (default: 10)",
-					Default:     10,
+					Description: "Optional bound on results returned. Omit to return every result the page holds; an explicit value is the model's own choice",
 				},
 			},
 		},
@@ -53,25 +52,26 @@ func executeWebSearch(ctx context.Context, args map[string]any) (string, error) 
 		return "", fmt.Errorf("query is required")
 	}
 
-	maxResults := 10
+	// Absent max_results means every result the page holds: the old
+	// default-10 plus hard-30 cap silently dropped results the model
+	// never asked to drop. An explicit max_results is the model's own
+	// choice and is honored as given (limits cleanup 2026-09-29).
+	maxResults := 0
 	if mr, ok := argInt(args, "max_results"); ok && mr > 0 {
 		maxResults = mr
-	}
-	if maxResults > 30 {
-		maxResults = 30 // Cap at 30 results
 	}
 
 	logging.ResearcherDebug("Web search: query=%q, max_results=%d", query, maxResults)
 
 	// Use DuckDuckGo HTML search (no API key required)
-	results, err := searchDuckDuckGo(ctx, query, maxResults)
+	results, guardTripped, err := searchDuckDuckGo(ctx, query, maxResults)
 	if err != nil {
 		return "", fmt.Errorf("search failed: %w", err)
 	}
 
 	if len(results) == 0 {
 		logging.Researcher("Web search returned no results for: %s", query)
-		return "No results found for: " + query, nil
+		return markSearchGuardTrip("No results found for: "+query, guardTripped), nil
 	}
 
 	// Format results as markdown
@@ -89,20 +89,41 @@ func executeWebSearch(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	logging.Researcher("Web search completed: %d results for %q", len(results), query)
-	return sb.String(), nil
+	return markSearchGuardTrip(sb.String(), guardTripped), nil
+}
+
+// webSearchGuardBytes caps one search-response body. It is process
+// protection, not a tunable: without it a hostile or runaway response
+// exhausts process memory. When the guard trips the result carries an
+// explicit marker naming the cut, so it never reaches the model as a
+// silent truncation.
+const webSearchGuardBytes = 1 << 20
+
+// markSearchGuardTrip appends the fetch-guard marker when the body guard tripped.
+func markSearchGuardTrip(result string, tripped bool) string {
+	if !tripped {
+		return result
+	}
+	return result + "\n\n[fetch guard: search response exceeded the 1MB web_search guard; " +
+		"results past the cut were not parsed]"
 }
 
 // searchDuckDuckGo performs a search using DuckDuckGo HTML interface.
-func searchDuckDuckGo(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
+// maxResults <= 0 means every result the page holds. It also reports
+// whether the body guard tripped so the caller can mark the cut.
+func searchDuckDuckGo(ctx context.Context, query string, maxResults int) ([]SearchResult, bool, error) {
 	// DuckDuckGo HTML search URL
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
 
+	// Per-request network bound, not a run clock: it caps one HTTP round
+	// trip. OPEN (limits cleanup 2026-09-29): the value must come from
+	// internal/config, but that package is outside this lane's scope.
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, false, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set headers to look like a browser
@@ -112,23 +133,29 @@ func searchDuckDuckGo(ctx context.Context, query string, maxResults int) ([]Sear
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, false, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+		return nil, false, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
+	body, err := io.ReadAll(io.LimitReader(resp.Body, webSearchGuardBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, false, fmt.Errorf("failed to read response: %w", err)
+	}
+	guardTripped := len(body) > webSearchGuardBytes
+	if guardTripped {
+		body = body[:webSearchGuardBytes]
 	}
 
-	return parseDuckDuckGoResults(string(body), maxResults)
+	results, err := parseDuckDuckGoResults(string(body), maxResults)
+	return results, guardTripped, err
 }
 
 // parseDuckDuckGoResults extracts search results from DuckDuckGo HTML.
+// maxResults <= 0 means every result the page holds.
 func parseDuckDuckGoResults(htmlContent string, maxResults int) ([]SearchResult, error) {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
@@ -140,7 +167,7 @@ func parseDuckDuckGoResults(htmlContent string, maxResults int) ([]SearchResult,
 	// DuckDuckGo HTML uses class="result" for search results
 	var findResults func(*html.Node)
 	findResults = func(n *html.Node) {
-		if len(results) >= maxResults {
+		if maxResults > 0 && len(results) >= maxResults {
 			return
 		}
 

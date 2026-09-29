@@ -100,7 +100,7 @@ func executeBrowserSpecs(ctx context.Context, args map[string]any) (string, erro
 		matched := browserspec.CountMatchingSpecs(loaded.Specs, input)
 		invariants, invariantTruncated := browserspec.SelectInvariants(loaded.Specs, input, maxItems)
 		base["documents"] = documents
-		base["invariants"] = publicBrowserSpecInvariants(manager, invariants, view, config.MaxExcerptBytes/2)
+		base["invariants"] = publicBrowserSpecInvariants(manager, invariants, view)
 		base["count"] = len(documents)
 		base["truncated"] = loaded.Truncated || invariantTruncated || len(documents) < matched
 		if view == "summary" {
@@ -362,7 +362,7 @@ func sanitizeBrowserSpecMatches(manager *browser.SessionManager, matches []brows
 	}
 }
 
-func publicBrowserSpecInvariants(manager *browser.SessionManager, invariants []browserspec.SelectedInvariant, view string, maxProseBytes int) []map[string]any {
+func publicBrowserSpecInvariants(manager *browser.SessionManager, invariants []browserspec.SelectedInvariant, view string) []map[string]any {
 	result := make([]map[string]any, 0, len(invariants))
 	for _, invariant := range invariants {
 		row := map[string]any{
@@ -380,20 +380,14 @@ func publicBrowserSpecInvariants(manager *browser.SessionManager, invariants []b
 			row["from"], row["to"] = invariant.From, invariant.To
 		}
 		if view == "full" && invariant.Prose != "" {
-			row["prose"] = manager.SanitizeForEvidence(boundBrowserSpecText(invariant.Prose, maxProseBytes))
+			// Whole prose: the old full view silently cut prose at
+			// half the excerpt budget with no marker at all, so a
+			// view promising everything delivered a fragment. Full
+			// means full; the ledger sizes the result for the
+			// window (limits cleanup 2026-09-29).
+			row["prose"] = manager.SanitizeForEvidence(invariant.Prose)
 		}
 		result = append(result, row)
 	}
 	return result
-}
-
-func boundBrowserSpecText(value string, maxBytes int) string {
-	if maxBytes <= 0 || len(value) <= maxBytes {
-		return value
-	}
-	end := maxBytes
-	for end > 0 && end < len(value) && value[end]&0xc0 == 0x80 {
-		end--
-	}
-	return value[:end]
 }

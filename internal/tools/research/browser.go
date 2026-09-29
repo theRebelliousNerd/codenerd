@@ -143,17 +143,25 @@ func executeBrowserNavigate(ctx context.Context, args map[string]any) (string, e
 }
 
 // BrowserExtract limits for bounded evidence reads.
+//
+// defaultBrowserExtractMaxChars and maxBrowserExtractMaxChars size one
+// paging window, not the content: every rune stays reachable via offset,
+// so the window clamp is paging rather than a cut. OPEN (limits cleanup
+// 2026-09-29): both values must come from internal/config, but that
+// package is outside this lane's scope.
 const (
 	defaultBrowserExtractMaxChars = 8000
 	maxBrowserExtractMaxChars     = 32000
-	defaultBrowserExtractTimeout  = 10 * time.Second
+	// Per-request extraction bound, not a run clock: it caps one DOM
+	// read. Same OPEN as above: the value belongs in internal/config.
+	defaultBrowserExtractTimeout = 10 * time.Second
 )
 
 // BrowserExtractTool returns a tool for extracting content from a browser page.
 func BrowserExtractTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "browser_extract",
-		Description: "Extract bounded, redacted text from the current browser page. Extraction honors caller cancellation and a 10s maximum duration. Combined text and optional HTML are capped by max_chars, followed by a truncation notice when needed.",
+		Description: "Extract bounded, redacted text from the current browser page. Extraction honors caller cancellation and a 10s maximum duration. Combined text and optional HTML are returned through a max_chars window starting at offset; when content continues past the window the result names the remainder and the offset that reaches it.",
 		Category:    tools.CategoryResearch,
 		Priority:    55,
 		Execute:     executeBrowserExtract,
@@ -176,8 +184,13 @@ func BrowserExtractTool() *tools.Tool {
 				},
 				"max_chars": {
 					Type:        "integer",
-					Description: "Maximum combined text/HTML runes, excluding the truncation notice (default: 8000, hard cap: 32000)",
+					Description: "Combined text/HTML window in runes, excluding the paging notice (default: 8000, hard cap: 32000)",
 					Default:     defaultBrowserExtractMaxChars,
+				},
+				"offset": {
+					Type:        "integer",
+					Description: "Rune offset where the max_chars window starts (default: 0)",
+					Default:     0,
 				},
 			},
 		},
@@ -196,6 +209,7 @@ func executeBrowserExtract(ctx context.Context, args map[string]any) (string, er
 	}
 	includeHTML := boolArg(args, "include_html", false)
 	maxChars := resolveBrowserExtractMaxChars(args)
+	offset := resolveBrowserExtractOffset(args)
 
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("browser extract cancelled: %w", err)
@@ -244,9 +258,13 @@ func executeBrowserExtract(ctx context.Context, args map[string]any) (string, er
 	}
 
 	sanitized := mgr.SanitizeForEvidence(text)
-	result, truncated, totalRunes := boundBrowserExtractChars(sanitized, maxChars)
+	window, end, totalRunes := boundBrowserExtractChars(sanitized, offset, maxChars)
+	result := window
+	truncated := end < totalRunes
 	if truncated {
-		result += fmt.Sprintf("\n...[truncated: showing %d of %d chars; max_chars=%d, hard cap=%d]", maxChars, totalRunes, maxChars, maxBrowserExtractMaxChars)
+		result += fmt.Sprintf("\n...[showing runes %d-%d of %d; %d more chars, page with offset=%d]", offset, end, totalRunes, totalRunes-end, end)
+	} else if offset > 0 {
+		result += fmt.Sprintf("\n...[end of content, %d chars total]", totalRunes)
 	}
 
 	logging.Browser("Browser extract completed: %d chars (truncated=%v)", len(result), truncated)
@@ -266,28 +284,44 @@ func resolveBrowserExtractMaxChars(args map[string]any) int {
 	return maxChars
 }
 
+// resolveBrowserExtractOffset reads the paging offset. Negative values
+// select the start; an offset past the end yields an empty window.
+func resolveBrowserExtractOffset(args map[string]any) int {
+	offset := intArg(args, "offset", 0)
+	if offset < 0 {
+		return 0
+	}
+	return offset
+}
+
 // withBrowserExtractDeadline caps the whole extraction while preserving any
 // earlier caller cancellation/deadline. It does not alter manager-owned pages.
 func withBrowserExtractDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, defaultBrowserExtractTimeout)
 }
 
-// boundBrowserExtractChars truncates by rune count so multi-byte UTF-8 is never
-// split. An input exactly at the limit is returned unmarked; only a strictly
-// longer input reports truncation.
-func boundBrowserExtractChars(value string, maxChars int) (string, bool, int) {
+// boundBrowserExtractChars windows value to the [offset, offset+maxChars)
+// rune range so multi-byte UTF-8 is never split. It returns the window,
+// the end rune offset for the paging hint, and the total rune count. Every
+// rune stays reachable by paging with offset: the window is paging, never
+// a cut (limits cleanup 2026-09-29).
+func boundBrowserExtractChars(value string, offset, maxChars int) (string, int, int) {
 	total := utf8.RuneCountInString(value)
-	if total <= maxChars {
-		return value, false, total
+	if offset < 0 {
+		offset = 0
 	}
-	count := 0
-	for idx := range value {
-		if count == maxChars {
-			return value[:idx], true, total
-		}
-		count++
+	if offset > total {
+		offset = total
 	}
-	return value, false, total
+	end := total
+	if maxChars > 0 && offset+maxChars < total {
+		end = offset + maxChars
+	}
+	if offset == 0 && end == total {
+		return value, end, total
+	}
+	runes := []rune(value)
+	return string(runes[offset:end]), end, total
 }
 
 // BrowserScreenshotTool returns a tool for capturing screenshots.

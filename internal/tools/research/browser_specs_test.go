@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"codenerd/internal/browser"
+	browserspec "codenerd/internal/browser/specs"
 )
 
 func TestBrowserSpecsListAndGetBoundedWorkspaceDocs(t *testing.T) {
@@ -79,5 +80,22 @@ func TestBrowserSpecsRejectsUnboundedInputs(t *testing.T) {
 		"operation": "get", "file": "x.go", "from": 10,
 	}); err == nil || !strings.Contains(err.Error(), "provided together") {
 		t.Fatalf("expected range validation, got %v", err)
+	}
+}
+
+func TestPublicBrowserSpecInvariants_WhenFullView_ShouldReturnWholeProse(t *testing.T) {
+	// Limits cleanup 2026-09-29: full view silently cut prose at half
+	// the excerpt budget with no marker. Full means full now.
+	manager := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	prose := strings.Repeat("p", 5000) + "TAIL"
+	rows := publicBrowserSpecInvariants(manager, []browserspec.SelectedInvariant{{
+		Spec: "s", Invariant: browserspec.Invariant{Name: "n", Prose: prose},
+	}}, "full")
+	if len(rows) != 1 {
+		t.Fatalf("rows len = %d, want 1", len(rows))
+	}
+	if rows[0]["prose"] != prose {
+		t.Errorf("full-view prose cut: got %d chars, want %d whole",
+			len(rows[0]["prose"].(string)), len(prose))
 	}
 }

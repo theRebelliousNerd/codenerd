@@ -18,8 +18,6 @@ import (
 	"codenerd/internal/types"
 )
 
-const maxAuditDetailBytes = 300
-
 // BrowserAuditTool returns the passive phases of contract audits.
 func BrowserAuditTool() *tools.Tool {
 	return &tools.Tool{
@@ -368,11 +366,15 @@ func compactAuditFindings(findings []browser.AuditFinding) []map[string]any {
 	})
 	out := make([]map[string]any, 0, len(findings))
 	for _, f := range findings {
-		detail := truncateAuditDetail(f.Detail, maxAuditDetailBytes)
+		// Whole detail: the old compact view cut details at 300 bytes
+		// with "...", silently dropping audit evidence. Compact still
+		// differs from full (no sources, no match list); it just no
+		// longer cuts. The ledger sizes the result for the window
+		// (limits cleanup 2026-09-29).
 		row := map[string]any{
 			"kind":    string(f.Kind),
 			"subject": f.Subject,
-			"detail":  detail,
+			"detail":  f.Detail,
 		}
 		out = append(out, row)
 	}
@@ -397,21 +399,6 @@ func fullAuditFindings(findings []browser.AuditFinding) []map[string]any {
 		out = append(out, row)
 	}
 	return out
-}
-
-func truncateAuditDetail(s string, maxBytes int) string {
-	if maxBytes <= 0 || len(s) <= maxBytes {
-		return s
-	}
-	end := maxBytes
-	for end > 0 && end < len(s) && s[end]&0xc0 == 0x80 {
-		end--
-	}
-	truncated := s[:end]
-	if len(s) > maxBytes {
-		truncated += "..."
-	}
-	return truncated
 }
 
 func marshalBrowserAuditResult(value any) (string, error) {

@@ -145,13 +145,19 @@ func TestGroundedWebSearchTool_StructuredOutput(t *testing.T) {
 	}
 }
 
-func TestGroundedWebSearchTool_BoundedOutput(t *testing.T) {
+func TestGroundedWebSearchTool_WholeOutput(t *testing.T) {
 	t.Parallel()
+	// Limits cleanup 2026-09-29: the tool returns answer text and every
+	// citation whole; the working-context ledger sizes results for the
+	// window behind recall handles. Nothing here may cut or cap.
 	longText := strings.Repeat("x", 25000)
+	longURL := "https://example.com/" + strings.Repeat("p", 3000)
+	longTitle := strings.Repeat("t", 600)
 	manyCitations := make([]types.GroundedCitation, 100)
 	for i := range manyCitations {
 		manyCitations[i] = types.GroundedCitation{URL: "https://example.com/" + string(rune('a'+i%26)), Title: "t", StartIndex: i, EndIndex: i + 1}
 	}
+	manyCitations[0] = types.GroundedCitation{URL: longURL, Title: longTitle, StartIndex: 0, EndIndex: 1}
 	m := &groundedSearcherMock{supports: true, handler: func(_ context.Context, _ string) (*types.GroundedWebSearchResult, error) {
 		return &types.GroundedWebSearchResult{Text: longText, Citations: manyCitations, Usage: types.GroundedUsage{TotalTokens: 1}}, nil
 	}}
@@ -167,14 +173,20 @@ func TestGroundedWebSearchTool_BoundedOutput(t *testing.T) {
 	if err := json.Unmarshal([]byte(res), &parsed); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(parsed.Text) > maxGroundedWebSearchOutputChars+len(groundedWebSearchTruncateSuffix) {
-		t.Errorf("text not bounded, len %d", len(parsed.Text))
+	if parsed.Text != longText {
+		t.Errorf("text cut: got %d chars, want %d whole", len(parsed.Text), len(longText))
 	}
-	if !strings.Contains(parsed.Text, "[...truncated...]") {
-		t.Error("expected truncation suffix")
+	if strings.Contains(parsed.Text, "truncated") {
+		t.Errorf("text must not carry a truncation marker: %.80q...", parsed.Text)
 	}
-	if len(parsed.Citations) > maxGroundedWebSearchCitations {
-		t.Errorf("citations not bounded, len %d", len(parsed.Citations))
+	if len(parsed.Citations) != len(manyCitations) {
+		t.Errorf("citations cut: got %d, want %d whole", len(parsed.Citations), len(manyCitations))
+	}
+	if parsed.Citations[0].URL != longURL {
+		t.Errorf("citation URL cut: got %d chars, want %d whole", len(parsed.Citations[0].URL), len(longURL))
+	}
+	if parsed.Citations[0].Title != longTitle {
+		t.Errorf("citation title cut: got %d chars, want %d whole", len(parsed.Citations[0].Title), len(longTitle))
 	}
 }
 

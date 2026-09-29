@@ -109,28 +109,72 @@ func TestBrowserExtractResolveMaxChars(t *testing.T) {
 	}
 }
 
+func TestBrowserExtractResolveOffset(t *testing.T) {
+	cases := []struct {
+		name string
+		args map[string]any
+		want int
+	}{
+		{name: "missing selects zero", args: map[string]any{}, want: 0},
+		{name: "negative selects zero", args: map[string]any{"offset": -3}, want: 0},
+		{name: "positive honored", args: map[string]any{"offset": 120}, want: 120},
+		{name: "float64 honored", args: map[string]any{"offset": float64(45)}, want: 45},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveBrowserExtractOffset(tc.args); got != tc.want {
+				t.Fatalf("offset = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBoundBrowserExtractChars(t *testing.T) {
-	t.Run("exact limit not marked", func(t *testing.T) {
-		got, truncated, total := boundBrowserExtractChars("abc", 3)
-		if truncated || total != 3 || got != "abc" {
-			t.Fatalf("exact input must not truncate: got=%q truncated=%v total=%d", got, truncated, total)
+	t.Run("exact limit not windowed", func(t *testing.T) {
+		got, end, total := boundBrowserExtractChars("abc", 0, 3)
+		if end != total || total != 3 || got != "abc" {
+			t.Fatalf("exact input must pass through: got=%q end=%d total=%d", got, end, total)
 		}
 	})
-	t.Run("longer marks truncation on rune boundary", func(t *testing.T) {
+	t.Run("longer windows on rune boundary", func(t *testing.T) {
 		// Mix ASCII with multi-byte runes so a byte split would be invalid UTF-8.
 		input := "a🌟b🌟cdefgh"
-		got, truncated, total := boundBrowserExtractChars(input, 4)
-		if !truncated {
-			t.Fatal("expected truncation")
+		got, end, total := boundBrowserExtractChars(input, 0, 4)
+		if end == total {
+			t.Fatal("expected a partial window")
 		}
 		if total != len([]rune(input)) {
 			t.Fatalf("total runes = %d, want %d", total, len([]rune(input)))
 		}
 		if !utf8.ValidString(got) {
-			t.Fatalf("truncated output split UTF-8: %q", got)
+			t.Fatalf("windowed output split UTF-8: %q", got)
 		}
 		if got != string([]rune(input)[:4]) {
-			t.Fatalf("truncated output = %q, want %q", got, string([]rune(input)[:4]))
+			t.Fatalf("windowed output = %q, want %q", got, string([]rune(input)[:4]))
+		}
+	})
+	t.Run("offset pages without loss", func(t *testing.T) {
+		// Limits cleanup 2026-09-29: every rune stays reachable via
+		// offset; concatenated windows equal the whole input.
+		input := "a🌟b🌟cdefgh"
+		runes := []rune(input)
+		first, end, total := boundBrowserExtractChars(input, 0, 4)
+		second, end2, _ := boundBrowserExtractChars(input, end, 4)
+		if first+second != string(runes[:8]) {
+			t.Fatalf("paged windows do not reassemble: %q + %q", first, second)
+		}
+		if end != 4 || end2 != 8 || total != len(runes) {
+			t.Fatalf("end markers = %d/%d total=%d, want 4/8/%d", end, end2, total, len(runes))
+		}
+		rest, end3, _ := boundBrowserExtractChars(input, end2, 100)
+		if first+second+rest != input || end3 != total {
+			t.Fatalf("final window must reach the end: %q end=%d total=%d", rest, end3, total)
+		}
+	})
+	t.Run("offset past end yields empty window", func(t *testing.T) {
+		got, end, total := boundBrowserExtractChars("abc", 99, 10)
+		if got != "" || end != total {
+			t.Fatalf("past-end window = %q end=%d total=%d", got, end, total)
 		}
 	})
 }
@@ -142,9 +186,9 @@ func TestBrowserExtractRedactionPreservedAfterBounding(t *testing.T) {
 	if strings.Contains(sanitized, "live-secret-123") {
 		t.Fatalf("sanitizer leaked secret: %q", sanitized[:200])
 	}
-	bounded, truncated, _ := boundBrowserExtractChars(sanitized, 100)
-	if !truncated {
-		t.Fatal("expected truncation for oversized evidence")
+	bounded, end, total := boundBrowserExtractChars(sanitized, 0, 100)
+	if end == total {
+		t.Fatal("expected a partial window for oversized evidence")
 	}
 	if !utf8.ValidString(bounded) {
 		t.Fatal("bounded evidence split UTF-8")
@@ -229,8 +273,8 @@ func TestBrowserExtractLiveBoundedTruncationAndRedaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bounded extract: %v", err)
 	}
-	if !strings.Contains(out, "[truncated") {
-		t.Fatalf("oversized extract must mark truncation: %q", out)
+	if !strings.Contains(out, "more chars, page with offset=") {
+		t.Fatalf("oversized extract must name the remainder and offset: %q", out)
 	}
 	if strings.Contains(out, "live-secret-123") {
 		t.Fatalf("bounded extract leaked secret: %q", out)
@@ -273,7 +317,7 @@ func TestBrowserExtractLiveIncludeHTML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content, notice, found := strings.Cut(bounded, "\n...[truncated:")
+	content, notice, found := strings.Cut(bounded, "\n...[showing runes ")
 	if !found || notice == "" || utf8.RuneCountInString(content) > 24 {
 		t.Fatalf("text and HTML must share one content budget: %q", bounded)
 	}

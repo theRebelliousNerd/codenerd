@@ -177,16 +177,19 @@ func fetchLlmsTxt(ctx context.Context, owner, repo, apiKey string, maxDocs int) 
 }
 
 // parseLlmsTxt parses the llms.txt content and fetches referenced documents.
+// Fetched documents are returned whole: since 63aef15f the working-context
+// ledger archives large tool results behind recall handles, so cutting doc
+// text here would only destroy evidence the ledger must size for the window.
+// maxDocs still bounds how many documents are fetched, but the cap is never
+// silent: when linked docs are left unfetched the result names them and the
+// max_docs argument that raises the bound (limits cleanup 2026-09-29).
 func parseLlmsTxt(ctx context.Context, owner, repo, content, apiKey string, maxDocs int) ([]string, error) {
 	var results []string
 	lines := strings.Split(content, "\n")
 	docCount := 0
+	skipped := 0
 
 	for _, line := range lines {
-		if docCount >= maxDocs {
-			break
-		}
-
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ">") {
 			continue
@@ -219,11 +222,18 @@ func parseLlmsTxt(ctx context.Context, owner, repo, content, apiKey string, maxD
 				owner, repo, strings.TrimPrefix(docURL, "/"))
 		}
 
+		if docCount >= maxDocs {
+			skipped++
+			continue
+		}
 		content, err := fetchURL(ctx, docURL, apiKey)
 		if err == nil && len(content) > 50 {
-			results = append(results, fmt.Sprintf("## Source: %s\n\n%s", docURL, truncate(content, 8000)))
+			results = append(results, fmt.Sprintf("## Source: %s\n\n%s", docURL, content))
 			docCount++
 		}
+	}
+	if skipped > 0 {
+		results = append(results, fmt.Sprintf("[%d more linked docs not fetched; raise max_docs to include them (fetched %d)]", skipped, docCount))
 	}
 
 	return results, nil
@@ -249,15 +259,25 @@ func fetchCommonDocs(ctx context.Context, owner, repo, apiKey string, maxDocs in
 		url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/%s", owner, repo, path)
 		content, err := fetchURL(ctx, url, apiKey)
 		if err == nil && len(content) > 100 {
-			results = append(results, fmt.Sprintf("## Source: %s\n\n%s", url, truncate(content, 8000)))
+			results = append(results, fmt.Sprintf("## Source: %s\n\n%s", url, content))
 		}
 	}
 
 	return results, nil
 }
 
+// fetchURLGuardBytes caps one fetched document. It is process protection,
+// not a tunable: without it a hostile or runaway response (Content-Length
+// lies; bodies stream until OOM) exhausts process memory. When the guard
+// trips the returned content carries an explicit marker naming the cut, so
+// it never reaches the model as a silent truncation.
+const fetchURLGuardBytes = 1 << 20
+
 // fetchURL fetches content from a URL with timeout and optional auth.
 func fetchURL(ctx context.Context, url, apiKey string) (string, error) {
+	// Per-request network bound, not a run clock: it caps one HTTP round
+	// trip. OPEN (limits cleanup 2026-09-29): the value must come from
+	// internal/config, but that package is outside this lane's scope.
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -281,18 +301,15 @@ func fetchURL(ctx context.Context, url, apiKey string) (string, error) {
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
+	body, err := io.ReadAll(io.LimitReader(resp.Body, fetchURLGuardBytes+1))
 	if err != nil {
 		return "", err
 	}
+	if len(body) > fetchURLGuardBytes {
+		return string(body[:fetchURLGuardBytes]) +
+			"\n\n[fetch guard: source exceeded the 1MB single-document guard; " +
+			"content continues beyond what was read]", nil
+	}
 
 	return string(body), nil
-}
-
-// truncate limits string length for context management.
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "\n\n[...truncated...]"
 }

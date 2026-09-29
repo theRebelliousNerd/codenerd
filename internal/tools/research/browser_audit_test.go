@@ -429,3 +429,23 @@ func TestBrowserAuditTool_ReportThenResumeReopensOnlyNamedSections(t *testing.T)
 		t.Fatalf("another session's handle must be reported, not served: %v", resumed.Notes)
 	}
 }
+
+func TestCompactAuditFindings_WhenDetailExceedsOldCut_ShouldReturnWhole(t *testing.T) {
+	// Limits cleanup 2026-09-29: compact view cut details at 300 bytes
+	// with "...". Details now come back whole; compact differs from
+	// full only by omitting sources and matches.
+	detail := strings.Repeat("d", 500) + "TAIL"
+	rows := compactAuditFindings([]browser.AuditFinding{{
+		Kind: browser.AuditObservation, Subject: "s", Detail: detail,
+	}})
+	if len(rows) != 1 {
+		t.Fatalf("rows len = %d, want 1", len(rows))
+	}
+	if rows[0]["detail"] != detail {
+		t.Errorf("compact detail cut: got %d chars, want %d whole",
+			len(rows[0]["detail"].(string)), len(detail))
+	}
+	if _, ok := rows[0]["sources"]; ok {
+		t.Errorf("compact view must still omit sources: %v", rows[0])
+	}
+}

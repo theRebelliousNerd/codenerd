@@ -80,7 +80,8 @@ func BrowserActTool() *tools.Tool {
 				"operations":    {Type: "array", Description: "Ordered operation objects; each requires type", Items: &tools.PropertyItems{Type: "object"}},
 				"stop_on_error": {Type: "boolean", Description: "Stop after the first failed operation", Default: true},
 				"view":          {Type: "string", Description: "Result disclosure depth", Default: "compact", Enum: []any{"summary", "compact", "full"}},
-				"max_items":     {Type: "integer", Description: "Maximum per-operation results returned", Default: 20},
+				"max_items":     {Type: "integer", Description: "Per-operation results window size; every step stays reachable via offset", Default: 20},
+				"offset":        {Type: "integer", Description: "Step-result offset where the max_items window starts (default: 0)", Default: 0},
 				"include_specs": {Type: "boolean", Description: "Attach bounded route/term-matched workspace spec context after the plan", Default: false},
 				"spec_terms":    {Type: "array", Description: "Optional bounded spec relevance terms", Items: &tools.PropertyItems{Type: "string"}},
 			},
@@ -110,15 +111,12 @@ func executeBrowserAct(ctx context.Context, args map[string]any) (string, error)
 	if maxItems <= 0 {
 		maxItems = 20
 	}
-	if maxItems > 25 {
-		maxItems = 25
-	}
+	offset := intArg(args, "offset", 0)
 
 	results := execution.Results
-	truncated := len(results) > maxItems
-	if truncated {
-		results = results[:maxItems]
-	}
+	total := len(results)
+	results, end := pageStepResults(results, offset, maxItems)
+	truncated := end < total
 	if view == "summary" {
 		results = nil
 	} else if view == "compact" {
@@ -134,6 +132,10 @@ func executeBrowserAct(ctx context.Context, args map[string]any) (string, error)
 		"started_ms": execution.StartedMS, "finished_ms": execution.FinishedMS,
 		"summary": execution.Summary, "counts": execution.Counts, "view": view,
 		"evidence_handles": execution.EvidenceHandles, "truncated": truncated,
+		"results_total": total,
+	}
+	if truncated {
+		output["results_hint"] = fmt.Sprintf("%d more step results, page with offset=%d", total-end, end)
 	}
 	if results != nil {
 		output["results"] = results
@@ -152,6 +154,25 @@ func executeBrowserAct(ctx context.Context, args map[string]any) (string, error)
 		"results": execution.Results, "evidence_handles": execution.EvidenceHandles,
 	})
 	return marshalProgressiveResult(output)
+}
+
+// pageStepResults windows step results to [offset, offset+maxItems).
+// The old hard clamp at 25 silently dropped steps past the window with
+// no way to reach them; every step is now reachable by paging with
+// offset, and the caller names the remainder (limits cleanup 2026-09-29).
+// It returns the window and the end index for the paging hint.
+func pageStepResults(results []browser.ActionStepResult, offset, maxItems int) ([]browser.ActionStepResult, int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(results) {
+		offset = len(results)
+	}
+	end := len(results)
+	if maxItems > 0 && offset+maxItems < len(results) {
+		end = offset + maxItems
+	}
+	return results[offset:end], end
 }
 
 func decodeActionOperations(value any) ([]browser.ActionOperation, error) {

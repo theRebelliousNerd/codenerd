@@ -83,44 +83,71 @@ func (m *mockThinkingClient) GetLastThinkingTokens() int      { return m.thinkin
 func (m *mockThinkingClient) GetLastThoughtSignature() string { return m.thoughtSignature }
 
 // =============================================================================
-// CONTEXT7: truncate
+// CONTEXT7: whole documents, loud max_docs bound (limits cleanup 2026-09-29)
 // =============================================================================
 
-func TestTruncate_WhenBelowMax_ShouldReturnOriginal(t *testing.T) {
-	t.Parallel()
-	input := "short string"
-	got := truncate(input, 100)
-	if got != input {
-		t.Errorf("truncate(%q, 100) = %q, want %q", input, got, input)
+func TestParseLlmsTxt_WhenDocExceedsOldCut_ShouldReturnWhole(t *testing.T) {
+	// The old code cut every doc at 8000 chars with "[...truncated...]".
+	// Docs now come back whole; the ledger sizes them for the window.
+	big := strings.Repeat("0123456789abcdef", 800) // 12800 chars
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, big)
+	}))
+	defer ts.Close()
+
+	docs, err := parseLlmsTxt(context.Background(), "o", "r",
+		"[big]("+ts.URL+"/big.md)", "", 10)
+	if err != nil {
+		t.Fatalf("parseLlmsTxt: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("docs len = %d, want 1", len(docs))
+	}
+	if !strings.Contains(docs[0], big) {
+		t.Errorf("doc cut: got %d chars of %d", len(docs[0]), len(big))
+	}
+	if strings.Contains(docs[0], "truncated") {
+		t.Errorf("doc must not carry a truncation marker: %.80q...", docs[0])
 	}
 }
 
-func TestTruncate_WhenExactlyMax_ShouldReturnOriginal(t *testing.T) {
-	t.Parallel()
-	input := "12345"
-	got := truncate(input, 5)
-	if got != input {
-		t.Errorf("truncate(%q, 5) = %q, want %q", input, got, input)
+func TestParseLlmsTxt_WhenMaxDocsCapped_ShouldNameRemaining(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, strings.Repeat("doc content padding ", 5))
+	}))
+	defer ts.Close()
+
+	docs, err := parseLlmsTxt(context.Background(), "o", "r",
+		fmt.Sprintf("[a](%s/a)\n[b](%s/b)\n[c](%s/c)", ts.URL, ts.URL, ts.URL),
+		"", 1)
+	if err != nil {
+		t.Fatalf("parseLlmsTxt: %v", err)
+	}
+	joined := strings.Join(docs, "\n")
+	if !strings.Contains(joined, "2 more linked docs not fetched") {
+		t.Errorf("capped fetch must name the remaining docs, got: %q", joined)
+	}
+	if !strings.Contains(joined, "max_docs") {
+		t.Errorf("capped fetch must name the raising argument, got: %q", joined)
 	}
 }
 
-func TestTruncate_WhenAboveMax_ShouldTruncateWithSuffix(t *testing.T) {
-	t.Parallel()
-	input := "abcdefghijklmnop"
-	got := truncate(input, 5)
-	if !strings.HasPrefix(got, "abcde") {
-		t.Errorf("truncate: expected prefix 'abcde', got %q", got)
-	}
-	if !strings.Contains(got, "[...truncated...]") {
-		t.Errorf("truncate: expected truncation suffix, got %q", got)
-	}
-}
+func TestFetchURL_WhenBodyExceedsGuard_ShouldMarkNotSilentlyCut(t *testing.T) {
+	payload := strings.Repeat("z", fetchURLGuardBytes+100)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, payload)
+	}))
+	defer ts.Close()
 
-func TestTruncate_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
-	t.Parallel()
-	got := truncate("", 10)
-	if got != "" {
-		t.Errorf("truncate(\"\", 10) = %q, want \"\"", got)
+	got, err := fetchURL(context.Background(), ts.URL, "")
+	if err != nil {
+		t.Fatalf("fetchURL: %v", err)
+	}
+	if !strings.Contains(got, "fetch guard") {
+		t.Errorf("guard trip must be marked in the content, got %d chars", len(got))
+	}
+	if len(got) > fetchURLGuardBytes+300 {
+		t.Errorf("guard trip must still bound memory, got %d chars", len(got))
 	}
 }
 
@@ -284,8 +311,12 @@ func TestParseLlmsTxt_WhenMaxDocsReached_ShouldStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) > 2 {
-		t.Errorf("expected at most 2 results, got %d", len(results))
+	// 2 docs fetched; the third entry is the loud cap notice, not a doc.
+	if len(results) != 3 {
+		t.Fatalf("expected 2 docs plus the cap notice, got %d", len(results))
+	}
+	if !strings.Contains(results[2], "1 more linked docs not fetched") {
+		t.Errorf("third entry must name the skipped doc, got %q", results[2])
 	}
 }
 
@@ -1337,10 +1368,32 @@ func TestExecuteWebFetch_WhenMarkdownContentType_ShouldReturnAsIs(t *testing.T) 
 	}
 }
 
-func TestExecuteWebFetch_WhenMaxLengthExceeded_ShouldTruncate(t *testing.T) {
+func TestExecuteWebFetch_WhenNoMaxLength_ShouldReturnWhole(t *testing.T) {
+	// Limits cleanup 2026-09-29: the old 50000 default cut is gone; an
+	// unpaged fetch returns the content whole for the ledger to size.
+	payload := strings.Repeat("y", 60000)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, strings.Repeat("x", 1000))
+		fmt.Fprint(w, payload)
+	}))
+	defer ts.Close()
+
+	result, err := executeWebFetch(context.Background(), map[string]any{
+		"url": ts.URL,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != payload {
+		t.Errorf("unpaged fetch cut: got %d chars of %d", len(result), len(payload))
+	}
+}
+
+func TestExecuteWebFetch_WhenMaxLengthSet_ShouldPageWithOffsetHint(t *testing.T) {
+	payload := strings.Repeat("x", 1000)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, payload)
 	}))
 	defer ts.Close()
 
@@ -1351,8 +1404,59 @@ func TestExecuteWebFetch_WhenMaxLengthExceeded_ShouldTruncate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result, "[...truncated...]") {
-		t.Errorf("expected truncation marker, got %q", result)
+	if !strings.Contains(result, "950 more chars, page with offset=50") {
+		t.Errorf("paged fetch must name the remainder and offset, got %q", result)
+	}
+	// The second page reaches the rest; concatenated pages equal the whole.
+	page2, err := executeWebFetch(context.Background(), map[string]any{
+		"url": ts.URL, "max_length": 950, "offset": 50,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	page1, _, _ := strings.Cut(result, "\n\n[950 more")
+	if page1+strings.SplitN(page2, "\n\n[end of content", 2)[0] != payload {
+		t.Errorf("paged windows do not reassemble the whole content")
+	}
+}
+
+func TestExecuteWebFetch_WhenBodyExceedsGuard_ShouldMarkNotSilentlyCut(t *testing.T) {
+	payload := strings.Repeat("z", webFetchGuardBytes+100)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, payload)
+	}))
+	defer ts.Close()
+
+	result, err := executeWebFetch(context.Background(), map[string]any{
+		"url": ts.URL,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "fetch guard") {
+		t.Errorf("guard trip must be marked, got %d chars", len(result))
+	}
+}
+
+func TestHtmlToMarkdown_WhenNestingPastGuard_ShouldMarkSkippedLevels(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("<html><body>")
+	for i := 0; i < maxExtractDepth+10; i++ {
+		sb.WriteString("<div>")
+	}
+	sb.WriteString("deep text")
+	for i := 0; i < maxExtractDepth+10; i++ {
+		sb.WriteString("</div>")
+	}
+	sb.WriteString("</body></html>")
+
+	md, err := htmlToMarkdown(sb.String(), "http://base.com", true)
+	if err != nil {
+		t.Fatalf("htmlToMarkdown: %v", err)
+	}
+	if !strings.Contains(md, "parse guard") {
+		t.Errorf("deep-nesting skip must be marked, got %q", md)
 	}
 }
 
@@ -1493,35 +1597,42 @@ func TestExecuteWebSearch_WhenEmptyQuery_ShouldReturnError(t *testing.T) {
 	}
 }
 
-func TestExecuteWebSearch_WhenMaxResultsCapped_ShouldCap(t *testing.T) {
-	// This just tests that the logic path is taken; actual search is mocked
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body></body></html>`)
-	}))
-	defer ts.Close()
+func TestExecuteWebSearch_WhenManyResults_ShouldReturnAllPastOldCap(t *testing.T) {
+	// Limits cleanup 2026-09-29: the old default-10 plus hard-30 cap is
+	// gone. An unpaged search returns every result the page holds.
+	var sb strings.Builder
+	sb.WriteString("<html><body>")
+	for i := range 35 {
+		sb.WriteString(fmt.Sprintf(`<div class="result results_links"><a class="result__a" href="https://ex%d.com">Title %d</a></div>`, i, i))
+	}
+	sb.WriteString("</body></html>")
 
-	// We can't easily test the internal cap without refactoring,
-	// but we CAN test the "no results" path through DuckDuckGo
 	mock := NewMockTransport()
-	mock.RegisterResponder("https://html.duckduckgo.com", `<html><body></body></html>`, 200)
+	mock.RegisterResponder("https://html.duckduckgo.com", sb.String(), 200)
 
 	oldTransport := http.DefaultClient.Transport
 	http.DefaultClient.Transport = mock
 	defer func() { http.DefaultClient.Transport = oldTransport }()
 
 	result, err := executeWebSearch(context.Background(), map[string]any{
-		"query":       "test search",
-		"max_results": 50, // Will be capped to 30
+		"query": "test search",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result, "No results found") {
-		// It's fine as long as it doesn't crash - the mock won't have result divs
-		if !strings.Contains(result, "Search Results") {
-			t.Logf("Got result: %s", result)
-		}
+	if !strings.Contains(result, "Found 35 results") {
+		t.Errorf("unpaged search dropped results, got: %.200q...", result)
+	}
+
+	// An explicit max_results is the model's own choice and is honored.
+	result, err = executeWebSearch(context.Background(), map[string]any{
+		"query": "test search", "max_results": 2,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "Found 2 results") {
+		t.Errorf("explicit max_results not honored, got: %.200q...", result)
 	}
 }
 
@@ -1602,6 +1713,24 @@ func TestParseDuckDuckGoResults_WhenMaxResultsReached_ShouldStop(t *testing.T) {
 	}
 	if len(results) > 2 {
 		t.Errorf("expected at most 2 results, got %d", len(results))
+	}
+}
+
+func TestParseDuckDuckGoResults_WhenUnlimited_ShouldReturnAll(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("<html><body>")
+	for i := range 5 {
+		sb.WriteString(fmt.Sprintf(`<div class="result results_links"><a class="result__a" href="https://ex%d.com">Title %d</a></div>`, i, i))
+	}
+	sb.WriteString("</body></html>")
+
+	results, err := parseDuckDuckGoResults(sb.String(), 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 5 {
+		t.Errorf("expected all 5 results, got %d", len(results))
 	}
 }
 

@@ -38,8 +38,12 @@ func WebFetchTool() *tools.Tool {
 				},
 				"max_length": {
 					Type:        "integer",
-					Description: "Maximum content length in characters (default: 50000)",
-					Default:     50000,
+					Description: "Optional paging window in characters. Omit to return the full content; when set with offset, returns that rune window plus how to page the rest",
+				},
+				"offset": {
+					Type:        "integer",
+					Description: "Rune offset where the max_length window starts (default: 0)",
+					Default:     0,
 				},
 				"include_links": {
 					Type:        "boolean",
@@ -57,9 +61,18 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("url is required")
 	}
 
-	maxLength := 50000
+	// Absent max_length means the whole content: the working-context
+	// ledger archives large tool results behind recall handles, so a
+	// default cut here would only destroy evidence. An explicit
+	// max_length is a model-chosen paging window, never a silent drop:
+	// pageRunes names the remainder and the offset that reaches it.
+	maxLength := 0
 	if ml, ok := argInt(args, "max_length"); ok && ml > 0 {
 		maxLength = ml
+	}
+	offset := 0
+	if off, ok := argInt(args, "offset"); ok && off > 0 {
+		offset = off
 	}
 
 	includeLinks := true
@@ -67,9 +80,12 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 		includeLinks = il
 	}
 
-	logging.ResearcherDebug("Web fetch: url=%s, max_length=%d", url, maxLength)
+	logging.ResearcherDebug("Web fetch: url=%s, max_length=%d, offset=%d", url, maxLength, offset)
 
-	// Fetch the page
+	// Fetch the page.
+	// Per-request network bound, not a run clock: it caps one HTTP round
+	// trip. OPEN (limits cleanup 2026-09-29): the value must come from
+	// internal/config, but that package is outside this lane's scope.
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
@@ -91,10 +107,18 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	// Read the body with a limit
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20)) // 2MB limit
+	// Read the body behind a process-protection guard: without it a
+	// hostile or runaway response (Content-Length lies; bodies stream
+	// until OOM) exhausts process memory. When the guard trips the result
+	// carries an explicit marker naming the cut, so it never reaches the
+	// model as a silent truncation.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchGuardBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+	guardTripped := len(body) > webFetchGuardBytes
+	if guardTripped {
+		body = body[:webFetchGuardBytes]
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -102,11 +126,8 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 	// If it's already plain text or markdown, return as-is
 	if strings.Contains(contentType, "text/plain") ||
 		strings.Contains(contentType, "text/markdown") {
-		result := string(body)
-		if len(result) > maxLength {
-			result = result[:maxLength] + "\n\n[...truncated...]"
-		}
-		return result, nil
+		result := pageRunes(string(body), offset, maxLength)
+		return markGuardTrip(result, guardTripped), nil
 	}
 
 	// Convert HTML to markdown
@@ -115,12 +136,50 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("failed to convert to markdown: %w", err)
 	}
 
-	if len(markdown) > maxLength {
-		markdown = markdown[:maxLength] + "\n\n[...truncated...]"
-	}
+	markdown = pageRunes(markdown, offset, maxLength)
 
 	logging.Researcher("Web fetch completed: %s (%d chars)", url, len(markdown))
-	return markdown, nil
+	return markGuardTrip(markdown, guardTripped), nil
+}
+
+// webFetchGuardBytes caps one fetched response body. It is process
+// protection, not a tunable (see the read site above).
+const webFetchGuardBytes = 2 << 20
+
+// markGuardTrip appends the fetch-guard marker when the body guard tripped.
+func markGuardTrip(result string, tripped bool) string {
+	if !tripped {
+		return result
+	}
+	return result + "\n\n[fetch guard: source body exceeded the 2MB web_fetch guard; " +
+		"content continues beyond what was read]"
+}
+
+// pageRunes returns the whole string when no paging window was asked for
+// (maxLength <= 0 and offset <= 0). Otherwise it returns the
+// [offset, offset+maxLength) rune window cut on rune boundaries so UTF-8 is
+// never split, plus a notice naming the remainder and the offset that
+// reaches it — an explicit window is paging, never a silent drop.
+func pageRunes(s string, offset, maxLength int) string {
+	if maxLength <= 0 && offset <= 0 {
+		return s
+	}
+	total := len([]rune(s))
+	if offset >= total {
+		return fmt.Sprintf("[offset %d is past the end (%d chars total)]", offset, total)
+	}
+	end := total
+	if maxLength > 0 && offset+maxLength < total {
+		end = offset + maxLength
+	}
+	window := string([]rune(s)[offset:end])
+	if end < total {
+		return fmt.Sprintf("%s\n\n[%d more chars, page with offset=%d]", window, total-end, end)
+	}
+	if offset > 0 {
+		return fmt.Sprintf("%s\n\n[end of content, %d chars total]", window, total)
+	}
+	return window
 }
 
 // htmlToMarkdown converts HTML to a simplified markdown format.
@@ -131,18 +190,32 @@ func htmlToMarkdown(htmlContent, baseURL string, includeLinks bool) (string, err
 	}
 
 	var sb strings.Builder
-	extractText(doc, &sb, includeLinks, baseURL, 0)
+	deepNestingSkipped := false
+	extractText(doc, &sb, includeLinks, baseURL, 0, &deepNestingSkipped)
 
 	// Clean up the result
 	result := sb.String()
 	result = cleanMarkdown(result)
+	if deepNestingSkipped {
+		result += "\n\n[parse guard: elements nested past 50 levels were skipped; " +
+			"content continues beyond what was converted]"
+	}
 
 	return result, nil
 }
 
-func extractText(n *html.Node, sb *strings.Builder, includeLinks bool, baseURL string, depth int) {
-	if depth > 50 {
-		return // Prevent excessive recursion
+// maxExtractDepth caps HTML walker recursion. It is process protection,
+// not a tunable: adversarial pages nest thousands deep and each level
+// costs stack, so an unbounded walk crashes the process (Go stacks grow
+// to a 1GB max, then fatal). Real pages nest far shallower, and when the
+// guard trips the markdown carries an explicit marker, so the skip never
+// reaches the model as a silent cut.
+const maxExtractDepth = 50
+
+func extractText(n *html.Node, sb *strings.Builder, includeLinks bool, baseURL string, depth int, deepNestingSkipped *bool) {
+	if depth > maxExtractDepth {
+		*deepNestingSkipped = true
+		return
 	}
 
 	switch n.Type {
@@ -159,7 +232,7 @@ func extractText(n *html.Node, sb *strings.Builder, includeLinks bool, baseURL s
 		case "title":
 			sb.WriteString("# ")
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				extractText(c, sb, includeLinks, baseURL, depth+1)
+				extractText(c, sb, includeLinks, baseURL, depth+1, deepNestingSkipped)
 			}
 			sb.WriteString("\n\n")
 			return
@@ -206,7 +279,7 @@ func extractText(n *html.Node, sb *strings.Builder, includeLinks bool, baseURL s
 	}
 
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		extractText(c, sb, includeLinks, baseURL, depth+1)
+		extractText(c, sb, includeLinks, baseURL, depth+1, deepNestingSkipped)
 	}
 
 	if n.Type == html.ElementNode {
