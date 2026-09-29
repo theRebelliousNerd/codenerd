@@ -31,6 +31,10 @@ import (
 func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input string) (string, error) {
 	o.mu.RLock()
 	te := o.taskExecutor
+	phase := ""
+	if o.campaign != nil {
+		phase = o.campaign.PromptPhase
+	}
 	o.mu.RUnlock()
 
 	if te == nil {
@@ -57,6 +61,10 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 			ctx = tools.WithCampaignCheck(ctx, check)
 		}
 	}
+	// PromptPhase selects the JIT instruction atom for this campaign's
+	// turns (recurse fix vs improve). Empty on every other campaign, and
+	// withPromptPhase then leaves the context alone.
+	ctx = withPromptPhase(ctx, phase)
 	ret, err := observed.ExecuteObserved(ctx, req)
 	o.recordAttemptWrites(task, ret.Writes)
 	if err != nil {

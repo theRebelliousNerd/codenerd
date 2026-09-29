@@ -58,7 +58,8 @@ var deriveRecurseDAG = DeriveWorkspaceDAG
 
 // DeriveWorkspaceDAG returns the sweep DAG for the workspace at root: one
 // node per package directory the workspace's own imports connect, plus the
-// cross-cutting close. The result is unordered; run TopoOrder before planning.
+// cross-cutting close. The result is unordered; the kernel orders the sweep
+// (recurse.mg recurse_next_node).
 func DeriveWorkspaceDAG(ctx context.Context, root string) ([]SubsystemNode, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {

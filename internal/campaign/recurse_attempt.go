@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +18,17 @@ import (
 // tail is kept: test runners and compilers put the verdict and the failure's
 // detail last.
 const recurseEvidenceLimit = 12000
+
+// RecurseFixPromptPhase and RecurseImprovePromptPhase are the JIT
+// campaign_phase values that select the recurse attempt's instruction atoms
+// (internal/prompt/atoms/campaign/recurse_attempt.yaml). The task string
+// carries the finding and the numbers; the atom carries how to approach the
+// work and what done means. The two sides name the same phase and cannot
+// import each other.
+const (
+	RecurseFixPromptPhase     = "/recurse_fix"
+	RecurseImprovePromptPhase = "/recurse_improve"
+)
 
 // RecurseAttemptCampaign is one recurse attempt as a campaign: one phase for
 // the node, one task carrying the finding, the gate output that shows it, and
@@ -50,11 +63,13 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 	title := fmt.Sprintf("Recurse cycle %d: %s: %s", a.Cycle, a.Node.ID, oneLine(a.Finding.Message))
 	goal := fmt.Sprintf("Fix %s in %s so that `%s` passes, without making any other gate worse.", a.Finding.Target, a.Node.Title, strings.Join(a.Check, " "))
 	objective := fmt.Sprintf("Fix %s (%s)", a.Finding.Target, a.Finding.Gate)
+	promptPhase := RecurseFixPromptPhase
 	task := recurseAttemptTask(a, scope)
 	if a.Angle != "" {
 		title = fmt.Sprintf("Recurse cycle %d: %s: %s", a.Cycle, a.Node.ID, a.Angle)
 		goal = fmt.Sprintf("%s %s, moving a measured metric without making any gate or other metric worse.", strings.ToUpper(a.Angle[:1])+a.Angle[1:], a.Node.Title)
 		objective = fmt.Sprintf("%s %s", a.Angle, a.Node.ID)
+		promptPhase = RecurseImprovePromptPhase
 		task = recurseImproveTask(a, scope)
 	}
 
@@ -71,6 +86,7 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 		Confidence:      1.0,
 		ContextProfiles: buildContextProfiles(campaignID),
 		RecurseWave:     a.Pass,
+		PromptPhase:     promptPhase,
 		TotalPhases:     1,
 		TotalTasks:      1,
 	}
@@ -111,8 +127,9 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 	return c
 }
 
-// recurseAttemptTask is the task the model is handed: what failed, where,
-// the evidence, the check, and how the change will be judged.
+// recurseAttemptTask is the data the model is handed: what failed, where,
+// the evidence, and the check. How to approach the fix and what done means
+// are the campaign/recurse/fix atom, selected by RecurseFixPromptPhase.
 func recurseAttemptTask(a RecurseAttempt, scope string) string {
 	evidence := a.Evidence
 	if len(evidence) > recurseEvidenceLimit {
@@ -122,10 +139,8 @@ func recurseAttemptTask(a RecurseAttempt, scope string) string {
 	fmt.Fprintf(&b, "FIX (recurse pass %d, cycle %d) in %s (%s).\n\n", a.Pass, a.Cycle, a.Node.Title, scope)
 	fmt.Fprintf(&b, "The workspace's %s gate %s reports:\n  %s\n  target: %s\n\n", a.Finding.Kind, a.Finding.Gate, a.Finding.Message, a.Finding.Target)
 	if len(a.Check) > 0 {
-		fmt.Fprintf(&b, "Acceptance: `%s` passes and no longer reports this.\n", strings.Join(a.Check, " "))
+		fmt.Fprintf(&b, "Acceptance: `%s`\n", strings.Join(a.Check, " "))
 	}
-	b.WriteString("After this task the loop re-runs this gate and the workspace's build and lint gates. The change is kept only if this finding is gone and no gate is worse; otherwise every write is reverted.\n")
-	b.WriteString("Fix the cause with the smallest change that does it. Do not weaken, skip or delete a test or a check to make it pass.\n")
 	if evidence != "" {
 		fmt.Fprintf(&b, "\nGate output:\n```\n%s\n```\n", strings.TrimRight(evidence, "\n"))
 	}
@@ -133,16 +148,15 @@ func recurseAttemptTask(a RecurseAttempt, scope string) string {
 	return b.String()
 }
 
-// writePriorAttempts tells an attempt what earlier attempts at the same work
-// tried and why each was reverted, newest first, within recurseEvidenceLimit.
-// A retry that is not told this makes the same change again: the loop then
-// stops the finding as stalled after two identical failures, which is the
-// cost of a memory the loop did not keep.
+// writePriorAttempts records what earlier attempts at the same work tried
+// and why each was reverted, newest first, within recurseEvidenceLimit.
+// The instruction not to repeat them is in the recurse attempt atoms; a
+// retry that is not shown the diff makes the same change again, and the
+// loop then stops the finding as stalled after two identical failures.
 func writePriorAttempts(b *strings.Builder, prior []PriorAttempt) {
 	if len(prior) == 0 {
 		return
 	}
-	b.WriteString("\nEarlier attempts at this were reverted. Do not repeat them; find a different approach, or the cause they missed.\n")
 	budget := recurseEvidenceLimit
 	for i := len(prior) - 1; i >= 0 && budget > 0; i-- {
 		p := prior[i]
@@ -158,24 +172,13 @@ func writePriorAttempts(b *strings.Builder, prior []PriorAttempt) {
 	}
 }
 
-// recurseImproveTask is an improvement attempt's task: the angle, what it must
-// move, where the numbers stand, and how the change will be judged.
+// recurseImproveTask is an improvement attempt's data: the angle, where
+// the numbers stand, and the north star an extend attempt draws on. What
+// each angle must do is the campaign/recurse/improve atom, selected by
+// RecurseImprovePromptPhase.
 func recurseImproveTask(a RecurseAttempt, scope string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s (recurse pass %d, cycle %d) %s (%s).\n\n", strings.ToUpper(a.Angle), a.Pass, a.Cycle, a.Node.Title, scope)
-	switch a.Angle {
-	case "stabilize":
-		b.WriteString("Find behaviour in this node that no test pins yet and add tests that pin it; fix any flaky test you find. Kept only if the workspace's test count rises.\n")
-	case "harden":
-		b.WriteString("Find error paths, edge cases and unvalidated inputs in this node that no test exercises. Add tests for them and fix what they expose, so failures fail closed with honest errors. Kept only if the node's coverage or the workspace's test count rises.\n")
-	case "simplify":
-		b.WriteString("Remove dead code, duplication and needless complexity in this node without changing its behaviour. Kept only if the node's source lines drop while every test still passes.\n")
-	case "extend":
-		b.WriteString("Add one capability this node is missing -- one its own docs, its TODOs or the north star below ask for -- with a test that proves it. Kept only if the workspace's test count rises.\n")
-	default:
-		fmt.Fprintf(&b, "Improve this node from the %s angle.\n", a.Angle)
-	}
-	b.WriteString("Every gate must stay at least as green, no test may be removed, and the node's coverage may not drop; a change that moves no metric, or makes anything worse, is reverted in full.\n")
 	if len(a.Metrics) > 0 {
 		b.WriteString("\nWhere the numbers stand now:\n")
 		for _, name := range sortedMetricNames(a.Metrics) {
@@ -192,6 +195,29 @@ func recurseImproveTask(a RecurseAttempt, scope string) string {
 	}
 	writePriorAttempts(&b, a.Prior)
 	return b.String()
+}
+
+// withPromptPhase puts the campaign's JIT phase on the turn context the
+// session executor compiles from. jit_compiler.mg treats /phase as a regime
+// dimension: an atom that declares campaign_phases is excluded unless
+// current_context(/phase, Tag) matches. An empty phase leaves the context
+// untouched, including a nil one. An existing session context is copied so
+// the phase does not drop the rest of the turn's session state.
+func withPromptPhase(ctx context.Context, phase string) context.Context {
+	phase = strings.TrimSpace(phase)
+	if phase == "" {
+		return ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var sc types.SessionContext
+	if base := types.GetSessionContext(ctx); base != nil {
+		sc = *base
+	}
+	sc.CampaignActive = true
+	sc.CampaignPhase = phase
+	return types.WithSessionContext(ctx, &sc)
 }
 
 // ReleaseRecurseAttempt drops what an attempt's campaign left behind once it

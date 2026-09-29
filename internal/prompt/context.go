@@ -33,7 +33,7 @@ type CompilationContext struct {
 	// Multi-phase goal orchestration state.
 	// =========================================================================
 
-	// CampaignPhase: /planning, /decomposing, /validating, /active, /completed, /paused, /failed
+	// CampaignPhase: /planning, /decomposing, /validating, /active, /completed, /paused, /failed, /recurse_fix, /recurse_improve
 	CampaignPhase string
 
 	// CampaignID is the unique identifier for the active campaign
@@ -564,7 +564,7 @@ func AllContextDimensions() []ContextDimension {
 		{
 			Name:        "campaign_phase",
 			Description: "Campaign orchestration phase",
-			Values:      []string{"/planning", "/decomposing", "/validating", "/active", "/completed", "/paused", "/failed"},
+			Values:      []string{"/planning", "/decomposing", "/validating", "/active", "/completed", "/paused", "/failed", "/recurse_fix", "/recurse_improve"},
 		},
 		{
 			Name:        "build_layer",

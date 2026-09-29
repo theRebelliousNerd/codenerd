@@ -559,7 +559,7 @@ func TestRecurseCycles_ARevertedAttemptIsToldToTheNextOne(t *testing.T) {
 		t.Fatalf("the retry after a restart was not told of the reverted attempt: %+v", second)
 	}
 	task := recurseAttemptTask(second[0], "store")
-	for _, want := range []string{"Earlier attempts at this were reverted", "return 3", second[0].Prior[0].Why} {
+	for _, want := range []string{"return 3", second[0].Prior[0].Why} {
 		if !strings.Contains(task, want) {
 			t.Errorf("the task does not carry %q:\n%s", want, task)
 		}

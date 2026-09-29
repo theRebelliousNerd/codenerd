@@ -22,17 +22,21 @@ import (
 // to top, pass after pass (Docs/journeys/10-forever-loop.md).
 //
 //	pass  measure the workspace-wide gates (once, then each pass's close)
-//	visit for each node, leaves first:
+//	visit the kernel names the next node (recurse_next_node), leaves first:
 //	        measure the node's own gates
 //	        the kernel picks a finding (recurse_next)          -- or none
 //	        one attempt: the executor edits the workspace
 //	        re-measure the node and the ratchet gates
 //	        the kernel judges it (recurse_ratchet): keep = commit, else revert
 //	        until the kernel picks nothing more for this visit
-//	close re-measure every workspace-wide gate; start the next pass
+//	        assert the visit; ask which node is next
+//	close when the kernel says every node was visited (recurse_pass_complete);
+//	      re-measure every workspace-wide gate
+//	stop  when the kernel says the pass budget is spent (recurse_run_stop)
 //
-// Go runs gates, git and the executor, and asserts what it saw. What to
-// attempt and whether to keep it are rules in policy/recurse.mg.
+// Go runs gates, git and the executor, and asserts what it saw. Which node is
+// next, when the pass is done, when the run stops, what to attempt and whether
+// to keep it are rules in policy/recurse.mg.
 
 // RecurseAttempt is one attempt handed to the model.
 type RecurseAttempt struct {
@@ -331,10 +335,19 @@ func (r *recurseRun) logf(format string, args ...any) {
 }
 
 // passes runs from pass first; done lists the nodes pass first already
-// finished (a resumed run).
+// finished (a resumed run). The budget check that used to live here is
+// recurse_run_stop. A cancelled context and a stop request stay in boundary:
+// they are interrupts, observed between nodes, not a verdict about the sweep.
 func (r *recurseRun) passes(ctx context.Context, first int, done map[string]bool) error {
+	if err := assertSweepBudget(r.policy.k, r.cfg.Passes, 0); err != nil {
+		return err
+	}
 	for pass := first; ; pass++ {
-		if r.cfg.Passes > 0 && r.result.Passes >= r.cfg.Passes {
+		stop, err := sweepRunStop(r.policy.k)
+		if err != nil {
+			return err
+		}
+		if stop {
 			return nil
 		}
 		if err := r.boundary(ctx, pass); err != nil {
@@ -345,15 +358,44 @@ func (r *recurseRun) passes(ctx context.Context, first int, done map[string]bool
 		}
 		done = nil
 		r.result.Passes++
+		if err := assertSweepBudget(r.policy.k, r.cfg.Passes, r.result.Passes); err != nil {
+			return err
+		}
 	}
 }
 
 func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) error {
 	// The graph and the gates are re-derived each pass: the loop changes the
-	// code, and the code is what they are derived from.
-	nodes, err := RecurseSweepOrder(ctx, r.root, r.cfg.Subsystems)
+	// code, and the code is what they are derived from. sweepGraphSound asks
+	// the kernel whether that graph has an order and fails closed when it
+	// does not, before any node is attempted. The loop below asks again, one
+	// node at a time; it does not replay a list computed here.
+	derived, err := deriveRecurseDAG(ctx, r.root)
 	if err != nil {
 		return err
+	}
+	if err := sweepGraphSound(r.policy.k, derived); err != nil {
+		return err
+	}
+	nodes := derived
+	if len(r.cfg.Subsystems) > 0 {
+		nodes, err = FilterDAG(derived, r.cfg.Subsystems)
+		if err != nil {
+			return err
+		}
+		if err := assertSweepGraph(r.policy.k, nodes); err != nil {
+			return err
+		}
+	}
+	if err := assertSweepPass(r.policy.k, pass); err != nil {
+		return err
+	}
+	// A resumed pass's finished nodes are visits. The next-node rule skips
+	// them; there is no separate skip.
+	for id := range done {
+		if err := assertNodeVisited(r.policy.k, pass, id); err != nil {
+			return err
+		}
 	}
 	set, err := gates.Detect(r.root)
 	if err != nil {
@@ -375,14 +417,36 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 	}
 	r.logf("recurse pass %d: %d nodes, %d open findings", pass, len(nodes), r.openCount())
 
-	for _, node := range nodes {
-		if done[node.ID] {
-			continue
+	byID := make(map[string]SubsystemNode, len(nodes))
+	for _, n := range nodes {
+		byID[n.ID] = n
+	}
+	for {
+		complete, err := sweepPassComplete(r.policy.k, pass)
+		if err != nil {
+			return err
+		}
+		if complete {
+			break
 		}
 		if err := r.boundary(ctx, pass); err != nil {
 			return err
 		}
+		id, err := sweepNextNode(r.policy.k)
+		if err != nil {
+			return err
+		}
+		if id == "" {
+			return sweepStuckError(r.policy.k)
+		}
+		node, ok := byID[id]
+		if !ok {
+			return fmt.Errorf("recurse: the kernel's next node %q is not in this pass", id)
+		}
 		if err := r.visit(ctx, pass, node, nodes, set, ratchetKinds); err != nil {
+			return err
+		}
+		if err := assertNodeVisited(r.policy.k, pass, id); err != nil {
 			return err
 		}
 	}

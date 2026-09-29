@@ -1448,6 +1448,7 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		if sCtx.DreamMode {
 			cc.OperationalMode = "/dream"
 		}
+		applyCampaignPhase(cc, sCtx)
 		e.resolveAvailableTools(ctx, cc, intent)
 		return cc
 	}
@@ -1459,10 +1460,30 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		if e.sessionContext.DreamMode {
 			cc.OperationalMode = "/dream"
 		}
+		applyCampaignPhase(cc, e.sessionContext)
 	}
 	e.mu.RUnlock()
 	e.resolveAvailableTools(ctx, cc, intent)
 	return cc
+}
+
+// applyCampaignPhase copies an active campaign's phase onto the compilation
+// context. jit_compiler.mg treats /phase as a regime dimension, so an atom
+// that declares campaign_phases is excluded unless the context carries a
+// matching phase. The assembler already did this for campaign-role system
+// prompts; this path compiles the task the model executes and never did,
+// which left the recurse fix and improve atoms unselectable. A phase that
+// matches no atom (a human display name such as "Discovery") admits nothing
+// extra: the regime stays fail-closed.
+func applyCampaignPhase(cc *prompt.CompilationContext, sCtx *types.SessionContext) {
+	if cc == nil || sCtx == nil || !sCtx.CampaignActive {
+		return
+	}
+	phase := strings.TrimSpace(sCtx.CampaignPhase)
+	if phase == "" {
+		return
+	}
+	cc.CampaignPhase = phase
 }
 
 // resolveAvailableTools populates cc.AvailableTools with the kernel's turn

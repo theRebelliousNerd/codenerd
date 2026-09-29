@@ -3,9 +3,13 @@
 # Recurse walks the workspace's own dependency graph bottom to top, forever
 # (Docs/journeys/10-forever-loop.md). Go is the driver: it runs the
 # workspace's gates, asserts what they reported, runs one attempt, and asserts
-# what re-measuring found. Every decision about what to attempt and whether an
-# attempt is kept is a rule here:
+# what re-measuring found. Which node is next, when a pass is done, when the
+# run stops, what a visit attempts, and whether an attempt is kept are rules
+# here:
 #
+#   recurse_next_node(Node)                  the node this pass visits next
+#   recurse_pass_complete(Pass)              every node of the pass was visited
+#   recurse_run_stop()                       the pass budget is spent
 #   recurse_next(FindingID)                  what the visit attempts next
 #   finding_stalled(FindingID)               a finding the loop stops retrying
 #   recurse_ratchet(Cycle, /keep | /revert | /refuse)
@@ -35,6 +39,18 @@
 #   recurse_metric(Cycle, Metric, Before, After) a metric around an attempt
 #   recurse_ratchet_tested(Cycle)                a test gate gave a verdict on
 #                                                the attempt's result
+#   subsystem_node(ID)                           a node of this pass's sweep
+#   subsystem_depends(Node, Dep)                 Node sweeps after Dep
+#   subsystem_node_ord(ID, Ord)                  ID's place in lexicographic
+#                                                order, 0-based. Asserted because
+#                                                fn:min and < order numbers, and
+#                                                a node id is a string; the rule
+#                                                picks the least key
+#   recurse_node_visited(Pass, ID)               Pass already visited ID
+#   recurse_pass_budget(Budget)                  passes this invocation may
+#                                                finish; 0 is unbounded
+#   recurse_passes_finished(Done)                passes this invocation has
+#                                                finished
 
 Decl recurse_visit(Node) bound [/string].
 Decl recurse_visit_attempted(ID) bound [/string].
@@ -82,6 +98,28 @@ Decl recurse_metric_moved(Cycle, Metric, Direction) bound [/number, /name, /name
 Decl recurse_improved(Cycle) bound [/number].
 Decl recurse_metric_regressed(Cycle) bound [/number].
 Decl recurse_cycle_succeeds(Cycle) bound [/number].
+
+Decl subsystem_node(ID) bound [/string].
+Decl subsystem_depends(Node, Dep) bound [/string, /string].
+Decl subsystem_node_ord(ID, Ord) bound [/string, /number].
+Decl recurse_node_visited(Pass, ID) bound [/number, /string].
+Decl recurse_pass_budget(Budget) bound [/number].
+Decl recurse_passes_finished(Done) bound [/number].
+
+Decl recurse_visited_id(ID) bound [/string].
+Decl recurse_dep_unvisited(ID) bound [/string].
+Decl recurse_node_ready(ID, Ord) bound [/string, /number].
+Decl recurse_node_ready_id(ID) bound [/string].
+Decl recurse_next_ord(Ord) bound [/number].
+Decl recurse_next_node(ID) bound [/string].
+Decl recurse_node_unvisited(ID) bound [/string].
+Decl recurse_sweep_stuck(ID) bound [/string].
+Decl recurse_sweep_has_node() bound [].
+Decl recurse_sweep_node_count(N) bound [/number].
+Decl recurse_node_visited_now(Pass, ID) bound [/number, /string].
+Decl recurse_sweep_visited_count(Pass, N) bound [/number, /number].
+Decl recurse_pass_complete(Pass) bound [/number].
+Decl recurse_run_stop() bound [].
 
 # =============================================================================
 # What to attempt
@@ -309,3 +347,90 @@ recurse_metric_regressed(Cycle) :-
     recurse_improve(Cycle, Angle),
     recurse_improve_guard_metric(Metric),
     recurse_metric_moved(Cycle, Metric, /down).
+
+# =============================================================================
+# Which node a pass visits, and when the pass and the run stop
+# =============================================================================
+# The driver asserts the nodes, the edges, each node's identity key, and which
+# nodes this pass has already visited. It then asks which node is next, whether
+# every node has been visited, and whether the pass budget is spent.
+#
+# Next is Kahn's step: a node whose every dependency is already visited, and
+# whose identity key is the least among those. That key is the lexicographic
+# tie-break the sweep has always used; it is a fact because this engine orders
+# numbers and a node id is a string. A pass is complete when those visits cover
+# every node (an empty sweep included: there is nothing left to visit, and an
+# empty aggregation cannot say so because it derives no row). The run stops
+# when a positive budget is spent. Zero is unbounded. A cancelled context or a
+# stop request is an interrupt the driver observes; it is not a verdict.
+#
+# A cycle is the remaining case: some node is unvisited and none is ready. The
+# driver stops rather than inventing an order. Nodes already visited this pass
+# are not next, which is how a resumed pass skips what it finished.
+
+# Visited this pass, projected so the negations below are unary.
+recurse_visited_id(ID) :-
+    recurse_current_pass(Pass),
+    recurse_node_visited(Pass, ID).
+
+# A dependency this pass has not visited. Dep is bound by the edge first.
+recurse_dep_unvisited(ID) :-
+    subsystem_depends(ID, Dep),
+    !recurse_visited_id(Dep).
+
+recurse_node_ready(ID, Ord) :-
+    subsystem_node(ID),
+    subsystem_node_ord(ID, Ord),
+    !recurse_visited_id(ID),
+    !recurse_dep_unvisited(ID).
+
+recurse_node_ready_id(ID) :-
+    recurse_node_ready(ID, Ord).
+
+# The least identity key among ready nodes. Projected before fn:min
+# (cf. turn_last_write in coder_safety.mg).
+recurse_next_ord(Min) :-
+    recurse_node_ready(ID, Ord) |> do fn:group_by(), let Min = fn:min(Ord).
+
+recurse_next_node(ID) :-
+    recurse_node_ready(ID, Ord),
+    recurse_next_ord(Ord).
+
+recurse_node_unvisited(ID) :-
+    subsystem_node(ID),
+    !recurse_visited_id(ID).
+
+# Unvisited and not ready: waiting on a dependency, or caught in a cycle.
+# The driver treats "no next node, and the pass is not complete" as the cycle.
+recurse_sweep_stuck(ID) :-
+    recurse_node_unvisited(ID),
+    !recurse_node_ready_id(ID).
+
+recurse_sweep_has_node() :-
+    subsystem_node(ID).
+
+recurse_sweep_node_count(N) :-
+    subsystem_node(ID) |> do fn:group_by(), let N = fn:count().
+
+recurse_node_visited_now(Pass, ID) :-
+    recurse_current_pass(Pass),
+    recurse_node_visited(Pass, ID),
+    subsystem_node(ID).
+
+recurse_sweep_visited_count(Pass, N) :-
+    recurse_node_visited_now(Pass, ID) |> do fn:group_by(Pass), let N = fn:count().
+
+recurse_pass_complete(Pass) :-
+    recurse_current_pass(Pass),
+    recurse_sweep_node_count(Total),
+    recurse_sweep_visited_count(Pass, Total).
+
+recurse_pass_complete(Pass) :-
+    recurse_current_pass(Pass),
+    !recurse_sweep_has_node().
+
+recurse_run_stop() :-
+    recurse_pass_budget(Budget),
+    Budget > 0,
+    recurse_passes_finished(Done),
+    Done >= Budget.

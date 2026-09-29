@@ -180,6 +180,14 @@ type Campaign struct {
 	RecurseID   string `json:"recurse_id,omitzero"`
 	RecurseWave int    `json:"recurse_wave,omitzero"`
 
+	// PromptPhase is the JIT campaign_phase selector for this campaign's
+	// task turns (/recurse_fix, /recurse_improve). Empty for campaigns
+	// whose tasks are not phase-gated. The orchestrator puts it on the
+	// turn's session context; the session executor copies it onto the
+	// compilation context. Persisted so a resumed attempt still selects
+	// the same instruction atom.
+	PromptPhase string `json:"prompt_phase,omitzero"`
+
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	Confidence float64   `json:"confidence"` // LLM's confidence in the plan (0.0-1.0)

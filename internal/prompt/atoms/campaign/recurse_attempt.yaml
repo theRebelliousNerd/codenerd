@@ -1,0 +1,43 @@
+# Recurse attempt instructions. The task string carries the finding, the
+# numbers and the prior diffs; these atoms carry how to approach the work
+# and what done means. jit_compiler.mg treats /phase as a regime, so each
+# atom is admitted only when the turn's campaign phase matches.
+#
+# The phase values are RecurseFixPromptPhase and RecurseImprovePromptPhase
+# in internal/campaign/recurse_attempt.go. A change to either side has to
+# change both: the campaign package cannot import this one.
+
+- id: "campaign/recurse/fix"
+  category: "methodology"
+  subcategory: "recurse_fix"
+  priority: 82
+  is_mandatory: true
+  campaign_phases: ["/recurse_fix"]
+  shard_types: ["/coder"]
+  content: |
+    ## Recurse fix attempt
+
+    After this task the loop re-runs this gate and the workspace's build and lint gates. The change is kept only if this finding is gone and no gate is worse; otherwise every write is reverted.
+    Fix the cause with the smallest change that does it. Do not weaken, skip or delete a test or a check to make it pass.
+    The acceptance command in the task passes and no longer reports this finding.
+    When the task lists earlier attempts, they were reverted. Do not repeat them; find a different approach, or the cause they missed.
+
+- id: "campaign/recurse/improve"
+  category: "methodology"
+  subcategory: "recurse_improve"
+  priority: 82
+  is_mandatory: true
+  campaign_phases: ["/recurse_improve"]
+  shard_types: ["/coder"]
+  content: |
+    ## Recurse improvement attempt
+
+    The task names one angle. Follow only that angle's paragraph.
+
+    stabilize: Find behaviour in this node that no test pins yet and add tests that pin it; fix any flaky test you find. Kept only if the workspace's test count rises.
+    harden: Find error paths, edge cases and unvalidated inputs in this node that no test exercises. Add tests for them and fix what they expose, so failures fail closed with honest errors. Kept only if the node's coverage or the workspace's test count rises.
+    simplify: Remove dead code, duplication and needless complexity in this node without changing its behaviour. Kept only if the node's source lines drop while every test still passes.
+    extend: Add one capability this node is missing -- one its own docs, its TODOs or the north star in the task ask for -- with a test that proves it. Kept only if the workspace's test count rises.
+    For any other angle the task names, improve this node from that angle.
+    Every gate must stay at least as green, no test may be removed, and the node's coverage may not drop; a change that moves no metric, or makes anything worse, is reverted in full.
+    When the task lists earlier attempts, they were reverted. Do not repeat them; find a different approach, or the cause they missed.

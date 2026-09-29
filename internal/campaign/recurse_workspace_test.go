@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"codenerd/internal/core"
 )
 
 // writeTree writes files (slash paths relative to root) with the given contents.
@@ -24,7 +26,10 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 	}
 }
 
-// sweepOrder derives the workspace DAG, orders it, and returns the node IDs.
+// sweepOrder derives the workspace DAG and returns its node IDs. The order the
+// sweep visits is the kernel's; TopoOrder is the oracle this compares it to,
+// so a workspace whose imports change the order fails here rather than only
+// in the fixture.
 func sweepOrder(t *testing.T, root string) []string {
 	t.Helper()
 	nodes, err := DeriveWorkspaceDAG(context.Background(), root)
@@ -35,9 +40,24 @@ func sweepOrder(t *testing.T, root string) []string {
 	if err != nil {
 		t.Fatalf("TopoOrder: %v", err)
 	}
+	k, err := core.NewRealKernelWithWorkspace(root)
+	if err != nil {
+		t.Fatalf("kernel: %v", err)
+	}
+	derived, err := policySweepOrder(k, nodes)
+	if err != nil {
+		t.Fatalf("policy sweep: %v", err)
+	}
 	ids := make([]string, len(ordered))
 	for i, n := range ordered {
 		ids[i] = n.ID
+		if i >= len(derived) || derived[i].ID != n.ID {
+			got := make([]string, len(derived))
+			for j, d := range derived {
+				got[j] = d.ID
+			}
+			t.Fatalf("policy order %v, topological order %v", got, ids)
+		}
 	}
 	return ids
 }
