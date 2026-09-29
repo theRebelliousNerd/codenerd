@@ -5903,3 +5903,23 @@ limits lane (LC3) mid-edit -- not its code. **What it missed:** the known-tool s
 build that set from the five `RegisterAll` families. Landed by the root after replacing the list.
 Lesson: codeNERD's gates test importers, so a live run shares fate with every lane editing an importer;
 keep its target and the lanes' scopes import-disjoint, or accept false reds.
+
+**Run 4** (08:22-08:46Z, 24 m, binary dad7d65d from `git archive HEAD`; new brief, symptoms only:
+`internal/mangle/feedback` puts a run clock on a repair -- `DefaultConfig` sets `TotalTimeout =
+PerCallTimeout * 3` and `loop.go:125` wraps the context in `WithTimeout(TotalTimeout)` when the caller has
+no deadline). **Red, and the red was mine.** It read the two elements (get_element x3), its first
+`edit_element` produced Go that did not parse and was refused unwritten (`line 136:24: expected 1
+expression` -- the tool guard working), then it deleted the wrapper in `loop.go` and the `totalTimeout`
+computation (edit_file x5, delete_lines x1, run_build x4, run_tests x1). The build then broke under it in
+`internal/config` (`undefined: mcp.SetTransportTimeoutFallback`) -- a config lane (CFG1) mid-edit in a
+package the target *imports*. Its repair loop spent all 3 attempts (`session.repair_max_attempts`) on the
+other lane's code, found the tree uncompilable, restored both files as found and saved the attempt as
+`.nerd/attempts/attempt_20260929T084604...patch.md`. Verdict correct; files restored correctly.
+**The attempt itself:** the substance was right (the run clock deleted), but incomplete -- the now-unread
+`TotalTimeout` field left declared (a dead remnant), its initializer replaced by a garbage line
+`//        _,`, and no test pinning that a repair without a deadline is not cancelled.
+Lessons: (1) import-disjointness has to hold in **both** directions -- the gates test importers, but the
+build needs every dependency to compile; I checked only importers when choosing the target. (2) When the
+build breaks in a package the turn never touched, the repair loop still spends its attempts there;
+a failure outside the turn's write set could be named as not-this-turn's instead of repaired (candidate
+finding). Rerun the same brief once CFG1 lands.
