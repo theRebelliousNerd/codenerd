@@ -121,13 +121,6 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 		return result, fmt.Errorf("feedback loop misconfigured: MaxRetries=%d, want positive", fl.config.MaxRetries)
 	}
 
-	// Apply total timeout if context has no deadline
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline && fl.config.TotalTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, fl.config.TotalTimeout)
-		defer cancel()
-	}
-
 	// Set system context for trace attribution if the client supports it
 	if tracingClient, ok := llmClient.(TracingLLMClient); ok {
 		sessionID := fmt.Sprintf("feedback-%d", time.Now().UnixNano())

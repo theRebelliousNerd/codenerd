@@ -121,8 +121,6 @@ type RetryConfig struct {
 	SimplifyOnLastRetry bool
 	// PerAttemptTimeout is the max time per LLM call (default: 60s).
 	PerAttemptTimeout time.Duration
-	// TotalTimeout is the max total time for all retries (default: 180s).
-	TotalTimeout time.Duration
 }
 
 // DefaultConfig returns the default retry configuration.
@@ -133,7 +131,6 @@ func DefaultConfig() RetryConfig {
 		perAttempt = 60 * time.Second
 	}
 	maxRetries := 3
-	totalTimeout := perAttempt * time.Duration(maxRetries)
 	return RetryConfig{
 		MaxRetries:          maxRetries,
 		SessionBudget:       20,
@@ -141,7 +138,6 @@ func DefaultConfig() RetryConfig {
 		InjectPredicates:    true,
 		SimplifyOnLastRetry: true,
 		PerAttemptTimeout:   perAttempt,
-		TotalTimeout:        totalTimeout,
 	}
 }
 

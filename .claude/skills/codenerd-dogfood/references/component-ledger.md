@@ -5942,3 +5942,20 @@ another agent's; (3) the rollback then discards the turn's own correct change. W
 attributed by file to the write set; a failure outside it named as not-this-turn's (the gate is unknown,
 not red) and never repaired; and `//go:build ignore`-style exclusion of a failing file refused as a repair.
 Import-disjointness alone cannot protect a run while `go build ./...` is the build gate.
+
+**Run 6** (14:16-14:38Z local, 22 m, binary 347bd675 from `git archive HEAD` = run 4's binary plus the
+write-set fixes c6371384 (repair and rollback confined to the write set), 57ec5e2d (build exclusion refused on
+every write path) and 347bd675 (/build charged only for failures the write set can have caused). **Same brief
+as run 4, word for word** (the feedback loop's TotalTimeout run clock), with two lanes editing other packages
+(campaign intelligence, session importer gate) during the run. **Landed: `/done`, checks_passed** -- "the
+build and the tests were both measured green after the final edit". Run 4 had false-redded on a config lane's
+half-written package and spent its 3 repair attempts on another lane's code; run 6 had no such interference.
+Before -> after on one brief, one harness change: false red / 3 wasted repairs / rolled back -> green, landed.
+**What it missed:** it deleted the `WithTimeout(TotalTimeout)` wrap in loop.go (the substance) but *restored*
+`TotalTimeout = PerCallTimeout * 3` in DefaultConfig "to meet TestDefaultConfig" -- an existing test pinned the
+old value, and the model treated the pinning test as authority instead of updating it. The field was left
+computed and never read. Completed by the root: field, default and the two test pins deleted.
+Finding: when a behaviour change contradicts an existing test, the coder keeps the old behaviour's residue to
+keep the test green. A test that pins a value the brief says is wrong should be named in the plan as "update",
+not treated as a constraint -- candidate: the step planner reads the tests that reference an element it is
+told to change and lists them as edits, not as gates.

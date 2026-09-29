@@ -16,7 +16,6 @@ func TestNewFeedbackLoop(t *testing.T) {
 		InjectPredicates:    false,
 		SimplifyOnLastRetry: true,
 		PerAttemptTimeout:   10 * time.Second,
-		TotalTimeout:        30 * time.Second,
 	}
 
 	fl := NewFeedbackLoop(config)

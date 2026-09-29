@@ -3,7 +3,6 @@ package feedback
 import (
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestErrorCategory_String(t *testing.T) {
@@ -110,14 +109,6 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if config.PerAttemptTimeout <= 0 {
 		t.Errorf("Expected PerAttemptTimeout > 0, got %v", config.PerAttemptTimeout)
-	}
-	if config.TotalTimeout <= 0 {
-		t.Errorf("Expected TotalTimeout > 0, got %v", config.TotalTimeout)
-	}
-
-	expectedTotal := config.PerAttemptTimeout * time.Duration(config.MaxRetries)
-	if config.TotalTimeout != expectedTotal {
-		t.Errorf("Expected TotalTimeout %v, got %v", expectedTotal, config.TotalTimeout)
 	}
 }
 
