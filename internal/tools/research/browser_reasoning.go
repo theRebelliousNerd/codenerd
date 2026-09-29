@@ -42,8 +42,9 @@ const (
 	// into an unbounded memory and CPU sink. A trip returns
 	// errBrowserKernelScanLimit. Every caller in this file propagates that
 	// error, so the model gets a failure instead of a shortened fact list.
-	// browser_audit.go's collectors still swallow the error (and therefore
-	// drop the partial scan with no note). That silent cut is in that file.
+	// browser_audit.go does not swallow it: on this error its collectors keep
+	// the partial rows the scan already returned and attach a note naming
+	// the predicate (LC5b). Any other kernel error still fails the audit.
 	maxBrowserKernelScan = 2000
 	defaultReasonWindow  = 5 * time.Minute
 	maxReasonWindow      = 24 * time.Hour

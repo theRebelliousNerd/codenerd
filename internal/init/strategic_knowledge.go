@@ -834,8 +834,8 @@ func truncateString(s string, maxLen int) string {
 
 // strategicDocURLs is the URL-context set for grounding the strategic
 // knowledge pass: the documentation of the project's language and framework,
-// deduplicated and capped at Gemini's 20-URL limit by
-// research.GetDocURLsForTechs. It used to append each technology's list by
+// deduplicated by research.GetDocURLsForTechs, which returns every URL;
+// EnableURLContext applies Gemini's 20-URL limit and returns what it withholds. It used to append each technology's list by
 // hand, so a language that is also named as the framework sent its URLs twice
 // and the duplicates spent slots of the 20-URL budget.
 func strategicDocURLs(profile ProjectProfile) []string {

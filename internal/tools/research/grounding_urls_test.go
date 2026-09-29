@@ -122,6 +122,43 @@ func TestGroundedResearch_WhenOverLimit_NamesURLsNotSent(t *testing.T) {
 	}
 }
 
+// The catalog is a package global. This test swaps it and restores on the
+// way out; it stays sequential so it does not overlap tests that read the
+// real map after t.Parallel.
+func TestGroundingGetDocURLsForTechs_WhenOverProviderLimit_ReturnsEveryURL(t *testing.T) {
+	saved := CommonDocURLs
+	t.Cleanup(func() { CommonDocURLs = saved })
+
+	const n = maxURLContextURLs + 5
+	catalog := make(map[string][]string, n+1)
+	techs := make([]string, 0, n+3)
+	want := make([]string, 0, n+1)
+	for i := 0; i < n; i++ {
+		tech := fmt.Sprintf("tech-%02d", i)
+		url := fmt.Sprintf("https://docs.example/%02d", i)
+		catalog[tech] = []string{url}
+		techs = append(techs, tech)
+		want = append(want, url)
+	}
+	// A repeated tech, a second tech that repeats the first URL and adds one
+	// past the old cap, and an unknown name: dedup still holds and nothing
+	// is dropped just because the set is larger than the provider limit.
+	catalog["alias"] = []string{want[0], "https://docs.example/extra"}
+	techs = append(techs, "tech-00", "alias", "not-a-tech")
+	want = append(want, "https://docs.example/extra")
+
+	CommonDocURLs = catalog
+	got := GetDocURLsForTechs(techs)
+	if len(got) != len(want) {
+		t.Fatalf("got %d URLs, want all %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("url[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestSetURLContextURLs_WithinLimitClearsPriorDrops(t *testing.T) {
 	client := &groundingClient{}
 	helper := NewGroundingHelper(client)

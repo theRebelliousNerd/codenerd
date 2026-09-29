@@ -369,18 +369,23 @@ func GetDocURLsForTech(tech string) []string {
 	return nil
 }
 
-// GetDocURLsForTechs returns documentation URLs for multiple technologies.
-// Deduplicates and limits to 20 URLs (Gemini API limit).
+// GetDocURLsForTechs returns documentation URLs for multiple technologies,
+// deduplicated, in first-seen order. It does not apply Gemini's per-request
+// URL cap. That limit belongs on the request (EnableURLContext and the
+// Gemini client), which reports every URL it withholds. Cutting here hid
+// the remainder from every caller, including one that would send the rest
+// on a follow-up request (limits cleanup 2026-09-29).
 func GetDocURLsForTechs(techs []string) []string {
 	seen := make(map[string]bool)
 	var urls []string
 
 	for _, tech := range techs {
 		for _, url := range GetDocURLsForTech(tech) {
-			if !seen[url] && len(urls) < 20 {
-				seen[url] = true
-				urls = append(urls, url)
+			if seen[url] {
+				continue
 			}
+			seen[url] = true
+			urls = append(urls, url)
 		}
 	}
 

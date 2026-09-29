@@ -1060,17 +1060,29 @@ func TestGetDocURLsForTechs_WhenMultiple_ShouldDedup(t *testing.T) {
 	}
 }
 
-func TestGetDocURLsForTechs_WhenOver20_ShouldLimit(t *testing.T) {
+func TestGetDocURLsForTechs_WhenCatalogRepeated_ReturnsEveryDistinctURL(t *testing.T) {
 	t.Parallel()
-	// Use all known techs repeatedly to potentially exceed 20
 	techs := make([]string, 0)
-	for tech := range CommonDocURLs {
-		techs = append(techs, tech)
-		techs = append(techs, tech) // add duplicates
+	want := make(map[string]struct{})
+	for tech, docURLs := range CommonDocURLs {
+		techs = append(techs, tech, tech)
+		for _, u := range docURLs {
+			want[u] = struct{}{}
+		}
 	}
 	urls := GetDocURLsForTechs(techs)
-	if len(urls) > 20 {
-		t.Errorf("expected max 20 URLs, got %d", len(urls))
+	if len(urls) != len(want) {
+		t.Fatalf("got %d URLs, want every distinct catalog URL (%d)", len(urls), len(want))
+	}
+	seen := make(map[string]struct{}, len(urls))
+	for _, u := range urls {
+		if _, ok := want[u]; !ok {
+			t.Errorf("unexpected URL %q", u)
+		}
+		if _, dup := seen[u]; dup {
+			t.Errorf("duplicate URL %q", u)
+		}
+		seen[u] = struct{}{}
 	}
 }
 

@@ -138,39 +138,9 @@ func (d *Decomposer) GetLastIntelligence() *IntelligenceReport {
 // GEMINI ADVANCED FEATURES
 // =============================================================================
 
-// IsGroundingAvailable returns true if Gemini grounding features are available.
-func (d *Decomposer) IsGroundingAvailable() bool {
-	return d.grounding != nil && d.grounding.IsGroundingAvailable()
-}
-
 // IsThinkingAvailable returns true if Gemini thinking mode is available.
 func (d *Decomposer) IsThinkingAvailable() bool {
 	return d.thinking != nil && d.thinking.IsThinkingAvailable()
-}
-
-// EnableURLContext enables URL Context grounding with documentation URLs.
-// Useful for campaign planning that references specific documentation.
-func (d *Decomposer) EnableURLContext(urls []string) {
-	if d.grounding != nil && d.grounding.IsGroundingAvailable() {
-		d.grounding.EnableURLContext(urls)
-		logging.CampaignDebug("URL Context enabled for decomposer with %d URLs", len(urls))
-	}
-}
-
-// DisableURLContext disables URL Context grounding.
-func (d *Decomposer) DisableURLContext() {
-	if d.grounding != nil {
-		d.grounding.DisableURLContext()
-	}
-}
-
-// GetGroundingStats returns statistics about grounding usage during decomposition.
-func (d *Decomposer) GetGroundingStats() *research.GroundingStats {
-	if d.grounding == nil {
-		return nil
-	}
-	stats := d.grounding.GetStats()
-	return &stats
 }
 
 // GetThinkingStats returns statistics about thinking mode usage during decomposition.

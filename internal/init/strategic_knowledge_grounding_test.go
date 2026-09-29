@@ -62,10 +62,9 @@ func TestRecordWithheldDocURLs_WhenNothingWithheld_LeavesKnowledgeAlone(t *testi
 	recordWithheldDocURLs(nil, []string{"https://docs.example.com/a"})
 }
 
-// strategicDocURLs caps at 20 upstream (research.GetDocURLsForTechs), so a
-// withhold is unreachable through generateStrategicKnowledge today and the
-// recording above is pinned directly. This test drives the full grounded
-// path with a fitting URL set and pins that nothing spurious is recorded.
+// The recording above is pinned directly. This test drives the full grounded
+// path with a URL set that fits the 20-URL limit and pins that nothing
+// spurious is recorded.
 func TestGenerateStrategicKnowledge_WhenGroundingWithholdsNothing_AddsNoLimitation(t *testing.T) {
 	workspace := strategicTestWorkspace(t)
 	llm := &groundingScriptedLLM{scriptedLLM: &scriptedLLM{relevance: "[]", strategic: strategicJSONBody}}

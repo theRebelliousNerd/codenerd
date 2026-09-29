@@ -45,6 +45,12 @@ type GeminiClient struct {
 	enableGoogleSearch bool
 	enableURLContext   bool
 	urlContextURLs     []string
+	// withheldURLContextURLs is the tail of urlContextURLs past
+	// maxGeminiURLContextURLs. lastRequest is only the rate-limit clock,
+	// and lastGroundingSources is what the model cited in the response;
+	// neither is the list the request left out. Read it with
+	// GetWithheldURLContextURLs.
+	withheldURLContextURLs []string
 
 	// Multi-turn function calling: thought signature from last response
 	lastThoughtSignature string
@@ -148,7 +154,7 @@ func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 		}
 	}
 
-	return &GeminiClient{
+	c := &GeminiClient{
 		apiKey:                config.APIKey,
 		baseURL:               config.BaseURL,
 		model:                 model,
@@ -163,6 +169,10 @@ func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 		enableURLContext:   config.EnableURLContext,
 		urlContextURLs:     config.URLContextURLs,
 	}
+	// A list installed from config never passes through SetURLContextURLs.
+	// Record the tail here so the caller can read it before the first request.
+	c.recordWithheldURLContextURLs(c.urlContextURLs)
+	return c
 }
 
 // geminiThreeFamily is a family prefix used to recognise a capability of the
@@ -249,6 +259,13 @@ func (c *GeminiClient) extractToolCalls(resp *GeminiResponse) []geminiToolCall {
 	return calls
 }
 
+// maxGeminiURLContextURLs is the Gemini API's hard per-request URL Context
+// limit, the same provider constraint as research.maxURLContextURLs.
+// Perception does not import research (the client sits below that package).
+// The number is not a tunable: raising it in config makes the provider
+// reject the request. The client sends this many and keeps the rest.
+const maxGeminiURLContextURLs = 20
+
 // buildBuiltInTools creates GeminiTool entries for enabled built-in tools.
 func (c *GeminiClient) buildBuiltInTools() []GeminiTool {
 	var tools []GeminiTool
@@ -260,10 +277,13 @@ func (c *GeminiClient) buildBuiltInTools() []GeminiTool {
 	}
 
 	if c.enableURLContext && len(c.urlContextURLs) > 0 {
-		// Limit to max 20 URLs per API spec
+		// The API limit stays on the request. The tail is recorded, not dropped
+		// on the floor: SetURLContextURLs cannot return it because
+		// GroundingController fixes that method as void.
+		c.recordWithheldURLContextURLs(c.urlContextURLs)
 		urls := c.urlContextURLs
-		if len(urls) > 20 {
-			urls = urls[:20]
+		if len(urls) > maxGeminiURLContextURLs {
+			urls = urls[:maxGeminiURLContextURLs]
 		}
 		tools = append(tools, GeminiTool{
 			URLContext: &GeminiURLContext{URLs: urls},
@@ -274,8 +294,30 @@ func (c *GeminiClient) buildBuiltInTools() []GeminiTool {
 }
 
 // SetURLContextURLs sets URLs for the URL context tool.
+// The full list is kept. A request sends at most maxGeminiURLContextURLs;
+// GetWithheldURLContextURLs returns the remainder. The setter itself cannot
+// hand that remainder back: GroundingController.SetURLContextURLs is void.
 func (c *GeminiClient) SetURLContextURLs(urls []string) {
 	c.urlContextURLs = append([]string(nil), urls...)
+	c.recordWithheldURLContextURLs(c.urlContextURLs)
+}
+
+// recordWithheldURLContextURLs stores the URLs a URL-context request will
+// not carry because they sit past the provider cap. A list that fits clears
+// any earlier tail, so a later smaller set does not keep reporting the old one.
+func (c *GeminiClient) recordWithheldURLContextURLs(urls []string) {
+	if len(urls) <= maxGeminiURLContextURLs {
+		c.withheldURLContextURLs = nil
+		return
+	}
+	c.withheldURLContextURLs = append([]string(nil), urls[maxGeminiURLContextURLs:]...)
+}
+
+// GetWithheldURLContextURLs returns the URLs the Gemini per-request cap
+// keeps off the URL-context tool, copied so the caller cannot mutate the
+// client's record. Empty when the installed list fits.
+func (c *GeminiClient) GetWithheldURLContextURLs() []string {
+	return append([]string(nil), c.withheldURLContextURLs...)
 }
 
 // SetEnableGoogleSearch enables or disables Google Search grounding at runtime.
