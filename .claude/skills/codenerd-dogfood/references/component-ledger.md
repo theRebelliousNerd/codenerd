@@ -5978,3 +5978,16 @@ candidate gate -- a planned step whose file has an empty net diff at verdict tim
 names an element a step changes is an edit site of that step. Completed by the root: loop.go lists every
 predicate, sorted on a copy (GetDeclaredPredicates ranges over a map, so the old "first 30" were a random 30
 per call), and the pinning test now asserts the whole sorted legal set.
+
+**Run 8** (11:45-12:03 local, 18 m, binary 7de8c75b from `git archive HEAD`; three Grok lanes editing campaign,
+articulation and session during the run). Brief, symptoms only: the prompt-evolution judge
+(`buildEvaluationPrompt`, judge.go) grades a task from the first 10 AgentActions plus "... and N more", build
+errors cut at 200 chars, output at 1000, reasoning at 2000 -- and its verdict decides which atoms evolve. Chosen
+because no test pinned the cuts (runs 6-7 conflated "can it fix a truncation" with "does it defer to a pinning
+test"). **Landed whole, no root edit: `/done`, build and tests green.** All four cuts removed, the unused
+`truncateString` deleted, and -- unprompted -- a new test `TestTaskJudge_IncludesFullRecord` that drives the public
+`Evaluate` with 15 actions and tail markers past each old limit, so a prefix cut would fail it. First run of the
+streak that needed nothing from the root. Before -> after vs runs 6/7: with no pinning test in the way, the coder
+lands a one-file truncation fix and writes the regression test itself. **Miss:** the report says "Wrote 1
+file(s)" while the turn also created the test file -- the write count omits created files (or files outside the
+planned step set). No false red from concurrent lanes (third run in a row).

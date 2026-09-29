@@ -193,6 +193,10 @@ func (tj *TaskJudge) EvaluateBatch(ctx context.Context, execs []*ExecutionRecord
 }
 
 // buildEvaluationPrompt constructs the prompt for evaluation.
+// The verdict decides which prompt atoms evolve, so the full execution
+// record is included without truncation: every action, the complete build
+// errors, output, and reasoning summary. Cutting a long run hides the late
+// edits that usually fix or break the task.
 func (tj *TaskJudge) buildEvaluationPrompt(exec *ExecutionRecord) string {
 	var sb strings.Builder
 
@@ -204,11 +208,7 @@ func (tj *TaskJudge) buildEvaluationPrompt(exec *ExecutionRecord) string {
 	if len(exec.AgentActions) == 0 {
 		sb.WriteString("No actions recorded.\n")
 	} else {
-		for i, action := range exec.AgentActions {
-			if i >= 10 {
-				sb.WriteString(fmt.Sprintf("... and %d more actions\n", len(exec.AgentActions)-10))
-				break
-			}
+		for _, action := range exec.AgentActions {
 			sb.WriteString(fmt.Sprintf("- [%s] %s", action.Type, action.Description))
 			if action.Target != "" {
 				sb.WriteString(fmt.Sprintf(" → %s", action.Target))
@@ -230,12 +230,11 @@ func (tj *TaskJudge) buildEvaluationPrompt(exec *ExecutionRecord) string {
 	if len(exec.ExecutionResult.BuildErrors) > 0 {
 		sb.WriteString("- **Build Errors**:\n")
 		for _, err := range exec.ExecutionResult.BuildErrors {
-			sb.WriteString(fmt.Sprintf("  - %s\n", truncateString(err, 200)))
+			sb.WriteString(fmt.Sprintf("  - %s\n", err))
 		}
 	}
 	if exec.ExecutionResult.Output != "" {
-		output := truncateString(exec.ExecutionResult.Output, 1000)
-		sb.WriteString(fmt.Sprintf("- **Output**: %s\n", output))
+		sb.WriteString(fmt.Sprintf("- **Output**: %s\n", exec.ExecutionResult.Output))
 	}
 	sb.WriteString("\n")
 
@@ -252,8 +251,7 @@ func (tj *TaskJudge) buildEvaluationPrompt(exec *ExecutionRecord) string {
 	// Include model's reasoning process if available (for learning)
 	if exec.ThoughtSummary != "" {
 		sb.WriteString("\n## Model's Reasoning Process\n")
-		summary := truncateString(exec.ThoughtSummary, 2000)
-		sb.WriteString(summary)
+		sb.WriteString(exec.ThoughtSummary)
 		sb.WriteString("\n")
 	}
 
@@ -423,12 +421,4 @@ func extractJSONObject(s string) string {
 		}
 	}
 	return ""
-}
-
-// truncateString truncates a string to maxLen characters.
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }
