@@ -16,8 +16,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"codenerd/internal/prompt"
+	"codenerd/internal/tools/catalog"
 )
 
 type atomDefinition = prompt.AtomDefinition
@@ -119,6 +121,11 @@ func validateAtomTree(root string, opts validationOptions) ([]issue, validationS
 	}
 	if !info.IsDir() {
 		return nil, validationStats{}, fmt.Errorf("root is not a directory: %s", root)
+	}
+	// Fail the run when the catalog cannot be built. An atom with no
+	// requires_tools would otherwise hide a broken installer.
+	if _, err := productionToolNames(); err != nil {
+		return nil, validationStats{}, fmt.Errorf("production tool catalog: %w", err)
 	}
 
 	validCategories := make(map[string]struct{})
@@ -307,50 +314,32 @@ func validateAtomDef(path, relPath string, def atomDefinition, validCategories m
 	return issues
 }
 
-// knownPromptAtomTools is the set of registered tool names a prompt atom may
-// reference in requires_tools. Names are short executable tool names without
-// any prefix. Anything else is a defect: the atom teaches a capability the
-// agent cannot invoke.
-var knownPromptAtomTools = map[string]struct{}{
-	"apply_edits":          {},
-	"browser_act":          {},
-	"browser_evidence":     {},
-	"browser_test":         {},
-	"callers_of":           {},
-	"callees_of":           {},
-	"create_file":          {},
-	"delete_element":       {},
-	"delete_file":          {},
-	"delete_lines":         {},
-	"edit_element":         {},
-	"edit_file":            {},
-	"edit_lines":           {},
-	"find_symbol":          {},
-	"find_text":            {},
-	"get_element":          {},
-	"get_elements":         {},
-	"get_impacted_tests":   {},
-	"git_operation":        {},
-	"glob":                 {},
-	"grep":                 {},
-	"importers_of":         {},
-	"insert_element":       {},
-	"insert_lines":         {},
-	"list_files":           {},
-	"package_outline":      {},
-	"predicate_outline":    {},
-	"read_file":            {},
-	"recall_context":       {},
-	"replace_element":      {},
-	"repoint":              {},
-	"run_build":            {},
-	"run_check":            {},
-	"run_impacted_tests":   {},
-	"run_tests":            {},
-	"search_code":          {},
-	"search_expand":        {},
-	"unreferenced_symbols": {},
-	"write_file":           {},
+// productionToolNames is catalog.Names, cached for the process. The
+// validator used to keep its own map of tool names, which drifted from
+// the registrars the moment a tool was added.
+var (
+	productionToolsOnce sync.Once
+	productionTools     map[string]struct{}
+	productionToolsErr  error
+)
+
+func productionToolNames() (map[string]struct{}, error) {
+	productionToolsOnce.Do(func() {
+		names, err := catalog.Names()
+		if err != nil {
+			productionToolsErr = err
+			return
+		}
+		set := make(map[string]struct{}, len(names))
+		for _, name := range names {
+			set[name] = struct{}{}
+		}
+		productionTools = set
+	})
+	if productionToolsErr != nil {
+		return nil, productionToolsErr
+	}
+	return productionTools, nil
 }
 
 // validateRequiresToolsList checks requires_tools entries for malformed values
@@ -358,6 +347,15 @@ var knownPromptAtomTools = map[string]struct{}{
 // reported as an error so the validator fails instead of silently accepting
 // an atom that teaches a non-existent capability.
 func validateRequiresToolsList(path, atomID string, tools []string) []issue {
+	known, err := productionToolNames()
+	if err != nil {
+		return []issue{{
+			Severity: severityError,
+			File:     path,
+			AtomID:   atomID,
+			Message:  fmt.Sprintf("production tool catalog: %v", err),
+		}}
+	}
 	var issues []issue
 	seen := make(map[string]struct{}, len(tools))
 	for _, raw := range tools {
@@ -392,7 +390,7 @@ func validateRequiresToolsList(path, atomID string, tools []string) []issue {
 			continue
 		}
 		seen[tool] = struct{}{}
-		if _, ok := knownPromptAtomTools[tool]; !ok {
+		if _, ok := known[tool]; !ok {
 			issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("requires_tools references unknown tool %q", raw)})
 		}
 	}

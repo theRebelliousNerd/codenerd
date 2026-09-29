@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"codenerd/internal/tools/catalog"
 )
 
 func errorMessages(issues []issue) string {
@@ -203,4 +205,33 @@ func TestValidateRequiresToolsList_Branches(t *testing.T) {
 			t.Errorf("second issue should be duplicate value, got %q", got)
 		}
 	})
+}
+
+// The validator's known set is catalog.Names. Every name production can
+// register is accepted; a name outside that set is refused.
+func TestValidateRequiresToolsList_UsesProductionCatalog(t *testing.T) {
+	names, err := catalog.Names()
+	if err != nil {
+		t.Fatalf("catalog.Names: %v", err)
+	}
+	if len(names) == 0 {
+		t.Fatal("catalog.Names returned no tools")
+	}
+	if issues := validateRequiresToolsList("test.yaml", "test-atom", names); len(issues) != 0 {
+		t.Fatalf("registered tools refused: %s", errorMessages(issues))
+	}
+
+	const outsider = "begin_transaction"
+	for _, name := range names {
+		if name == outsider {
+			t.Fatalf("catalog.Names contains %q", outsider)
+		}
+	}
+	issues := validateRequiresToolsList("test.yaml", "test-atom", []string{outsider})
+	if len(issues) != 1 {
+		t.Fatalf("expected one issue for %q, got %s", outsider, errorMessages(issues))
+	}
+	if issues[0].Severity != severityError || !strings.Contains(issues[0].Message, "unknown tool") || !strings.Contains(issues[0].Message, outsider) {
+		t.Fatalf("unexpected issue: %+v", issues[0])
+	}
 }

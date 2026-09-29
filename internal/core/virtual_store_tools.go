@@ -7,11 +7,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/tools"
-	"codenerd/internal/tools/codedom"
-	"codenerd/internal/tools/core"
-	"codenerd/internal/tools/mcpctl"
-	"codenerd/internal/tools/research"
-	"codenerd/internal/tools/shell"
+	"codenerd/internal/tools/catalog"
 	"codenerd/internal/types"
 )
 
@@ -69,53 +65,19 @@ func (v *VirtualStore) HydrateModularTools(searchers ...types.GroundedWebSearche
 	// VirtualStore registry.
 	v.installToolFactSink(registry, globalRegistry)
 
-	// Register all core filesystem tools (to both registries)
-	if err := core.RegisterAll(registry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Failed to register core tools: %v", err)
-		return fmt.Errorf("failed to register core tools: %w", err)
-	}
-	if err := core.RegisterAll(globalRegistry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register core tools to global registry: %v", err)
-		// Don't return error - global registry may already have tools from previous call
-	}
-
-	// Register all shell execution tools (to both registries)
-	if err := shell.RegisterAll(registry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Failed to register shell tools: %v", err)
-		return fmt.Errorf("failed to register shell tools: %w", err)
-	}
-	if err := shell.RegisterAll(globalRegistry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register shell tools to global registry: %v", err)
-	}
-
-	// Register all Code DOM tools (to both registries)
-	if err := codedom.RegisterAll(registry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Failed to register codedom tools: %v", err)
-		return fmt.Errorf("failed to register codedom tools: %w", err)
-	}
-	if err := codedom.RegisterAll(globalRegistry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register codedom tools to global registry: %v", err)
-	}
-
-	// Register the MCP control-plane verbs (to both registries). These are
-	// registered unconditionally, exactly like the browser tools: the verbs are
-	// the stable surface, and whether any MCP server is actually connected is a
-	// runtime fact the atlas reports rather than a reason to hide the tools.
-	if err := mcpctl.RegisterAll(registry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Failed to register MCP control-plane tools: %v", err)
-		return fmt.Errorf("failed to register MCP control-plane tools: %w", err)
-	}
-	if err := mcpctl.RegisterAll(globalRegistry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register MCP control-plane tools to global registry: %v", err)
-	}
-
-	// Register all research tools (to both registries)
-	if err := research.RegisterAll(registry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Failed to register research tools: %v", err)
-		return fmt.Errorf("failed to register research tools: %w", err)
-	}
-	if err := research.RegisterAll(globalRegistry); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register research tools to global registry: %v", err)
+	// One sequence for both registries: catalog.Families. An error on this
+	// VirtualStore registry is returned. An error on the global registry is
+	// a warning and is not returned — tools.Global may already hold the
+	// tools from an earlier call. The conditional grounded-search tool is
+	// registered below, not in this loop: it depends on the searcher.
+	for _, family := range catalog.Families() {
+		if err := family.Register(registry); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Error("Failed to register %s tools: %v", family.Name, err)
+			return fmt.Errorf("failed to register %s tools: %w", family.Name, err)
+		}
+		if err := family.Register(globalRegistry); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Warn("Failed to register %s tools to global registry: %v", family.Name, err)
+		}
 	}
 
 	// Select at most the first non-nil searcher deterministically.
@@ -129,13 +91,13 @@ func (v *VirtualStore) HydrateModularTools(searchers ...types.GroundedWebSearche
 
 	// Conditionally register grounded_web_search on both registries with matching error/warn behavior.
 	if err := func() error {
-		_, err := research.RegisterGroundedWebSearchIfSupported(registry, searcher)
+		_, err := catalog.RegisterGroundedWebSearch(registry, searcher)
 		return err
 	}(); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to register grounded_web_search: %v", err)
 		return fmt.Errorf("failed to register grounded_web_search: %w", err)
 	}
-	if _, err := research.RegisterGroundedWebSearchIfSupported(globalRegistry, searcher); err != nil {
+	if _, err := catalog.RegisterGroundedWebSearch(globalRegistry, searcher); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register grounded_web_search to global registry: %v", err)
 	}
 

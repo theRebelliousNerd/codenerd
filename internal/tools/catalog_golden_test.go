@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"codenerd/internal/tools"
+	"codenerd/internal/tools/catalog"
 	"codenerd/internal/tools/codedom"
 	"codenerd/internal/tools/core"
-	"codenerd/internal/tools/mcpctl"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/tools/shell"
 )
@@ -53,15 +53,9 @@ var intentionalCatalogExceptions = map[string]string{
 func fullyHydratedRegistry(t *testing.T) *tools.Registry {
 	t.Helper()
 	reg := tools.NewRegistry()
-	for name, register := range map[string]func(*tools.Registry) error{
-		"core":     core.RegisterAll,
-		"shell":    shell.RegisterAll,
-		"codedom":  codedom.RegisterAll,
-		"research": research.RegisterAll,
-		"mcpctl":   mcpctl.RegisterAll,
-	} {
-		if err := register(reg); err != nil {
-			t.Fatalf("%s.RegisterAll: %v", name, err)
+	for _, family := range catalog.Families() {
+		if err := family.Register(reg); err != nil {
+			t.Fatalf("%s.RegisterAll: %v", family.Name, err)
 		}
 	}
 	return reg
@@ -192,17 +186,10 @@ func TestCatalog_WhenHydratedTwice_ShouldProduceIdenticalRegistries(t *testing.T
 	// Idempotent: hydrating the same registry again must be a no-op, which is
 	// what makes the second RegisterAll call in HydrateModularTools safe.
 	before := a.Count()
-	if err := core.RegisterAll(a); err != nil {
-		t.Fatalf("second core.RegisterAll: %v", err)
-	}
-	if err := shell.RegisterAll(a); err != nil {
-		t.Fatalf("second shell.RegisterAll: %v", err)
-	}
-	if err := codedom.RegisterAll(a); err != nil {
-		t.Fatalf("second codedom.RegisterAll: %v", err)
-	}
-	if err := research.RegisterAll(a); err != nil {
-		t.Fatalf("second research.RegisterAll: %v", err)
+	for _, family := range catalog.Families() {
+		if err := family.Register(a); err != nil {
+			t.Fatalf("second %s.RegisterAll: %v", family.Name, err)
+		}
 	}
 	if a.Count() != before {
 		t.Fatalf("re-hydration changed the catalog: %d -> %d", before, a.Count())

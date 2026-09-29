@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"codenerd/internal/shards/system"
+	"codenerd/internal/tools/catalog"
 )
 
 func TestLoadExemptionsAndMatch(t *testing.T) {
@@ -207,13 +208,16 @@ func TestGetRegisteredToolNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get registered tools: %v", err)
 	}
-	if len(tools) == 0 {
-		t.Fatalf("expected at least one registered tool")
+	want, err := catalog.Names()
+	if err != nil {
+		t.Fatalf("catalog.Names: %v", err)
 	}
-	// Spot-check a few known tools.
-	for _, name := range []string{"read_file", "write_file", "glob", "get_elements", "run_command"} {
+	if len(tools) != len(want) {
+		t.Fatalf("getRegisteredToolNames has %d names, catalog.Names has %d", len(tools), len(want))
+	}
+	for _, name := range want {
 		if _, ok := tools[name]; !ok {
-			t.Fatalf("expected tool %q to be registered", name)
+			t.Fatalf("catalog.Names has %q and getRegisteredToolNames does not", name)
 		}
 	}
 }

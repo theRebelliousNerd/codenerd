@@ -9,11 +9,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/tools"
-	"codenerd/internal/tools/codedom"
-	toolscore "codenerd/internal/tools/core"
-	"codenerd/internal/tools/mcpctl"
-	"codenerd/internal/tools/research"
-	"codenerd/internal/tools/shell"
+	toolcatalog "codenerd/internal/tools/catalog"
 	"codenerd/internal/types"
 )
 
@@ -68,21 +64,9 @@ func catalogHoldsAll(catalog, req map[string]bool) bool {
 func knownToolNames(t *testing.T, corpus []*PromptAtom) map[string]bool {
 	t.Helper()
 	reg := tools.NewRegistry()
-	families := map[string]func(*tools.Registry) error{
-		"core":     toolscore.RegisterAll,
-		"shell":    shell.RegisterAll,
-		"codedom":  codedom.RegisterAll,
-		"research": research.RegisterAll,
-		"mcpctl":   mcpctl.RegisterAll,
-	}
-	names := make([]string, 0, len(families))
-	for name := range families {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		if err := families[name](reg); err != nil {
-			t.Fatalf("%s.RegisterAll: %v", name, err)
+	for _, family := range toolcatalog.Families() {
+		if err := family.Register(reg); err != nil {
+			t.Fatalf("%s.RegisterAll: %v", family.Name, err)
 		}
 	}
 	known := make(map[string]bool)

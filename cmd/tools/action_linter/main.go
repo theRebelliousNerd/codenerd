@@ -21,10 +21,7 @@ import (
 
 	"codenerd/internal/shards/system"
 	"codenerd/internal/tools"
-	"codenerd/internal/tools/codedom"
-	"codenerd/internal/tools/core"
-	"codenerd/internal/tools/research"
-	"codenerd/internal/tools/shell"
+	"codenerd/internal/tools/catalog"
 )
 
 type issueSeverity string
@@ -312,21 +309,14 @@ func extractVirtualStoreActionTypes(path string) (map[string]struct{}, error) {
 	return out, nil
 }
 
+// getRegisteredToolNames is catalog.Names: the tools HydrateModularTools
+// can install, including mcpctl and grounded_web_search. A hand-written
+// RegisterAll walk here omitted both.
 func getRegisteredToolNames() (map[string]struct{}, error) {
-	reg := tools.NewRegistry()
-	if err := core.RegisterAll(reg); err != nil {
+	names, err := catalog.Names()
+	if err != nil {
 		return nil, err
 	}
-	if err := shell.RegisterAll(reg); err != nil {
-		return nil, err
-	}
-	if err := codedom.RegisterAll(reg); err != nil {
-		return nil, err
-	}
-	if err := research.RegisterAll(reg); err != nil {
-		return nil, err
-	}
-	names := reg.Names()
 	out := make(map[string]struct{}, len(names))
 	for _, n := range names {
 		out[n] = struct{}{}
