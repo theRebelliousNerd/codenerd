@@ -21,6 +21,7 @@ import (
 	"unicode"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/workspace"
 )
 
 // =============================================================================
@@ -79,10 +80,10 @@ func DefaultSparseRetrieverConfig(workDir string) *SparseRetrieverConfig {
 		MaxResults:    100,
 		SearchTimeout: 30 * time.Second,
 		Parallelism:   4,
+		// Directory membership is workspace.For. These globs are a purpose
+		// filter (bytecode, minified bundles), not a second ignore list.
 		ExcludePatterns: []string{
-			"*.pyc", "__pycache__", ".git", "node_modules",
-			"*.egg-info", ".tox", ".pytest_cache", "*.min.js",
-			"vendor", "dist", "build", ".venv", "venv",
+			"*.pyc", "*.min.js", "*.egg-info",
 		},
 		CacheSize: 1000,
 		CacheTTL:  5 * time.Minute,
@@ -440,6 +441,23 @@ func isBinaryContent(data []byte) bool {
 	return bytes.IndexByte(head, 0x00) >= 0
 }
 
+// membershipFor is the one workspace-membership authority a scan may ask.
+// Failing closed is deliberate: walking when git cannot answer would visit
+// everything .gitignore exists to hide.
+func membershipFor(root string) (*workspace.Membership, error) {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	m, err := workspace.For(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Refresh(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // searchSingleKeyword uses native Go scanning to search for a single keyword.
 func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword string) ([]KeywordHit, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.searchTimeout)
@@ -598,6 +616,12 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 	// channel and blocked on the next send forever, so close(files) was never
 	// reached, wg.Wait() never returned, and a timed-out search hung its caller
 	// and leaked its goroutines instead of coming back with partial results.
+	mem, memErr := membershipFor(r.workDir)
+	if memErr != nil {
+		r.metrics.errors.Add(1)
+		return nil, memErr
+	}
+
 	var walked int64
 	err := filepath.WalkDir(r.workDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -607,7 +631,15 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 			return filepath.SkipAll
 		}
 
-		// Check exclusions
+		member, admErr := mem.Admit(path, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member {
+			return nil
+		}
+
+		// Caller exclusions sit on top of membership.
 		for _, pattern := range r.excludePatterns {
 			matched, _ := filepath.Match(pattern, d.Name())
 			if matched {

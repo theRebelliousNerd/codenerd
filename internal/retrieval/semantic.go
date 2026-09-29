@@ -142,19 +142,23 @@ func (s *EmbeddingSemanticSearcher) SimilarFiles(ctx context.Context, query stri
 // corpus lists the source files eligible for embedding, deterministically
 // ordered so the bounded sample is stable between calls.
 func (s *EmbeddingSemanticSearcher) corpus(ctx context.Context) ([]string, error) {
+	mem, err := membershipFor(s.workDir)
+	if err != nil {
+		return nil, err
+	}
 	var paths []string
-	err := filepath.WalkDir(s.workDir, func(path string, d os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(s.workDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
 		if ctx.Err() != nil {
 			return filepath.SkipAll
 		}
-		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "__pycache__", ".venv", "venv", "vendor", "dist", "build":
-				return filepath.SkipDir
-			}
+		member, admErr := mem.Admit(path, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || d.IsDir() {
 			return nil
 		}
 		if !isSemanticSourceFile(path) {

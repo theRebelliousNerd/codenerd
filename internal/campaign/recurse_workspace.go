@@ -17,8 +17,8 @@ import (
 	"strings"
 
 	"codenerd/internal/build"
-	"codenerd/internal/gates"
 	"codenerd/internal/tools"
+	"codenerd/internal/workspace"
 )
 
 // The recurse DAG is derived from the workspace it sweeps, not written down.
@@ -254,10 +254,17 @@ func appendCrossCutting(nodes []SubsystemNode) []SubsystemNode {
 
 // collectSourceFiles walks the workspace once and groups the files the
 // scanners read: ".py", ".js" (every JS/TS flavour) and "Cargo.toml".
-// Hidden directories are skipped with the rest.
+// Which directories are the workspace is membership's decision.
 func collectSourceFiles(root string) (map[string][]string, error) {
+	mem, err := workspace.For(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := mem.Refresh(); err != nil {
+		return nil, err
+	}
 	out := map[string][]string{}
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == root {
 				return err
@@ -268,11 +275,15 @@ func collectSourceFiles(root string) (map[string][]string, error) {
 			}
 			return nil
 		}
+		member, admErr := mem.Admit(p, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member {
+			return nil
+		}
 		name := d.Name()
 		if d.IsDir() {
-			if p != root && gates.SkipDir(name) {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 		switch {

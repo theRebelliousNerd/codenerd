@@ -21,9 +21,10 @@ func TestScanWorkspace_BlindSpotFix(t *testing.T) {
 	// /main.go (Visible)
 	// /.github/workflows/ci.yml (Visible - Allowed hidden)
 	// /.vscode/settings.json (Visible - Allowed hidden)
-	// /.git/config (Hidden - Blocked)
-	// /.nerd/cache/manifest.json (Hidden - Blocked)
-	// /.secret/key.pem (Hidden - Blocked by default)
+	// /.git/config (always excluded)
+	// /.nerd/cache/manifest.json (always excluded)
+	// /.secret/key.pem (a dot directory is a member unless git or
+	// world.ignore_patterns excludes it)
 
 	files := map[string]bool{ // path -> expected visibility
 		"main.go":                   true,
@@ -31,7 +32,7 @@ func TestScanWorkspace_BlindSpotFix(t *testing.T) {
 		".vscode/settings.json":     true,
 		".git/config":               false,
 		".nerd/cache/manifest.json": false,
-		".secret/key.pem":           false,
+		".secret/key.pem":           true,
 	}
 
 	for path := range files {

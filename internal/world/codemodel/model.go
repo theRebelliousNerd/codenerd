@@ -11,9 +11,10 @@
 // pairs on the same file in one run). One model, reached by everything, is what
 // lets the structure be the view of code rather than a hint about where to read.
 //
-// It is a leaf: the standard library and internal/mangle's parser lock, nothing
-// from the world or the tools, so internal/world and internal/tools/codedom can
-// both import it without the cycle that kept them apart.
+// It is a leaf: nothing from the world or the tools, so internal/world and
+// internal/tools/codedom can both import it without the cycle that kept them
+// apart. Go and Mangle use the standard library; Python, TypeScript and
+// JavaScript use the tree-sitter grammars already pinned for the world model.
 package codemodel
 
 import (
@@ -41,6 +42,14 @@ const (
 	KindConst     Kind = "const"
 	KindVar       Kind = "var"
 
+	// KindClass, KindEnum and KindNamespace are the declarations Python,
+	// TypeScript and JavaScript add past Go's set. A React component or a
+	// hook stays KindFunction; Element.Role says which, so callers and edits
+	// still treat it as the function it is.
+	KindClass     Kind = "class"
+	KindEnum      Kind = "enum"
+	KindNamespace Kind = "namespace"
+
 	KindDecl  Kind = "decl"
 	KindRule  Kind = "rule"
 	KindFact  Kind = "fact"
@@ -55,9 +64,30 @@ const (
 
 // Language names.
 const (
-	LangGo     = "go"
-	LangMangle = "mangle"
+	LangGo         = "go"
+	LangMangle     = "mangle"
+	LangPython     = "python"
+	LangTypeScript = "typescript"
+	LangTSX        = "tsx"
+	LangJavaScript = "javascript"
 )
+
+// IsScriptLang reports a language whose element model comes from a
+// tree-sitter grammar: Python, TypeScript, TSX and JavaScript.
+func IsScriptLang(lang string) bool {
+	switch lang {
+	case LangPython, LangTypeScript, LangTSX, LangJavaScript:
+		return true
+	}
+	return false
+}
+
+// IsScriptPath reports a file whose extension CodeDOM models as a script
+// language. .jsx is JavaScript parsed with the TSX grammar, because the
+// JavaScript grammar does not accept JSX.
+func IsScriptPath(path string) bool {
+	return IsScriptLang(LanguageOf(path))
+}
 
 // HeaderKey and EndKey are the pseudo-element addresses of a file's top and
 // bottom. EndKey is an insertion anchor only; it names no text.
@@ -88,6 +118,22 @@ type Element struct {
 	Doc       string // first line of the doc comment
 	Exported  bool
 
+	// Role is "component" or "hook" for a function the grammar recognizes as
+	// one: a component is a capitalized function or arrow whose body contains
+	// JSX, a hook is a function named use[A-Z].... Kind stays function.
+	Role string
+	// NameStart and NameEnd span the declared identifier. A rename rewrites
+	// this span and the references that resolve to it, not every same-spelled
+	// token.
+	NameStart, NameEnd int
+
+	// bind is the scope-binding id of the declared name. Empty for a
+	// declaration that introduces no resolvable name.
+	bind string
+	// namedExport is a TS/JS `export` of this name. defaultExport is
+	// `export default`. Python uses Exported and leaves both false.
+	namedExport, defaultExport bool
+
 	// Grouped marks a spec inside a parenthesized const/var/type group. The
 	// group, not the spec, is the unit gofmt aligns.
 	Grouped bool
@@ -106,12 +152,51 @@ type Element struct {
 	Err string
 }
 
-// Import is one import spec of a Go file.
+// ImportedName is one name a Python from-import or a TS/JS named import binds.
+type ImportedName struct {
+	Remote, Local string
+	// Aliased is true when Local is a different spelling from Remote
+	// (`import { useAuth as ua }`, `from m import use_auth as ua`).
+	Aliased bool
+}
+
+// Import is one import spec.
 type Import struct {
 	Name       string // explicit local name, "" when none
 	Path       string
 	Start, End int
 	Line       int
+
+	// Spec is the specifier as written ("./hooks", ".services", "@app/widget",
+	// "os") when Path has been rewritten to a resolved file.
+	Spec string
+	// Resolved is the file this import resolves to, in the same path form as
+	// File.Path. Empty when the target is not a source file in the tree
+	// (a standard library module, a package that is not present).
+	Resolved string
+	// Level is the number of leading dots of a Python relative import.
+	// `from . import x` is 1, `from ..pkg import x` is 2, an absolute import is 0.
+	Level int
+	// Imported are the names bound by a from-import or a named ESM import.
+	// A module import (`import os`, `import * as ns`) leaves it empty and uses Name.
+	Imported []ImportedName
+}
+
+// Call is one call expression or JSX element use (`<Widget/>` uses Widget).
+type Call struct {
+	Name, Qualifier string
+	Line            int
+	Start, End      int
+	JSX             bool
+	// Bound is true when scope resolution tied the callee to a declaration or
+	// an import. An unbound qualifier is only a by-name method candidate.
+	Bound bool
+	// Local is true when a same-named local or parameter shadows the module
+	// binding, so the call is not a use of the module-level name.
+	Local bool
+	// TargetFile, TargetName and TargetRecv name the declaration the callee
+	// resolves to. TargetFile uses the same path form as File.Path.
+	TargetFile, TargetName, TargetRecv string
 }
 
 // LocalName is the identifier the file refers to the import by. It is a
@@ -134,6 +219,21 @@ type File struct {
 	Source   string
 	Elements []Element
 	Imports  []Import
+	// Calls are the call expressions and JSX element uses in the file.
+	Calls []Call
+	// Idents counts identifier occurrences, the declaration included. The
+	// unreferenced-symbol check treats a name as used when it occurs more
+	// times than it is declared.
+	Idents map[string]int
+	// uses are the identifier references scope resolution could bind. A rename
+	// rewrites the ones whose bind id is the declaration's, and leaves every
+	// other spelling of the name alone.
+	uses []refUse
+	// binds are the script-language name bindings (declarations and import
+	// specifiers). Go and Mangle files leave it empty. A rename rewrites a
+	// binding when its id is in the declaration's want-set, which is how an
+	// import specifier moves with the exported name.
+	binds []nameBind
 	// BuildConstraint is the //go:build expression, "" when none.
 	BuildConstraint string
 	// Err is the first parse error; Errors are all of them. A file with
@@ -161,18 +261,16 @@ func LanguageOf(path string) string {
 		return LangGo
 	case ".mg", ".dl", ".mangle":
 		return LangMangle
+	case ".py", ".pyi":
+		return LangPython
+	case ".ts", ".mts", ".cts":
+		return LangTypeScript
+	case ".tsx":
+		return LangTSX
+	case ".js", ".mjs", ".cjs", ".jsx":
+		return LangJavaScript
 	}
 	return ""
-}
-
-// SkipDir reports the directories the workspace walk never enters: vendored
-// and generated trees, test fixtures, and hidden or underscore directories.
-func SkipDir(name string) bool {
-	switch name {
-	case "vendor", "node_modules", "testdata":
-		return true
-	}
-	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
 // Normalize returns src with CRLF and lone CR line endings rewritten to LF.
@@ -194,6 +292,24 @@ func Parse(path, src string) (f *File, ok bool) {
 		return ParseGo(path, src), true
 	case LangMangle:
 		return ParseMangle(path, src), true
+	case LangPython, LangTypeScript, LangTSX, LangJavaScript:
+		return ParseScript(path, src), true
+	}
+	return nil, false
+}
+
+// ParseRoot is Parse that resolves imports as if the source lived at absPath
+// and reports resolved files relative to root. path is the path stored on the
+// file (the workspace-relative one the structure index addresses). When root
+// is empty, resolved files are absolute if absPath is.
+func ParseRoot(path, absPath, root, src string) (f *File, ok bool) {
+	switch LanguageOf(path) {
+	case LangGo:
+		return ParseGo(path, src), true
+	case LangMangle:
+		return ParseMangle(path, src), true
+	case LangPython, LangTypeScript, LangTSX, LangJavaScript:
+		return parseScriptAt(path, absPath, root, src), true
 	}
 	return nil, false
 }

@@ -140,7 +140,10 @@ func TestGetElements_BrokenFileStaysListedWithItsError(t *testing.T) {
 }
 
 func TestGetElements_UnparsedLanguageSaysSo(t *testing.T) {
-	ctx, path := writeElementFixture(t, "x.py", "def f():\n    pass\n")
+	// Rust still has no element model, so the line-pattern fallback is what
+	// answers. Python, TypeScript and JavaScript parse, and are covered with
+	// the structural tools.
+	ctx, path := writeElementFixture(t, "x.rs", "fn f() {}\n")
 	out, err := executeGetElements(ctx, map[string]any{"path": path})
 	if err != nil || !strings.Contains(out, "no parser for this language") || !strings.Contains(out, "function  f") {
 		t.Fatalf("%v\n%s", err, out)

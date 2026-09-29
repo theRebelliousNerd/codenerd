@@ -15,6 +15,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
+	"codenerd/internal/workspace"
 )
 
 type fileMutationSnapshot struct {
@@ -41,6 +42,7 @@ type taskExecutionSnapshot struct {
 	globPreMatches  map[string]map[string]struct{}
 	snapshotRoots   []string            // absolute, non-glob write-set roots captured for this task
 	snapshotPaths   map[string]struct{} // absolute paths of every regular file present at capture
+	membership      *workspace.Membership
 
 	// Scoped (non-structural) rollback state.
 	scopedTask   *Task
@@ -244,6 +246,16 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 	}
 
 	writeSet := o.resolveTaskWriteSet(task)
+	if len(writeSet) > 0 {
+		mem, err := workspace.For(o.workspace)
+		if err != nil {
+			return snapshot, err
+		}
+		if err := mem.Refresh(); err != nil {
+			return snapshot, err
+		}
+		snapshot.membership = mem
+	}
 	snapshot.globPreMatches = make(map[string]map[string]struct{})
 	seenGlobs := make(map[string]struct{})
 	for _, candidate := range writeSet {
@@ -306,7 +318,7 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 		}
 		if info.IsDir() {
 			before := len(snapshot.fileMutations)
-			if err := snapshotDirectoryFiles(absPath, &snapshot.fileMutations); err != nil {
+			if err := snapshotDirectoryFiles(snapshot.membership, absPath, &snapshot.fileMutations); err != nil {
 				return snapshot, err
 			}
 			kept := snapshot.fileMutations[:before]
@@ -369,21 +381,22 @@ const (
 )
 
 // snapshotDirectoryFiles records every regular file under dir so a task
-// scoped to a directory is verified and rolled back file by file. VCS and
-// workspace-state directories (.git, .nerd) are not task content and are
-// skipped. A directory too large to snapshot fails closed: a transaction
+// scoped to a directory is verified and rolled back file by file. Membership
+// belongs to the campaign workspace, not the write-set subdirectory.
+// A directory too large to snapshot fails closed: a transaction
 // that cannot restore what it guards must not run.
-func snapshotDirectoryFiles(dir string, into *[]fileMutationSnapshot) error {
+func snapshotDirectoryFiles(mem *workspace.Membership, dir string, into *[]fileMutationSnapshot) error {
 	var numFiles int
 	var numBytes int
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk snapshot path %s: %w", path, err)
 		}
-		if d.IsDir() {
-			if path != dir && (d.Name() == ".git" || d.Name() == ".nerd") {
-				return fs.SkipDir
-			}
+		member, admErr := mem.Admit(path, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || d.IsDir() {
 			return nil
 		}
 		info, err := d.Info()
@@ -501,6 +514,14 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 	// attempt under the snapshotted non-glob roots — files absent from
 	// snapshotPaths. Broad-glob entries contribute no snapshot root, so their
 	// matches keep the unknown-provenance exemption stated above.
+	if len(snapshot.snapshotRoots) > 0 {
+		if snapshot.membership == nil {
+			return fmt.Errorf("rollback workspace membership is missing")
+		}
+		if err := snapshot.membership.Refresh(); err != nil {
+			return fmt.Errorf("refresh rollback membership: %w", err)
+		}
+	}
 	for _, root := range snapshot.snapshotRoots {
 		info, err := os.Stat(root)
 		if err != nil {
@@ -518,10 +539,11 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 			if err != nil {
 				return fmt.Errorf("walk rollback path %s: %w", path, err)
 			}
-			if d.IsDir() {
-				if path != rootClean && (d.Name() == ".git" || d.Name() == ".nerd") {
-					return fs.SkipDir
-				}
+			member, admErr := snapshot.membership.Admit(path, d.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member || d.IsDir() {
 				return nil
 			}
 			fileInfo, err := d.Info()

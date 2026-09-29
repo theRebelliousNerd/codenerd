@@ -15,7 +15,7 @@ import (
 	"codenerd/internal/world/codemodel"
 )
 
-// CreateFileTool creates a new Go or Mangle file, validated as a unit.
+// CreateFileTool creates a new file CodeDOM parses, validated as a unit.
 //
 // Every new Go file in the audited runs (three test files) went through
 // write_file, which checks only that the text parses. A file in the wrong
@@ -26,7 +26,7 @@ import (
 func CreateFileTool() *tools.Tool {
 	return &tools.Tool{
 		Name: "create_file",
-		Description: "Create a new Go or Mangle file. For Go: the package clause must match the other files of the directory (package x, or x_test in a _test.go file), imports are derived from what the code uses (write none), and the file is gofmt'd. " +
+		Description: "Create a new file CodeDOM parses: Go, Mangle, Python, TypeScript, TSX or JavaScript. For Go: the package clause must match the other files of the directory (package x, or x_test in a _test.go file), imports are derived from what the code uses (write none), and the file is gofmt'd. " +
 			"Refused when the file exists (the element verbs change existing files). Answers with the new file's elements and refs.",
 		Category: tools.CategoryCode,
 		Priority: 82,
@@ -35,7 +35,7 @@ func CreateFileTool() *tools.Tool {
 		Schema: tools.ToolSchema{
 			Required: []string{"path", "source"},
 			Properties: map[string]tools.Property{
-				"path":   {Type: "string", Description: "Workspace-relative path of the new file (.go or .mg)"},
+				"path":   {Type: "string", Description: "Workspace-relative path of the new file (.go, .mg, .py, .pyi, .ts, .tsx, .js, .jsx)"},
 				"source": {Type: "string", Description: "The complete file: package clause and declarations; imports may be left out"},
 			},
 		},
@@ -64,7 +64,7 @@ func executeCreateFile(ctx context.Context, args map[string]any) (string, error)
 	}
 	lang := codemodel.LanguageOf(rel)
 	if lang == "" {
-		return "", fmt.Errorf("create_file makes Go and Mangle files, the files CodeDOM parses; %s is neither", rel)
+		return "", fmt.Errorf("create_file makes files CodeDOM parses (Go, Mangle, Python, TypeScript or JavaScript); %s is none of those", rel)
 	}
 	source = strings.Trim(codemodel.Normalize(source), "\n") + "\n"
 

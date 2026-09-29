@@ -19,6 +19,7 @@ import (
 	"codenerd/internal/shards"
 	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
+	wscope "codenerd/internal/workspace"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -983,6 +984,16 @@ func (m Model) resolveReviewTarget(target string) []string {
 		return discoverFiles(m.workspace, "")
 	}
 
+	mem, memErr := wscope.For(m.workspace)
+	if memErr != nil {
+		logging.Routing("review target walk skipped: %v", memErr)
+		return nil
+	}
+	if memErr = mem.Refresh(); memErr != nil {
+		logging.Routing("review target walk skipped: %v", memErr)
+		return nil
+	}
+
 	// Handle explicit file path
 	fullPath := target
 	if !filepath.IsAbs(target) {
@@ -996,21 +1007,25 @@ func (m Model) resolveReviewTarget(target string) []string {
 	}
 
 	if info.IsDir() {
-		// Walk directory
 		filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
+			if err != nil {
 				return nil
 			}
-			// Skip hidden and vendor
-			if strings.Contains(path, "/.") || strings.Contains(path, "\\.") ||
-				strings.Contains(path, "vendor") || strings.Contains(path, "node_modules") {
+			member, admErr := mem.Admit(path, info.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member || info.IsDir() {
 				return nil
 			}
 			files = append(files, path)
 			return nil
 		})
 	} else {
-		files = []string{fullPath}
+		ok, admErr := mem.Admit(fullPath, false)
+		if admErr == nil && ok {
+			files = []string{fullPath}
+		}
 	}
 
 	return files
@@ -1045,9 +1060,18 @@ func normalizeReviewFilesInternal(files []string, workspace string, filterExt bo
 		".gl":   true,
 	}
 
-	skipDirs := []string{"vendor", "node_modules", ".git", ".nerd", "dist", "build"}
 	seen := make(map[string]bool)
 	var absOut, relOut []string
+
+	mem, memErr := wscope.For(workspace)
+	if memErr != nil {
+		logging.Routing("review file filter skipped: %v", memErr)
+		return nil, nil
+	}
+	if memErr = mem.Refresh(); memErr != nil {
+		logging.Routing("review file filter skipped: %v", memErr)
+		return nil, nil
+	}
 
 	for _, f := range files {
 		if f == "" {
@@ -1059,20 +1083,8 @@ func normalizeReviewFilesInternal(files []string, workspace string, filterExt bo
 		}
 		absPath = filepath.Clean(absPath)
 
-		// Skip hidden paths
-		if strings.Contains(absPath, string(filepath.Separator)+".") {
-			continue
-		}
-
-		// Skip common vendor/build dirs
-		skip := false
-		for _, dir := range skipDirs {
-			if strings.Contains(absPath, string(filepath.Separator)+dir+string(filepath.Separator)) {
-				skip = true
-				break
-			}
-		}
-		if skip {
+		ok, admErr := mem.Admit(absPath, false)
+		if admErr != nil || !ok {
 			continue
 		}
 

@@ -175,7 +175,9 @@ func TestDeleteFile_RecordsTheElementsItRemoved(t *testing.T) {
 	}
 }
 
-func TestWriteFile_PythonRecordsNothing(t *testing.T) {
+// Python is a CodeDOM language: a write records the elements it created and a
+// delete records them removed, the same as Go.
+func TestWriteFile_PythonRecordsItsElements(t *testing.T) {
 	dir := resolvedTemp(t)
 	body := "def add(a, b):\n    return a + b\n"
 	edits, called, err := execFileTool(t, dir, "write_file", map[string]any{
@@ -184,7 +186,7 @@ func TestWriteFile_PythonRecordsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !called || len(edits) != 0 {
+	if !called || len(edits) != 1 || edits[0].Name != "add" || edits[0].Language != "python" || edits[0].Removed {
 		t.Fatalf("python write recorded %+v (called=%v)", edits, called)
 	}
 	edits, called, err = execFileTool(t, dir, "delete_file", map[string]any{
@@ -193,7 +195,7 @@ func TestWriteFile_PythonRecordsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !called || len(edits) != 0 {
+	if !called || len(edits) != 1 || edits[0].Name != "add" || !edits[0].Removed {
 		t.Fatalf("python delete recorded %+v (called=%v)", edits, called)
 	}
 }

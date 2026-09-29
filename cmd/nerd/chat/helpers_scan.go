@@ -383,18 +383,30 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 			return scanCompleteMsg{err: fmt.Errorf("invalid directory: %s", dir)}
 		}
 
+		memRoot := m.workspace
+		if strings.TrimSpace(memRoot) == "" {
+			memRoot = dir
+		}
+		mem, memErr := openMembership(memRoot)
+		if memErr != nil {
+			return scanCompleteMsg{err: memErr}
+		}
+
 		var files []string
 		dirCount := 0
 		if walkDirErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return nil
 			}
+			member, admErr := mem.Admit(path, d.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member {
+				return nil
+			}
 			if d.IsDir() {
 				dirCount++
-				// skip hidden dirs
-				if strings.HasPrefix(d.Name(), ".") && path != dir {
-					return filepath.SkipDir
-				}
 				return nil
 			}
 			files = append(files, path)

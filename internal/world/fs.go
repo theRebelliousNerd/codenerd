@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
+	"codenerd/internal/workspace"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,11 +21,44 @@ import (
 type Scanner struct {
 	parserPool sync.Pool
 	config     ScannerConfig
+	// patternsFromWorkspace makes a scan read the target workspace's
+	// world.ignore_patterns. NewScanner sets it so init, scan and campaign
+	// — which construct a scanner with no config — still honour that list.
+	// NewScannerWithConfig uses the patterns it was given and does not
+	// re-read the file.
+	patternsFromWorkspace bool
 }
 
 // NewScanner creates a new filesystem Scanner.
 func NewScanner() *Scanner {
-	return NewScannerWithConfig(DefaultScannerConfig())
+	s := NewScannerWithConfig(DefaultScannerConfig())
+	s.patternsFromWorkspace = true
+	return s
+}
+
+// membership is the workspace member set for this scan. Refresh runs on
+// every scan tick so a .gitignore edit is visible without a new process.
+func (s *Scanner) membership(root string) (*workspace.Membership, error) {
+	var (
+		m   *workspace.Membership
+		err error
+	)
+	if s.patternsFromWorkspace {
+		m, err = workspace.For(root)
+	} else {
+		pats := s.config.IgnorePatterns
+		if pats == nil {
+			pats = []string{}
+		}
+		m, err = workspace.Open(root, pats)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Refresh(); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // NewScannerWithConfig creates a new filesystem Scanner with custom config.
@@ -128,6 +162,11 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 	}
 	root = canonical
 
+	mem, err := s.membership(root)
+	if err != nil {
+		return nil, err
+	}
+
 	logging.World("Starting directory scan: %s", root)
 	timer := logging.StartTimer(logging.CategoryWorld, "ScanDirectory")
 
@@ -192,7 +231,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		}
 	}()
 
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		// Check for context cancellation
 		select {
 		case <-ctx.Done():
@@ -216,57 +255,20 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			return err
 		}
 
-		rel, _ := filepath.Rel(root, path)
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			if admErr == filepath.SkipDir {
+				logging.WorldDebug("Skipping non-member directory: %s", path)
+				skippedDirs++
+			}
+			return admErr
+		}
+		if !member {
+			return nil
+		}
 
 		if info.IsDir() {
 			name := info.Name()
-
-			// OPTIMIZATION: Explicitly ignore heavy dependency directories
-			// This prevents scanning tens of thousands of irrelevant files.
-			ignoredDirs := map[string]bool{
-				"node_modules": true,
-				"vendor":       true,
-				"dist":         true,
-				"build":        true,
-				".git":         true,
-				".nerd":        true,
-			}
-			if ignoredDirs[name] {
-				logging.WorldDebug("Skipping dependency/build directory: %s", path)
-				skippedDirs++
-				return filepath.SkipDir
-			}
-
-			// "Blind Spot" Fix: Allow specific hidden directories
-			if strings.HasPrefix(name, ".") && name != "." {
-				allowed := map[string]bool{
-					".github":   true,
-					".vscode":   true,
-					".circleci": true,
-					".config":   true,
-					".nerd":     false,
-					".git":      false,
-				}
-
-				if allow, exists := allowed[name]; exists {
-					if !allow {
-						logging.WorldDebug("Skipping excluded directory: %s", path)
-						skippedDirs++
-						return filepath.SkipDir
-					}
-					logging.WorldDebug("Including allowed hidden directory: %s", path)
-					return nil
-				}
-				logging.WorldDebug("Skipping hidden directory: %s", path)
-				skippedDirs++
-				return filepath.SkipDir
-			}
-			// Ignore configured directories/patterns
-			if path != root && isIgnoredRel(rel, name, s.config.IgnorePatterns) {
-				logging.WorldDebug("Skipping ignored directory: %s", path)
-				skippedDirs++
-				return filepath.SkipDir
-			}
 			// OPTIMIZATION: Send to channel instead of locking mutex.
 			// Store workspace-relative path as canonical identity so facts
 			// are portable across machines and don't bake in the scanner's
@@ -278,11 +280,6 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				},
 			}
 			logging.WorldDebug("Indexed directory: %s", path)
-			return nil
-		}
-
-		// Ignore configured files/patterns
-		if isIgnoredRel(rel, info.Name(), s.config.IgnorePatterns) {
 			return nil
 		}
 

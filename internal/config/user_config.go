@@ -1477,6 +1477,7 @@ type BrowserAutomationConfig struct {
 	ViewportWidth       int      `json:"viewport_width,omitempty"`
 	ViewportHeight      int      `json:"viewport_height,omitempty"`
 	NavigationTimeoutMs int      `json:"navigation_timeout_ms,omitempty"`
+	Reaper              BrowserReaperConfig `json:"reaper,omitempty"`
 	MultiTabDefault     *bool    `json:"multi_tab_default,omitempty"`
 	MaxTabs             int      `json:"max_tabs,omitempty"`
 	MaxBrowsers         int      `json:"max_browsers,omitempty"`
@@ -1505,6 +1506,7 @@ func DefaultBrowserAutomationConfig() BrowserAutomationConfig {
 		MultiTabDefault:      &sharedTabs,
 		MaxTabs:              32,
 		MaxBrowsers:          4,
+		Reaper:              DefaultBrowserReaperConfig(),
 		EvidenceEnabled:      boolConfigPointer(true),
 		MaxEvidenceFiles:     16,
 		MaxEvidenceFileBytes: 4 << 20,
@@ -1527,6 +1529,7 @@ func (c *UserConfig) GetBrowserConfig() BrowserAutomationConfig {
 	if cfg.ViewportHeight <= 0 {
 		cfg.ViewportHeight = defaults.ViewportHeight
 	}
+	cfg.Reaper = cfg.Reaper.WithDefaults()
 	if cfg.NavigationTimeoutMs <= 0 {
 		cfg.NavigationTimeoutMs = defaults.NavigationTimeoutMs
 	}

@@ -9,11 +9,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
@@ -69,10 +72,10 @@ func (m *SessionManager) startDefault(ctx context.Context) (string, error) {
 			return "", err
 		}
 		logging.BrowserWarn("Stale browser connection detected, reconnecting")
-		_ = current.Close()
 		m.mu.Lock()
-		if record := m.browsers[currentID]; record != nil && record.cancel != nil {
-			record.cancel()
+		staleBrowsers := make([]*browserRecord, 0, len(m.browsers))
+		for _, record := range m.browsers {
+			staleBrowsers = append(staleBrowsers, record)
 		}
 		for _, session := range m.sessions {
 			if session.streamCancel != nil {
@@ -85,6 +88,11 @@ func (m *SessionManager) startDefault(ctx context.Context) (string, error) {
 		m.sessions = make(map[string]*sessionRecord)
 		m.browsers = make(map[string]*browserRecord)
 		m.mu.Unlock()
+		for _, record := range staleBrowsers {
+			if err := m.closeBrowserResources(record); err != nil {
+				return "", fmt.Errorf("cleanup stale browser: %w", err)
+			}
+		}
 	}
 
 	m.mu.Lock()
@@ -100,13 +108,21 @@ func (m *SessionManager) startDefault(ctx context.Context) (string, error) {
 	}
 	m.mu.Unlock()
 
-	controlURL, err := m.launchControlURL(ctx, true)
+	if !m.orphansScanned {
+		count, reapErr := m.ReapOrphans(ctx)
+		m.orphansScanned = true
+		logging.Browser("Browser startup diagnostics: reaped_orphans=%d", count)
+		if reapErr != nil {
+			logging.BrowserWarn("Browser orphan cleanup incomplete: %v", reapErr)
+		}
+	}
+	controlURL, pid, userDataDir, tempDir, err := m.launchControlURL(ctx, true)
 	if err != nil {
 		return "", err
 	}
 	browser, browserCancel, err := connectBrowser(ctx, controlURL)
 	if err != nil {
-		return "", fmt.Errorf("connect to chrome: %w", err)
+		return "", errors.Join(fmt.Errorf("connect to chrome: %w", err), m.cleanupBrowserProcess(pid, userDataDir, tempDir))
 	}
 
 	id := uuid.NewString()
@@ -119,6 +135,7 @@ func (m *SessionManager) startDefault(ctx context.Context) (string, error) {
 		meta:    BrowserInstance{ID: id, ControlURL: controlURL, Default: true, CreatedAt: now},
 		browser: browser,
 		cancel:  browserCancel,
+		pid:     pid, userDataDir: userDataDir, tempDir: tempDir,
 	}
 	m.startReaperLocked()
 	m.mu.Unlock()
@@ -146,38 +163,80 @@ func connectBrowser(ctx context.Context, controlURL string) (*rod.Browser, conte
 	}
 }
 
-func (m *SessionManager) launchControlURL(ctx context.Context, allowDebugger bool) (string, error) {
+func (m *SessionManager) launchControlURL(ctx context.Context, allowDebugger bool) (string, int, string, bool, error) {
 	if allowDebugger && m.cfg.DebuggerURL != "" {
-		return m.cfg.DebuggerURL, nil
+		return m.cfg.DebuggerURL, 0, "", false, nil
 	}
+	if problems := m.cfg.Reaper.Check("browser.reaper"); len(problems) != 0 {
+		return "", 0, "", false, fmt.Errorf("invalid browser reaper configuration: %v", problems)
+	}
+	launchCtx, cancel := context.WithTimeout(ctx, m.cfg.NavigationTimeout())
+	defer cancel()
+	launch := launcher.New().Context(launchCtx).Leakless(false).Headless(m.cfg.IsHeadless())
+	tempDir := true
 	if len(m.cfg.Launch) > 0 {
-		bin := m.cfg.Launch[0]
-		launch := launcher.New().Context(ctx).Bin(bin).Headless(m.cfg.IsHeadless())
+		launch.Bin(m.cfg.Launch[0])
 		for _, rawFlag := range m.cfg.Launch[1:] {
 			flagText := strings.TrimLeft(rawFlag, "-")
 			name, value, hasValue := strings.Cut(flagText, "=")
+			if name == "user-data-dir" {
+				if !hasValue || value == "" || !filepath.IsAbs(value) {
+					return "", 0, "", false, fmt.Errorf("launch user-data-dir must specify an absolute profile path")
+				}
+				tempDir = false
+			}
 			if hasValue {
 				launch = launch.Set(flags.Flag(name), value)
 			} else {
 				launch = launch.Set(flags.Flag(name))
 			}
 		}
-		controlURL, err := launch.Launch()
-		if err == nil {
-			return controlURL, nil
-		}
-		logging.BrowserWarn("Chrome launch failed, trying configured binary without extra flags: %v", err)
-		fallbackURL, fallbackErr := launcher.New().Context(ctx).Bin(bin).Headless(m.cfg.IsHeadless()).Launch()
-		if fallbackErr != nil {
-			return "", fmt.Errorf("launch chrome: %w (fallback: %v)", err, fallbackErr)
-		}
-		return fallbackURL, nil
 	}
-	controlURL, err := launcher.New().Context(ctx).Headless(m.cfg.IsHeadless()).Launch()
+	if tempDir {
+		root, err := filepath.EvalSymlinks(os.TempDir())
+		if err != nil {
+			return "", 0, "", false, fmt.Errorf("resolve browser temporary root: %w", err)
+		}
+		container := filepath.Join(root, "codenerd", "user-data")
+		// Validate before MkdirAll as well as before deletion: an existing
+		// junction must not redirect profile allocation outside the temp root.
+		if _, err := temporaryProfilePath(filepath.Join(container, uuid.NewString())); err != nil {
+			return "", 0, "", false, err
+		}
+		if err := os.MkdirAll(container, 0o700); err != nil {
+			return "", 0, "", false, err
+		}
+		profile, err := os.MkdirTemp(container, "profile-")
+		if err != nil {
+			return "", 0, "", false, err
+		}
+		launch.UserDataDir(profile)
+		if err := writeTemporaryProfileOwner(profile, 0, true); err != nil {
+			return "", 0, "", false, errors.Join(err, m.cleanupBrowserProcess(0, profile, true))
+		}
+	}
+	// User-provided flags cannot re-enable the quarantined companion helper.
+	launch.Leakless(false)
+	userDataDir := launch.Get(flags.UserDataDir)
+	if !tempDir && isTemporaryUserDataDir(userDataDir) {
+		if err := os.MkdirAll(userDataDir, 0o700); err != nil {
+			return "", 0, "", false, err
+		}
+		if err := writeTemporaryProfileOwner(userDataDir, 0, false); err != nil {
+			return "", 0, "", false, err
+		}
+	}
+	controlURL, err := launch.Launch()
+	pid := launch.PID()
 	if err != nil {
-		return "", fmt.Errorf("no debugger_url and failed to launch: %w", err)
+		return "", 0, "", false, errors.Join(fmt.Errorf("launch Chrome: %w", err), m.cleanupBrowserProcess(pid, userDataDir, tempDir))
 	}
-	return controlURL, nil
+	if isTemporaryUserDataDir(userDataDir) {
+		if err := writeTemporaryProfileOwner(userDataDir, pid, tempDir); err != nil {
+			return "", 0, "", false, errors.Join(err, m.cleanupBrowserProcess(pid, userDataDir, tempDir))
+		}
+	}
+	return controlURL, pid, userDataDir, tempDir, nil
 }
 
 // LaunchAdditional launches and tracks another independent browser process.
@@ -196,26 +255,25 @@ func (m *SessionManager) LaunchAdditional(ctx context.Context) (*BrowserInstance
 		return nil, fmt.Errorf("browser limit reached: %d", m.cfg.GetMaxBrowsers())
 	}
 
-	controlURL, err := m.launchControlURL(ctx, false)
+	controlURL, pid, userDataDir, tempDir, err := m.launchControlURL(ctx, false)
 	if err != nil {
 		return nil, err
 	}
 	browser, browserCancel, err := connectBrowser(ctx, controlURL)
 	if err != nil {
-		return nil, fmt.Errorf("connect additional browser: %w", err)
+		return nil, errors.Join(fmt.Errorf("connect additional browser: %w", err), m.cleanupBrowserProcess(pid, userDataDir, tempDir))
 	}
 
 	record := &browserRecord{
 		meta:    BrowserInstance{ID: uuid.NewString(), ControlURL: controlURL, CreatedAt: time.Now()},
 		browser: browser,
 		cancel:  browserCancel,
+		pid:     pid, userDataDir: userDataDir, tempDir: tempDir,
 	}
 	m.mu.Lock()
 	if len(m.browsers) >= m.cfg.GetMaxBrowsers() {
 		m.mu.Unlock()
-		_ = browser.Close()
-		browserCancel()
-		return nil, fmt.Errorf("browser limit reached: %d", m.cfg.GetMaxBrowsers())
+		return nil, errors.Join(fmt.Errorf("browser limit reached: %d", m.cfg.GetMaxBrowsers()), m.closeBrowserResources(record))
 	}
 	m.browsers[record.meta.ID] = record
 	m.mu.Unlock()
@@ -322,7 +380,7 @@ func (m *SessionManager) CreateTab(ctx context.Context, browserID, url string, i
 		isolatedBrowser = isolatedBrowser.Context(context.Background())
 		pageBrowser = isolatedBrowser
 	}
-	page, err := pageBrowser.Page(proto.TargetCreateTarget{})
+	page, err := pageBrowser.Page(proto.TargetCreateTarget{URL: "about:blank"})
 	if err != nil {
 		if isolatedBrowser != nil {
 			_ = isolatedBrowser.Close()
@@ -336,34 +394,10 @@ func (m *SessionManager) CreateTab(ctx context.Context, browserID, url string, i
 	if url == "" {
 		url = "about:blank"
 	}
-	p := page.Context(ctx).Timeout(m.cfg.NavigationTimeout())
-	if err := p.Navigate(url); err != nil {
-		logging.BrowserWarn("Initial navigation failed for %s: %v", m.SanitizeForEvidence(url), err)
-	} else {
-		// Rod's Navigate returns as soon as Chrome answers Page.navigate; it
-		// does not wait for the new document to load. Chrome swaps the page's
-		// frame for the new document, and Page-domain calls issued in that
-		// window (e.g. captureScreenshot) race the frame swap and fail with
-		// "Not attached to an active page". Wait for load before returning so
-		// an observe right after creation sees the live frame.
-		// The navigation itself was accepted, so a WaitLoad failure only warns.
-		if waitErr := p.WaitLoad(); waitErr != nil {
-			logging.BrowserWarn("Wait for page load failed for %s: %v", m.SanitizeForEvidence(url), waitErr)
-		}
-	}
-	actualURL := url
-	title := ""
-	if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil {
-		if info.URL != "" {
-			actualURL = info.URL
-		}
-		title = info.Title
-	}
-
 	now := time.Now()
 	meta := Session{
 		ID: uuid.NewString(), BrowserID: browserID, TargetID: string(page.TargetID),
-		URL: m.redactor.SanitizeString(actualURL), Title: m.redactor.SanitizeString(title),
+		URL:    "about:blank",
 		Status: "active", Isolated: isolated, CreatedAt: now, LastActive: now,
 	}
 	streamCtx, streamCancel := context.WithCancel(context.Background())
@@ -372,8 +406,56 @@ func (m *SessionManager) CreateTab(ctx context.Context, browserID, url string, i
 	m.sessions[meta.ID] = record
 	m.mu.Unlock()
 	m.startEventStream(streamCtx, meta.ID, page)
+	// Registering the session first lets first-byte events resolve its registry.
+	// The stream implementation must finish subscription setup before returning.
+	p := page.Context(ctx).Timeout(m.cfg.NavigationTimeout())
+	defer p.CancelTimeout()
+	if err := m.markAttendedNavigation(meta.ID); err != nil {
+		streamCancel()
+		m.mu.Lock()
+		delete(m.sessions, meta.ID)
+		m.mu.Unlock()
+		closeErr := m.closeSessionResources(record)
+		m.forgetSessionBudget(meta.ID)
+		return nil, errors.Join(fmt.Errorf("record intentional navigation: %w", err), closeErr)
+	}
+	if err := p.Navigate(url); err != nil {
+		logging.BrowserWarn("Initial navigation failed for %s: %v", m.SanitizeForEvidence(url), err)
+	} else if err := waitDocumentParsed(p); err != nil {
+		streamCancel()
+		m.mu.Lock()
+		delete(m.sessions, meta.ID)
+		m.mu.Unlock()
+		closeErr := m.closeSessionResources(record)
+		m.forgetSessionBudget(meta.ID)
+		return nil, errors.Join(fmt.Errorf("wait for initial document parsing: %w", err), closeErr)
+	}
+	actualURL, title := url, ""
+	if info, infoErr := p.Info(); infoErr == nil && info != nil {
+		if info.URL != "" {
+			actualURL = info.URL
+		}
+		title = info.Title
+	}
+	m.UpdateMetadata(meta.ID, func(session Session) Session {
+		session.URL = m.redactor.SanitizeString(actualURL)
+		session.Title = m.redactor.SanitizeString(title)
+		return session
+	})
+	meta, _ = m.GetSession(meta.ID)
 	_ = m.persistSessions()
 	return &meta, nil
+}
+
+func waitDocumentParsed(page *rod.Page) error {
+	// Do not wait for window.load: a background resource may remain pending
+	// long after the new document is parsed and safe to observe.
+	return page.Wait(rod.Eval(`() => document.readyState === 'interactive' || document.readyState === 'complete'`))
+}
+
+func (m *SessionManager) markAttendedNavigation(sessionID string) error {
+	now := time.Now()
+	return m.addFacts([]mangle.Fact{{Predicate: "attended", Args: []any{sessionID, now.UnixMilli()}, Timestamp: now}})
 }
 
 func setViewport(page *rod.Page, cfg Config) error {
@@ -450,22 +532,26 @@ func (m *SessionManager) CloseSession(_ context.Context, sessionID string) error
 	if record.streamCancel != nil {
 		record.streamCancel()
 	}
-	closeSessionResources(record)
+	closeErr := m.closeSessionResources(record)
 	m.forgetSessionBudget(sessionID)
 	_ = m.persistSessions()
-	return nil
+	return closeErr
 }
 
-func closeSessionResources(record *sessionRecord) {
+func (m *SessionManager) closeSessionResources(record *sessionRecord) error {
 	if record == nil {
-		return
+		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), m.cfg.Reaper.Timeout())
+	defer cancel()
+	var result error
 	if record.page != nil {
-		_ = record.page.Close()
+		result = errors.Join(result, record.page.Context(ctx).Close())
 	}
 	if record.isolated != nil {
-		_ = record.isolated.Close()
+		result = errors.Join(result, record.isolated.Context(ctx).Close())
 	}
+	return result
 }
 
 // CloseBrowser closes a managed browser and every tab attached to it.
@@ -491,23 +577,26 @@ func (m *SessionManager) CloseBrowser(_ context.Context, browserID string) error
 	}
 	m.mu.Unlock()
 
+	var result error
 	for _, session := range sessions {
 		if session.streamCancel != nil {
 			session.streamCancel()
 		}
-		closeSessionResources(session)
+		result = errors.Join(result, m.closeSessionResources(session))
 	}
-	if record.browser != nil {
-		err := record.browser.Close()
-		if record.cancel != nil {
-			record.cancel()
-		}
-		return err
+	return errors.Join(result, m.closeBrowserResources(record))
+}
+
+func (m *SessionManager) closeBrowserResources(record *browserRecord) error {
+	if record == nil {
+		return nil
 	}
 	if record.cancel != nil {
 		record.cancel()
 	}
-	return nil
+	// An attached debugger is a connection, not an owned process. Sending
+	// Browser.close there would terminate the user's own Chrome.
+	return m.cleanupBrowserProcess(record.pid, record.userDataDir, record.tempDir)
 }
 
 func (m *SessionManager) promoteDefaultLocked() {
@@ -544,21 +633,17 @@ func (m *SessionManager) shutdown(_ context.Context) error {
 	for _, session := range m.sessions {
 		sessions = append(sessions, session)
 	}
-	type managedBrowser struct {
-		browser *rod.Browser
-		cancel  context.CancelFunc
-	}
-	browsers := make([]managedBrowser, 0, len(m.browsers)+1)
+	browsers := make([]*browserRecord, 0, len(m.browsers)+1)
 	seen := make(map[*rod.Browser]struct{})
 	for _, record := range m.browsers {
+		browsers = append(browsers, record)
 		if record.browser != nil {
 			seen[record.browser] = struct{}{}
-			browsers = append(browsers, managedBrowser{browser: record.browser, cancel: record.cancel})
 		}
 	}
 	if m.browser != nil {
 		if _, ok := seen[m.browser]; !ok {
-			browsers = append(browsers, managedBrowser{browser: m.browser})
+			browsers = append(browsers, &browserRecord{browser: m.browser})
 		}
 	}
 	m.sessions = make(map[string]*sessionRecord)
@@ -569,19 +654,16 @@ func (m *SessionManager) shutdown(_ context.Context) error {
 	m.controlURL = ""
 	m.mu.Unlock()
 
+	var result error
 	for _, session := range sessions {
 		if session.streamCancel != nil {
 			session.streamCancel()
 		}
-		closeSessionResources(session)
+		result = errors.Join(result, m.closeSessionResources(session))
 	}
-	var result error
 	for _, managed := range browsers {
-		if err := managed.browser.Close(); err != nil {
+		if err := m.closeBrowserResources(managed); err != nil {
 			result = errors.Join(result, err)
-		}
-		if managed.cancel != nil {
-			managed.cancel()
 		}
 	}
 	return result

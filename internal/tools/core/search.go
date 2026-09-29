@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/observation"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
+	"codenerd/internal/workspace"
 )
 
 // argInt extracts an integer tool argument, tolerating the numeric types that
@@ -48,6 +49,23 @@ func searchBase(ctx context.Context, raw string) (string, error) {
 // workspace turns a contained walk into an arbitrary read.
 func skipUncontained(info os.FileInfo) bool {
 	return info != nil && info.Mode()&os.ModeSymlink != 0
+}
+
+// workspaceMembership is the member set for a tool walk. root is the
+// workspace, not the subdirectory a tool was pointed at, so a pattern
+// anchored at the workspace root still applies.
+func workspaceMembership(root string) (*workspace.Membership, error) {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	m, err := workspace.For(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Refresh(); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // GlobTool returns a tool for finding files matching a pattern.
@@ -102,6 +120,15 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 
 	logging.ToolsDebug("glob: pattern=%s, base=%s", pattern, basePath)
 
+	memRoot, rootErr := tools.WorkspaceRoot(ctx)
+	if rootErr != nil || strings.TrimSpace(memRoot) == "" {
+		memRoot = basePath
+	}
+	mem, err := workspaceMembership(memRoot)
+	if err != nil {
+		return "", err
+	}
+
 	var matches []string
 
 	// Handle ** patterns (recursive)
@@ -125,7 +152,7 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 			searchPath = resolved
 		}
 
-		err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
+		err = filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil // Skip errors
 			}
@@ -141,7 +168,11 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 				return nil
 			}
 
-			if info.IsDir() {
+			member, admErr := mem.Admit(path, info.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member || info.IsDir() {
 				return nil
 			}
 
@@ -184,6 +215,14 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 			// instead of failing the whole call: a wildcard that happens to
 			// straddle the boundary should return what it may return.
 			if _, err := tools.ResolveWorkspacePath(ctx, basePath, m); err != nil {
+				continue
+			}
+			info, statErr := os.Lstat(m)
+			if statErr != nil || skipUncontained(info) {
+				continue
+			}
+			ok, admErr := mem.Admit(m, info.IsDir())
+			if admErr != nil || !ok {
 				continue
 			}
 			relPath, _ := filepath.Rel(basePath, m)
@@ -351,6 +390,15 @@ func parseContentSearch(ctx context.Context, args map[string]any, defaultMaxResu
 
 // run walks the contained root and returns the matches, capped.
 func (s contentSearch) run() ([]GrepMatch, error) {
+	memRoot := s.root
+	if strings.TrimSpace(memRoot) == "" {
+		memRoot = s.path
+	}
+	mem, err := workspaceMembership(memRoot)
+	if err != nil {
+		return nil, err
+	}
+
 	var files []string
 	info, err := os.Stat(s.path)
 	if err != nil {
@@ -370,16 +418,11 @@ func (s contentSearch) run() ([]GrepMatch, error) {
 				return nil
 			}
 
-			if info.IsDir() {
-				// Skip hidden and common excluded directories
-				name := info.Name()
-				if strings.HasPrefix(name, ".") {
-					if p != s.path {
-						return filepath.SkipDir
-					}
-				} else if name == "node_modules" || name == "vendor" {
-					return filepath.SkipDir
-				}
+			member, admErr := mem.Admit(p, info.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member || info.IsDir() {
 				return nil
 			}
 
@@ -406,6 +449,12 @@ func (s contentSearch) run() ([]GrepMatch, error) {
 			return nil, fmt.Errorf("failed to walk directory: %w", walkErr)
 		}
 	} else {
+		// A path that is not a member is zero matches, not an error: the
+		// caller asked a question the workspace has already declined to answer.
+		ok, admErr := mem.Admit(s.path, false)
+		if admErr != nil || !ok {
+			return nil, nil
+		}
 		if tools.IsSecretPath(s.path) {
 			return nil, fmt.Errorf("%s is a secret file (execution.secret_paths); its contents are never searched", s.path)
 		}

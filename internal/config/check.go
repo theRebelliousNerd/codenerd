@@ -339,13 +339,12 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	}
 
 	// --- research ---
-	if c.Research != nil {
-		out = append(out, c.Research.Check("research")...)
+	if c.Browser != nil {
+		out = append(out, c.Browser.Reaper.Check("browser.reaper")...)
 	}
 
-	// --- observation ---
-	if c.Observation != nil {
-		out = append(out, c.Observation.Check("observation")...)
+	if c.Research != nil {
+		out = append(out, c.Research.Check("research")...)
 	}
 
 	// --- meta ---
@@ -358,6 +357,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	// --- integrations ---
 	if c.Integrations != nil {
 		out = append(out, c.Integrations.Check("integrations")...)
+	}
+
+	// --- observation ---
+	if c.Observation != nil {
+		out = append(out, c.Observation.Check("observation")...)
 	}
 
 	// --- jit ---

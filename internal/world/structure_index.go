@@ -18,15 +18,16 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
+	"codenerd/internal/workspace"
 	"codenerd/internal/world/codemodel"
 )
 
 // =============================================================================
 // STRUCTURE INDEX
 // =============================================================================
-// The workspace-wide, symbol-level layer of the world model: every Go
-// declaration and Mangle statement with its line span and revision, and every
-// Go call site with its line.
+// The workspace-wide, symbol-level layer of the world model: every Go,
+// Python, TypeScript, TSX and JavaScript declaration and every Mangle
+// statement with its line span and revision, and every call site with its line.
 //
 // Why it exists. The deep facts the Cartographer produces (code_defines,
 // code_calls) are computed for the active file and its one-hop neighbours, so
@@ -83,6 +84,15 @@ type StructCall struct {
 	Qualifier string `json:"-"` // identifier before the dot, empty for a bare call
 	Name      string `json:"-"`
 	callerKey string
+	// The fields below are filled for Python, TypeScript and JavaScript,
+	// where a call is resolved in its scope. Go leaves them zero and matches
+	// calls by package instead. They stay out of the tool JSON.
+	Bound      bool   `json:"-"`
+	Local      bool   `json:"-"`
+	TargetFile string `json:"-"`
+	TargetName string `json:"-"`
+	TargetRecv string `json:"-"`
+	JSX        bool   `json:"-"`
 }
 
 // StructCallerMatch is a call site reported for a target symbol.
@@ -111,8 +121,8 @@ type structFile struct {
 	lastGood []StructSymbol
 }
 
-// StructureIndex holds the parsed structure of every Go and Mangle file under
-// a root.
+// StructureIndex holds the parsed structure of every Go, Mangle, Python,
+// TypeScript and JavaScript file under a root.
 type StructureIndex struct {
 	root string
 
@@ -163,7 +173,15 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 	var stale []candidate
 	seen := make(map[string]struct{}, len(s.files))
 
-	err := filepath.WalkDir(s.root, func(path string, d fs.DirEntry, walkErr error) error {
+	mem, err := workspace.For(s.root)
+	if err != nil {
+		return StructureStats{}, err
+	}
+	if err := mem.Refresh(); err != nil {
+		return StructureStats{}, err
+	}
+
+	err = filepath.WalkDir(s.root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil // an unreadable directory is skipped, not fatal
 		}
@@ -171,10 +189,14 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 			return err
 		}
 		name := d.Name()
+		member, admErr := mem.Admit(path, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member {
+			return nil
+		}
 		if d.IsDir() {
-			if path != s.root && codemodel.SkipDir(name) {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 		if codemodel.LanguageOf(name) == "" {
@@ -285,13 +307,14 @@ func (s *StructureIndex) refreshModuleLocked() {
 	}
 }
 
-// assignRefsLocked gives every symbol its workspace ref. A Go ref is its
-// directory and key; two files of one directory declaring the same key (build
-// tag twins, an init per file) get the file name as a discriminator.
+// assignRefsLocked gives every symbol its workspace ref. A Go, Python,
+// TypeScript or JavaScript ref is its directory and key; two files of one
+// directory declaring the same key (build tag twins, an init per file) get
+// the file name as a discriminator. Mangle stays file-and-key.
 func (s *StructureIndex) assignRefsLocked() {
 	counts := make(map[string]int)
 	for _, f := range s.files {
-		if f.lang != codemodel.LangGo {
+		if !dirRefs(f.lang) {
 			continue
 		}
 		for _, sym := range f.symbols {
@@ -309,7 +332,7 @@ func (s *StructureIndex) assignRefsLocked() {
 }
 
 func refFor(f *structFile, canonical, key string, ambiguous bool) string {
-	if f.lang != codemodel.LangGo {
+	if !dirRefs(f.lang) || fileScopedKey(key) {
 		return canonical + ":" + key
 	}
 	ref := dirRefPrefix(f.dir) + key
@@ -317,6 +340,18 @@ func refFor(f *structFile, canonical, key string, ambiguous bool) string {
 		ref += "@" + filepath.Base(canonical)
 	}
 	return ref
+}
+
+// dirRefs reports a language whose refs are directory-and-key, the way Go's are.
+func dirRefs(lang string) bool {
+	return lang == codemodel.LangGo || codemodel.IsScriptLang(lang)
+}
+
+// fileScopedKey is a pseudo-element the directory ref grammar does not name.
+// A header and a broken region stay "file:key" in every language.
+func fileScopedKey(key string) bool {
+	return key == codemodel.HeaderKey || key == string(codemodel.KindSyntaxError) ||
+		strings.HasPrefix(key, string(codemodel.KindSyntaxError)+"#")
 }
 
 // dirRefPrefix is the directory part of a Go ref: "internal/world." for a
@@ -340,6 +375,10 @@ func parseStructFile(fsPath, canonical, fingerprint string) *structFile {
 		dir:         filepath.ToSlash(filepath.Dir(canonical)),
 		importNames: make(map[string]string),
 		idents:      make(map[string]int),
+	}
+	if codemodel.IsScriptLang(f.lang) {
+		indexScriptFile(f, fsPath, canonical, string(data))
+		return f
 	}
 	if f.lang == codemodel.LangMangle {
 		model := codemodel.ParseMangle(canonical, string(data))
@@ -427,13 +466,109 @@ func symbolFromElement(e *codemodel.Element, canonical, pkg, dir, lang string) S
 	if e.Kind == codemodel.KindSyntaxError {
 		sym.Doc = e.Err
 	}
-	if lang == codemodel.LangGo {
+	if lang == codemodel.LangGo || codemodel.IsScriptLang(lang) {
 		sym.ID = pkg + "." + e.Name
 		if e.Receiver != "" {
 			sym.ID = pkg + "." + e.Receiver + "." + e.Name
 		}
 	}
+	// A component or a hook stays a function in the element model. The index
+	// shows the role, which is the kind the tools print and filter on.
+	if e.Role == "component" || e.Role == "hook" {
+		sym.Kind = e.Role
+	}
 	return sym
+}
+
+// indexScriptFile fills one Python, TypeScript or JavaScript file from the
+// element model. Imports are resolved against the file's real directory, and
+// a call is owned by the innermost declaration whose lines hold it: a method
+// sits inside its class, and the call belongs to the method.
+func indexScriptFile(f *structFile, fsPath, canonical, src string) {
+	root := workspaceRootOf(fsPath, canonical)
+	model, ok := codemodel.ParseRoot(canonical, fsPath, root, src)
+	if !ok || model == nil {
+		f.parsed = false
+		f.errors = append(f.errors, "no element model for "+canonical)
+		return
+	}
+	f.pkg = strings.TrimSuffix(filepath.Base(canonical), filepath.Ext(canonical))
+	f.parsed = model.Parsed
+	for _, se := range model.Errors {
+		f.errors = append(f.errors, fmt.Sprintf("line %d:%d: %s", se.Line, se.Column, se.Msg))
+	}
+	f.imports = model.Imports
+	for _, imp := range model.Imports {
+		path := imp.Path
+		if len(imp.Imported) == 0 {
+			if name := imp.LocalName(); name != "" {
+				f.importNames[name] = path
+			}
+			continue
+		}
+		for _, n := range imp.Imported {
+			if n.Local != "" {
+				f.importNames[n.Local] = path
+			}
+		}
+	}
+	if model.Idents != nil {
+		f.idents = model.Idents
+	}
+	for i := range model.Elements {
+		e := &model.Elements[i]
+		if e.Kind == codemodel.KindHeader {
+			continue
+		}
+		f.symbols = append(f.symbols, symbolFromElement(e, canonical, f.pkg, f.dir, f.lang))
+	}
+	owner := func(l int) (id, key string) {
+		bestSpan := int(^uint(0) >> 1)
+		var best *StructSymbol
+		for i := range f.symbols {
+			sym := &f.symbols[i]
+			if l < sym.StartLine || l > sym.EndLine || sym.Kind == string(codemodel.KindSyntaxError) {
+				continue
+			}
+			span := sym.EndLine - sym.StartLine
+			if span < bestSpan {
+				best = sym
+				bestSpan = span
+			}
+		}
+		if best == nil {
+			return f.pkg + ".init", ""
+		}
+		return best.ID, best.Key
+	}
+	for _, c := range model.Calls {
+		id, key := owner(c.Line)
+		f.calls = append(f.calls, StructCall{
+			Caller: id, callerKey: key, File: canonical, Line: c.Line,
+			Qualifier: c.Qualifier, Name: c.Name,
+			Bound: c.Bound, Local: c.Local, JSX: c.JSX,
+			TargetFile: c.TargetFile, TargetName: c.TargetName, TargetRecv: c.TargetRecv,
+		})
+	}
+}
+
+// workspaceRootOf recovers the workspace root from an absolute file path and
+// the canonical identity the walk stored, so import resolution does not depend
+// on the process working directory. The canonical path is a suffix of the
+// absolute path, with a separator before it.
+func workspaceRootOf(fsPath, canonical string) string {
+	abs := filepath.Clean(fsPath)
+	suffix := filepath.Clean(filepath.FromSlash(canonical))
+	if suffix == "" || suffix == "." {
+		return abs
+	}
+	if len(abs) <= len(suffix) || !strings.EqualFold(abs[len(abs)-len(suffix):], suffix) {
+		return ""
+	}
+	if abs[len(abs)-len(suffix)-1] != os.PathSeparator {
+		return ""
+	}
+	return abs[:len(abs)-len(suffix)-1]
 }
 
 // matchSymbol says whether a query names this symbol. A query is a ref as
@@ -548,8 +683,9 @@ func (s *StructureIndex) target(path string) string {
 	return target
 }
 
-// Outline returns every declaration in a file, or in the Go files directly
-// inside a directory, in file and line order.
+// Outline returns every declaration in a file, or in the Go, Python,
+// TypeScript and JavaScript files directly inside a directory, in file and
+// line order.
 func (s *StructureIndex) Outline(ctx context.Context, path string) ([]StructSymbol, StructureStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -560,7 +696,7 @@ func (s *StructureIndex) Outline(ctx context.Context, path string) ([]StructSymb
 	target := s.target(path)
 	var out []StructSymbol
 	for canonical, f := range s.files {
-		if filepath.ToSlash(canonical) == target || (f.lang == codemodel.LangGo && strings.Trim(f.dir, "/.") == target) {
+		if filepath.ToSlash(canonical) == target || (dirRefs(f.lang) && strings.Trim(f.dir, "/.") == target) {
 			out = append(out, f.symbols...)
 		}
 	}
@@ -610,7 +746,7 @@ func (s *StructureIndex) resolveAnyLocked(query string) []StructSymbol {
 func (s *StructureIndex) resolveLocked(query string) []StructSymbol {
 	var targets []StructSymbol
 	for _, sym := range s.resolveAnyLocked(query) {
-		if sym.Kind == "function" || sym.Kind == "method" {
+		if callableKind(sym.Kind) {
 			targets = append(targets, sym)
 		}
 	}
@@ -650,12 +786,33 @@ func (s *StructureIndex) Callers(ctx context.Context, query string) ([]StructSym
 	var out []StructCallerMatch
 	for _, f := range s.files {
 		for _, call := range f.calls {
-			candidates, ok := names[call.Name]
-			if !ok {
+			candidates := names[call.Name]
+			if codemodel.IsScriptLang(f.lang) && call.Bound && call.TargetName != "" && call.TargetName != call.Name {
+				// An aliased import calls the local spelling (`ua()`) but
+				// names the remote (`useAuth`). Both candidate lists are tried;
+				// a bound call still matches only its resolved target.
+				extra := names[call.TargetName]
+				merged := make([]StructSymbol, 0, len(candidates)+len(extra))
+				merged = append(merged, candidates...)
+				merged = append(merged, extra...)
+				candidates = merged
+			}
+			if len(candidates) == 0 {
 				continue
 			}
 			match := ""
 			for _, t := range candidates {
+				if codemodel.IsScriptLang(f.lang) {
+					m := scriptCallMatch(call, t)
+					if m == "exact" {
+						match = "exact"
+						break
+					}
+					if m == "by-name" && match == "" {
+						match = m
+					}
+					continue
+				}
 				switch {
 				case call.Qualifier == "" && t.receiver == "" && t.dir == f.dir:
 					match = "exact"
@@ -712,7 +869,7 @@ func (s *StructureIndex) Callees(ctx context.Context, query string) ([]StructSym
 	byName := make(map[string][]StructSymbol)
 	for _, f := range s.files {
 		for _, sym := range f.symbols {
-			if sym.Kind == "function" || sym.Kind == "method" {
+			if callableKind(sym.Kind) {
 				byName[sym.name] = append(byName[sym.name], sym)
 			}
 		}
@@ -732,12 +889,16 @@ func (s *StructureIndex) Callees(ctx context.Context, query string) ([]StructSym
 				label = call.Qualifier + "." + call.Name
 			}
 			callee := StructCallee{Call: label, Line: call.Line}
-			for _, c := range byName[call.Name] {
-				local := call.Qualifier == "" && c.receiver == "" && c.dir == f.dir
-				imported := call.Qualifier != "" && c.receiver == "" && strings.HasSuffix(f.importNames[call.Qualifier], "/"+c.dir)
-				method := call.Qualifier != "" && c.receiver != "" && f.importNames[call.Qualifier] == ""
-				if local || imported || method {
-					callee.Candidates = append(callee.Candidates, fmt.Sprintf("%s @ %s:%d", c.Ref, c.File, c.StartLine))
+			if codemodel.IsScriptLang(f.lang) {
+				callee.Candidates = scriptCalleeCandidates(call, byName)
+			} else {
+				for _, c := range byName[call.Name] {
+					local := call.Qualifier == "" && c.receiver == "" && c.dir == f.dir
+					imported := call.Qualifier != "" && c.receiver == "" && strings.HasSuffix(f.importNames[call.Qualifier], "/"+c.dir)
+					method := call.Qualifier != "" && c.receiver != "" && f.importNames[call.Qualifier] == ""
+					if local || imported || method {
+						callee.Candidates = append(callee.Candidates, fmt.Sprintf("%s @ %s:%d", c.Ref, c.File, c.StartLine))
+					}
 				}
 			}
 			// The candidates are returned whole. callees_of pages the rendered
@@ -751,11 +912,12 @@ func (s *StructureIndex) Callees(ctx context.Context, query string) ([]StructSym
 	return targets, out, stats, nil
 }
 
-// Unreferenced returns the declarations under a path whose name occurs
-// nowhere in the tree except at its own declaration. It is conservative on
-// purpose: a name used anywhere, as a call, a value or a field, counts as a
-// reference, so everything it returns is unreferenced by name. Entry points the
-// toolchain calls (main, init, Test*, Benchmark*, Example*, Fuzz*) are left out.
+// Unreferenced returns the Go, Python, TypeScript and JavaScript declarations
+// under a path whose name occurs nowhere in the tree except at its own
+// declaration. It is conservative on purpose: a name used anywhere, as a call,
+// a value or a field, counts as a reference, so everything it returns is
+// unreferenced by name. Entry points the toolchain calls (main, init, Test*,
+// Benchmark*, Example*, Fuzz*) are left out, as are Python dunder names.
 func (s *StructureIndex) Unreferenced(ctx context.Context, path string) ([]StructSymbol, StructureStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -770,7 +932,7 @@ func (s *StructureIndex) Unreferenced(ctx context.Context, path string) ([]Struc
 			uses[name] += n
 		}
 		for _, sym := range f.symbols {
-			if sym.lang == codemodel.LangGo {
+			if sym.lang == codemodel.LangGo || codemodel.IsScriptLang(sym.lang) {
 				decls[sym.name]++
 			}
 		}
@@ -778,11 +940,11 @@ func (s *StructureIndex) Unreferenced(ctx context.Context, path string) ([]Struc
 	scope := s.scopeLocked(path)
 	var out []StructSymbol
 	for canonical, f := range s.files {
-		if f.lang != codemodel.LangGo || !scope(canonical, f) {
+		if (f.lang != codemodel.LangGo && !codemodel.IsScriptLang(f.lang)) || !scope(canonical, f) {
 			continue
 		}
 		for _, sym := range f.symbols {
-			if sym.name == "_" || sym.Kind == string(codemodel.KindSyntaxError) || isToolchainEntryPoint(sym.name) || uses[sym.name] > decls[sym.name] {
+			if sym.name == "_" || sym.Kind == string(codemodel.KindSyntaxError) || isToolchainEntryPoint(sym.name) || pythonDunder(sym) || uses[sym.name] > decls[sym.name] {
 				continue
 			}
 			out = append(out, sym)
@@ -790,6 +952,69 @@ func (s *StructureIndex) Unreferenced(ctx context.Context, path string) ([]Struc
 	}
 	sortSymbols(out)
 	return out, stats, nil
+}
+
+// callableKind is a declaration callers_of and callees_of will resolve.
+// A hook or a component is still a function; the index stores the role as
+// its kind so a query for the thing the tools printed finds it.
+func callableKind(kind string) bool {
+	switch kind {
+	case "function", "method", "hook", "component":
+		return true
+	}
+	return false
+}
+
+// scriptCallMatch ties a scoped call to one target. A bound call matches only
+// the declaration scope resolution named, so an external module and a
+// same-spelled local do not fall through onto every method of that name. An
+// unbound qualifier is by-name, the same idea as a Go call through a value.
+func scriptCallMatch(call StructCall, t StructSymbol) string {
+	if call.Local {
+		return ""
+	}
+	if call.Bound {
+		if call.TargetFile != "" && call.TargetFile == t.File && call.TargetName == t.name && call.TargetRecv == t.receiver {
+			return "exact"
+		}
+		return ""
+	}
+	if call.Qualifier != "" && t.receiver != "" && call.Name == t.name {
+		return "by-name"
+	}
+	return ""
+}
+
+func scriptCalleeCandidates(call StructCall, byName map[string][]StructSymbol) []string {
+	if call.Local {
+		return nil
+	}
+	var out []string
+	add := func(c StructSymbol) {
+		out = append(out, fmt.Sprintf("%s @ %s:%d", c.Ref, c.File, c.StartLine))
+	}
+	if call.Bound && call.TargetName != "" {
+		for _, c := range byName[call.TargetName] {
+			if call.TargetFile != "" && c.File == call.TargetFile && c.name == call.TargetName && c.receiver == call.TargetRecv {
+				add(c)
+			}
+		}
+		return out
+	}
+	if call.Qualifier != "" {
+		for _, c := range byName[call.Name] {
+			if c.receiver != "" {
+				add(c)
+			}
+		}
+	}
+	return out
+}
+
+// pythonDunder is a Python special method (__init__, __all__). The language
+// calls it; a name count of one does not make it dead code.
+func pythonDunder(sym StructSymbol) bool {
+	return sym.lang == codemodel.LangPython && len(sym.name) > 4 && strings.HasPrefix(sym.name, "__") && strings.HasSuffix(sym.name, "__")
 }
 
 func isToolchainEntryPoint(name string) bool {

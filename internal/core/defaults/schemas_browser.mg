@@ -107,3 +107,8 @@ Decl audit_needle(SessionID, Needle) bound [/string, /string].
 Decl audit_source(SessionID, Subject, Path, Line) bound [/string, /string, /string, /number].
 Decl audit_hazard(SessionID, Subject) bound [/string, /string].
 
+
+# attended(Session, Ms): the last time a caller observed or acted on a session. The
+# lifecycle asserts it (internal/browser/session_lifecycle.go); the BrowserNERD 1.2 port
+# derives unattended navigation from it (Docs/architecture/browser/14-BROWSERNERD-1.2-PORT-SPEC.md).
+Decl attended(SessionID, Timestamp) bound [/string, /number].

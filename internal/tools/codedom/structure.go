@@ -239,7 +239,7 @@ func FindSymbolTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "find_symbol",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral, tools.CategoryResearch},
-		Description: "Find declarations anywhere in the workspace -- Go functions, methods, types, consts, vars and Mangle predicates -- with file, line span, kind, ref, rev, signature and doc line. " +
+		Description: "Find declarations anywhere in the workspace -- Go, Python, TypeScript and JavaScript functions, methods, classes, components and hooks, and Mangle predicates -- with file, line span, kind, ref, rev, signature and doc line. " +
 			"Ask for one or several names at once (name: \"A|B|C\"), a regular expression over the name (pattern), and narrow by kind and path. Use this instead of grep to locate code.",
 		Category: tools.CategoryCode,
 		Priority: 95,
@@ -250,7 +250,7 @@ func FindSymbolTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"name":    {Type: "string", Description: symbolQueryHelp + " Several names separated by | are looked up together."},
 				"pattern": {Type: "string", Description: "Regular expression over the declared name, e.g. ^Test(Parse|Load) or Provider$"},
-				"kind":    {Type: "string", Description: "Optional filter: function, method, struct, interface, type, const, var, decl, rule, fact"},
+				"kind":    {Type: "string", Description: "Optional filter: function, method, hook, component, class, struct, interface, type, enum, namespace, const, var, decl, rule, fact"},
 				"path":    {Type: "string", Description: "Optional workspace-relative directory (searched recursively) or file to search within"},
 				"offset":  {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
 			},
@@ -303,7 +303,7 @@ func PackageOutlineTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "package_outline",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral, tools.CategoryResearch},
-		Description:   "List every declaration in a Go package directory (or one Go or Mangle file) with file, line span, kind, ref, rev, signature and doc line, in file and line order. Use this instead of list_files plus read_file to learn what a package contains.",
+		Description:   "List every declaration in a directory (the Go, Python, TypeScript and JavaScript files directly in it) or in one file, with file, line span, kind, ref, rev, signature and doc line, in file and line order. Use this instead of list_files plus read_file to learn what a package contains.",
 		Category:      tools.CategoryCode,
 		Priority:      94,
 		Effect:        tools.EffectRead,
@@ -333,7 +333,7 @@ func executePackageOutline(ctx context.Context, args map[string]any) (string, er
 	}
 	logging.Tools("package_outline: %s -> %d declarations", path, len(symbols))
 	return renderPage(symbolRows(symbols), pageArgs(args), fmt.Sprintf("declarations in %s:", path), index,
-		"none. The path holds no Go or Mangle file the index parsed; it is workspace-relative and a directory is not searched recursively."), nil
+		"none. The path holds no Go, Mangle, Python, TypeScript or JavaScript file the index parsed; it is workspace-relative and a directory is not searched recursively."), nil
 }
 
 // CallersOfTool lists the call sites of a function or method.
@@ -341,7 +341,7 @@ func CallersOfTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "callers_of",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral, tools.CategoryResearch},
-		Description:   "List every call site of a Go function or method across the workspace: calling element, file and line. Sites marked exact are tied to the target by package; sites marked by-name are calls through a variable to a method of that name. Use this instead of grep to find who calls something, or to establish that nothing does.",
+		Description:   "List every call site of a function, method, hook or component across the workspace: calling element, file and line. Sites marked exact are tied to the target by package (Go) or by scope (Python, TypeScript, JavaScript), and a JSX element is a use of its component. Sites marked by-name are calls through a value to a method of that name. Use this instead of grep to find who calls something, or to establish that nothing does.",
 		Category:      tools.CategoryCode,
 		Priority:      93,
 		Effect:        tools.EffectRead,
@@ -392,7 +392,7 @@ func CalleesOfTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "callees_of",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral, tools.CategoryResearch},
-		Description:   "List every call made inside a Go function or method, in line order, each with the workspace declarations it can refer to (file and line). Use this to follow a code path without reading each file.",
+		Description:   "List every call made inside a function, method, hook or component, in line order, each with the workspace declarations it can refer to (file and line). A JSX element is a call of its component. Use this to follow a code path without reading each file.",
 		Category:      tools.CategoryCode,
 		Priority:      92,
 		Effect:        tools.EffectRead,
@@ -446,7 +446,7 @@ func UnreferencedSymbolsTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "unreferenced_symbols",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral, tools.CategoryResearch},
-		Description:   "List the Go declarations under a directory whose name occurs nowhere else in the workspace: code that exists and nothing uses. Conservative: any use of the name anywhere counts as a reference, so every row is a real orphan by name; methods may still satisfy an interface. Use this to answer what is built but not wired.",
+		Description:   "List the Go, Python, TypeScript and JavaScript declarations under a directory whose name occurs nowhere else in the workspace: code that exists and nothing uses. Conservative: any use of the name anywhere counts as a reference, so every row is a real orphan by name; methods may still satisfy an interface. Use this to answer what is built but not wired.",
 		Category:      tools.CategoryCode,
 		Priority:      91,
 		Effect:        tools.EffectRead,

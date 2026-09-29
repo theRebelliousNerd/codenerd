@@ -10,14 +10,9 @@ import (
 	"codenerd/internal/tools"
 )
 
-// TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible verifies the fix for
-// the "." walk-root bug. The walk callback previously skipped any directory
-// whose name starts with ".", and filepath.Walk invokes the callback for the
-// root itself first with info.Name() == ".". When path defaults to "." that
-// aborted the entire walk before any file was visited, making every default-
-// path search return zero matches. The fix gates the hidden-directory skip on
-// p != path so that "." and "./" walk normally while nested dot-directories
-// such as .git and .nerd are still skipped.
+// TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible verifies a default
+// path of "." still walks the workspace. Dot directories are members;
+// node_modules is a default exclusion and must not be searched.
 func TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible(t *testing.T) {
 	// Do not run in parallel: this test pins process-global state.
 	tmpDir := t.TempDir()
@@ -27,6 +22,7 @@ func TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible(t *testing.T) {
 	// package directory legitimately match this file itself.
 	visibleToken := "UNIQUE_VISIBLE_" + "TOKEN_abc123_789"
 	hiddenToken := "UNIQUE_HIDDEN_" + "TOKEN_xyz789_012"
+	depToken := "UNIQUE_DEP_" + "TOKEN_dep000_456"
 
 	visibleFile := filepath.Join(tmpDir, "visible.txt")
 	if err := os.WriteFile(visibleFile, []byte("hello "+visibleToken+" world\n"), 0600); err != nil {
@@ -40,6 +36,13 @@ func TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible(t *testing.T) {
 	hiddenFile := filepath.Join(hiddenDir, "hidden.txt")
 	if err := os.WriteFile(hiddenFile, []byte("secret "+hiddenToken+" inside hidden\n"), 0600); err != nil {
 		t.Fatalf("write hidden file: %v", err)
+	}
+	depDir := filepath.Join(tmpDir, "node_modules")
+	if err := os.Mkdir(depDir, 0755); err != nil {
+		t.Fatalf("mkdir node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "lib.txt"), []byte(depToken+"\n"), 0600); err != nil {
+		t.Fatalf("write dep file: %v", err)
 	}
 
 	// Pin the default search root to the temp workspace regardless of test
@@ -64,22 +67,23 @@ func TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible(t *testing.T) {
 	if !strings.Contains(resultVisible, visibleToken) {
 		t.Errorf("expected visible token %q to be found via default path, got %q", visibleToken, resultVisible)
 	}
-	if strings.Contains(resultVisible, ".hidden") {
-		t.Errorf("visible search should not return hidden path, got %q", resultVisible)
-	}
-
-	// Search with NO path argument for the hidden token.
-	// Must NOT be found because .hidden is skipped.
 	resultHidden, err := executeGrep(ctx, map[string]any{
 		"pattern": hiddenToken,
 	})
 	if err != nil {
 		t.Fatalf("executeGrep hidden (default path): %v", err)
 	}
-	if !strings.Contains(resultHidden, "No matches found") {
-		t.Errorf("expected hidden token NOT to be found (hidden dir should be skipped), got %q", resultHidden)
+	if !strings.Contains(resultHidden, hiddenToken) {
+		t.Errorf("expected .hidden token to be found, got %q", resultHidden)
 	}
-	if strings.Contains(resultHidden, ".hidden") || strings.Contains(resultHidden, "hidden.txt") {
-		t.Errorf("hidden dir should be skipped, got %q", resultHidden)
+
+	resultDep, err := executeGrep(ctx, map[string]any{
+		"pattern": depToken,
+	})
+	if err != nil {
+		t.Fatalf("executeGrep node_modules (default path): %v", err)
+	}
+	if !strings.Contains(resultDep, "No matches found") {
+		t.Errorf("expected node_modules token NOT to be found, got %q", resultDep)
 	}
 }

@@ -34,3 +34,6 @@
 - Native browser `specs` config is a nested bounded catalog. Preserve enabled
   pointer semantics and workspace-only roots; configuration must not grant
   arbitrary filesystem read authority.
+- `browser.reaper` bounds individual inspection/cleanup requests. Keep defaults
+  and validation in BrowserReaperConfig, and carry it through every native browser
+  configuration adapter; neither field is an agent-run timeout.

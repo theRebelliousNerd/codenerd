@@ -21,7 +21,7 @@ func ImportersOfTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "importers_of",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral, tools.CategoryResearch},
-		Description:   "List every Go file in the workspace that imports a package, with the line and the name it imports it under. Use this instead of grep to answer who depends on a package.",
+		Description:   "List every file in the workspace that imports a package or module, with the line and the name it imports it under. A Go package is a directory or import path. A Python, TypeScript or JavaScript module is the workspace-relative file its imports resolve to (hooks.tsx, pkg/services.py). Use this instead of grep to answer who depends on a package.",
 		Category:      tools.CategoryCode,
 		Priority:      90,
 		Effect:        tools.EffectRead,
@@ -29,7 +29,7 @@ func ImportersOfTool() *tools.Tool {
 		Schema: tools.ToolSchema{
 			Required: []string{"package"},
 			Properties: map[string]tools.Property{
-				"package": {Type: "string", Description: "A workspace directory (internal/features), an import path (codenerd/internal/features, gopkg.in/yaml.v3) or a package name declared in one directory"},
+				"package": {Type: "string", Description: "A Go workspace directory (internal/features), an import path (codenerd/internal/features, gopkg.in/yaml.v3), a Go package name declared in one directory, or the workspace-relative file a Python or TypeScript import resolves to (hooks.tsx, pkg/services.py)"},
 				"offset":  {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
 			},
 		},
@@ -55,7 +55,7 @@ func executeImportersOf(ctx context.Context, args map[string]any) (string, error
 	}
 	logging.Tools("importers_of: %q (%s) -> %d files", pkg, path, len(importers))
 	return renderPage(rows, pageArgs(args), fmt.Sprintf("files importing %s:", path), index,
-		"none: no parsed Go file in the workspace imports it."), nil
+		"none: no parsed file in the workspace imports it."), nil
 }
 
 // FindTextTool finds text in string literals, comments or identifiers and

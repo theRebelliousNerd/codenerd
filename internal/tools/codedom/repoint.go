@@ -34,10 +34,10 @@ import (
 func RepointTool() *tools.Tool {
 	return &tools.Tool{
 		Name: "repoint",
-		Description: "Rewrite every use of a package-level Go name (function, type, var, const) to another one, across the workspace, in one transaction: " +
-			"qualifiers and imports are rewritten and derived in every touched file, every file must parse, and all are written or none. " +
-			"paths is the write set: every file holding a use must be listed, and a call that finds uses elsewhere is refused with the list. " +
-			"Methods are not repointed (their uses need type information).",
+		Description: "Rewrite every use of one name across the workspace, in one transaction: every file must parse, and all are written or none. " +
+			"For Go, from and to are package-level names (a ref or a package-qualified name); qualifiers and imports are derived, and methods are not repointed. " +
+			"For Python, TypeScript, TSX and JavaScript, to is the new identifier: the declaration and the references that resolve to it are renamed, and a same-named local is left alone. " +
+			"paths is the write set: every file holding a use, including the declaring file, must be listed, and a call that finds uses elsewhere is refused with the list.",
 		Category: tools.CategoryCode,
 		Priority: 81,
 		Effect:   tools.EffectWrite,
@@ -46,7 +46,7 @@ func RepointTool() *tools.Tool {
 			Required: []string{"from", "to", "paths"},
 			Properties: map[string]tools.Property{
 				"from":  {Type: "string", Description: "The name whose uses move: a ref or package-qualified name (perception.PiggybackEnvelope)"},
-				"to":    {Type: "string", Description: "The declared name they should use instead (articulation.PiggybackEnvelope)"},
+				"to":    {Type: "string", Description: "Go: the declared name they should use instead (articulation.PiggybackEnvelope). Python, TypeScript and JavaScript: the new identifier (useSession)"},
 				"paths": {Type: "array", Description: "Every file holding a use of from: the transaction's write set. find_symbol, callers_of or a refused call lists them.", Items: &tools.PropertyItems{Type: "string"}},
 			},
 		},
@@ -79,6 +79,9 @@ func executeRepoint(ctx context.Context, args map[string]any) (string, error) {
 	}
 	if len(fromSyms) != 1 {
 		return "", fmt.Errorf("from %q must name one element", from)
+	}
+	if codemodel.IsScriptPath(fromSyms[0].File) {
+		return executeScriptRepoint(ctx, fromSyms[0], to, paths)
 	}
 	if fromSyms[0].Kind == string(codemodel.KindMethod) {
 		return "", fmt.Errorf("%s is a method; repoint moves package-level names only", fromSyms[0].Ref)

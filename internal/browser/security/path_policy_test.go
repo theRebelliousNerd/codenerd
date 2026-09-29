@@ -1,11 +1,235 @@
 package security
 
 import (
+	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// Upload confinement tests are adapted from BrowserNERD's Apache-2.0
+// browser-act contract and exercise codeNERD's shared secret-path policy.
+
+func writeUploadFixture(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("upload fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResolveForUploadConfinesWorkspaceFiles(t *testing.T) {
+	parent := t.TempDir()
+	workspace := filepath.Join(parent, "workspace")
+	file := filepath.Join(workspace, "imports", "data.csv")
+	writeUploadFixture(t, file)
+	writeUploadFixture(t, filepath.Join(workspace, "data.csv"))
+	want, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(parent, "outside", "data.csv")
+	writeUploadFixture(t, outside)
+	siblingFile := filepath.Join(parent, "workspace-sibling", "data.csv")
+	writeUploadFixture(t, siblingFile)
+	policy, err := NewPathPolicy(workspace, []string{filepath.Dir(outside)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, requested := range []string{file, filepath.Join("imports", "data.csv")} {
+		got, err := policy.ResolveForUpload(requested)
+		if err != nil || got != want {
+			t.Errorf("ResolveForUpload(%q) = %q, %v; want %q, nil", requested, got, err, want)
+		}
+	}
+	if got, err := policy.ResolveForUpload(outside); err == nil || got != "" {
+		t.Fatalf("upload accepted a file outside the workspace in a writable root: %q, %v", got, err)
+	}
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{"outside", outside},
+		{"sibling prefix", siblingFile},
+		{"parent traversal", "../workspace-sibling/data.csv"},
+		{"backslash traversal", `..\workspace-sibling\data.csv`},
+		{"absolute traversal", workspace + string(filepath.Separator) + ".." + string(filepath.Separator) + "workspace-sibling" + string(filepath.Separator) + "data.csv"},
+		{"internal traversal", "imports/../data.csv"},
+		{"directory", workspace},
+		{"missing", "missing.csv"},
+		{"empty", ""},
+		{"whitespace", "  "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, err := policy.ResolveForUpload(tc.path); err == nil || got != "" {
+				t.Errorf("ResolveForUpload(%q) = %q, %v; want empty path and refusal", tc.path, got, err)
+			}
+		})
+	}
+	var nilPolicy *PathPolicy
+	if got, err := nilPolicy.ResolveForUpload("data.csv"); err == nil || got != "" {
+		t.Errorf("nil policy accepted upload: %q, %v", got, err)
+	}
+}
+
+func TestResolveForUploadRefusesSecretPaths(t *testing.T) {
+	workspace := t.TempDir()
+	policy, err := NewPathPolicy(workspace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		".env", ".ENV", "production.env", "client_secret_x.json",
+		filepath.Join(".credentials", "key.json"),
+		filepath.Join(".credentials", "nested", "key.json"),
+		filepath.Join(".nerd", "config.json"),
+		filepath.Join("certs", "server.pem"), ".hidden.txt",
+	} {
+		t.Run(name, func(t *testing.T) {
+			file := filepath.Join(workspace, name)
+			writeUploadFixture(t, file)
+			for _, requested := range []string{name, file} {
+				if got, err := policy.ResolveForUpload(requested); err == nil || got != "" {
+					t.Errorf("secret upload %q = %q, %v; want empty path and refusal", requested, got, err)
+				}
+			}
+		})
+	}
+}
+
+func TestResolveForUploadResolvesSymlinks(t *testing.T) {
+	workspace := t.TempDir()
+	normal := filepath.Join(workspace, "data.csv")
+	secret := filepath.Join(workspace, "client_secret_x.json")
+	hidden := filepath.Join(workspace, ".private", "data.csv")
+	outside := filepath.Join(t.TempDir(), "data.csv")
+	for _, file := range []string{normal, secret, hidden, outside} {
+		writeUploadFixture(t, file)
+	}
+	policy, err := NewPathPolicy(workspace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		target string
+		child  string
+		allow  bool
+	}{
+		{"inside.csv", normal, "", true},
+		{"escape.csv", outside, "", false},
+		{"broken.csv", filepath.Join(workspace, "missing.csv"), "", false},
+		{"disguised.csv", secret, "", false},
+		{"disguised-hidden.csv", hidden, "", false},
+		{"client_secret_alias.json", normal, "", false},
+		{".hidden.csv", normal, "", false},
+		{"inside-dir", workspace, "data.csv", true},
+		{"escape-dir", filepath.Dir(outside), "data.csv", false},
+		{".hidden-dir", workspace, "data.csv", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			link := filepath.Join(workspace, tc.name)
+			if err := os.Symlink(tc.target, link); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			got, err := policy.ResolveForUpload(filepath.Join(link, tc.child))
+			if !tc.allow {
+				if err == nil || got != "" {
+					t.Fatalf("symlink upload = %q, %v; want empty path and refusal", got, err)
+				}
+				return
+			}
+			want, resolveErr := filepath.EvalSymlinks(filepath.Join(tc.target, tc.child))
+			if resolveErr != nil {
+				t.Fatal(resolveErr)
+			}
+			if err != nil || got != want {
+				t.Fatalf("symlink upload = %q, %v; want %q, nil", got, err, want)
+			}
+		})
+	}
+}
+
+func TestResolveForUploadResolvesWorkspaceAlias(t *testing.T) {
+	parent := t.TempDir()
+	workspace := filepath.Join(parent, "workspace")
+	file := filepath.Join(workspace, "data.csv")
+	writeUploadFixture(t, file)
+	alias := filepath.Join(parent, "workspace-alias")
+	if err := os.Symlink(workspace, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	policy, err := NewPathPolicy(alias, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, requested := range []string{file, filepath.Join(alias, "data.csv"), "data.csv"} {
+		got, err := policy.ResolveForUpload(requested)
+		if err != nil || got != want {
+			t.Errorf("workspace alias upload %q = %q, %v; want %q, nil", requested, got, err, want)
+		}
+	}
+	hidden := filepath.Join(workspace, ".hidden.csv")
+	if err := os.Symlink(file, hidden); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, requested := range []string{hidden, filepath.Join(alias, ".hidden.csv"), ".hidden.csv"} {
+		if got, err := policy.ResolveForUpload(requested); err == nil || got != "" {
+			t.Errorf("workspace alias hid a dot path %q: %q, %v", requested, got, err)
+		}
+	}
+}
+
+func TestResolveForUploadRefusesNonRegularFiles(t *testing.T) {
+	workspace := t.TempDir()
+	policy, err := NewPathPolicy(workspace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		for _, name := range []string{"NUL", "CON", "NUL.txt"} {
+			for _, requested := range []string{name, filepath.Join(workspace, name)} {
+				if got, err := policy.ResolveForUpload(requested); err == nil || got != "" {
+					t.Errorf("device upload %q = %q, %v; want empty path and refusal", requested, got, err)
+				}
+			}
+		}
+		return
+	}
+	socket := filepath.Join(workspace, "upload.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Skipf("filesystem sockets unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	if got, err := policy.ResolveForUpload(socket); err == nil || got != "" {
+		t.Fatalf("socket upload = %q, %v; want empty path and refusal", got, err)
+	}
+}
+
+func TestResolveForUploadRefusesAlternateDataStreams(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("alternate data streams require Windows")
+	}
+	workspace := t.TempDir()
+	file := filepath.Join(workspace, "data.csv:private")
+	writeUploadFixture(t, file)
+	policy, err := NewPathPolicy(workspace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := policy.ResolveForUpload(file); err == nil || got != "" {
+		t.Fatalf("alternate data stream upload = %q, %v; want empty path and refusal", got, err)
+	}
+}
 
 func TestPathPolicyConfinesBrowserWrites(t *testing.T) {
 	workspace := t.TempDir()

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	wscope "codenerd/internal/workspace"
 )
 
 func computeStats(ctx context.Context, workspace, target string) (string, error) {
@@ -27,7 +29,26 @@ func computeStats(ctx context.Context, workspace, target string) (string, error)
 		return "", fmt.Errorf("file not found: %s", full)
 	}
 
+	memRoot := workspace
+	if strings.TrimSpace(memRoot) == "" {
+		memRoot = full
+		if !info.IsDir() {
+			memRoot = filepath.Dir(full)
+		}
+	}
+	mem, memErr := wscope.For(memRoot)
+	if memErr != nil {
+		return "", memErr
+	}
+	if memErr = mem.Refresh(); memErr != nil {
+		return "", memErr
+	}
+
 	if !info.IsDir() {
+		ok, admErr := mem.Admit(full, false)
+		if admErr != nil || !ok {
+			return "", fmt.Errorf("%s is not a workspace member", target)
+		}
 		lines, err := countFileLines(full)
 		if err != nil {
 			return "", err
@@ -71,16 +92,15 @@ func computeStats(ctx context.Context, workspace, target string) (string, error)
 			return ctx.Err()
 		}
 
-		name := d.Name()
-		if d.IsDir() {
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
-				return filepath.SkipDir
-			}
-			if name == "bin" || name == "build" || name == "tmp" {
-				return filepath.SkipDir
-			}
+		member, admErr := mem.Admit(path, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || d.IsDir() {
 			return nil
 		}
+
+		name := d.Name()
 
 		ext := strings.ToLower(filepath.Ext(name))
 		if !allowedExt[ext] {

@@ -81,7 +81,7 @@ func TestLoadAll_RootPlusTwoModulesSorted(t *testing.T) {
 	}
 }
 
-func TestLoadAll_HiddenDirSkipped(t *testing.T) {
+func TestLoadAll_HiddenDirIsMember(t *testing.T) {
 	dir := t.TempDir()
 	writeValidNerdMd(t, filepath.Join(dir, FileName))
 	writeValidNerdMd(t, filepath.Join(dir, ".hidden", FileName))
@@ -89,11 +89,16 @@ func TestLoadAll_HiddenDirSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
-	if len(docs) != 1 {
-		t.Fatalf("got %d docs, want 1 (.hidden should be skipped), paths: %v", len(docs), pathsOf(docs))
+	// A dot directory is a member unless git or world.ignore_patterns excludes it.
+	if len(docs) != 2 {
+		t.Fatalf("got %d docs, want 2 (.hidden is a member), paths: %v", len(docs), pathsOf(docs))
 	}
-	if docs[0].Path != "nerd.md" {
-		t.Errorf("Path = %q, want %q", docs[0].Path, "nerd.md")
+	got := map[string]bool{}
+	for _, d := range docs {
+		got[d.Path] = true
+	}
+	if !got["nerd.md"] || !got[".hidden/nerd.md"] {
+		t.Fatalf("paths = %v, want nerd.md and .hidden/nerd.md", pathsOf(docs))
 	}
 }
 

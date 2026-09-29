@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"codenerd/internal/tools"
+	"codenerd/internal/workspace"
 )
 
 // psVerbs is the set of PowerShell approved-verb prefixes we recognize, used to
@@ -452,6 +453,18 @@ func builtinGrep(name string, args []string, scope builtinScope) string {
 		}
 	}
 
+	memRoot := scope.root
+	if strings.TrimSpace(memRoot) == "" {
+		memRoot = scope.dir
+	}
+	mem, memErr := workspace.For(memRoot)
+	if memErr != nil {
+		return fmt.Sprintf("%s: %v", name, memErr)
+	}
+	if memErr = mem.Refresh(); memErr != nil {
+		return fmt.Sprintf("%s: %v", name, memErr)
+	}
+
 	var out strings.Builder
 	// No match cap: grep prints every hit whole and the working context
 	// ledger archives large tool results behind recall handles. The old
@@ -526,12 +539,11 @@ func builtinGrep(name string, args []string, scope builtinScope) string {
 				if err != nil {
 					return nil
 				}
-				if d.IsDir() {
-					// Skip noise directories the model never wants to grep.
-					base := d.Name()
-					if base == ".git" || base == "node_modules" || base == "vendor" {
-						return filepath.SkipDir
-					}
+				member, admErr := mem.Admit(walkPath, d.IsDir())
+				if admErr != nil {
+					return admErr
+				}
+				if !member || d.IsDir() {
 					return nil
 				}
 				// The walk is lexical: a symlink inside the tree can point
@@ -544,6 +556,10 @@ func builtinGrep(name string, args []string, scope builtinScope) string {
 				return nil
 			})
 		} else {
+			ok, admErr := mem.Admit(full, false)
+			if admErr != nil || !ok {
+				continue
+			}
 			searchFile(full)
 		}
 	}

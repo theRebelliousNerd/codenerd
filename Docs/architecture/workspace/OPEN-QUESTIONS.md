@@ -3,46 +3,19 @@ doc-class: governance
 subsystem: workspace
 implementation-status: not-applicable
 last-verified: 2026-09-29
-verified-against: e056692c
+verified-against: 4dded472+working-tree
 supersedes: []
 ---
 
-# OPEN-QUESTIONS — Workspace Invariants and Open Edges
+# Standing invariants and open edges
 
-This document catalogues the standing invariants and unresolved architectural questions for `internal/workspace`.
+Preserve one membership authority, SkipDir before rejected descent, ordinary hidden-directory membership and the single configuration default. These are grounded in Admit/alwaysExcluded and DefaultWorldConfig (`internal/workspace/membership.go:415`, `internal/workspace/membership.go:540`, `internal/config/world.go:41`).
 
----
-
-## 1. Standing Architectural Tripwires
-
-A future author must never breach these three invariants:
-
-### Tripwire 1: Zero Private Ignore Lists in Walkers
-- **Constraint**: No walker may maintain an ad-hoc slice or map of directory names to skip (`node_modules`, `vendor`, `build`). All exclusion decisions must query `Membership.IncludesDir`.
-- **Verification**: Code linters must fail if any walker file defines a local directory exclusion map.
-
-### Tripwire 2: Zero Descent into Ignored Trees
-- **Constraint**: Walkers must never return `nil` on excluded directories. If `IncludesDir(rel)` is false, the walker must immediately return `filepath.SkipDir`.
-- **Verification**: Unit tests wrapping directory traversals must verify that `ReadDir` is never called on excluded directories.
-
-### Tripwire 3: Zero Hidden Directory Special-Casing
-- **Constraint**: Code must never check `strings.HasPrefix(name, ".")` against a hardcoded list of approved tool names. Git tracking alone decides whether a hidden file or directory belongs to the workspace.
-
----
-
-## 2. Open Architectural Questions
-
-### Question 1: Git Submodules and Nested Worktrees
-- **Problem**: In a repository containing git submodules, `git ls-files` at the top level lists the submodule directory as a single gitlink entry (mode `160000`). It does not list the files inside the submodule.
-- **Current Position**: `internal/workspace` treats submodules as member directories of the parent worktree.
-- **Open Edge**: Should `Membership` recursively spawn a child `Membership` instance inside each submodule, or should submodules be treated as external dependencies?
-
-### Question 2: Symlinks and Windows Directory Junctions
-- **Problem**: `filepath.Walk` and `WalkDir` report symlinks via `Lstat` (`IsDir() == false`). They do not descend into symlinked directories. On Windows, directory junctions exhibit complex stat behaviors.
-- **Current Position**: `internal/workspace` adheres strictly to git's standard behavior: symlinks are treated as pointer files and are not followed as directories.
-- **Open Edge**: Does codeNERD require a configuration option to follow internal directory symlinks within the workspace boundary?
-
-### Question 3: Dynamic `git check-ignore` Subprocess Lifecycle
-- **Problem**: When an agent performs thousands of file edits during a multi-step campaign, issuing dynamic `git check-ignore` checks could cause process spawn overhead.
-- **Current Position**: Batching queries through a long-lived `git check-ignore -z --stdin` pipe with mutex locking and caching in a `sync.Map`.
-- **Open Edge**: If git locks the repository index during an external commit, the pipe might block. Should the pipe enforce a strict 250ms deadline with a non-git fallback?
+| Edge | Current position | Remaining question |
+|---|---|---|
+| Submodules/nested repositories | Git boundary paths may be members, but their children and directory traversal are refused; Files omits them (`loadSnapshot`, `IncludesDir`, `internal/workspace/git.go:98`, `internal/workspace/membership.go:292`). | Any child-workspace traversal needs an explicit scope contract; do not silently recurse. |
+| Aliases/symlinks | Root aliases share a cache; membership of file symlink entries stays lexical; Walk does not follow child symlink directories (`canonicalRoot`, `relOf`, `walk`, `internal/workspace/membership.go:118`, `internal/workspace/membership.go:429`, `internal/workspace/walk.go:46`). | Full junction/8.3 behavior across every caller still needs native integration evidence. |
+| Dynamic Git requests | Sibling batches use finite subprocesses and a serialized result cache, not a persistent pipe (`askBatch`, `checkIgnore`, `internal/workspace/membership.go:477`, `internal/workspace/git.go:247`). | If measured process cost justifies a persistent driver or request timeout, configuration/lifecycle ownership must be specified first. |
+| Nested ignore edits | Explicit refresh invalidates known-member truth; dynamic unknown paths query live ignores (`Refresh`, `Includes`, `internal/workspace/membership.go:184`, `internal/workspace/membership.go:254`). | No periodic watcher for every nested ignore file is claimed. |
+| Ripgrep parity | Native Git-ignore traversal plus member-hit filtering is used (`Search`, `keepMemberHits`, `internal/retrieval/backend.go:77`, `internal/retrieval/backend.go:148`). | Extra-exclusion traversal and force-tracked ignored-file parity are not proved. |
+| Semantic treatment | Membership API has no Treatment implementation (query surfaces, `internal/workspace/membership.go:254`, `internal/workspace/membership.go:292`). | Orientation owner must provide the derived artifact and its inheritance/exclusion contract (GAP-WS-05). |

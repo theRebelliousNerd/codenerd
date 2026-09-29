@@ -72,6 +72,15 @@ func Apply(old *File, ch Change, targeted []string, res Resolver) (*Outcome, err
 	for _, k := range targeted {
 		target[k] = true
 	}
+	// A Python or TS method sits inside its class. Replacing the method
+	// changes the class's bytes, so the class (and any other element the
+	// span overlaps) is an intended target; a sibling method does not overlap
+	// and still has to come out byte-identical.
+	if IsScriptLang(old.Language) {
+		for _, k := range affectedKeys(old, ch.Start, ch.End) {
+			target[k] = true
+		}
+	}
 
 	parse := func(s string) *File {
 		nf, _ := Parse(old.Path, s)

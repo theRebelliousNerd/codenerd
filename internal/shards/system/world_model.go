@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
+	"codenerd/internal/workspace"
 	"codenerd/internal/world"
 )
 
@@ -86,18 +88,11 @@ type WorldModelConfig struct {
 // DefaultWorldModelConfig returns sensible defaults.
 func DefaultWorldModelConfig() WorldModelConfig {
 	return WorldModelConfig{
-		RootPath: ".",
-		IncludePatterns: []string{
-			"*.go", "*.py", "*.js", "*.ts", "*.tsx",
-			"*.java", "*.rs", "*.c", "*.cpp", "*.h",
-			"*.md", "*.json", "*.yaml", "*.yml",
-			"*.pdf", "*.txt",
-		},
-		ExcludePatterns: []string{
-			"vendor/*", "node_modules/*", ".git/*",
-			"*.exe", "*.dll", "*.so", "*.dylib",
-			"*.bin", "*.dat",
-		},
+		RootPath:        ".",
+		IncludePatterns: parsedIncludeGlobs(),
+		// The one default name list. Scans ask workspace membership with
+		// these patterns; they are not matched by a second globber.
+		ExcludePatterns:    append([]string(nil), config.DefaultWorldConfig().IgnorePatterns...),
 		TickInterval:       5 * time.Second,
 		MaxFilesPerScan:    config.DefaultWorldConfig().ResolvedMaxFilesPerScan(),
 		HashOnlyLargeFiles: true,
@@ -135,10 +130,41 @@ type WorldModelIngestorShard struct {
 // WorldModelConfigFor is the ingestor config at shard construction.
 // MaxFilesPerScan comes from the loaded world section: an absent key is the
 // default (100); a non-positive value stays unbounded.
-func WorldModelConfigFor(world config.WorldConfig) WorldModelConfig {
+func WorldModelConfigFor(worldCfg config.WorldConfig) WorldModelConfig {
 	cfg := DefaultWorldModelConfig()
-	cfg.MaxFilesPerScan = world.ResolvedMaxFilesPerScan()
+	cfg.MaxFilesPerScan = worldCfg.ResolvedMaxFilesPerScan()
+	if len(worldCfg.IgnorePatterns) > 0 {
+		cfg.ExcludePatterns = append([]string(nil), worldCfg.IgnorePatterns...)
+	}
 	return cfg
+}
+
+// parsedIncludeGlobs is the extensions the world-model parsers understand,
+// plus the JS/TS/Python spellings those parsers do not register yet.
+// A nil receiver is enough: SupportedExtensions does not touch parser state.
+func parsedIncludeGlobs() []string {
+	exts := map[string]struct{}{}
+	add := func(list []string) {
+		for _, e := range list {
+			if e != "" {
+				exts[strings.ToLower(e)] = struct{}{}
+			}
+		}
+	}
+	add((*world.GoCodeParser)(nil).SupportedExtensions())
+	add((*world.MangleCodeParser)(nil).SupportedExtensions())
+	add((*world.PythonCodeParser)(nil).SupportedExtensions())
+	add((*world.TypeScriptCodeParser)(nil).SupportedExtensions())
+	add((*world.RustCodeParser)(nil).SupportedExtensions())
+	for _, e := range []string{".mjs", ".cjs", ".mts", ".cts", ".jsx", ".pyi"} {
+		exts[e] = struct{}{}
+	}
+	out := make([]string, 0, len(exts))
+	for e := range exts {
+		out = append(out, "*"+e)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // NewWorldModelIngestorShard creates a new World Model Ingestor shard.
@@ -308,33 +334,42 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 	}
 }
 
+// resolvedRoot is the directory a scan walks. "." and "" mean "the kernel's
+// workspace", which is the real root once a shard is attached. An explicit
+// directory (a test fixture, or a task that names one) wins.
+func (w *WorldModelIngestorShard) resolvedRoot() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	root := strings.TrimSpace(w.config.RootPath)
+	if root == "" || root == "." {
+		if k := w.GetKernel(); k != nil {
+			if ws := strings.TrimSpace(k.GetWorkspace()); ws != "" {
+				w.config.RootPath = ws
+				root = ws
+			}
+		}
+	}
+	if root == "" {
+		root = "."
+	}
+	return root
+}
+
+func (w *WorldModelIngestorShard) scanMembership() (*workspace.Membership, error) {
+	root := w.resolvedRoot()
+	m, err := workspace.Open(root, w.config.ExcludePatterns)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Refresh(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // includedByPatterns reports whether a base file name matches any include glob.
 func includedByPatterns(base string, patterns []string) bool {
 	for _, pattern := range patterns {
-		if matched, _ := filepath.Match(pattern, base); matched {
-			return true
-		}
-	}
-	return false
-}
-
-// excludedByPatterns reports whether a walk path is excluded. A pattern ending
-// in "/*" names a directory and matches whole path segments only, so
-// "vendor/*" skips vendor/ but not codevendor/ — the old substring check
-// dropped every path merely containing the word. Any other pattern is a glob
-// matched against the base name.
-func excludedByPatterns(path string, patterns []string) bool {
-	base := filepath.Base(path)
-	segments := strings.Split(filepath.ToSlash(path), "/")
-	for _, pattern := range patterns {
-		if dir, ok := strings.CutSuffix(pattern, "/*"); ok && !strings.Contains(dir, "/") {
-			for _, seg := range segments {
-				if seg == dir {
-					return true
-				}
-			}
-			continue
-		}
 		if matched, _ := filepath.Match(pattern, base); matched {
 			return true
 		}
@@ -350,8 +385,12 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 	w.mu.Unlock()
 
 	batchFacts := make([]types.Fact, 0)
+	mem, err := w.scanMembership()
+	if err != nil {
+		return err
+	}
 
-	err := filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
 		}
@@ -363,18 +402,15 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		default:
 		}
 
-		// Skip excluded directories, pruning the walk
-		if info.IsDir() {
-			if excludedByPatterns(path, w.config.ExcludePatterns) {
-				return filepath.SkipDir
-			}
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || info.IsDir() {
 			return nil
 		}
 
 		if !includedByPatterns(info.Name(), w.config.IncludePatterns) {
-			return nil
-		}
-		if excludedByPatterns(path, w.config.ExcludePatterns) {
 			return nil
 		}
 
@@ -425,10 +461,18 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 	changedFiles := 0
 	deferredFiles := 0
 	batchFacts := make([]types.Fact, 0)
+	mem, err := w.scanMembership()
+	if err != nil {
+		return err
+	}
 
-	err := filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	err = filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
 			return nil
+		}
+		if info.IsDir() {
+			_, admErr := mem.Admit(path, true)
+			return admErr
 		}
 
 		// Check context
@@ -438,14 +482,19 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		default:
 		}
 
-		// Same include/exclude gate as the full scan: without the include
-		// check, steady-state incrementals ingested files (logs, binaries)
-		// a restart's full scan would never include, so the world model
-		// depended on uptime instead of the workspace.
-		if !includedByPatterns(info.Name(), w.config.IncludePatterns) {
+		member, admErr := mem.Admit(path, false)
+		if admErr != nil {
+			return admErr
+		}
+		if !member {
 			return nil
 		}
-		if excludedByPatterns(path, w.config.ExcludePatterns) {
+
+		// Same include gate as the full scan: without it, steady-state
+		// incrementals ingested files a restart's full scan would never
+		// include, so the world model depended on uptime instead of the
+		// workspace.
+		if !includedByPatterns(info.Name(), w.config.IncludePatterns) {
 			return nil
 		}
 
@@ -577,12 +626,14 @@ func detectLanguage(path string) string {
 	switch ext {
 	case ".go":
 		return "go"
-	case ".py":
+	case ".py", ".pyi", ".pyw":
 		return "python"
-	case ".js":
+	case ".js", ".jsx", ".mjs", ".cjs":
 		return "javascript"
-	case ".ts", ".tsx":
+	case ".ts", ".tsx", ".mts", ".cts":
 		return "typescript"
+	case ".mg", ".dl", ".mangle":
+		return "mangle"
 	case ".java":
 		return "java"
 	case ".rs":

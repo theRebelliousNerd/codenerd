@@ -20,9 +20,10 @@ func TestCountTests_EachToolchainsConvention(t *testing.T) {
 		t.Fatal(err)
 	}
 	// go 2 (Get, Fuzz; not TestMain, not the non-test file), python 3,
-	// ts 3, rust 2; fixtures and dependencies excluded.
-	if got != 10 {
-		t.Fatalf("CountTests = %d, want 10", got)
+	// ts 3, rust 2, plus the testdata fixture (a member unless ignored).
+	// node_modules stays out via the default ignore list.
+	if got != 11 {
+		t.Fatalf("CountTests = %d, want 11", got)
 	}
 }
 
@@ -58,14 +59,6 @@ func TestCoverage_GoAndPytestCov(t *testing.T) {
 		got, ok := Coverage(tc.out)
 		if got != tc.want || ok != tc.ok {
 			t.Errorf("Coverage(%q) = %d, %v; want %d, %v", tc.out, got, ok, tc.want, tc.ok)
-		}
-	}
-}
-
-func TestSkipDir(t *testing.T) {
-	for name, want := range map[string]bool{".git": true, ".nerd": true, "node_modules": true, "testdata": true, "internal": false, "src": false} {
-		if SkipDir(name) != want {
-			t.Errorf("SkipDir(%q) = %v", name, !want)
 		}
 	}
 }

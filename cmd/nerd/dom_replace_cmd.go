@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/tactile"
+	wsmember "codenerd/internal/workspace"
 
 	"github.com/spf13/cobra"
 )
@@ -264,17 +265,23 @@ func collectReplaceFiles(ctx context.Context, ws, absRoot string) ([]string, err
 	}
 
 	// Workspace mode: walk recursively.
+	mem, err := wsmember.For(ws)
+	if err != nil {
+		return nil, err
+	}
+	if err := mem.Refresh(); err != nil {
+		return nil, err
+	}
 	var files []string
-	err := filepath.WalkDir(ws, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(ws, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
-			base := filepath.Base(path)
-			switch base {
-			case ".git", ".nerd", "vendor", "node_modules":
-				return filepath.SkipDir
-			}
+		member, admErr := mem.Admit(path, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || d.IsDir() {
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") {

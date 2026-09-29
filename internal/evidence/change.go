@@ -24,6 +24,7 @@ import (
 
 	"codenerd/internal/processutil"
 	"codenerd/internal/tools"
+	"codenerd/internal/workspace"
 )
 
 type Obligation struct {
@@ -139,6 +140,13 @@ func Snapshot(ctx context.Context, root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	mem, err := workspace.For(root)
+	if err != nil {
+		return "", err
+	}
+	if err := mem.Refresh(); err != nil {
+		return "", err
+	}
 	h := sha256.New()
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -151,19 +159,24 @@ func Snapshot(ctx context.Context, root string) (string, error) {
 		if err != nil {
 			return err
 		}
+		slash := filepath.ToSlash(rel)
+		// Project configuration and agent definitions are evidence even
+		// though .nerd is otherwise never a member. This exception is
+		// purpose-specific to the snapshot; other walkers do not copy it.
 		if d.IsDir() {
-			if d.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			if filepath.ToSlash(rel) == ".nerd" {
+			if slash == ".nerd" || slash == ".nerd/agents" || strings.HasPrefix(slash, ".nerd/agents/") {
 				return nil
 			}
-			if strings.HasPrefix(filepath.ToSlash(rel), ".nerd/") && rel != filepath.Join(".nerd", "agents") && !strings.HasPrefix(filepath.ToSlash(rel), ".nerd/agents/") {
-				return filepath.SkipDir
+			if !mem.IncludesDir(slash) {
+				return fs.SkipDir
 			}
 			return nil
 		}
-		if strings.HasPrefix(filepath.ToSlash(rel), ".nerd/") && rel != filepath.Join(".nerd", "config.json") && !strings.HasPrefix(filepath.ToSlash(rel), ".nerd/agents/") {
+		if strings.HasPrefix(slash, ".nerd/") {
+			if slash != ".nerd/config.json" && !strings.HasPrefix(slash, ".nerd/agents/") {
+				return nil
+			}
+		} else if !mem.Includes(slash) {
 			return nil
 		}
 		info, err := d.Info()
@@ -319,23 +332,34 @@ func (tx *Transaction) Verify(ctx context.Context) Report {
 // build configuration. Changing tests, fixtures or module selection requires
 // a newly reviewed contract, rather than silently weakening its witnesses.
 func verificationInputs(ctx context.Context, root string) (map[string]string, error) {
+	mem, err := workspace.For(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := mem.Refresh(); err != nil {
+		return nil, err
+	}
 	inputs := map[string]string{}
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == ".nerd" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
+		}
+		slash := filepath.ToSlash(rel)
+		if d.IsDir() {
+			if !mem.IncludesDir(slash) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !mem.Includes(slash) {
+			return nil
 		}
 		name := d.Name()
 		if !strings.HasSuffix(name, "_test.go") && name != "go.mod" && name != "go.sum" && name != "go.work" && name != "go.work.sum" && !strings.Contains("/"+filepath.ToSlash(rel), "/testdata/") {

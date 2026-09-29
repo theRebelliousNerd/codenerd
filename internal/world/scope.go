@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
+	"codenerd/internal/workspace"
 	"crypto/sha256"
 	"fmt"
 	"go/parser"
@@ -679,16 +680,24 @@ func (s *FileScope) findInboundDeps(path string) ([]string, error) {
 
 	var inbound []string
 
+	mem, memErr := workspace.For(s.ProjectRoot)
+	if memErr != nil {
+		return nil, memErr
+	}
+	if err := mem.Refresh(); err != nil {
+		return nil, err
+	}
+
 	// Walk project to find files that import this package
 	err = filepath.Walk(s.ProjectRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
 		}
-		if info.IsDir() {
-			// Skip hidden directories and vendor
-			if strings.HasPrefix(info.Name(), ".") || info.Name() == "vendor" {
-				return filepath.SkipDir
-			}
+		member, admErr := mem.Admit(p, info.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || info.IsDir() {
 			return nil
 		}
 		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {

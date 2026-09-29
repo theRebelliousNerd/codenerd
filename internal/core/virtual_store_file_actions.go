@@ -18,6 +18,7 @@ import (
 	"codenerd/internal/tools"
 	toolscore "codenerd/internal/tools/core"
 	"codenerd/internal/types"
+	"codenerd/internal/workspace"
 )
 
 // handleReadFile reads a file from disk.
@@ -460,13 +461,23 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 	ceiling := v.searchFileByteCeiling()
 	skipped := 0
 
-	// Local search using filepath.Walk
+	// Membership, not a substring of ".git": that check also dropped .github.
+	mem, memErr := workspace.For(v.workingDir)
+	if memErr != nil {
+		return ActionResult{Success: false, Error: memErr.Error()}, nil
+	}
+	if memErr = mem.Refresh(); memErr != nil {
+		return ActionResult{Success: false, Error: memErr.Error()}, nil
+	}
 	err := filepath.Walk(v.workingDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
 			return nil
 		}
-
-		if strings.Contains(path, ".git") || strings.Contains(path, ".nerd") {
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || info.IsDir() {
 			return nil
 		}
 		if info.Size() > ceiling {

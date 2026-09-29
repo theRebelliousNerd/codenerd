@@ -8,18 +8,18 @@
 //   - get_element: An element's source with its doc comment, by ref
 //   - find_symbol: Declarations by name, several names, pattern, kind and path
 //   - package_outline: Every declaration in a directory or file, with line spans
-//   - callers_of: Every call site of a function or method
-//   - callees_of: Every call made inside a function or method
+//   - callers_of: Every call site of a function, method, hook or component
+//   - callees_of: Every call made inside a function, method, hook or component
 //   - unreferenced_symbols: Declarations nothing else in the workspace names
-//   - importers_of: Every file importing a package
+//   - importers_of: Every file importing a package or module
 //   - find_text: Text in string literals, comments or identifiers, answered as element refs
 //   - predicate_outline: Where a Mangle predicate is declared, derived and read
 //   - edit_element: Replace text inside one element, anchored uniquely within it
 //   - replace_element: Replace one whole element, doc comment included
 //   - insert_element: Insert declarations before or after an element, the header or the end
-//   - delete_element: Delete an element nothing else uses, or repoint its uses in the same call
-//   - create_file: Create a Go or Mangle file validated as a unit, imports derived
-//   - repoint: Rewrite every use of a package-level name to another, in one transaction
+//   - delete_element: Delete an element nothing else uses, or repoint its Go uses in the same call
+//   - create_file: Create a Go, Mangle, Python, TypeScript or JavaScript file, validated as a unit
+//   - repoint: Rename a symbol across the references that resolve to it, in one transaction
 //   - edit_lines: Replace specific lines in a file
 //   - insert_lines: Insert lines at a position
 //   - delete_lines: Delete a range of lines

@@ -12,6 +12,11 @@
   allocating Rod targets.
 - Browser and event-stream lifetimes are manager-owned, not request-owned.
   Every tab close must cancel its stream; shutdown closes tabs before browsers.
+- Process cleanup is private lifecycle infrastructure. Disable leakless on every
+  launch, track PID/profile ownership, and delete only resolved direct temporary
+  profiles after confirming process exit. Debugger attachments only disconnect.
+- Register the about:blank session and finish stream subscriptions before its
+  first navigation; wait for DOM parsing, and reload explicit same-URL moves.
 - Sanitize URLs, headers, console/input/DOM values, and React props before facts
   reach a sink. Browser artifacts use private permissions and must resolve under
   configured writable roots, including through existing symlink parents.

@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	toolscore "codenerd/internal/tools/core"
+	wsmember "codenerd/internal/workspace"
 )
 
 // projectTaskReturn shapes a completed task's return for the ONE consumer that
@@ -224,19 +225,18 @@ func (o *Orchestrator) writeSetBriefing(task *Task) string {
 	if len(writeSet) == 0 {
 		return ""
 	}
-	// Directories that never carry a task's own change: version control,
-	// runtime state, vendored copies, and fixture corpora.
-	skipDir := map[string]bool{
-		".git":     true,
-		".nerd":    true,
-		"vendor":   true,
-		"testdata": true,
-	}
 	seen := make(map[string]bool)
 	var relPaths []string
 	workspace := ""
 	if o != nil {
 		workspace = o.workspace
+	}
+	mem, err := wsmember.For(workspace)
+	if err == nil {
+		err = mem.Refresh()
+	}
+	if err != nil {
+		return fmt.Sprintf("\n\nWorkspace membership unavailable: %v\n", err)
 	}
 	toRel := func(abs string) string {
 		slash := filepath.ToSlash(filepath.Clean(abs))
@@ -261,6 +261,10 @@ func (o *Orchestrator) writeSetBriefing(task *Task) string {
 			continue
 		}
 		if !info.IsDir() {
+			member, admErr := mem.Admit(hostPath, false)
+			if admErr != nil || !member {
+				continue
+			}
 			if !info.Mode().IsRegular() {
 				continue
 			}
@@ -276,10 +280,11 @@ func (o *Orchestrator) writeSetBriefing(task *Task) string {
 			if err != nil {
 				return nil
 			}
-			if d.IsDir() {
-				if path != root && skipDir[d.Name()] {
-					return filepath.SkipDir
-				}
+			member, admErr := mem.Admit(path, d.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member || d.IsDir() {
 				return nil
 			}
 			info, err := d.Info()

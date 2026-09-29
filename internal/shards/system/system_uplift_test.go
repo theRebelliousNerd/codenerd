@@ -121,25 +121,56 @@ func TestGetLearnedPatterns_Sorted(t *testing.T) {
 	}
 }
 
-// Directory excludes match whole segments: vendor/ goes, but codevendor/
+// Directory membership matches whole segments: vendor/ goes, but codevendor/
 // stays. The old substring check dropped every path containing the word.
+// *.exe is no longer an exclude pattern; the include globs simply do not match it.
 func TestExcludedByPatterns_SegmentMatch(t *testing.T) {
-	excludes := []string{"vendor/*", "node_modules/*", ".git/*", "*.exe"}
-	cases := []struct {
-		path string
-		want bool
-	}{
-		{"root/vendor/x.go", true},
-		{"root/codevendor/x.go", false},
-		{"root/node_modules/x.go", true},
-		{"root/my-node_modules/x.go", false},
-		{"root/.git/config", true},
-		{"root/app.exe", true},
-		{"root/app.go", false},
+	dir := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	for _, c := range cases {
-		if got := excludedByPatterns(c.path, excludes); got != c.want {
-			t.Errorf("excludedByPatterns(%q) = %v, want %v", c.path, got, c.want)
+	write("vendor/x.go", "package vendor\n")
+	write("codevendor/x.go", "package keep\n")
+	write("node_modules/x.go", "package nm\n")
+	write("my-node_modules/x.go", "package mine\n")
+	write(".git/hooks.go", "package git\n")
+	write("app.exe", "not go\n")
+	write("app.go", "package app\n")
+
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultWorldModelConfig()
+	cfg.RootPath = dir
+	w := NewWorldModelIngestorShardWithConfig(cfg)
+	w.Kernel = kernel
+	if err := w.performFullScan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	facts, err := kernel.Query("file_topology")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, f := range facts {
+		seen[types.ExtractString(f.Args[0])] = true
+	}
+	for _, banned := range []string{"vendor/x.go", "node_modules/x.go", ".git/hooks.go", "app.exe"} {
+		if seen[banned] {
+			t.Errorf("ingested %s", banned)
+		}
+	}
+	for _, want := range []string{"codevendor/x.go", "my-node_modules/x.go", "app.go"} {
+		if !seen[want] {
+			t.Errorf("missing %s in %v", want, seen)
 		}
 	}
 }

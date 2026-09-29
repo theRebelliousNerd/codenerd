@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/workspace"
 	"context"
 	"fmt"
 	"io"
@@ -13,6 +14,22 @@ import (
 	"path/filepath"
 	"strings"
 )
+
+// openMembership is the workspace member set. An empty root means the
+// process working directory, which is what a walk of "." already meant.
+func openMembership(root string) (*workspace.Membership, error) {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	m, err := workspace.For(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Refresh(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
 
 func appendFileContent(workspace, path, content string) error {
 	full := resolvePath(workspace, path)
@@ -135,6 +152,15 @@ func (m *Model) handleStatsIntent(ctx context.Context, intent perception.Intent)
 		return "", fmt.Errorf("unsupported stats target %q (try a file path)", target)
 	}
 
+	memRoot := m.workspace
+	if strings.TrimSpace(memRoot) == "" {
+		memRoot = full
+	}
+	mem, memErr := openMembership(memRoot)
+	if memErr != nil {
+		return "", memErr
+	}
+
 	if info.IsDir() {
 		// Directory LOC: count lines across code-ish files under the directory.
 		allowedExt := map[string]bool{
@@ -172,17 +198,14 @@ func (m *Model) handleStatsIntent(ctx context.Context, intent perception.Intent)
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			name := d.Name()
-			if d.IsDir() {
-				// Skip hidden and dependency/cache directories.
-				if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
-					return filepath.SkipDir
-				}
-				if name == "bin" || name == "build" || name == "tmp" {
-					return filepath.SkipDir
-				}
+			member, admErr := mem.Admit(path, d.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member || d.IsDir() {
 				return nil
 			}
+			name := d.Name()
 
 			ext := strings.ToLower(filepath.Ext(name))
 			if !allowedExt[ext] {
@@ -214,6 +237,10 @@ func (m *Model) handleStatsIntent(ctx context.Context, intent perception.Intent)
 		return resp, nil
 	}
 
+	ok, admErr := mem.Admit(full, false)
+	if admErr != nil || !ok {
+		return "", fmt.Errorf("%s is not a workspace member", target)
+	}
 	lines, err := countFileLines(m.workspace, target)
 	if err != nil {
 		return "", err
@@ -236,15 +263,20 @@ func makeDir(workspace, path string) error {
 }
 
 func searchInFiles(root, pattern string, maxHits int) ([]string, error) {
+	mem, err := openMembership(root)
+	if err != nil {
+		return nil, err
+	}
 	matches := make([]string, 0)
-	err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
+	err = filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
-				return filepath.SkipDir
-			}
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || info.IsDir() {
 			return nil
 		}
 		if len(matches) >= maxHits {

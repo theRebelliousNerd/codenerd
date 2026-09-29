@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	browsersecurity "codenerd/internal/browser/security"
+	"codenerd/internal/workspace"
 )
 
 // Repository tracing is bounded on every axis. A repository is
@@ -140,15 +141,6 @@ func clampLimit(value, ceiling int, name string, notes []string) (int, []string)
 	return value, notes
 }
 
-func isSkippedRepoDir(base string) bool {
-	switch base {
-	case ".git", "node_modules", "vendor", ".nerd", "dist", "build", ".cache":
-		return true
-	default:
-		return false
-	}
-}
-
 func repoDepth(rel string) int {
 	if rel == "." || rel == "" {
 		return 0
@@ -236,6 +228,7 @@ func boundedSnippet(line string, matchIdx, needleLen int) string {
 
 type traceState struct {
 	root                string
+	mem                 *workspace.Membership
 	needles             []string
 	lowerNeedles        []string
 	effective           RepoTraceLimits
@@ -250,8 +243,16 @@ type traceState struct {
 
 func runTraceScan(ctx context.Context, root string, needles []string, eff RepoTraceLimits, initRes RepoTraceResult) (RepoTraceResult, error) {
 	lower := makeLowerNeedles(needles)
+	mem, err := workspace.For(root)
+	if err != nil {
+		return initRes, err
+	}
+	if err := mem.Refresh(); err != nil {
+		return initRes, err
+	}
 	st := &traceState{
 		root:         root,
+		mem:          mem,
 		needles:      needles,
 		lowerNeedles: lower,
 		effective:    eff,
@@ -307,12 +308,12 @@ func (s *traceState) walkFunc(path string, d fs.DirEntry, walkErr error) error {
 }
 
 func (s *traceState) handleDir(path string) error {
+	ok, admErr := s.mem.Admit(path, true)
+	if admErr != nil || !ok {
+		return fs.SkipDir
+	}
 	if path == s.root {
 		return nil
-	}
-	base := filepath.Base(path)
-	if isSkippedRepoDir(base) {
-		return fs.SkipDir
 	}
 	rel, _ := filepath.Rel(s.root, path)
 	depth := repoDepth(rel)
@@ -328,6 +329,10 @@ func (s *traceState) handleDir(path string) error {
 }
 
 func (s *traceState) handleFile(path string) error {
+	ok, admErr := s.mem.Admit(path, false)
+	if admErr != nil || !ok {
+		return nil
+	}
 	if s.result.FilesScanned >= s.effective.MaxFiles {
 		if !s.fileLimitNoteAdded {
 			s.result.Notes = append(s.result.Notes, fmt.Sprintf("truncated files: limit %d reached", s.effective.MaxFiles))

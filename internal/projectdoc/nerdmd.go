@@ -31,6 +31,8 @@ import (
 	"sort"
 	"strings"
 
+	wscope "codenerd/internal/workspace"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -279,19 +281,23 @@ func LoadAll(workspace string) ([]*Document, error) {
 	var modules []*Document
 	var walkErr error
 
+	mem, err := wscope.For(walkRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := mem.Refresh(); err != nil {
+		return nil, err
+	}
+
 	err = filepath.WalkDir(walkRoot, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return nil
 		}
-		if d.IsDir() {
-			name := d.Name()
-			if strings.HasPrefix(name, ".") {
-				if p != walkRoot {
-					return fs.SkipDir
-				}
-			} else if name == "node_modules" || name == "vendor" {
-				return fs.SkipDir
-			}
+		member, admErr := mem.Admit(p, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || d.IsDir() {
 			return nil
 		}
 		if d.Name() != FileName {

@@ -3,6 +3,7 @@ package world
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/workspace"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -604,21 +605,28 @@ func (d *DataFlowExtractor) ExtractDataFlowForDirectory(dir string) ([]core.Fact
 	fileCount := 0
 	errorCount := 0
 
+	mem, memErr := workspace.For(dir)
+	if memErr != nil {
+		return nil, memErr
+	}
+	if err := mem.Refresh(); err != nil {
+		return nil, err
+	}
+
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors, continue walking
 		}
 
-		// Skip hidden directories and vendor
-		if info.IsDir() {
-			if fileCount >= 10000 {
-				logging.Get(logging.CategoryWorld).Warn("DataFlowExtractor: directory limit reached, stopping")
-				return filepath.SkipDir
-			}
-			name := info.Name()
-			if strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" {
-				return filepath.SkipDir
-			}
+		if info.IsDir() && fileCount >= 10000 {
+			logging.Get(logging.CategoryWorld).Warn("DataFlowExtractor: directory limit reached, stopping")
+			return filepath.SkipDir
+		}
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || info.IsDir() {
 			return nil
 		}
 

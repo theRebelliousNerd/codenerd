@@ -242,23 +242,22 @@ func discoverFiles(workspace, constraint string) []string {
 		extensions = []string{".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".java", ".c", ".cpp", ".h"}
 	}
 
-	// Walk workspace and collect matching files
+	// Walk workspace and collect matching files. Membership replaces the
+	// substring skips: those also dropped codevendor and .github.
+	mem, memErr := openMembership(workspace)
+	if memErr != nil {
+		return nil
+	}
 	filepath.Walk(workspace, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
 			return nil
 		}
-
-		// Skip hidden directories and files
-		if strings.Contains(path, "/.") || strings.Contains(path, "\\.") {
-			return nil
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			return admErr
 		}
-
-		// Skip vendor, node_modules, etc.
-		skipDirs := []string{"vendor", "node_modules", ".git", ".nerd", "dist", "build"}
-		for _, skip := range skipDirs {
-			if strings.Contains(path, string(filepath.Separator)+skip+string(filepath.Separator)) {
-				return nil
-			}
+		if !member || info.IsDir() {
+			return nil
 		}
 
 		// Check if file matches extension filter

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"codenerd/internal/tools"
 )
 
 // PathPolicy confines model-supplied browser artifacts to explicit roots.
@@ -98,6 +100,92 @@ func (p *PathPolicy) ResolveForWrite(requested, defaultRoot, defaultName string)
 		}
 	}
 	return "", fmt.Errorf("browser output path %q is outside writable_roots", target)
+}
+
+// Upload confinement is adapted from BrowserNERD's Apache-2.0 browser-act
+// contract. A page receives only regular workspace files; the shared secret
+// matcher also applies to both the requested name and its resolved target.
+
+// ResolveForUpload validates an existing workspace file for a page's file input.
+func (p *PathPolicy) ResolveForUpload(requested string) (string, error) {
+	if p == nil || p.baseDir == "" {
+		return "", errors.New("browser upload path policy is not configured")
+	}
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return "", errors.New("browser upload path is empty")
+	}
+	for _, part := range strings.Split(strings.ReplaceAll(requested, `\`, "/"), "/") {
+		if part == ".." {
+			return "", errors.New("browser upload path contains parent traversal")
+		}
+	}
+	if tools.IsSecretPath(requested) {
+		return "", errors.New("browser upload path names a secret file")
+	}
+	if !filepath.IsAbs(requested) {
+		requested = filepath.Join(p.baseDir, requested)
+	}
+	target, err := filepath.Abs(requested)
+	if err != nil {
+		return "", fmt.Errorf("resolve browser upload path: %w", err)
+	}
+	base, err := filepath.EvalSymlinks(p.baseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve browser upload workspace: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return "", fmt.Errorf("resolve browser upload file: %w", err)
+	}
+	if !pathWithin(base, resolved) {
+		return "", errors.New("browser upload file is outside the workspace root")
+	}
+	if tools.IsSecretPath(target) || tools.IsSecretPath(resolved) {
+		return "", errors.New("browser upload path names a secret file")
+	}
+	relative, err := filepath.Rel(base, resolved)
+	if err != nil {
+		return "", fmt.Errorf("resolve browser upload file under workspace: %w", err)
+	}
+	if err := validateUploadRelativePath(relative); err != nil {
+		return "", err
+	}
+	// Check the alias as well so a dot path cannot disguise an ordinary file.
+	// Different spellings of the workspace itself still share its resolved root.
+	for _, root := range []string{p.baseDir, base} {
+		if !pathWithin(root, target) {
+			continue
+		}
+		relative, err := filepath.Rel(root, target)
+		if err != nil {
+			return "", fmt.Errorf("resolve browser upload alias under workspace: %w", err)
+		}
+		if err := validateUploadRelativePath(relative); err != nil {
+			return "", err
+		}
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("inspect browser upload file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("browser upload path is not a regular file")
+	}
+	return resolved, nil
+}
+
+func validateUploadRelativePath(relative string) error {
+	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+		if strings.HasPrefix(part, ".") {
+			return errors.New("browser upload path contains a dot path")
+		}
+		// A Windows alternate data stream can evade filename-based secret checks.
+		if strings.Contains(part, ":") {
+			return errors.New("browser upload path contains an alternate data stream")
+		}
+	}
+	return nil
 }
 
 // ConfineToRoot resolves candidate and reports the resolved absolute path

@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"codenerd/internal/workspace"
 )
 
 // The numbers recurse's improvement step must move. A change is an
@@ -26,21 +28,6 @@ const (
 	// (7325 = 73.25%), where its test run reports one.
 	MetricCoverage = "coverage"
 )
-
-// skipDirs are directories that are not the workspace's own code:
-// dependencies, build output, virtualenvs, fixtures.
-var skipDirs = map[string]bool{
-	"node_modules": true, "vendor": true, "dist": true, "build": true, "out": true,
-	"target": true, "venv": true, "env": true, "__pycache__": true, "testdata": true,
-	"coverage": true, "site-packages": true,
-}
-
-// SkipDir reports whether a directory named name is outside the workspace's
-// own code: hidden (VCS, agent state) or one of the dependency, output and
-// fixture directories every toolchain here leaves in a tree.
-func SkipDir(name string) bool {
-	return strings.HasPrefix(name, ".") || skipDirs[name]
-}
 
 var sourceExts = map[string]bool{
 	".go": true, ".py": true, ".rs": true,
@@ -133,6 +120,13 @@ func SourceLines(root string, dirs []string, recursive bool) (int, error) {
 
 // walkSources calls fn for each source file under dir.
 func walkSources(root, dir string, recursive bool, fn func(rel string, data []byte)) error {
+	mem, err := workspace.For(root)
+	if err != nil {
+		return err
+	}
+	if err := mem.Refresh(); err != nil {
+		return err
+	}
 	start := filepath.Join(root, filepath.FromSlash(dir))
 	return filepath.WalkDir(start, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -145,9 +139,20 @@ func walkSources(root, dir string, recursive bool, fn func(rel string, data []by
 			return nil
 		}
 		if d.IsDir() {
-			if p != start && (!recursive || SkipDir(d.Name())) {
+			if p != start && !recursive {
 				return filepath.SkipDir
 			}
+			ok, admErr := mem.Admit(p, true)
+			if admErr != nil {
+				return admErr
+			}
+			if !ok {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		ok, admErr := mem.Admit(p, false)
+		if admErr != nil || !ok {
 			return nil
 		}
 		if !sourceExts[filepath.Ext(p)] {

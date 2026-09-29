@@ -3,7 +3,7 @@ doc-class: north-star
 subsystem: workspace
 implementation-status: target-state
 last-verified: 2026-09-29
-verified-against: e056692c
+verified-against: 4dded472+working-tree
 supersedes: []
 ---
 
@@ -24,7 +24,7 @@ package workspace
 
 import (
 	"context"
-	"codenerd/internal/config"
+	"io/fs"
 )
 
 // Membership represents the concurrency-safe membership authority for a root.
@@ -33,7 +33,10 @@ type Membership struct {
 }
 
 // For returns or constructs the canonical Membership instance for a workspace root.
-func For(root string, cfg *config.WorldConfig) (*Membership, error)
+func For(root string) (*Membership, error)
+
+// Open supplies an explicit extra-exclusion list from an already loaded configuration.
+func Open(root string, patterns []string) (*Membership, error)
 
 // Includes reports whether a relative file path is a member of the workspace.
 func (m *Membership) Includes(rel string) bool
@@ -43,7 +46,7 @@ func (m *Membership) Includes(rel string) bool
 func (m *Membership) IncludesDir(rel string) bool
 
 // Walk executes a fast, non-statting traversal over all member files.
-func (m *Membership) Walk(ctx context.Context, fn func(rel string, isDir bool) error) error
+func (m *Membership) Walk(ctx context.Context, fn func(rel string, entry fs.DirEntry) error) error
 
 // Files returns a copy of all current member file paths in repo-relative form.
 func (m *Membership) Files() []string
@@ -78,13 +81,13 @@ When `root` resides within a git work tree:
 When an agent or tool creates an unstaged, untracked file during an active turn:
 1. `Includes(rel)` checks the cached `files` map. If found, returns `true`.
 2. If absent from `files`, the path is queued for batched dynamic evaluation.
-3. A persistent background subprocess executes `git check-ignore -z --stdin`:
+3. A batched request executes `git check-ignore -z --stdin`; `Walk` groups unknown siblings before descending:
    - If git check-ignore returns the path, the file is ignored $\rightarrow$ cached as non-member (`false`).
    - If git check-ignore does not return the path, the file is untracked but not ignored $\rightarrow$ cached as member (`true`).
-4. Results are stored in a concurrency-safe delta cache (`sync.Map`).
+4. Results are stored in a mutex-protected delta cache. Results from an older snapshot cannot overwrite a refreshed cache.
 
 ### Automatic Cache Invalidation
-The snapshot records the `os.Stat` modification time of `.git/index` and `.git/HEAD`. When `Refresh` is invoked (or when periodic scan ticks occur), `Membership` checks whether these control timestamps changed; if unchanged, re-executing `git ls-files` is skipped.
+The snapshot records control-file timestamps. Membership queries refresh when they change. Explicit `Refresh` always reloads the snapshot, including nested ignore changes and newly created files that do not move the index.
 
 ---
 
@@ -93,7 +96,7 @@ The snapshot records the `os.Stat` modification time of `.git/index` and `.git/H
 ### Non-Git Mode
 If `root` is not a git repository (e.g. an unpacked source archive):
 1. `Membership` falls back to evaluating `world.ignore_patterns`.
-2. The default ignore patterns come exclusively from `config.DefaultWorldConfig` (`internal/config/world.go:33-47`).
+2. The default ignore patterns come exclusively from `config.DefaultWorldConfig` (`internal/config/world.go:41`).
 3. Pattern matching is implemented with full globbing semantics:
    - Recursive `**` wildcards (e.g. `**/target/**`).
    - Directory prefix rules (`pattern/` matches directories and all descendants).
@@ -134,6 +137,8 @@ if !membership.Includes(relPath) {
 ```
 
 All private `ignoredDirs` maps, dot-prefix allowlists, and ad-hoc string comparisons are completely excised.
+
+Directory write-set briefings, transaction snapshots, and rollback cleanup must use the campaign workspace root's authority, even when traversal starts below that root. Cleanup preserves excluded trees. Init entry-point and manifest discovery must also gate direct reads and subtree walks against the initializer's workspace membership; purpose filters remain local.
 
 ---
 

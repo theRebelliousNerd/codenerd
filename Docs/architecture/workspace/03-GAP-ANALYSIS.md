@@ -1,33 +1,25 @@
 ---
 doc-class: shipped-with-future
 subsystem: workspace
-implementation-status: planned
+implementation-status: partial
 last-verified: 2026-09-29
-verified-against: e056692c
+verified-against: 4dded472+working-tree
 supersedes: []
 ---
 
-# 03 — Gap Analysis — Workspace Membership & Ignore Consolidation
+# Membership gaps
 
-This document defines the gap matrix for `internal/workspace` against the target state specified in [01-VISION.md](01-VISION.md). Current state rows cite verified source lines from [02-CURRENT-STATE.md](02-CURRENT-STATE.md).
+Closed rows identify the uncommitted working tree, not a release commit. Integrated verification stays open.
 
-## 1. The Gap Matrix
-
-| Gap ID | Capability | Current State (Shipped) | Target State (Spec) | Severity | Phase | Blocking Dependencies | Exit Criteria |
+| Gap ID | Capability | Current state | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
 |---|---|---|---|---|---|---|---|
-| `GAP-WS-01` | Single Membership Authority Package | Non-existent; membership logic is fragmented across 35 walkers in `internal/world`, `tools`, `retrieval`, `campaign`. | [05-MEMBERSHIP-SPEC.md](05-MEMBERSHIP-SPEC.md): `internal/workspace` package exposes `For`, `Includes`, `IncludesDir`, `Walk`. | Critical | Phase 1 | Lane `L1` | `go test ./internal/workspace` passes with unit tests covering git-tracked, untracked, and ignored files. |
-| `GAP-WS-02` | Universal `.gitignore` Compliance | Zero `.gitignore` support; `internal/world/fs.go:226-263` uses static name maps; `go.mod` has no gitignore parser. | [05-MEMBERSHIP-SPEC.md](05-MEMBERSHIP-SPEC.md): `git ls-files -z` snapshot plus batched `git check-ignore -z --stdin` for new files. | Critical | Phase 1 | Lane `L1` | Test in temp git repository with nested `.gitignore` (wildcards, `**`, `!` negation) verifies ignored files are excluded and unignored files are admitted. |
-| `GAP-WS-03` | Universal Walker Repointing | ~35 independent production walkers maintain ~25 private skip lists (`fs.go`, `incremental_scan.go`, `sparse.go:76`, `search.go:373`). | [WIRING-AND-NOT-BUILT.md](WIRING-AND-NOT-BUILT.md): Repoint all walkers to query `Membership.Includes` or `Membership.IncludesDir`. | Critical | Phase 2 | Lane `L1` | Scanner census audit verifies zero hardcoded skip lists remain; `grep` for `node_modules` skip maps returns 0 matches in walker files. |
-| `GAP-WS-04` | Universal Factory & Config Wiring | Only `internal/system/factory.go:2239` copies `world.ignore_patterns`; `init` (`initializer.go:360`) and `scan` (`cmd_init_scan.go:416`) discard user config. | [05-MEMBERSHIP-SPEC.md](05-MEMBERSHIP-SPEC.md): All scanner and workspace constructors require user configuration. | High | Phase 2 | Lane `L1` | `TestScanner_ReceivesUserIgnorePatterns` passes for `nerd init`, `nerd scan`, and campaign orchestrators. |
-| `GAP-WS-05` | Semantic Discernment Overlay | All unignored files are treated as application code; seed data, golden answer keys, and stubs are fully parsed. | [05-MEMBERSHIP-SPEC.md](05-MEMBERSHIP-SPEC.md): `Membership` ingests `.nerd/orientation/membership.json`, exposing `Treatment(rel)`. | High | Phase 3 | Lane `O1` (`internal/orient`) | Test loading `membership.json` verifies a seed-data directory returns `Treatment() == "/index_names_only"`. |
+| GAP-WS-01 | Single authority | Closed in working tree: For/Open/Walk exist (`internal/workspace/membership.go:61`, `internal/workspace/walk.go:18`); leaf tests passed in the native and CGO-disabled runs. | [05-MEMBERSHIP-SPEC.md](05-MEMBERSHIP-SPEC.md), API. | Critical | 1 / closed | Integration tracked separately | `go test -count=1 ./internal/workspace/...` with the declared environment. |
+| GAP-WS-02 | Gitignore and dynamic membership | Closed in working tree: Git driver and batched checks exist; Git/fallback/pruning tests pass (`internal/workspace/git.go:98`, `internal/workspace/git.go:247`, `internal/workspace/membership_test.go:43`, `internal/workspace/membership_test.go:162`). | [05-MEMBERSHIP-SPEC.md](05-MEMBERSHIP-SPEC.md), Git/pattern semantics. | Critical | 1 / closed | Integration tracked separately | `go test -count=1 ./internal/workspace/... -run 'MembershipGit|NestedGitignoreRefresh|UserPatternsOnTopOfGit|PatternFallbackOutsideGit|WalkNeverEntersBigIgnoredDir'`. |
+| GAP-WS-03 | Walker consolidation | Closed for C1's owned census: no private directory membership lists remain; campaign holdouts now gate paths (`internal/campaign/orchestrator_task_results.go:283`, `internal/campaign/orchestrator_task_transaction.go:395`). | [WIRING-AND-NOT-BUILT.md](WIRING-AND-NOT-BUILT.md), census. | Critical | 2 / closed for owned census | Strategic knowledge, orient, browser sessions and parsing remain other-lane ownership | Audit census files for private directory sets/old SkipDir helpers/dot allowlists: zero membership filters; scanner/tool behavior checks remain GAP-WS-06. |
+| GAP-WS-04 | Config entry paths | Authored: default scanners load root patterns; factory supplies config; init subtrees use initializer root (`internal/world/fs.go:41`, `internal/system/factory.go:2239`, `internal/init/scanner.go:264`). Caller tests are blocked. | [05-MEMBERSHIP-SPEC.md](05-MEMBERSHIP-SPEC.md), uniform config. | High | 2 / open verification | CGO and concurrent dependencies | `go test -count=1 ./internal/world/... ./internal/init/... ./internal/shards/system/... ./internal/system/...`, including TestScanDirectoryHonorsGitignore and TestEntryPointsUseWorkspaceMembershipForSubmodule. |
+| GAP-WS-05 | Semantic treatment | Open: query surface currently exposes membership, not orientation treatment (`internal/workspace/membership.go:254`, `internal/workspace/membership.go:292`). | [05-MEMBERSHIP-SPEC.md](05-MEMBERSHIP-SPEC.md), Treatment. | High | 3 | Orientation owner | Real artifact-loading test proves names-only treatment, exclusion and inheritance from Mangle-derived orientation evidence. |
+| GAP-WS-06 | Integrated native verification | Open: sqlite-vec build cannot execute compiler; caller tests and policy guards are not green. Regressions exist (`internal/workspace/membership_regression_test.go:40`, `internal/campaign/workspace_membership_test.go:10`). | [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md), evidence boundary. | Critical | Integration | Compiler access; other lanes' parser/policy/orientation wiring | `go build -tags sqlite_vec ./...` and `go test -count=1` for every census package plus `./internal/core/defaults/...`: all pass on composed tree. |
 
----
+## Test environment
 
-## 2. Phase Execution Order
-
-1. **Phase 1: Leaf Package Implementation** (`GAP-WS-01`, `GAP-WS-02`):
-   Construct `internal/workspace` with fast `git ls-files` snapshotting, batched `git check-ignore` dynamic checking, and non-git fallback matching.
-2. **Phase 2: Universal Repointing & Config Unification** (`GAP-WS-03`, `GAP-WS-04`):
-   Migrate all ~35 production walkers to ask `Membership.IncludesDir` before descending, eliminating all private ignore lists and wiring user configuration through all factory constructors.
-3. **Phase 3: Semantic Discernment Overlay Integration** (`GAP-WS-05`):
-   Wire the orientation discernment artifact (`.nerd/orientation/membership.json`) into `internal/workspace`, enabling search and index tools to distinguish code from non-code datasets.
+GOTMPDIR/GOCACHE and TEMP/TMP stay inside the repository; CGO_CFLAGS points at its SQLite headers. GIT_CEILING_DIRECTORIES=GOTMPDIR prevents fallback fixtures from discovering codeNERD's enclosing repository. Passing leaf evidence used CGO_ENABLED=0; it does not qualify sqlite-vec or CGO-dependent callers.

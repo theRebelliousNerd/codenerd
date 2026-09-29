@@ -1,9 +1,9 @@
 ---
 doc-class: governance
 subsystem: browser
-implementation-status: accepted-not-implemented
+implementation-status: partial
 last-verified: 2026-09-29
-verified-against: 6597099c
+verified-against: 4dded472
 supersedes: []
 ---
 
@@ -38,7 +38,7 @@ Furthermore, Rod's default launcher incorporates a companion helper (`leakless`)
 ## Consequences
 
 ### Positive
-- Completely eliminates orphaned Chrome processes and disk accumulation across test runs and development sessions.
+- Targets orphaned Chrome cleanup and temporary-profile reclamation; live proof is pending.
 - Preserves constitutional containment: the model cannot abuse process-killing tools to interfere with host processes.
 - Eliminates launcher failures caused by antivirus quarantine of Rod's leakless binary.
 - Protects personal user browser profiles from accidental modification or deletion.
@@ -48,4 +48,19 @@ Furthermore, Rod's default launcher incorporates a companion helper (`leakless`)
 
 ## Witness
 
-**Witness:** Test `TestReapOrphans_ReapsOnlyDeadParentTrees` in `internal/browser/reaper_test.go` and method `ReapOrphans` in `internal/browser/reaper.go`.
+**Witness:** `TestReapOrphans_ReapsOnlyDeadParentTrees` at
+`internal/browser/reaper_test.go:145` and `ReapOrphans` at
+`internal/browser/reaper.go:237` resolve in the authored working tree. Launch
+hardening resolves at `internal/browser/session_lifecycle.go:166`
+(`launchControlURL`); shutdown cleanup resolves at
+`internal/browser/session_lifecycle.go:623` (`shutdown`).
+
+The Windows driver uses native snapshot/termination handles rather than a
+`taskkill` subprocess (`internal/browser/reaper_windows.go:105`,
+`KillProcessTree`). Profile guards require resolved direct children of dedicated
+system-temp containers (`internal/browser/reaper.go:120`,
+`temporaryProfilePath`). Debugger connections disconnect without terminating the
+attached Chrome (`internal/browser/session_lifecycle.go:590`,
+`closeBrowserResources`). These are source-authored witnesses: no build, unit
+test, or live Chrome result has been obtained. Config adapter propagation and B2
+stream readiness remain outside this lane's ownership.

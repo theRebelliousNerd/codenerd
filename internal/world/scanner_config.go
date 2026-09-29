@@ -1,11 +1,9 @@
 package world
 
 import (
-	"path"
-	"path/filepath"
 	"runtime"
-	"strings"
 
+	"codenerd/internal/config"
 	"codenerd/internal/features"
 )
 
@@ -13,8 +11,9 @@ import (
 type ScannerConfig struct {
 	// MaxConcurrency limits concurrent file workers for fast parsing.
 	MaxConcurrency int
-	// IgnorePatterns skips matching paths/dirs (relative to workspace).
-	// Supports simple dir names (e.g., "node_modules") and glob patterns (e.g., "vendor/*").
+	// IgnorePatterns is the user's extra exclusion list (world.ignore_patterns).
+	// The copy in config.DefaultWorldConfig is the only default. Membership
+	// compiles these; this field is not matched on its own.
 	IgnorePatterns []string
 	// MaxASTFileBytes skips fast AST parsing for files larger than this size.
 	// Hashing and file_topology still happen.
@@ -38,63 +37,8 @@ func DefaultScannerConfig() ScannerConfig {
 	}
 
 	return ScannerConfig{
-		MaxConcurrency: workers,
-		IgnorePatterns: []string{
-			".git",
-			".nerd",
-			"node_modules",
-			"vendor",
-			"dist",
-			"build",
-			".next",
-			"target",
-			"bin",
-			"obj",
-			".terraform",
-			".venv",
-			".cache",
-		},
+		MaxConcurrency:  workers,
+		IgnorePatterns:  append([]string(nil), config.DefaultWorldConfig().IgnorePatterns...),
 		MaxASTFileBytes: maxBytes,
 	}
-}
-
-func normalizePattern(p string) string {
-	p = strings.TrimSpace(p)
-	p = strings.TrimSuffix(p, "/")
-	p = strings.TrimSuffix(p, "\\")
-	return filepath.ToSlash(p)
-}
-
-// isIgnoredRel reports whether a relative path should be ignored.
-func isIgnoredRel(rel, name string, patterns []string) bool {
-	rel = filepath.ToSlash(rel)
-	for _, raw := range patterns {
-		p := normalizePattern(raw)
-		if p == "" {
-			continue
-		}
-		// Glob pattern
-		if strings.ContainsAny(p, "*?[]") {
-			if ok, _ := path.Match(p, rel); ok {
-				return true
-			}
-			// Handle directory globs like "vendor/*"
-			if before, ok := strings.CutSuffix(p, "/*"); ok {
-				prefix := before
-				if strings.HasPrefix(rel, prefix+"/") {
-					return true
-				}
-			}
-			continue
-		}
-		// Simple dir/file name
-		if name == p {
-			return true
-		}
-		// Prefix match for nested paths
-		if strings.HasPrefix(rel, p+"/") {
-			return true
-		}
-	}
-	return false
 }

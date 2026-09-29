@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/store"
 	nerdsystem "codenerd/internal/system"
 	"codenerd/internal/types"
+	"codenerd/internal/workspace"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -93,7 +94,7 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 			}
 		}
 
-		files, err := collectIngestFiles(root, info.IsDir())
+		files, err := collectIngestFiles(m.workspace, root, info.IsDir())
 		if err != nil {
 			return responseMsg(fmt.Sprintf("Ingest failed: %v", err))
 		}
@@ -198,12 +199,30 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 	}
 }
 
-func collectIngestFiles(root string, isDir bool) ([]string, error) {
-	if !isDir {
-		if isSupportedIngestExt(root) {
-			return []string{root}, nil
+func collectIngestFiles(workspaceRoot, root string, isDir bool) ([]string, error) {
+	memRoot := workspaceRoot
+	if strings.TrimSpace(memRoot) == "" {
+		memRoot = root
+		if !isDir {
+			memRoot = filepath.Dir(root)
 		}
-		return nil, nil
+	}
+	mem, err := workspace.For(memRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := mem.Refresh(); err != nil {
+		return nil, err
+	}
+	if !isDir {
+		if !isSupportedIngestExt(root) {
+			return nil, nil
+		}
+		ok, admErr := mem.Admit(root, false)
+		if admErr != nil || !ok {
+			return nil, nil
+		}
+		return []string{root}, nil
 	}
 
 	var files []string
@@ -211,7 +230,11 @@ func collectIngestFiles(root string, isDir bool) ([]string, error) {
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() {
+		member, admErr := mem.Admit(path, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || d.IsDir() {
 			return nil
 		}
 		if !isSupportedIngestExt(path) {

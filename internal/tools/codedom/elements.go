@@ -81,8 +81,9 @@ func extractCodeElements(path string) ([]CodeElement, error) {
 }
 
 // ElementsFromSource returns the declarations of source text the caller
-// already holds, from the element model for Go and Mangle and from the
-// per-language regexes otherwise.
+// already holds, from the element model when CodeDOM parses the language
+// (Go, Mangle, Python, TypeScript, JavaScript) and from the per-language
+// regexes otherwise.
 //
 // It takes the text rather than a path so the observation codec can project
 // exactly the bytes it observed: a helper that went back to disk would let the
@@ -395,7 +396,7 @@ func GetElementsTool() *tools.Tool {
 			Required: []string{"path"},
 			Properties: map[string]tools.Property{
 				"path": {Type: "string", Description: "Workspace-relative file path"},
-				"kind": {Type: "string", Description: "Optional filter: header, function, method, struct, interface, type, const, var, decl, rule, fact, query, syntax_error"},
+				"kind": {Type: "string", Description: "Optional filter: header, function, method, hook, component, class, struct, interface, type, enum, namespace, const, var, decl, rule, fact, query, syntax_error"},
 			},
 		},
 	}
@@ -463,7 +464,7 @@ func executeGetElements(ctx context.Context, args map[string]any) (string, error
 	var rows []string
 	for i := range model.Elements {
 		e := &model.Elements[i]
-		if kind != "" && !strings.EqualFold(kind, string(e.Kind)) {
+		if kind != "" && !strings.EqualFold(kind, displayedKind(e)) {
 			continue
 		}
 		rows = append(rows, symbolRow(symbolOf(lf.rel, e, refs)))
@@ -545,14 +546,14 @@ func canonicalRefs(ctx context.Context, rel string, model *codemodel.File) map[s
 	return nil
 }
 
-// RefOf is an element's workspace ref: directory, receiver and name for a Go
-// declaration, file and key for everything else (a Go header, a broken
-// region, a Mangle statement).
+// RefOf is an element's workspace ref: directory, receiver and name for a Go,
+// Python, TypeScript or JavaScript declaration, file and key for everything
+// else (a header, a broken region, a Mangle statement).
 func RefOf(rel string, e *codemodel.Element, refs map[string]string) string {
 	if r, ok := refs[e.Key]; ok {
 		return r
 	}
-	if !strings.HasSuffix(strings.ToLower(rel), ".go") || e.Kind == codemodel.KindHeader || e.Kind == codemodel.KindSyntaxError {
+	if !dirRefFile(rel) || e.Kind == codemodel.KindHeader || e.Kind == codemodel.KindSyntaxError {
 		return rel + ":" + e.Key
 	}
 	dir := filepath.ToSlash(filepath.Dir(rel))
@@ -562,13 +563,28 @@ func RefOf(rel string, e *codemodel.Element, refs map[string]string) string {
 	return dir + "." + e.Key
 }
 
+// dirRefFile reports a language whose refs are directory-and-key.
+func dirRefFile(rel string) bool {
+	lang := codemodel.LanguageOf(rel)
+	return lang == codemodel.LangGo || codemodel.IsScriptLang(lang)
+}
+
+// displayedKind is the kind the tools print. A component or a hook stays a
+// function in the element model; the role is what a reader asked for.
+func displayedKind(e *codemodel.Element) string {
+	if e.Role == "component" || e.Role == "hook" {
+		return e.Role
+	}
+	return string(e.Kind)
+}
+
 func symbolOf(rel string, e *codemodel.Element, refs map[string]string) StructureSymbol {
 	doc := e.Doc
 	if e.Kind == codemodel.KindSyntaxError {
 		doc = e.Err
 	}
 	return StructureSymbol{
-		Ref: RefOf(rel, e, refs), Key: e.Key, Kind: string(e.Kind), File: rel,
+		Ref: RefOf(rel, e, refs), Key: e.Key, Kind: displayedKind(e), File: rel,
 		Signature: e.Signature, Doc: doc, Revision: e.Revision,
 		StartLine: e.StartLine, EndLine: e.EndLine, Exported: e.Exported,
 	}
@@ -655,7 +671,7 @@ func resolveElement(ctx context.Context, ref, path string) (*resolvedElement, er
 	}
 	model, ok := codemodel.Parse(lf.rel, string(lf.data))
 	if !ok {
-		return nil, fmt.Errorf("%s is not a file CodeDOM parses (Go or Mangle); it has no elements to address by ref", lf.rel)
+		return nil, fmt.Errorf("%s is not a file CodeDOM parses (Go, Mangle, Python, TypeScript or JavaScript); it has no elements to address by ref", lf.rel)
 	}
 	refs := canonicalRefs(ctx, lf.rel, model)
 	matches := lookupInFile(model, lf.rel, ref, refs)
@@ -683,7 +699,7 @@ func lookupInFile(model *codemodel.File, rel, ref string, refs map[string]string
 		}
 	}
 	key := ref
-	if base, file, ok := strings.Cut(key, "@"); ok && !strings.Contains(file, "/") && strings.HasSuffix(file, ".go") {
+	if base, file, ok := strings.Cut(key, "@"); ok && !strings.Contains(file, "/") && sameScriptExt(file, rel) {
 		if file != filepath.Base(rel) {
 			return nil
 		}
@@ -697,9 +713,17 @@ func lookupInFile(model *codemodel.File, rel, ref string, refs map[string]string
 	return model.Lookup(key)
 }
 
-// splitFileRef reads a file-scoped ref, "path/to/file.go:Key".
+// sameScriptExt reports that file is a bare filename whose extension is the
+// file's own, so "@hooks.tsx" is a discriminator and "@3fa2c1" is not.
+func sameScriptExt(file, rel string) bool {
+	ext := filepath.Ext(file)
+	return ext != "" && strings.EqualFold(ext, filepath.Ext(rel))
+}
+
+// splitFileRef reads a file-scoped ref, "path/to/file.go:Key". Longer
+// extensions come first: ".mts:" contains ".ts:" as a suffix.
 func splitFileRef(ref string) (path, key string, ok bool) {
-	for _, ext := range []string{".go:", ".mg:", ".dl:", ".mangle:"} {
+	for _, ext := range []string{".mangle:", ".mts:", ".cts:", ".tsx:", ".jsx:", ".pyi:", ".mjs:", ".cjs:", ".go:", ".mg:", ".dl:", ".ts:", ".js:", ".py:"} {
 		if i := strings.Index(ref, ext); i > 0 {
 			return ref[:i+len(ext)-1], ref[i+len(ext):], true
 		}

@@ -86,19 +86,23 @@ func TestCountFileLines(t *testing.T) {
 }
 
 func TestSearchInFiles_SkipsHiddenDirs(t *testing.T) {
+	// Dot directories are members. node_modules is a default exclusion.
 	root := t.TempDir()
 	visible := filepath.Join(root, "visible.txt")
 	hiddenDir := filepath.Join(root, ".hidden")
 	hidden := filepath.Join(hiddenDir, "hidden.txt")
+	dep := filepath.Join(root, "node_modules", "lib.txt")
 
 	if err := os.MkdirAll(hiddenDir, 0755); err != nil {
 		t.Fatalf("mkdir hidden: %v", err)
 	}
-	if err := os.WriteFile(visible, []byte("needle"), 0644); err != nil {
-		t.Fatalf("write visible: %v", err)
+	if err := os.MkdirAll(filepath.Dir(dep), 0755); err != nil {
+		t.Fatalf("mkdir node_modules: %v", err)
 	}
-	if err := os.WriteFile(hidden, []byte("needle"), 0644); err != nil {
-		t.Fatalf("write hidden: %v", err)
+	for _, p := range []string{visible, hidden, dep} {
+		if err := os.WriteFile(p, []byte("needle"), 0644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
 	}
 
 	matches, err := searchInFiles(root, "needle", 10)
@@ -106,11 +110,15 @@ func TestSearchInFiles_SkipsHiddenDirs(t *testing.T) {
 		t.Fatalf("searchInFiles: %v", err)
 	}
 
-	if len(matches) != 1 {
-		t.Fatalf("expected 1 match, got %d", len(matches))
+	got := map[string]bool{}
+	for _, m := range matches {
+		got[m] = true
 	}
-	if matches[0] != visible {
-		t.Fatalf("expected match %q, got %q", visible, matches[0])
+	if !got[visible] || !got[hidden] {
+		t.Fatalf("visible and .hidden files are members, got %v", matches)
+	}
+	if got[dep] {
+		t.Fatalf("node_modules file is not a member, got %v", matches)
 	}
 }
 

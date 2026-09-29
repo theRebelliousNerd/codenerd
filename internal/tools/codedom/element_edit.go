@@ -487,7 +487,7 @@ func executeInsertElement(ctx context.Context, args map[string]any) (string, err
 		}
 		model, ok := codemodel.Parse(lf.rel, string(lf.data))
 		if !ok {
-			return "", fmt.Errorf("%s is not a file CodeDOM parses (Go or Mangle)", lf.rel)
+			return "", fmt.Errorf("%s is not a file CodeDOM parses (Go, Mangle, Python, TypeScript or JavaScript)", lf.rel)
 		}
 		re = &resolvedElement{file: lf, model: model, refs: canonicalRefs(ctx, lf.rel, model)}
 		tail := strings.TrimRight(model.Source, "\n")
@@ -578,6 +578,12 @@ func executeDeleteElement(ctx context.Context, args map[string]any) (string, err
 func usesOutside(ctx context.Context, re *resolvedElement) ([]StructureUse, error) {
 	if re.elem.Kind == codemodel.KindSyntaxError || re.elem.Name == "_" || re.elem.Name == "init" {
 		return nil, nil
+	}
+	// Uses is the Go and Mangle scan. A script name is resolved from the
+	// bindings the element model already computed, which is what keeps a
+	// same-named local out of the list.
+	if codemodel.IsScriptLang(re.model.Language) {
+		return scriptUsesOutside(ctx, re)
 	}
 	provider := optionalStructureProvider()
 	if provider == nil {

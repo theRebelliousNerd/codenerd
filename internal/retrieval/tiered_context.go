@@ -302,10 +302,21 @@ func (b *TieredContextBuilder) findFile(ctx context.Context, partial string) str
 }
 
 func (b *TieredContextBuilder) locateFile(ctx context.Context, partial string) string {
-	// Try exact path first
+	mem, err := membershipFor(b.workDir)
+	if err != nil {
+		logging.Context("TieredContextBuilder: workspace membership unavailable: %v", err)
+		return ""
+	}
+
+	// Try exact path first. A hit that is not a member (a dependency tree
+	// the workspace ignores) is not an answer, even when the file exists.
 	fullPath := filepath.Join(b.workDir, partial)
-	if _, err := os.Stat(fullPath); err == nil {
-		return fullPath
+	if st, statErr := os.Stat(fullPath); statErr == nil && !st.IsDir() {
+		ok, admErr := mem.Admit(fullPath, false)
+		if admErr == nil && ok {
+			return fullPath
+		}
+		return ""
 	}
 
 	// Try finding by filename
@@ -317,13 +328,11 @@ func (b *TieredContextBuilder) locateFile(ctx context.Context, partial string) s
 		if ctx.Err() != nil {
 			return filepath.SkipAll
 		}
-		if info.IsDir() {
-			// Skip common non-source directories
-			name := info.Name()
-			if name == ".git" || name == "node_modules" || name == "__pycache__" ||
-				name == ".venv" || name == "venv" || name == "vendor" {
-				return filepath.SkipDir
-			}
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || info.IsDir() {
 			return nil
 		}
 

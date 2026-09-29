@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -237,25 +238,30 @@ func TestScanDirectoryContextCancellation(t *testing.T) {
 }
 
 func TestScanDirectorySkipsHiddenDirs(t *testing.T) {
-	// Create a temp directory
+	// A dot directory is a member unless gitignore or world.ignore_patterns
+	// says otherwise. node_modules is on the default list and must not be scanned.
 	tmpDir, err := os.MkdirTemp("", "world_test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create visible file
 	if err := os.WriteFile(filepath.Join(tmpDir, "visible.go"), []byte("package main"), 0644); err != nil {
 		t.Fatalf("Failed to create file: %v", err)
 	}
-
-	// Create hidden directory with file
 	hiddenDir := filepath.Join(tmpDir, ".hidden")
 	if err := os.MkdirAll(hiddenDir, 0755); err != nil {
 		t.Fatalf("Failed to create hidden dir: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(hiddenDir, "hidden.go"), []byte("package hidden"), 0644); err != nil {
 		t.Fatalf("Failed to create hidden file: %v", err)
+	}
+	depDir := filepath.Join(tmpDir, "node_modules", "lib")
+	if err := os.MkdirAll(depDir, 0755); err != nil {
+		t.Fatalf("Failed to create node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "dep.go"), []byte("package dep"), 0644); err != nil {
+		t.Fatalf("Failed to create dep: %v", err)
 	}
 
 	scanner := NewScanner()
@@ -266,9 +272,88 @@ func TestScanDirectorySkipsHiddenDirs(t *testing.T) {
 		t.Fatalf("ScanDirectory() error = %v", err)
 	}
 
-	// Should only find the visible file, not the hidden one
-	if result.FileCount != 1 {
-		t.Errorf("FileCount = %d, want 1 (hidden dir should be skipped)", result.FileCount)
+	if result.FileCount != 2 {
+		t.Errorf("FileCount = %d, want 2 (visible.go and .hidden/hidden.go)", result.FileCount)
+	}
+	for _, f := range result.Facts {
+		for _, a := range f.Args {
+			s, ok := a.(string)
+			if ok && strings.Contains(s, "node_modules") {
+				t.Errorf("scan fact names node_modules: %v", f)
+			}
+		}
+	}
+}
+
+func TestScanDirectoryHonorsGitignore(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	tmpDir := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(tmpDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".gitignore", "secret/\n*.log\n")
+	write("keep.go", "package keep\n")
+	write("extra.go", "package extra\n")
+	write(".hidden/h.go", "package hidden\n")
+	write("secret/a.go", "package secret\n")
+	write("foo.log", "ignored\n")
+	write("node_modules/lib/x.go", "package lib\n")
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.email=test@example.com", "-c", "user.name=test", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Dir = tmpDir
+		env := make([]string, 0, len(os.Environ())+1)
+		for _, e := range os.Environ() {
+			if strings.HasPrefix(e, "GIT_DIR=") || strings.HasPrefix(e, "GIT_WORK_TREE=") || strings.HasPrefix(e, "GIT_INDEX_FILE=") {
+				continue
+			}
+			env = append(env, e)
+		}
+		cmd.Env = append(env, "GIT_OPTIONAL_LOCKS=0")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	git("init")
+	git("add", ".gitignore", "keep.go")
+	git("commit", "-m", "init")
+
+	result, err := NewScanner().ScanDirectory(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, f := range result.Facts {
+		if f.Predicate != "file_topology" && f.Predicate != "file" {
+			continue
+		}
+		if len(f.Args) == 0 {
+			continue
+		}
+		if s, ok := f.Args[0].(string); ok {
+			paths = append(paths, s)
+		}
+	}
+	joined := strings.Join(paths, "\n")
+	for _, want := range []string{"keep.go", "extra.go", ".hidden/h.go"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("scan missing %s in %s", want, joined)
+		}
+	}
+	for _, banned := range []string{"secret/", "foo.log", "node_modules"} {
+		if strings.Contains(joined, banned) {
+			t.Errorf("scan included %s in %s", banned, joined)
+		}
 	}
 }
 

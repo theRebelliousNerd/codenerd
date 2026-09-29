@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+
+	"codenerd/internal/workspace"
 )
 
 // =============================================================================
@@ -82,12 +85,24 @@ func (b *RipgrepBackend) Search(ctx context.Context, root, keyword string, exclu
 		root = "."
 	}
 
+	// Membership is applied to the hits. rg already honours .gitignore;
+	// the post-filter is what also applies world.ignore_patterns and the
+	// always-excluded .git and .nerd directories. Failing closed here
+	// keeps an unanswered git question from returning the unfiltered tree.
+	mem, memErr := membershipFor(root)
+	if memErr != nil {
+		return nil, memErr
+	}
+	// rg then emits absolute paths, including when its caller supplied ".".
+	root = mem.Root()
+
 	args := []string{
 		"--vimgrep",       // path:line:col:content, which parseRipgrepOutput reads
 		"--fixed-strings", // the native scanner is a literal byte scan
 		"--word-regexp",   // mirrors isWordBoundary
 		"--ignore-case",   // mirrors the native case folding
 		"--no-messages",
+		"--hidden",
 		"--max-filesize", strconv.Itoa(maxScanFileSize),
 		"--max-count", strconv.Itoa(maxHitsPerFile),
 	}
@@ -106,7 +121,8 @@ func (b *RipgrepBackend) Search(ctx context.Context, root, keyword string, exclu
 
 	err := cmd.Run()
 	if ctx.Err() != nil {
-		return parseRipgrepOutput(stdout.String(), keyword), fmt.Errorf("ripgrep search for %q: %w", keyword, ctx.Err())
+		hits := keepMemberHits(mem, root, parseRipgrepOutput(stdout.String(), keyword))
+		return hits, fmt.Errorf("ripgrep search for %q: %w", keyword, ctx.Err())
 	}
 	if err != nil {
 		// rg exits 1 when nothing matched. That is an empty result, not a
@@ -119,9 +135,34 @@ func (b *RipgrepBackend) Search(ctx context.Context, root, keyword string, exclu
 		return nil, nil
 	}
 
-	hits := parseRipgrepOutput(stdout.String(), keyword)
+	hits := keepMemberHits(mem, root, parseRipgrepOutput(stdout.String(), keyword))
 	if len(hits) > maxHitsPerKeyword {
 		hits = hits[:maxHitsPerKeyword]
 	}
 	return hits, nil
+}
+
+// keepMemberHits drops hits whose path is not a workspace member. rg prints
+// paths relative to the process when root is relative, and absolute (with a
+// Windows volume colon) when root is absolute; Admit wants the absolute form.
+func keepMemberHits(mem *workspace.Membership, root string, hits []KeywordHit) []KeywordHit {
+	if len(hits) == 0 {
+		return hits
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		p := h.FilePath
+		if p == "" {
+			continue
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(root, p)
+		}
+		ok, admErr := mem.Admit(p, false)
+		if admErr != nil || !ok {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out
 }

@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
+	"codenerd/internal/workspace"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -161,11 +162,25 @@ func (d *Decomposer) readDocumentsFromDir(dir string, campaignID string) ([]Sour
 	docs := make([]SourceDocument, 0)
 	meta := make([]FileMetadata, 0)
 
+	mem, err := workspace.For(dir)
+	if err != nil {
+		logging.Campaign("document walk skipped: %v", err)
+		return docs, meta
+	}
+	if err := mem.Refresh(); err != nil {
+		logging.Campaign("document walk skipped: %v", err)
+		return docs, meta
+	}
+
 	filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if entry.IsDir() {
+		member, admErr := mem.Admit(path, entry.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || entry.IsDir() {
 			return nil
 		}
 		if !isSupportedDocExt(path) {

@@ -675,6 +675,11 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 
 	logging.ToolsDebug("list_files: path=%s, recursive=%v", path, recursive)
 
+	mem, err := workspaceMembership(root)
+	if err != nil {
+		return "", err
+	}
+
 	var files []string
 
 	if recursive {
@@ -683,7 +688,17 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 				return nil // Skip errors
 			}
 
+			member, admErr := mem.Admit(p, info.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member {
+				return nil
+			}
+
 			name := info.Name()
+			// include_hidden is a display filter on top of membership: a
+			// tracked .github stays hidden until the caller asks for it.
 			if !includeHidden && strings.HasPrefix(name, ".") {
 				if info.IsDir() {
 					return filepath.SkipDir
@@ -724,6 +739,11 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 
 		for _, entry := range entries {
 			name := entry.Name()
+			full := filepath.Join(path, name)
+			ok, admErr := mem.Admit(full, entry.IsDir())
+			if admErr != nil || !ok {
+				continue
+			}
 			if !includeHidden && strings.HasPrefix(name, ".") {
 				continue
 			}

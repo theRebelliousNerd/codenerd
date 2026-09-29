@@ -14,6 +14,7 @@ import (
 
 	browsersecurity "codenerd/internal/browser/security"
 	browserspec "codenerd/internal/browser/specs"
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
@@ -52,9 +53,12 @@ type BrowserInstance struct {
 }
 
 type browserRecord struct {
-	meta    BrowserInstance
-	browser *rod.Browser
-	cancel  context.CancelFunc
+	meta        BrowserInstance
+	browser     *rod.Browser
+	cancel      context.CancelFunc
+	pid         int
+	userDataDir string
+	tempDir     bool
 }
 
 type eventThrottler struct {
@@ -92,32 +96,33 @@ func (t *eventThrottler) Allow(key string) bool {
 // Config holds browser configuration.
 // Config holds browser configuration.
 type Config struct {
-	DebuggerURL           string             `json:"debugger_url"`
-	Launch                []string           `json:"launch"`
-	Headless              bool               `json:"headless"`
-	ViewportWidth         int                `json:"viewport_width"`
-	ViewportHeight        int                `json:"viewport_height"`
-	NavigationTimeoutMs   int                `json:"navigation_timeout_ms"`
-	SessionStore          string             `json:"session_store"`
-	EventLoggingLevel     string             `json:"event_logging_level"` // minimal, normal, verbose
-	EnableDOMIngestion    bool               `json:"enable_dom_ingestion"`
-	EnableHeaderIngestion bool               `json:"enable_header_ingestion"`
-	EventThrottleMs       int                `json:"event_throttle_ms"`
-	MultiTabDefault       *bool              `json:"multi_tab_default,omitempty"`
-	MaxTabs               int                `json:"max_tabs,omitempty"`
-	MaxBrowsers           int                `json:"max_browsers,omitempty"`
-	IdleTabTimeoutMs      int                `json:"idle_tab_timeout_ms,omitempty"`
-	ExtraSensitiveKeys    []string           `json:"extra_sensitive_keys,omitempty"`
-	WorkspaceRoot         string             `json:"workspace_root,omitempty"`
-	WritableRoots         []string           `json:"writable_roots,omitempty"`
-	EvidenceEnabled       *bool              `json:"evidence_enabled,omitempty"`
-	EvidenceDir           string             `json:"evidence_dir,omitempty"`
-	MaxEvidenceFiles      int                `json:"max_evidence_files,omitempty"`
-	MaxEvidenceFileBytes  int64              `json:"max_evidence_file_bytes,omitempty"`
-	Specs                 browserspec.Config `json:"specs,omitempty"`
-	HeaderIngestionMode   string             `json:"header_ingestion_mode,omitempty"`
-	HoneypotGuard         string             `json:"honeypot_guard,omitempty"`
-	MaxEpochEventFacts    int                `json:"max_epoch_event_facts,omitempty"`
+	Reaper                config.BrowserReaperConfig `json:"reaper,omitempty"`
+	DebuggerURL           string                     `json:"debugger_url"`
+	Launch                []string                   `json:"launch"`
+	Headless              bool                       `json:"headless"`
+	ViewportWidth         int                        `json:"viewport_width"`
+	ViewportHeight        int                        `json:"viewport_height"`
+	NavigationTimeoutMs   int                        `json:"navigation_timeout_ms"`
+	SessionStore          string                     `json:"session_store"`
+	EventLoggingLevel     string                     `json:"event_logging_level"` // minimal, normal, verbose
+	EnableDOMIngestion    bool                       `json:"enable_dom_ingestion"`
+	EnableHeaderIngestion bool                       `json:"enable_header_ingestion"`
+	EventThrottleMs       int                        `json:"event_throttle_ms"`
+	MultiTabDefault       *bool                      `json:"multi_tab_default,omitempty"`
+	MaxTabs               int                        `json:"max_tabs,omitempty"`
+	MaxBrowsers           int                        `json:"max_browsers,omitempty"`
+	IdleTabTimeoutMs      int                        `json:"idle_tab_timeout_ms,omitempty"`
+	ExtraSensitiveKeys    []string                   `json:"extra_sensitive_keys,omitempty"`
+	WorkspaceRoot         string                     `json:"workspace_root,omitempty"`
+	WritableRoots         []string                   `json:"writable_roots,omitempty"`
+	EvidenceEnabled       *bool                      `json:"evidence_enabled,omitempty"`
+	EvidenceDir           string                     `json:"evidence_dir,omitempty"`
+	MaxEvidenceFiles      int                        `json:"max_evidence_files,omitempty"`
+	MaxEvidenceFileBytes  int64                      `json:"max_evidence_file_bytes,omitempty"`
+	Specs                 browserspec.Config         `json:"specs,omitempty"`
+	HeaderIngestionMode   string                     `json:"header_ingestion_mode,omitempty"`
+	HoneypotGuard         string                     `json:"honeypot_guard,omitempty"`
+	MaxEpochEventFacts    int                        `json:"max_epoch_event_facts,omitempty"`
 	// CorrelationContainers names the containers consulted when correlating
 	// browser runtime errors with container logs (BP-25). Empty disables
 	// correlation entirely.
@@ -205,6 +210,7 @@ func (c Config) GetMaxEpochEventFacts() int {
 func DefaultConfig() Config {
 	sharedTabs := true
 	return Config{
+		Reaper:              config.DefaultBrowserReaperConfig(),
 		Headless:            false,
 		ViewportWidth:       1920,
 		ViewportHeight:      1080,
@@ -367,6 +373,10 @@ type SessionManager struct {
 	budgets               map[string]*sessionFactBudget
 	correlationContainers []string
 	containerFetcher      ContainerLogFetcher
+	processQuerier        ProcessQuerier
+	processMu             sync.Mutex
+	reapedOrphans         int
+	orphansScanned        bool
 }
 
 // NewSessionManager creates a new session manager.
@@ -869,6 +879,7 @@ func (m *SessionManager) ForkSession(ctx context.Context, sessionID, url string)
 
 // Navigate navigates to a URL.
 func (m *SessionManager) Navigate(ctx context.Context, sessionID, url string) error {
+	ctx = normalizeContext(ctx)
 	timer := logging.StartTimer(logging.CategoryBrowser, "Page navigation")
 	defer timer.Stop()
 
@@ -887,23 +898,26 @@ func (m *SessionManager) Navigate(ctx context.Context, sessionID, url string) er
 	m.invalidateElementReferences(sessionID)
 	logging.BrowserDebug("Navigating with timeout: %s", m.cfg.NavigationTimeout())
 	p := page.Context(ctx).Timeout(m.cfg.NavigationTimeout())
-	err := p.Navigate(url)
+	defer p.CancelTimeout()
+	if err := m.markAttendedNavigation(sessionID); err != nil {
+		return fmt.Errorf("record intentional navigation: %w", err)
+	}
+	var err error
+	info, infoErr := p.Info()
+	if infoErr == nil && info != nil && info.URL == url {
+		err = p.Reload()
+	} else {
+		err = p.Navigate(url)
+	}
 	if err != nil {
 		logging.BrowserError("Navigation failed for session %s: %v", sessionID, err)
 	} else {
-		// Rod's Navigate returns as soon as Chrome answers Page.navigate; it
-		// does not wait for the new document to load. Chrome swaps the page's
-		// frame for the new document, and Page-domain calls issued in that
-		// window (e.g. captureScreenshot) race the frame swap and fail with
-		// "Not attached to an active page". Wait for load before returning so
-		// a Navigate followed immediately by an observe sees the live frame.
-		// The navigation itself was accepted, so a WaitLoad failure only warns.
-		if waitErr := p.WaitLoad(); waitErr != nil {
-			logging.BrowserWarn("Wait for page load failed for %s: %v", m.SanitizeForEvidence(url), waitErr)
+		if waitErr := waitDocumentParsed(p); waitErr != nil {
+			return fmt.Errorf("wait for document parsing: %w", waitErr)
 		}
 		actualURL := url
 		title := ""
-		if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil {
+		if info, infoErr := p.Info(); infoErr == nil && info != nil {
 			if info.URL != "" {
 				actualURL = info.URL
 			}

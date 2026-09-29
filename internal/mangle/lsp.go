@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"codenerd/internal/workspace"
 )
 
 // ============================================================================
@@ -599,6 +601,13 @@ func (s *LSPServer) GetCompletions(uri string, line, col int) []CompletionItem {
 
 // IndexWorkspace indexes all .mg files in a directory.
 func (s *LSPServer) IndexWorkspace(ctx context.Context, rootPath string) error {
+	mem, err := workspace.For(rootPath)
+	if err != nil {
+		return err
+	}
+	if err := mem.Refresh(); err != nil {
+		return err
+	}
 	return filepath.WalkDir(rootPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -610,14 +619,11 @@ func (s *LSPServer) IndexWorkspace(ctx context.Context, rootPath string) error {
 		default:
 		}
 
-		if d.IsDir() {
-			// Skip common non-source directories and cache-only Mangle dumps.
-			if d.Name() == "node_modules" || d.Name() == ".git" || d.Name() == "vendor" {
-				return filepath.SkipDir
-			}
-			if d.Name() == "cache" && strings.Contains(filepath.ToSlash(path), "/.nerd/cache") {
-				return filepath.SkipDir
-			}
+		member, admErr := mem.Admit(path, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || d.IsDir() {
 			return nil
 		}
 

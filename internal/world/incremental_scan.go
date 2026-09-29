@@ -116,7 +116,10 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	maps.Copy(prevEntries, cache.Entries)
 	cache.mu.RUnlock()
 
-	patterns := s.config.IgnorePatterns
+	mem, memErr := s.membership(root)
+	if memErr != nil {
+		return nil, memErr
+	}
 
 	currentFiles := make(map[string]os.FileInfo)
 	currentStamps := make(map[string]contentStamp)
@@ -129,31 +132,16 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		if walkErr != nil {
 			return nil
 		}
-		rel, _ := filepath.Rel(root, path)
 		name := d.Name()
+		member, admErr := mem.Admit(path, d.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member {
+			return nil
+		}
 
 		if d.IsDir() {
-			// Hidden directory handling mirrors full scan.
-			if strings.HasPrefix(name, ".") && name != "." && path != root {
-				allowed := map[string]bool{
-					".github":   true,
-					".vscode":   true,
-					".circleci": true,
-					".config":   true,
-					".nerd":     false,
-					".git":      false,
-				}
-				if allow, exists := allowed[name]; exists {
-					if !allow {
-						return filepath.SkipDir
-					}
-					return nil
-				}
-				return filepath.SkipDir
-			}
-			if path != root && isIgnoredRel(rel, name, patterns) {
-				return filepath.SkipDir
-			}
 			dirCount++
 			dirFacts = append(dirFacts, core.Fact{
 				Predicate: "directory",
@@ -162,9 +150,6 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			return nil
 		}
 
-		if isIgnoredRel(rel, name, patterns) {
-			return nil
-		}
 		info, err := d.Info()
 		if err != nil {
 			return nil
