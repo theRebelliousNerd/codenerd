@@ -62,7 +62,7 @@ func TestVerifyBuild_DetectsBrokenPackage(t *testing.T) {
 
 func TestBuildRepairPrompt_CarriesTheCompilerOutput(t *testing.T) {
 	out := "cmd/nerd/cmd_instruction.go:362:23: undefined: regexp"
-	p := buildRepairPrompt(out)
+	p := buildRepairPrompt(out, []string{"cmd/nerd/cmd_instruction.go"})
 
 	if !strings.Contains(p, out) {
 		t.Error("repair prompt drops the compiler output, which is the only thing that makes the round useful")
@@ -77,6 +77,19 @@ func TestBuildRepairPrompt_CarriesTheCompilerOutput(t *testing.T) {
 	for _, want := range []string{"imported and not used", "no new variables on left side of :=", "undefined:"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("repair prompt does not name the %q mistake class", want)
+		}
+	}
+}
+
+// Dogfood run 5: the repair edited another agent's files because the prompt
+// pointed it at the compiler's files with no notion of its own. The prompt
+// names the write set and says failures outside it are not the turn's to
+// fix; the episode's guard enforces the same boundary.
+func TestBuildRepairPrompt_NamesTheWriteSet(t *testing.T) {
+	p := buildRepairPrompt("other/other.go:1:1: undefined: x", []string{"mine/a.go", "mine/b.go"})
+	for _, want := range []string{"mine/a.go", "mine/b.go", "not this turn's to fix"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("repair prompt does not carry %q:\n%s", want, p)
 		}
 	}
 }

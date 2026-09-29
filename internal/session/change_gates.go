@@ -551,7 +551,13 @@ func snapshotTurnFiles(workspace string, result *ExecutionResult) turnFiles {
 // is unrecorded or unknown is not guessed at: the restore refuses before
 // touching anything. It returns the paths it changed; a path it could not put
 // back stays in WrittenPaths, so the gates that follow still see that write.
-func (snap turnFiles) restore(workspace string, result *ExecutionResult) ([]string, error) {
+//
+// A path another agent changed since the turn last wrote is never put back:
+// writing the snapshot over it would silently destroy that agent's work
+// (dogfood run 5, AG7 finding 7). Those paths come back separately as
+// conflicts -- left as found, kept in WrittenPaths, and logged with the
+// path -- for the caller to name in its own report.
+func (snap turnFiles) restore(workspace string, result *ExecutionResult) (changed, conflicts []string, err error) {
 	type step struct {
 		path string
 		want PreImage
@@ -563,14 +569,14 @@ func (snap turnFiles) restore(workspace string, result *ExecutionResult) ([]stri
 			want, recorded = result.PreWriteContents[p]
 		}
 		if !recorded {
-			return nil, fmt.Errorf("%s was written by the round with no record of it before the turn", p)
+			return nil, nil, fmt.Errorf("%s was written by the round with no record of it before the turn", p)
 		}
 		if !want.Known() {
-			return nil, fmt.Errorf("%s was written by the round and what it held before is unknown: %s", p, want.Unknown)
+			return nil, nil, fmt.Errorf("%s was written by the round and what it held before is unknown: %s", p, want.Unknown)
 		}
 		plan = append(plan, step{path: p, want: want})
 	}
-	var changed, unrestored []string
+	var unrestored []string
 	var errs []error
 	for _, s := range plan {
 		path := turnFilePath(workspace, s.path)
@@ -578,6 +584,12 @@ func (snap turnFiles) restore(workspace string, result *ExecutionResult) ([]stri
 		// Only "does not exist" is absent: a path that is there but cannot
 		// be read as a file is still there, and must still be removed.
 		absent := errors.Is(readErr, fs.ErrNotExist)
+		if restoreNeedsWrite(s.want, current, readErr, absent) && !result.lastWriteMatches(s.path, current, readErr) {
+			conflicts = append(conflicts, s.path)
+			logging.Get(logging.CategorySession).Warn(
+				"not restoring %s: it changed since the turn last wrote it, so restoring would destroy another agent's work; left as found", s.path)
+			continue
+		}
 		switch {
 		case !s.want.Existed && !absent:
 			if err := os.Remove(path); err != nil {
@@ -585,12 +597,18 @@ func (snap turnFiles) restore(workspace string, result *ExecutionResult) ([]stri
 				unrestored = append(unrestored, s.path)
 				continue
 			}
+			// The harness just removed it. The next restore has to see that
+			// removal as the turn's own, or it treats the absence as a
+			// stranger's and refuses a later undo.
+			result.noteLastWrittenBytes(s.path, nil, true)
 		case s.want.Existed && (readErr != nil || !bytes.Equal(current, []byte(s.want.Content))):
-			if err := os.WriteFile(path, []byte(s.want.Content), 0o644); err != nil {
+			restoredBytes := []byte(s.want.Content)
+			if err := os.WriteFile(path, restoredBytes, 0o644); err != nil {
 				errs = append(errs, err)
 				unrestored = append(unrestored, s.path)
 				continue
 			}
+			result.noteLastWrittenBytes(s.path, restoredBytes, false)
 		default:
 			continue
 		}
@@ -602,7 +620,43 @@ func (snap turnFiles) restore(workspace string, result *ExecutionResult) ([]stri
 			result.WrittenPaths = append(result.WrittenPaths, p)
 		}
 	}
-	return changed, errors.Join(errs...)
+	for _, p := range conflicts {
+		if !slices.Contains(result.WrittenPaths, p) {
+			result.WrittenPaths = append(result.WrittenPaths, p)
+		}
+	}
+	return changed, conflicts, errors.Join(errs...)
+}
+
+// restoreNeedsWrite mirrors the switch in restore: whether putting the file
+// back would write anything at all. A file already as it was found needs no
+// write, so there is nothing that could destroy another writer's work and no
+// conflict to report.
+func restoreNeedsWrite(want PreImage, current []byte, readErr error, absent bool) bool {
+	switch {
+	case !want.Existed && !absent:
+		return true
+	case want.Existed && (readErr != nil || !bytes.Equal(current, []byte(want.Content))):
+		return true
+	default:
+		return false
+	}
+}
+
+// lastWriteMatches reports whether the bytes on disk now are what the turn
+// itself last wrote to path. Unrecorded -- no entry, or an entry the write
+// hook never saw -- matches: with nothing to compare against, the restore
+// cannot tell another writer's bytes from the turn's and keeps its old
+// behaviour.
+func (r *ExecutionResult) lastWriteMatches(path string, current []byte, readErr error) bool {
+	if r == nil {
+		return true
+	}
+	record, recorded := r.PreWriteContents[path]
+	if !recorded {
+		return true
+	}
+	return record.lastWriteMatches(current, readErr)
 }
 
 func turnFilePath(workspace, p string) string {
@@ -620,9 +674,32 @@ func undoRedRound(kind, workspace string, result *ExecutionResult, snap turnFile
 		return false
 	}
 	failure := result.TestCheck.Output
-	restored, restoreErr := snap.restore(workspace, result)
+	restored, conflicts, restoreErr := snap.restore(workspace, result)
 	if restoreErr != nil {
 		logging.Get(logging.CategorySession).Warn("could not undo the %s round (the final check will judge the workspace): %v", kind, restoreErr)
+		return false
+	}
+	if len(conflicts) > 0 {
+		// The workspace is not back where the round started: another
+		// agent's bytes are in it now, and calling the round undone --
+		// let alone restoring the green verdict below -- would be a lie.
+		// The final check judges what is actually there. The sentence is
+		// appended to the check's own output because a forcing round's
+		// error is settled into the verdict (settleForcingRepair) and the
+		// output is the result text that survives that.
+		//
+		// No host fact is asserted. The verdict reads turn_missing_evidence,
+		// derived from gate atoms in coder_safety.mg; nothing declared there
+		// means "restore left this path as found", and a new Decl is a
+		// policy change. The red gate stays red because this does not put
+		// the green verdict back, so the verdict already sees the failure.
+		note := fmt.Sprintf("%s changed since the turn last wrote them and were left as found", strings.Join(conflicts, ", "))
+		logging.Get(logging.CategorySession).Warn(
+			"could not undo the %s round: %s (the final check will judge the workspace)", kind, note)
+		if result.TestCheck.Output != "" {
+			result.TestCheck.Output += "\n"
+		}
+		result.TestCheck.Output += note
 		return false
 	}
 	result.TestCheck = green

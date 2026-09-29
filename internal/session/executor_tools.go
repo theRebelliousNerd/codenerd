@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/broker"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -460,6 +461,12 @@ func (e *Executor) verifyCompletedToolTurn(
 	if result == nil {
 		return current, toolErrs, nil
 	}
+	// The write set a repair may name, and may not step outside, is the
+	// files this turn had written before the first gate ran. Rounds append
+	// their own files to WrittenPaths afterwards; the snapshot does not move.
+	// It has to be taken here, before the rounds map runs, because every
+	// round below closes over this ctx.
+	ctx = WithTurnWriteSet(ctx, result.WrittenPaths)
 	// Each round's driver. The critic's opinion is advisory: an uplift that
 	// breaks the suite is undone inside verifyAndUpliftWithCritic.
 	rounds := map[string]func() (*types.LLMToolResponse, []string, error){
@@ -545,8 +552,15 @@ func (e *Executor) verifyCompletedToolTurn(
 // formatWrittenGo gofmts the Go files the turn wrote; any other path is left
 // alone.
 func (e *Executor) formatWrittenGo(result *ExecutionResult, when string) {
-	if formatted := formatWrittenGoFiles(e.workspaceForVerification(), result.WrittenPaths); len(formatted) > 0 {
+	workspace := e.workspaceForVerification()
+	if formatted := formatWrittenGoFiles(workspace, result.WrittenPaths); len(formatted) > 0 {
 		logging.Get(logging.CategorySession).Info("gofmt: formatted %d written file(s)%s: %s", len(formatted), when, strings.Join(formatted, ", "))
+		// gofmt rewrote these outside the tools: what the turn last wrote
+		// is the formatted bytes now, or the restore would read its own
+		// formatter's work as another agent's.
+		for _, path := range formatted {
+			recordLastWrittenPath(result, path, workspace)
+		}
 	}
 }
 
@@ -969,7 +983,7 @@ func (e *Executor) executeAndRecordToolCall(
 	var guardErr error
 	if isWriteMutationTool(call.Name) {
 		// A write the guard refuses never runs: no preimage, no write.
-		if guardErr = guardWrite(ctx, call.Input, e.workspaceForVerification()); guardErr == nil {
+		if guardErr = guardWrite(ctx, call.Name, call.Input, e.workspaceForVerification()); guardErr == nil {
 			snapshotPreWriteContents(result, call.Input, e.workspaceForVerification())
 		}
 	}
@@ -1023,6 +1037,7 @@ func (e *Executor) executeAndRecordToolCall(
 			logging.Get(logging.CategorySession).Warn(
 				"successful write %s returned invalid target metadata: %v", call.Name, err)
 		}
+		recordLastWrittenContents(result, call.Input, e.workspaceForVerification())
 	}
 	return out, memoryErr
 }
@@ -1067,6 +1082,55 @@ func snapshotPreWriteContents(result *ExecutionResult, args map[string]any, work
 		}
 		result.PreWriteContents[normalized] = readPreImage(target)
 	}
+}
+
+// recordLastWrittenContents records what the turn itself last wrote to each
+// target: the hash of the bytes on disk now, or a removal when the write
+// left no file. The restore compares against this before putting anything
+// back, so another agent's later edit is left as found instead of destroyed
+// (AG7 finding 7). It runs after a successful write mutation only, never
+// fails a call, and never invents a preimage: a path with no recorded entry
+// is skipped, not created.
+func recordLastWrittenContents(result *ExecutionResult, args map[string]any, workspace string) {
+	paths, err := projectdoc.TargetPaths(args)
+	if err != nil {
+		return
+	}
+	for _, path := range paths {
+		normalized := canonicalizeWrittenPath(path, workspace)
+		if normalized == "" {
+			continue
+		}
+		recordLastWrittenPath(result, normalized, workspace)
+	}
+}
+
+// recordLastWrittenPath re-reads one written path as the turn left it. The
+// entry must already exist (the pre-write snapshot made it): a path with no
+// recorded entry is skipped, not created, so the record never invents a
+// preimage.
+func recordLastWrittenPath(result *ExecutionResult, normalized, workspace string) {
+	before, recorded := result.PreWriteContents[normalized]
+	if !recorded {
+		return
+	}
+	data, readErr := os.ReadFile(turnFilePath(workspace, normalized))
+	switch {
+	case readErr == nil:
+		sum := sha256.Sum256(data)
+		before.LastWriteHash = hex.EncodeToString(sum[:])
+		before.LastWriteAbsent = false
+	case os.IsNotExist(readErr):
+		before.LastWriteHash = ""
+		before.LastWriteAbsent = true
+	default:
+		// The write succeeded but its result cannot be read: drop the
+		// record rather than keep a stale hash that would read as a
+		// conflict later. Unrecorded restores as before.
+		before.LastWriteHash = ""
+		before.LastWriteAbsent = false
+	}
+	result.PreWriteContents[normalized] = before
 }
 
 // intentRequiresToolCall asks the Mangle kernel whether the supplied intent

@@ -219,6 +219,12 @@ func (e *Executor) repairLoop(
 	// What the episode started from, for a restart to go back to.
 	workspace := e.workspaceForVerification()
 	start := snapshotTurnFiles(workspace, result)
+	// The attempt's write guard is installed in repairRound, not here. A
+	// guard built once from WrittenPaths at episode start refuses the next
+	// edit of a file the first attempt created: the file exists, and it was
+	// not in the pre-gate set. repairRound chains the campaign guard already
+	// on epCtx and reads WrittenPaths live, while the refusal still names
+	// the pre-gate set WithTurnWriteSet froze.
 	restarted := false
 
 	for attempt := 1; gaveUp == ""; attempt++ {
@@ -311,8 +317,14 @@ func (e *Executor) repairLoop(
 			gaveUp = next.gaveUp
 			useCommitRegime = useCommitRegime || next.closed
 			if next.restart {
-				if restored, err := start.restore(workspace, result); err != nil {
+				if restored, conflicts, err := start.restore(workspace, result); err != nil {
 					gaveUp = fmt.Sprintf("the same failure survived two edits, and the restart could not undo them (%v)", err)
+				} else if len(conflicts) > 0 {
+					// The episode cannot restart from bytes it does not own:
+					// another agent changed these since the turn wrote them,
+					// and reasoning from a mixed start is how a repair edits
+					// foreign work by mistake.
+					gaveUp = fmt.Sprintf("the same failure survived two edits, and the restart could not undo them (%s changed since the turn last wrote them and were left as found)", strings.Join(conflicts, ", "))
 				} else {
 					logging.Get(logging.CategorySession).Warn(
 						"Repair episode (%s): the same failure survived two edits; restarted from the episode's start (undid %s) to look for a different cause",

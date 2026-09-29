@@ -50,20 +50,28 @@ func (e *Executor) leaveBuildableTree(ctx context.Context, result *ExecutionResu
 	// the record a person restores from.
 	patch := turnDiffPatch(workspace, result.WrittenPaths, result.PreWriteContents)
 	saved := saveAttemptPatch(workspace, patch)
-	restored, err := turnFiles{pre: map[string]PreImage{}}.restore(workspace, result)
+	restored, conflicts, err := turnFiles{pre: map[string]PreImage{}}.restore(workspace, result)
 	if err != nil {
 		logging.Get(logging.CategorySession).Error(
 			"The turn gave up with the build broken and its files could not be put back (%v); the workspace does not compile", err)
 		return fmt.Sprintf("The workspace does NOT build and the turn's files could not be restored (%v).", err)
 	}
-	logging.Get(logging.CategorySession).Warn(
-		"The turn gave up with the build broken; restored %s as the turn found them; the attempt is saved at %s",
-		strings.Join(restored, ", "), saved)
-	if saved == "" {
-		return fmt.Sprintf("The attempt left the workspace uncompilable, so %s were restored as the turn found them.", strings.Join(restored, ", "))
+	// A conflict is another agent's work found where the turn left its own:
+	// the file stays as found (restore logged the path) and the sentence
+	// names it, so the report never claims a restore it did not do.
+	conflictNote := ""
+	if len(conflicts) > 0 {
+		conflictNote = fmt.Sprintf("; %s changed since the turn last wrote them and were left as found",
+			strings.Join(conflicts, ", "))
 	}
-	return fmt.Sprintf("The attempt left the workspace uncompilable, so %s were restored as the turn found them; the attempt is saved as a patch at %s.",
-		strings.Join(restored, ", "), saved)
+	logging.Get(logging.CategorySession).Warn(
+		"The turn gave up with the build broken; restored %s as the turn found them%s; the attempt is saved at %s",
+		strings.Join(restored, ", "), conflictNote, saved)
+	if saved == "" {
+		return fmt.Sprintf("The attempt left the workspace uncompilable, so %s were restored as the turn found them%s.", strings.Join(restored, ", "), conflictNote)
+	}
+	return fmt.Sprintf("The attempt left the workspace uncompilable, so %s were restored as the turn found them%s; the attempt is saved as a patch at %s.",
+		strings.Join(restored, ", "), conflictNote, saved)
 }
 
 // saveAttemptPatch writes the attempt under .nerd/attempts and returns the

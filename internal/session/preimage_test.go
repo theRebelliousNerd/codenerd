@@ -53,7 +53,7 @@ func TestRestore_APreExistingEmptyFileIsRestoredNotDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := snap.restore(ws, result); err != nil {
+	if _, _, err := snap.restore(ws, result); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	data, err := os.ReadFile(path)
@@ -77,7 +77,7 @@ func TestRestore_RefusesAnUnknownPreimage(t *testing.T) {
 		WrittenPaths:     []string{"x.go"},
 		PreWriteContents: map[string]PreImage{"x.go": {Unknown: "access is denied"}},
 	}
-	if _, err := (turnFiles{pre: map[string]PreImage{}}).restore(ws, result); err == nil {
+	if _, _, err := (turnFiles{pre: map[string]PreImage{}}).restore(ws, result); err == nil {
 		t.Fatal("restore accepted a file whose earlier state is unknown")
 	}
 	if data, _ := os.ReadFile(path); string(data) != "package x // the round's\n" {
@@ -99,7 +99,7 @@ func TestRestore_AWriteItCouldNotUndoStaysWritten(t *testing.T) {
 		WrittenPaths:     []string{"made"},
 		PreWriteContents: map[string]PreImage{"made": {}},
 	}
-	if _, err := (turnFiles{pre: map[string]PreImage{}}).restore(ws, result); err == nil {
+	if _, _, err := (turnFiles{pre: map[string]PreImage{}}).restore(ws, result); err == nil {
 		t.Fatal("restore reported success over a write it could not undo")
 	}
 	if len(result.WrittenPaths) != 1 || result.WrittenPaths[0] != "made" {

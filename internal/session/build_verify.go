@@ -242,13 +242,18 @@ func (e *Executor) verifyAndRepairBuild(
 			ErrVerificationFailed, verification.Output)
 	}
 
+	// The prompt names the pre-gate write set, the one WithTurnWriteSet froze
+	// in verifyCompletedToolTurn before the rounds map. A round invoked with
+	// no snapshot names WrittenPaths as they are now. Later attempts must
+	// not rename the set to the files the episode has created since.
+	repairWriteSet := namedWriteSet(ctx, result)
 	spec := repairSpec{
 		kind:         "build",
 		brokenPhrase: "edits broke the build",
 		// The round is shown the turn's own edits (N26): a compiler error
 		// names a line, and what put it there is the diff.
 		promptFor: func(seed string) string {
-			return buildRepairPrompt(seed) + turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents, e.configSnapshot().repairDiffBudget())
+			return buildRepairPrompt(seed, repairWriteSet) + turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents, e.configSnapshot().repairDiffBudget())
 		},
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			r := verifyBuild(epCtx, workspace, nil)
@@ -335,6 +340,29 @@ func (e *Executor) verifyAndRepairTests(
 	// run's own exit.
 	if !e.testGateRed(result.turnAtom(), result) {
 		return nil, nil, nil
+	}
+
+	// A run that compiled nothing and located nothing in the turn's files
+	// is not this turn's to fix (dogfood run 4: the repair spent all its
+	// attempts on another lane's breakage). Name it and stop without
+	// burning repair attempts; the error fails the turn the way a give-up
+	// does, because the gate as measured does not pass. "Located" is a
+	// testfacts BuildFailure row with a non-empty File, and every such row
+	// outside the owned paths: the pre-gate set plus files this turn has
+	// written since (a failure in a file an earlier repair created is still
+	// the turn's). An empty File, or any Failure row, keeps the repair.
+	// The build path (verifyAndRepairBuild) keeps today's repair behaviour:
+	// its output is raw compiler text H5b has yet to locate, so an
+	// unlocated build failure still repairs, confined to the set by the
+	// guard repairRound installs.
+	owned := turnOwnedPaths(ctx, result)
+	if foreign, outside := testBuildFailuresOutsideWriteSet(result.TestCheck.Result, owned, workspace); outside {
+		logging.Get(logging.CategorySession).Warn(
+			"Tests failed to compile in files outside this turn's write set (%s); not this turn's to fix, no repair attempted",
+			strings.Join(foreign, ", "))
+		return nil, nil, fmt.Errorf(
+			"%w: tests failed to compile in files outside this turn's write set (%s); not this turn's to fix, so no repair was attempted (write set: %s). Last failure:\n%s",
+			ErrVerificationFailed, strings.Join(foreign, ", "), strings.Join(owned, ", "), verification.Output)
 	}
 
 	logging.Get(logging.CategorySession).Warn(
@@ -476,6 +504,49 @@ func testBuildFailed(res *testfacts.Result) bool {
 	return false
 }
 
+// testBuildFailuresOutsideWriteSet reports whether every located failure in
+// a test run sits outside the turn's write set: compiler diagnostics in
+// files the turn never wrote, and no test failure reported anywhere. A
+// failing test's file is where the failure is reported, not where the fix
+// goes -- the fix is usually the turn's own production code -- so any
+// Failure row keeps the repair; only a run that compiled nothing and
+// located nothing in the set is outside it. An unlocated diagnostic (no
+// file) also keeps the repair: what cannot be located cannot be charged
+// elsewhere. It returns the foreign files for the report.
+func testBuildFailuresOutsideWriteSet(res *testfacts.Result, writeSet []string, workspace string) ([]string, bool) {
+	if res == nil || len(res.BuildFailures) == 0 || len(res.Failures) != 0 {
+		return nil, false
+	}
+	// The resolved root, as the gates run under it: the go tool may spell
+	// an absolute path through an alias of the workspace (a symlink, a
+	// short name), and keyed against any other spelling an in-set file
+	// reads as foreign (go_paths.go).
+	workspace = goWorkspace(workspace)
+	inSet := func(file string) bool {
+		file = workspaceFile(workspace, file)
+		for _, w := range writeSet {
+			// EqualFold, not ==: a case-variant spelling of a set file is
+			// not positive evidence of a foreign file, and the skip fires
+			// only on positive evidence.
+			if strings.EqualFold(file, workspaceFile(workspace, w)) {
+				return true
+			}
+		}
+		return false
+	}
+	var foreign []string
+	for _, bf := range res.BuildFailures {
+		if strings.TrimSpace(bf.File) == "" {
+			return nil, false
+		}
+		if inSet(bf.File) {
+			return nil, false
+		}
+		foreign = append(foreign, workspaceFile(workspace, bf.File))
+	}
+	return foreign, true
+}
+
 // testRepairPrompt is the turn handed back to the model when its edits broke
 // the tests.
 //
@@ -527,8 +598,15 @@ func testCompileRepairPrompt(output string) string {
 // one is needed — the compiler has already decided. It also names the specific
 // mistakes seen in the live failure, because those are the ones an editing
 // agent actually makes: a stale import left behind, a block pasted twice, and a
-// call to a helper that was planned but never written.
-func buildRepairPrompt(compilerOutput string) string {
+// call to a helper that was planned but never written. And it names the
+// write set: failures outside it are not the turn's to fix (dogfood run 5),
+// and the episode's guard refuses those edits, so the prompt says so up
+// front instead of letting the model burn calls on them.
+func buildRepairPrompt(compilerOutput string, writeSet []string) string {
+	set := strings.Join(writeSet, ", ")
+	if set == "" {
+		set = "(none yet)"
+	}
 	return "Your edits do not compile. This is the compiler's output:\n\n" +
 		"```\n" + compilerOutput + "\n```\n\n" +
 		"Fix every error above using the edit tools, then stop. Do not explain, do not " +
@@ -537,7 +615,8 @@ func buildRepairPrompt(compilerOutput string) string {
 		"  - an import added for code you did not end up writing (\"imported and not used\")\n" +
 		"  - a block inserted twice, re-declaring variables with := (\"no new variables on left side of :=\")\n" +
 		"  - a call to a helper function you planned but never wrote (\"undefined: ...\")\n" +
-		"The compiler names the file and line of each error; edit those lines."
+		"The compiler names the file and line of each error; edit those lines, but only in your write set: " + set + ". " +
+		"Failures outside that set are not this turn's to fix: do not edit those files, and say which errors are outside it."
 }
 
 // repairRound sends one repair prompt through the working request path and
@@ -582,6 +661,12 @@ func (e *Executor) repairRound(
 	prompt string,
 	commit bool,
 ) (*types.LLMToolResponse, int, [][]types.ToolCall, []string, []types.ToolResult, bool, error) {
+	// Every repair attempt, coverage and pinning included (they share this
+	// round), may write only the turn's files. The refusal names the
+	// pre-gate set; a file the turn has written since, and a path that does
+	// not exist yet, stay writable. A create cannot destroy another agent's
+	// bytes, and those rounds write their tests inside the episode.
+	ctx = withRepairWriteGuard(ctx, e.workspaceForVerification(), result)
 	ctx = broker.WithPhase(ctx, broker.PhaseRepair)
 	loop := activeWorkingLoop(ctx)
 	if loop == nil {
@@ -855,6 +940,11 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	var upliftErrs []string
 	if uplifted != nil && len(uplifted.ToolCalls) > 0 {
 		snap := snapshotTurnFiles(workspace, result)
+		// Unguarded on purpose: the critic uplift answers findings about
+		// the turn's files but is not a repair episode, and the deleted-
+		// test round exists to catch what it removes
+		// (TestCriticUplift_ADeletedTestIsHandedBack). Confining it to the
+		// write set is a contract change for its own task, not this one.
 		_, errs := e.executeToolBatch(ctx, uplifted.ToolCalls, cfg, result)
 		upliftErrs = append(upliftErrs, errs...)
 		return upliftErrs, recheckUplift(ctx, workspace, result, snap)
@@ -908,7 +998,13 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 		}
 	}
 	if broke != "" {
-		restored, err := snap.restore(workspace, result)
+		restored, conflicts, err := snap.restore(workspace, result)
+		// A conflicted undo is a failed undo: the break the uplift left is
+		// still in the workspace, so the turn fails loudly below with the
+		// paths named instead of claiming the uplift was undone.
+		if err == nil && len(conflicts) > 0 {
+			err = fmt.Errorf("%s changed since the turn last wrote them and were left as found", strings.Join(conflicts, ", "))
+		}
 		if err != nil {
 			build.Repair = inheritRepair(build.Verdict(), result.BuildCheck.Repair)
 			result.BuildCheck = build
