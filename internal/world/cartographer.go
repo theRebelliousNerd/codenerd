@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	gotypes "go/types"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -104,20 +105,13 @@ func (c *Cartographer) mapGoFile(fsPath, path string) ([]core.Fact, error) {
 	return facts, nil
 }
 
-// goPredeclared is the universe block: builtins and predeclared types.
-// A call of one of these is not a code_element the scanner will emit
-// (buildRef keys on the file's package clause), so it must not grow an fn: row.
-var goPredeclared = map[string]bool{
-	"any": true, "append": true, "bool": true, "byte": true, "cap": true,
-	"clear": true, "close": true, "comparable": true, "complex": true,
-	"complex64": true, "complex128": true, "copy": true, "delete": true,
-	"error": true, "false": true, "float32": true, "float64": true,
-	"imag": true, "int": true, "int8": true, "int16": true, "int32": true,
-	"int64": true, "iota": true, "len": true, "make": true, "max": true,
-	"min": true, "new": true, "nil": true, "panic": true, "print": true,
-	"println": true, "real": true, "recover": true, "rune": true,
-	"string": true, "true": true, "uint": true, "uint8": true,
-	"uint16": true, "uint32": true, "uint64": true, "uintptr": true,
+// goPredeclared reports a name of the universe block: builtins and
+// predeclared types. A call of one of these is not a code_element the
+// scanner will emit (buildRef keys on the file's package clause), so it
+// must not grow an fn: row. The toolchain's own universe is the list, so a
+// builtin added by a later Go release needs no edit here.
+func goPredeclared(name string) bool {
+	return gotypes.Universe.Lookup(name) != nil
 }
 
 // callScope is one AST node on the walk. ast.Inspect reports leaving a node
@@ -292,7 +286,7 @@ func goCallRef(fun ast.Expr, pkg string, stack []callScope, localTypes map[strin
 		return goCallRef(f.X, pkg, stack, localTypes, dotImport)
 	case *ast.Ident:
 		bare = pkg + "." + f.Name
-		if dotImport || goPredeclared[f.Name] || localTypes[f.Name] || typeParamBound(stack, f.Name) || nameBound(stack, f.Name) {
+		if dotImport || goPredeclared(f.Name) || localTypes[f.Name] || typeParamBound(stack, f.Name) || nameBound(stack, f.Name) {
 			return bare, ""
 		}
 		return bare, "fn:" + bare
@@ -362,7 +356,7 @@ func samePackageTypeName(expr ast.Expr, stack []callScope, extra map[string]bool
 		case *ast.IndexListExpr:
 			expr = t.X
 		case *ast.Ident:
-			if t.Name == "" || t.Name == "_" || goPredeclared[t.Name] || extra[t.Name] || typeParamBound(stack, t.Name) {
+			if t.Name == "" || t.Name == "_" || goPredeclared(t.Name) || extra[t.Name] || typeParamBound(stack, t.Name) {
 				return "", false
 			}
 			return t.Name, true
