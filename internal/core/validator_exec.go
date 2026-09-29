@@ -14,25 +14,6 @@ func stripANSI(str string) string {
 	return ansiRegex.ReplaceAllString(str, "")
 }
 
-func truncateOutputForRegex(output string) string {
-	const maxSize = 100 * 1024 // 100k characters
-	const chunk = 50 * 1024
-
-	// fast path
-	if len(output) <= maxSize {
-		return output
-	}
-
-	runes := []rune(output)
-	if len(runes) <= maxSize {
-		return output
-	}
-
-	head := string(runes[:chunk])
-	tail := string(runes[len(runes)-chunk:])
-	return head + "\n... [TRUNCATED MASSIVE OUTPUT] ...\n" + tail
-}
-
 // ExecutionValidator verifies that shell commands executed successfully
 // by analyzing output for failure patterns, even when exit code is 0.
 
@@ -167,8 +148,9 @@ func (v *ExecutionValidator) Validate(ctx context.Context, req ActionRequest, re
 		}
 	}
 
+	// The scan sees the whole stripped output. A head-and-tail cut dropped
+	// a failure that sat in the middle of a long log.
 	output := stripANSI(result.Output)
-	output = truncateOutputForRegex(output)
 
 	v.mu.RLock()
 	patterns := v.failurePatterns
@@ -227,15 +209,13 @@ func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req Ac
 
 	// Go build specific checks
 	if strings.Contains(command, "go build") || strings.Contains(command, "go vet") {
-		if strings.Contains(output, "cannot find package") ||
-			strings.Contains(output, "undefined:") ||
-			strings.Contains(output, "imported and not used") {
+		if needle, ok := firstPresent(output, "cannot find package", "undefined:", "imported and not used"); ok {
 			return &ValidationResult{
 				Verified:   false,
 				Confidence: 0.95,
 				Method:     ValidationMethodOutputScan,
 				Error:      "Go compilation error detected",
-				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": evidenceLine(output, needle)},
 			}
 		}
 	}
@@ -248,50 +228,46 @@ func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req Ac
 				Confidence: 0.95,
 				Method:     ValidationMethodOutputScan,
 				Error:      "Go test failure detected",
-				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": evidenceLine(output, "FAIL")},
 			}
 		}
 	}
 
 	// npm/yarn specific checks
 	if strings.Contains(command, "npm") || strings.Contains(command, "yarn") {
-		if strings.Contains(output, "npm ERR!") || strings.Contains(output, "error ") {
+		if needle, ok := firstPresent(output, "npm ERR!", "error "); ok {
 			return &ValidationResult{
 				Verified:   false,
 				Confidence: 0.9,
 				Method:     ValidationMethodOutputScan,
 				Error:      "npm/yarn error detected",
-				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": evidenceLine(output, needle)},
 			}
 		}
 	}
 
 	// Python specific checks
 	if strings.Contains(command, "python") || strings.Contains(command, "pip") {
-		if strings.Contains(output, "Traceback (most recent call last)") ||
-			strings.Contains(output, "SyntaxError") ||
-			strings.Contains(output, "ModuleNotFoundError") {
+		if needle, ok := firstPresent(output, "Traceback (most recent call last)", "SyntaxError", "ModuleNotFoundError"); ok {
 			return &ValidationResult{
 				Verified:   false,
 				Confidence: 0.95,
 				Method:     ValidationMethodOutputScan,
 				Error:      "Python error detected",
-				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": evidenceLine(output, needle)},
 			}
 		}
 	}
 
 	// Git specific checks
 	if strings.Contains(command, "git") {
-		if strings.Contains(output, "CONFLICT") ||
-			strings.Contains(output, "rejected") ||
-			strings.Contains(output, "not a git repository") {
+		if needle, ok := firstPresent(output, "CONFLICT", "rejected", "not a git repository"); ok {
 			return &ValidationResult{
 				Verified:   false,
 				Confidence: 0.9,
 				Method:     ValidationMethodOutputScan,
 				Error:      "Git error detected",
-				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": evidenceLine(output, needle)},
 			}
 		}
 	}
@@ -304,6 +280,38 @@ func (v *ExecutionValidator) Name() string { return "execution_validator" }
 
 // Priority returns the validator priority.
 func (v *ExecutionValidator) Priority() int { return 10 }
+
+// firstPresent returns the first needle that occurs in output.
+func firstPresent(output string, needles ...string) (string, bool) {
+	for _, needle := range needles {
+		if needle != "" && strings.Contains(output, needle) {
+			return needle, true
+		}
+	}
+	return "", false
+}
+
+// evidenceLine is the whole line that contains needle. That line is the
+// evidence of a command-specific failure. A prefix of the entire output hid
+// the match once it sat past the first 200 bytes.
+func evidenceLine(output, needle string) string {
+	if needle == "" {
+		return ""
+	}
+	idx := strings.Index(output, needle)
+	if idx < 0 {
+		return needle
+	}
+	start := 0
+	if nl := strings.LastIndex(output[:idx], "\n"); nl >= 0 {
+		start = nl + 1
+	}
+	rest := output[idx:]
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		return output[start : idx+nl]
+	}
+	return output[start:]
+}
 
 // extractContext extracts text around a match for context.
 func extractContext(text, match string, contextChars int) string {

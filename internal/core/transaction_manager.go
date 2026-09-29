@@ -196,21 +196,14 @@ func (tm *TransactionManager) AddEdit(ctx context.Context, edit FileEdit) error 
 
 	// Assert pending_mutation to kernel for policy evaluation (commit_gate, shadow_mode)
 	mutationID := fmt.Sprintf("%s_edit_%d", txn.ID, len(txn.Edits)-1)
+	// pending_mutation's content slots are wildcards in policy. The digest
+	// keeps two bodies that share a prefix distinct; the bytes themselves
+	// stay in the snapshot and the edit.
 	oldContent := ""
 	if snapshot, exists := txn.Snapshots[edit.FilePath]; exists {
-		// Truncate for Mangle (avoid huge string atoms)
-		if len(snapshot) > 200 {
-			oldContent = string(snapshot[:200]) + "..."
-		} else {
-			oldContent = string(snapshot)
-		}
+		oldContent = factContentIdentity(string(snapshot))
 	}
-	newContent := ""
-	if len(edit.Content) > 200 {
-		newContent = string(edit.Content[:200]) + "..."
-	} else {
-		newContent = string(edit.Content)
-	}
+	newContent := factContentIdentity(string(edit.Content))
 	if assertErr := tm.kernel.Assert(Fact{
 		Predicate: "pending_mutation",
 		Args:      []any{mutationID, edit.FilePath, oldContent, newContent},

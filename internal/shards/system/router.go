@@ -44,7 +44,6 @@ type RouterConfig struct {
 
 	// Performance
 	TickInterval time.Duration // How often to check permitted actions (default: 100ms)
-	IdleTimeout  time.Duration // Auto-stop after no pending actions (default: 30s)
 
 	// Safety
 	AllowUnmappedActions bool // Allow actions without explicit routes (default: false)
@@ -63,7 +62,6 @@ func DefaultRouterConfig() RouterConfig {
 		DefaultRoutes: routes,
 
 		TickInterval:         500 * time.Millisecond,
-		IdleTimeout:          30 * time.Second,
 		AllowUnmappedActions: false,
 	}
 }
@@ -159,9 +157,6 @@ func NewTactileRouterShardWithConfig(cfg RouterConfig) *TactileRouterShard {
 	}
 	base.Config.Model = types.ModelConfig{} // No LLM by default
 
-	// Configure idle timeout
-	base.CostGuard.IdleTimeout = cfg.IdleTimeout
-
 	shard := &TactileRouterShard{
 		BaseSystemShard: base,
 		config:          cfg,
@@ -197,7 +192,7 @@ func (r *TactileRouterShard) SetBrowserManager(mgr *browser.SessionManager) {
 }
 
 // Execute runs the Tactile Router's action routing loop.
-// This shard is ON-DEMAND and auto-stops after IdleTimeout.
+// This shard is ON-DEMAND: it starts when asked and runs until ctx or StopCh.
 func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, error) {
 	r.SetState(types.ShardStateRunning)
 	r.mu.Lock()
@@ -283,11 +278,6 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 				}
 			}
 		case <-heartbeat.C:
-			// Check idle timeout
-			if r.CostGuard.IsIdle() {
-				return r.generateShutdownSummary("idle timeout"), nil
-			}
-
 			// Emit heartbeat
 			_ = r.EmitHeartbeat()
 

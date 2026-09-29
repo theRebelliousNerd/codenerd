@@ -39,40 +39,35 @@ const (
 	StartupOnDemand
 )
 
-// CostGuard provides guardrails to prevent runaway inference costs.
+// CostGuard backs off after a failed LLM call and bounds autopoiesis repair
+// retries. A run is not stopped by a call count or by sitting quiet: the
+// working-context policy (internal/context/working_set.mg) stops a run that
+// has stalled, and the API scheduler spaces outbound calls.
 type CostGuard struct {
 	mu sync.Mutex
 
-	// Rate limiting
-	MaxLLMCallsPerMinute  int           // Max LLM calls per minute (default: 10)
-	MaxLLMCallsPerSession int           // Max LLM calls per session (default: 100)
-	IdleTimeout           time.Duration // Auto-stop after inactivity
-	CooldownAfterError    time.Duration // Backoff on failures
+	// CooldownAfterError is the first backoff after a failed call.
+	// 0 takes llm_timeouts.retry_backoff_base. The wait is capped at
+	// llm_timeouts.retry_backoff_max either way.
+	CooldownAfterError time.Duration
 
-	// Validation budget (for Mangle rule generation retries)
-	MaxValidationRetries  int // Max retries per rule (default: 3)
-	ValidationBudget      int // Session-wide retry budget (default: 20)
+	// Validation budget for autopoiesis and Mangle-rule repair. These bound
+	// how many times one generated rule is rewritten, not how many tool
+	// calls a turn may make.
+	MaxValidationRetries  int // Per rule (default: 3)
+	ValidationBudget      int // Across the repair session (default: 20)
 	validationRetriesUsed int
 
-	// Tracking
-	callsThisMinute  int
-	callsThisSession int
-	lastCallTime     time.Time
-	lastResetMinute  time.Time
-	consecutiveErrs  int
-	cooldownUntil    time.Time
+	consecutiveErrs int
+	cooldownUntil   time.Time
 }
 
-// NewCostGuard creates a CostGuard with sensible defaults.
+// NewCostGuard creates a CostGuard. CooldownAfterError stays 0 so the
+// backoff comes from llm_timeouts rather than a second literal.
 func NewCostGuard() *CostGuard {
 	return &CostGuard{
-		MaxLLMCallsPerMinute:  10,
-		MaxLLMCallsPerSession: 100,
-		IdleTimeout:           5 * time.Minute,
-		CooldownAfterError:    time.Second,
-		MaxValidationRetries:  3,
-		ValidationBudget:      20,
-		lastResetMinute:       time.Now(),
+		MaxValidationRetries: 3,
+		ValidationBudget:     20,
 	}
 }
 
@@ -108,72 +103,50 @@ func (g *CostGuard) ValidationStats() (used, budget int) {
 	return g.validationRetriesUsed, g.ValidationBudget
 }
 
-// CanCall checks if an LLM call is allowed under the cost constraints.
+// CanCall reports whether an LLM call is allowed. The only block is the
+// backoff that follows a failure.
 func (g *CostGuard) CanCall() (bool, string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	now := time.Now()
-
-	// Check cooldown
-	if now.Before(g.cooldownUntil) {
+	if time.Now().Before(g.cooldownUntil) {
 		return false, fmt.Sprintf("in cooldown until %s", g.cooldownUntil.Format(time.RFC3339))
 	}
-
-	// Reset minute counter if a minute has passed
-	if now.Sub(g.lastResetMinute) >= time.Minute {
-		g.callsThisMinute = 0
-		g.lastResetMinute = now
-	}
-
-	// Check rate limit
-	if g.callsThisMinute >= g.MaxLLMCallsPerMinute {
-		return false, "rate limit exceeded (max calls per minute)"
-	}
-
-	// Check session cap
-	if g.callsThisSession >= g.MaxLLMCallsPerSession {
-		return false, "session cap exceeded (max calls per session)"
-	}
-
 	return true, ""
 }
 
-// RecordCall records a successful LLM call.
+// RecordCall records a successful LLM call and clears the failure streak.
+// The cooldown itself is left alone: a success does not shorten a backoff
+// that is already in force.
 func (g *CostGuard) RecordCall() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.callsThisMinute++
-	g.callsThisSession++
-	g.lastCallTime = time.Now()
 	g.consecutiveErrs = 0
 }
 
 // RecordError records a failed LLM call and applies exponential backoff.
+// The shift stops at 6 so base<<shift cannot overflow a duration; that cap
+// is arithmetic, not a limit on how many calls the run may make.
 func (g *CostGuard) RecordError() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.consecutiveErrs++
-	// Exponential backoff: 1s, 2s, 4s, 8s, ... max 60s
-	backoff := min(g.CooldownAfterError*time.Duration(1<<min(g.consecutiveErrs-1, 6)), 60*time.Second)
-	g.cooldownUntil = time.Now().Add(backoff)
-}
 
-// ResetSession resets the session counter (e.g., on user interaction).
-func (g *CostGuard) ResetSession() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.callsThisSession = 0
-}
-
-// IsIdle checks if the shard has been idle beyond the timeout.
-func (g *CostGuard) IsIdle() bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.lastCallTime.IsZero() {
-		return false // Never called yet, not idle
+	timeouts := config.GetLLMTimeouts()
+	base := g.CooldownAfterError
+	if base <= 0 {
+		base = timeouts.RetryBackoffBase
 	}
-	return time.Since(g.lastCallTime) > g.IdleTimeout
+	maxBackoff := timeouts.RetryBackoffMax
+	if maxBackoff <= 0 {
+		maxBackoff = base
+	}
+	shift := min(g.consecutiveErrs-1, 6)
+	backoff := base << shift
+	if backoff <= 0 || backoff > maxBackoff {
+		backoff = maxBackoff
+	}
+	g.cooldownUntil = time.Now().Add(backoff)
 }
 
 // UnhandledCase represents a situation where Mangle rules couldn't derive a result.

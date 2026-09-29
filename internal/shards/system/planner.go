@@ -64,11 +64,9 @@ type PlanView struct {
 
 // PlannerConfig holds configuration for the session planner.
 type PlannerConfig struct {
-	// Behavior
-	MaxAgendaItems      int           // Max items in agenda
-	AutoCheckpointEvery time.Duration // Create checkpoint every N duration
-	MaxRetriesPerTask   int           // Max retries before escalating
-	IdleTimeout         time.Duration // Auto-stop after idle
+	// MaxRetriesPerTask escalates a blocked agenda item after this many
+	// failed checks. It is not a cap on tool calls or on the agenda.
+	MaxRetriesPerTask int
 
 	// Performance
 	TickInterval time.Duration // How often to update status
@@ -77,11 +75,8 @@ type PlannerConfig struct {
 // DefaultPlannerConfig returns sensible defaults.
 func DefaultPlannerConfig() PlannerConfig {
 	return PlannerConfig{
-		MaxAgendaItems:      50,
-		AutoCheckpointEvery: 10 * time.Minute,
-		MaxRetriesPerTask:   3,
-		IdleTimeout:         10 * time.Minute,
-		TickInterval:        5 * time.Second,
+		MaxRetriesPerTask: 3,
+		TickInterval:      5 * time.Second,
 	}
 }
 
@@ -100,7 +95,6 @@ type SessionPlannerShard struct {
 	activeCampaign string
 
 	// Tracking
-	lastCheckpoint time.Time
 	lastActivity   time.Time
 	tasksCompleted int
 	tasksBlocked   int
@@ -133,18 +127,14 @@ func NewSessionPlannerShardWithConfig(cfg PlannerConfig) *SessionPlannerShard {
 		Capability: types.CapabilityHighReasoning, // Need good planning
 	}
 
-	// Configure idle timeout
-	base.CostGuard.IdleTimeout = cfg.IdleTimeout
-
-	logging.SystemShardsDebug("[SessionPlanner] Config: max_items=%d, auto_checkpoint=%v, max_retries=%d, idle_timeout=%v",
-		cfg.MaxAgendaItems, cfg.AutoCheckpointEvery, cfg.MaxRetriesPerTask, cfg.IdleTimeout)
+	logging.SystemShardsDebug("[SessionPlanner] Config: max_retries=%d, tick=%v",
+		cfg.MaxRetriesPerTask, cfg.TickInterval)
 	return &SessionPlannerShard{
 		BaseSystemShard: base,
 		config:          cfg,
 		agenda:          make([]AgendaItem, 0),
 		checkpoints:     make([]Checkpoint, 0),
 		retryCount:      make(map[string]int),
-		lastCheckpoint:  time.Now(),
 		lastActivity:    time.Now(),
 	}
 }
@@ -227,21 +217,10 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 			// Emit status
 			s.emitStatusFacts()
 		case <-fallbackCh:
-			// Polling fallback: same work as event-driven case
-			// Check idle timeout
-			if s.CostGuard.IsIdle() {
-				logging.SystemShards("[SessionPlanner] Idle timeout reached, shutting down")
-				return s.generateShutdownSummary("idle timeout"), nil
-			}
-
-			// Update agenda based on kernel state
+			// Polling fallback: same work as event-driven case.
+			// The shard runs until ctx or StopCh. A quiet agenda is not a
+			// reason to exit; the working-context policy decides a stall.
 			s.updateAgendaFromKernel()
-
-			// Check for auto-checkpoint
-			if time.Since(s.lastCheckpoint) >= s.config.AutoCheckpointEvery {
-				logging.SystemShardsDebug("[SessionPlanner] Creating auto-checkpoint")
-				s.createCheckpoint("auto")
-			}
 
 			// Check for blocked tasks
 			s.checkBlockedTasks()
@@ -252,18 +231,6 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 			// Emit heartbeat
 			_ = s.EmitHeartbeat()
 		case <-heartbeat.C:
-			// Check idle timeout
-			if s.CostGuard.IsIdle() {
-				logging.SystemShards("[SessionPlanner] Idle timeout reached, shutting down")
-				return s.generateShutdownSummary("idle timeout"), nil
-			}
-
-			// Check for auto-checkpoint
-			if time.Since(s.lastCheckpoint) >= s.config.AutoCheckpointEvery {
-				logging.SystemShardsDebug("[SessionPlanner] Creating auto-checkpoint")
-				s.createCheckpoint("auto")
-			}
-
 			// Emit heartbeat
 			_ = s.EmitHeartbeat()
 		}
@@ -333,16 +300,9 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 		return fmt.Errorf("failed to decompose goal")
 	}
 
-	// Limit to max items
-	if len(items) > s.config.MaxAgendaItems {
-		logging.SystemShardsDebug("[SessionPlanner] Limiting agenda from %d to %d items", len(items), s.config.MaxAgendaItems)
-		items = items[:s.config.MaxAgendaItems]
-	}
-
-	s.mu.Lock()
-	s.agenda = items
-	s.lastActivity = time.Now()
-	s.mu.Unlock()
+	// Every decomposed item is adopted. A prefix of the agenda was a silent
+	// drop of work the model had already planned.
+	s.adoptAgenda(items)
 
 	logging.SystemShards("[SessionPlanner] Goal decomposed into %d agenda items", len(items))
 
@@ -493,6 +453,16 @@ func (s *SessionPlannerShard) parseAgendaItems(output string) []AgendaItem {
 	return items
 }
 
+// adoptAgenda stores every decomposed item. Checkpointing and status live
+// elsewhere; this is the one assignment so a later cap cannot hide in one
+// of the two writers.
+func (s *SessionPlannerShard) adoptAgenda(items []AgendaItem) {
+	s.mu.Lock()
+	s.agenda = items
+	s.lastActivity = time.Now()
+	s.mu.Unlock()
+}
+
 // loadCampaignAgenda loads agenda from campaign facts.
 func (s *SessionPlannerShard) loadCampaignAgenda() error {
 	// Query campaign_task facts
@@ -550,6 +520,7 @@ func (s *SessionPlannerShard) updateAgendaFromKernel() {
 		}
 	}
 
+	newlyCompleted := 0
 	s.mu.Lock()
 	for i := range s.agenda {
 		if completedIDs[s.agenda[i].ID] {
@@ -558,6 +529,7 @@ func (s *SessionPlannerShard) updateAgendaFromKernel() {
 				s.agenda[i].CompletedAt = time.Now()
 				s.tasksCompleted++
 				s.lastActivity = time.Now()
+				newlyCompleted++
 				// Fix 15.8: Sync status to campaign_task fact
 				s.syncTaskStatusToKernel(s.agenda[i].ID, "/completed")
 			}
@@ -571,6 +543,11 @@ func (s *SessionPlannerShard) updateAgendaFromKernel() {
 		}
 	}
 	s.mu.Unlock()
+	// A checkpoint records progress. createCheckpoint takes s.mu, so it
+	// runs after the status lock is released.
+	if newlyCompleted > 0 {
+		s.createCheckpoint("task_completed")
+	}
 }
 
 // syncTaskStatusToKernel updates the campaign_task fact status in the kernel.
@@ -670,7 +647,6 @@ func (s *SessionPlannerShard) createCheckpoint(trigger string) {
 	}
 
 	s.checkpoints = append(s.checkpoints, checkpoint)
-	s.lastCheckpoint = time.Now()
 
 	// Emit checkpoint fact
 	_ = s.Kernel.Assert(types.Fact{

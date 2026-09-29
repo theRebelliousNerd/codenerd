@@ -22,9 +22,6 @@ func TestExecutivePolicyShard_NewExecutivePolicyShard_ShouldHaveDefaults(t *test
 	if !shard.config.StrictBarriers {
 		t.Error("StrictBarriers should default to true")
 	}
-	if shard.config.MaxActionsPerTick != 5 {
-		t.Errorf("MaxActionsPerTick = %d, want 5", shard.config.MaxActionsPerTick)
-	}
 	if !shard.bootGuardActive {
 		t.Error("bootGuardActive should default to true")
 	}
@@ -40,12 +37,6 @@ func TestDefaultExecutiveConfig_ShouldHaveReasonableDefaults(t *testing.T) {
 	}
 	if !cfg.StrictBarriers {
 		t.Error("StrictBarriers should default to true")
-	}
-	if cfg.MaxActionsPerTick != 5 {
-		t.Errorf("MaxActionsPerTick = %d, want 5", cfg.MaxActionsPerTick)
-	}
-	if cfg.OODATimeout == 0 {
-		t.Error("OODATimeout should not be zero")
 	}
 	if cfg.LearningCandidateThreshold != 3 {
 		t.Errorf("LearningCandidateThreshold = %d, want 3", cfg.LearningCandidateThreshold)
@@ -192,29 +183,6 @@ func TestDelegatedShardToAction_WhenKnownShards_ShouldReturnAction(t *testing.T)
 				t.Errorf("delegatedShardToAction(%q) = %q, want %q", tt.shardType, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestExecutivePolicyShard_IntentFingerprint_WhenNil_ShouldReturnEmpty(t *testing.T) {
-	shard := NewExecutivePolicyShard()
-	result := shard.intentFingerprint(nil)
-	if result != "" {
-		t.Errorf("intentFingerprint(nil) = %q, want empty", result)
-	}
-}
-
-func TestExecutivePolicyShard_IntentFingerprint_WhenPopulated_ShouldReturnComposite(t *testing.T) {
-	shard := NewExecutivePolicyShard()
-	intent := &userIntentSnapshot{
-		Category:   "/mutation",
-		Verb:       "/fix",
-		Target:     "main.go",
-		Constraint: "fix error",
-	}
-	result := shard.intentFingerprint(intent)
-	expected := "/mutation|/fix|main.go|fix error"
-	if result != expected {
-		t.Errorf("intentFingerprint = %q, want %q", result, expected)
 	}
 }
 
@@ -773,7 +741,8 @@ func TestLLMClientAdapter_Complete_WhenNilClient_ShouldReturnError(t *testing.T)
 
 func TestLLMClientAdapter_Complete_WhenCostBlocked_ShouldReturnError(t *testing.T) {
 	g := NewCostGuard()
-	g.MaxLLMCallsPerSession = 0
+	g.CooldownAfterError = time.Hour
+	g.RecordError()
 
 	adapter := &llmClientAdapter{
 		client:    &mockLLMClient{response: "ok"},

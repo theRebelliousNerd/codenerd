@@ -12,7 +12,6 @@ func TestTactileRouterShard_findRoute_PrefersExactMatchOnNormalizedAction(t *tes
 			{ActionPattern: "foobar", ToolName: "toolB", Timeout: 1 * time.Second},
 		},
 		TickInterval:         1 * time.Second,
-		IdleTimeout:          1 * time.Second,
 		AllowUnmappedActions: false,
 	}
 	r := NewTactileRouterShardWithConfig(cfg)
@@ -33,7 +32,6 @@ func TestTactileRouterShard_findRoute_PrefersPrefixOverContains(t *testing.T) {
 			{ActionPattern: "foo", ToolName: "fooTool", Timeout: 1 * time.Second},
 		},
 		TickInterval:         1 * time.Second,
-		IdleTimeout:          1 * time.Second,
 		AllowUnmappedActions: false,
 	}
 	r := NewTactileRouterShardWithConfig(cfg)

@@ -851,9 +851,6 @@ func TestDefaultWorldModelConfig_ShouldHaveReasonableDefaults(t *testing.T) {
 	if cfg.TickInterval == 0 {
 		t.Error("TickInterval should not be zero")
 	}
-	if cfg.IdleTimeout == 0 {
-		t.Error("IdleTimeout should not be zero")
-	}
 	if cfg.MaxFilesPerScan <= 0 {
 		t.Error("MaxFilesPerScan should be positive")
 	}
@@ -889,7 +886,8 @@ func TestConstitutionLLMAdapter_Complete_WhenNilClient_ShouldReturnError(t *test
 
 func TestConstitutionLLMAdapter_Complete_WhenCostBlocked_ShouldReturnError(t *testing.T) {
 	g := NewCostGuard()
-	g.MaxLLMCallsPerSession = 0 // Block all calls
+	g.CooldownAfterError = time.Hour
+	g.RecordError()
 
 	adapter := &constitutionLLMAdapter{
 		client:    &mockLLMClient{response: "ok"},

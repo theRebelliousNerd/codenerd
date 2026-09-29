@@ -8,6 +8,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	userconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -245,9 +246,9 @@ func TestPredicateSelector_FormatForPrompt(t *testing.T) {
 	assert.Contains(t, output, "## Available Mangle Predicates")
 	assert.Contains(t, output, "### domA")
 	assert.Contains(t, output, "- `pred1/2` - Description 1")
-	// The truncation happens at 60 chars.
-	// "Description 3 is very long and should be truncated if it exc" is 60 chars.
-	assert.Contains(t, output, "- `pred3/3` - Description 3 is very long and should be truncated if it exc...")
+	// Descriptions ride whole no matter the length; the list is bounded by
+	// the selection limit instead of per-string cuts.
+	assert.Contains(t, output, "- `pred3/3` - Description 3 is very long and should be truncated if it exceeds 60 characters which this string definitely does.")
 	assert.Contains(t, output, "### domB")
 	assert.Contains(t, output, "- `pred2/1` - Description 2")
 }
@@ -310,14 +311,39 @@ func TestPredicateSelector_Select_RelevanceTiesBreakByName(t *testing.T) {
 	}
 }
 
-func TestTruncateRunes_PreservesUTF8(t *testing.T) {
-	assert.Equal(t, "", truncateRunes("hello", 0))
-	assert.Equal(t, "hi", truncateRunes("hi", 10))
-	s := "héllo wörld 🌱🌱🌱 tail"
-	got := truncateRunes(s, 8)
-	assert.True(t, utf8.ValidString(got), "cut must not split a rune: %q", got)
-	assert.True(t, strings.HasSuffix(got, "..."), got)
-	assert.Equal(t, 8+3, utf8.RuneCountInString(got))
+func TestPredicateSelector_DescriptionsEmittedWhole(t *testing.T) {
+	// Longer than either of the removed 50/60-rune cuts, with multibyte
+	// runes that a byte cut would have split.
+	desc := "héllo wörld 🌱🌱🌱 " + strings.Repeat("tail ", 40)
+	selector := NewPredicateSelector(createTestCorpus(t))
+
+	formatted := selector.FormatForPrompt([]SelectedPredicate{
+		{Name: "longdesc", Arity: 2, Domain: "domA", Description: desc},
+	})
+	assert.Contains(t, formatted, "- `longdesc/2` - "+desc)
+	assert.NotContains(t, formatted, "...")
+
+	sig := formatPredicateSignature(SelectedPredicate{Name: "longdesc", Arity: 2, Description: desc})
+	assert.Equal(t, "longdesc/2 - "+desc, sig)
+	assert.True(t, utf8.ValidString(sig))
+}
+
+func TestPredicateSelector_BoundsFromConfig(t *testing.T) {
+	jitDefaults := userconfig.DefaultJITConfig()
+	selector := NewPredicateSelector(createTestCorpus(t))
+	assert.Equal(t, jitDefaults.PredicateLimit, selector.maxPredicates)
+	assert.Equal(t, jitDefaults.PredicateVecLimit, selector.vectorLimit)
+
+	selector.SetMaxPredicates(7)
+	selector.SetVectorLimit(9)
+	assert.Equal(t, 7, selector.maxPredicates)
+	assert.Equal(t, 9, selector.vectorLimit)
+
+	// Non-positive overrides are ignored, like before.
+	selector.SetMaxPredicates(0)
+	selector.SetVectorLimit(-1)
+	assert.Equal(t, 7, selector.maxPredicates)
+	assert.Equal(t, 9, selector.vectorLimit)
 }
 
 func TestClampSimilarity_BoundsAndNaN(t *testing.T) {

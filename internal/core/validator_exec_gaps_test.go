@@ -49,11 +49,46 @@ func TestExecutionValidator_MassiveOutput(t *testing.T) {
 	v := NewExecutionValidator()
 	req := ActionRequest{Type: ActionExecCmd, Target: "test"}
 
+	// The action already reported failure, so Validate does not scan.
 	hugeOutput := strings.Repeat("A", 10*1024*1024) + "fatal: failed" // 10MB
 	res := ActionResult{Success: false, Output: hugeOutput}
 	vr := v.Validate(context.Background(), req, res)
 	if vr.Verified {
-		t.Errorf("Expected truncation to catch tail failure, got verified")
+		t.Errorf("a command that reported failure was verified")
+	}
+}
+
+func TestExecutionValidator_FindsFailurePastTheOldCut(t *testing.T) {
+	v := NewExecutionValidator()
+	pad := strings.Repeat("ok line\n", 12000) // well past the old 50KB head and tail
+	output := pad + "fatal: buried in the middle\n" + pad
+	vr := v.Validate(context.Background(), ActionRequest{Type: ActionExecCmd, Target: "cmd"}, ActionResult{
+		Success: true,
+		Output:  output,
+	})
+	if vr.Verified {
+		t.Fatal("a failure in the middle of a large output was not detected")
+	}
+	match, _ := vr.Details["match"].(string)
+	if !strings.Contains(match, "fatal:") {
+		t.Fatalf("match = %q, want the buried fatal line", match)
+	}
+}
+
+func TestExecutionValidator_CommandEvidenceIsTheMatchingLine(t *testing.T) {
+	v := NewExecutionValidator()
+	line := "main.go:5:2: undefined: Foo"
+	output := strings.Repeat("x", 500) + "\n" + line + "\n" + strings.Repeat("y", 500)
+	vr := v.Validate(context.Background(), ActionRequest{Type: ActionRunCommand, Target: "go vet ."}, ActionResult{
+		Success: true,
+		Output:  output,
+	})
+	if vr.Verified {
+		t.Fatal("expected the go vet failure to be detected")
+	}
+	preview, _ := vr.Details["output_preview"].(string)
+	if preview != line {
+		t.Fatalf("output_preview = %q, want the whole matching line", preview)
 	}
 }
 

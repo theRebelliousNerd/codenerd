@@ -69,7 +69,6 @@ type WorldModelConfig struct {
 
 	// Performance
 	TickInterval       time.Duration // How often to scan for changes
-	IdleTimeout        time.Duration // Auto-stop after no changes
 	MaxFilesPerScan    int           // Limit files per tick
 	HashOnlyLargeFiles bool          // Skip content analysis for large files
 	LargeFileThreshold int64         // Bytes threshold for "large"
@@ -96,7 +95,6 @@ func DefaultWorldModelConfig() WorldModelConfig {
 			"*.bin", "*.dat",
 		},
 		TickInterval:       5 * time.Second,
-		IdleTimeout:        5 * time.Minute,
 		MaxFilesPerScan:    100,
 		HashOnlyLargeFiles: true,
 		LargeFileThreshold: 1024 * 1024, // 1MB
@@ -148,9 +146,6 @@ func NewWorldModelIngestorShardWithConfig(cfg WorldModelConfig) *WorldModelInges
 	base.Config.Model = types.ModelConfig{
 		Capability: types.CapabilityHighSpeed, // Use fast model for interpretations
 	}
-
-	// Configure idle timeout
-	base.CostGuard.IdleTimeout = cfg.IdleTimeout
 
 	return &WorldModelIngestorShard{
 		BaseSystemShard: base,
@@ -245,7 +240,6 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 			}
 			// Retract trigger
 			_ = w.Kernel.Retract("world_model_updating")
-			// Reset idle timer
 			w.mu.Lock()
 			w.lastActivity = time.Now()
 			w.mu.Unlock()
@@ -262,16 +256,10 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 				}
 				// Retract trigger
 				_ = w.Kernel.Retract("world_model_updating")
-				// Reset idle timer
 				w.mu.Lock()
 				w.lastActivity = time.Now()
 				w.mu.Unlock()
 				continue
-			}
-
-			// Check idle timeout
-			if w.CostGuard.IsIdle() {
-				return w.generateShutdownSummary("idle timeout"), nil
 			}
 
 			// Incremental scan
@@ -293,11 +281,6 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 				w.handleAutopoiesis(ctx)
 			}
 		case <-heartbeat.C:
-			// Check idle timeout
-			if w.CostGuard.IsIdle() {
-				return w.generateShutdownSummary("idle timeout"), nil
-			}
-
 			// Emit heartbeat
 			_ = w.Kernel.Assert(types.Fact{
 				Predicate: "world_model_heartbeat",

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	userconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
@@ -84,14 +85,29 @@ type ConfigAtomProvider interface {
 // ConfigFactory generates EffectiveAgentRuntimeConfig objects.
 type ConfigFactory struct {
 	provider ConfigAtomProvider
+	// fallbackMaxBytes bounds the fallback identity prompt. It defaults
+	// from jit.fallback_identity_max_bytes; SetFallbackMaxBytes overrides it.
+	fallbackMaxBytes int
 }
 
 // NewConfigFactory creates a new ConfigFactory.
 func NewConfigFactory(provider ConfigAtomProvider) *ConfigFactory {
 	return &ConfigFactory{
-		provider: provider,
+		provider:         provider,
+		fallbackMaxBytes: userconfig.DefaultJITConfig().FallbackIdentityMaxBytes,
 	}
 }
+
+// SetFallbackMaxBytes overrides the fallback identity bound.
+func (f *ConfigFactory) SetFallbackMaxBytes(maxBytes int) {
+	if maxBytes > 0 {
+		f.fallbackMaxBytes = maxBytes
+	}
+}
+
+// fallbackTruncationNote marks a cut fallback identity so the model sees the
+// cut instead of a silently short identity. The %d is the byte budget.
+const fallbackTruncationNote = "\n\n[fallback identity truncated to %d bytes]"
 
 // Generate creates an EffectiveAgentRuntimeConfig based on the intents and compilation result.
 // It merges config atoms for all provided intents.
@@ -333,16 +349,35 @@ func toolsFromQuery(facts []types.Fact) []string {
 
 // GenerateFallback creates a minimal config for when JIT compilation fails.
 func (f *ConfigFactory) GenerateFallback(ctx context.Context, intent string, fallbackIdentity string) *config.EffectiveAgentRuntimeConfig {
-	// Prevent OOM from massive fallback strings
-	const MaxFallbackLength = 1024 * 1024 // 1MB limit
-	if len(fallbackIdentity) > MaxFallbackLength {
+	// Prevent OOM from massive fallback strings. The bound is a tunable
+	// (jit.fallback_identity_max_bytes), and a cut keeps the head on a rune
+	// boundary plus a marker, so it reaches the model as a visible cut.
+	maxBytes := f.fallbackMaxBytes
+	if maxBytes <= 0 {
+		maxBytes = userconfig.DefaultJITConfig().FallbackIdentityMaxBytes
+	}
+	if len(fallbackIdentity) > maxBytes {
+		note := fmt.Sprintf(fallbackTruncationNote, maxBytes)
 		// Truncating by bytes can slice a multibyte UTF-8 character in half, resulting in invalid UTF-8.
 		// It should truncate on rune boundaries.
-		truncateIdx := MaxFallbackLength
+		cut := maxBytes - len(note)
+		if cut < 0 {
+			cut = 0
+		}
+		truncateIdx := cut
 		for truncateIdx > 0 && !utf8.RuneStart(fallbackIdentity[truncateIdx]) {
 			truncateIdx--
 		}
-		fallbackIdentity = fallbackIdentity[:truncateIdx]
+		fallbackIdentity = fallbackIdentity[:truncateIdx] + note
+		if len(fallbackIdentity) > maxBytes {
+			// Absurdly small budget: the note alone exceeds it, so keep the
+			// note's head on a rune boundary instead of the identity's.
+			truncateIdx = maxBytes
+			for truncateIdx > 0 && !utf8.RuneStart(note[truncateIdx]) {
+				truncateIdx--
+			}
+			fallbackIdentity = note[:truncateIdx]
+		}
 	}
 
 	intent = strings.TrimSpace(intent)

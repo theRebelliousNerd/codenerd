@@ -622,17 +622,15 @@ func TestConfigFactory_GenerateFallbackRuneTruncation(t *testing.T) {
 	provider := NewDefaultConfigAtomProvider()
 	factory := NewConfigFactory(provider)
 
-	// Build a string that is exactly 1MB + some multi-byte characters
-	// The 1MB limit is 1024 * 1024 = 1048576 bytes
-	// We'll pad with ASCII up to 1048574, then add a 3-byte character ("世")
-	// so the 1MB boundary falls right in the middle of the character.
+	// The 1MB default bound is 1024 * 1024 = 1048576 bytes. The cut lands at
+	// the bound minus the truncation note; pad with ASCII so the cut falls
+	// in the middle of a 3-byte character ("世", E4 B8 96) and must back off
+	// to a rune boundary.
 	limit := 1024 * 1024
-	padLen := limit - 2
-	padding := strings.Repeat("A", padLen)
-
-	// '世' is 3 bytes (E4 B8 96).
-	// With padLen of limit-2, the first two bytes of '世' will fall within the 1MB limit.
-	massiveStr := padding + "世界"
+	note := fmt.Sprintf(fallbackTruncationNote, limit)
+	cut := limit - len(note)
+	padLen := cut - 1
+	massiveStr := strings.Repeat("A", padLen) + "世界" + strings.Repeat("B", 100)
 
 	cfg := factory.GenerateFallback(ctx, "/general", massiveStr)
 
@@ -644,8 +642,66 @@ func TestConfigFactory_GenerateFallbackRuneTruncation(t *testing.T) {
 		t.Errorf("GenerateFallback failed to truncate string to limit. Got len %d, want <= %d", len(cfg.IdentityPrompt), limit)
 	}
 
-	if len(cfg.IdentityPrompt) != padLen {
-		t.Errorf("GenerateFallback truncated incorrectly. Expected length %d, got %d", padLen, len(cfg.IdentityPrompt))
+	if !strings.Contains(cfg.IdentityPrompt, note) {
+		t.Errorf("GenerateFallback cut is silent; want marker %q", note)
+	}
+
+	// The straddling multibyte character must back off whole, not split.
+	if strings.Contains(cfg.IdentityPrompt, "世") {
+		t.Errorf("GenerateFallback split a multibyte character at the cut")
+	}
+	if len(cfg.IdentityPrompt) != padLen+len(note) {
+		t.Errorf("GenerateFallback truncated incorrectly. Expected length %d, got %d", padLen+len(note), len(cfg.IdentityPrompt))
+	}
+}
+
+func TestConfigFactory_GenerateFallbackCustomBound(t *testing.T) {
+	factory := NewConfigFactory(NewDefaultConfigAtomProvider())
+	factory.SetFallbackMaxBytes(200)
+
+	cfg := factory.GenerateFallback(context.Background(), "/fix", strings.Repeat("A", 5000))
+	got := cfg.IdentityPrompt
+	if len(got) > 200 {
+		t.Errorf("custom bound ignored: length %d, want <= 200", len(got))
+	}
+	if !strings.Contains(got, "[fallback identity truncated to 200 bytes]") {
+		t.Errorf("custom-bound cut is silent: %q", got)
+	}
+	if !strings.HasPrefix(got, strings.Repeat("A", 100)) {
+		t.Errorf("custom-bound cut lost the head: %q", got)
+	}
+
+	// Non-positive overrides are ignored.
+	factory.SetFallbackMaxBytes(0)
+	if factory.fallbackMaxBytes != 200 {
+		t.Errorf("SetFallbackMaxBytes(0) changed the bound to %d", factory.fallbackMaxBytes)
+	}
+}
+
+func TestConfigFactory_GenerateFallbackTinyBudget(t *testing.T) {
+	factory := NewConfigFactory(NewDefaultConfigAtomProvider())
+	factory.SetFallbackMaxBytes(20)
+
+	got := factory.GenerateFallback(context.Background(), "/fix", strings.Repeat("A", 5000)).IdentityPrompt
+	if len(got) > 20 {
+		t.Errorf("tiny budget exceeded: length %d, want <= 20", len(got))
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("tiny budget produced invalid UTF-8: %q", got)
+	}
+}
+
+func TestConfigFactory_GenerateFallbackZeroValueBound(t *testing.T) {
+	// A factory that never saw the constructor resolves the bound from the
+	// JIT config defaults instead of reading zero as "show nothing".
+	factory := &ConfigFactory{provider: NewDefaultConfigAtomProvider()}
+
+	got := factory.GenerateFallback(context.Background(), "/general", strings.Repeat("A", 2*1024*1024)).IdentityPrompt
+	if len(got) > 1024*1024 {
+		t.Errorf("zero-value bound not defaulted: length %d", len(got))
+	}
+	if !strings.Contains(got, "[fallback identity truncated to 1048576 bytes]") {
+		t.Errorf("zero-value cut is silent: %q...", got[:60])
 	}
 }
 

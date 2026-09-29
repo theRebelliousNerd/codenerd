@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	userconfig "codenerd/internal/config"
 	"codenerd/internal/types"
 )
 
@@ -15,6 +16,7 @@ import (
 // a cliff: crossing the line drops the whole northstar with no marker. These
 // bounds convert the cliff into a graduated, visible loss.
 func TestRenderKernelContextBlock(t *testing.T) {
+	lim := DefaultCompilerConfig().kernelInjectionLimits()
 	tests := []struct {
 		name       string
 		rows       []string
@@ -28,13 +30,13 @@ func TestRenderKernelContextBlock(t *testing.T) {
 		},
 		{
 			name:       "too many rows are capped with a marker",
-			rows:       repeatRows("risk", maxKernelContextRows*4),
+			rows:       repeatRows("risk", lim.contextRows*4),
 			wantMarker: true,
 			wantFirst:  true,
 		},
 		{
 			name:       "one enormous row is clamped, not dropped",
-			rows:       []string{"FIRST" + strings.Repeat("y", maxKernelContextRowChars*8)},
+			rows:       []string{"FIRST" + strings.Repeat("y", lim.contextRowChars*8)},
 			wantMarker: true,
 			wantFirst:  true,
 		},
@@ -42,10 +44,10 @@ func TestRenderKernelContextBlock(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := renderKernelContextBlock(tt.rows)
+			got := renderKernelContextBlock(tt.rows, lim)
 
-			if len(got) > maxKernelInjectedAtomChars+512 {
-				t.Errorf("block is %d chars, cap is %d", len(got), maxKernelInjectedAtomChars)
+			if len(got) > lim.injectedAtomChars+512 {
+				t.Errorf("block is %d chars, cap is %d", len(got), lim.injectedAtomChars)
 			}
 			if types.IsClamped(got) != tt.wantMarker {
 				t.Errorf("IsClamped = %v, want %v", types.IsClamped(got), tt.wantMarker)
@@ -67,7 +69,7 @@ func TestRenderKernelContextBlock(t *testing.T) {
 func TestRenderKernelContextBlock_SurvivesFitAtShardBudget(t *testing.T) {
 	const shardBudget = 8192
 
-	content := renderKernelContextBlock(repeatRows("constraint", 5000))
+	content := renderKernelContextBlock(repeatRows("constraint", 5000), DefaultCompilerConfig().kernelInjectionLimits())
 	atom := NewPromptAtom("kernel/context/test", CategoryContext, content)
 	atom.IsMandatory = true
 
@@ -136,4 +138,50 @@ func repeatRows(prefix string, n int) []string {
 	}
 	rows[0] = "FIRST: " + prefix
 	return rows
+}
+
+// The injection bounds are tunables owned by jit.* in .nerd/config.json.
+// The compiler's copy must resolve to those defaults, and a partially-
+// filled CompilerConfig must fill -- never read zero as "show nothing".
+func TestKernelInjectionLimits_ResolveFromConfig(t *testing.T) {
+	d := userconfig.DefaultJITConfig()
+	full := DefaultCompilerConfig().kernelInjectionLimits()
+	if full.contextRows != d.KernelContextRows ||
+		full.contextRowChars != d.KernelContextRowChars ||
+		full.injectedAtomChars != d.KernelInjectedAtomChars ||
+		full.specialistBlocks != d.SpecialistKnowledgeBlocks ||
+		full.specialistTopicChars != d.SpecialistTopicChars ||
+		full.specialistBlockChars != d.SpecialistBlockChars {
+		t.Errorf("default CompilerConfig resolves to %+v, want JIT defaults %+v", full, d)
+	}
+	zero := CompilerConfig{}.kernelInjectionLimits()
+	if zero != full {
+		t.Errorf("zero CompilerConfig resolves to %+v, want %+v", zero, full)
+	}
+	partial := CompilerConfig{DefaultTokenBudget: 50000, KernelContextRows: 7}.kernelInjectionLimits()
+	if partial.contextRows != 7 {
+		t.Errorf("explicit KernelContextRows lost: got %d, want 7", partial.contextRows)
+	}
+	if partial.contextRowChars != d.KernelContextRowChars {
+		t.Errorf("partial config did not fill contextRowChars: got %d, want %d", partial.contextRowChars, d.KernelContextRowChars)
+	}
+}
+
+// Custom limits take effect: only the first N rows survive, with a marker.
+func TestRenderKernelContextBlock_CustomLimits(t *testing.T) {
+	lim := kernelInjectionLimits{contextRows: 2, contextRowChars: 50, injectedAtomChars: 400}
+	rows := []string{"r0: first", "r1: second", "r2: third", "r3: fourth", "r4: fifth"}
+	got := renderKernelContextBlock(rows, lim)
+	if !strings.Contains(got, "r0: first") || !strings.Contains(got, "r1: second") {
+		t.Error("custom row cap dropped the head rows")
+	}
+	if strings.Contains(got, "r2: third") {
+		t.Error("custom row cap leaked rows past the first 2")
+	}
+	if !types.IsClamped(got) {
+		t.Error("capped block must carry a marker")
+	}
+	if len(got) > lim.injectedAtomChars+512 {
+		t.Errorf("block is %d chars, custom ceiling is %d", len(got), lim.injectedAtomChars)
+	}
 }

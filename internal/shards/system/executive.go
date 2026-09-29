@@ -53,11 +53,9 @@ type ExecutiveConfig struct {
 	TickInterval time.Duration // How often to evaluate policy (default: 100ms)
 
 	// Behavior
-	StrictBarriers             bool          // Block all actions when barriers exist (default: true)
-	MaxActionsPerTick          int           // Prevent action storms (default: 5)
-	DebugMode                  bool          // Emit detailed derivation traces
-	OODATimeout                time.Duration // How long to wait before declaring OODA stalled
-	LearningCandidateThreshold int           // Repeats required before candidate (default: 3)
+	StrictBarriers             bool // Block all actions when barriers exist (default: true)
+	DebugMode                  bool // Emit detailed derivation traces
+	LearningCandidateThreshold int  // Repeats required before candidate (default: 3)
 }
 
 // DefaultExecutiveConfig returns sensible defaults.
@@ -67,9 +65,7 @@ func DefaultExecutiveConfig() ExecutiveConfig {
 		// stacked with heartbeats were saturating kernel evaluate.
 		TickInterval:               2 * time.Second,
 		StrictBarriers:             true,
-		MaxActionsPerTick:          5,
 		DebugMode:                  false,
-		OODATimeout:                30 * time.Second,
 		LearningCandidateThreshold: 3,
 	}
 }
@@ -115,11 +111,6 @@ type ExecutivePolicyShard struct {
 	// Boot guard: prevents action execution until first user interaction
 	// This ensures session rehydration doesn't trigger old actions
 	bootGuardActive bool
-
-	// OODA stall tracking
-	lastIntentFingerprint string
-	pendingIntentSince    time.Time
-	oodaTimeoutEmitted    bool
 }
 
 // NewExecutivePolicyShard creates a new Executive Policy shard.
@@ -140,8 +131,8 @@ func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShar
 	}
 	base.Config.Model = types.ModelConfig{} // No LLM by default - pure logic
 
-	logging.SystemShardsDebug("[ExecutivePolicy] Config: tick_interval=%v, strict_barriers=%v, max_actions=%d",
-		cfg.TickInterval, cfg.StrictBarriers, cfg.MaxActionsPerTick)
+	logging.SystemShardsDebug("[ExecutivePolicy] Config: tick_interval=%v, strict_barriers=%v",
+		cfg.TickInterval, cfg.StrictBarriers)
 	return &ExecutivePolicyShard{
 		BaseSystemShard:  base,
 		config:           cfg,
@@ -272,7 +263,6 @@ func (e *ExecutivePolicyShard) DisableBootGuard() {
 	e.bootGuardActive = false
 	e.mu.Unlock()
 	if wasActive {
-		e.resetOODATimeout()
 		logging.SystemShards("[ExecutivePolicy] Boot guard disabled, action execution enabled")
 	}
 }
@@ -282,82 +272,6 @@ func (e *ExecutivePolicyShard) IsBootGuardActive() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.bootGuardActive
-}
-
-func (e *ExecutivePolicyShard) resetOODATimeout() {
-	e.mu.Lock()
-	e.resetOODATimeoutLocked()
-	e.mu.Unlock()
-	if e.Kernel != nil {
-		_ = e.Kernel.Retract("ooda_timeout")
-	}
-}
-
-func (e *ExecutivePolicyShard) resetOODATimeoutLocked() {
-	e.pendingIntentSince = time.Time{}
-	e.oodaTimeoutEmitted = false
-	e.lastIntentFingerprint = ""
-}
-
-func (e *ExecutivePolicyShard) hasPendingIntent() bool {
-	if e.Kernel == nil {
-		return false
-	}
-	facts, err := e.Kernel.Query("pending_intent")
-	return err == nil && len(facts) > 0
-}
-
-func (e *ExecutivePolicyShard) intentFingerprint(intent *userIntentSnapshot) string {
-	if intent == nil {
-		return ""
-	}
-	return fmt.Sprintf("%s|%s|%s|%s", intent.Category, intent.Verb, intent.Target, intent.Constraint)
-}
-
-func (e *ExecutivePolicyShard) updateOODATimeout(intent *userIntentSnapshot, hasActions bool) {
-	if e.Kernel == nil {
-		return
-	}
-
-	pending := e.hasPendingIntent()
-	fingerprint := e.intentFingerprint(intent)
-
-	e.mu.Lock()
-	bootGuardActive := e.bootGuardActive
-	if fingerprint != "" && fingerprint != e.lastIntentFingerprint {
-		e.lastIntentFingerprint = fingerprint
-		e.pendingIntentSince = time.Now()
-		e.oodaTimeoutEmitted = false
-	}
-	pendingSince := e.pendingIntentSince
-	alreadyEmitted := e.oodaTimeoutEmitted
-	timeout := e.config.OODATimeout
-	e.mu.Unlock()
-
-	if bootGuardActive || !pending || hasActions {
-		e.resetOODATimeout()
-		return
-	}
-
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-
-	if pendingSince.IsZero() {
-		e.mu.Lock()
-		e.pendingIntentSince = time.Now()
-		e.oodaTimeoutEmitted = false
-		e.mu.Unlock()
-		return
-	}
-
-	if !alreadyEmitted && time.Since(pendingSince) >= timeout {
-		if err := e.Kernel.Assert(types.Fact{Predicate: "ooda_timeout"}); err == nil {
-			e.mu.Lock()
-			e.oodaTimeoutEmitted = true
-			e.mu.Unlock()
-		}
-	}
 }
 
 // trackSuccess records a successful action derivation.
@@ -512,9 +426,11 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 				e.autopoiesisWg.Add(1)
 				go func() {
 					defer e.autopoiesisWg.Done()
-					autoCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-					defer cancel()
-					e.handleAutopoiesis(autoCtx)
+					// The shard context is the lifetime. A child deadline here
+					// would win over the feedback loop's per-call timeout
+					// (the shortest deadline wins) and cancel a repair that
+					// was still making progress.
+					e.handleAutopoiesis(ctx)
 				}()
 			}
 		}
@@ -573,7 +489,6 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	}
 
 	latestIntent := e.latestUserIntent()
-	e.updateOODATimeout(latestIntent, len(actions) > 0)
 
 	// Boot guard: prevent action execution until first user interaction
 	// This ensures session rehydration doesn't trigger old persisted actions
@@ -585,11 +500,9 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		return nil
 	}
 
-	// Limit actions per tick to prevent storms
-	if len(actions) > e.config.MaxActionsPerTick {
-		logging.Get(logging.CategorySystemShards).Warn("[ExecutivePolicy] Action storm prevention: limiting from %d to %d actions", len(actions), e.config.MaxActionsPerTick)
-		actions = actions[:e.config.MaxActionsPerTick]
-	}
+	// Every derived action is emitted. A slice here dropped work the kernel
+	// had already decided was next; a run that is not progressing stops in
+	// the working-context policy, not by a count of actions on one tick.
 
 	// 4. Emit pending_action facts for Constitution Gate
 	consumedCurrentIntent := false

@@ -141,17 +141,21 @@ func TestVirtualStore_UnknownActionFailsClosed(t *testing.T) {
 	}
 }
 
-// TestHandleSearchCode_SkipsLargeFiles pins the documented walk guard: files
-// over maxSearchFileSize are not read whole into memory, so a match hiding
-// in a bundle does not appear in search_result facts.
+// TestHandleSearchCode_SkipsLargeFiles pins the walk guard: a file over
+// execution.max_search_file_bytes is not loaded, the skip is named in the
+// output, and a match in a small file is still returned.
 func TestHandleSearchCode_SkipsLargeFiles(t *testing.T) {
 	vs, dir := createActionsTestVS(t)
 	ctx := context.Background()
 	const needle = "upliftNeedle1984"
+	ceiling := vs.searchFileByteCeiling()
+	if ceiling <= 0 {
+		t.Fatal("search ceiling must be positive; the walk loads every file whole")
+	}
 	if err := os.WriteFile(filepath.Join(dir, "small.go"), []byte("package p\n// "+needle+"\n"), 0644); err != nil {
 		t.Fatalf("write small: %v", err)
 	}
-	big := []byte("// " + needle + "\n" + strings.Repeat("x", maxSearchFileSize+1024))
+	big := []byte("// " + needle + "\n" + strings.Repeat("x", int(ceiling)+1024))
 	if err := os.WriteFile(filepath.Join(dir, "big.go"), big, 0644); err != nil {
 		t.Fatalf("write big: %v", err)
 	}
@@ -180,13 +184,56 @@ func TestHandleSearchCode_SkipsLargeFiles(t *testing.T) {
 	if !foundSmall {
 		t.Fatalf("small-file match missing from facts: %+v", res.FactsToAdd)
 	}
+	want := fmt.Sprintf("1 file(s) over %d bytes were not searched (execution.max_search_file_bytes)", ceiling)
+	if !strings.Contains(res.Output, want) {
+		t.Fatalf("output did not name the skipped file:\n%s", res.Output)
+	}
 }
 
-// TestHandleReadFile_TruncatesLargeFile pins the 100KB read bound: the read
-// succeeds, the file_truncated fact records the bound, and the output does
-// not carry the whole file.
-func TestHandleReadFile_TruncatesLargeFile(t *testing.T) {
+// TestHandleSearchCode_ReturnsEveryMatch pins that a walk past the old
+// 100-hit cap keeps every match. The observation codec pages what the model
+// sees; the action itself does not stop counting.
+func TestHandleSearchCode_ReturnsEveryMatch(t *testing.T) {
 	vs, dir := createActionsTestVS(t)
+	ctx := context.Background()
+	const n = 120
+	const needle = "NEEDLE120"
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("f%03d.go", i)
+		body := fmt.Sprintf("package p\n// %s %d\n", needle, i)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	res, err := vs.handleSearchCode(ctx, ActionRequest{ActionID: "s-all", Target: needle})
+	if err != nil {
+		t.Fatalf("handleSearchCode: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %+v", res)
+	}
+	count := 0
+	for _, f := range res.FactsToAdd {
+		if f.Predicate == "search_result" {
+			count++
+		}
+	}
+	if count != n {
+		t.Fatalf("search_result facts = %d, want %d", count, n)
+	}
+	if strings.Contains(res.Output, "stopped at its result cap") {
+		t.Fatalf("search claimed a result cap:\n%s", res.Output)
+	}
+}
+
+// TestHandleReadFile_ReturnsTheWholeFile pins that a file past the old 100KB
+// cut is stored whole in file_content. The observation codec, not this
+// action, projects the model view.
+func TestHandleReadFile_ReturnsTheWholeFile(t *testing.T) {
+	vs, dir := createActionsTestVS(t)
+	if vs.readFileByteCeiling() != 0 {
+		t.Fatalf("read ceiling = %d, want 0 so the file is read whole", vs.readFileByteCeiling())
+	}
 	ctx := context.Background()
 	content := strings.Repeat("0123456789abcdef\n", 8000) // ~136KB
 	path := filepath.Join(dir, "huge.txt")
@@ -200,20 +247,52 @@ func TestHandleReadFile_TruncatesLargeFile(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("expected success, got: %+v", res)
 	}
-	if trunc, _ := res.Metadata["truncated"].(bool); !trunc {
-		t.Errorf("truncated metadata = %v, want true", res.Metadata["truncated"])
+	if trunc, _ := res.Metadata["truncated"].(bool); trunc {
+		t.Errorf("truncated metadata = true, want false")
 	}
-	found := false
+	var got string
 	for _, f := range res.FactsToAdd {
 		if f.Predicate == "file_truncated" {
-			found = true
+			t.Errorf("file_truncated was asserted: %+v", f)
+		}
+		if f.Predicate == "file_content" && len(f.Args) > 1 {
+			got, _ = f.Args[1].(string)
 		}
 	}
-	if !found {
-		t.Errorf("file_truncated fact missing: %+v", res.FactsToAdd)
+	if got != content {
+		t.Fatalf("file_content len %d, want %d", len(got), len(content))
 	}
-	if len(res.Output) >= len(content) {
-		t.Errorf("output len %d, want it bounded below file len %d", len(res.Output), len(content))
+}
+
+// TestHandleReadFile_PositiveCeilingRefusesWithoutAPrefix pins that a
+// positive execution.max_read_file_bytes refuses the read. The body is not
+// returned as a prefix.
+func TestHandleReadFile_PositiveCeilingRefusesWithoutAPrefix(t *testing.T) {
+	vs, dir := createActionsTestVS(t)
+	vs.maxReadFileBytes = 1024
+	ctx := context.Background()
+	body := strings.Repeat("SECRET", 400) // 2400 bytes
+	path := filepath.Join(dir, "secret.txt")
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	res, err := vs.handleReadFile(ctx, ActionRequest{ActionID: "r-refuse", Target: "secret.txt"})
+	if err != nil {
+		t.Fatalf("handleReadFile: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected the read to be refused")
+	}
+	if strings.Contains(res.Output, "SECRET") || strings.Contains(res.Error, "SECRET") {
+		t.Fatal("refusal included file body")
+	}
+	if !strings.Contains(res.Error, "execution.max_read_file_bytes") {
+		t.Fatalf("error = %q, want it to name the ceiling", res.Error)
+	}
+	for _, f := range res.FactsToAdd {
+		if f.Predicate == "file_content" || f.Predicate == "file_truncated" {
+			t.Fatalf("unexpected fact %s", f.Predicate)
+		}
 	}
 }
 

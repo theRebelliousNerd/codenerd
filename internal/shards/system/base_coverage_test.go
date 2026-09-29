@@ -17,17 +17,8 @@ import (
 func TestCostGuard_NewCostGuard_WhenCreated_ShouldHaveDefaults(t *testing.T) {
 	g := NewCostGuard()
 
-	if g.MaxLLMCallsPerMinute != 10 {
-		t.Errorf("MaxLLMCallsPerMinute = %d, want 10", g.MaxLLMCallsPerMinute)
-	}
-	if g.MaxLLMCallsPerSession != 100 {
-		t.Errorf("MaxLLMCallsPerSession = %d, want 100", g.MaxLLMCallsPerSession)
-	}
-	if g.IdleTimeout != 5*time.Minute {
-		t.Errorf("IdleTimeout = %v, want 5m", g.IdleTimeout)
-	}
-	if g.CooldownAfterError != time.Second {
-		t.Errorf("CooldownAfterError = %v, want 1s", g.CooldownAfterError)
+	if g.CooldownAfterError != 0 {
+		t.Errorf("CooldownAfterError = %v, want 0 so llm_timeouts supplies the backoff", g.CooldownAfterError)
 	}
 	if g.MaxValidationRetries != 3 {
 		t.Errorf("MaxValidationRetries = %d, want 3", g.MaxValidationRetries)
@@ -48,36 +39,15 @@ func TestCostGuard_CanCall_WhenFresh_ShouldAllow(t *testing.T) {
 	}
 }
 
-func TestCostGuard_CanCall_WhenRateLimitExceeded_ShouldBlock(t *testing.T) {
+func TestCostGuard_CanCall_AfterManyCalls_ShouldAllow(t *testing.T) {
 	g := NewCostGuard()
-	g.MaxLLMCallsPerMinute = 2
-
-	g.RecordCall()
-	g.RecordCall()
-
-	can, reason := g.CanCall()
-	if can {
-		t.Error("CanCall() should return false after hitting per-minute limit")
-	}
-	if reason != "rate limit exceeded (max calls per minute)" {
-		t.Errorf("unexpected reason: %q", reason)
-	}
-}
-
-func TestCostGuard_CanCall_WhenSessionCapExceeded_ShouldBlock(t *testing.T) {
-	g := NewCostGuard()
-	g.MaxLLMCallsPerSession = 3
-
-	for range 3 {
+	for range 1000 {
 		g.RecordCall()
 	}
 
 	can, reason := g.CanCall()
-	if can {
-		t.Error("CanCall() should return false after hitting session cap")
-	}
-	if reason != "session cap exceeded (max calls per session)" {
-		t.Errorf("unexpected reason: %q", reason)
+	if !can {
+		t.Fatalf("CanCall after 1000 calls = false (%s); a call count is not a stop", reason)
 	}
 }
 
@@ -107,12 +77,6 @@ func TestCostGuard_RecordCall_WhenCalled_ShouldResetConsecutiveErrors(t *testing
 	if g.consecutiveErrs != 0 {
 		t.Errorf("consecutiveErrs = %d, want 0 after RecordCall", g.consecutiveErrs)
 	}
-	if g.callsThisSession != 1 {
-		t.Errorf("callsThisSession = %d, want 1", g.callsThisSession)
-	}
-	if g.callsThisMinute != 1 {
-		t.Errorf("callsThisMinute = %d, want 1", g.callsThisMinute)
-	}
 }
 
 func TestCostGuard_RecordError_WhenMultiple_ShouldExponentialBackoff(t *testing.T) {
@@ -130,32 +94,19 @@ func TestCostGuard_RecordError_WhenMultiple_ShouldExponentialBackoff(t *testing.
 	}
 }
 
-func TestCostGuard_ResetSession_WhenCalled_ShouldClearSessionCounter(t *testing.T) {
+func TestCostGuard_RecordError_UsesConfiguredBackoffWhenUnset(t *testing.T) {
 	g := NewCostGuard()
-	g.RecordCall()
-	g.RecordCall()
+	before := time.Now()
+	g.RecordError()
 
-	g.ResetSession()
+	g.mu.Lock()
+	until := g.cooldownUntil
+	g.mu.Unlock()
 
-	if g.callsThisSession != 0 {
-		t.Errorf("callsThisSession = %d, want 0 after ResetSession", g.callsThisSession)
-	}
-}
-
-func TestCostGuard_IsIdle_WhenNeverCalled_ShouldReturnFalse(t *testing.T) {
-	g := NewCostGuard()
-	if g.IsIdle() {
-		t.Error("IsIdle() should return false when never called")
-	}
-}
-
-func TestCostGuard_IsIdle_WhenRecentCall_ShouldReturnFalse(t *testing.T) {
-	g := NewCostGuard()
-	g.IdleTimeout = 10 * time.Second
-
-	g.RecordCall()
-	if g.IsIdle() {
-		t.Error("IsIdle() should return false right after a call")
+	base := config.GetLLMTimeouts().RetryBackoffBase
+	got := until.Sub(before)
+	if got < base-50*time.Millisecond || got > base+2*time.Second {
+		t.Fatalf("first backoff = %v, want about %v from llm_timeouts.retry_backoff_base", got, base)
 	}
 }
 
@@ -576,7 +527,8 @@ func TestBaseSystemShard_GuardedLLMCall_WhenNoClient_ShouldReturnError(t *testin
 func TestBaseSystemShard_GuardedLLMCall_WhenCostBlocked_ShouldReturnError(t *testing.T) {
 	base := NewBaseSystemShard("guarded_blocked_test", StartupAuto)
 	base.SetLLMClient(&mockLLMClient{response: "ok"})
-	base.CostGuard.MaxLLMCallsPerSession = 0 // Block all calls
+	base.CostGuard.CooldownAfterError = time.Hour
+	base.CostGuard.RecordError()
 
 	_, err := base.GuardedLLMCall(context.Background(), "sys", "user")
 	if err == nil {
@@ -948,48 +900,26 @@ func TestStartupModeConstants(t *testing.T) {
 	}
 }
 
-// ─── CostGuard minute reset ─────────────────────────────────────────────────
-
-func TestCostGuard_CanCall_WhenMinuteResets_ShouldAllowAgain(t *testing.T) {
-	g := NewCostGuard()
-	g.MaxLLMCallsPerMinute = 1
-
-	g.RecordCall()
-
-	can, _ := g.CanCall()
-	if can {
-		t.Error("should be blocked after 1 call")
-	}
-
-	// Simulate minute passing
-	g.mu.Lock()
-	g.lastResetMinute = time.Now().Add(-2 * time.Minute)
-	g.mu.Unlock()
-
-	can, _ = g.CanCall()
-	if !can {
-		t.Error("should be allowed after minute reset")
-	}
-}
-
 // ─── RecordError max backoff ────────────────────────────────────────────────
 
-func TestCostGuard_RecordError_WhenManyErrors_ShouldCapBackoffAt60s(t *testing.T) {
+func TestCostGuard_RecordError_CapsAtConfiguredBackoffMax(t *testing.T) {
 	g := NewCostGuard()
-	g.CooldownAfterError = 1 * time.Second
+	g.CooldownAfterError = time.Second
 
-	// Record many errors to trigger max backoff
 	for range 10 {
 		g.RecordError()
 	}
 
-	// Cooldown should be capped at 60 seconds from now
+	maxBackoff := config.GetLLMTimeouts().RetryBackoffMax
 	g.mu.Lock()
 	remaining := time.Until(g.cooldownUntil)
 	g.mu.Unlock()
 
-	if remaining > 61*time.Second {
-		t.Errorf("backoff = %v, should be capped at 60s", remaining)
+	if remaining > maxBackoff+time.Second {
+		t.Errorf("backoff = %v, want it capped at llm_timeouts.retry_backoff_max %v", remaining, maxBackoff)
+	}
+	if remaining < maxBackoff-time.Second {
+		t.Errorf("backoff = %v, want it to reach the configured max %v", remaining, maxBackoff)
 	}
 }
 

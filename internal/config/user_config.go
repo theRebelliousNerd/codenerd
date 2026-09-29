@@ -551,6 +551,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			SetExecutionFileLimits(*DefaultExecutionConfig())
 			return cfg, nil // Return empty config if file doesn't exist
 		}
 		return nil, fmt.Errorf("failed to read user config: %w", err)
@@ -624,6 +625,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		return nil, fmt.Errorf("failed to parse user config: %w", terr)
 	}
 	SetLLMTimeouts(timeouts)
+	SetExecutionFileLimits(cfg.GetExecution())
 	if cfg.LLMTimeouts != nil {
 		logging.Get(logging.CategoryBoot).Info(
 			"LLM timeouts: profile=%q http=%s per_call=%s streaming=%s max_retries=%d",
@@ -1447,6 +1449,14 @@ func (c *UserConfig) GetExecution() ExecutionConfig {
 	if len(cfg.AllowedEnvVars) == 0 {
 		cfg.AllowedEnvVars = defaults.AllowedEnvVars
 	}
+	// 0 is "not set" for the search ceiling (the default protects the walk).
+	// 0 for the read ceiling is the setting: read the file whole.
+	if cfg.MaxSearchFileBytes <= 0 {
+		cfg.MaxSearchFileBytes = defaults.MaxSearchFileBytes
+	}
+	if cfg.MaxReadFileBytes < 0 {
+		cfg.MaxReadFileBytes = 0
+	}
 	// SecretPaths is not defaulted here: nil (absent) and [] (explicitly none)
 	// mean different things, and ResolvedSecretPaths is where they part.
 	return cfg
@@ -1624,6 +1634,33 @@ func (c *UserConfig) GetJITConfig() JITConfig {
 		cfg.TraceLLMIO = c.JIT.TraceLLMIO
 		if c.JIT.SemanticTopK != 0 {
 			cfg.SemanticTopK = c.JIT.SemanticTopK
+		}
+		if c.JIT.KernelContextRows != 0 {
+			cfg.KernelContextRows = c.JIT.KernelContextRows
+		}
+		if c.JIT.KernelContextRowChars != 0 {
+			cfg.KernelContextRowChars = c.JIT.KernelContextRowChars
+		}
+		if c.JIT.KernelInjectedAtomChars != 0 {
+			cfg.KernelInjectedAtomChars = c.JIT.KernelInjectedAtomChars
+		}
+		if c.JIT.SpecialistKnowledgeBlocks != 0 {
+			cfg.SpecialistKnowledgeBlocks = c.JIT.SpecialistKnowledgeBlocks
+		}
+		if c.JIT.SpecialistTopicChars != 0 {
+			cfg.SpecialistTopicChars = c.JIT.SpecialistTopicChars
+		}
+		if c.JIT.SpecialistBlockChars != 0 {
+			cfg.SpecialistBlockChars = c.JIT.SpecialistBlockChars
+		}
+		if c.JIT.PredicateLimit != 0 {
+			cfg.PredicateLimit = c.JIT.PredicateLimit
+		}
+		if c.JIT.PredicateVecLimit != 0 {
+			cfg.PredicateVecLimit = c.JIT.PredicateVecLimit
+		}
+		if c.JIT.FallbackIdentityMaxBytes != 0 {
+			cfg.FallbackIdentityMaxBytes = c.JIT.FallbackIdentityMaxBytes
 		}
 	}
 	return cfg

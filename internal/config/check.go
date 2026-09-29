@@ -242,6 +242,16 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	// file it was written to protect would be readable while the config says
 	// it is not. That is a contradiction, and the file is refused.
 	if c.Execution != nil {
+		if c.Execution.MaxReadFileBytes < 0 {
+			add(SeverityError, "execution.max_read_file_bytes",
+				"a negative ceiling is not a read bound",
+				"0 reads the file whole; a positive value refuses the read")
+		}
+		if c.Execution.MaxSearchFileBytes < 0 {
+			add(SeverityError, "execution.max_search_file_bytes",
+				"a negative ceiling is not a search bound",
+				"omit it for the default, or set a positive byte size")
+		}
 		for i, pattern := range c.Execution.SecretPaths {
 			if strings.TrimSpace(pattern) == "" {
 				add(SeverityError, fmt.Sprintf("execution.secret_paths[%d]", i), "an empty pattern protects nothing", "remove it")

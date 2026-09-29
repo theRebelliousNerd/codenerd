@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,8 +30,6 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 	path := v.resolvePath(req.Target)
 	logging.VirtualStoreDebug("Reading file: %s", path)
 
-	const MaxFileSize = 100 * 1024 // 100KB limit
-
 	info, err := os.Stat(path)
 	if err != nil {
 		return ActionResult{
@@ -49,46 +45,31 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 		return v.handleReadDirectory(ctx, path)
 	}
 
-	var data []byte
-	var truncated bool
+	// execution.max_read_file_bytes: 0 reads the file whole. A positive
+	// ceiling refuses the read. file_content is the bytes that were read,
+	// and the observation codec projects the model view from those bytes.
+	// A prefix stored as the file made the edit precondition a prefix too.
+	ceiling := v.readFileByteCeiling()
+	if ceiling > 0 && info.Size() > ceiling {
+		msg := fmt.Sprintf("refusing to read %s: %d bytes exceeds execution.max_read_file_bytes (%d)", path, info.Size(), ceiling)
+		return ActionResult{
+			Success: false,
+			Error:   msg,
+			FactsToAdd: []Fact{
+				{Predicate: "file_read_error", Args: []any{path, msg}},
+			},
+		}, nil
+	}
 
-	if info.Size() > MaxFileSize {
-		f, err := os.Open(path)
-		if err != nil {
-			return ActionResult{
-				Success: false,
-				Error:   err.Error(),
-				FactsToAdd: []Fact{
-					{Predicate: "file_read_error", Args: []any{path, err.Error()}},
-				},
-			}, nil
-		}
-		defer f.Close()
-
-		data = make([]byte, MaxFileSize)
-		n, err := f.Read(data)
-		if err != nil && !errors.Is(err, io.EOF) {
-			return ActionResult{
-				Success: false,
-				Error:   err.Error(),
-				FactsToAdd: []Fact{
-					{Predicate: "file_read_error", Args: []any{path, err.Error()}},
-				},
-			}, nil
-		}
-		data = data[:n]
-		truncated = true
-	} else {
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return ActionResult{
-				Success: false,
-				Error:   err.Error(),
-				FactsToAdd: []Fact{
-					{Predicate: "file_read_error", Args: []any{path, err.Error()}},
-				},
-			}, nil
-		}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "file_read_error", Args: []any{path, err.Error()}},
+			},
+		}, nil
 	}
 
 	content := string(data)
@@ -102,13 +83,6 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 	facts := []Fact{
 		{Predicate: "file_content", Args: []any{path, content}},
 		{Predicate: "file_read", Args: []any{path, req.SessionID, timestamp}},
-	}
-
-	if truncated {
-		facts = append(facts, Fact{
-			Predicate: "file_truncated",
-			Args:      []any{path, int64(MaxFileSize)},
-		})
 	}
 
 	// The Output is shaped by the file-read codec, and the precondition it
@@ -131,10 +105,10 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 		Content:   content,
 		Start:     start,
 		End:       end,
-		Truncated: truncated,
+		Truncated: false,
 	}, observation.ReadLimits{})
 
-	logging.VirtualStore("File read: path=%s, size=%d, truncated=%v", path, info.Size(), truncated)
+	logging.VirtualStore("File read: path=%s, size=%d", path, info.Size())
 	return ActionResult{
 		Success: true,
 		Output:  result.Text(),
@@ -142,7 +116,7 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 			"path":      path,
 			"size":      info.Size(),
 			"modified":  modTime,
-			"truncated": truncated,
+			"truncated": false,
 			"handle":    result.Handle,
 		},
 		FactsToAdd: facts,
@@ -407,16 +381,6 @@ func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) 
 	}, nil
 }
 
-// maxLocalSearchResults caps the walk. The cap is what makes the truncation
-// flag on the observation meaningful: an agent that reads "no other callers"
-// off a result that stopped counting has drawn a false negative.
-const maxLocalSearchResults = 100
-
-// maxSearchFileSize caps the files handleSearchCode reads whole. The walk
-// loads every visited file fully into memory, so an unchecked bundle or
-// binary in the tree would become a multi-hundred-MB read on every search.
-const maxSearchFileSize = 1024 * 1024 // 1MB
-
 // handleSearchCode searches for code patterns using local filesystem search.
 // For semantic/AST-based search, use the internal/world package via shards.
 //
@@ -442,7 +406,11 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 	// sources maps each displayed path back to the file the walk actually
 	// visited, so projection can only open files this search already opened.
 	sources := make(map[string]string)
-	count := 0
+	// The walk loads every visited file whole. execution.max_search_file_bytes
+	// is the process bound on that read. A file over it is named in the
+	// result; it is not a match that was dropped.
+	ceiling := v.searchFileByteCeiling()
+	skipped := 0
 
 	// Local search using filepath.Walk
 	err := filepath.Walk(v.workingDir, func(path string, info os.FileInfo, err error) error {
@@ -450,11 +418,11 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 			return nil
 		}
 
-		// Skip hidden directories and large files
 		if strings.Contains(path, ".git") || strings.Contains(path, ".nerd") {
 			return nil
 		}
-		if info.Size() > maxSearchFileSize {
+		if info.Size() > ceiling {
+			skipped++
 			return nil
 		}
 
@@ -469,7 +437,6 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 
 		for i, line := range lines {
 			if strings.Contains(line, pattern) {
-				count++
 				lineNum := i + 1
 				// search_result stays as it is, deliberately. It is the raw
 				// record, no rule reads it, and re-pointing it at
@@ -493,10 +460,6 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 					Line: lineNum,
 					Text: strings.TrimSpace(line),
 				})
-				if count >= maxLocalSearchResults { // Cap results
-					observed.Truncated = true
-					return filepath.SkipDir
-				}
 			}
 		}
 		return nil
@@ -517,11 +480,15 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 		return os.ReadFile(abs)
 	}, observation.Limits{})
 
-	logging.VirtualStoreDebug("Local search returned %d results in %d symbol(s), %d edge(s)",
-		len(facts), len(result.Symbols), len(result.Edges))
+	logging.VirtualStoreDebug("Local search returned %d results in %d symbol(s), %d edge(s), %d file(s) over the size ceiling",
+		len(facts), len(result.Symbols), len(result.Edges), skipped)
+	output := result.Text(toolscore.SearchExpandToolName)
+	if skipped > 0 {
+		output += fmt.Sprintf("\n%d file(s) over %d bytes were not searched (execution.max_search_file_bytes)", skipped, ceiling)
+	}
 	return ActionResult{
 		Success:    true,
-		Output:     result.Text(toolscore.SearchExpandToolName),
+		Output:     output,
 		FactsToAdd: facts,
 		Metadata: map[string]any{
 			"matches": result.Matches,

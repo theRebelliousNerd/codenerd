@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	userconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/transparency"
@@ -450,6 +451,31 @@ type CompilerConfig struct {
 	// KnowledgeSearchTimeout is the max time to wait for knowledge atom embedding and search
 	KnowledgeSearchTimeout time.Duration
 
+	// KernelContextRows caps injectable_context rows merged into the single
+	// kernel-context atom. A non-positive value means unset and resolves to
+	// the configured jit.kernel_context_rows at use.
+	KernelContextRows int
+
+	// KernelContextRowChars caps one injectable_context row. A non-positive
+	// value resolves to jit.kernel_context_row_chars.
+	KernelContextRowChars int
+
+	// KernelInjectedAtomChars is the ceiling on either merged kernel-injected
+	// atom. A non-positive value resolves to jit.kernel_injected_atom_chars.
+	KernelInjectedAtomChars int
+
+	// SpecialistKnowledgeBlocks caps specialist_knowledge topics merged into
+	// one atom. A non-positive value resolves to jit.specialist_knowledge_blocks.
+	SpecialistKnowledgeBlocks int
+
+	// SpecialistTopicChars caps a specialist_knowledge topic heading. A
+	// non-positive value resolves to jit.specialist_topic_chars.
+	SpecialistTopicChars int
+
+	// SpecialistBlockChars caps one specialist_knowledge body. A non-positive
+	// value resolves to jit.specialist_block_chars.
+	SpecialistBlockChars int
+
 	// FOUR FIELDS WERE REMOVED HERE on 2026-09-11, all set by
 	// DefaultCompilerConfig and read by nothing in the repository -- not
 	// production, not tests, except tests asserting the literal they had just
@@ -480,16 +506,26 @@ type CompilerConfig struct {
 
 // DefaultCompilerConfig returns a sensible default configuration.
 // DefaultTokenBudget is a fallback: production boot (internal/system) overrides
-// it from the configured JIT token budget through WithConfig.
+// it from the configured JIT token budget through WithConfig. The injection
+// bounds below are sourced from DefaultJITConfig, their single definition;
+// a user-set jit.* value takes effect once boot maps it onto this struct
+// (internal/system maps DefaultTokenBudget and DebugMode today).
 func DefaultCompilerConfig() CompilerConfig {
+	jitDefaults := userconfig.DefaultJITConfig()
 	return CompilerConfig{
 		DefaultTokenBudget: 200000, // 200k tokens default - callers should override from config
 		// Mirrors AtomSelector's own default. The selector keeps one too, for
 		// direct users that never see a CompilerConfig; this is the value the
 		// compiler pushes into it.
-		VectorSearchWeight:     0.3, // 70% logic, 30% vector
-		DebugMode:              false,
-		KnowledgeSearchTimeout: 10 * time.Second,
+		VectorSearchWeight:        0.3, // 70% logic, 30% vector
+		DebugMode:                 false,
+		KnowledgeSearchTimeout:    10 * time.Second,
+		KernelContextRows:         jitDefaults.KernelContextRows,
+		KernelContextRowChars:     jitDefaults.KernelContextRowChars,
+		KernelInjectedAtomChars:   jitDefaults.KernelInjectedAtomChars,
+		SpecialistKnowledgeBlocks: jitDefaults.SpecialistKnowledgeBlocks,
+		SpecialistTopicChars:      jitDefaults.SpecialistTopicChars,
+		SpecialistBlockChars:      jitDefaults.SpecialistBlockChars,
 	}
 }
 
@@ -970,64 +1006,85 @@ func extractStringArgFast(arg any) (string, error) {
 //     the least important row — it drops the whole block, silently, and the
 //     model loses the northstar entirely with no marker saying so.
 //
-// Capping at construction converts both into a visible, graduated loss.
-const (
-	// maxKernelContextRows caps injectable_context rows merged into the
-	// kernel-context atom. Spreading activation on a large workspace derives
-	// hundreds; the top rows carry the mission and the current focus, and the
-	// tail is near-duplicate neighbourhood chatter.
-	maxKernelContextRows = 60
+// Capping at construction converts both into a visible, graduated loss. The
+// caps are tunables owned by jit.* in .nerd/config.json (internal/config),
+// resolved per compile by kernelInjectionLimits -- not literals.
+// kernelInjectionLimits are the resolved bounds for the two kernel-injected
+// atoms. Values originate in .nerd/config.json under jit.* (see
+// DefaultJITConfig); CompilerConfig carries boot's copy and this struct is
+// the per-compile resolution with unset fields filled in.
+type kernelInjectionLimits struct {
+	contextRows          int
+	contextRowChars      int
+	injectedAtomChars    int
+	specialistBlocks     int
+	specialistTopicChars int
+	specialistBlockChars int
+}
 
-	// maxKernelContextRowChars caps one injectable_context row. A row is a
-	// single declarative sentence by contract; anything longer is a producer
-	// dumping a document into a fact slot.
-	maxKernelContextRowChars = 1024
+// kernelInjectionLimits resolves c's injection bounds, filling any unset
+// (non-positive) field from the JIT defaults. The fill matters because
+// WithConfig accepts partially-filled structs -- compiler_test.go builds
+// CompilerConfig{DefaultTokenBudget: 50000} -- and an unfilled zero would
+// read as "show nothing" instead of "unset".
+func (c CompilerConfig) kernelInjectionLimits() kernelInjectionLimits {
+	d := userconfig.DefaultJITConfig()
+	lim := kernelInjectionLimits{
+		contextRows:          d.KernelContextRows,
+		contextRowChars:      d.KernelContextRowChars,
+		injectedAtomChars:    d.KernelInjectedAtomChars,
+		specialistBlocks:     d.SpecialistKnowledgeBlocks,
+		specialistTopicChars: d.SpecialistTopicChars,
+		specialistBlockChars: d.SpecialistBlockChars,
+	}
+	if c.KernelContextRows > 0 {
+		lim.contextRows = c.KernelContextRows
+	}
+	if c.KernelContextRowChars > 0 {
+		lim.contextRowChars = c.KernelContextRowChars
+	}
+	if c.KernelInjectedAtomChars > 0 {
+		lim.injectedAtomChars = c.KernelInjectedAtomChars
+	}
+	if c.SpecialistKnowledgeBlocks > 0 {
+		lim.specialistBlocks = c.SpecialistKnowledgeBlocks
+	}
+	if c.SpecialistTopicChars > 0 {
+		lim.specialistTopicChars = c.SpecialistTopicChars
+	}
+	if c.SpecialistBlockChars > 0 {
+		lim.specialistBlockChars = c.SpecialistBlockChars
+	}
+	return lim
+}
 
-	// maxKernelInjectedAtomChars is the ceiling on either merged kernel atom
-	// (~4k tokens at the 4-chars-per-token estimate). Both are mandatory, so
-	// this is the largest slice of an 8k-token shard budget either is allowed
-	// to take before the corpus gets a look in.
-	maxKernelInjectedAtomChars = 16 * 1024
-
-	// maxSpecialistKnowledgeBlocks caps specialist_knowledge topics merged
-	// into one atom. Beyond a handful the model is being handed a library, not
-	// a briefing.
-	maxSpecialistKnowledgeBlocks = 12
-
-	// maxSpecialistTopicChars caps a specialist_knowledge topic heading.
-	maxSpecialistTopicChars = 200
-
-	// maxSpecialistBlockChars caps one specialist_knowledge body so a single
-	// verbose expert cannot crowd out its siblings inside the shared ceiling.
-	maxSpecialistBlockChars = 4 * 1024
-)
-
-// renderKernelContextBlock merges injectable_context rows under the caps above,
-// leaving markers so the model can tell "this is everything" from "this is the
-// first 60 of 400".
-func renderKernelContextBlock(rows []string) string {
+// renderKernelContextBlock merges injectable_context rows under lim, leaving
+// markers so the model can tell "this is everything" from "this is the first
+// N of M".
+func renderKernelContextBlock(rows []string, lim kernelInjectionLimits) string {
 	var sb strings.Builder
 	sb.WriteString("// KERNEL-INJECTED CONTEXT (from spreading activation)\n")
 	shown := len(rows)
-	if shown > maxKernelContextRows {
-		shown = maxKernelContextRows
+	if shown > lim.contextRows {
+		shown = lim.contextRows
 	}
 	for _, row := range rows[:shown] {
 		sb.WriteString("- ")
-		sb.WriteString(types.ClampHead(row, maxKernelContextRowChars, "injectable_context row"))
+		sb.WriteString(types.ClampHead(row, lim.contextRowChars, "injectable_context row"))
 		sb.WriteString("\n")
 	}
 	if notice := types.TruncationNotice(shown, len(rows), "injectable_context rows"); notice != "" {
 		sb.WriteString(notice)
 		sb.WriteString("\n")
 	}
-	return types.ClampText(sb.String(), maxKernelInjectedAtomChars, "injectable_context")
+	return types.ClampText(sb.String(), lim.injectedAtomChars, "injectable_context")
 }
 
 func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) ([]*PromptAtom, error) {
 	if c.kernel == nil || cc == nil {
 		return nil, nil
 	}
+	lim := c.config.kernelInjectionLimits()
 
 	matchesShard := func(raw string) bool {
 		raw = strings.TrimSpace(raw)
@@ -1067,7 +1124,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		}
 	}
 	if len(ctxAtoms) > 0 {
-		content := renderKernelContextBlock(ctxAtoms)
+		content := renderKernelContextBlock(ctxAtoms, lim)
 		id := "kernel/context/" + HashContent(content)[:8]
 		pa := NewPromptAtom(id, CategoryContext, content)
 		pa.IsMandatory = true
@@ -1103,21 +1160,21 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			var sb strings.Builder
 			sb.WriteString("// SPECIALIST KNOWLEDGE (Type B/U expertise)\n")
 			shown := len(blocks)
-			if shown > maxSpecialistKnowledgeBlocks {
-				shown = maxSpecialistKnowledgeBlocks
+			if shown > lim.specialistBlocks {
+				shown = lim.specialistBlocks
 			}
 			for _, b := range blocks[:shown] {
 				sb.WriteString("## ")
-				sb.WriteString(types.ClampHead(b.topic, maxSpecialistTopicChars, "specialist_knowledge topic"))
+				sb.WriteString(types.ClampHead(b.topic, lim.specialistTopicChars, "specialist_knowledge topic"))
 				sb.WriteString("\n")
-				sb.WriteString(types.ClampText(b.content, maxSpecialistBlockChars, "specialist_knowledge body"))
+				sb.WriteString(types.ClampText(b.content, lim.specialistBlockChars, "specialist_knowledge body"))
 				sb.WriteString("\n\n")
 			}
 			if notice := types.TruncationNotice(shown, len(blocks), "specialist_knowledge blocks"); notice != "" {
 				sb.WriteString(notice)
 				sb.WriteString("\n")
 			}
-			content := types.ClampText(strings.TrimRight(sb.String(), "\n"), maxKernelInjectedAtomChars, "specialist_knowledge")
+			content := types.ClampText(strings.TrimRight(sb.String(), "\n"), lim.injectedAtomChars, "specialist_knowledge")
 			id := "kernel/knowledge/" + HashContent(content)[:8]
 			pa := NewPromptAtom(id, CategoryKnowledge, content)
 			pa.IsMandatory = true

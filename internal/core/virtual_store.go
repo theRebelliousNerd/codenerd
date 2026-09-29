@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/config"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
@@ -84,6 +85,13 @@ type VirtualStore struct {
 
 	// Working directory
 	workingDir string
+
+	// File ceilings. 0 means the process limits installed by LoadUserConfig
+	// (execution.max_read_file_bytes / max_search_file_bytes). A positive
+	// value on the store wins, which is how a test pins a bound without
+	// loading a config file.
+	maxReadFileBytes   int64
+	maxSearchFileBytes int64
 	// workspaceRoot: see VirtualStoreConfig.WorkspaceRoot.
 	workspaceRoot string
 
@@ -173,6 +181,36 @@ type VirtualStoreConfig struct {
 	WorkspaceRoot   string
 	AllowedEnvVars  []string
 	AllowedBinaries []string
+
+	// MaxReadFileBytes is execution.max_read_file_bytes. 0 uses the process
+	// limit installed by LoadUserConfig (itself 0: read the file whole).
+	// A positive value refuses the read rather than returning a prefix.
+	MaxReadFileBytes int64
+	// MaxSearchFileBytes is execution.max_search_file_bytes. 0 uses the
+	// process limit (default 1MiB). Files over it are not loaded, and the
+	// search result says how many were skipped.
+	MaxSearchFileBytes int64
+}
+
+// readFileByteCeiling is the byte size at which a file read is refused.
+// 0 means the file is read whole.
+func (v *VirtualStore) readFileByteCeiling() int64 {
+	if v != nil && v.maxReadFileBytes > 0 {
+		return v.maxReadFileBytes
+	}
+	return config.ResolvedMaxReadFileBytes()
+}
+
+// searchFileByteCeiling is the byte size above which code search does not
+// load a file. It is process protection for the walk, not a match cap.
+func (v *VirtualStore) searchFileByteCeiling() int64 {
+	if v != nil && v.maxSearchFileBytes > 0 {
+		return v.maxSearchFileBytes
+	}
+	if n := config.ResolvedMaxSearchFileBytes(); n > 0 {
+		return n
+	}
+	return config.DefaultExecutionConfig().MaxSearchFileBytes
 }
 
 // DefaultVirtualStoreConfig returns sensible defaults.
@@ -205,16 +243,18 @@ func NewVirtualStoreWithConfig(executor tactile.Executor, config VirtualStoreCon
 		config.AllowedEnvVars, len(config.AllowedBinaries))
 
 	vs := &VirtualStore{
-		executor:        executor,
-		workingDir:      config.WorkingDir,
-		workspaceRoot:   config.WorkspaceRoot,
-		allowedEnvVars:  config.AllowedEnvVars,
-		allowedBinaries: config.AllowedBinaries,
-		shardManager:    coreshards.NewShardManager(),
-		toolRegistry:    NewToolRegistry(config.WorkingDir),
-		modularTools:    tools.NewRegistry(),
-		mcpClients:      make(map[string]IntegrationClient),
-		bootGuardActive: true, // Prevent action execution until first user interaction
+		executor:           executor,
+		workingDir:         config.WorkingDir,
+		workspaceRoot:      config.WorkspaceRoot,
+		allowedEnvVars:     config.AllowedEnvVars,
+		allowedBinaries:    config.AllowedBinaries,
+		maxReadFileBytes:   config.MaxReadFileBytes,
+		maxSearchFileBytes: config.MaxSearchFileBytes,
+		shardManager:       coreshards.NewShardManager(),
+		toolRegistry:       NewToolRegistry(config.WorkingDir),
+		modularTools:       tools.NewRegistry(),
+		mcpClients:         make(map[string]IntegrationClient),
+		bootGuardActive:    true, // Prevent action execution until first user interaction
 	}
 
 	// Wire up self-reference for ShardManager dependency injection

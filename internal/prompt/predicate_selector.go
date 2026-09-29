@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	userconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
@@ -31,11 +32,16 @@ type PredicateSelector struct {
 }
 
 const (
-	defaultPredicateLimit    = 100
-	defaultPredicateVecLimit = 200
 	predicateVectorMetaKey   = "kind"
 	predicateVectorMetaValue = "predicate"
 )
+
+// defaultPredicateLimit and defaultPredicateVecLimit resolve the selector's
+// bounds from the JIT config defaults, their single definition
+// (jit.predicate_limit, jit.predicate_vec_limit in .nerd/config.json).
+func defaultPredicateLimit() int { return userconfig.DefaultJITConfig().PredicateLimit }
+
+func defaultPredicateVecLimit() int { return userconfig.DefaultJITConfig().PredicateVecLimit }
 
 // SelectionContext provides dimensions for predicate selection.
 type SelectionContext struct {
@@ -59,11 +65,13 @@ type SelectedPredicate struct {
 }
 
 // NewPredicateSelector creates a new selector with the given corpus.
+// Bounds default from jit.predicate_limit / jit.predicate_vec_limit; the
+// SetMaxPredicates / SetVectorLimit setters carry caller overrides.
 func NewPredicateSelector(corpus *core.PredicateCorpus) *PredicateSelector {
 	return &PredicateSelector{
 		corpus:        corpus,
-		maxPredicates: defaultPredicateLimit,
-		vectorLimit:   defaultPredicateVecLimit,
+		maxPredicates: defaultPredicateLimit(),
+		vectorLimit:   defaultPredicateVecLimit(),
 	}
 }
 
@@ -77,6 +85,13 @@ func (ps *PredicateSelector) SetVectorStore(store *store.LocalStore) {
 func (ps *PredicateSelector) SetMaxPredicates(limit int) {
 	if limit > 0 {
 		ps.maxPredicates = limit
+	}
+}
+
+// SetVectorLimit overrides the default vector-candidate cap for selections.
+func (ps *PredicateSelector) SetVectorLimit(limit int) {
+	if limit > 0 {
+		ps.vectorLimit = limit
 	}
 }
 
@@ -324,7 +339,10 @@ func (ps *PredicateSelector) FormatForPrompt(predicates []SelectedPredicate) str
 			sb.WriteString("`")
 			if p.Description != "" {
 				sb.WriteString(" - ")
-				sb.WriteString(truncateRunes(p.Description, 60))
+				// Descriptions ride whole: the list is already count-bounded
+				// by the selection limit, and budget fitting sheds whole
+				// atoms rather than mid-string cuts.
+				sb.WriteString(p.Description)
 			}
 			sb.WriteString("\n")
 		}
@@ -351,7 +369,7 @@ func (ps *PredicateSelector) SelectForMangleGeneration(shardType, intentVerb str
 func (ps *PredicateSelector) SelectForRepair(errorTypes []string) ([]SelectedPredicate, error) {
 	limit := ps.maxPredicates
 	if limit <= 0 {
-		limit = defaultPredicateLimit
+		limit = defaultPredicateLimit()
 	}
 	ctx := SelectionContext{
 		MaxPredicates: limit,
@@ -403,7 +421,7 @@ func (ps *PredicateSelector) SelectForContext(ctx context.Context, shardType, in
 
 	maxPredicates := ps.maxPredicates
 	if maxPredicates <= 0 {
-		maxPredicates = defaultPredicateLimit
+		maxPredicates = defaultPredicateLimit()
 	}
 	selection := SelectionContext{
 		ShardType:     shardType,
@@ -437,27 +455,32 @@ func (ps *PredicateSelector) SelectForContext(ctx context.Context, shardType, in
 
 	// Convert to signature strings
 	signatures := make([]string, 0, len(merged))
-	var sb strings.Builder
-	// Pre-allocate buffer for typical signature length to avoid small re-allocations
-	sb.Grow(128)
-
 	for _, p := range merged {
-		sb.Reset()
-		sb.WriteString(p.Name)
-		sb.WriteString("/")
-		sb.WriteString(strconv.Itoa(p.Arity))
-
-		if p.Description != "" {
-			sb.WriteString(" - ")
-			sb.WriteString(truncateRunes(p.Description, 50))
-		}
-		signatures = append(signatures, sb.String())
+		signatures = append(signatures, formatPredicateSignature(p))
 	}
 
 	if len(signatures) > maxPredicates {
 		signatures = signatures[:maxPredicates]
 	}
 	return signatures, nil
+}
+
+// formatPredicateSignature renders one selected predicate for prompt
+// injection. Descriptions ride whole: the list is already count-bounded by
+// the selection limit, and budget fitting sheds whole atoms rather than
+// mid-string cuts.
+func formatPredicateSignature(p SelectedPredicate) string {
+	var sb strings.Builder
+	// Pre-allocate buffer for typical signature length to avoid small re-allocations
+	sb.Grow(128)
+	sb.WriteString(p.Name)
+	sb.WriteString("/")
+	sb.WriteString(strconv.Itoa(p.Arity))
+	if p.Description != "" {
+		sb.WriteString(" - ")
+		sb.WriteString(p.Description)
+	}
+	return sb.String()
 }
 
 func (ps *PredicateSelector) mergePredicatesWithVector(ctx context.Context, base []SelectedPredicate, query string, limit int) []SelectedPredicate {
@@ -486,7 +509,7 @@ func (ps *PredicateSelector) mergePredicatesWithVector(ctx context.Context, base
 	})
 
 	if limit <= 0 {
-		limit = defaultPredicateLimit
+		limit = defaultPredicateLimit()
 	}
 	if len(merged) > limit {
 		merged = merged[:limit]
@@ -504,7 +527,7 @@ func (ps *PredicateSelector) selectVectorPredicates(ctx context.Context, query s
 
 	limit := ps.vectorLimit
 	if limit <= 0 {
-		limit = defaultPredicateVecLimit
+		limit = defaultPredicateVecLimit()
 	}
 	results, err := ps.vectorStore.VectorRecallSemanticFiltered(ctx, query, limit, predicateVectorMetaKey, predicateVectorMetaValue)
 	if err != nil {
@@ -718,21 +741,6 @@ func clampSimilarity(v float64) float64 {
 		return 1
 	}
 	return v
-}
-
-// truncateRunes bounds s to n runes so a cut never splits a UTF-8 sequence.
-func truncateRunes(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	if len(s) <= n {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n]) + "..."
 }
 
 func predicateKey(name string, arity int) string {

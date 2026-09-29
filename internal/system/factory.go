@@ -1608,6 +1608,14 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		compilerCfg.DefaultTokenBudget = bctx.jitCfg.TokenBudget
 	}
 	compilerCfg.DebugMode = bctx.jitCfg.DebugMode
+	// The kernel-injection bounds come from jit.* in config; without these
+	// lines a user-set value would never reach a compile.
+	compilerCfg.KernelContextRows = bctx.jitCfg.KernelContextRows
+	compilerCfg.KernelContextRowChars = bctx.jitCfg.KernelContextRowChars
+	compilerCfg.KernelInjectedAtomChars = bctx.jitCfg.KernelInjectedAtomChars
+	compilerCfg.SpecialistKnowledgeBlocks = bctx.jitCfg.SpecialistKnowledgeBlocks
+	compilerCfg.SpecialistTopicChars = bctx.jitCfg.SpecialistTopicChars
+	compilerCfg.SpecialistBlockChars = bctx.jitCfg.SpecialistBlockChars
 	compilerOpts := []prompt.CompilerOption{
 		prompt.WithKernel(NewKernelAdapter(bctx.kernel)),
 		prompt.WithEmbeddedCorpus(embeddedCorpus),

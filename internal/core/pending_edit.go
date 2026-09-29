@@ -1,12 +1,25 @@
 package core
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strings"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
+
+// factContentIdentity is the string stored where policy binds a content slot
+// it never reads (pending_edit/2, pending_mutation/4). The digest is the
+// same shape the session path uses for a large body (sha256:%x bytes:%d),
+// so two writers name one body the same way. Empty content stays empty.
+func factContentIdentity(s string) string {
+	if s == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(s))
+	return fmt.Sprintf("sha256:%x bytes:%d", sum, len(s))
+}
 
 const PendingEditFactName = "pending_edit"
 
@@ -33,23 +46,14 @@ func ValidatePendingEditFilePath(filePath string) error {
 	return nil
 }
 
-// PendingEditContentPreview truncates content to a 200-char preview + "..." for
-// Mangle EDB storage, mirroring transaction_manager.go pending_mutation logic
-// (string(snapshot[:200])+"..." when len > 200). Short content is returned unchanged.
-// The full content is still written to disk; only the fact arg is previewed.
-func PendingEditContentPreview(s string) string {
-	if len(s) > 200 {
-		return s[:200] + "..."
-	}
-	return s
-}
-
-// NewPendingEditFact builds the kernel Fact for pending_edit(FilePath, Content)
-// with Content already preview-truncated. Caller should have validated FilePath.
+// NewPendingEditFact builds pending_edit(FilePath, Content). Content is a
+// sha256 identity, not a prefix of the body: policy binds the slot as a
+// wildcard, and two bodies that share a prefix must stay distinct.
+// Caller should have validated FilePath.
 func NewPendingEditFact(filePath, content string) types.Fact {
 	return types.Fact{
 		Predicate: PendingEditFactName,
-		Args:      []any{filePath, PendingEditContentPreview(content)},
+		Args:      []any{filePath, factContentIdentity(content)},
 	}
 }
 
