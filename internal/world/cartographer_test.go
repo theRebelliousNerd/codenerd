@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"codenerd/internal/core"
 )
@@ -551,8 +552,10 @@ func external(c C) { c.String() }
 }
 
 // TestCartographer_SiblingSymbolsFollowFileChange locks the directory symbol
-// cache: a sibling rewrite changes the stamp (name, size, mtime), and a
-// .go file in a child directory is a different package.
+// cache: a sibling rewrite changes which names the caller resolves, and a
+// .go file in a child directory is a different package. The two sibling
+// sources are the same length; TestCartographer_SameSizeSiblingRewriteRestoredMtime
+// is the case where the mtime is put back as well.
 func TestCartographer_SiblingSymbolsFollowFileChange(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0o755); err != nil {
@@ -613,6 +616,122 @@ func Caller() {
 	forbidCall(t, second, "fn:p.Caller", "fn:p.Target")
 	requireCall(t, second, "fn:p.Caller", "fn:p.Other")
 	forbidCall(t, second, "fn:p.Caller", "fn:p.Nested")
+}
+
+// TestCartographer_SameSizeSiblingRewriteRestoredMtime is the metadata hole
+// in the directory symbol cache. Target and Other are the same number of
+// bytes, and the rewrite's mtime is restored with os.Chtimes, so a stamp of
+// name, size, and mtime does not move. code_calls must follow the new
+// declarations anyway. The Windows flake of
+// TestCartographer_SiblingSymbolsFollowFileChange is this hole without the
+// Chtimes: both writes land inside one filesystem timestamp tick, the stamp
+// stays put, and the cartographer spells fn: rows from the old symbol set.
+func TestCartographer_SameSizeSiblingRewriteRestoredMtime(t *testing.T) {
+	// Negative quantum marks every timestamp already outside the tick, so a
+	// cache hit is allowed. The second map then has to notice the sibling
+	// by its content generation; size and mtime are put back on purpose.
+	prevQuantum := symbolStampQuantum
+	symbolStampQuantum = -time.Hour
+	t.Cleanup(func() { symbolStampQuantum = prevQuantum })
+
+	dir := t.TempDir()
+	caller := filepath.Join(dir, "call.go")
+	if err := os.WriteFile(caller, []byte(`package p
+
+func Caller() {
+	Target()
+	Other()
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Same length on purpose: "Target"/"1" and "Other"/"22".
+	targetSrc := "package p\n\nfunc Target() int { return 1 }\n"
+	otherSrc := "package p\n\nfunc Other() int { return 22 }\n"
+	if len(targetSrc) != len(otherSrc) {
+		t.Fatalf("fixture length %d != %d; the rewrite must keep the size", len(targetSrc), len(otherSrc))
+	}
+	sib := filepath.Join(dir, "sib.go")
+	if err := os.WriteFile(sib, []byte(targetSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A past second-resolution time round-trips through Chtimes, and it is
+	// not "now", so a check that only rehashes a recent mtime would miss it.
+	past := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(sib, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(caller, past, past); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(sib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Size() != int64(len(targetSrc)) {
+		t.Fatalf("sibling size = %d, want %d", before.Size(), len(targetSrc))
+	}
+
+	c := NewCartographer()
+	t.Cleanup(func() { c.Close() })
+	callsOf := func() map[[2]string]bool {
+		t.Helper()
+		facts, err := c.MapFile(caller)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[[2]string]bool{}
+		for _, f := range facts {
+			if f.Predicate != "code_calls" || len(f.Args) < 2 {
+				continue
+			}
+			a, ok1 := f.Args[0].(string)
+			b, ok2 := f.Args[1].(string)
+			if ok1 && ok2 {
+				out[[2]string{a, b}] = true
+			}
+		}
+		return out
+	}
+
+	first := callsOf()
+	requireCall(t, first, "fn:p.Caller", "fn:p.Target")
+	forbidCall(t, first, "fn:p.Caller", "fn:p.Other")
+	if _, genOK, _ := fileContentGen(sib, before); genOK && !symbolCacheTrusted(dir, "p", false) {
+		t.Fatal("symbol cache was not trusted after the first map; restored mtime would not exercise the pre-check")
+	}
+
+	if err := os.WriteFile(sib, []byte(otherSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(sib, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(sib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("metadata moved, so this would not reproduce the stale stamp: size %d->%d mtime %s->%s",
+			before.Size(), after.Size(), before.ModTime(), after.ModTime())
+	}
+
+	second := callsOf()
+	if second[[2]string{"fn:p.Caller", "fn:p.Target"}] || !second[[2]string{"fn:p.Caller", "fn:p.Other"}] {
+		t.Errorf("stale symbols after same-size rewrite with restored mtime (size %d, mtime %s): Target present=%v Other present=%v",
+			after.Size(), after.ModTime().Format(time.RFC3339Nano),
+			second[[2]string{"fn:p.Caller", "fn:p.Target"}],
+			second[[2]string{"fn:p.Caller", "fn:p.Other"}])
+	}
+	forbidCall(t, second, "fn:p.Caller", "fn:p.Target")
+	requireCall(t, second, "fn:p.Caller", "fn:p.Other")
+}
+
+func symbolCacheTrusted(dir, pkgName string, includeTests bool) bool {
+	symbolCacheMu.Lock()
+	defer symbolCacheMu.Unlock()
+	ent, ok := symbolCache[symbolCacheKey(dir, pkgName, includeTests)]
+	return ok && ent.trusted
 }
 
 func TestCartographer_MapFile_Go_Error(t *testing.T) {

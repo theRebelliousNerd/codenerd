@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
+	"crypto/sha256"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -919,9 +920,35 @@ func (s pkgSymbols) clone() pkgSymbols {
 }
 
 type cachedSymbols struct {
-	stamp string
-	sym   pkgSymbols
+	// stamp is the content hash of every sibling, the identity of sym.
+	// revs is the cheap metadata observed while those bytes were hashed.
+	// trusted is false when that observation could still be shared by a
+	// later write (clock tick still open, or a generation we could not read).
+	stamp   string
+	revs    []goFileRev
+	trusted bool
+	sym     pkgSymbols
 }
+
+// goFileRev is one sibling's metadata. It never authorizes a cache hit by
+// itself: loadSymbols hashes whenever the rev is missing, unstable, or
+// different from the rev stored with the symbols.
+type goFileRev struct {
+	name       string
+	size       int64
+	mtime      int64
+	gen        int64
+	genOK      bool
+	genIsClock bool
+}
+
+// symbolStampQuantum is how long a fresh timestamp stays untrustworthy.
+// NTFS records 100ns, but FAT and some SMB servers only move LastWriteTime
+// on a 2s boundary, and a same-size rewrite inside that tick leaves size
+// and mtime unchanged. That is the Windows flake of
+// TestCartographer_SiblingSymbolsFollowFileChange. A test sets this so the
+// restored-mtime case is trusted metadata, not "still inside the tick".
+var symbolStampQuantum = 2 * time.Second
 
 var (
 	symbolCacheMu sync.Mutex
@@ -1034,13 +1061,41 @@ func goPackageClause(path string) (string, bool) {
 }
 
 func loadSymbols(dir, pkgName string, includeTests bool) (pkgSymbols, bool) {
-	stamp, files, err := goFileStamp(dir)
+	revs, err := goFileRevs(dir)
 	if err != nil {
 		return pkgSymbols{}, false
 	}
+	now := time.Now().UnixNano()
 	key := symbolCacheKey(dir, pkgName, includeTests)
 	symbolCacheMu.Lock()
+	if ent, ok := symbolCache[key]; ok && revsAllowSkip(ent, revs, now) {
+		symbolCacheMu.Unlock()
+		return ent.sym, true
+	}
+	symbolCacheMu.Unlock()
+
+	stamp, files, err := hashGoDir(dir)
+	if err != nil {
+		return pkgSymbols{}, false
+	}
+	// Stat again after the read. A write that lands between the two
+	// observations must not be stored as the identity of these bytes.
+	after, err := goFileRevs(dir)
+	if err != nil {
+		return pkgSymbols{}, false
+	}
+	now = time.Now().UnixNano()
+	trusted := revsEqual(revs, after) && revsStable(after, now)
+	var storeRevs []goFileRev
+	if trusted {
+		storeRevs = after
+	}
+
+	symbolCacheMu.Lock()
 	if ent, ok := symbolCache[key]; ok && ent.stamp == stamp {
+		ent.revs = storeRevs
+		ent.trusted = trusted
+		symbolCache[key] = ent
 		symbolCacheMu.Unlock()
 		return ent.sym, true
 	}
@@ -1048,49 +1103,135 @@ func loadSymbols(dir, pkgName string, includeTests bool) (pkgSymbols, bool) {
 
 	sym := pkgSymbols{}
 	sym.init()
-	for _, path := range files {
-		if !includeTests && strings.HasSuffix(path, "_test.go") {
+	for _, gf := range files {
+		if !includeTests && strings.HasSuffix(gf.path, "_test.go") {
+			continue
+		}
+		if gf.src == nil {
 			continue
 		}
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil || file == nil || file.Name == nil || file.Name.Name != pkgName {
+		file, perr := parser.ParseFile(fset, gf.path, gf.src, parser.SkipObjectResolution)
+		if perr != nil || file == nil || file.Name == nil || file.Name.Name != pkgName {
 			continue
 		}
 		absorbNode(&sym, file)
 	}
 	symbolCacheMu.Lock()
-	symbolCache[key] = cachedSymbols{stamp: stamp, sym: sym}
+	symbolCache[key] = cachedSymbols{stamp: stamp, revs: storeRevs, trusted: trusted, sym: sym}
 	symbolCacheMu.Unlock()
 	return sym, true
 }
 
-// goFileStamp lists the .go files directly in dir. os.ReadDir does not walk
+// revsAllowSkip reports whether cur is the same observation the symbols were
+// hashed from, and that observation can no longer be shared with a later
+// write. Size and mtime matching is not enough: the caller has already
+// included the content generation, and a rev still inside
+// symbolStampQuantum is rejected here.
+func revsAllowSkip(ent cachedSymbols, cur []goFileRev, now int64) bool {
+	return ent.trusted && revsEqual(ent.revs, cur) && revsStable(cur, now)
+}
+
+func revsEqual(a, b []goFileRev) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func revsStable(revs []goFileRev, now int64) bool {
+	limit := now - int64(symbolStampQuantum)
+	for _, r := range revs {
+		if !r.genOK || r.mtime >= limit {
+			return false
+		}
+		if r.genIsClock && r.gen >= limit {
+			return false
+		}
+	}
+	return true
+}
+
+// goStampFile is a sibling whose bytes were hashed into the directory stamp.
+// src is nil when the file could not be read; the stamp still names it so
+// a later successful read cannot reuse this snapshot.
+type goStampFile struct {
+	path string
+	src  []byte
+}
+
+// hashGoDir lists the .go files directly in dir. os.ReadDir does not walk
 // parents, child directories, or any path outside dir, so the loader cannot
-// open GOROOT or the module cache. The stamp is each file's name, size, and
-// mtime — the same size and mtime pair ScanWorkspaceIncremental uses to
-// decide a file changed (incremental_scan.go). A rewrite, add, or removal
-// therefore misses this cache instead of reusing symbols parsed before it.
-func goFileStamp(dir string) (string, []string, error) {
+// open GOROOT or the module cache. The stamp is each file's name and content
+// hash. Size is recorded with the hash; mtime is not part of the stamp,
+// because a same-size rewrite can keep it (one filesystem tick, or
+// os.Chtimes) and the old symbols would be served.
+func hashGoDir(dir string) (string, []goStampFile, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "", nil, err
 	}
 	var b strings.Builder
-	var files []string
+	var files []goStampFile
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") {
 			continue
 		}
-		info, err := entry.Info()
+		path := filepath.Join(dir, name)
+		src, err := os.ReadFile(path)
 		if err != nil {
+			fmt.Fprintf(&b, "%s !read\n", name)
+			files = append(files, goStampFile{path: path})
 			continue
 		}
-		fmt.Fprintf(&b, "%s %d %d\n", name, info.Size(), info.ModTime().UnixNano())
-		files = append(files, filepath.Join(dir, name))
+		sum := sha256.Sum256(src)
+		fmt.Fprintf(&b, "%s %d %x\n", name, len(src), sum[:])
+		files = append(files, goStampFile{path: path, src: src})
 	}
 	return b.String(), files, nil
+}
+
+// goFileRevs is the cheap pre-check for hashGoDir. The content hash still
+// runs whenever these revs could be stale: a generation we could not read,
+// a timestamp inside symbolStampQuantum, or any disagreement with the revs
+// stored beside the symbols.
+func goFileRevs(dir string) ([]goFileRev, error) {
+	if revs, ok, err := bulkFileRevs(dir); ok {
+		return revs, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var out []goFileRev
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		info, err := entry.Info()
+		if err != nil {
+			out = append(out, goFileRev{name: name})
+			continue
+		}
+		gen, ok, isClock := fileContentGen(path, info)
+		out = append(out, goFileRev{
+			name:       name,
+			size:       info.Size(),
+			mtime:      info.ModTime().UnixNano(),
+			gen:        gen,
+			genOK:      ok,
+			genIsClock: isClock,
+		})
+	}
+	return out, nil
 }
 
 func absorbNode(sym *pkgSymbols, file *ast.File) {
