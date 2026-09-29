@@ -316,6 +316,13 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Retrieval.Check("retrieval")...)
 	}
 
+	// --- orient ---
+	// A nil block is the defaults; an explicit threshold out of range, or
+	// span cuts out of order, refuses the file.
+	if c.Orient != nil {
+		out = append(out, c.Orient.Check("orient")...)
+	}
+
 	// --- usage ---
 	if c.Usage != nil {
 		out = append(out, c.Usage.Check("usage")...)

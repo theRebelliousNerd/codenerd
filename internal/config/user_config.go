@@ -224,6 +224,11 @@ type UserConfig struct {
 	// retrieval pass's hand-off to the model with (retrieval.go).
 	Retrieval *RetrievalConfig `json:"retrieval,omitempty"`
 
+	// Orient holds the orientation engine's thresholds (internal/orient): era,
+	// burst, lineage and read-candidate bounds, reaching its policy as
+	// config_param(/orient_<key>, N) rows.
+	Orient *OrientConfig `json:"orient,omitempty"`
+
 	// Observation is the bounds of the file-read projection the model is
 	// shown (observation.go). It is not part of execution: those ceilings
 	// refuse reads, these shape the view of a read that succeeds.

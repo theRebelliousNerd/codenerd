@@ -26,7 +26,7 @@ An orientation engine that passes tests by memorizing the target is a failure. I
    Automated linters and regression checks must verify that no proprietary or target-specific repository identifiers exist in `internal/orient/` or `internal/init/`.
 3. **Property-Based Verification**:
    Orientation acceptance criteria must assert abstract architectural properties, not specific string matches:
-   - Does `nerd orient --json` output at least one `/wave` era and zero negative timestamps?
+   - Does the orientation derived during `nerd init` (and refreshed by the OODA loop) hold at least one `/wave` era and zero negative timestamps?
    - Does the number of read candidates remain bounded within the configured budget?
    - Are seed datasets classified as `/seed_data` and treated as `/index_names_only`?
    - Are private dependencies detected without executing external HTTP lookups?

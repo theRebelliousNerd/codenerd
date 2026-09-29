@@ -29,7 +29,8 @@ This document specifies the leaf implementation tasks for `internal/orient`, spe
 - [ ] `TODO-ORIENT-07` (`GAP-ORIENT-02`, Lane `I2a`): Implement `internal/orient/timeline.mg` deriving `repo_era` (`/wave` vs `/lull`).
 - [ ] `TODO-ORIENT-08` (`GAP-ORIENT-02`, Lane `I2a`): Implement `internal/orient/docs.go` extracting headings, cross-links, and chunked embedding centroids.
 - [ ] `TODO-ORIENT-09` (`GAP-ORIENT-03`, Lane `I2a`): Implement `internal/orient/lineage.mg` deriving `doc_generation`, `doc_burst`, `doc_evolved_into`, `doc_superseded`, and `orient_read_candidate`.
-- [ ] `TODO-ORIENT-10` (`GAP-ORIENT-02`, Lane `I2a`): Implement `cmd/nerd/cmd_orient.go` exposing `nerd orient [--json]` for read-only inspection.
+- [x] ~~`TODO-ORIENT-10`~~ Withdrawn (Steve, 2026-09-29): no `nerd orient` command; orientation is automatic (init + OODA). Inspection is through the kernel facts (`nerd query`, `nerd why`).
+- [ ] `TODO-ORIENT-23` (`GAP-ORIENT-23`): `nerd init` starts with orientation (right after directory setup and the membership scan), before profile, agents and knowledge bases, which consume its facts; the OODA loop derives staleness and refreshes orientation incrementally.
 - [ ] `TODO-ORIENT-11` (`GAP-ORIENT-04`, Lane `I1`): Implement `internal/orient/ecosystem.go` parsing multi-agent configurations across `.claude`, `.codex`, `.agents`, `.gemini`, `.grok`, `.jules`, `.cursor`, `.roomodes`, and user memory.
 - [ ] `TODO-ORIENT-12` (`GAP-ORIENT-04`, Lane `I1`): Implement `internal/orient/ecosystem_agents.mg` deriving `agent_source_duplicate` and evidence-based `agent_source_winner`.
 

@@ -66,8 +66,8 @@ A future author must preserve these seven non-negotiable invariants:
 
 ### Question 4: Automated Re-Orientation Triggers
 - **Problem**: As a repository undergoes months of active development, commit eras change and initial orientation facts become stale.
-- **Current Position**: `nerd orient --refresh` is an explicit manual CLI command.
-- **Open Edge**: Should background observers (`internal/shards/observer_manager.go`) automatically detect when commit volume exceeds an era threshold and nudge the operator to trigger re-orientation?
+- **Decided (Steve, 2026-09-29)**: there is no orientation command. Orientation is the Orient step of the OODA loop: `nerd init` starts with it, and every loop re-orients when Observe sees the repository moved (new commits, changed documents), refreshing only the affected facts. The trigger is kernel-derived, not an operator nudge.
+- **Open Edge**: the exact staleness predicate (latest oriented commit vs HEAD, per-document content change) and the incremental refresh cost on large repositories.
 
 ### Question 5: Symbol-Level Link Scaling in Mega-Repositories (>50k Symbols)
 - **Problem**: On massive repositories with tens of thousands of symbols, computing pairwise embeddings between every symbol and every spec section risks memory saturation and latency.

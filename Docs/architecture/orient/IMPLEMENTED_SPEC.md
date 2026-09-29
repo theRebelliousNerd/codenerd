@@ -3,7 +3,7 @@ doc-class: shipped
 subsystem: orient
 implementation-status: shipped
 last-verified: 2026-09-29
-verified-against: e056692c
+verified-against: 6597099c
 supersedes: []
 ---
 
@@ -13,15 +13,15 @@ supersedes: []
 
 ---
 
-## 1. Absolute Truth: Nothing of `internal/orient` Has Shipped
+## 1. What Has Shipped
 
-As of commit `e056692c`:
-- **`internal/orient` does not exist on disk**. There are zero Go source files, zero Mangle policy files, and zero unit tests for the orientation engine in the repository tree.
-- **`nerd orient` is not a registered CLI command** in `cmd/nerd/main.go`.
-- **`internal/workspace` does not exist on disk**. Repository membership continues to be evaluated by independent, fragmented directory walkers.
-- **Non-interactive North Star derivation does not exist**. `nerd init` continues to instruct operators to manually run `/northstar`.
-
----
+As of commit `6597099c` plus the orientation-engine commit that carries this revision:
+- **The orientation engine** (`internal/orient`): its own Mangle engine (`NewEngine`, `Assert`, `Evaluate`, `Query` in `internal/orient/engine.go`), one streaming `git log --name-status -M` pass with rename stitching and shallow-clone detection (`internal/orient/history.go`), document facts, resolved links and embedding similarity with a content-addressed vector cache (`internal/orient/docs.go`), and the policy (`internal/orient/schema.mg`, `timeline.mg`, `lineage.mg`): eras, generation, bursts, cohorts, evolution, supersession, liveness, origin sources, vision weights, and the bounded read-candidate set with every omitted document listed. `Inspect` (`internal/orient/report.go`) runs it on a workspace.
+- **Config**: the `orient` block (`internal/config/orient.go`, `GetOrientConfig`), checked at load; every threshold reaches the policy as `config_param(/orient_<key>, N)`.
+- **Evidence**: `go test ./internal/orient/` (policy fact sets; engine API; a temp git repository with a rename, a lull, a one-day burst and a shallow clone; embedding cache hit/miss; the report).
+- **Not shipped**: init does not yet run orientation (GAP-ORIENT-23); the ecosystem ingest, role transduction, north-star derivation, discernment/questions and spec alignment are in flight (section 2).
+- **By design, no `nerd orient` command** (Steve, 2026-09-29): orientation is the Orient step of the OODA loop, run by `nerd init` first and refreshed automatically.
+- `internal/workspace` and non-interactive north-star derivation have not shipped.
 
 ## 2. Active Implementation Lanes In Flight
 
