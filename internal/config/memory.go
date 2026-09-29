@@ -57,6 +57,16 @@ type EmbeddingConfig struct {
 	// SetEmbeddingRequestTimeout also publishes the bound into the embedding
 	// package, and the Ollama client's Timeout is that published value.
 	RequestTimeout string `yaml:"request_timeout" json:"request_timeout,omitempty"`
+
+	// PullTimeout bounds one Ollama model download (POST /api/pull,
+	// stream:false). The response body is the download, so this is a request
+	// bound, not a run clock. Default 30m, the bound that download carried
+	// as a literal. It is separate from RequestTimeout: EnsureModel runs
+	// under embed and boot contexts that are shorter than a model download,
+	// and a cancelled caller still aborts the request through its context.
+	// SetEmbeddingPullTimeout publishes the bound into the embedding package,
+	// and the pull client's Timeout is that published value.
+	PullTimeout string `yaml:"pull_timeout" json:"pull_timeout,omitempty"`
 }
 
 // ContextWindowConfig configures the semantic compression context window.
@@ -191,6 +201,7 @@ func DefaultEmbeddingConfig() *EmbeddingConfig {
 		GenAIModel:     d.GenAIModel,
 		TaskType:       d.TaskType,
 		RequestTimeout: "60s",
+		PullTimeout:    "30m",
 	}
 }
 
@@ -219,6 +230,7 @@ var activeEmbeddingRequestTimeout atomic.Int64
 
 func init() {
 	installDefaultEmbeddingRequestTimeout()
+	installDefaultEmbeddingPullTimeout()
 }
 
 func installDefaultEmbeddingRequestTimeout() {
@@ -249,6 +261,60 @@ func EmbeddingRequestTimeout() time.Duration {
 	d, err := DefaultEmbeddingConfig().ResolvedRequestTimeout()
 	if err != nil {
 		panic("config: default embedding.request_timeout: " + err.Error())
+	}
+	return d
+}
+
+// ResolvedPullTimeout parses PullTimeout, filling the default when the field
+// is absent. Check refuses a value that does not parse; this is the same
+// parse for the process-wide install.
+func (c EmbeddingConfig) ResolvedPullTimeout() (time.Duration, error) {
+	raw := strings.TrimSpace(c.PullTimeout)
+	if raw == "" {
+		raw = DefaultEmbeddingConfig().PullTimeout
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("embedding.pull_timeout: %q is not a duration (want e.g. \"30m\", \"45s\"): %w", raw, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("embedding.pull_timeout: %q must be positive", raw)
+	}
+	return d, nil
+}
+
+// activeEmbeddingPullTimeout is the process-wide bound one Ollama model pull
+// may take, installed by LoadUserConfig. Stored as nanoseconds.
+var activeEmbeddingPullTimeout atomic.Int64
+
+func installDefaultEmbeddingPullTimeout() {
+	d, err := DefaultEmbeddingConfig().ResolvedPullTimeout()
+	if err != nil {
+		panic("config: default embedding.pull_timeout: " + err.Error())
+	}
+	SetEmbeddingPullTimeout(d)
+}
+
+// SetEmbeddingPullTimeout installs the process-wide Ollama model-pull bound.
+// LoadUserConfig is the production caller; tests install and restore.
+func SetEmbeddingPullTimeout(d time.Duration) {
+	if d <= 0 {
+		panic("config: embedding pull timeout must be positive")
+	}
+	activeEmbeddingPullTimeout.Store(int64(d))
+	// The Ollama pull client lives in a package that cannot import config.
+	embedding.SetPullTimeout(d)
+}
+
+// EmbeddingPullTimeout is the installed Ollama model-pull bound. Without a
+// load it is the default (30m).
+func EmbeddingPullTimeout() time.Duration {
+	if n := activeEmbeddingPullTimeout.Load(); n > 0 {
+		return time.Duration(n)
+	}
+	d, err := DefaultEmbeddingConfig().ResolvedPullTimeout()
+	if err != nil {
+		panic("config: default embedding.pull_timeout: " + err.Error())
 	}
 	return d
 }

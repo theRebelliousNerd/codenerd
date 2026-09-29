@@ -408,6 +408,9 @@ func (c *UserConfig) GetEmbeddingConfig() EmbeddingConfig {
 		if cfg.RequestTimeout == "" {
 			cfg.RequestTimeout = DefaultEmbeddingConfig().RequestTimeout
 		}
+		if cfg.PullTimeout == "" {
+			cfg.PullTimeout = DefaultEmbeddingConfig().PullTimeout
+		}
 		return cfg
 	}
 	// No embedding block in config.json: a provider and an endpoint, and no
@@ -417,6 +420,7 @@ func (c *UserConfig) GetEmbeddingConfig() EmbeddingConfig {
 		OllamaEndpoint: "http://localhost:11434",
 		TaskType:       "SEMANTIC_SIMILARITY",
 		RequestTimeout: DefaultEmbeddingConfig().RequestTimeout,
+		PullTimeout:    DefaultEmbeddingConfig().PullTimeout,
 	}
 }
 
@@ -571,6 +575,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 			SetExecutionFileLimits(*DefaultExecutionConfig())
 			SetResearchPolicy(mustResolveResearchDefaults())
 			installDefaultEmbeddingRequestTimeout()
+			installDefaultEmbeddingPullTimeout()
 			installDefaultImageRequestTimeout()
 			SetObservationLimits(DefaultObservationConfig().Resolve())
 			if d, derr := DefaultIntegrationsConfig().ResolveDefaultTimeout(); derr == nil {
@@ -658,12 +663,19 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		return nil, fmt.Errorf("failed to parse user config: %w", rerr)
 	}
 	SetResearchPolicy(researchPolicy)
-	embTimeout, eerr := cfg.GetEmbeddingConfig().ResolvedRequestTimeout()
+	embCfg := cfg.GetEmbeddingConfig()
+	embTimeout, eerr := embCfg.ResolvedRequestTimeout()
 	if eerr != nil {
 		// Unreachable: Check refused the file above when this was wrong.
 		return nil, fmt.Errorf("failed to parse user config: %w", eerr)
 	}
 	SetEmbeddingRequestTimeout(embTimeout)
+	pullTimeout, perr := embCfg.ResolvedPullTimeout()
+	if perr != nil {
+		// Unreachable: Check refused the file above when this was wrong.
+		return nil, fmt.Errorf("failed to parse user config: %w", perr)
+	}
+	SetEmbeddingPullTimeout(pullTimeout)
 	SetImageRequestTimeout(imageTimeoutDuration(cfg.GetImageLLMConfig()))
 	SetObservationLimits(cfg.GetObservationConfig().Resolve())
 	integFallback, ierr := cfg.GetIntegrations().ResolveDefaultTimeout()

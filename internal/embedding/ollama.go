@@ -402,7 +402,7 @@ func (e *OllamaEngine) EnsureModel(ctx context.Context) error {
 	}
 	e.pullAttempted = true
 
-	logging.Embedding("Ollama: model %q not installed — pulling %q (this may take a few minutes)...", e.model, pullName)
+	logging.Embedding("Ollama: model %q not installed — pulling %q (client timeout %s)...", e.model, pullName, PullTimeout())
 	if err := e.pullModel(ctx, pullName); err != nil {
 		// The factory performs a deliberately short best-effort ensure. A
 		// bootstrap deadline must not permanently poison the engine: the first
@@ -488,11 +488,11 @@ func (e *OllamaEngine) pullModel(ctx context.Context, name string) error {
 	// runs under embed and boot contexts (embedding.request_timeout, and the
 	// short ensure at engine init) that are shorter than a model download,
 	// and a cancelled caller still aborts this request through ctx. The
-	// client timeout is the bound for that one download. There is no
-	// embedding.pull_timeout key yet (it belongs on EmbeddingConfig); until
-	// that key exists the bound stays 30 minutes, the time a multi-hundred-MB
-	// pull has been given.
-	pullClient := &http.Client{Timeout: 30 * time.Minute}
+	// client timeout is embedding.pull_timeout, published into this package
+	// by config.SetEmbeddingPullTimeout. Zero means nothing has been
+	// published yet, and the caller's context is then the only bound. An
+	// absent key publishes as 30m.
+	pullClient := &http.Client{Timeout: PullTimeout()}
 	req, err := http.NewRequestWithContext(ctx, "POST", e.endpoint+"/api/pull", bytes.NewReader(payload))
 	if err != nil {
 		return err

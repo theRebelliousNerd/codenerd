@@ -243,6 +243,17 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 				add(SeverityError, "embedding.request_timeout", fmt.Sprintf("%q is not positive", raw), "a positive duration, or remove the key for the default (60s)")
 			}
 		}
+		// One Ollama model download. Absent takes the default; a present
+		// value that does not parse would otherwise install silently as 30m.
+		if raw := strings.TrimSpace(c.Embedding.PullTimeout); raw != "" {
+			d, err := time.ParseDuration(raw)
+			switch {
+			case err != nil:
+				add(SeverityError, "embedding.pull_timeout", fmt.Sprintf("%q is not a duration: %v", raw, err), `a Go duration such as "30m" or "45s"`)
+			case d <= 0:
+				add(SeverityError, "embedding.pull_timeout", fmt.Sprintf("%q is not positive", raw), "a positive duration, or remove the key for the default (30m)")
+			}
+		}
 	}
 	emb := c.GetEmbeddingConfig()
 	if missing := emb.MissingModel(); missing != "" {

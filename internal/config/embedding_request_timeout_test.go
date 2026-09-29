@@ -15,9 +15,11 @@ func restoreInstalledTimeouts(t *testing.T) {
 	t.Helper()
 	llm := GetLLMTimeouts()
 	emb := EmbeddingRequestTimeout()
+	pull := EmbeddingPullTimeout()
 	t.Cleanup(func() {
 		SetLLMTimeouts(llm)
 		SetEmbeddingRequestTimeout(emb)
+		SetEmbeddingPullTimeout(pull)
 	})
 }
 

@@ -616,7 +616,7 @@ func (m Model) saveConfigWizard() error {
 
 	// Embedding config
 	if w.EmbeddingProvider != "" {
-		userCfg.Embedding = &internalconfig.EmbeddingConfig{
+		next := &internalconfig.EmbeddingConfig{
 			Provider:       w.EmbeddingProvider,
 			OllamaEndpoint: w.OllamaEndpoint,
 			OllamaModel:    w.OllamaModel,
@@ -624,6 +624,13 @@ func (m Model) saveConfigWizard() error {
 			GenAIModel:     w.GenAIModel,
 			TaskType:       "SEMANTIC_SIMILARITY",
 		}
+		// The wizard does not ask for the request bounds; a save must not
+		// drop the ones the file already sets.
+		if prev := userCfg.Embedding; prev != nil {
+			next.RequestTimeout = prev.RequestTimeout
+			next.PullTimeout = prev.PullTimeout
+		}
+		userCfg.Embedding = next
 	}
 
 	// Save to .nerd/config.json
