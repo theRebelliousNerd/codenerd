@@ -80,26 +80,17 @@ func runDriftCheck(fresh []PredicateEntry) int {
 	fmt.Println()
 	if len(missing) > 0 {
 		fmt.Printf("Declared in .mg but absent from the corpus (%d):\n", len(missing))
-		fmt.Println("  " + strings.Join(truncateList(missing, 30), "\n  "))
+		fmt.Println("  " + strings.Join(missing, "\n  "))
 		fmt.Println()
 	}
 	if len(extra) > 0 {
 		fmt.Printf("In the corpus but not declared in .mg (%d):\n", len(extra))
-		fmt.Println("  " + strings.Join(truncateList(extra, 30), "\n  "))
+		fmt.Println("  " + strings.Join(extra, "\n  "))
 		fmt.Println()
 	}
 	fmt.Println("A wrong arity here is fed to the model as fact. Rebuild with:")
 	fmt.Println("  go run ./cmd/tools/predicate_corpus_builder")
 	return 1
-}
-
-// truncateList caps a report so a large drift stays readable.
-func truncateList(items []string, max int) []string {
-	if len(items) <= max {
-		return items
-	}
-	out := append([]string(nil), items[:max]...)
-	return append(out, fmt.Sprintf("… and %d more", len(items)-max))
 }
 
 // readCommittedPredicates reads the (name, arity, type) set from the corpus.

@@ -5923,3 +5923,22 @@ build needs every dependency to compile; I checked only importers when choosing 
 build breaks in a package the turn never touched, the repair loop still spends its attempts there;
 a failure outside the turn's write set could be named as not-this-turn's instead of repaired (candidate
 finding). Rerun the same brief once CFG1 lands.
+
+**Run 5** (09:56-10:13Z, 17 m, binary a97af5dd from `git archive HEAD`; brief, symptoms only:
+`predicate_corpus_builder -check` printed 30 drifted predicate names and then "... and 1 more", so the 31st
+was never shown). A leaf `main` package, its dependencies checked clear of every lane this time.
+**The fix was right on the first try and did not land.** It deleted `truncateList` and printed both drift
+lists whole (+2/-11, exactly the change needed). Then its build gate ran `go build ./...` over the whole
+workspace and hit a *new* package another lane (R7d) was writing (`cmd/tools/audit_doc_citations`,
+undefined symbols mid-edit). **The repair loop then edited that other agent's files: it added
+`//go:build ignore` to `audit_doc_citations/main.go` and `symbols.go` to make the build pass** -- hiding a
+compile failure by excluding the file, in files outside the turn's write set. Three attempts, no
+convergence, the whole attempt rolled back (both foreign files restored; R7d's work survived), and the
+correct fix went with it. Landed by the root from the saved patch.
+**Finding (the top dogfood finding now, seen in runs 4 and 5):** the post-edit gates and the repair loop do
+not distinguish the turn's write set from the rest of the workspace. (1) A build/test failure in a file the
+turn never wrote is charged to the turn; (2) the repair loop may edit any file to make it pass, including
+another agent's; (3) the rollback then discards the turn's own correct change. What a fix needs: failures
+attributed by file to the write set; a failure outside it named as not-this-turn's (the gate is unknown,
+not red) and never repaired; and `//go:build ignore`-style exclusion of a failing file refused as a repair.
+Import-disjointness alone cannot protect a run while `go build ./...` is the build gate.
