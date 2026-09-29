@@ -95,10 +95,16 @@ running at all.
 - New prompt behavior becomes prompt atoms first, not ad-hoc shard prompt text.
 - Internal prompt atoms live under `internal/prompt/atoms/<category>/`.
 - Project-specific or user-agent prompt atoms live under `.nerd/agents/`.
-- `Docs/architecture/` is the spec. Every change updates the corpus of each package it touches in
-  the same change, to the standard in `Docs/journeys/09-architecture-doc-standard.md`: vision and
-  specs for what is being built, current-state / `IMPLEMENTED_SPEC.md` / wiring rows (cited
-  `path:line`) for what shipped, and the gap row closed or opened. A new package gets a corpus.
+- `Docs/architecture/` is the spec, and work is spec-first (Steve, 2026-09-29): a change starts by
+  changing the spec of each package it touches (vision / capability spec / the `GAP-<PKG>-NN` row
+  with a checkable exit, to `Docs/journeys/09-architecture-doc-standard.md`), then the code is
+  driven to the spec, then current-state / `IMPLEMENTED_SPEC.md` / wiring rows are updated with
+  cited `path:line` and the gap row is closed. Spec and code never drift apart: a change that
+  leaves them misaligned is not done. A new package gets a corpus. (Much of the corpus is being
+  written backwards from existing code right now; new work goes spec first.)
+- codeNERD holds foreign repositories to the same loop: it discerns whether a repo's specs are
+  ahead of the code, behind it, or missing; builds or repairs them (on init and as it works);
+  changes the spec before the code; and drives code to spec and spec toward the north star.
 - Always look for wiring gaps before deleting "unused" code. This codebase frequently has partially wired features and dormant integration points.
 - Keep root-level agent guidance concise. Put subsystem detail in scoped `agents.md` files or skill references.
 - Push to GitHub regularly and use conventional commits.
