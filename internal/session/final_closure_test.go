@@ -74,9 +74,12 @@ func TestCloseChangeEvidence_ALaterBranchNoTestRunsIsNamed(t *testing.T) {
 	if result.TestCheck.Verdict() != VerifyPassed {
 		t.Fatalf("TestCheck = %+v, want passed", result.TestCheck)
 	}
-	if got := uncoveredPaths(result); !slices.Equal(got, []string{"main.go"}) {
-		t.Fatalf("uncovered paths = %v (blocks %+v), want [main.go]: Half was added after the coverage gate and no test runs it",
+	if got := uncoveredPaths(e.config.WorkspaceRoot, result); len(got) != 0 {
+		t.Fatalf("uncovered paths = %v (blocks %+v), want none: Half's block sits inside a changed element, which the witness names instead",
 			got, result.UncoveredBlocks)
+	}
+	if got := result.ElementUncovered; !slices.Equal(got, []string{"fn:main.Half"}) {
+		t.Fatalf("ElementUncovered = %v, want [fn:main.Half]: Half was added after the coverage gate and no test runs it", got)
 	}
 }
 

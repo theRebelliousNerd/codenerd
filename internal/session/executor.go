@@ -900,6 +900,11 @@ type ExecutionResult struct {
 	// and it is what the closing evidence sentence names. Empty for a verified
 	// turn and for a turn that changed nothing.
 	MissingEvidence []string
+
+	// UnwitnessedElements are the turn_unwitnessed refs behind a
+	// /change_unwitnessed atom: the changed elements no passing test
+	// executed, every one of them. The closing sentence names them all.
+	UnwitnessedElements []string
 }
 
 // Process handles user input through the clean loop.
@@ -2724,14 +2729,14 @@ func (e *Executor) recordBuildState(turn types.MangleAtom, result *ExecutionResu
 	for _, path := range result.UntestedPaths {
 		e.assertTurnFact(types.Fact{Predicate: "turn_untested", Args: []any{turn, path}})
 	}
-	for _, path := range uncoveredPaths(result) {
+	for _, path := range uncoveredPaths(e.workspaceForVerification(), result) {
 		e.assertTurnFact(types.Fact{Predicate: "turn_uncovered", Args: []any{turn, path}})
 	}
 	// The same run, named per changed element. The profile cannot say which
 	// test executed an element, so the uncovered fact is only the element it
 	// never executed, and the measured fact is the element whose statements
-	// the profile contains at all. Nothing reads either yet; turn_uncovered
-	// above stays the verdict.
+	// the profile contains at all. witness.mg reads both (witness_executed);
+	// turn_uncovered above now holds only what lies outside changed elements.
 	for _, ref := range result.ElementMeasured {
 		e.assertTurnFact(types.Fact{
 			Predicate: "turn_element_measured",
@@ -2767,19 +2772,41 @@ func (r *ExecutionResult) testRunVerdict() VerifyOutcome {
 // that no test executes, once, as the turn wrote it: the profile's
 // import-qualified path is matched to the written path it ends with, and a
 // block with no written match keeps its profile path.
-func uncoveredPaths(result *ExecutionResult) []string {
+//
+// Only blocks outside every turn_changed_element span of their file (W6,
+// witness_uncovered.go): a block inside a changed element is judged at
+// element level (turn_unwitnessed), and naming it here too would put
+// /changed_code_unexecuted and /change_unwitnessed over the same block.
+func uncoveredPaths(workspace string, result *ExecutionResult) []string {
 	if result == nil || len(result.UncoveredBlocks) == 0 {
 		return nil
+	}
+	spansByPath := make(map[string][]LineRange)
+	spansFor := func(written string) []LineRange {
+		if spans, ok := spansByPath[written]; ok {
+			return spans
+		}
+		var spans []LineRange
+		if pre, ok := preImageFor(workspace, written, result.PreWriteContents); ok {
+			spans = changedElementSpans(workspace, written, pre)
+		}
+		spansByPath[written] = spans
+		return spans
 	}
 	seen := make(map[string]bool)
 	var paths []string
 	for _, b := range result.UncoveredBlocks {
 		path := NormalizeCoverPath(b.File)
+		matched := ""
 		for _, written := range result.WrittenPaths {
 			if w := NormalizeCoverPath(written); w != "" && strings.HasSuffix(path, w) {
+				matched = written
 				path = w
 				break
 			}
+		}
+		if matched != "" && !uncoveredOutsideChangedElements(b, spansFor(matched)) {
+			continue
 		}
 		if !seen[path] {
 			seen[path] = true
@@ -2914,6 +2941,11 @@ type turnVerdict struct {
 	// /tests_not_green). Empty for a verified turn and for a turn that
 	// changed nothing.
 	Missing []string
+
+	// Unwitnessed are the turn_unwitnessed refs (fn:<pkg>.<Name>) behind a
+	// /change_unwitnessed atom: the changed elements no passing test
+	// executed. Empty unless that atom holds.
+	Unwitnessed []string
 }
 
 // consumeTurnDoneSignal is THE read of the turn's verdict from the kernel.
@@ -2973,6 +3005,8 @@ func (e *Executor) consumeTurnDoneSignal(turn types.MangleAtom, verb string) tur
 		sort.Strings(v.Missing)
 	}
 
+	v.Unwitnessed = e.turnUnwitnessedRefs(turn)
+
 	logging.Get(logging.CategorySession).Debug("turn verdict for %s (%s): done=%t build_failed=%t missing=%v", verb, turn, v.Done, v.BuildFailed, v.Missing)
 	return v
 }
@@ -2989,6 +3023,8 @@ func missingEvidenceSentence(atom string) string {
 		return "production code was written with no test beside it"
 	case "/changed_code_unexecuted":
 		return "code this turn changed is executed by no test"
+	case "/change_unwitnessed":
+		return "a change this turn made was executed by no passing test"
 	case "/vet_not_clean":
 		return "go vet reports problems this turn introduced"
 	case "/test_run_not_green":

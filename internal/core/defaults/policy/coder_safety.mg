@@ -117,7 +117,9 @@ turn_has_untested(Turn) :- turn_untested(Turn, _).
 # turn_uncovered is the rest of this turn's coverage debt: a file the turn
 # changed holding blocks, on the lines it changed, that no test executes
 # (the executor's coverage profile narrowed to the turn's own lines,
-# build_verify.go). turn_untested asks whether a test file exists beside the
+# build_verify.go), outside every changed element of the file: blocks inside
+# a changed element are judged at element level instead (turn_has_unwitnessed,
+# witness.mg). turn_untested asks whether a test file exists beside the
 # code; this asks whether any test runs the code the turn wrote. Until
 # 2026-09-19 the list reached the log and an advisory critic only, and a turn
 # whose 27 new blocks no test executed was recorded /done.
@@ -164,19 +166,21 @@ Decl turn_written(Turn, Path, Ext) bound [/name, /string, /string].
 # closure, beside turn_written; internal/session/turn_elements.go). Ref is a
 # code_element ref -- fn:<pkg>.<Name>, fn:<pkg>.<Recv>.<Name> for a method,
 # <pkg> the package clause -- so a future witness rule joins it against
-# code_element directly. No rule reads it yet.
+# code_element directly (policy/witness.mg joins it in witness_owed).
 Decl turn_changed_element(Turn, Ref) bound [/name, /string].
 # turn_element_uncovered is a changed element this turn's coverage run never
 # executed: its span holds at least one statement block, and every one of
 # them has an execution count of 0 (session/turn_element_coverage.go). Ref is
-# the same code_element ref as turn_changed_element. Nothing reads it yet.
-# The file-level turn_uncovered above remains the verdict's coverage debt.
+# the same code_element ref as turn_changed_element. witness.mg reads it
+# (witness_executed); the file-level turn_uncovered above now covers only
+# blocks outside every changed element.
 Decl turn_element_uncovered(Turn, Ref) bound [/name, /string].
 # turn_element_measured is a changed element whose span holds at least one
 # statement block in this turn's coverage profile, whether or not the run
 # executed it (session/turn_element_coverage.go). An element with no
 # statements, or a file the profile does not mention, is not measured: no
-# block is not evidence the run saw the element. Nothing reads it yet.
+# block is not evidence the run saw the element. witness.mg reads it
+# (witness_executed).
 Decl turn_element_measured(Turn, Ref) bound [/name, /string].
 # The turn's own `go test -json` run (session/turn_test_facts.go), one row
 # per testfacts fact with this turn prepended. The unscoped test_case /
@@ -364,8 +368,8 @@ turn_done(Turn) :- turn_executed(Turn), turn_verified(Turn).
 #
 # A turn that changed nothing has no workspace claim to verify, so execution is
 # the whole of what it can owe. A turn that wrote owes every gate its writes
-# owe (turn_owes_gate above), each green and none red, and no coverage debt or
-# vet finding of its own.
+# owe (turn_owes_gate above), each green and none red, and no coverage debt,
+# vet finding or unwitnessed changed element of its own.
 #
 # A turn whose own report says the work is unfinished is not verified by its
 # gates: green gates measure what was done, and the report says what was not
@@ -373,7 +377,7 @@ turn_done(Turn) :- turn_executed(Turn), turn_verified(Turn).
 # A verified caller contract still verifies: it witnesses the requested
 # behaviour itself.
 turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), !turn_wrote(Turn), !turn_self_reported_incomplete(Turn).
-turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_wrote(Turn), !has_unmet_gate(Turn), !has_red_gate(Turn), !turn_has_untested(Turn), !turn_has_uncovered(Turn), !turn_vet_red(Turn), !turn_self_reported_incomplete(Turn).
+turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_wrote(Turn), !has_unmet_gate(Turn), !has_red_gate(Turn), !turn_has_untested(Turn), !turn_has_uncovered(Turn), !turn_vet_red(Turn), !turn_self_reported_incomplete(Turn), !turn_has_unwitnessed(Turn).
 turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), has_turn_acceptance(Turn).
 
 # has_turn_acceptance projects turn_acceptance/3 to a single argument, matching
@@ -409,6 +413,7 @@ turn_missing_evidence(Turn, /check_not_green) :- turn_unverified(Turn), turn_unm
 turn_missing_evidence(Turn, /check_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /check).
 turn_missing_evidence(Turn, /tests_not_written) :- turn_unverified(Turn), turn_has_untested(Turn).
 turn_missing_evidence(Turn, /changed_code_unexecuted) :- turn_unverified(Turn), turn_has_uncovered(Turn).
+turn_missing_evidence(Turn, /change_unwitnessed) :- turn_unverified(Turn), turn_has_unwitnessed(Turn).
 turn_missing_evidence(Turn, /vet_not_clean) :- turn_unverified(Turn), turn_vet_red(Turn).
 turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_unmet_gate(Turn, /pinned).
 turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_red_gate(Turn, /pinned).

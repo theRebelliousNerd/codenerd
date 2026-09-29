@@ -292,6 +292,10 @@ var hostWitnessPredicates = map[string]struct{}{
 	// What a write owes (N01): write_class is the table a model could
 	// otherwise extend to reclassify its own code as documentation.
 	"turn_written": {}, "turn_changed_element": {}, "turn_element_uncovered": {}, "turn_element_measured": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
+	// The witness verdict (witness.mg): a model that could write witness_met
+	// could suppress turn_unwitnessed through its negation and manufacture
+	// its own completion.
+	"witness_executed": {}, "witness_met": {}, "turn_unwitnessed": {}, "turn_has_unwitnessed": {},
 	// This turn's `go test -json` rows (session/turn_test_facts.go). A model
 	// that could write them could name a failure the gate did not run, or
 	// hide one it did. The unscoped test_case predicates stay host witnesses

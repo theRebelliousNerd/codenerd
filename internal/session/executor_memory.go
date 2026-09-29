@@ -170,6 +170,7 @@ func (e *Executor) captureTurnOutcome(turn types.MangleAtom, result *ExecutionRe
 	}
 	verdict := e.consumeTurnDoneSignal(turn, strings.TrimSpace(result.Intent.Verb))
 	result.MissingEvidence = verdict.Missing
+	result.UnwitnessedElements = verdict.Unwitnessed
 
 	switch {
 	case result.Error != nil:

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"codenerd/internal/evidence"
@@ -310,6 +311,11 @@ func verdictSentence(result *ExecutionResult) string {
 		return "Failed: the workspace did not pass its mechanical checks."
 	case "/unverified":
 		if clause := DescribeMissingEvidence(result.MissingEvidence); clause != "" {
+			if slices.Contains(result.MissingEvidence, "/change_unwitnessed") {
+				if named := DescribeUnwitnessed(result.UnwitnessedElements); named != "" {
+					clause += "; " + named
+				}
+			}
 			return "Unverified: " + clause + "."
 		}
 		return "Unverified: the evidence this turn owed was not produced."

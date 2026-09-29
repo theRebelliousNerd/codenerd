@@ -576,5 +576,4 @@ unconsumed verb_pair_relation
 unconsumed violation
 unconsumed warning_suppressed
 unconsumed witness_candidate
-unconsumed witness_owed
 unconsumed zombie_test

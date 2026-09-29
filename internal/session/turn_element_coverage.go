@@ -19,8 +19,8 @@ import (
 //
 // turn_element_measured is the positive half of the same walk: a changed
 // element whose span holds at least one statement block, executed or not.
-// The file-level turn_uncovered remains the verdict's coverage debt; nothing
-// reads either predicate yet.
+// witness.mg reads both (witness_executed); the file-level turn_uncovered is
+// the verdict's debt only for blocks outside every changed element.
 
 // elementUncoveredRefs is the changed elements of this turn whose statement
 // blocks the profile shows and the run never executed. refs match

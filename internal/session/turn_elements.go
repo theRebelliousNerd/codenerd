@@ -17,9 +17,8 @@ import (
 // turn_changed_element facts beside the turn_written facts the closure asserts:
 // for each written .go file, the functions and methods whose bodies or
 // signatures the turn changed or added, each as the code_element ref a future
-// witness rule will join against ("you changed fn:session.gateTests, so a
-// passing test that executes it is owed"). No policy reads the predicate yet;
-// it is measurement waiting for its consumer.
+// witness rule joins against ("you changed fn:session.gateTests, so a
+// passing test that executes it is owed"): witness_owed in witness.mg.
 //
 // A file the turn deleted contributes nothing: a deleted function is not an
 // element to witness. A file whose preimage is unknown or missing is skipped

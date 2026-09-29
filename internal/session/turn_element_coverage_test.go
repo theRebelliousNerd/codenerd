@@ -177,9 +177,8 @@ func TestTurnElementUncovered_RealRunNamesTheMissedElements(t *testing.T) {
 		}
 	}
 
-	paths := factStrings(t, e, "turn_uncovered", 1)
-	if len(paths) != 1 || paths[0] != "sub/calc.go" {
-		t.Fatalf("turn_uncovered = %v, want [sub/calc.go]", paths)
+	if got := queryCount(t, e, "turn_uncovered"); got != 0 {
+		t.Fatalf("turn_uncovered = %d, want 0: every uncovered block sits inside a changed element, which the witness names instead", got)
 	}
 
 	e.cleanupTurnFacts()
