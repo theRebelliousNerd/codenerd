@@ -14,21 +14,17 @@ import (
 // gates measured and reads back what the kernel decided. It decides nothing
 // itself.
 //
-// It also bounds what a forever run leaves in the kernel. A finding stalls
-// when its last two attempts ended the same way with no kept change to its
-// node since; so per finding only the previous and the latest attempt can
-// matter, and a kept change retires every attempt on its node. Nothing else
-// is kept, however many passes the loop runs.
+// Every attempt is a fact the kernel reads: the driver asserts each one and
+// retracts none of them, and the stall, next-item and keep verdicts are
+// derived over the full history -- finding_stalled's last-two window is a
+// rule, not a pruning. Only a node's kept change is replaced rather than
+// accumulated: kept_after joins on whether any kept change is newer than an
+// attempt, which only the latest kept change per node can affect, so the
+// earlier ones would grow the kernel without changing one derivation.
 type recursePolicy struct {
 	k core.Kernel
 
-	pairs  map[string]*attemptPair    // finding -> its previous and latest attempt
-	byNode map[string]map[string]bool // node -> the findings attempted on it
-	kept   map[string]core.Fact       // node -> its latest recurse_node_kept
-}
-
-type attemptPair struct {
-	previous, latest *core.Fact
+	kept map[string]core.Fact // node -> its latest recurse_node_kept
 }
 
 // Ratchet verdicts (recurse_ratchet/2).
@@ -106,60 +102,20 @@ func (p *recursePolicy) attempt(findingID, node string, cycle int, outcome, sign
 		return p.nodeKept(node, cycle)
 	}
 	f := core.Fact{Predicate: "recurse_attempt", Args: []interface{}{findingID, node, cycle, outcome, signature}}
-	if outcome == outcomeRefused {
-		// A refusal is the owner's to lift; no kept change retires it.
-		return p.k.AssertBatch([]core.Fact{f})
-	}
-	if p.pairs == nil {
-		p.pairs, p.byNode = map[string]*attemptPair{}, map[string]map[string]bool{}
-	}
-	key := findingID
-	pair := p.pairs[key]
-	var retract []core.Fact
-	if pair == nil {
-		pair = &attemptPair{}
-		p.pairs[key] = pair
-		if p.byNode[node] == nil {
-			p.byNode[node] = map[string]bool{}
-		}
-		p.byNode[node][key] = true
-	}
-	if pair.previous != nil {
-		retract = append(retract, *pair.previous)
-	}
-	pair.previous, pair.latest = pair.latest, &f
-	if len(retract) > 0 {
-		if err := p.k.RetractExactFactsBatch(retract); err != nil {
-			return fmt.Errorf("recurse: retire attempt: %w", err)
-		}
-	}
 	return p.k.AssertBatch([]core.Fact{f})
 }
 
-// nodeKept records a kept change to node, retiring the node's earlier
-// attempts: none of them can stall a finding any more.
+// nodeKept records a kept change to node, replacing the node's earlier kept
+// change: kept_after joins on whether any kept change is newer than an
+// attempt, which only the latest per node can affect. The node's attempts
+// stay -- the stall rule weighs them against the kept change itself.
 func (p *recursePolicy) nodeKept(node string, cycle int) error {
 	if p.kept == nil {
 		p.kept = map[string]core.Fact{}
 	}
-	var retract []core.Fact
 	if prev, ok := p.kept[node]; ok {
-		retract = append(retract, prev)
-	}
-	for key := range p.byNode[node] {
-		if pair := p.pairs[key]; pair != nil {
-			for _, f := range []*core.Fact{pair.previous, pair.latest} {
-				if f != nil {
-					retract = append(retract, *f)
-				}
-			}
-			delete(p.pairs, key)
-		}
-	}
-	delete(p.byNode, node)
-	if len(retract) > 0 {
-		if err := p.k.RetractExactFactsBatch(retract); err != nil {
-			return fmt.Errorf("recurse: retire attempts: %w", err)
+		if err := p.k.RetractExactFactsBatch([]core.Fact{prev}); err != nil {
+			return fmt.Errorf("recurse: retire kept change: %w", err)
 		}
 	}
 	f := core.Fact{Predicate: "recurse_node_kept", Args: []interface{}{node, cycle}}

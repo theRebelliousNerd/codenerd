@@ -102,6 +102,30 @@ func TestRecursePolicy_StallIsARepeatedFailureNotACounter(t *testing.T) {
 	}
 }
 
+// The stall is the last two attempts, not any two: a failure that repeats
+// with a different failure between is new evidence, not a stall.
+func TestRecursePolicy_StallNeedsTheLastTwoToAgree(t *testing.T) {
+	p := newRecursePolicy(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(p.attempt("split", "store", 1, outcomeReverted, "failure A"))
+	must(p.attempt("split", "store", 2, outcomeReverted, "failure B"))
+	must(p.attempt("split", "store", 3, outcomeReverted, "failure A"))
+	if stalled, _ := p.stalled(); slices.Contains(stalled, "split") {
+		t.Fatalf("first and third agree but the middle differs: not a stall: %v", stalled)
+	}
+	must(p.attempt("pair", "store", 4, outcomeReverted, "failure X"))
+	must(p.attempt("pair", "store", 5, outcomeReverted, "failure Y"))
+	must(p.attempt("pair", "store", 6, outcomeReverted, "failure Y"))
+	if stalled, _ := p.stalled(); !slices.Contains(stalled, "pair") {
+		t.Fatalf("the last two left the same failure: must stall: %v", stalled)
+	}
+}
+
 func TestRecursePolicy_RatchetKeepsOnlyAResolvedTargetWithNothingWorse(t *testing.T) {
 	p := newRecursePolicy(t)
 	gate := func(name, before, after string, bc, ac int) ratchetGate {
@@ -211,12 +235,14 @@ func TestRecursePolicy_ImprovementKeptOnlyOnAMeasuredMove(t *testing.T) {
 	}
 }
 
-// A forever run leaves a bounded number of attempt facts: per finding its last
-// two, and none from before the node's last kept change. Refusals stay.
-func TestRecursePolicy_AttemptMemoryIsBounded(t *testing.T) {
+// The kernel reads the whole attempt history: every attempt is a fact, and
+// the stall is derived over the last two of them. A kept change lifts the
+// stall by the rule, not by retiring facts; only the node's latest kept
+// change is kept.
+func TestRecursePolicy_AttemptHistoryIsFactsTheKernelReads(t *testing.T) {
 	p := newRecursePolicy(t)
-	count := func() int {
-		rows, err := p.k.Query("recurse_attempt")
+	count := func(pred string) int {
+		rows, err := p.k.Query(pred)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -224,7 +250,7 @@ func TestRecursePolicy_AttemptMemoryIsBounded(t *testing.T) {
 	}
 	for c := 1; c <= 200; c++ {
 		// Every attempt fails differently: new evidence each time, so no
-		// stall -- and still only the last two are kept.
+		// stall -- and still every attempt is a fact the kernel reads.
 		if err := p.attempt("g", "store", c, outcomeReverted, fmt.Sprintf("failure %d-%c", c, 'a'+c%26)); err != nil {
 			t.Fatal(err)
 		}
@@ -237,29 +263,37 @@ func TestRecursePolicy_AttemptMemoryIsBounded(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := count(); got != 4 {
-		t.Fatalf("400 failures over two findings leave %d attempt facts, want 4", got)
+	if got := count("recurse_attempt"); got != 400 {
+		t.Fatalf("400 failures leave %d attempt facts, want every one of them", got)
 	}
 	if stalled, _ := p.stalled(); !slices.Contains(stalled, "f") {
-		t.Fatalf("pruning must not lose the stall: %v", stalled)
+		t.Fatalf("the full history must still stall the repeated failure: %v", stalled)
 	}
-	if err := p.attempt("r", "store", 201, outcomeRefused, "forbidden"); err != nil {
+	// A kept change newer than the stall's first attempt lifts it, by the
+	// rule -- the attempts stay in the kernel.
+	if err := p.attempt("x", "store", 401, outcomeKept, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.attempt("x", "store", 202, outcomeKept, ""); err != nil {
-		t.Fatal(err)
+	if got := count("recurse_attempt"); got != 400 {
+		t.Fatalf("a kept change retires no attempts: %d facts", got)
 	}
-	if got := count(); got != 1 {
-		t.Fatalf("a kept change retires the node's attempts but not its refusal: %d facts", got)
+	if stalled, _ := p.stalled(); slices.Contains(stalled, "f") {
+		t.Fatalf("a kept change to the node lifts the stall: %v", stalled)
+	}
+	if err := p.attempt("r", "store", 402, outcomeRefused, "forbidden"); err != nil {
+		t.Fatal(err)
 	}
 	if refused, _ := p.refused(); !slices.Contains(refused, "r") {
 		t.Fatalf("refusal lost: %v", refused)
+	}
+	if got := count("recurse_attempt"); got != 401 {
+		t.Fatalf("the refusal is a fact too: %d attempt facts", got)
 	}
 	kept, err := p.k.Query("recurse_node_kept")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := p.attempt("y", "store", 203, outcomeKept, ""); err != nil {
+	if err := p.attempt("y", "store", 403, outcomeKept, ""); err != nil {
 		t.Fatal(err)
 	}
 	kept2, err := p.k.Query("recurse_node_kept")

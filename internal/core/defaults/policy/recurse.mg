@@ -56,6 +56,10 @@ Decl recurse_kind_rank(Kind, Rank) bound [/name, /number].
 Decl recurse_ratchet_kind(Kind) bound [/name].
 Decl recurse_attempt_failed(Outcome) bound [/name].
 Decl recurse_node_kept_after(Node, Cycle) bound [/string, /number].
+Decl recurse_attempt_fail_seq(ID, Cycle) bound [/string, /number].
+Decl recurse_attempt_latest(ID, Cycle) bound [/string, /number].
+Decl recurse_attempt_earlier_seq(ID, Cycle) bound [/string, /number].
+Decl recurse_attempt_prev(ID, Cycle) bound [/string, /number].
 Decl finding_stalled(ID) bound [/string].
 Decl finding_refused(ID) bound [/string].
 Decl recurse_finding_rank(ID, Rank) bound [/string, /number].
@@ -112,8 +116,9 @@ recurse_finding_rank(ID, 3) :-
 # its last two attempts failed the same way, with no kept change to its node
 # since the first of them. It is not a counter -- an attempt that fails
 # differently is new evidence, and a kept change to the node lifts the stall,
-# because the finding may be fixable now. (The loop keeps only a finding's
-# last two attempts in the kernel, which is what makes "two" "the last two".)
+# because the finding may be fixable now. The driver asserts every attempt;
+# the "last two" is derived here, over the full history, so a failure that
+# repeats with a different failure between is not a stall.
 recurse_attempt_failed(/reverted).
 recurse_attempt_failed(/unverified).
 
@@ -122,10 +127,30 @@ recurse_node_kept_after(Node, C1) :-
     recurse_node_kept(Node, C),
     C1 < C.
 
+# The failed attempts' sequence per finding, projected before aggregating
+# (cf. turn_last_write in coder_safety.mg); the latest of it; the latest
+# before that. A refusal is not a failure to learn from -- it takes the
+# finding out by finding_refused instead -- so it stays out of the window.
+recurse_attempt_fail_seq(ID, C) :-
+    recurse_attempt(ID, Node, C, Outcome, Sig),
+    recurse_attempt_failed(Outcome).
+
+recurse_attempt_latest(ID, C2) :-
+    recurse_attempt_fail_seq(ID, C) |> do fn:group_by(ID), let C2 = fn:max(C).
+
+recurse_attempt_earlier_seq(ID, C) :-
+    recurse_attempt_fail_seq(ID, C),
+    recurse_attempt_latest(ID, Latest),
+    C < Latest.
+
+recurse_attempt_prev(ID, C1) :-
+    recurse_attempt_earlier_seq(ID, C) |> do fn:group_by(ID), let C1 = fn:max(C).
+
 finding_stalled(ID) :-
+    recurse_attempt_prev(ID, C1),
+    recurse_attempt_latest(ID, C2),
     recurse_attempt(ID, Node, C1, O1, Sig),
     recurse_attempt(ID, Node, C2, O2, Sig),
-    C1 < C2,
     recurse_attempt_failed(O1),
     recurse_attempt_failed(O2),
     !recurse_node_kept_after(Node, C1).

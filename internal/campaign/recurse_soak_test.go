@@ -56,11 +56,11 @@ func buildSoakGate(t *testing.T) string {
 	return bin
 }
 
-// A long run leaves bounded state: however many cycles, the kernel holds at
-// most two attempts per finding and one kept change per node, the in-flight
-// record is cleared, and the journal grows by a few hundred bytes a cycle
-// under its own cap. The default is a short soak for CI; set
-// CODENERD_RECURSE_SOAK=1000 (or any count) for a long one.
+// A long run leaves inspectable state: however many cycles, every fix
+// attempt the journal recorded is reckoned in the kernel, one kept change
+// per node at most, the in-flight record cleared, and the journal growing
+// by a few hundred bytes a cycle under its own cap. The default is a short
+// soak for CI; set CODENERD_RECURSE_SOAK=1000 (or any count) for a long one.
 func TestRecurseCycles_ALongRunLeavesBoundedState(t *testing.T) {
 	cycles := 100
 	if v := os.Getenv("CODENERD_RECURSE_SOAK"); v != "" {
@@ -133,11 +133,22 @@ func TestRecurseCycles_ALongRunLeavesBoundedState(t *testing.T) {
 		}
 		return len(rows)
 	}
-	// Each node has one finding at a time (its value), but its identity
-	// changes with the value's message; per node, at most a handful of
-	// distinct findings are ever attempted between two kept changes.
-	if got := count("recurse_attempt"); got > 2*nodes*3 {
-		t.Fatalf("%d cycles left %d recurse_attempt facts; the kernel's recurse memory is not bounded", res.Cycles, got)
+	// The kernel's history and the journal's agree: every journaled fix
+	// attempt that was not kept is a recurse_attempt fact -- nothing lost,
+	// nothing shaped. Kept fixes record the node's kept change instead, and
+	// improvements without a finding record neither.
+	history, err := readRecurseJournal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAttempts := 0
+	for _, h := range history {
+		if h.Step == stepRatchet && h.Finding != "" && h.Outcome != outcomeKept {
+			wantAttempts++
+		}
+	}
+	if got := count("recurse_attempt"); got != wantAttempts {
+		t.Fatalf("%d cycles left %d recurse_attempt facts for %d journaled fix attempts", res.Cycles, got, wantAttempts)
 	}
 	if got := count("recurse_node_kept"); got > nodes {
 		t.Fatalf("%d recurse_node_kept facts for %d nodes", got, nodes)
