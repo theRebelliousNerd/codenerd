@@ -9,9 +9,11 @@ import (
 	"go/parser"
 	"go/token"
 	gotypes "go/types"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,7 +85,7 @@ func (c *Cartographer) mapGoFile(fsPath, path string) ([]core.Fact, error) {
 	var facts []core.Fact
 	pkgName := node.Name.Name
 	logging.WorldDebug("Cartographer: package=%s for %s", pkgName, filepath.Base(path))
-	facts = append(facts, goSymbolFacts(fset, node, path, pkgName)...)
+	facts = append(facts, goSymbolFacts(fset, node, path, fsPath, pkgName)...)
 
 	symbolFactCount := len(facts)
 	logging.WorldDebug("Cartographer: extracted %d symbol facts from %s", symbolFactCount, filepath.Base(path))
@@ -144,11 +146,16 @@ type callScope struct {
 // import name, which an alias would make different from the package clause
 // buildRef records. A wrong fn: row becomes test_depends_on anyway — the
 // call rule joins the strings and does not require the callee to be a
-// code_element (test_impact.mg).
-func goSymbolFacts(fset *token.FileSet, node *ast.File, path, pkgName string) []core.Fact {
-	localTypes := fileTypeNames(node)
-	pkgBinds := packageVarTypes(node)
-	dotImport := hasDotImport(node)
+// code_element (test_impact.mg). An identifier gets an fn: row when this
+// package declares that function, including in a file with a dot import.
+// Any other identifier gets no fn: row: it may be the dot import, and that
+// package is not spelled. A conversion of a type declared in another file
+// of the package is not a call. Method rows are emitted only when a
+// FuncDecl on that named type exists, so a promoted method or an alias to
+// another package is not guessed.
+func goSymbolFacts(fset *token.FileSet, node *ast.File, path, fsPath, pkgName string) []core.Fact {
+	sym := symbolsFor(node, fsPath, pkgName)
+	pkgBinds := packageVarTypes(node, sym)
 
 	var facts []core.Fact
 	var stack []callScope
@@ -188,7 +195,7 @@ func goSymbolFacts(fset *token.FileSet, node *ast.File, path, pkgName string) []
 			frame.inFunc = true
 			frame.scope = true
 			frame.params = funcTypeParams(x.Recv, x.Type)
-			frame.binds = funcValueBinds(x.Recv, x.Type, stack, frame.params)
+			frame.binds = funcValueBinds(x.Recv, x.Type, stack, frame.params, sym)
 
 			start := fset.Position(x.Pos()).Line
 			end := fset.Position(x.End()).Line
@@ -209,7 +216,7 @@ func goSymbolFacts(fset *token.FileSet, node *ast.File, path, pkgName string) []
 			frame.inFunc = true
 			frame.scope = true
 			frame.params = funcTypeParams(nil, x.Type)
-			frame.binds = funcValueBinds(nil, x.Type, stack, frame.params)
+			frame.binds = funcValueBinds(nil, x.Type, stack, frame.params, sym)
 
 		case *ast.TypeSpec:
 			name := x.Name.Name
@@ -246,12 +253,12 @@ func goSymbolFacts(fset *token.FileSet, node *ast.File, path, pkgName string) []
 
 		case *ast.ValueSpec:
 			if frame.inFunc {
-				frame.pending = valueSpecTypes(x, stack, nil)
+				frame.pending = valueSpecTypes(x, stack, nil, sym)
 			}
 
 		case *ast.AssignStmt:
 			if frame.inFunc && x.Tok == token.DEFINE {
-				frame.pending = shortAssignTypes(x, stack, nil)
+				frame.pending = shortAssignTypes(x, stack, nil, sym)
 			}
 
 		case *ast.CallExpr:
@@ -259,7 +266,7 @@ func goSymbolFacts(fset *token.FileSet, node *ast.File, path, pkgName string) []
 			if caller == "" {
 				break
 			}
-			bare, fnCallee := goCallRef(x.Fun, pkgName, stack, localTypes, dotImport)
+			bare, fnCallee := goCallRef(x.Fun, pkgName, stack, sym)
 			if bare != "" {
 				facts = append(facts, core.Fact{
 					Predicate: "code_calls",
@@ -280,24 +287,42 @@ func goSymbolFacts(fset *token.FileSet, node *ast.File, path, pkgName string) []
 	return facts
 }
 
-func goCallRef(fun ast.Expr, pkg string, stack []callScope, localTypes map[string]bool, dotImport bool) (bare, fnCallee string) {
+func goCallRef(fun ast.Expr, pkg string, stack []callScope, sym pkgSymbols) (bare, fnCallee string) {
 	switch f := fun.(type) {
 	case *ast.ParenExpr:
-		return goCallRef(f.X, pkg, stack, localTypes, dotImport)
+		return goCallRef(f.X, pkg, stack, sym)
+	case *ast.IndexExpr:
+		// F[T](x) is a call whose Fun is an index. m[k]() is a value index
+		// and must not grow a row, so the base has to be a declared function
+		// or a selector and the index has to be a type.
+		if instantiatedCall(f.X, []ast.Expr{f.Index}, stack, sym) {
+			return goCallRef(f.X, pkg, stack, sym)
+		}
+		return "", ""
+	case *ast.IndexListExpr:
+		if instantiatedCall(f.X, f.Indices, stack, sym) {
+			return goCallRef(f.X, pkg, stack, sym)
+		}
+		return "", ""
 	case *ast.Ident:
 		bare = pkg + "." + f.Name
-		if dotImport || goPredeclared(f.Name) || localTypes[f.Name] || typeParamBound(stack, f.Name) || nameBound(stack, f.Name) {
+		if goPredeclared(f.Name) || sym.types[f.Name] || typeParamBound(stack, f.Name) || nameBound(stack, f.Name) {
 			return bare, ""
 		}
-		return bare, "fn:" + bare
+		if ref := identFnRef(pkg, f.Name, sym); ref != "" {
+			return bare, ref
+		}
+		return bare, ""
 	case *ast.SelectorExpr:
 		// Bare spelling is unchanged: only an identifier expression, copied
-		// as written. The fn: row is a different string — the method's
-		// code_element — and only when the receiver type is known.
+		// as written. The fn: row is the method's code_element, and only when
+		// this package declares that method on the receiver's named type.
 		if id, ok := f.X.(*ast.Ident); ok {
 			bare = id.Name + "." + f.Sel.Name
 		}
-		if typ, ok := selectorReceiverType(f.X, stack); ok {
+		if typ, ok := selectorReceiverType(f.X, stack, sym); ok && methodKnown(sym, typ, f.Sel.Name) {
+			fnCallee = "fn:" + pkg + "." + typ + "." + f.Sel.Name
+		} else if typ, ok := methodExprReceiver(f.X, stack, sym); ok && methodKnown(sym, typ, f.Sel.Name) {
 			fnCallee = "fn:" + pkg + "." + typ + "." + f.Sel.Name
 		}
 		return bare, fnCallee
@@ -306,45 +331,94 @@ func goCallRef(fun ast.Expr, pkg string, stack []callScope, localTypes map[strin
 	}
 }
 
+// identFnRef is the fn: callee of an unqualified call. The caller has
+// already rejected a predeclared name, a type conversion, a type parameter,
+// and a bound value. A file with a dot import keeps fn:<pkg>.<Name> when
+// this package declares the function. Any other identifier gets no fn: row:
+// the imported package is not resolved and not spelled.
+func identFnRef(pkg, name string, sym pkgSymbols) string {
+	if sym.funcs[name] {
+		return "fn:" + pkg + "." + name
+	}
+	return ""
+}
+
 // selectorReceiverType is the named same-package type of a call receiver
 // when the AST states it: a bound value (composite literal or explicit
 // type), a composite literal, or a type assert. A package qualifier
 // (fmt.Println, q.Target) is an unbound identifier and returns false.
-func selectorReceiverType(expr ast.Expr, stack []callScope) (string, bool) {
+func selectorReceiverType(expr ast.Expr, stack []callScope, sym pkgSymbols) (string, bool) {
 	switch e := expr.(type) {
 	case *ast.ParenExpr:
-		return selectorReceiverType(e.X, stack)
+		return selectorReceiverType(e.X, stack, sym)
+	case *ast.StarExpr:
+		// (*s).M() — the dereference keeps the named type the binding recorded.
+		return selectorReceiverType(e.X, stack, sym)
 	case *ast.Ident:
 		return lookupBind(stack, e.Name)
 	case *ast.CompositeLit:
-		return samePackageTypeName(e.Type, stack, nil)
+		return samePackageTypeName(e.Type, stack, nil, sym)
 	case *ast.UnaryExpr:
 		if e.Op == token.AND {
-			return compositeLitType(e.X, stack)
+			return compositeLitType(e.X, stack, sym)
 		}
 	case *ast.TypeAssertExpr:
 		if e.Type != nil {
-			return samePackageTypeName(e.Type, stack, nil)
+			return samePackageTypeName(e.Type, stack, nil, sym)
 		}
 	}
 	return "", false
 }
 
-func compositeLitType(expr ast.Expr, stack []callScope) (string, bool) {
+func compositeLitType(expr ast.Expr, stack []callScope, sym pkgSymbols) (string, bool) {
 	switch e := expr.(type) {
 	case *ast.ParenExpr:
-		return compositeLitType(e.X, stack)
+		return compositeLitType(e.X, stack, sym)
 	case *ast.CompositeLit:
-		return samePackageTypeName(e.Type, stack, nil)
+		return samePackageTypeName(e.Type, stack, nil, sym)
 	default:
 		return "", false
 	}
 }
 
+// methodExprReceiver is the named type in a method expression S.M or (*S).M.
+// The type has to be declared in this package. A package qualifier (fmt.Println)
+// is an unbound identifier that is not one of those types.
+func methodExprReceiver(expr ast.Expr, stack []callScope, sym pkgSymbols) (string, bool) {
+	for expr != nil {
+		switch e := expr.(type) {
+		case *ast.ParenExpr:
+			expr = e.X
+		case *ast.StarExpr:
+			expr = e.X
+		case *ast.IndexExpr:
+			if !indexIsType(e.Index, stack, sym, false) {
+				return "", false
+			}
+			expr = e.X
+		case *ast.IndexListExpr:
+			for _, ix := range e.Indices {
+				if !indexIsType(ix, stack, sym, false) {
+					return "", false
+				}
+			}
+			expr = e.X
+		case *ast.Ident:
+			if e.Name == "" || nameBound(stack, e.Name) || typeParamBound(stack, e.Name) || goPredeclared(e.Name) || !sym.types[e.Name] {
+				return "", false
+			}
+			return resolveAlias(e.Name, sym)
+		default:
+			return "", false
+		}
+	}
+	return "", false
+}
+
 // samePackageTypeName unwraps pointers and instantiations down to a bare
 // identifier. A selector (q.S, testing.T) is another package. Predeclared
 // names and in-scope type parameters are not package types.
-func samePackageTypeName(expr ast.Expr, stack []callScope, extra map[string]bool) (string, bool) {
+func samePackageTypeName(expr ast.Expr, stack []callScope, extra map[string]bool, sym pkgSymbols) (string, bool) {
 	for expr != nil {
 		switch t := expr.(type) {
 		case *ast.ParenExpr:
@@ -359,7 +433,10 @@ func samePackageTypeName(expr ast.Expr, stack []callScope, extra map[string]bool
 			if t.Name == "" || t.Name == "_" || goPredeclared(t.Name) || extra[t.Name] || typeParamBound(stack, t.Name) {
 				return "", false
 			}
-			return t.Name, true
+			// type A = S names S's methods; an alias whose target is not a
+			// named type of this package (fmt.Stringer, map[int]int) has none
+			// we can spell.
+			return resolveAlias(t.Name, sym)
 		default:
 			return "", false
 		}
@@ -367,35 +444,10 @@ func samePackageTypeName(expr ast.Expr, stack []callScope, extra map[string]bool
 	return "", false
 }
 
-func fileTypeNames(file *ast.File) map[string]bool {
-	out := map[string]bool{}
-	for _, decl := range file.Decls {
-		gd, ok := decl.(*ast.GenDecl)
-		if !ok || gd.Tok != token.TYPE {
-			continue
-		}
-		for _, spec := range gd.Specs {
-			if ts, ok := spec.(*ast.TypeSpec); ok {
-				out[ts.Name.Name] = true
-			}
-		}
-	}
-	return out
-}
-
-func hasDotImport(file *ast.File) bool {
-	for _, imp := range file.Imports {
-		if imp.Name != nil && imp.Name.Name == "." {
-			return true
-		}
-	}
-	return false
-}
-
 // packageVarTypes binds file-level vars whose type is written in the AST.
 // Package scope covers the whole file, so a function declared above the var
 // still sees it; function-level bindings are applied when their spec ends.
-func packageVarTypes(file *ast.File) map[string]string {
+func packageVarTypes(file *ast.File, sym pkgSymbols) map[string]string {
 	var binds map[string]string
 	for _, decl := range file.Decls {
 		gd, ok := decl.(*ast.GenDecl)
@@ -407,7 +459,7 @@ func packageVarTypes(file *ast.File) map[string]string {
 			if !ok {
 				continue
 			}
-			for name, typ := range valueSpecTypes(vs, nil, nil) {
+			for name, typ := range valueSpecTypes(vs, nil, nil, sym) {
 				if binds == nil {
 					binds = map[string]string{}
 				}
@@ -418,7 +470,7 @@ func packageVarTypes(file *ast.File) map[string]string {
 	return binds
 }
 
-func valueSpecTypes(vs *ast.ValueSpec, stack []callScope, extra map[string]bool) map[string]string {
+func valueSpecTypes(vs *ast.ValueSpec, stack []callScope, extra map[string]bool, sym pkgSymbols) map[string]string {
 	out := map[string]string{}
 	put := func(name, typ string) {
 		if name == "" || name == "_" {
@@ -428,7 +480,7 @@ func valueSpecTypes(vs *ast.ValueSpec, stack []callScope, extra map[string]bool)
 	}
 	if vs.Type != nil {
 		typ := ""
-		if name, ok := samePackageTypeName(vs.Type, stack, extra); ok {
+		if name, ok := samePackageTypeName(vs.Type, stack, extra, sym); ok {
 			typ = name
 		}
 		for _, n := range vs.Names {
@@ -439,7 +491,7 @@ func valueSpecTypes(vs *ast.ValueSpec, stack []callScope, extra map[string]bool)
 	if len(vs.Values) == len(vs.Names) {
 		for i, n := range vs.Names {
 			typ := ""
-			if name, ok := rhsTypeName(vs.Values[i], stack, extra); ok {
+			if name, ok := rhsTypeName(vs.Values[i], stack, extra, sym); ok {
 				typ = name
 			}
 			put(n.Name, typ)
@@ -452,7 +504,7 @@ func valueSpecTypes(vs *ast.ValueSpec, stack []callScope, extra map[string]bool)
 	return out
 }
 
-func shortAssignTypes(as *ast.AssignStmt, stack []callScope, extra map[string]bool) map[string]string {
+func shortAssignTypes(as *ast.AssignStmt, stack []callScope, extra map[string]bool, sym pkgSymbols) map[string]string {
 	out := map[string]string{}
 	put := func(expr ast.Expr, typ string) {
 		id, ok := expr.(*ast.Ident)
@@ -467,7 +519,7 @@ func shortAssignTypes(as *ast.AssignStmt, stack []callScope, extra map[string]bo
 	if len(as.Lhs) == 2 && len(as.Rhs) == 1 {
 		if ta, ok := as.Rhs[0].(*ast.TypeAssertExpr); ok && ta.Type != nil {
 			typ := ""
-			if name, ok := samePackageTypeName(ta.Type, stack, extra); ok {
+			if name, ok := samePackageTypeName(ta.Type, stack, extra, sym); ok {
 				typ = name
 			}
 			put(as.Lhs[0], typ)
@@ -478,7 +530,7 @@ func shortAssignTypes(as *ast.AssignStmt, stack []callScope, extra map[string]bo
 	if len(as.Lhs) == len(as.Rhs) {
 		for i, lhs := range as.Lhs {
 			typ := ""
-			if name, ok := rhsTypeName(as.Rhs[i], stack, extra); ok {
+			if name, ok := rhsTypeName(as.Rhs[i], stack, extra, sym); ok {
 				typ = name
 			}
 			put(lhs, typ)
@@ -491,19 +543,19 @@ func shortAssignTypes(as *ast.AssignStmt, stack []callScope, extra map[string]bo
 	return out
 }
 
-func rhsTypeName(expr ast.Expr, stack []callScope, extra map[string]bool) (string, bool) {
+func rhsTypeName(expr ast.Expr, stack []callScope, extra map[string]bool, sym pkgSymbols) (string, bool) {
 	switch e := expr.(type) {
 	case *ast.ParenExpr:
-		return rhsTypeName(e.X, stack, extra)
+		return rhsTypeName(e.X, stack, extra, sym)
 	case *ast.CompositeLit:
-		return samePackageTypeName(e.Type, stack, extra)
+		return samePackageTypeName(e.Type, stack, extra, sym)
 	case *ast.UnaryExpr:
 		if e.Op == token.AND {
-			return rhsTypeName(e.X, stack, extra)
+			return rhsTypeName(e.X, stack, extra, sym)
 		}
 	case *ast.TypeAssertExpr:
 		if e.Type != nil {
-			return samePackageTypeName(e.Type, stack, extra)
+			return samePackageTypeName(e.Type, stack, extra, sym)
 		}
 	}
 	return "", false
@@ -583,7 +635,7 @@ func identArg(expr ast.Expr) map[string]bool {
 	return map[string]bool{id.Name: true}
 }
 
-func funcValueBinds(recv *ast.FieldList, typ *ast.FuncType, stack []callScope, extra map[string]bool) map[string]string {
+func funcValueBinds(recv *ast.FieldList, typ *ast.FuncType, stack []callScope, extra map[string]bool, sym pkgSymbols) map[string]string {
 	out := map[string]string{}
 	addList := func(fl *ast.FieldList) {
 		if fl == nil {
@@ -591,7 +643,7 @@ func funcValueBinds(recv *ast.FieldList, typ *ast.FuncType, stack []callScope, e
 		}
 		for _, f := range fl.List {
 			typName := ""
-			if name, ok := samePackageTypeName(f.Type, stack, extra); ok {
+			if name, ok := samePackageTypeName(f.Type, stack, extra, sym); ok {
 				typName = name
 			}
 			for _, n := range f.Names {
@@ -688,6 +740,340 @@ func typeParamBound(stack []callScope, name string) bool {
 		}
 	}
 	return false
+}
+
+func methodKnown(sym pkgSymbols, typ, sel string) bool {
+	if typ == "" || sel == "" {
+		return false
+	}
+	return sym.methods[typ][sel]
+}
+
+func resolveAlias(name string, sym pkgSymbols) (string, bool) {
+	seen := map[string]bool{}
+	for {
+		if seen[name] || sym.aliasBad[name] {
+			return "", false
+		}
+		seen[name] = true
+		next, ok := sym.aliases[name]
+		if !ok {
+			return name, true
+		}
+		name = next
+	}
+}
+
+// instantiatedCall reports whether Fun is a generic call F[T](x) rather than
+// a value index m[k](). The base is a function this package declares, or a
+// selector (a method instantiation). Every index has to be a type.
+func instantiatedCall(base ast.Expr, indices []ast.Expr, stack []callScope, sym pkgSymbols) bool {
+	kind := instBase(base, stack, sym)
+	if kind == instNone || len(indices) == 0 {
+		return false
+	}
+	allowSel := kind == instFunc
+	for _, ix := range indices {
+		if !indexIsType(ix, stack, sym, allowSel) {
+			return false
+		}
+	}
+	return true
+}
+
+const (
+	instNone = iota
+	instFunc
+	instSel
+)
+
+func instBase(expr ast.Expr, stack []callScope, sym pkgSymbols) int {
+	switch e := expr.(type) {
+	case *ast.ParenExpr:
+		return instBase(e.X, stack, sym)
+	case *ast.Ident:
+		if nameBound(stack, e.Name) || typeParamBound(stack, e.Name) || goPredeclared(e.Name) {
+			return instNone
+		}
+		if sym.funcs[e.Name] {
+			return instFunc
+		}
+		return instNone
+	case *ast.SelectorExpr:
+		return instSel
+	default:
+		return instNone
+	}
+}
+
+func indexIsType(expr ast.Expr, stack []callScope, sym pkgSymbols, allowPkgSel bool) bool {
+	switch e := expr.(type) {
+	case *ast.ParenExpr:
+		return indexIsType(e.X, stack, sym, allowPkgSel)
+	case *ast.Ident:
+		if nameBound(stack, e.Name) {
+			return false
+		}
+		if typeParamBound(stack, e.Name) || sym.types[e.Name] {
+			return true
+		}
+		return goPredeclaredType(e.Name)
+	case *ast.StarExpr:
+		return indexIsType(e.X, stack, sym, allowPkgSel)
+	case *ast.ArrayType, *ast.MapType, *ast.StructType, *ast.InterfaceType, *ast.FuncType, *ast.ChanType:
+		return true
+	case *ast.IndexExpr:
+		return indexIsType(e.X, stack, sym, allowPkgSel) && indexIsType(e.Index, stack, sym, allowPkgSel)
+	case *ast.IndexListExpr:
+		if !indexIsType(e.X, stack, sym, allowPkgSel) {
+			return false
+		}
+		for _, ix := range e.Indices {
+			if !indexIsType(ix, stack, sym, allowPkgSel) {
+				return false
+			}
+		}
+		return true
+	case *ast.SelectorExpr:
+		// pkg.T is a type argument only on a call we already know is a
+		// function instantiation. A selector index of a method value is a
+		// field, and spelling it as a type would invent a call.
+		if !allowPkgSel {
+			return false
+		}
+		id, ok := e.X.(*ast.Ident)
+		if !ok || nameBound(stack, id.Name) || typeParamBound(stack, id.Name) || sym.types[id.Name] || sym.funcs[id.Name] {
+			return false
+		}
+		return true
+	case *ast.BinaryExpr:
+		if e.Op != token.OR {
+			return false
+		}
+		return indexIsType(e.X, stack, sym, allowPkgSel) && indexIsType(e.Y, stack, sym, allowPkgSel)
+	default:
+		return false
+	}
+}
+
+func goPredeclaredType(name string) bool {
+	_, ok := gotypes.Universe.Lookup(name).(*gotypes.TypeName)
+	return ok
+}
+
+// pkgSymbols is the named types, functions and methods of one compilation
+// package. MapFile sees a single file; a conversion T(x) or a method
+// expression S.M is only certain once the rest of the directory has been
+// read. HolographicProvider.parsePackage already walks that directory, but
+// it drops _test.go files and it is not on the MapFile path, so the call
+// graph collects the names itself.
+type pkgSymbols struct {
+	types    map[string]bool
+	funcs    map[string]bool
+	methods  map[string]map[string]bool
+	aliases  map[string]string
+	aliasBad map[string]bool
+}
+
+func (s *pkgSymbols) init() {
+	if s.types == nil {
+		s.types = map[string]bool{}
+	}
+	if s.funcs == nil {
+		s.funcs = map[string]bool{}
+	}
+	if s.methods == nil {
+		s.methods = map[string]map[string]bool{}
+	}
+	if s.aliases == nil {
+		s.aliases = map[string]string{}
+	}
+	if s.aliasBad == nil {
+		s.aliasBad = map[string]bool{}
+	}
+}
+
+func (s pkgSymbols) clone() pkgSymbols {
+	out := pkgSymbols{}
+	out.init()
+	for k, v := range s.types {
+		out.types[k] = v
+	}
+	for k, v := range s.funcs {
+		out.funcs[k] = v
+	}
+	for k, v := range s.aliases {
+		out.aliases[k] = v
+	}
+	for k, v := range s.aliasBad {
+		out.aliasBad[k] = v
+	}
+	for recv, methods := range s.methods {
+		m := make(map[string]bool, len(methods))
+		for name := range methods {
+			m[name] = true
+		}
+		out.methods[recv] = m
+	}
+	return out
+}
+
+type cachedSymbols struct {
+	stamp string
+	sym   pkgSymbols
+}
+
+var (
+	symbolCacheMu sync.Mutex
+	symbolCache   = map[string]cachedSymbols{}
+)
+
+func symbolsFor(node *ast.File, fsPath, pkgName string) pkgSymbols {
+	includeTests := strings.HasSuffix(filepath.Base(fsPath), "_test.go")
+	base, ok := loadSymbols(filepath.Dir(fsPath), pkgName, includeTests)
+	if !ok {
+		base.init()
+	} else {
+		base = base.clone()
+	}
+	if node != nil && node.Name != nil && node.Name.Name == pkgName {
+		absorbNode(&base, node)
+	}
+	return base
+}
+
+func loadSymbols(dir, pkgName string, includeTests bool) (pkgSymbols, bool) {
+	stamp, files, err := goFileStamp(dir)
+	if err != nil {
+		return pkgSymbols{}, false
+	}
+	key := dir + "\x00" + pkgName + "\x00"
+	if includeTests {
+		key += "test"
+	} else {
+		key += "lib"
+	}
+	symbolCacheMu.Lock()
+	if ent, ok := symbolCache[key]; ok && ent.stamp == stamp {
+		symbolCacheMu.Unlock()
+		return ent.sym, true
+	}
+	symbolCacheMu.Unlock()
+
+	sym := pkgSymbols{}
+	sym.init()
+	for _, path := range files {
+		if !includeTests && strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil || file == nil || file.Name == nil || file.Name.Name != pkgName {
+			continue
+		}
+		absorbNode(&sym, file)
+	}
+	symbolCacheMu.Lock()
+	symbolCache[key] = cachedSymbols{stamp: stamp, sym: sym}
+	symbolCacheMu.Unlock()
+	return sym, true
+}
+
+// goFileStamp lists the .go files directly in dir. os.ReadDir does not walk
+// parents, child directories, or any path outside dir, so the loader cannot
+// open GOROOT or the module cache. The stamp is each file's name, size, and
+// mtime — the same size and mtime pair ScanWorkspaceIncremental uses to
+// decide a file changed (incremental_scan.go). A rewrite, add, or removal
+// therefore misses this cache instead of reusing symbols parsed before it.
+func goFileStamp(dir string) (string, []string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", nil, err
+	}
+	var b strings.Builder
+	var files []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "%s %d %d\n", name, info.Size(), info.ModTime().UnixNano())
+		files = append(files, filepath.Join(dir, name))
+	}
+	return b.String(), files, nil
+}
+
+func absorbNode(sym *pkgSymbols, file *ast.File) {
+	if sym == nil || file == nil {
+		return
+	}
+	sym.init()
+	for _, decl := range file.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Name == nil || d.Name.Name == "" || d.Name.Name == "_" {
+				continue
+			}
+			if d.Recv == nil {
+				sym.funcs[d.Name.Name] = true
+				continue
+			}
+			base := receiverTypeName(d)
+			if base == "" {
+				continue
+			}
+			if sym.methods[base] == nil {
+				sym.methods[base] = map[string]bool{}
+			}
+			sym.methods[base][d.Name.Name] = true
+		case *ast.GenDecl:
+			if d.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range d.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.Name == nil || ts.Name.Name == "" {
+					continue
+				}
+				sym.types[ts.Name.Name] = true
+				if !ts.Assign.IsValid() {
+					continue
+				}
+				if target, ok := aliasTargetIdent(ts.Type); ok {
+					sym.aliases[ts.Name.Name] = target
+				} else {
+					sym.aliasBad[ts.Name.Name] = true
+				}
+			}
+		}
+	}
+}
+
+func aliasTargetIdent(expr ast.Expr) (string, bool) {
+	for expr != nil {
+		switch t := expr.(type) {
+		case *ast.ParenExpr:
+			expr = t.X
+		case *ast.StarExpr:
+			expr = t.X
+		case *ast.IndexExpr:
+			expr = t.X
+		case *ast.IndexListExpr:
+			expr = t.X
+		case *ast.Ident:
+			if t.Name == "" || t.Name == "_" || goPredeclared(t.Name) {
+				return "", false
+			}
+			return t.Name, true
+		default:
+			return "", false
+		}
+	}
+	return "", false
 }
 
 // Close releases resources held by the Cartographer.
