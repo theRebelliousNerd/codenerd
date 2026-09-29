@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/broker"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
@@ -218,14 +219,15 @@ func identifyBottleneck(promptMs, llmMs, parseRouteMs int64) string {
 // Every byte here is spent before a single line of real work happens, and none
 // of it was capped: ParseIntentWithContext truncates `input` at 50 KB
 // (understanding_adapter.go) and then BuildPrompt appended an unbounded editor
-// selection, an unbounded strategic-context blob, unbounded few-shot exemplars,
-// and five unbounded prior turns on top of it. A chat session that had just
-// pasted a 200 KB stack trace and received a long answer replayed both into
-// every subsequent classification call.
+// selection, an unbounded strategic-context blob, and unbounded few-shot
+// exemplars. A chat session that had just pasted a 200 KB stack trace replayed
+// it into every subsequent classification call.
 //
-// The caps are deliberately tight. Classification does not need the whole
-// selection or the whole prior answer; it needs enough to tell "fix this" from
-// "explain this".
+// The caps below are deliberately tight. Classification does not need the whole
+// selection; it needs enough to tell "fix this" from "explain this". Prior
+// turns are not in this list: they are evicted whole from
+// classification.history_turn_window and classification.history_char_budget
+// (selectClassificationHistory). A turn is never sliced.
 const (
 	// maxAmbientSelectionChars caps the editor selection. An IDE "select all"
 	// in a large file is one keystroke away, and the selection is verbatim
@@ -254,20 +256,6 @@ const (
 	// come from the embedding store, which holds whatever was typed —
 	// including the last 50 KB paste.
 	maxSemanticExemplarChars = 500
-
-	// maxClassificationTurns is the prior-turn window. Five was the
-	// existing behaviour and is kept; only the per-turn size is new.
-	maxClassificationTurns = 5
-
-	// maxClassificationTurnChars caps one replayed turn. Head+tail, because a user
-	// turn's tail carries the actual ask ("...and now make it compile") and an
-	// assistant turn's tail carries its conclusion.
-	maxClassificationTurnChars = 2000
-
-	// maxClassificationThoughtChars caps a replayed reasoning summary. Thinking
-	// models emit these at arbitrary length and they are the least
-	// load-bearing text in the prompt.
-	maxClassificationThoughtChars = 800
 )
 
 func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) string {
@@ -337,21 +325,22 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 		sb.WriteString("---\n\n")
 	}
 
-	// Include relevant history for context
-	if len(history) > 0 {
+	// Prior turns, whole. The window and the byte budget come from
+	// classification.* (config.ResolvedClassificationHistory); the oldest
+	// turns that do not fit are named and left out, never sliced.
+	if kept, notice := classificationHistoryBlock(history); len(kept) > 0 {
 		sb.WriteString("## Recent Conversation\n\n")
-		// Only include last few turns to stay focused
-		start := 0
-		if len(history) > maxClassificationTurns {
-			start = len(history) - maxClassificationTurns
+		if notice != "" {
+			sb.WriteString(notice)
+			sb.WriteString("\n\n")
 		}
-		for _, turn := range history[start:] {
+		for _, turn := range kept {
 			if turn.ThoughtSummary != "" {
-				sb.WriteString(fmt.Sprintf("**%s (Previous Thoughts)**:\n```\n%s\n```\n\n", turn.Role,
-					types.ClampHead(turn.ThoughtSummary, maxClassificationThoughtChars, "thought summary")))
+				sb.WriteString(fmt.Sprintf("**%s (Previous Thoughts)**:\n```\n%s\n```\n\n", turn.Role, turn.ThoughtSummary))
 			}
-			sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", turn.Role,
-				types.ClampText(turn.Content, maxClassificationTurnChars, "prior turn")))
+			if turn.Content != "" {
+				sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", turn.Role, turn.Content))
+			}
 		}
 		sb.WriteString("---\n\n")
 	}
@@ -360,6 +349,84 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 	sb.WriteString(input)
 
 	return sb.String()
+}
+
+// classificationHistoryBlock is the prior-turn window BuildPrompt renders.
+//
+// The installed classification policy supplies the count and the byte
+// budget. Turns that do not fit are evicted whole, oldest first, and the
+// notice names them. The newest turn is kept even when it alone is over the
+// budget, and the notice says that too: this call cannot page history back,
+// and the turn a follow-up refers to is the newest one. A window of 0 sends
+// nothing and says nothing — the file asked for no prior turn, which is the
+// same rule the session generator uses for its own window.
+func classificationHistoryBlock(history []ConversationTurn) (kept []ConversationTurn, notice string) {
+	policy := config.ResolvedClassificationHistory()
+	kept, dropped, droppedChars, newestChars, newestExceeds := selectClassificationHistory(history, policy.TurnWindow, policy.CharBudget)
+	if len(kept) == 0 {
+		return nil, ""
+	}
+	return kept, classificationHistoryNotice(dropped, dropped+len(kept), droppedChars, newestChars, policy.CharBudget, newestExceeds)
+}
+
+// selectClassificationHistory keeps the newest prior turns that fit.
+// Empty turns (no content and no reasoning summary) are skipped and do not
+// consume the window. window <= 0 sends none. budget is bytes of content
+// plus reasoning summary. newestExceeds is set when the one turn that was
+// kept is itself over budget.
+func selectClassificationHistory(history []ConversationTurn, window, budget int) (kept []ConversationTurn, dropped, droppedChars, newestChars int, newestExceeds bool) {
+	if window <= 0 {
+		return nil, 0, 0, 0, false
+	}
+	var turns []ConversationTurn
+	for _, turn := range history {
+		if turn.Content == "" && turn.ThoughtSummary == "" {
+			continue
+		}
+		turns = append(turns, turn)
+	}
+	if len(turns) == 0 {
+		return nil, 0, 0, 0, false
+	}
+	eligible := turns
+	if len(turns) > window {
+		eligible = turns[len(turns)-window:]
+	}
+	sizes := make([]int, len(eligible))
+	total := 0
+	for i, turn := range eligible {
+		sizes[i] = len(turn.Content) + len(turn.ThoughtSummary)
+		total += sizes[i]
+	}
+	// Drop oldest until the remainder fits, but never the newest.
+	start := 0
+	for start < len(eligible)-1 && total > budget {
+		total -= sizes[start]
+		start++
+	}
+	kept = eligible[start:]
+	newestChars = sizes[len(sizes)-1]
+	newestExceeds = newestChars > budget
+	for _, turn := range turns[:len(turns)-len(kept)] {
+		dropped++
+		droppedChars += len(turn.Content) + len(turn.ThoughtSummary)
+	}
+	return kept, dropped, droppedChars, newestChars, newestExceeds
+}
+
+// classificationHistoryNotice names what left the window. There is no recall
+// handle: classification does not run inside the working loop, so a handle
+// would name a verb this call cannot use.
+func classificationHistoryNotice(dropped, eligible, droppedChars, newestChars, budget int, newestExceeds bool) string {
+	if newestExceeds {
+		over := fmt.Sprintf("the newest prior turn is %d chars, over classification.history_char_budget %d, and is included whole", newestChars, budget)
+		if dropped > 0 {
+			over += fmt.Sprintf("; %d of %d prior turns (%d chars) were left out", dropped, eligible, droppedChars)
+		}
+		return types.TruncationMarker(over)
+	}
+	return types.DroppedNotice(dropped, eligible,
+		fmt.Sprintf("prior turns (%d chars) left out of classification; the session still holds them", droppedChars), "")
 }
 
 // parseResponse extracts Understanding from LLM JSON response.

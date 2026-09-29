@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/config"
 	"codenerd/internal/types"
 )
 
@@ -14,13 +15,15 @@ import (
 // raw input at 50 KB and nothing else was capped at all, so a chat that had
 // pasted a large log replayed it into every subsequent classification call.
 func TestBuildPrompt_Bounds(t *testing.T) {
+	installClassificationHistory(t, config.DefaultClassificationConfig().Resolve())
 	huge := strings.Repeat("Q", 400_000)
 
 	tests := []struct {
-		name       string
-		build      func() (string, []ConversationTurn, []SemanticMatch, *types.SessionContext, string)
-		wantMarker bool
-		mustKeep   []string
+		name        string
+		build       func() (string, []ConversationTurn, []SemanticMatch, *types.SessionContext, string)
+		wantMarker  bool
+		mustKeep    []string
+		skipCeiling bool
 	}{
 		{
 			name: "an editor select-all is clamped",
@@ -74,14 +77,18 @@ func TestBuildPrompt_Bounds(t *testing.T) {
 			mustKeep:   []string{"Learned Semantic Matches", "fix it"},
 		},
 		{
-			name: "an oversized prior turn is clamped head and tail",
+			// A prior turn over the char budget used to be sliced head+tail.
+			// It is now the whole turn: classification cannot page it back,
+			// and the prompt says the turn is over the budget.
+			name: "an oversized prior turn is included whole",
 			build: func() (string, []ConversationTurn, []SemanticMatch, *types.SessionContext, string) {
 				return "fix it", []ConversationTurn{
 					{Role: "user", Content: "HEADMARK" + huge + "TAILMARK", ThoughtSummary: huge},
 				}, nil, nil, ""
 			},
-			wantMarker: true,
-			mustKeep:   []string{"HEADMARK", "TAILMARK", "fix it"},
+			wantMarker:  true,
+			mustKeep:    []string{"HEADMARK", "TAILMARK", "fix it", "classification.history_char_budget", "included whole"},
+			skipCeiling: true,
 		},
 		{
 			name: "an ordinary turn is untouched",
@@ -105,9 +112,19 @@ func TestBuildPrompt_Bounds(t *testing.T) {
 			// The prompt is the sum of five capped sections plus the (already
 			// 50 KB-capped) input. This ceiling is what makes classification
 			// cost predictable regardless of what the workspace throws at it.
+			// The capped sections (selection, diagnostics, strategic context,
+			// exemplars) plus a history that fits the budget stay under this.
+			// A single prior turn that exceeds the budget is included whole,
+			// so that one case is not part of the ceiling.
 			const ceiling = 128 * 1024
-			if len(got) > ceiling {
+			if !tt.skipCeiling && len(got) > ceiling {
 				t.Errorf("classification prompt is %d chars, want <= %d", len(got), ceiling)
+			}
+			if tt.skipCeiling && strings.Count(got, huge) != 2 {
+				t.Errorf("oversized turn was sliced: the full text appears %d times, want 2 (content and reasoning summary, both whole)", strings.Count(got, huge))
+			}
+			if tt.skipCeiling && (strings.Contains(got, "chars from prior turn") || strings.Contains(got, "chars from thought summary")) {
+				t.Error("the prior turn still carries a mid-text clamp marker")
 			}
 			if types.IsClamped(got) != tt.wantMarker {
 				t.Errorf("IsClamped = %v, want %v", types.IsClamped(got), tt.wantMarker)

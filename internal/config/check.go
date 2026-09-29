@@ -296,6 +296,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Session.Check("session")...)
 	}
 
+	// --- classification ---
+	if c.Classification != nil {
+		out = append(out, c.Classification.Check("classification")...)
+	}
+
 	// --- routing ---
 	if c.Routing != nil {
 		out = append(out, c.Routing.Check("routing")...)

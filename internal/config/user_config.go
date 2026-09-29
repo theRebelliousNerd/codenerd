@@ -208,6 +208,11 @@ type UserConfig struct {
 	// (session.go).
 	Session *SessionConfig `json:"session,omitempty"`
 
+	// Classification is how much prior conversation the intent classifier
+	// is shown (classification.go). It is not the session history window:
+	// that one sizes the generating model.
+	Classification *ClassificationConfig `json:"classification,omitempty"`
+
 	// Routing is the thresholds the kernel's routing arbitration decides an
 	// interactive turn's lane with (routing.go).
 	Routing *RoutingConfig `json:"routing,omitempty"`
@@ -578,6 +583,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 			installDefaultEmbeddingPullTimeout()
 			installDefaultImageRequestTimeout()
 			SetObservationLimits(DefaultObservationConfig().Resolve())
+			SetClassificationHistory(DefaultClassificationConfig().Resolve())
 			if d, derr := DefaultIntegrationsConfig().ResolveDefaultTimeout(); derr == nil {
 				mcp.SetTransportTimeoutFallback(d)
 			}
@@ -678,6 +684,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	SetEmbeddingPullTimeout(pullTimeout)
 	SetImageRequestTimeout(imageTimeoutDuration(cfg.GetImageLLMConfig()))
 	SetObservationLimits(cfg.GetObservationConfig().Resolve())
+	SetClassificationHistory(cfg.GetClassificationConfig().Resolve())
 	integFallback, ierr := cfg.GetIntegrations().ResolveDefaultTimeout()
 	if ierr != nil {
 		// Unreachable for the same reason.
@@ -1642,6 +1649,7 @@ func DefaultUserConfig() *UserConfig {
 	browserCfg := DefaultBrowserAutomationConfig()
 	campaign := DefaultCampaignConfig()
 	sessionCfg := DefaultSessionConfig()
+	classificationCfg := DefaultClassificationConfig()
 	routingCfg := DefaultRoutingConfig()
 	retrievalCfg := DefaultRetrievalConfig()
 	observationCfg := DefaultObservationConfig()
@@ -1672,6 +1680,7 @@ func DefaultUserConfig() *UserConfig {
 		Execution:                    DefaultExecutionConfig(),
 		Campaign:                     &campaign,
 		Session:                      &sessionCfg,
+		Classification:               &classificationCfg,
 		Routing:                      &routingCfg,
 		Retrieval:                    &retrievalCfg,
 		Observation:                  &observationCfg,
