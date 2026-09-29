@@ -320,7 +320,10 @@ func TestDouble(t *testing.T) {
 		}
 		red := 0
 		for _, seed := range seeds {
-			if !strings.Contains(seed, "--- FAIL:") {
+			// The round is handed the gate's Summary (FAIL <pkg> TestDouble
+			// …), which is what `go test -json` renders. A `--- FAIL:`
+			// transcript is not what the gate publishes.
+			if !summaryNamesTest(seed, "TestDouble") {
 				continue
 			}
 			red++
@@ -350,14 +353,40 @@ func TestDouble(t *testing.T) {
 	})
 }
 
+// summaryNamesTest reports whether a round's prompt carries the gate's
+// Summary line for name. The prompt is text the model was shown; the
+// production readers of a run use its Result.
+func summaryNamesTest(seed, name string) bool {
+	for _, line := range strings.Split(seed, "\n") {
+		if !strings.HasPrefix(line, "FAIL ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && strings.TrimSuffix(fields[2], ":") == name {
+			return true
+		}
+	}
+	return false
+}
+
 // The final re-verification names what failed. R1-4b's turn ended with "final
 // workspace failed mechanical checks" and nothing more; the failing test was in
 // the session log only.
 func TestFailedChecksSummary_NamesWhatFailed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	// TestB fails through its subtest. The verdict names the parent.
+	dir := jsonTestModule(t, map[string]string{
+		"probe.go": "package verifyprobe\n",
+		"a_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
+			"func TestA(t *testing.T) { t.Fatal(\"boom\") }\n" +
+			"func TestB(t *testing.T) { t.Run(\"sub\", func(t *testing.T) { t.Fatal(\"sub\") }) }\n",
+	})
+	res := parseJSONTest(t, runJSONTest(t, dir, "."))
 	result := &ExecutionResult{
 		BuildCheck: BuildVerification{Outcome: VerifyPassed},
-		TestCheck: TestVerification{Outcome: VerifyFailed, Output: "--- FAIL: TestA (0.10s)\n" +
-			"    a_test.go:3: boom\n--- FAIL: TestB (0.00s)\n    --- FAIL: TestB/sub (0.00s)\nFAIL\nFAIL\tpkg\t0.2s\n"},
+		TestCheck:  TestVerification{Outcome: VerifyFailed, Output: verificationOutput(res), Result: res},
 	}
 	if got, want := failedChecksSummary(result), "tests fail: TestA, TestB"; got != want {
 		t.Fatalf("failedChecksSummary = %q, want %q", got, want)

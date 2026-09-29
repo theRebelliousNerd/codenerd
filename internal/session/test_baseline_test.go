@@ -8,7 +8,34 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"codenerd/internal/testfacts"
 )
+
+// failedHead builds a failed head verification whose Result names one failed
+// test: the skip-path tests below exercise their branch (canceled, missing
+// snapshot, no snapshots), not the no-failures early return.
+func failedHead() TestVerification {
+	res := &testfacts.Result{
+		Status: testfacts.StatusFail,
+		Packages: []*testfacts.Package{{
+			Name:   "verifyprobe",
+			Status: testfacts.StatusFail,
+			Tests: []*testfacts.Test{
+				{Name: "TestBroken", Status: testfacts.StatusFail},
+				{Name: "TestOK", Status: testfacts.StatusPass},
+			},
+		}},
+	}
+	return TestVerification{
+		Ran:     true,
+		OK:      false,
+		Outcome: VerifyFailed,
+		Output:  verificationOutput(res),
+		Command: []string{"go", "test", "-json", "."},
+		Result:  res,
+	}
+}
 
 // F-VERIFY-1: failures that already fail before the turn must not be charged
 // to the turn. These tests pin attributeTestFailures against real throwaway
@@ -119,13 +146,7 @@ func TestAttributeTestFailures_ExpiredDeadlineStillAttributes(t *testing.T) {
 // TestAttributeTestFailures_CanceledSkips covers F-ATTR-DEADLINE: a canceled
 // context skips baseline attribution and returns head unchanged.
 func TestAttributeTestFailures_CanceledSkips(t *testing.T) {
-	head := TestVerification{
-		Ran:     true,
-		OK:      false,
-		Outcome: VerifyFailed,
-		Output:  "=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\nFAIL\n",
-		Command: []string{"go", "test", "."},
-	}
+	head := failedHead()
 	preWrite := map[string]PreImage{"calc.go": existed("package verifyprobe\n")}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -185,6 +206,77 @@ func TestAttributeTestFailures_MixedNewAndPreExisting(t *testing.T) {
 	}
 }
 
+// A new subtest is charged even when its parent already failed. The name
+// compared is the sanitized one testfacts reports ("old case" -> old_case).
+func TestAttributeTestFailures_NewSubtestIsNotPreExisting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	oldTest := "package verifyprobe\n\nimport \"testing\"\n\n" +
+		"func TestAlways(t *testing.T) {\n" +
+		"\tt.Run(\"old case\", func(t *testing.T) { t.Fatal(\"old fails\") })\n" +
+		"}\n"
+	newTest := "package verifyprobe\n\nimport \"testing\"\n\n" +
+		"func TestAlways(t *testing.T) {\n" +
+		"\tt.Run(\"old case\", func(t *testing.T) { t.Fatal(\"old fails\") })\n" +
+		"\tt.Run(\"new case\", func(t *testing.T) { t.Fatal(\"new fails\") })\n" +
+		"}\n"
+	ws := writeBaselineModule(t, map[string]string{
+		"go.mod":       "module verifyprobe\n\ngo 1.21\n",
+		"calc.go":      "package verifyprobe\n",
+		"calc_test.go": newTest,
+	})
+	preWrite := map[string]PreImage{"calc_test.go": existed(oldTest)}
+
+	head := verifyTests(context.Background(), ws, []string{"."})
+	if head.Outcome != VerifyFailed {
+		t.Fatalf("head should fail, got Outcome=%v output=%q", head.Outcome, head.Output)
+	}
+	got := attributeTestFailures(context.Background(), ws, []string{"."}, []string{"calc_test.go"}, preWrite, head)
+	if got.Outcome != VerifyFailed {
+		t.Fatalf("a new subtest must stay charged, got Outcome=%v output=%q", got.Outcome, got.Output)
+	}
+	has := map[string]bool{}
+	for _, n := range got.PreExistingFailures {
+		has[n] = true
+	}
+	if !has["TestAlways/old_case"] {
+		t.Errorf("PreExistingFailures = %v; want the sanitized subtest TestAlways/old_case", got.PreExistingFailures)
+	}
+	if has["TestAlways/new_case"] {
+		t.Errorf("the new subtest was treated as pre-existing: %v", got.PreExistingFailures)
+	}
+	if !strings.Contains(got.Output, "new fails") {
+		t.Errorf("output lost the new failure: %q", got.Output)
+	}
+}
+
+// Partition compares full sanitized names: a sibling subtest that passed
+// at baseline is not pre-existing, and the parent that failed in both is.
+func TestPartitionPreExisting_SubtestSpelling(t *testing.T) {
+	head := []string{"TestSub", "TestSub/case_one", "TestSub/case_two"}
+	baseline := &testfacts.Result{
+		Packages: []*testfacts.Package{{
+			Name: "verifyprobe",
+			Tests: []*testfacts.Test{
+				{Name: "TestSub", Status: testfacts.StatusFail},
+				{Name: "TestSub/case_one", Status: testfacts.StatusFail},
+				{Name: "TestSub/case_two", Status: testfacts.StatusPass},
+			},
+		}},
+	}
+	got := partitionPreExisting(head, baseline)
+	want := []string{"TestSub", "TestSub/case_one"}
+	if len(got) != len(want) {
+		t.Fatalf("partitionPreExisting = %v; want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("partitionPreExisting = %v; want %v", got, want)
+		}
+	}
+}
+
 // TestAttributeTestFailures_TurnCreatedFileIsNew covers case (c): a file
 // created by the turn (preWrite value "") introduces the failure. The
 // baseline overlay deletes it, the test passes at baseline, so the gate
@@ -222,12 +314,24 @@ func TestAttributeTestFailures_TurnCreatedFileIsNew(t *testing.T) {
 // with "[build failed]" and no named test failures is always the turn's and
 // must be returned unchanged.
 func TestAttributeTestFailures_BuildFailureUnchanged(t *testing.T) {
+	res := &testfacts.Result{
+		Status: testfacts.StatusBuildFailed,
+		Packages: []*testfacts.Package{{
+			Name:   "verifyprobe",
+			Status: testfacts.StatusBuildFailed,
+			Output: []string{"./calc.go:3:24: undefined: Foo"},
+		}},
+		BuildFailures: []testfacts.BuildFailure{{
+			Package: "verifyprobe", File: "./calc.go", Line: 3, Column: 24, Message: "undefined: Foo",
+		}},
+	}
 	head := TestVerification{
 		Ran:     true,
 		OK:      false,
 		Outcome: VerifyFailed,
-		Output:  "package verifyprobe\ncalc.go:3: undefined: Foo\n[build failed]",
-		Command: []string{"go", "test", "."},
+		Output:  verificationOutput(res),
+		Command: []string{"go", "test", "-json", "."},
+		Result:  res,
 	}
 	preWrite := map[string]PreImage{"calc.go": existed("package verifyprobe\n")}
 
@@ -247,13 +351,7 @@ func TestAttributeTestFailures_BuildFailureUnchanged(t *testing.T) {
 // guard: when any written path lacks a pre-write snapshot the baseline is
 // untrustworthy, so the head must be returned unchanged.
 func TestAttributeTestFailures_MissingSnapshotSkipsAttribution(t *testing.T) {
-	head := TestVerification{
-		Ran:     true,
-		OK:      false,
-		Outcome: VerifyFailed,
-		Output:  "=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\nFAIL\n",
-		Command: []string{"go", "test", "."},
-	}
+	head := failedHead()
 	preWrite := map[string]PreImage{"calc.go": existed("package verifyprobe\n")}
 	writtenPaths := []string{"calc.go", "extra.go"}
 
@@ -273,13 +371,7 @@ func TestAttributeTestFailures_MissingSnapshotSkipsAttribution(t *testing.T) {
 // silent branch: when the test gate does not discount pre-existing failures
 // for lack of pre-write snapshots, the head must be returned unchanged.
 func TestAttributeTestFailures_NoSnapshotsLogsReason(t *testing.T) {
-	head := TestVerification{
-		Ran:     true,
-		OK:      false,
-		Outcome: VerifyFailed,
-		Output:  "=== RUN   TestX\n--- FAIL: TestX (0.00s)\nFAIL\n",
-		Command: []string{"go", "test", "."},
-	}
+	head := failedHead()
 
 	got := attributeTestFailures(context.Background(), t.TempDir(), []string{"."}, nil, nil, head)
 	if got.Outcome != head.Outcome {
@@ -294,28 +386,41 @@ func TestAttributeTestFailures_NoSnapshotsLogsReason(t *testing.T) {
 // baseline must run through the gate's verifyTestRunner with the gate's
 // overlay/run argv, so a fake runner sees the exact gate-shaped invocation.
 func TestRunBaselineTests_UsesGateRunnerAndArgs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("captures a real go test -json stream for the fake runner")
+	}
+	// The baseline run's stdout is a real -json stream captured at test
+	// time; the gate parses it rather than scanning text.
+	stream := runJSONTest(t, jsonTestModule(t, map[string]string{
+		"calc.go": "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+		"calc_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
+			"func TestX(t *testing.T) { t.Fatal(\"baseline fails\") }\n",
+	}), ".")
 	old := verifyTestRunner
 	var gotName string
 	var gotArgs []string
-	const fakeOut = "--- FAIL: TestX (0.00s)\nFAIL\n"
 	verifyTestRunner = func(_ context.Context, _ string, _ []string, name string, args []string) ([]byte, error) {
 		gotName = name
 		gotArgs = append([]string(nil), args...)
-		return []byte(fakeOut), errors.New("exit status 1")
+		return []byte(stream), errors.New("exit status 1")
 	}
 	t.Cleanup(func() { verifyTestRunner = old })
 
 	const overlayPath = "test-overlay.json"
 	const runArg = "^(TestX)$"
-	out, outcome := runBaselineTests(context.Background(), t.TempDir(), overlayPath, runArg, []string{"."})
+	res, outcome := runBaselineTests(context.Background(), t.TempDir(), overlayPath, runArg, []string{"."})
 	if outcome != VerifyFailed {
 		t.Fatalf("runBaselineTests should report outcome=VerifyFailed for a failed baseline run, got %v", outcome)
 	}
-	if out != fakeOut {
-		t.Errorf("runBaselineTests output = %q; want %q", out, fakeOut)
+	if names := failedTopLevels(res); len(names) != 1 || names[0] != "TestX" {
+		t.Errorf("baseline Result names %v; want [TestX]", names)
 	}
 	if gotName != "go" {
 		t.Errorf("runner name = %q; want %q", gotName, "go")
+	}
+	joined := strings.Join(gotArgs, " ")
+	if !strings.Contains(joined, "-json") {
+		t.Errorf("runner args %q should run go test -json", gotArgs)
 	}
 	findFlag := func(flag string) (string, bool) {
 		for i, a := range gotArgs {

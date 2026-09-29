@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"codenerd/internal/build"
 	"codenerd/internal/logging"
+	"codenerd/internal/testfacts"
 )
 
 // attributeTestFailures compares the post-edit verification result against the
@@ -23,9 +23,12 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 		return head
 	}
 	workspace = goWorkspace(workspace)
-	headFailed := topLevelFailedTests(head.Output)
+	// Full sanitized names, subtests included. The -run below is still the
+	// parents: Go splits a -run regexp on '/', so "TestX/case_one" would
+	// not select that subtest.
+	headFailed := failedTestNames(head.Result)
 	if len(headFailed) == 0 {
-		logging.SessionDebug("test gate: no baseline attribution: no top-level failed test names parsed from %d bytes of output", len(head.Output))
+		logging.SessionDebug("test gate: no baseline attribution: no failed test names in the head run's Result")
 		return head
 	}
 	if len(packages) == 0 {
@@ -58,12 +61,12 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 		return head
 	}
 	defer os.RemoveAll(tmpDir)
-	out, baselineOutcome := runBaselineTests(ctx, workspace, overlayPath, baselineRunRegex(headFailed), packages)
+	baseline, baselineOutcome := runBaselineTests(ctx, workspace, overlayPath, baselineRunRegex(failedTopLevels(head.Result)), packages)
 	if baselineOutcome != VerifyPassed && baselineOutcome != VerifyFailed {
 		logging.SessionDebug("test gate: no baseline attribution: baseline run inconclusive (outcome %s)", baselineOutcome)
 		return head
 	}
-	preExisting := partitionPreExisting(headFailed, out)
+	preExisting := partitionPreExisting(headFailed, baseline)
 	if len(preExisting) == 0 {
 		logging.SessionDebug("test gate: no baseline attribution: every failure is new to this turn (%d failed)", len(headFailed))
 		return head
@@ -90,9 +93,9 @@ func markSomePreExisting(head TestVerification, preExisting []string) TestVerifi
 	return head
 }
 
-func partitionPreExisting(headFailed []string, baselineOut string) []string {
+func partitionPreExisting(headFailed []string, baseline *testfacts.Result) []string {
 	baselineSet := make(map[string]bool, len(headFailed))
-	for _, n := range topLevelFailedTests(baselineOut) {
+	for _, n := range failedTestNames(baseline) {
 		baselineSet[n] = true
 	}
 	var preExisting []string
@@ -112,15 +115,15 @@ func baselineRunRegex(names []string) string {
 	return "^(" + strings.Join(quoted, "|") + ")$"
 }
 
-func runBaselineTests(ctx context.Context, workspace, overlayPath, runArg string, packages []string) (string, VerifyOutcome) {
-	args := []string{"test", "-overlay", overlayPath, "-count=1", "-run", runArg}
+func runBaselineTests(ctx context.Context, workspace, overlayPath, runArg string, packages []string) (*testfacts.Result, VerifyOutcome) {
+	args := []string{"test", "-json", "-overlay", overlayPath, "-count=1", "-run", runArg}
 	args = append(args, packages...)
 	out, outcome, _ := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
 	switch outcome {
 	case VerifyPassed, VerifyFailed:
-		return string(out), outcome
+		return parseTestJSON(out), outcome
 	default:
-		return "", outcome
+		return nil, outcome
 	}
 }
 
@@ -179,41 +182,4 @@ func writeOverlayFiles(tmpDir, workspace string, preWrite map[string]PreImage) (
 		replace[abs] = tmpFile
 	}
 	return replace, nil
-}
-
-// topLevelFailedTests extracts deduplicated, sorted top-level test names.
-func topLevelFailedTests(output string) []string {
-	set := make(map[string]bool)
-	for _, line := range strings.Split(output, "\n") {
-		name, ok := parseFailLine(line)
-		if !ok {
-			continue
-		}
-		set[name] = true
-	}
-	out := make([]string, 0, len(set))
-	for n := range set {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func parseFailLine(line string) (string, bool) {
-	idx := strings.Index(line, "--- FAIL: ")
-	if idx < 0 {
-		return "", false
-	}
-	rest := strings.TrimSpace(line[idx+len("--- FAIL: "):])
-	if rest == "" {
-		return "", false
-	}
-	name := strings.Fields(rest)[0]
-	if i := strings.Index(name, "/"); i >= 0 {
-		name = name[:i]
-	}
-	if name == "" {
-		return "", false
-	}
-	return name, true
 }

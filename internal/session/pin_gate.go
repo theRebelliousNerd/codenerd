@@ -23,6 +23,7 @@ import (
 	internalbuild "codenerd/internal/build"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/testfacts"
 	"codenerd/internal/types"
 )
 
@@ -591,7 +592,7 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 				len(survived), strings.Join(survived, "\n"))
 		}
 	}
-	command := append([]string{"go", "test", "-overlay", "<one change taken out>", "-count=1", "-v", "-run", runArg}, pkgs...)
+	command := append([]string{"go", "test", "-json", "-overlay", "<one change taken out>", "-count=1", "-run", runArg}, pkgs...)
 	switch {
 	case len(unpinned) > 0:
 		return BuildVerification{Ran: true, Outcome: VerifyFailed, Command: command, Output: unpinnedListing(unpinned, names),
@@ -647,16 +648,17 @@ func runPinUnit(ctx context.Context, workspace string, u pinUnit, runArg string,
 	if err := os.WriteFile(overlayPath, overlay, 0o644); err != nil {
 		return "unmeasured", err.Error()
 	}
-	args := append([]string{"test", "-overlay", overlayPath, "-count=1", "-v", "-timeout", bound.String(), "-run", runArg}, pkgs...)
+	args := append([]string{"test", "-json", "-overlay", overlayPath, "-count=1", "-timeout", bound.String(), "-run", runArg}, pkgs...)
 	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
+	res := parseTestJSON(out)
 	switch outcome {
 	case VerifyFailed:
-		if testBuildFailed(string(out)) {
+		if testBuildFailed(res) {
 			return "pinned", "the tests do not compile without it"
 		}
-		return "pinned", "failing: " + strings.Join(topLevelFailedTests(string(out)), ", ")
+		return "pinned", "failing: " + strings.Join(failedTestNames(res), ", ")
 	case VerifyPassed:
-		if !anyTestRan(string(out), names) {
+		if !anyTestRan(res, names) {
 			return "unmeasured", "none of the turn's tests ran"
 		}
 		return "unpinned", ""
@@ -673,22 +675,35 @@ func runPinUnit(ctx context.Context, workspace string, u pinUnit, runArg string,
 // prototype: one forced condition left a lock test waiting ten minutes.
 func pinBaseline(ctx context.Context, workspace, runArg string, names, pkgs []string) (time.Duration, string) {
 	start := time.Now()
-	args := append([]string{"test", "-count=1", "-v", "-run", runArg}, pkgs...)
+	args := append([]string{"test", "-json", "-count=1", "-run", runArg}, pkgs...)
 	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
+	res := parseTestJSON(out)
 	switch {
 	case outcome != VerifyPassed:
 		return 0, fmt.Sprintf("they did not pass on their own (%s%s)", outcome, suffixed(reason))
-	case !anyTestRan(string(out), names):
+	case !anyTestRan(res, names):
 		return 0, "none of them ran"
 	}
 	return 2*time.Since(start) + time.Minute, ""
 }
 
-// anyTestRan reports whether go test -v output shows one of names finishing.
-func anyTestRan(out string, names []string) bool {
+// anyTestRan reports whether any of names finished passing or skipped. It is
+// only called on runs whose exit status already passed, so a passing subtest
+// implies its parent ran too; the top-level spelling is what turnTests wrote.
+func anyTestRan(res *testfacts.Result, names []string) bool {
+	if res == nil {
+		return false
+	}
+	want := make(map[string]bool, len(names))
 	for _, n := range names {
-		for _, verb := range []string{"--- PASS: ", "--- SKIP: "} {
-			if strings.Contains(out, verb+n+" ") {
+		want[n] = true
+	}
+	for _, p := range res.Packages {
+		for _, t := range p.Tests {
+			if t.Status != testfacts.StatusPass && t.Status != testfacts.StatusSkip {
+				continue
+			}
+			if want[topLevelTestName(t.Name)] {
 				return true
 			}
 		}

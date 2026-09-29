@@ -18,14 +18,17 @@ const failingProbeTest = "package probe\n\nimport \"testing\"\n\n" +
 // the package the runner named, so a round with the read tools closed does
 // not have to open it.
 func TestFailingTestSection_RendersTheFailingTestFromThePackageTheRunnerNamed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
 	ws := writeBaselineModule(t, map[string]string{
 		"go.mod":                       "module probe\n\ngo 1.21\n",
 		"internal/probe/extract.go":    "package probe\n\nfunc Extract(string) string { return \"\" }\n",
 		"internal/probe/probe_test.go": failingProbeTest,
 	})
-	output := "--- FAIL: TestExtents (0.00s)\n    probe_test.go:8: ForbidsPath was not extracted from nerdmd.go\nFAIL\nFAIL\tprobe/internal/probe\t0.4s\n"
+	res := parseJSONTest(t, runJSONTest(t, ws, "./internal/probe/"))
 
-	section := failingTestSection(ws, output, nil)
+	section := failingTestSection(ws, res, nil)
 	if !strings.Contains(section, "internal/probe/probe_test.go: TestExtents") {
 		t.Fatalf("the section does not name the test's file:\n%s", section)
 	}
@@ -37,19 +40,35 @@ func TestFailingTestSection_RendersTheFailingTestFromThePackageTheRunnerNamed(t 
 	if strings.Contains(section, "func TestOther") {
 		t.Errorf("the section carries a test that did not fail:\n%s", section)
 	}
-	if got := failingTestSection(ws, "ok  \tprobe/internal/probe\t0.4s\n", nil); got != "" {
+	pass := parseJSONTest(t, jsonStream(t,
+		jsonEvent{Action: "pass", Package: "probe/internal/probe", Test: "TestOther"},
+		jsonEvent{Action: "pass", Package: "probe/internal/probe"},
+	))
+	if got := failingTestSection(ws, pass, nil); got != "" {
 		t.Errorf("a passing run produced a section:\n%s", got)
+	}
+	if got := failingTestSection(ws, nil, nil); got != "" {
+		t.Errorf("a run with no Result produced a section:\n%s", got)
 	}
 }
 
-// A test in a directory the turn wrote is found even when the runner's
-// package line is missing from the output it was handed.
+// A test in a directory the turn wrote is found even when the Summary's
+// package names no directory on disk.
 func TestFailingTestSection_FindsTheTestBesideTheTurnsOwnWrite(t *testing.T) {
 	ws := writeBaselineModule(t, map[string]string{
 		"go.mod":                       "module probe\n\ngo 1.21\n",
 		"internal/probe/probe_test.go": failingProbeTest,
 	})
-	section := failingTestSection(ws, "--- FAIL: TestExtents (0.00s)\n", []string{"internal/probe/extract.go"})
+	// The package the runner named is not a directory in this module. The
+	// events are the fail protocol; a real `go test` of this tree would
+	// name probe/internal/probe, which would find the file without the
+	// written path.
+	res := parseJSONTest(t, jsonStream(t,
+		jsonEvent{Action: "output", Package: "probe/elsewhere", Test: "TestExtents", Output: "    x_test.go:1: boom\n"},
+		jsonEvent{Action: "fail", Package: "probe/elsewhere", Test: "TestExtents"},
+		jsonEvent{Action: "fail", Package: "probe/elsewhere"},
+	))
+	section := failingTestSection(ws, res, []string{"internal/probe/extract.go"})
 	if !strings.Contains(section, "func TestExtents") {
 		t.Fatalf("the section does not carry the test beside the written file:\n%s", section)
 	}
@@ -59,7 +78,14 @@ func TestFailingTestSection_FindsTheTestBesideTheTurnsOwnWrite(t *testing.T) {
 // round has closed the read tools, and R1-12 spent three attempts trying to
 // obey that sentence with recall_context.
 func TestTestRepairPrompt_StopsAskingForAReadItCannotDo(t *testing.T) {
-	out := "--- FAIL: TestAdd (0.00s)\n    calc_test.go:5: intentional failure"
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	out := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, map[string]string{
+		"calc.go": "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+		"calc_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
+			"func TestAdd(t *testing.T) { if Add(2, 3) != 999 { t.Fatal(\"intentional failure\") } }\n",
+	}), ".")))
 	withSource := testRepairPrompt(out, "\nThe failing tests, as they are on disk:\nx_test.go: TestAdd\n")
 	if strings.Contains(withSource, "Read the failing test and the code under test") {
 		t.Errorf("the prompt still asks for a read it has already answered:\n%s", withSource)

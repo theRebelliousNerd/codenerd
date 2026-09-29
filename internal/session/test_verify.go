@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +10,7 @@ import (
 
 	"codenerd/internal/build"
 	"codenerd/internal/logging"
+	"codenerd/internal/testfacts"
 )
 
 // Post-edit test verification.
@@ -53,9 +53,19 @@ type TestVerification struct {
 	// OK is true only when the tests actually ran and passed.
 	OK bool
 
-	// Output is the test command's combined stderr/stdout, truncated. Empty on
-	// success and on runs that produced no text (skips, pre-start cancels).
+	// Output is the run's Summary: failing tests with first failure
+	// location and message, repeats as one line with a count, then a
+	// tally. Never the raw stream and never a truncation of it; the
+	// full per-test output stays recallable through Result. Empty on
+	// success and on runs that produced no text (skips, pre-start
+	// cancels).
 	Output string
+
+	// Result is the parsed `go test -json` stream: per-package and
+	// per-test status, every test's full output, failures, build
+	// failures, and repeats. Gates read their verdicts from it; a later
+	// lane stores per-test outputs for recall and asserts Facts().
+	Result *testfacts.Result
 
 	// Duration is how long the test run took.
 	Duration time.Duration
@@ -74,8 +84,9 @@ type TestVerification struct {
 	// Nil when the gate passed (or was skipped/canceled) without repair.
 	Repair *RepairRecord
 
-	// PreExistingFailures lists top-level test names that also fail without
-	// this turn's edits (baseline overlay run). Set by attributeTestFailures.
+	// PreExistingFailures lists sanitized test names, subtests included
+	// ("TestX/case_one"), that also fail without this turn's edits.
+	// Set by attributeTestFailures.
 	PreExistingFailures []string
 }
 
@@ -255,42 +266,39 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 		return TestVerification{Outcome: VerifySkipped, Reason: "no Go toolchain on PATH", Duration: time.Since(start)}
 	}
 
-	args := append([]string{"test"}, extraArgs...)
+	// -json: the verdicts below are read from the parsed Result, not
+	// scanned from human-readable text (testfacts_helpers.go).
+	args := append([]string{"test", "-json"}, extraArgs...)
 	args = append(args, filtered...)
 	command := append([]string{"go"}, args...)
 
 	out, outcome, reason := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, command[0], command[1:], verifyTestRunner)
 	elapsed := time.Since(start)
+	res := parseTestJSON(out)
 
 	switch outcome {
 	case VerifyPassed:
 		logging.SessionDebug("test verification passed in %s", elapsed.Round(time.Millisecond))
-		return TestVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: elapsed}
+		return TestVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: elapsed, Result: res}
 	case VerifyFailed:
-		text := strings.TrimSpace(string(out))
+		text := verificationOutput(res)
 		if text == "" {
 			text = reason
 		}
-		// The failing output goes back whole; the failure that matters is
-		// usually the last thing printed, which a head cut dropped first. What
-		// is dropped is the one-line verdict of every package that passed:
-		// the gate tests every importer of what the turn wrote, and a repair
-		// round gains nothing from a page of "ok" lines above the failure.
-		text = withoutPassingPackages(text)
 		logging.Get(logging.CategorySession).Warn(
 			"test verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
-		return TestVerification{Ran: true, OK: false, Output: text, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed}
+		return TestVerification{Ran: true, OK: false, Output: text, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed, Result: res}
 	case VerifyCanceled:
 		logging.Get(logging.CategorySession).Warn("test verification canceled: %s", reason)
-		return TestVerification{Ran: len(out) > 0, Output: strings.TrimSpace(string(out)), Outcome: VerifyCanceled, Command: command, Reason: reason, Duration: elapsed}
+		return TestVerification{Ran: len(out) > 0, Output: verificationOutput(res), Outcome: VerifyCanceled, Command: command, Reason: reason, Duration: elapsed, Result: res}
 	default: // VerifyIndeterminate
 		// A timeout is not evidence the tests are broken — but it is not
 		// evidence of recovery either. Report it as indeterminate with
-		// whatever the runner had printed, so gates retain what they knew
+		// whatever the runner had produced, so gates retain what they knew
 		// instead of minting a pass from silence.
 		logging.Get(logging.CategorySession).Warn(
 			"test verification timed out after %s; recovery not verified", testVerifyTimeout)
-		return TestVerification{Ran: true, Output: strings.TrimSpace(string(out)), Outcome: VerifyIndeterminate, Command: command, Reason: reason, Duration: elapsed}
+		return TestVerification{Ran: true, Output: verificationOutput(res), Outcome: VerifyIndeterminate, Command: command, Reason: reason, Duration: elapsed, Result: res}
 	}
 }
 
@@ -358,25 +366,4 @@ func untestedGoFiles(paths []string) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// withoutPassingPackages drops the summary line of each package that passed or
-// has no tests ("ok  \tpkg\t0.1s", "?   \tpkg\t[no test files]") from a failed
-// `go test` run, and says how many there were. Every other line is kept,
-// failing packages' output included, in order.
-func withoutPassingPackages(output string) string {
-	lines := strings.Split(output, "\n")
-	kept := make([]string, 0, len(lines))
-	passed := 0
-	for _, line := range lines {
-		if strings.HasPrefix(line, "ok  \t") || strings.HasPrefix(line, "?   \t") {
-			passed++
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if passed == 0 {
-		return output
-	}
-	return strings.Join(kept, "\n") + fmt.Sprintf("\n(%d other package(s) passed or have no tests)", passed)
 }

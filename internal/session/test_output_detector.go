@@ -7,10 +7,16 @@ import (
 
 // responsePresentsTestRunnerOutput reports whether text presents test-runner output.
 // It matches only strings that look like quoted runner output, not prose.
+//
+// This path only has text: a model quoted a run (the gate's Summary, or a
+// classic transcript). The gate that produced a run holds the Result and
+// reads names from it; nothing here recovers names or locations.
 // Required markers, case-sensitive where shown:
 //   - a line beginning with 'ok  ' followed by a package path
 //   - '--- PASS:'
 //   - '--- FAIL:'
+//   - a gate Summary line ('FAIL <pkg> Test...', 'build-failed <pkg>...',
+//     'repeated Nx: ...'), which is the text the test gate now publishes
 //   - '=== RUN'
 //   - 'PASS' as a standalone token on its own line or after '=>'
 //   - 'FAIL' likewise
@@ -24,6 +30,9 @@ func responsePresentsTestRunnerOutput(text string) bool {
 		return true
 	}
 	if strings.Contains(text, "--- FAIL:") {
+		return true
+	}
+	if summaryFailRe.MatchString(text) || summaryBuildRe.MatchString(text) || summaryRepeatRe.MatchString(text) {
 		return true
 	}
 	if strings.Contains(text, "=== RUN") {
@@ -54,11 +63,18 @@ func responsePresentsTestRunnerOutput(text string) bool {
 }
 
 var (
-	okLineRe       = regexp.MustCompile(`(?m)^ok  \s*\S+`)
-	passOnlyLineRe = regexp.MustCompile(`(?m)^\s*PASS\s*$`)
-	failOnlyLineRe = regexp.MustCompile(`(?m)^\s*FAIL\s*$`)
-	passArrowRe    = regexp.MustCompile(`=>\s*PASS\b`)
-	failArrowRe    = regexp.MustCompile(`=>\s*FAIL\b`)
+	// Summary lines the test gate publishes (testfacts.Summary). The second
+	// field of a FAIL line is the sanitized test name, so it starts with
+	// Test, Example, Benchmark, or Fuzz; prose such as "FAIL the build"
+	// does not.
+	summaryFailRe   = regexp.MustCompile(`(?m)^FAIL \S+ (?:Test|Example|Benchmark|Fuzz)\S*`)
+	summaryBuildRe  = regexp.MustCompile(`(?m)^build-failed \S+`)
+	summaryRepeatRe = regexp.MustCompile(`(?m)^repeated \d+x: `)
+	okLineRe        = regexp.MustCompile(`(?m)^ok  \s*\S+`)
+	passOnlyLineRe  = regexp.MustCompile(`(?m)^\s*PASS\s*$`)
+	failOnlyLineRe  = regexp.MustCompile(`(?m)^\s*FAIL\s*$`)
+	passArrowRe     = regexp.MustCompile(`=>\s*PASS\b`)
+	failArrowRe     = regexp.MustCompile(`=>\s*FAIL\b`)
 	// A bare count anywhere in prose is not a test-runner signature. Browser
 	// actions also report "0 succeeded, 1 failed", including expected stale-ref
 	// rejections. Require the count grammar or a runner-specific context.

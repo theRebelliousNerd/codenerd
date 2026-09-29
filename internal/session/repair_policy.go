@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"regexp"
 	"sync/atomic"
 
 	"codenerd/internal/logging"
@@ -21,16 +20,13 @@ func newRepairEpisodeAtom() types.MangleAtom {
 	return types.MangleAtom(fmt.Sprintf("/repair_%d_%d", os.Getpid(), repairEpisodeSeq.Add(1)))
 }
 
-// repairDurations are the parts of a build or test run's output that change
-// from one run of the same failure to the next: "--- FAIL: TestX (0.01s)" and
-// "FAIL\tpkg\t0.412s".
-var repairDurations = regexp.MustCompile(`(?m)\(\d+(?:\.\d+)?s\)|[ \t]\d+(?:\.\d+)?s[ \t]*$`)
-
-// repairFailureDigest identifies a failure: the same failing output, with its
-// durations removed, digests the same. The policy compares digests; it never
-// reads the output.
+// repairFailureDigest identifies a failure for the repair policy. The text
+// is what the gate published: a test run's Summary (durations are not in
+// it; the Result keeps elapsed) or the compiler's text for a build. The
+// same failure therefore digests the same across runs, and a different
+// message does not. The policy compares digests; it never reads the output.
 func repairFailureDigest(output string) string {
-	sum := sha256.Sum256([]byte(repairDurations.ReplaceAllString(output, " ")))
+	sum := sha256.Sum256([]byte(output))
 	return hex.EncodeToString(sum[:8])
 }
 

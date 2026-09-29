@@ -272,7 +272,18 @@ func TestVerifyAndRepairTests_RecheckTimeoutRetainsOriginalFailure(t *testing.T)
 }
 
 func TestVerifyAndRepairTests_PreExistingFailuresNeedNoRepair(t *testing.T) {
-	const failing = "--- FAIL: TestAlwaysFails (0.00s)\n    x_test.go:5: always fails\nFAIL"
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	// The gate parses `go test -json`. Both scripted runs (the head and the
+	// baseline overlay) are a real stream whose fail event names
+	// TestAlwaysFails; attribution never sees a name in a plain transcript.
+	dir := jsonTestModule(t, map[string]string{
+		"x.go": "package verifyprobe\n",
+		"x_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
+			"func TestAlwaysFails(t *testing.T) { t.Fatal(\"always fails\") }\n",
+	})
+	failing := runJSONTest(t, dir, ".")
 	tests := &scriptVerifyRunner{script: []func(context.Context) ([]byte, error){verifyFail(failing), verifyFail(failing)}}
 	builds := &scriptVerifyRunner{script: []func(context.Context) ([]byte, error){verifyPass()}}
 	stubVerifySeams(t, time.Minute, time.Minute, builds.runWithCtx, tests.runWithCtx)

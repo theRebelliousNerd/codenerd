@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/config"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/testfacts"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"context"
@@ -338,7 +339,15 @@ func (e *Executor) verifyAndRepairTests(
 		// closes the read tools after its first round that writes nothing, so
 		// a model that has not already read the test it broke cannot.
 		promptFor: func(seed string) string {
-			return testRepairPrompt(seed, failingTestSection(workspace, seed, result.WrittenPaths)) +
+			// repairSpec.promptFor threads the seed as text. The Result is
+			// the test check's when this seed is that check's Output. A
+			// build recheck's seed is compiler text and has no Result;
+			// the previous run's tests would name the wrong files.
+			var res *testfacts.Result
+			if result.TestCheck.Output == seed {
+				res = result.TestCheck.Result
+			}
+			return testRepairPrompt(seed, failingTestSection(workspace, res, result.WrittenPaths)) +
 				turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents, e.configSnapshot().repairDiffBudget())
 		},
 		// A test repair can break the build, so re-check both, cheapest
@@ -426,14 +435,21 @@ func gateOwnTests(ctx context.Context, workspace string, result *ExecutionResult
 	return withWrittenTagGatedTests(ctx, workspace, result.WrittenPaths, v), nil
 }
 
-// testBuildFailed reports whether go test output shows a package whose
-// test binary did not compile ("FAIL <pkg> [build failed]" or
-// "[setup failed]"): no test ran, so there is no test verdict to honour.
-func testBuildFailed(output string) bool {
-	for _, line := range strings.Split(output, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "FAIL") &&
-			(strings.HasSuffix(trimmed, "[build failed]") || strings.HasSuffix(trimmed, "[setup failed]")) {
+// testBuildFailed reports whether a `go test -json` run compiled nothing:
+// compiler diagnostics, or a package verdict of build-failed. A package
+// whose build constraints exclude every file fails with FailedBuild set
+// (observed 2026-09-28), which is that verdict; the "[setup failed]" line
+// is the same event's text and is not scanned. No test ran, so there is
+// no test verdict to honour.
+func testBuildFailed(res *testfacts.Result) bool {
+	if res == nil {
+		return false
+	}
+	if len(res.BuildFailures) > 0 || res.Status == testfacts.StatusBuildFailed {
+		return true
+	}
+	for _, p := range res.Packages {
+		if p.Status == testfacts.StatusBuildFailed {
 			return true
 		}
 	}
@@ -452,7 +468,13 @@ func testBuildFailed(output string) bool {
 // while the round has closed the read tools is an instruction it cannot
 // follow, and R1-12 spent three attempts on recall_context trying.
 func testRepairPrompt(testOutput, withSource string) string {
-	if testBuildFailed(testOutput) {
+	// testOutput is text because repairSpec.promptFor (repair_loop.go)
+	// threads the seed string, not the Result. A `go test` compile
+	// failure's seed is the Summary, whose build-failed lines are the
+	// diagnostics; a later `go build` recheck's seed is the compiler's
+	// own text and has no Result. Gates that hold the Result use
+	// testBuildFailed.
+	if summaryShowsBuildFailure(testOutput) {
 		return testCompileRepairPrompt(testOutput)
 	}
 	closing := "Read the failing test and the code under test before editing either."

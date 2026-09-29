@@ -15,6 +15,9 @@ import (
 // tags (which exclude the file), the turn was recorded /done, and the test
 // failed the first time anyone ran it with the tag.
 func TestGate_RunsTheTagGatedTestTheTurnWrote(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
 	workspace := t.TempDir()
 	rel := filepath.Join("pkg", "lane_test.go")
 	if err := os.MkdirAll(filepath.Join(workspace, "pkg"), 0o755); err != nil {
@@ -25,6 +28,15 @@ func TestGate_RunsTheTagGatedTestTheTurnWrote(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The tagged run is stubbed, so the bytes have to be what production
+	// parses: a real `go test -json` stream for TestLaneIsTaken, captured
+	// before the runner is replaced.
+	streamDir := jsonTestModule(t, map[string]string{
+		"lane_test.go": "package verifyprobe\n\nimport \"testing\"\n\nfunc TestLaneIsTaken(t *testing.T) { t.Fatal(\"never ran\") }\n",
+	})
+	failing := runJSONTest(t, streamDir, ".")
+	passing := runJSONTest(t, streamDir, "-run", "^$")
+
 	var taggedRun []string
 	oldRunner, oldLook := verifyTestRunner, verifyLookPath
 	verifyLookPath = func(string) (string, error) { return "go", nil }
@@ -32,9 +44,9 @@ func TestGate_RunsTheTagGatedTestTheTurnWrote(t *testing.T) {
 		joined := strings.Join(args, " ")
 		if strings.Contains(joined, "-tags integration") {
 			taggedRun = args
-			return []byte("--- FAIL: TestLaneIsTaken\nFAIL\tpkg\n"), errors.New("exit status 1")
+			return []byte(failing), errors.New("exit status 1")
 		}
-		return []byte("ok\tpkg\n"), nil // the default tags never compile the file
+		return []byte(passing), nil // the default tags never compile the file
 	}
 	t.Cleanup(func() { verifyTestRunner, verifyLookPath = oldRunner, oldLook })
 
@@ -44,11 +56,18 @@ func TestGate_RunsTheTagGatedTestTheTurnWrote(t *testing.T) {
 	if taggedRun == nil {
 		t.Fatal("the gate never ran the written test under its own build tag")
 	}
-	if !strings.Contains(strings.Join(taggedRun, " "), "^(TestLaneIsTaken)$") {
+	joined := strings.Join(taggedRun, " ")
+	if !strings.Contains(joined, "^(TestLaneIsTaken)$") {
 		t.Errorf("the tagged run was not aimed at the written test: %v", taggedRun)
+	}
+	if !strings.Contains(joined, "-json") {
+		t.Errorf("the tagged run was not `go test -json`: %v", taggedRun)
 	}
 	if got.Verdict() != VerifyFailed {
 		t.Errorf("gate verdict = %v, want failed: the test the turn wrote fails under the tag that compiles it", got.Verdict())
+	}
+	if names := failedTopLevels(got.Result); len(names) != 1 || names[0] != "TestLaneIsTaken" {
+		t.Errorf("the tagged failure is not the written test: %v", names)
 	}
 
 	// An untagged written test needs no second run, and a non-green verdict is left alone.

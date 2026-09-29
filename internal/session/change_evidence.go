@@ -31,7 +31,10 @@ func failedChecksSummary(result *ExecutionResult) string {
 	}
 	if result.TestCheck.Verdict() == VerifyFailed {
 		part := "tests fail"
-		if names := topLevelFailedTests(result.TestCheck.Output); len(names) > 0 {
+		// The run's Result already names the failures. Output is the Summary
+		// rendered from it; reading the names back out of that text would
+		// parse our own rendering.
+		if names := failedTopLevels(result.TestCheck.Result); len(names) > 0 {
 			part += ": " + strings.Join(names, ", ")
 		} else if reason := strings.TrimSpace(result.TestCheck.Reason); reason != "" {
 			part += ": " + reason

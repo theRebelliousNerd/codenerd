@@ -63,17 +63,22 @@ func pinnedByExistingTests(ctx context.Context, workspace string, u pinUnit) (bo
 	// answer early. Only a change nothing pins pays for a whole run, which is
 	// exactly when the gate is about to ask the model for a test and had
 	// better be sure.
-	args := []string{"test", "-overlay", overlayPath, "-count=1", "-failfast", "./..."}
+	args := []string{"test", "-json", "-overlay", overlayPath, "-count=1", "-failfast", "./..."}
 	out, outcome, _ := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
+	res := parseTestJSON(out)
 	switch outcome {
 	case VerifyFailed:
-		if failed := topLevelFailedTests(string(out)); len(failed) > 0 {
+		if failed := failedTestNames(res); len(failed) > 0 {
 			return true, strings.Join(failed, ", ")
 		}
-		// It stopped compiling without the change. That is something noticing,
-		// but not a behaviour anyone pinned: a caller that no longer resolves
-		// says the symbol is used, not that what it does is checked.
-		return false, "the tree stops compiling without it, which no test asserts"
+		if testBuildFailed(res) {
+			// It stopped compiling without the change. That is something
+			// noticing, but not a behaviour anyone pinned: a caller that no
+			// longer resolves says the symbol is used, not that what it
+			// does is checked.
+			return false, "the tree stops compiling without it, which no test asserts"
+		}
+		return false, "the run failed without naming a failing test"
 	case VerifyPassed:
 		return false, "the whole suite passes with it taken out"
 	default:

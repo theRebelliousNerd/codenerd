@@ -13,15 +13,37 @@ import (
 	"codenerd/internal/types"
 )
 
-func TestRepairFailureDigest_DurationsDoNotMakeAFailureNew(t *testing.T) {
-	a := "--- FAIL: TestProbe (0.00s)\n    main_test.go:6: broken\nFAIL\nFAIL\trepairprobe\t0.412s\n"
-	b := "--- FAIL: TestProbe (0.03s)\n    main_test.go:6: broken\nFAIL\nFAIL\trepairprobe\t1.9s\n"
-	other := "--- FAIL: TestProbe (0.00s)\n    main_test.go:6: still broken\nFAIL\nFAIL\trepairprobe\t0.412s\n"
-	if repairFailureDigest(a) != repairFailureDigest(b) {
-		t.Fatal("the same failure with other durations digests differently")
+// Two real runs of the same failure digest the same: the published text is
+// the Summary, which carries the failure and not the run's elapsed time.
+// A different message digests differently.
+func TestRepairFailureDigest_SameSummaryIsTheSameFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
 	}
+	files := func(msg string) map[string]string {
+		return map[string]string{
+			"calc.go": "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+			"calc_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
+				"func TestProbe(t *testing.T) { t.Errorf(\"" + msg + "\") }\n",
+		}
+	}
+	dir := jsonTestModule(t, files("broken"))
+	first := runJSONTest(t, dir, ".")
+	second := runJSONTest(t, dir, ".")
+	a := verificationOutput(parseJSONTest(t, first))
+	b := verificationOutput(parseJSONTest(t, second))
+	if repairFailureDigest(a) != repairFailureDigest(b) {
+		t.Fatalf("the same failure digested differently:\n%s\n---\n%s", a, b)
+	}
+	if strings.Contains(a, "--- FAIL:") || strings.Contains(a, `"Action"`) {
+		t.Fatalf("the digest input is raw runner text, not the Summary:\n%s", a)
+	}
+	if !strings.Contains(a, "broken") {
+		t.Fatalf("the Summary lost the failure message:\n%s", a)
+	}
+	other := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, files("still broken")), ".")))
 	if repairFailureDigest(a) == repairFailureDigest(other) {
-		t.Fatal("a different failure digests the same")
+		t.Fatal("a different failure message digested the same")
 	}
 }
 

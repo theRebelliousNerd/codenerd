@@ -3,7 +3,10 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"codenerd/internal/testfacts"
 )
 
 // A repair round is handed the failing tests' source (external audit N24).
@@ -18,15 +21,34 @@ import (
 // reconstruction from memory" -- and this is the same answer for the tests a
 // change broke.
 
-// failingTestSection renders each test named in the runner's output as it is
-// on disk. It returns "" when no name is parsed or no source is found: the
-// prompt then says exactly what it said before.
-func failingTestSection(workspace, output string, written []string) string {
-	names := topLevelFailedTests(output)
-	if len(names) == 0 {
+// failingTestSection renders each failed test the run's Result names, as it
+// is on disk. It returns "" when the Result names no failure or no source is
+// found: the prompt then says exactly what it said before. Names come from
+// the test verdicts, not from the Summary the prompt also shows.
+func failingTestSection(workspace string, res *testfacts.Result, written []string) string {
+	if res == nil {
 		return ""
 	}
-	dirs := failingTestDirs(workspace, output, written)
+	var pkgs []string
+	topSet := make(map[string]bool)
+	for _, p := range res.Packages {
+		for _, ft := range p.Tests {
+			if ft.Status != testfacts.StatusFail || ft.Name == "" {
+				continue
+			}
+			pkgs = append(pkgs, p.Name)
+			topSet[topLevelTestName(ft.Name)] = true
+		}
+	}
+	if len(topSet) == 0 {
+		return ""
+	}
+	var names []string
+	for n := range topSet {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	dirs := failingTestDirs(workspace, pkgs, written)
 	var b strings.Builder
 	for _, name := range names {
 		path, src := findTestFunc(workspace, dirs, name)
@@ -43,9 +65,9 @@ func failingTestSection(workspace, output string, written []string) string {
 		"the edit tools are what this round is for.\n"
 }
 
-// failingTestDirs are the directories to look in: the packages the runner
+// failingTestDirs are the directories to look in: the packages the Result
 // reported as failing, and the directories the turn wrote to.
-func failingTestDirs(workspace, output string, written []string) []string {
+func failingTestDirs(workspace string, pkgs []string, written []string) []string {
 	seen := map[string]bool{}
 	var dirs []string
 	add := func(rel string) {
@@ -59,17 +81,13 @@ func failingTestDirs(workspace, output string, written []string) []string {
 		seen[rel] = true
 		dirs = append(dirs, rel)
 	}
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) < 2 || fields[0] != "FAIL" {
-			continue
-		}
-		// "FAIL codenerd/internal/tools/codedom": the import path with the
-		// module's own name in front of it. The module path is not read from
-		// go.mod -- the first segment is dropped and the rest tried as a
-		// directory, then the whole path, so a module whose name is a domain
-		// works the same way.
-		pkg := filepath.ToSlash(fields[1])
+	for _, pkg := range pkgs {
+		// "probe/internal/probe": the import path with the module's own
+		// name in front of it. The module path is not read from go.mod --
+		// the first segment is dropped and the rest tried as a directory,
+		// then the whole path, so a module whose name is a domain works
+		// the same way.
+		pkg = filepath.ToSlash(pkg)
 		if i := strings.Index(pkg, "/"); i >= 0 {
 			add(pkg[i+1:])
 		}

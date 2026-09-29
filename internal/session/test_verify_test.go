@@ -261,10 +261,11 @@ func TestVerifyTests_RunsExactlyRequestedPackages(t *testing.T) {
 	}
 }
 
-// A failing test that prints a lot is fed back whole. The failure that
-// matters is usually the last line, which a head cut dropped first; if the
-// log does not fit the window, the broker refuses the repair request and
-// says so rather than repairing from a sample.
+// A failing test that prints a lot loses nothing. Output is the Summary,
+// whose size follows the content: a single long failure line is inlined
+// whole, never cut to fit, and the Result keeps every line for recall.
+// (A *repeated* flood collapses to one counted line instead; see
+// TestVerificationOutput_RepeatFloodIsOneLine.)
 func TestVerifyTests_KeepsLongOutputWhole(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles throwaway package with large output")
@@ -291,14 +292,74 @@ func TestVerifyTests_KeepsLongOutputWhole(t *testing.T) {
 	if v.OK {
 		t.Fatal("verification passed a failing test")
 	}
+	// The 8000-byte line is the test's first failure, so the Summary leads
+	// with it whole: its size follows the content, never a cap. A repeated
+	// flood collapses instead (TestVerificationOutput_RepeatFloodIsOneLine);
+	// a single long failure line is inlined, not cut.
 	if strings.Count(v.Output, "X") < 8000 {
-		t.Errorf("output was cut: %d bytes kept of a log longer than 8000", len(v.Output))
+		t.Errorf("the first failure's message was cut: %d bytes kept of a log longer than 8000", len(v.Output))
 	}
-	if !strings.Contains(v.Output, "fail big") {
-		t.Errorf("the failure message at the end of the log was dropped: %q", v.Output)
+	if !strings.Contains(v.Output, "big_test.go:9") {
+		t.Errorf("the Summary does not name the failure's file and line: %q", v.Output)
 	}
 	if strings.Contains(v.Output, "truncated") {
 		t.Errorf("output carries a truncation marker: %q", v.Output)
+	}
+	if v.Result == nil {
+		t.Fatal("the verification kept no Result; the full log is recallable from nowhere")
+	}
+	// The Summary leads with the first failure; the Result keeps every
+	// line, including the fatal at the end, for recall.
+	if full := v.Result.Output("verifyprobe", "TestBig"); !strings.Contains(full, "fail big") {
+		t.Errorf("recall lost the fatal at the end of the log: %q", full)
+	}
+}
+
+// The gate runs `go test -json` and publishes the Summary: the failure with
+// its file and message, no raw event lines, and the Result behind it.
+func TestVerifyTests_PublishesTheSummary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles throwaway packages")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+	write("calc.go", "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n")
+	write("calc_test.go", "package verifyprobe\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) { if Add(2,3) != 999 { t.Fatal(\"intentional failure\") } }\n")
+
+	v := verifyTests(context.Background(), ws, []string{"."})
+	if !v.Ran || v.OK {
+		t.Fatalf("Ran=%v OK=%v; want a run that failed", v.Ran, v.OK)
+	}
+	if v.Result == nil {
+		t.Fatal("the verification kept no Result")
+	}
+	if v.Output != verificationOutput(v.Result) {
+		t.Errorf("Output is not the Result's rendering:\n%q\nvs\n%q", v.Output, verificationOutput(v.Result))
+	}
+	for _, want := range []string{"FAIL verifyprobe TestAdd", "calc_test.go:5", "intentional failure"} {
+		if !strings.Contains(v.Output, want) {
+			t.Errorf("the Summary does not carry %q:\n%s", want, v.Output)
+		}
+	}
+	if strings.Contains(v.Output, `"Action"`) {
+		t.Errorf("the Summary leaks raw -json lines:\n%s", v.Output)
+	}
+	foundJSON := false
+	for _, arg := range v.Command {
+		foundJSON = foundJSON || arg == "-json"
+	}
+	if !foundJSON {
+		t.Errorf("the gate did not run go test -json: %q", v.Command)
 	}
 }
 
@@ -306,7 +367,14 @@ func TestVerifyTests_KeepsLongOutputWhole(t *testing.T) {
 // tests fail" will often delete or weaken the assertion, which turns red green
 // while destroying the thing that made the suite worth running.
 func TestTestRepairPrompt_ForbidsWeakeningTheTest(t *testing.T) {
-	out := "--- FAIL: TestAdd (0.00s)\n    calc_test.go:5: intentional failure"
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	out := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, map[string]string{
+		"calc.go": "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+		"calc_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
+			"func TestAdd(t *testing.T) { if Add(2, 3) != 999 { t.Fatal(\"intentional failure\") } }\n",
+	}), ".")))
 	p := testRepairPrompt(out, "")
 
 	if !strings.Contains(p, out) {
@@ -325,39 +393,51 @@ func TestTestRepairPrompt_ForbidsWeakeningTheTest(t *testing.T) {
 }
 
 func TestTestBuildFailed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	broken := jsonTestModule(t, map[string]string{
+		"calc.go":        "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+		"broken_test.go": "package verifyprobe\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { neverWritten() }\n",
+	})
+	failing := jsonTestModule(t, failingModule())
+	gated := jsonTestModule(t, map[string]string{
+		"gated/g_test.go": "//go:build integration\n\npackage gated\n\nimport \"testing\"\n\nfunc TestGated(t *testing.T) {}\n",
+	})
 	cases := []struct {
-		name   string
-		output string
-		want   bool
+		name string
+		dir  string
+		args []string
+		want bool
 	}{
-		{
-			"live build failure",
-			"internal\\session\\tool_timeout_hook_test.go:34:97: undefined: config.EffectiveAgentRuntimeConfig\nFAIL\tcodenerd/internal/session [build failed]",
-			true,
-		},
-		{
-			"ordinary test failure is not a build failure",
-			"--- FAIL: TestX (0.00s)\nFAIL\nFAIL\tcodenerd/internal/session\t1.2s",
-			false,
-		},
-		{
-			"setup failure counts as no test ran",
-			"FAIL\tcodenerd/tests/e2e [setup failed]",
-			true,
-		},
-		{"empty output", "", false},
+		{"live build failure", broken, []string{"."}, true},
+		{"ordinary test failure is not a build failure", failing, []string{"."}, false},
+		{"excluded-by-constraints setup failure counts as no test ran", gated, []string{"./gated/"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := testBuildFailed(tc.output); got != tc.want {
-				t.Errorf("testBuildFailed(%q) = %v; want %v", tc.output, got, tc.want)
+			res := parseTestJSON([]byte(runJSONTest(t, tc.dir, tc.args...)))
+			if got := testBuildFailed(res); got != tc.want {
+				t.Errorf("testBuildFailed = %v; want %v:\n%s", got, tc.want, res.Summary())
 			}
 		})
+	}
+	if testBuildFailed(nil) {
+		t.Error("testBuildFailed(nil) = true; want false")
+	}
+	if testBuildFailed(parseTestJSON(nil)) {
+		t.Error("testBuildFailed on an empty stream = true; want false")
 	}
 }
 
 func TestTestRepairPrompt_BuildFailureBlamesTheTestFile(t *testing.T) {
-	out := "internal\\session\\tool_timeout_hook_test.go:34:97: undefined: config.EffectiveAgentRuntimeConfig\nFAIL\tcodenerd/internal/session [build failed]"
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	out := verificationOutput(parseJSONTest(t, runJSONTest(t, jsonTestModule(t, map[string]string{
+		"calc.go":        "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+		"broken_test.go": "package verifyprobe\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { neverWritten() }\n",
+	}), ".")))
 	p := testRepairPrompt(out, "")
 
 	for _, want := range []string{"do not compile", "the test file is what is wrong", "Do NOT add, alias or re-export"} {
