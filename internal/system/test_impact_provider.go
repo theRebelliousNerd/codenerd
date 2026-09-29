@@ -30,13 +30,16 @@ import (
 	"codenerd/internal/world"
 )
 
-// kernelFactQuerier adapts a *core.RealKernel to codedom.KernelQuerier.
+// kernelFactQuerier adapts a FactQuerier to codedom.KernelQuerier.
 //
 // core.Fact and codedom.FactData are the same shape by construction — codedom
 // declares its own so internal/tools does not import internal/core — so this is
-// a field copy, not a conversion.
+// a field copy, not a conversion. The querier is the cortex in production
+// (world.FactQuerier): element_modified, plan_edit, code_element and code_calls
+// are owned by the world shard, and a *core.RealKernel here was the catch-all,
+// whose Query returned none of them.
 type kernelFactQuerier struct {
-	kernel *core.RealKernel
+	kernel world.FactQuerier
 }
 
 // Query returns the kernel's facts for predicate in codedom's fact shape.
@@ -82,19 +85,43 @@ func (p *testImpactProvider) NewTestDependencyAnalyzer() codedom.TestDependencyA
 	return world.NewTestDependencyBuilder(p.querier, p.projectRoot)
 }
 
+// liveFactQuerier drops a nil interface and a typed-nil kernel pointer.
+//
+// wireTestImpactProvider used to take *core.RealKernel, so a nil pointer
+// compared equal to nil. Stored in world.FactQuerier, that same nil pointer
+// is a non-nil interface and the first Query panics.
+func liveFactQuerier(q world.FactQuerier) world.FactQuerier {
+	if q == nil {
+		return nil
+	}
+	switch v := q.(type) {
+	case *core.RealKernel:
+		if v == nil {
+			return nil
+		}
+	case *core.CortexKernel:
+		if v == nil {
+			return nil
+		}
+	}
+	return q
+}
+
 // wireTestImpactProvider registers the impacted-test provider for this Cortex.
 //
-// Nil kernel or empty workspace clears the registration instead of installing a
-// half-built provider: the tools then fail with their honest
-// "not initialized" message rather than querying a nil kernel.
-func wireTestImpactProvider(rk *core.RealKernel, workspace string) {
-	if rk == nil || workspace == "" {
+// kernel is the cortex, not its catch-all shard. Nil kernel or empty workspace
+// clears the registration instead of installing a half-built provider: the
+// tools then fail with their honest "not initialized" message rather than
+// querying a nil kernel.
+func wireTestImpactProvider(kernel world.FactQuerier, workspace string) {
+	kernel = liveFactQuerier(kernel)
+	if kernel == nil || workspace == "" {
 		codedom.RegisterTestImpactProvider(nil)
-		logging.Get(logging.CategoryBoot).Debug("test impact provider not registered (kernel=%v workspace=%q)", rk != nil, workspace)
+		logging.Get(logging.CategoryBoot).Debug("test impact provider not registered (kernel=%v workspace=%q)", kernel != nil, workspace)
 		return
 	}
 	codedom.RegisterTestImpactProvider(&testImpactProvider{
-		querier:     &kernelFactQuerier{kernel: rk},
+		querier:     &kernelFactQuerier{kernel: kernel},
 		projectRoot: workspace,
 	})
 	logging.Get(logging.CategoryBoot).Debug("test impact provider registered for %s", workspace)

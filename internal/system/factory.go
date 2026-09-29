@@ -2038,6 +2038,28 @@ func registerUserAgentConfigAtoms(provider *prompt.DefaultConfigAtomProvider, wo
 	}
 }
 
+// installContextProviders wires the holographic file-context provider and the
+// impacted-test tools to the kernel they read.
+//
+// Both used to be built on GetPrimaryRealKernel, the catch-all shard.
+// code_calls, dependency_link, code_element, element_modified and plan_edit
+// are owned by the world shard, and context_priority_file is derived there
+// from those facts. Measured on NewDomainCortex (2026-09-28): each of those
+// predicates had 0 rows in the catch-all and was present on CortexKernel.Query,
+// so every production turn rendered unordered callers and run_impacted_tests
+// reported "no plan_edit facts found". Neither provider asserts; Query is the
+// whole surface, and CortexKernel already implements it. A non-cortex kernel
+// (a test override) gets no provider, which is what the old type switch did.
+func installContextProviders(kernel core.Kernel, workspace string) session.FileContextProvider {
+	ck, ok := kernel.(*core.CortexKernel)
+	if !ok || ck == nil {
+		return nil
+	}
+	provider := world.NewHolographicProvider(ck, workspace)
+	wireTestImpactProvider(ck, workspace)
+	return provider
+}
+
 func initFinalExecutors(bctx *bootContext) error {
 	worldCfg := bctx.appCfg.GetWorldConfig()
 	bctx.scanner = world.NewScannerWithConfig(world.ScannerConfig{
@@ -2160,19 +2182,10 @@ func initFinalExecutors(bctx *bootContext) error {
 	// loadProjectDoc, so a construction site that forgets this line loses the
 	// prose, not the guarantee.
 	bctx.sessionExecutor.SetProjectDoc(bctx.projectDoc)
-	var fileContextProvider session.FileContextProvider
-	if ck, ok := bctx.kernel.(*core.CortexKernel); ok {
-		if rk := ck.GetPrimaryRealKernel(); rk != nil {
-			fileContextProvider = world.NewHolographicProvider(rk, bctx.workspace)
-			// The impacted-test tools read a package-level provider that
-			// nothing set until 2026-09-09, so run_impacted_tests and
-			// get_impacted_tests failed on every call while still being
-			// advertised to the model. Registering here ties their lifetime to
-			// the Cortex that owns the kernel they query. See
-			// test_impact_provider.go.
-			wireTestImpactProvider(rk, bctx.workspace)
-		}
-	}
+	// The holographic provider and the impacted-test tools read world-owned
+	// predicates. GetPrimaryRealKernel is the catch-all and does not hold
+	// them; installContextProviders passes the cortex. See that function.
+	fileContextProvider := installContextProviders(bctx.kernel, bctx.workspace)
 	if fileContextProvider != nil {
 		bctx.sessionExecutor.SetFileContextProvider(fileContextProvider)
 	}

@@ -97,6 +97,11 @@ func TestWireTestImpactProvider_ClearsOnNilKernel(t *testing.T) {
 	wireTestImpactProvider(kernel, t.TempDir())
 	wireTestImpactProvider(nil, t.TempDir())
 
+	// A nil *CortexKernel stored in FactQuerier is not == nil, and Query panics.
+	wireTestImpactProvider(kernel, t.TempDir())
+	var typedNil *core.CortexKernel
+	wireTestImpactProvider(typedNil, t.TempDir())
+
 	out, err := codedom.GetImpactedTestsTool().Execute(context.Background(), map[string]any{})
 	if err == nil {
 		t.Fatalf("expected an error after clearing the provider, got output: %s", out)
