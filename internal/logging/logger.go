@@ -426,6 +426,16 @@ type removedKeyError struct{ msg string }
 
 func (e *removedKeyError) Error() string { return e.msg }
 
+// IsRemovedKeyError reports whether err is the rejection of a config that
+// still carries a logging key this package no longer honours (see
+// rejectRemovedLoggingKeys). CLI entry points use it to fail the boot on
+// that one error while every other Initialize failure still warns and
+// continues: errors.As because the rejection may arrive wrapped.
+func IsRemovedKeyError(err error) bool {
+	var removed *removedKeyError
+	return errors.As(err, &removed)
+}
+
 // rejectRemovedLoggingKeys fails a config load that still carries a logging
 // key this package no longer honours. It mirrors internal/config's
 // rejectRemovedKeys — same message shape, same reason — because this package

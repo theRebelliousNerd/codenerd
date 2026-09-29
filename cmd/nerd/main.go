@@ -58,6 +58,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -109,32 +110,44 @@ Architecture: Logic determines Reality; the Model merely describes it.
 Run without arguments to start the interactive chat interface.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		// Skip logger init for interactive mode (it has its own UI and logging setup)
-		if cmd.Use == "nerd" && cmd.CalledAs() == "nerd" {
-			return nil
+		// Interactive chat builds its own zap logger and UI. File logging
+		// still runs below: this is the first moment --workspace has been
+		// parsed, and a removed logging key has to stop the process before
+		// RunE starts the TUI.
+		interactive := cmd.Use == "nerd" && cmd.CalledAs() == "nerd"
+		if !interactive {
+			// Initialize zap logger for CLI output
+			zapConfig := zap.NewProductionConfig()
+			if verbose {
+				zapConfig.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+			}
+			var err error
+			logger, err = zapConfig.Build()
+			if err != nil {
+				return fmt.Errorf("failed to initialize logger: %w", err)
+			}
 		}
 
-		// Initialize zap logger for CLI output
-		zapConfig := zap.NewProductionConfig()
-		if verbose {
-			zapConfig.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
-		}
-		var err error
-		logger, err = zapConfig.Build()
-		if err != nil {
-			return fmt.Errorf("failed to initialize logger: %w", err)
-		}
-
-		// Initialize internal file-based logging system for telemetry/debugging
-		// This enables .nerd/logs/ output for non-interactive commands
+		// File logging for telemetry. ws is the parsed --workspace flag.
+		// main may already have bound a different directory: Initialize
+		// rebinds on a new absolute path and closes the old sinks first.
 		ws := workspace
 		if ws == "" {
 			ws, _ = os.Getwd()
 		}
 		if err := logging.Initialize(ws); err != nil {
-			// Fallback: If file logging fails, just warn and continue without it.
-			// This prevents the CLI from crashing due to permission issues in valid workspaces.
-			fmt.Fprintf(os.Stderr, "Warning: Failed to initialize file logging (telemetry disabled): %v\n", err)
+			// logging.json_format is a removed key, so the process stops.
+			// A rebind closes every sink before this error comes back
+			// (logger.go); continuing would leave the run with file
+			// logging torn down. Permission and missing-file errors still
+			// warn and continue. Interactive chat prints that warning
+			// itself when its boot calls Initialize again.
+			if logging.IsRemovedKeyError(err) {
+				return err
+			}
+			if !interactive {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to initialize file logging (telemetry disabled): %v\n", err)
+			}
 		}
 
 		return nil
@@ -363,14 +376,67 @@ func isCampaignInvocation() bool {
 	return false
 }
 
+// workspaceFromArgs is the --workspace/-w value in args. main calls it
+// before cobra parses argv. args is os.Args[1:], the same slice
+// invokesConfigCommand walks. The value may be a separate argument or
+// joined with '='. A bare "--" ends the scan.
+func workspaceFromArgs(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return ""
+		}
+		switch {
+		case arg == "-w" || arg == "--workspace":
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		case strings.HasPrefix(arg, "--workspace="):
+			return strings.TrimPrefix(arg, "--workspace=")
+		case strings.HasPrefix(arg, "-w="):
+			return strings.TrimPrefix(arg, "-w=")
+		}
+	}
+	return ""
+}
+
+// bindEarlyFileLogging starts file logging before cobra parses argv, so the
+// boot category exists for the startup metrics main emits next.
+//
+// The workspace is --workspace/-w when args carries it, otherwise the
+// process working directory. Initialize rebinds on a different absolute
+// path and closes every sink first (logger.go). Binding the directory the
+// command will use means a leftover logging.json_format fails on that
+// directory's own config.
+//
+// A removed-key error is returned so main can exit. Any other error is
+// discarded: PersistentPreRunE warns and the command continues, and its
+// own Initialize call observes the same failure.
+func bindEarlyFileLogging(args []string) error {
+	ws := workspaceFromArgs(args)
+	if ws == "" {
+		var err error
+		ws, err = os.Getwd()
+		if err != nil || ws == "" {
+			return nil
+		}
+	}
+	err := logging.Initialize(ws)
+	if logging.IsRemovedKeyError(err) {
+		return err
+	}
+	return nil
+}
+
 func main() {
-	// Ensure file-based logging is up before we emit startup metrics so
-	// the boot category captures the snapshot. Initialize is idempotent
-	// (sync.Once-guarded), so subsequent callers in PersistentPreRunE /
-	// interactive chat see a no-op.
-	ws, _ := os.Getwd()
-	if ws != "" {
-		_ = logging.Initialize(ws)
+	// File logging has to be up before startup metrics. The workspace is
+	// whatever --workspace names, read from argv because cobra has not
+	// parsed flags yet. A different absolute path rebinds and closes the
+	// sinks already open; it is not a process-wide sync.Once.
+	if err := bindEarlyFileLogging(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "codeNERD will not start: %v\n", err)
+		os.Exit(2)
 	}
 
 	// Eagerly load .nerd/config.json so the internal/features registry is
@@ -415,7 +481,7 @@ func main() {
 			// disk before unwinding so post-mortem analysis is possible.
 			defer func() {
 				if r := recover(); r != nil {
-					nerdDir := ws
+					nerdDir := workspaceFromArgs(os.Args[1:])
 					if nerdDir == "" {
 						nerdDir, _ = os.Getwd()
 					}

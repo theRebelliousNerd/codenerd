@@ -45,6 +45,13 @@ func sharedBootConfig(cfg *config.UserConfig, disableSystemShards []string, apiK
 func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace string) tea.Msg {
 	bootStart := time.Now()
 	if err := logging.Initialize(workspace); err != nil {
+		// logging.json_format is a removed key, so the boot stops. A
+		// rebind closes every sink before this error comes back
+		// (logger.go). Every other init failure stays a warning and the
+		// boot continues without file logging.
+		if logging.IsRemovedKeyError(err) {
+			return bootCompleteMsg{err: err}
+		}
 		fmt.Printf("[boot] Warning: logging init failed: %v\n", err)
 	}
 	bootLog := logging.Get(logging.CategoryBoot)
