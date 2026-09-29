@@ -9,25 +9,18 @@ import (
 // ToolRenderer renders a compiled tool set into LLM-consumable format.
 type ToolRenderer struct {
 	includeSchemas bool
-	maxSchemaLen   int
 }
 
 // NewToolRenderer creates a new tool renderer.
 func NewToolRenderer() *ToolRenderer {
 	return &ToolRenderer{
 		includeSchemas: true,
-		maxSchemaLen:   500,
 	}
 }
 
 // SetIncludeSchemas sets whether to include JSON schemas in full tool output.
 func (r *ToolRenderer) SetIncludeSchemas(include bool) {
 	r.includeSchemas = include
-}
-
-// SetMaxSchemaLen sets the maximum length for JSON schemas.
-func (r *ToolRenderer) SetMaxSchemaLen(maxLen int) {
-	r.maxSchemaLen = maxLen
 }
 
 // Render renders a compiled tool set into markdown format for LLM context.
@@ -113,14 +106,11 @@ func (r *ToolRenderer) formatSchema(raw json.RawMessage) string {
 		return string(raw)
 	}
 
-	result := string(formatted)
-
-	// Truncate if too long
-	if r.maxSchemaLen > 0 && len(result) > r.maxSchemaLen {
-		result = result[:r.maxSchemaLen] + "\n  ...(truncated)"
-	}
-
-	return result
+	// Whole: a schema cut mid-JSON is not a shorter schema, it is a broken
+	// one. The compiler already tiers tools by token budget before this
+	// renderer runs, and the working context ledger archives large results
+	// behind recall handles; nothing here may cut.
+	return string(formatted)
 }
 
 // RenderCompact renders a compact single-line summary.

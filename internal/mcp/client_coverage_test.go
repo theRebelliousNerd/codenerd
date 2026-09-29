@@ -535,18 +535,15 @@ func TestProcessToolSchema_WhenNoAnalyzer_ShouldSetCondensed(t *testing.T) {
 	mgr := NewMCPClientManager(nil, nil, nil)
 	schema := MCPToolSchema{
 		Name:        "long_tool",
-		Description: "This is a very long description that should be truncated to fit within the condensed limit for display purposes in the LLM context window",
+		Description: "This is a very long description that must arrive whole: a cut summary reads as complete while hiding the rest with no way to recall it",
 	}
 
 	tool, err := mgr.processToolSchema(context.Background(), "srv", schema)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if tool.Condensed == "" {
-		t.Error("expected condensed description to be set")
-	}
-	if len(tool.Condensed) > 83 { // 80 + "..."
-		t.Errorf("expected condensed <= 83 chars, got %d", len(tool.Condensed))
+	if tool.Condensed != schema.Description {
+		t.Errorf("expected condensed to carry the whole %d-char description, got %d chars", len(schema.Description), len(tool.Condensed))
 	}
 }
 

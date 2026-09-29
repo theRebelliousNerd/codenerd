@@ -421,9 +421,12 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 		}
 	}
 
-	// Set default condensed if not set
+	// Default condensed is the whole description. An 80-rune cut reads as a
+	// complete summary while hiding the rest with no way to recall it; the
+	// compiler already budgets secondary tools by tier and count, so the
+	// text itself stays intact.
 	if tool.Condensed == "" && tool.Description != "" {
-		tool.Condensed = truncate(tool.Description, 80)
+		tool.Condensed = tool.Description
 	}
 
 	// Classify for the control plane. This deliberately runs on every tool,

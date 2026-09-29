@@ -453,8 +453,10 @@ func builtinGrep(name string, args []string, scope builtinScope) string {
 	}
 
 	var out strings.Builder
-	matches := 0
-	const maxMatches = 2000 // safety bound on output volume
+	// No match cap: grep prints every hit whole and the working context
+	// ledger archives large tool results behind recall handles. The old
+	// 2000-match ceiling with "...[truncated]" silently lost the matches
+	// the model never saw.
 
 	// Display paths stay relative to the command working dir. The base is
 	// symlink-resolved because every admitted path is canonical; without that,
@@ -492,16 +494,20 @@ func builtinGrep(name string, args []string, scope builtinScope) string {
 				} else {
 					fmt.Fprintf(&out, "%s:%s\n", rel, line)
 				}
-				matches++
 				fileHits++
-				if matches >= maxMatches {
-					out.WriteString("...[truncated]\n")
-					return
-				}
+				// maxCount is the model's own -m flag: caller-set paging,
+				// not a cut. There is no other ceiling here.
 				if maxCount > 0 && fileHits >= maxCount {
 					return
 				}
 			}
+		}
+		if err := scanner.Err(); err != nil {
+			// The 4MB line ceiling only bites on lines that are not
+			// line-shaped — minified bundles, embedded assets. Stopping
+			// silently would read as "no more matches below", so the skip
+			// is announced on the output it shortens.
+			fmt.Fprintf(&out, "%s: rest of file skipped (%v)\n", rel, err)
 		}
 	}
 
@@ -535,16 +541,10 @@ func builtinGrep(name string, args []string, scope builtinScope) string {
 				if admitted, err := scope.resolve(walkPath); err == nil {
 					searchFile(admitted)
 				}
-				if matches >= maxMatches {
-					return filepath.SkipAll
-				}
 				return nil
 			})
 		} else {
 			searchFile(full)
-		}
-		if matches >= maxMatches {
-			break
 		}
 	}
 

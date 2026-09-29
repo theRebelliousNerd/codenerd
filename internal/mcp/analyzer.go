@@ -87,7 +87,10 @@ func (a *ToolAnalyzer) analyzeWithoutLLM(schema MCPToolSchema) (*ToolAnalysis, e
 		Domain:          "/general",
 		ShardAffinities: defaultShardAffinities(),
 		UseCases:        []string{schema.Description},
-		Condensed:       truncateDescription(schema.Description, 80),
+		// Whole, not cut at 80 runes: a severed summary reads as a complete
+		// one and the rest is unreachable. The compiler already budgets
+		// secondary tools by tier and count; the text itself stays intact.
+		Condensed: strings.TrimSpace(schema.Description),
 	}
 
 	// Generate embedding if available
@@ -222,12 +225,14 @@ func (a *ToolAnalyzer) parseAnalysisResponse(response string, schema MCPToolSche
 		Domain:          normalizeDomain(result.Domain),
 		ShardAffinities: normalizeAffinities(result.ShardAffinities),
 		UseCases:        result.UseCases,
-		Condensed:       truncateDescription(result.Condensed, 80),
+		// The LLM's own summary, kept whole: cutting a semantic
+		// condensation at 80 runes severs it mid-thought.
+		Condensed: strings.TrimSpace(result.Condensed),
 	}
 
 	// Fallback for empty condensed
 	if analysis.Condensed == "" {
-		analysis.Condensed = truncateDescription(schema.Description, 80)
+		analysis.Condensed = strings.TrimSpace(schema.Description)
 	}
 
 	return analysis, nil
@@ -506,17 +511,6 @@ func normalizeAffinities(affinities map[string]int) map[string]int {
 	}
 
 	return result
-}
-
-func truncateDescription(s string, maxLen int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // Ensure ToolAnalyzer implements ToolAnalyzerInterface.

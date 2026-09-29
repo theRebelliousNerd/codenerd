@@ -94,7 +94,6 @@ func notFoundWithSuggestions(absPath, rawPath string) error {
 	sort.Strings(related)
 	sort.Strings(all)
 
-	const maxList = 40
 	if len(related) > 0 {
 		return fmt.Errorf("file not found: %s. Did you mean one of these in the same directory: %s? "+
 			"(read one of those, or use glob to search more widely -- do not guess another filename)",
@@ -103,14 +102,14 @@ func notFoundWithSuggestions(absPath, rawPath string) error {
 	if len(all) == 0 {
 		return fmt.Errorf("file not found: %s (directory exists but contains no files)", rawPath)
 	}
-	if len(all) > maxList {
-		return fmt.Errorf("file not found: %s. That directory contains %d files, including: %s ... "+
-			"(use glob to narrow it down rather than guessing)",
-			rawPath, len(all), strings.Join(all[:maxList], ", "))
-	}
-	return fmt.Errorf("file not found: %s. That directory contains: %s "+
+	// The listing is whole. A capped "including ..." names forty files the
+	// model cannot distinguish from the ones it cannot see; the working
+	// context ledger already archives large tool results behind recall
+	// handles, so the error carries every name and the ledger decides what
+	// stays in the window.
+	return fmt.Errorf("file not found: %s. That directory contains %d files: %s "+
 		"(pick one of those, or use glob to search elsewhere -- do not guess another filename)",
-		rawPath, strings.Join(all, ", "))
+		rawPath, len(all), strings.Join(all, ", "))
 }
 
 func directoryReadWithListing(absPath, rawPath string) error {
@@ -127,18 +126,16 @@ func directoryReadWithListing(absPath, rawPath string) error {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	const maxList = 40
 	if len(names) == 0 {
 		return fmt.Errorf("path is a directory, not a file: %s (directory is empty; use list_files or glob to enumerate directory contents)", rawPath)
 	}
-	if len(names) > maxList {
-		return fmt.Errorf("path is a directory, not a file: %s. Contents (%d): %s ... "+
-			"(read one of those files; use list_files or glob only if you need a wider search)",
-			rawPath, len(names), strings.Join(names[:maxList], ", "))
-	}
-	return fmt.Errorf("path is a directory, not a file: %s. Contents: %s. "+
+	// Whole, for the same reason as the not-found listing above: a capped
+	// contents list hides names the model needs to pick its next read, and
+	// the working context ledger archives large tool results behind recall
+	// handles instead of cutting them.
+	return fmt.Errorf("path is a directory, not a file: %s. Contents (%d): %s. "+
 		"Read one of those files; use list_files or glob only if you need a wider search",
-		rawPath, strings.Join(names, ", "))
+		rawPath, len(names), strings.Join(names, ", "))
 }
 
 func executeReadFile(ctx context.Context, args map[string]any) (string, error) {

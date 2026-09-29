@@ -78,12 +78,15 @@ func TestNormalizeAffinities(t *testing.T) {
 	}
 }
 
-func TestTruncateDescription(t *testing.T) {
-	if got := truncateDescription("short", 10); got != "short" {
-		t.Fatalf("unexpected truncation: %q", got)
+func TestCondensed_KeepsWholeDescription(t *testing.T) {
+	long := strings.TrimSpace(strings.Repeat("description text ", 20))
+	analyzer := NewToolAnalyzer(nil, nil)
+	got, err := analyzer.analyzeWithoutLLM(MCPToolSchema{Name: "t", Description: long})
+	if err != nil {
+		t.Fatalf("analyzeWithoutLLM: %v", err)
 	}
-	if got := truncateDescription("0123456789", 5); got != "01..." {
-		t.Fatalf("unexpected truncation: %q", got)
+	if got.Condensed != long {
+		t.Fatalf("condensed cut a %d-char description to %d chars", len(long), len(got.Condensed))
 	}
 }
 

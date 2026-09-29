@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,6 +100,44 @@ func TestBuiltin_GrepFilesOnly(t *testing.T) {
 	out, _ := runBuiltinFallback(context.Background(), []string{"rg", "-l", "TODO"}, dir, dir)
 	if !strings.Contains(out, "gamma.go") || strings.Contains(out, ":") {
 		t.Fatalf("rg -l should list only the filename, got: %q", out)
+	}
+}
+
+// A result past the old 2000-match ceiling arrives whole: the working context
+// ledger archives large tool results behind recall handles, so grep never
+// cuts what the model has not seen.
+func TestBuiltin_GrepReturnsEveryMatchWhole(t *testing.T) {
+	dir := t.TempDir()
+	var sb strings.Builder
+	for i := 0; i < 2500; i++ {
+		fmt.Fprintf(&sb, "needle line %d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hay.txt"), []byte(sb.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, handled := runBuiltinFallback(context.Background(), []string{"rg", "needle"}, dir, dir)
+	if !handled {
+		t.Fatal("rg not handled")
+	}
+	if strings.Contains(out, "truncated") {
+		t.Fatalf("grep cut a 2500-match result: %.200s...", out)
+	}
+	if got := strings.Count(out, "needle line"); got != 2500 {
+		t.Fatalf("grep returned %d of 2500 matches", got)
+	}
+}
+
+// A line past the 4MB scanner ceiling stops that file, and the stop is
+// announced: silent would read as "no more matches below".
+func TestBuiltin_GrepAnnouncesUnreadableLine(t *testing.T) {
+	dir := t.TempDir()
+	big := strings.Repeat("x", 5<<20) + "\nneedle tail\n"
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := runBuiltinFallback(context.Background(), []string{"grep", "needle", "big.txt"}, dir, dir)
+	if !strings.Contains(out, "rest of file skipped") {
+		t.Fatalf("grep did not announce the unreadable line: %q", out)
 	}
 }
 

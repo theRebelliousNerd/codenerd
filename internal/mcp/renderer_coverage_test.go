@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -15,9 +17,6 @@ func TestNewToolRenderer_ShouldReturnDefaults(t *testing.T) {
 	if !r.includeSchemas {
 		t.Error("expected includeSchemas=true by default")
 	}
-	if r.maxSchemaLen != 500 {
-		t.Errorf("expected maxSchemaLen=500, got %d", r.maxSchemaLen)
-	}
 }
 
 func TestSetIncludeSchemas_ShouldToggle(t *testing.T) {
@@ -28,11 +27,18 @@ func TestSetIncludeSchemas_ShouldToggle(t *testing.T) {
 	}
 }
 
-func TestSetMaxSchemaLen_ShouldUpdate(t *testing.T) {
+func TestFormatSchema_RendersWholeSchema(t *testing.T) {
 	r := NewToolRenderer()
-	r.SetMaxSchemaLen(1000)
-	if r.maxSchemaLen != 1000 {
-		t.Errorf("expected maxSchemaLen=1000, got %d", r.maxSchemaLen)
+	raw := json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number"}}}`)
+	result := r.formatSchema(raw)
+	var v any
+	if err := json.Unmarshal([]byte(result), &v); err != nil {
+		t.Fatalf("formatSchema returned broken JSON: %v\n%s", err, result)
+	}
+	for _, want := range []string{`"a"`, `"b"`, `"type"`} {
+		if !contains(result, want) {
+			t.Errorf("schema lost %s:\n%s", want, result)
+		}
 	}
 }
 
@@ -204,19 +210,31 @@ func TestFormatSchema_WhenInvalidJSON_ShouldReturnRaw(t *testing.T) {
 	}
 }
 
-func TestFormatSchema_WhenLongSchema_ShouldTruncate(t *testing.T) {
+func TestFormatSchema_WhenLongSchema_RendersWhole(t *testing.T) {
 	r := NewToolRenderer()
-	r.SetMaxSchemaLen(20)
-
-	raw := json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number"}}}`)
-	result := r.formatSchema(raw)
-	// Truncation has to actually shorten the schema. The line below checks for
-	// the indicator; nothing checked that anything was removed.
-	if len(result) >= len(raw) {
-		t.Errorf("formatSchema did not shorten a %d-char schema: got %d chars", len(raw), len(result))
+	var sb strings.Builder
+	sb.WriteString(`{"type":"object","properties":{`)
+	for i := 0; i < 40; i++ {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		fmt.Fprintf(&sb, `"prop%02d":{"type":"string","description":"padding to push past the old budget"}`, i)
 	}
-	if !contains(result, "truncated") {
-		t.Error("expected truncation indicator")
+	sb.WriteString(`}}`)
+	raw := json.RawMessage(sb.String())
+	result := r.formatSchema(raw)
+	if contains(result, "truncated") {
+		t.Errorf("formatSchema cut a long schema:\n%.200s...", result)
+	}
+	if !contains(result, `"prop39"`) {
+		t.Errorf("formatSchema lost the tail of a long schema:\n%.200s...", result)
+	}
+	var v any
+	if err := json.Unmarshal([]byte(result), &v); err != nil {
+		t.Fatalf("formatSchema returned broken JSON for a long schema: %v", err)
+	}
+	if got := len(v.(map[string]any)["properties"].(map[string]any)); got != 40 {
+		t.Errorf("expected all 40 properties to survive, got %d", got)
 	}
 }
 

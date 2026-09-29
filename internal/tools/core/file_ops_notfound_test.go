@@ -71,8 +71,10 @@ func TestNotFoundWithSuggestions_DistinguishesMissingDirectory(t *testing.T) {
 	}
 }
 
-// A huge directory must not dump hundreds of names into the context window.
-func TestNotFoundWithSuggestions_TruncatesLargeDirectories(t *testing.T) {
+// A huge directory listing arrives whole: a capped "including ..." hides names
+// the model needs to pick its next read, and the working context ledger
+// archives large tool results behind recall handles instead of cutting them.
+func TestNotFoundWithSuggestions_ListsLargeDirectoriesWhole(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 120; i++ {
 		n := filepath.Join(dir, string(rune('a'+i%26))+string(rune('a'+i/26))+"_file.go")
@@ -84,10 +86,12 @@ func TestNotFoundWithSuggestions_TruncatesLargeDirectories(t *testing.T) {
 	err := notFoundWithSuggestions(filepath.Join(dir, "totallyunrelatedname.go"), "pkg/totallyunrelatedname.go")
 	msg := err.Error()
 
-	if !strings.Contains(msg, "...") {
-		t.Errorf("large directory listing was not truncated:\n%s", msg)
+	if strings.Contains(msg, "...") {
+		t.Errorf("large directory listing was cut; it must arrive whole:\n%s", msg)
 	}
-	if len(msg) > 4000 {
-		t.Errorf("error message is %d chars; it should stay compact", len(msg))
+	for _, want := range []string{"aa_file.go", "pe_file.go", "120 files"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("large directory listing is missing %q:\n%s", want, msg)
+		}
 	}
 }

@@ -146,6 +146,26 @@ func TestProjectRead_WhenTheOutlineExceedsItsLimit_ShouldCapAndSayHowMany(t *tes
 	}
 }
 
+// A capped outline must say how to reach the rest, or the count is a wall:
+// the model knows elements exist and has no address to ask for them by.
+func TestText_WhenTheOutlineIsCapped_ShouldSayHowToReachTheRest(t *testing.T) {
+	t.Parallel()
+
+	var src strings.Builder
+	src.WriteString("package a\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&src, "\nfunc fn%d() {\n\treturn\n}\n", i)
+	}
+
+	r := ProjectRead(precondition.Read{Path: "a.go", Content: src.String()}, ReadLimits{MaxRegionLines: 10, MaxOutline: 5})
+	if r.OutlineOmitted == 0 {
+		t.Fatal("test setup is wrong: nothing was omitted, so there is no hint to check")
+	}
+	if text := r.Text(); !strings.Contains(text, "start_line/end_line") {
+		t.Errorf("capped outline gives no paging path:\n%s", text)
+	}
+}
+
 // TestProjectRead_WhenTheAnchorIsOverBudget_ShouldKeepTheAnchorAndDropContext
 // protects the one thing a read cannot give up. The lines the caller asked
 // about are why the read happened; surrendering those to keep the padding

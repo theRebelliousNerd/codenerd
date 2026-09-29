@@ -90,7 +90,10 @@ func (l ReadLimits) resolved() ReadLimits {
 // A line ceiling alone is not a ceiling. Four hundred lines of a minified
 // bundle, a base64 asset or a generated lookup table can be megabytes, and a
 // codec whose whole purpose is a bounded cost per observation must not have a
-// shape of input that walks straight through it.
+// shape of input that walks straight through it. It never reaches a model as
+// a silent cut: lines it sheds are counted in Elided, bytes it cuts from an
+// unbreakable line are counted in RegionCut, and Text announces both with the
+// range the next read should ask for.
 const maxRegionBytes = 24 << 10
 
 // EncodeRead projects a file read and retains it under a precondition handle.
@@ -309,7 +312,10 @@ func (r FileReadResult) Text() string {
 			fmt.Fprintf(&sb, "  %s %s %d-%d\n", e.Kind, e.Name, e.StartLine, e.EndLine)
 		}
 		if r.OutlineOmitted > 0 {
-			fmt.Fprintf(&sb, "  ... %d more element(s) not listed\n", r.OutlineOmitted)
+			// The outline is in line order, so the omitted tail is
+			// reachable: a later start_line/end_line range shows those
+			// elements in the region instead of hiding them here.
+			fmt.Fprintf(&sb, "  ... %d more element(s) not listed (re-read a later start_line/end_line range to see them)\n", r.OutlineOmitted)
 		}
 	}
 
