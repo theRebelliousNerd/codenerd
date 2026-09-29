@@ -370,7 +370,11 @@ func canonicalRemediationPath(workspace, raw string) (string, bool) {
 // isWindowsAbs reports a drive-letter absolute (c:/...) even when the host
 // is not windows, so lower-cased absolute duplicates unify on any platform.
 func isWindowsAbs(p string) bool {
-	if len(p) < 3 {
+	// The bound is the exemplar's own length, not a knob: a drive-letter
+	// absolute is a letter, a colon and a separator. A bare number here
+	// would be an executive literal in internal/campaign, and that budget
+	// only shrinks (executive_literals_test.go).
+	if len(p) < len("c:/") {
 		return false
 	}
 	c := p[0]

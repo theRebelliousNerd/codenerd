@@ -67,6 +67,21 @@ Decl active_finding(File, Line, Severity, Category, RuleID, Message) bound [/str
 # Unfiltered findings from static analysis before Mangle processing
 Decl raw_finding(File, Line, Severity, Category, RuleID, Message) bound [/string, /number, /name, /name, /string, /string].
 
+# doc_problem(Pkg, File, Code, Message)
+# One R6 structural finding from `nerd docs check` (internal/docscheck, the
+# tracked Go port of scripts/r6_structcheck.py). Pkg is the
+# Docs/architecture directory (`Package` is a Mangle keyword and cannot be
+# a Decl variable); File the workspace-relative finding scope,
+# slash-separated on every OS; Message the script-identical human line.
+# Code: /missing_front_matter, /bad_doc_class, /bad_implementation_status,
+#   /bad_last_verified, /missing_verified_against, /missing_gap_table,
+#   /empty_gap_table, /gap_row_without_id, /vague_gap_exit,
+#   /no_witness_line, /witness_unresolved, /missing_slot, /missing_adr_dir,
+#   /missing_capability_spec, /no_plan_layer, /only_planned
+# (internal/docscheck.Code; Problem.Fact renders Code as a /name so policy
+# rules can match it, the rest as strings.)
+Decl doc_problem(Pkg, File, Code, Message) bound [/string, /string, /name, /string].
+
 # -----------------------------------------------------------------------------
 # 41.5 Tool Generator / Ouroboros Predicates
 # -----------------------------------------------------------------------------

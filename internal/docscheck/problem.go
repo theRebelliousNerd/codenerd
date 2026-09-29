@@ -89,8 +89,10 @@ func (p Problem) Fact() types.Fact {
 }
 
 // Facts converts problems to the facts a later lane asserts into the
-// kernel. There is deliberately no .mg Decl here — that wiring lands
-// separately.
+// kernel. The Decl is doc_problem(Pkg, File, Code, Message) bound
+// [/string, /string, /name, /string] in schemas_reviewer.mg (§41.4),
+// matching Problem.Fact's shape exactly (Pkg because `Package` is a
+// Mangle keyword, not a name a Decl variable can take).
 func Facts(problems []Problem) []types.Fact {
 	facts := make([]types.Fact, 0, len(problems))
 	for _, p := range problems {

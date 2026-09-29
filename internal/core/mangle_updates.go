@@ -317,6 +317,11 @@ var hostWitnessPredicates = map[string]struct{}{
 	// What may carry unchecked strings, and what the host acts on: a
 	// model that could write either could exempt its own strings.
 	"prose_only": {}, "exec_sink": {},
+	// What the docs checker measured (the R6 structural grade, `nerd docs
+	// check` via internal/docscheck): a model that could write doc_problem
+	// could invent findings about, or erase findings from, the corpus it
+	// may itself have written.
+	"doc_problem": {},
 }
 
 func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {

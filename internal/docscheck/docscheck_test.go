@@ -231,6 +231,47 @@ func TestProblemFact(t *testing.T) {
 	}
 }
 
+// TestDocProblemDeclMatchesProducer pins the Decl side of the contract
+// TestProblemFact pins on the Go side. TestUndeclaredAssertBudget only
+// checks the predicate name; a Decl whose bounds disagree with
+// Problem.Fact fails silently (internal/mangle/agents.md), so the shape
+// is pinned here, next to the producer.
+func TestDocProblemDeclMatchesProducer(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(docscheckRepoRoot(t), "internal", "core", "defaults", "schemas_reviewer.mg"))
+	if err != nil {
+		t.Fatalf("read schemas_reviewer.mg: %v", err)
+	}
+	const want = "Decl doc_problem(Pkg, File, Code, Message) bound [/string, /string, /name, /string]."
+	for _, line := range strings.Split(string(raw), "\n") {
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "Decl doc_problem(") {
+			if trimmed != want {
+				t.Errorf("Decl = %q, want %q", trimmed, want)
+			}
+			return
+		}
+	}
+	t.Error("no Decl doc_problem in schemas_reviewer.mg")
+}
+
+// docscheckRepoRoot walks up from the package directory to the go.mod root.
+func docscheckRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("go.mod not found above the docscheck package")
+		}
+		dir = parent
+	}
+}
+
 // TestCheckPackage_Errors pins the fail-closed edges: unknown or escaping
 // package names are errors, not empty grades.
 func TestCheckPackage_Errors(t *testing.T) {
