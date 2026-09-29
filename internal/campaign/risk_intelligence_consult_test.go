@@ -31,7 +31,6 @@ func TestGatherRiskIntelligenceSkipsConsult(t *testing.T) {
 	fake := &countingConsultation{}
 	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, fake)
 	gatherer.WithConfig(IntelligenceConfig{
-		GatherTimeout:    10 * time.Second,
 		PerSystemTimeout: 5 * time.Second,
 		ConsultTimeout:   5 * time.Second,
 		// All other gather systems disabled so the test needs no kernel/world.

@@ -79,6 +79,12 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 
 	wireIntelligenceComponents(o, cfg)
 	defaultWireIntelligence(o, cfg)
+	// The campaign section is the gatherer's policy, whether the caller
+	// built the gatherer or defaultWireIntelligence did. A gatherer left on
+	// the package defaults would ignore campaign.intelligence.
+	if o.intelligenceGatherer != nil {
+		o.intelligenceGatherer.WithConfig(IntelligenceConfigFromPolicy(policy))
+	}
 
 	o.replanner.SetContextLimits(policy)
 	o.checkpoint.SetCommandTimeout(policy.CheckpointCommandTimeout)
@@ -255,6 +261,13 @@ func (o *Orchestrator) SetNorthstarObserver(observer *northstar.CampaignObserver
 // SetIntelligenceGatherer sets the intelligence gatherer for pre-planning intelligence.
 // When set, the decomposer will gather intelligence from 12 systems before planning.
 func (o *Orchestrator) SetIntelligenceGatherer(gatherer *IntelligenceGatherer) {
+	// A zero policy means this orchestrator was not built by NewOrchestrator
+	// (tests that fill the struct directly). Stamping it would install a
+	// zero timeout, and context.WithTimeout treats a non-positive duration
+	// as already expired, so every system query would stop before it started.
+	if gatherer != nil && o.policy.Intelligence.PerSystemTimeout > 0 {
+		gatherer.WithConfig(IntelligenceConfigFromPolicy(o.policy))
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.intelligenceGatherer = gatherer

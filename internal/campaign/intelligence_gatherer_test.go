@@ -17,8 +17,11 @@ func TestNewIntelligenceGatherer(t *testing.T) {
 	}
 
 	// Check default config was applied
-	if gatherer.config.GatherTimeout != 5*time.Minute {
-		t.Errorf("expected GatherTimeout 5m, got %v", gatherer.config.GatherTimeout)
+	if gatherer.config != DefaultIntelligenceConfig() {
+		t.Errorf("gatherer config = %+v, want the campaign intelligence defaults", gatherer.config)
+	}
+	if gatherer.config.PerSystemTimeout != 30*time.Second {
+		t.Errorf("expected PerSystemTimeout 30s, got %v", gatherer.config.PerSystemTimeout)
 	}
 	if gatherer.config.MaxChurnHotspots != 50 {
 		t.Errorf("expected MaxChurnHotspots 50, got %d", gatherer.config.MaxChurnHotspots)
@@ -29,9 +32,6 @@ func TestDefaultIntelligenceConfig(t *testing.T) {
 	cfg := DefaultIntelligenceConfig()
 
 	// Verify timeout defaults
-	if cfg.GatherTimeout != 5*time.Minute {
-		t.Errorf("expected GatherTimeout 5m, got %v", cfg.GatherTimeout)
-	}
 	if cfg.PerSystemTimeout != 30*time.Second {
 		t.Errorf("expected PerSystemTimeout 30s, got %v", cfg.PerSystemTimeout)
 	}
@@ -72,7 +72,7 @@ func TestIntelligenceGatherer_WithConfig(t *testing.T) {
 	gatherer := NewIntelligenceGatherer("", nil, nil, nil, nil, nil, nil, nil, nil)
 
 	customConfig := IntelligenceConfig{
-		GatherTimeout:    10 * time.Minute,
+		PerSystemTimeout: 10 * time.Minute,
 		MaxChurnHotspots: 100,
 		EnableWorldModel: false,
 	}
@@ -82,8 +82,8 @@ func TestIntelligenceGatherer_WithConfig(t *testing.T) {
 	if result != gatherer {
 		t.Error("WithConfig should return same gatherer for chaining")
 	}
-	if gatherer.config.GatherTimeout != 10*time.Minute {
-		t.Errorf("expected GatherTimeout 10m, got %v", gatherer.config.GatherTimeout)
+	if gatherer.config.PerSystemTimeout != 10*time.Minute {
+		t.Errorf("expected PerSystemTimeout 10m, got %v", gatherer.config.PerSystemTimeout)
 	}
 	if gatherer.config.MaxChurnHotspots != 100 {
 		t.Errorf("expected MaxChurnHotspots 100, got %d", gatherer.config.MaxChurnHotspots)

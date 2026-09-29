@@ -22,7 +22,7 @@ func (g *IntelligenceGatherer) gatherWorldModel(ctx context.Context, report *Int
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherWorldModel")
 	defer timer.Stop()
 
-	ctx, cancel := context.WithTimeout(ctx, g.config.PerSystemTimeout)
+	ctx, cancel := g.boundSystem(ctx)
 	defer cancel()
 
 	// Determine root path for scanning
@@ -104,7 +104,7 @@ func (g *IntelligenceGatherer) gatherGitHistory(ctx context.Context, report *Int
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherGitHistory")
 	defer timer.Stop()
 
-	ctx, cancel := context.WithTimeout(ctx, g.config.PerSystemTimeout)
+	ctx, cancel := g.boundSystem(ctx)
 	defer cancel()
 
 	root := "."
@@ -179,7 +179,12 @@ func (g *IntelligenceGatherer) gatherLearningPatterns(ctx context.Context, repor
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherLearningPatterns")
 	defer timer.Stop()
 
-	// Check for context cancellation
+	// Load does not take a context, so this budget is observed between shard
+	// types: a load already in flight runs to completion, and the next one
+	// is not started after the budget.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
 	if err := ctx.Err(); err != nil {
 		addError(fmt.Sprintf("Learning patterns cancelled: %v", err))
 		return
@@ -188,6 +193,10 @@ func (g *IntelligenceGatherer) gatherLearningPatterns(ctx context.Context, repor
 	shardTypes := []string{"coder", "tester", "reviewer", "researcher"}
 
 	for _, shardType := range shardTypes {
+		if err := ctx.Err(); err != nil {
+			addError(fmt.Sprintf("Learning patterns cancelled: %v", err))
+			return
+		}
 		learnings, err := g.learningStore.Load(shardType)
 		if err != nil {
 			addError(fmt.Sprintf("Learning store load failed for %s: %v", shardType, err))
@@ -222,6 +231,11 @@ func (g *IntelligenceGatherer) gatherLearningPatterns(ctx context.Context, repor
 func (g *IntelligenceGatherer) gatherKnowledgeGraph(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherKnowledgeGraph")
 	defer timer.Stop()
+
+	// QueryLinks does not take a context. The budget stops the loop from
+	// starting another path; the query in flight runs to completion.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
 
 	if err := ctx.Err(); err != nil {
 		addError(fmt.Sprintf("Knowledge graph gathering cancelled: %v", err))
@@ -269,7 +283,11 @@ func (g *IntelligenceGatherer) gatherColdStorage(ctx context.Context, report *In
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherColdStorage")
 	defer timer.Stop()
 
-	// Check for context cancellation
+	// LoadFacts does not take a context. The budget is observed between
+	// predicates.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
 	if err := ctx.Err(); err != nil {
 		addError(fmt.Sprintf("Cold storage gathering cancelled: %v", err))
 		return
@@ -284,6 +302,10 @@ func (g *IntelligenceGatherer) gatherColdStorage(ctx context.Context, report *In
 	}
 
 	for _, pred := range predicates {
+		if err := ctx.Err(); err != nil {
+			addError(fmt.Sprintf("Cold storage gathering cancelled: %v", err))
+			return
+		}
 		facts, err := g.localStore.LoadFacts(pred)
 		if err != nil {
 			addError(fmt.Sprintf("Cold storage load failed for %s: %v", pred, err))
@@ -298,6 +320,11 @@ func (g *IntelligenceGatherer) gatherColdStorage(ctx context.Context, report *In
 func (g *IntelligenceGatherer) gatherSafetyWarnings(ctx context.Context, report *IntelligenceReport, goal string, paths []string, addError func(string)) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherSafetyWarnings")
 	defer timer.Stop()
+
+	// kernel.Query does not take a context. The budget is observed between
+	// the two queries.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
 
 	if err := ctx.Err(); err != nil {
 		addError(fmt.Sprintf("Safety warning gathering cancelled: %v", err))
@@ -318,6 +345,10 @@ func (g *IntelligenceGatherer) gatherSafetyWarnings(ctx context.Context, report 
 	}
 
 	// Query for safety_warning predicate
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Safety warning gathering cancelled: %v", err))
+		return
+	}
 	safetyFacts, err := g.kernel.Query("safety_warning")
 	if err == nil {
 		for _, fact := range safetyFacts {
@@ -355,7 +386,7 @@ func (g *IntelligenceGatherer) gatherMCPTools(ctx context.Context, report *Intel
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherMCPTools")
 	defer timer.Stop()
 
-	ctx, cancel := context.WithTimeout(ctx, g.config.PerSystemTimeout)
+	ctx, cancel := g.boundSystem(ctx)
 	defer cancel()
 
 	// Get all available MCP tools
@@ -412,6 +443,11 @@ func (g *IntelligenceGatherer) gatherPreviousCampaigns(ctx context.Context, repo
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherPreviousCampaigns")
 	defer timer.Stop()
 
+	// The directory reads do not take a context. The budget stops the loop
+	// from opening another file.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
 	if err := ctx.Err(); err != nil {
 		addError(fmt.Sprintf("Previous campaign gathering cancelled: %v", err))
 		return
@@ -436,6 +472,10 @@ func (g *IntelligenceGatherer) gatherPreviousCampaigns(ctx context.Context, repo
 	}
 	var found []ended
 	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			addError(fmt.Sprintf("Previous campaign gathering cancelled: %v", err))
+			return
+		}
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			continue
 		}
@@ -473,6 +513,12 @@ func (g *IntelligenceGatherer) gatherPreviousCampaigns(ctx context.Context, repo
 func (g *IntelligenceGatherer) gatherTestCoverage(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherTestCoverage")
 	defer timer.Stop()
+
+	// The wait for the world-model scan is the caller's, before this method.
+	// This budget bounds the coverage query itself. kernel.Query does not
+	// take a context, so a query already in flight runs to completion.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
 
 	if err := ctx.Err(); err != nil {
 		addError(fmt.Sprintf("Test coverage gathering cancelled: %v", err))
@@ -512,6 +558,11 @@ func (g *IntelligenceGatherer) gatherTestCoverage(ctx context.Context, report *I
 func (g *IntelligenceGatherer) gatherCodePatterns(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherCodePatterns")
 	defer timer.Stop()
+
+	// kernel.Query does not take a context. The budget is the call's; a
+	// query already in flight runs to completion.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
 
 	if err := ctx.Err(); err != nil {
 		addError(fmt.Sprintf("Code pattern gathering cancelled: %v", err))
@@ -562,7 +613,7 @@ func (g *IntelligenceGatherer) gatherToolGaps(ctx context.Context, report *Intel
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, g.config.PerSystemTimeout)
+	ctx, cancel := g.boundSystem(ctx)
 	defer cancel()
 
 	// Detect tool needs based on goal
@@ -635,7 +686,7 @@ func (g *IntelligenceGatherer) gatherShardAdvice(ctx context.Context, report *In
 	for _, resp := range responses {
 		if resp.Confidence > 0.5 {
 			summaryBuilder.WriteString(fmt.Sprintf("**%s** (%.0f%% confidence): %s\n\n",
-				resp.FromSpec, resp.Confidence*100, g.truncateAdvice(resp.Advice, 200)))
+				resp.FromSpec, resp.Confidence*100, resp.Advice))
 		}
 	}
 	report.AdvisorySummary = summaryBuilder.String()
@@ -671,14 +722,27 @@ func (g *IntelligenceGatherer) gatherHolographicContext(ctx context.Context, rep
 			addError(holographicCancelled(len(sections), len(paths), err, unread))
 			break
 		}
-		section := g.holographic.PromptSection(ctx, path)
+		// One PromptSection is one request. A single budget for the target
+		// list would be a clock on the gather; each call carries
+		// per_system_timeout, and a call that stops names its path.
+		reqCtx, cancel := g.boundSystem(ctx)
+		section := g.holographic.PromptSection(reqCtx, path)
+		reqErr := reqCtx.Err()
+		cancel()
 		if strings.TrimSpace(section) == "" {
 			// PromptSection returns "" on cancellation as well as on a file it
-			// cannot describe. Only the cancellation withheld a section.
+			// cannot describe. A parent cancellation stops the rest of the
+			// list. A per-call timeout withheld this path and the next call
+			// still gets its own budget.
 			if err := ctx.Err(); err != nil {
 				unread = append(unread, paths[i:]...)
 				addError(holographicCancelled(len(sections), len(paths), err, unread))
 				break
+			}
+			if reqErr != nil {
+				unread = append(unread, path)
+				addError(fmt.Sprintf("holographic context for %s stopped (%v); %s", path, reqErr, holographicUnreadLine(path)))
+				continue
 			}
 			continue
 		}

@@ -289,7 +289,6 @@ func TestIntelligenceGatherer_Concurrency_NoRace(t *testing.T) {
 			gatherer.config.EnableShardConsult = false
 			gatherer.config.EnableTestCoverage = false
 			gatherer.config.EnableCodePatterns = false
-			gatherer.config.GatherTimeout = 5 * time.Second
 
 			ctx := context.Background()
 			report, err := gatherer.Gather(ctx, "Concurrent test goal", []string{"."})

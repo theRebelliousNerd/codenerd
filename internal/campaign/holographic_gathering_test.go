@@ -28,7 +28,7 @@ func TestGatherHolographicContext_ReachesTheReport(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir)}
+	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir), config: DefaultIntelligenceConfig()}
 	report := &IntelligenceReport{}
 	var errs []string
 
@@ -76,7 +76,7 @@ func TestGatherHolographicContext_RendersEveryTarget(t *testing.T) {
 		paths = append(paths, name)
 	}
 
-	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir)}
+	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir), config: DefaultIntelligenceConfig()}
 	report := &IntelligenceReport{}
 	g.gatherHolographicContext(context.Background(), report, paths, func(string) {})
 
@@ -142,7 +142,7 @@ func TestGatherHolographicContext_Degrades(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir)}
+	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir), config: DefaultIntelligenceConfig()}
 	missing := filepath.Join(dir, "missing.go")
 	g.gatherHolographicContext(context.Background(), report, []string{missing}, addErr)
 	if len(report.HolographicSections) != 0 {
@@ -172,7 +172,7 @@ func TestGatherHolographicContext_Cancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir)}
+	g := &IntelligenceGatherer{holographic: world.NewHolographicProvider(nil, dir), config: DefaultIntelligenceConfig()}
 	report := &IntelligenceReport{}
 	var errs []string
 	g.gatherHolographicContext(ctx, report, paths, func(e string) { errs = append(errs, e) })

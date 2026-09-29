@@ -146,8 +146,9 @@ func formatIntelligenceContext(intel *IntelligenceReport) string {
 		}
 	}
 
-	// AdvisorySummary is written whole. Gather already digests each response;
-	// cutting the digest again dropped text the planner cannot re-read.
+	// AdvisorySummary quotes each response's advice whole. It used to keep
+	// 200 characters of it; the planner reads this section and had no way
+	// back to the rest.
 	if intel.AdvisorySummary != "" {
 		sb.WriteString(intel.AdvisorySummary)
 		sb.WriteString("\n")

@@ -147,12 +147,18 @@ type CampaignConfig struct {
 	// repeat lifts its ratio.
 	DegenerateLongWords       int `json:"degenerate_long_words,omitempty"`
 	DegenerateLongMinDistinct int `json:"degenerate_long_min_distinct,omitempty"`
+
+	// Intelligence is the pre-planning gather. Absent, every one of its
+	// fields is the default in DefaultCampaignIntelligenceConfig. There is
+	// no gather-wide timeout; each of its timeouts bounds one call.
+	Intelligence *CampaignIntelligenceConfig `json:"intelligence,omitempty"`
 }
 
 // DefaultCampaignConfig is the campaign section with every field written down.
 func DefaultCampaignConfig() CampaignConfig {
 	yes, no := true, false
 	confidence := 50
+	intel := DefaultCampaignIntelligenceConfig()
 	return CampaignConfig{
 		MaxTaskAttempts:            4,
 		ReproAfterFailures:         2,
@@ -187,6 +193,7 @@ func DefaultCampaignConfig() CampaignConfig {
 		DegenerateDistinctPermille: 30,
 		DegenerateLongWords:        400,
 		DegenerateLongMinDistinct:  25,
+		Intelligence:               &intel,
 	}
 }
 
@@ -253,6 +260,13 @@ func (c CampaignConfig) WithDefaults() CampaignConfig {
 	intOr(&c.DegenerateDistinctPermille, d.DegenerateDistinctPermille)
 	intOr(&c.DegenerateLongWords, d.DegenerateLongWords)
 	intOr(&c.DegenerateLongMinDistinct, d.DegenerateLongMinDistinct)
+	if c.Intelligence == nil {
+		intel := DefaultCampaignIntelligenceConfig()
+		c.Intelligence = &intel
+	} else {
+		filled := c.Intelligence.WithDefaults()
+		c.Intelligence = &filled
+	}
 	return c
 }
 
@@ -294,6 +308,10 @@ type CampaignPolicy struct {
 	DegenerateLongWords        int
 	DegenerateLongMinDistinct  int
 
+	// Intelligence is the pre-planning gather, resolved. The kernel's rules
+	// do not read it; the gatherer does, so it is not a config_param.
+	Intelligence CampaignIntelligencePolicy
+
 	// Section is the resolved config the policy came from, for Params.
 	Section CampaignConfig
 }
@@ -313,6 +331,12 @@ func (c CampaignConfig) Resolve() (CampaignPolicy, error) {
 	d := func(s string) time.Duration {
 		v, _ := time.ParseDuration(s) // Check parsed every one of these
 		return v
+	}
+	intel, err := c.Intelligence.Resolve()
+	if err != nil {
+		// Check just accepted this block. A failure here means the two
+		// disagree, and a campaign must not start on that.
+		return CampaignPolicy{}, err
 	}
 	return CampaignPolicy{
 		MaxTaskAttempts:            c.MaxTaskAttempts,
@@ -348,6 +372,7 @@ func (c CampaignConfig) Resolve() (CampaignPolicy, error) {
 		DegenerateDistinctPermille: c.DegenerateDistinctPermille,
 		DegenerateLongWords:        c.DegenerateLongWords,
 		DegenerateLongMinDistinct:  c.DegenerateLongMinDistinct,
+		Intelligence:               intel,
 		Section:                    c,
 	}, nil
 }
@@ -427,6 +452,9 @@ func (c CampaignConfig) Check(prefix string) []Problem {
 		if c, ok := durations[ceiling]; ok && okBase && c < base {
 			add(ceiling, fmt.Sprintf("%s is below retry_backoff_base (%s): no retry could wait the base", c, base), "a ceiling at least retry_backoff_base")
 		}
+	}
+	if c.Intelligence != nil {
+		out = append(out, c.Intelligence.Check(prefix+".intelligence")...)
 	}
 	return out
 }

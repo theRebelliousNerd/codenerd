@@ -91,21 +91,21 @@ type IntelligenceGatherer struct {
 	config IntelligenceConfig
 }
 
-// IntelligenceConfig configures the intelligence gathering process.
+// IntelligenceConfig is the gatherer's resolved knobs, mapped from
+// campaign.intelligence in .nerd/config.json (see intelligence_config.go).
+// There is no gather-wide timeout: that clock covered every system at once.
+// PerSystemTimeout bounds one system query. ConsultTimeout bounds one
+// shard consult.
 type IntelligenceConfig struct {
-	// Timeouts
-	GatherTimeout    time.Duration
 	PerSystemTimeout time.Duration
 	ConsultTimeout   time.Duration
 
-	// Limits
 	MaxChurnHotspots     int
 	MaxLearnings         int
 	MaxMCPTools          int
 	MaxPreviousCampaigns int
 	GitHistoryDepth      int
 
-	// Feature flags
 	EnableWorldModel        bool
 	EnableGitHistory        bool
 	EnableLearningStore     bool
@@ -118,32 +118,6 @@ type IntelligenceConfig struct {
 	EnableShardConsult      bool
 	EnableTestCoverage      bool
 	EnableCodePatterns      bool
-}
-
-// DefaultIntelligenceConfig returns sensible defaults.
-func DefaultIntelligenceConfig() IntelligenceConfig {
-	return IntelligenceConfig{
-		GatherTimeout:           5 * time.Minute,
-		PerSystemTimeout:        30 * time.Second,
-		ConsultTimeout:          2 * time.Minute,
-		MaxChurnHotspots:        50,
-		MaxLearnings:            100,
-		MaxMCPTools:             30,
-		MaxPreviousCampaigns:    10,
-		GitHistoryDepth:         100,
-		EnableWorldModel:        true,
-		EnableGitHistory:        true,
-		EnableLearningStore:     true,
-		EnableKnowledgeGraph:    true,
-		EnableColdStorage:       true,
-		EnableSafetyCheck:       true,
-		EnableAutopoiesis:       true,
-		EnableMCPTools:          true,
-		EnablePreviousCampaigns: true,
-		EnableShardConsult:      true,
-		EnableTestCoverage:      true,
-		EnableCodePatterns:      true,
-	}
 }
 
 // IntelligenceReport contains all gathered intelligence for campaign planning.
@@ -375,10 +349,10 @@ func (g *IntelligenceGatherer) Gather(ctx context.Context, goal string, targetPa
 	startTime := time.Now()
 	logging.Campaign("Intelligence gathering started for goal: %.50s...", goal)
 
-	// Apply overall timeout
-	ctx, cancel := context.WithTimeout(ctx, g.config.GatherTimeout)
-	defer cancel()
-
+	// No clock on the gather. Each system bounds its own call
+	// (boundSystem / ConsultTimeout) and the gather returns when those
+	// calls return. A deadline on ctx still cancels them: the caller's
+	// context, not a phase budget.
 	report := &IntelligenceReport{
 		GatheredAt:        startTime,
 		FileTopology:      make(map[string]FileInfo),
@@ -681,11 +655,11 @@ func (g *IntelligenceGatherer) detectArchitectureHints(topology map[string]FileI
 	return hints
 }
 
-func (g *IntelligenceGatherer) truncateAdvice(advice string, maxLen int) string {
-	if len(advice) <= maxLen {
-		return advice
-	}
-	return advice[:maxLen] + "..."
+// boundSystem bounds one system query. The gather used to wrap every system
+// in one timeout, so a call that was still inside its own budget was cut
+// off because the phase was. The per-system budget is the call's bound.
+func (g *IntelligenceGatherer) boundSystem(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, g.config.PerSystemTimeout)
 }
 
 // truncateField truncates a string to maxLen for safe context injection.
