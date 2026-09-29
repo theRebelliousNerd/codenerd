@@ -302,6 +302,100 @@ func validateAtomDef(path, relPath string, def atomDefinition, validCategories m
 		issues = append(issues, validateRecommendedSelectors(path, relPath, atomID, def)...)
 	}
 
+	issues = append(issues, validateRequiresToolsList(path, atomID, def.RequiresTools)...)
+
+	return issues
+}
+
+// knownPromptAtomTools is the set of registered tool names a prompt atom may
+// reference in requires_tools. Names are short executable tool names without
+// any prefix. Anything else is a defect: the atom teaches a capability the
+// agent cannot invoke.
+var knownPromptAtomTools = map[string]struct{}{
+	"apply_edits":          {},
+	"browser_act":          {},
+	"browser_evidence":     {},
+	"browser_test":         {},
+	"callers_of":           {},
+	"callees_of":           {},
+	"create_file":          {},
+	"delete_element":       {},
+	"delete_file":          {},
+	"delete_lines":         {},
+	"edit_element":         {},
+	"edit_file":            {},
+	"edit_lines":           {},
+	"find_symbol":          {},
+	"find_text":            {},
+	"get_element":          {},
+	"get_elements":         {},
+	"get_impacted_tests":   {},
+	"git_operation":        {},
+	"glob":                 {},
+	"grep":                 {},
+	"importers_of":         {},
+	"insert_element":       {},
+	"insert_lines":         {},
+	"list_files":           {},
+	"package_outline":      {},
+	"predicate_outline":    {},
+	"read_file":            {},
+	"recall_context":       {},
+	"replace_element":      {},
+	"repoint":              {},
+	"run_build":            {},
+	"run_check":            {},
+	"run_impacted_tests":   {},
+	"run_tests":            {},
+	"search_code":          {},
+	"search_expand":        {},
+	"unreferenced_symbols": {},
+	"write_file":           {},
+}
+
+// validateRequiresToolsList checks requires_tools entries for malformed values
+// and for references to tools that are not registered. An unknown tool is
+// reported as an error so the validator fails instead of silently accepting
+// an atom that teaches a non-existent capability.
+func validateRequiresToolsList(path, atomID string, tools []string) []issue {
+	var issues []issue
+	seen := make(map[string]struct{}, len(tools))
+	for _, raw := range tools {
+		tool := raw
+		if tool == "" {
+			issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: "requires_tools contains an empty value"})
+			continue
+		}
+		if tool != strings.TrimSpace(tool) {
+			issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("requires_tools value %q has surrounding whitespace", raw)})
+			continue
+		}
+		if strings.HasPrefix(tool, "/") {
+			issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("requires_tools value %q must not be slash-prefixed (tool names, not Mangle atoms)", raw)})
+			continue
+		}
+		valid := true
+		for _, r := range tool {
+			isLower := r >= 'a' && r <= 'z'
+			isDigit := r >= '0' && r <= '9'
+			if !isLower && !isDigit && r != '_' {
+				issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("requires_tools value %q must match [a-z0-9_]+ (executable tool name)", raw)})
+				valid = false
+				break
+			}
+		}
+		if !valid {
+			continue
+		}
+		if _, dup := seen[tool]; dup {
+			issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("requires_tools contains duplicate value %q", raw)})
+			continue
+		}
+		seen[tool] = struct{}{}
+		if _, ok := knownPromptAtomTools[tool]; !ok {
+			issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("requires_tools references unknown tool %q", raw)})
+		}
+	}
 	return issues
 }
 
