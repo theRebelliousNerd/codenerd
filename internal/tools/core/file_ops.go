@@ -316,12 +316,16 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 		}
 	}
 
-	ending, exists, err := tactile.ExistingLineEnding(path)
-	if err != nil {
-		return "", fmt.Errorf("failed to detect existing line ending: %w", err)
+	// One read is both the line-ending sample and the preimage the impact
+	// chain diffs. ExistingLineEnding discarded the bytes, so a write could
+	// not say which elements it had replaced. A missing file is a new file
+	// (before empty): every element it creates is recorded.
+	before, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return "", fmt.Errorf("failed to detect existing line ending: %w", readErr)
 	}
-	if exists {
-		content = tactile.NormalizeLineEnding(content, ending)
+	if readErr == nil {
+		content = tactile.NormalizeLineEnding(content, tactile.DetectLineEnding(before))
 	}
 
 	if err := tools.RejectUnparseableGo(path, []byte(content)); err != nil {
@@ -332,6 +336,7 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
+	tools.RecordChangedSource(ctx, path, string(before), content)
 
 	logging.Audit().FileOp(logging.AuditFileWrite, path, int64(len(content)), true, "")
 	logging.Tools("write_file completed: %s (%d bytes)", path, len(content))
@@ -483,6 +488,10 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
+	// content is the bytes read above; newContent is what was written. The
+	// diff is of element spans, so a replacement that lands inside one
+	// function records that function and not its neighbours.
+	tools.RecordChangedSource(ctx, path, string(content), newContent)
 
 	logging.Audit().FileOp(logging.AuditFileWrite, path, int64(len(newContent)), true, "")
 	logging.Tools("edit_file completed: %s (%d replacements)", path, count)
@@ -563,10 +572,19 @@ func executeDeleteFile(ctx context.Context, args map[string]any) (string, error)
 	// and "how much was destroyed" is the first question asked of a delete.
 	deletedSize := info.Size()
 
+	// The impact chain needs the elements this file held. Remove is the last
+	// moment those bytes exist, so a read failure refuses the delete rather
+	// than destroying the only copy of the preimage.
+	before, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
 	if err := os.Remove(path); err != nil {
 		logging.Audit().FileOp(logging.AuditFileDelete, path, deletedSize, false, err.Error())
 		return "", fmt.Errorf("failed to delete file: %w", err)
 	}
+	tools.RecordChangedSource(ctx, path, string(before), "")
 
 	logging.Audit().FileOp(logging.AuditFileDelete, path, deletedSize, true, "")
 	logging.Tools("delete_file completed: %s", path)

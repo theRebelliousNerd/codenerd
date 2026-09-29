@@ -30,6 +30,14 @@ func (v *VirtualStore) installToolFactSink(registries ...*tools.Registry) {
 	}
 }
 
+// AttachToolFactSink installs the completion sink that turns a tool's
+// ExecutionRecord into tool_execution and, on success, element_modified.
+// HydrateModularTools installs it on the session registries. A registry
+// built for one call attaches the same sink through this method.
+func (v *VirtualStore) AttachToolFactSink(registries ...*tools.Registry) {
+	v.installToolFactSink(registries...)
+}
+
 // toolFactSink builds the closure that asserts the facts of one completed
 // execution. Refusals never reach it — a tool the guard blocked was not run,
 // and recording it as an execution would corrupt the reliability counters that
@@ -83,6 +91,18 @@ func editedElementFacts(sessionID string, unixSeconds int64, edits []tools.Edite
 			files[e.File] = true
 			facts = append(facts, Fact{Predicate: "modified", Args: []any{e.File}})
 		}
+		// Go only. worldRefOf spells go_parser.buildRef (fn:pkg.Recv.Name,
+		// and the receiver is already the base type, so Box[T] is Box).
+		// A Mangle code_element is rule:pred/arity#ordinal
+		// (world/mangle_parser.go) while codemodel keys that same rule
+		// rule:pred/arity@hash (codemodel.ParseMangle) so an insertion does
+		// not renumber it; neither string is the other's, and a fact built
+		// here would join nothing. Python, TypeScript and Rust code_element
+		// refs are path-keyed (py:, ts:, rs:) and codemodel has no spans for
+		// them, so those edits are not even in this list.
+		// modified(File) above still records that the file changed.
+		// TestEditedElementFacts_MatchWhatThePathBHandlerAsserts pins a
+		// Mangle rule as modified(File) with no element_modified.
 		if e.Language != "go" || e.Name == "" || e.Kind == "header" || e.Kind == "syntax_error" {
 			continue
 		}

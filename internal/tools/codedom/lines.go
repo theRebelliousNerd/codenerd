@@ -150,6 +150,11 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
+	// A refused edit returns above this write, so it records nothing.
+	// element_modified is asserted from these rows; without them a turn that
+	// edits with edit_lines (the default the atoms recommend) leaves
+	// impacted_test and run_impacted_tests empty.
+	tools.RecordChangedSource(ctx, path, string(content), output)
 
 	linesReplaced := endLine - startLine + 1
 	logging.Tools("edit_lines completed: %s (replaced %d lines with %d)", path, linesReplaced, len(newLines))
@@ -461,6 +466,9 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
+	// See executeEditLines: the impact chain reads element_modified, which
+	// only exists for edits RecordEdit reported.
+	tools.RecordChangedSource(ctx, path, string(content), output)
 
 	logging.Tools("insert_lines completed: %s (inserted %d lines after line %d)", path, len(newLines), afterLine)
 	return fmt.Sprintf("Inserted %d lines after line %d in %s.%s%s",
@@ -577,6 +585,9 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
+	// See executeEditLines: the impact chain reads element_modified, which
+	// only exists for edits RecordEdit reported.
+	tools.RecordChangedSource(ctx, path, string(content), output)
 
 	linesDeleted := endLine - startLine + 1
 	logging.Tools("delete_lines completed: %s (deleted %d lines)", path, linesDeleted)

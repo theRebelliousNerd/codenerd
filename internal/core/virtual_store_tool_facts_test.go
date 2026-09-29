@@ -47,6 +47,29 @@ func TestEditedElementFacts_MatchWhatThePathBHandlerAsserts(t *testing.T) {
 	}
 }
 
+// A generic receiver's code_element ref is the base type (go_parser
+// extractReceiverTypeInfo, codemodel.ReceiverTypeName). The fact has to
+// use that spelling or it joins nothing the parser asserted.
+func TestEditedElementFacts_GenericReceiverUsesTheBaseType(t *testing.T) {
+	facts := editedElementFacts("sess", 1, []tools.EditedElement{
+		{File: "box.go", Language: "go", Package: "elemprobe", Kind: "method", Name: "Get", Receiver: "Box"},
+		{File: "box.go", Language: "go", Package: "elemprobe", Kind: "method", Name: "First", Receiver: "Pair"},
+		{File: "box.go", Language: "go", Package: "elemprobe", Kind: "function", Name: "Get"},
+	})
+	got := map[string]bool{}
+	for _, f := range facts {
+		if f.Predicate != "element_modified" || len(f.Args) == 0 {
+			continue
+		}
+		got[f.Args[0].(string)] = true
+	}
+	for _, want := range []string{"fn:elemprobe.Box.Get", "fn:elemprobe.Pair.First", "fn:elemprobe.Get"} {
+		if !got[want] {
+			t.Errorf("missing %s in %v", want, got)
+		}
+	}
+}
+
 func TestInteractiveGate_ElementVerbsAreDestructiveAndMultiFileEditsAreGatedPerFile(t *testing.T) {
 	for tool, want := range map[string]ActionType{
 		"edit_element": ActionEditElement, "replace_element": ActionEditElement,
