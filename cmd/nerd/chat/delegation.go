@@ -15,6 +15,7 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
@@ -79,7 +80,9 @@ func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task
 
 // formatShardTaskWithContext formats the task with prior shard context (blackboard pattern).
 // This enables cross-shard communication: reviewer findings flow to coder, test results to debugger, etc.
-func formatShardTaskWithContext(verb, target, constraint, workspace string, priorResult *ShardResult) string {
+// The fixer target, when the prior shard is a reviewer and the current target
+// is generic, is delegation_target_file (policy/delegation.mg).
+func (m Model) formatShardTaskWithContext(verb, target, constraint, workspace string, priorResult *ShardResult) string {
 	baseTask := formatShardTask(verb, target, constraint, workspace)
 
 	// No prior context - return base task
@@ -97,8 +100,7 @@ func formatShardTaskWithContext(verb, target, constraint, workspace string, prio
 				// Determine target file from prior result if current target is generic
 				actualTarget := target
 				if actualTarget == "codebase" || actualTarget == "none" || actualTarget == "" {
-					// Extract file from findings or task
-					if file := extractFileFromFindings(priorResult.Findings); file != "" {
+					if file := m.delegationTargetFile(priorResult.Findings); file != "" {
 						actualTarget = file
 					}
 				}
@@ -226,78 +228,157 @@ func formatFindingsForTask(findings []map[string]any, targetFile string) string 
 	return strings.Join(parts, "; ")
 }
 
-// extractFileFromFindings extracts the primary file from findings
-// findingSeverityRank orders the reviewer's severity ladder so it can be
-// compared. Anything unrecognised sorts below /low rather than above
-// /critical, because an unknown word is missing information, not an emergency.
-func findingSeverityRank(severity string) int {
+// citationSeverityAtom is the severity word as a name severity_rank can join.
+// extractFindings has already mapped ERROR/WARN/INFO onto high/medium/low.
+// A word the ladder does not name is /unknown. The number that word sorts as
+// is severity_rank in policy/delegation.mg (0, below /low).
+func citationSeverityAtom(severity string) string {
 	switch strings.ToLower(strings.TrimSpace(severity)) {
 	case "critical":
-		return 4
+		return "/critical"
 	case "high":
-		return 3
+		return "/high"
 	case "medium":
-		return 2
+		return "/medium"
 	case "low":
-		return 1
+		return "/low"
 	default:
-		return 0
+		return "/unknown"
 	}
 }
 
-// extractFileFromFindings picks the one file the fixer is sent to.
+// delegationTargetFile is the one file policy/delegation.mg sends the fixer to.
 //
-// The count alone does not decide it, and the previous version pretended it
-// did: it ranged over a map with a strict `>`, so on a tie the winner was
-// whichever key Go's randomised iteration reached first. That is not a flaky
-// test, it is a flaky agent — the same review dispatches the fixer to a
-// different file on two runs, with nothing in the output to say why.
+// Each finding that names a file is asserted as review_finding_citation
+// (this review, the path, the severity atom, the finding's position). The
+// position is unique across the review, so the rule's min-index step names
+// exactly one file: most citations, then the worst severity_rank, then the
+// earliest index. Checked on the pinned engine 2026-09-29.
 //
-// Ties are common rather than exotic. Two findings in one file and two in
-// another is an ordinary review, and it is exactly the fixture that caught
-// this.
-//
-// So the order is: most citations, then the worst severity among them, then
-// the file the reviewer mentioned first. The middle rule is the one worth
-// having on its own merits — given equal attention, the fixer should go where
-// the most severe finding is, which is what a person reading the review would
-// do. The last is a pure determinism backstop.
-func extractFileFromFindings(findings []map[string]any) string {
-	type fileScore struct {
-		count      int
-		worstRank  int
-		firstIndex int
+// A kernel that cannot be asked, or a derivation that is not exactly one
+// file, returns "". The caller keeps the generic target. This function does
+// not rank findings.
+func (m Model) delegationTargetFile(findings []map[string]any) string {
+	if m.kernel == nil {
+		logging.RoutingError("[delegationTargetFile] no kernel: the fixer keeps the generic target")
+		return ""
 	}
-	scores := make(map[string]*fileScore)
+	if err := m.kernel.Retract("review_finding_citation"); err != nil {
+		logging.RoutingError("[delegationTargetFile] retract review_finding_citation: %v", err)
+		return ""
+	}
+	n := 0
 	for i, f := range findings {
-		file, ok := f["file"].(string)
-		if !ok || file == "" {
+		file, _ := f["file"].(string)
+		file = strings.TrimSpace(file)
+		if file == "" {
 			continue
 		}
 		severity, _ := f["severity"].(string)
-		rank := findingSeverityRank(severity)
-		s := scores[file]
-		if s == nil {
-			scores[file] = &fileScore{count: 1, worstRank: rank, firstIndex: i}
+		if err := m.kernel.Assert(core.Fact{
+			Predicate: "review_finding_citation",
+			Args: []any{
+				types.MangleAtom("/current_review"),
+				types.MangleString(file),
+				types.MangleAtom(citationSeverityAtom(severity)),
+				int64(i),
+			},
+		}); err != nil {
+			logging.RoutingError("[delegationTargetFile] assert citation %d: %v", i, err)
+			return ""
+		}
+		n++
+	}
+	if n == 0 {
+		return ""
+	}
+	facts, err := m.kernel.Query("delegation_target_file")
+	if err != nil {
+		logging.RoutingError("[delegationTargetFile] query: %v", err)
+		return ""
+	}
+	file := ""
+	rows := 0
+	for _, fact := range facts {
+		review, path, ok := factHeadTail(fact)
+		if !ok || review != "/current_review" {
 			continue
 		}
-		s.count++
-		if rank > s.worstRank {
-			s.worstRank = rank
-		}
+		file = path
+		rows++
 	}
+	if rows != 1 {
+		logging.RoutingError("[delegationTargetFile] delegation_target_file derived %d files, want 1", rows)
+		return ""
+	}
+	return file
+}
 
-	best := ""
-	var bestScore *fileScore
-	for file, s := range scores {
-		if bestScore == nil ||
-			s.count > bestScore.count ||
-			(s.count == bestScore.count && s.worstRank > bestScore.worstRank) ||
-			(s.count == bestScore.count && s.worstRank == bestScore.worstRank && s.firstIndex < bestScore.firstIndex) {
-			best, bestScore = file, s
-		}
+// derivedExecutionMode reads execution_mode for verb (policy/delegation.mg).
+//
+// configured_execution_mode names the seven verbs. An asked verb with no row
+// derives /parallel: that is the topology the verb map returned on a miss
+// (matching.go, before the Mode field was removed), and the branch the spawn
+// switch used for every mode it did not name.
+// ok is false when the kernel cannot be asked or the verb does not derive
+// exactly one row; the caller then runs parallel.
+func (m Model) derivedExecutionMode(verb string) (string, bool) {
+	verb = strings.TrimSpace(verb)
+	if verb == "" {
+		logging.RoutingError("[derivedExecutionMode] empty verb")
+		return "", false
 	}
-	return best
+	if m.kernel == nil {
+		logging.RoutingError("[derivedExecutionMode] no kernel: %q runs in parallel", verb)
+		return "", false
+	}
+	if err := m.kernel.Retract("asked_delegation_verb"); err != nil {
+		logging.RoutingError("[derivedExecutionMode] retract asked_delegation_verb: %v", err)
+		return "", false
+	}
+	if err := m.kernel.Assert(core.Fact{
+		Predicate: "asked_delegation_verb",
+		Args:      []any{types.MangleAtom(verb)},
+	}); err != nil {
+		logging.RoutingError("[derivedExecutionMode] assert asked_delegation_verb %q: %v", verb, err)
+		return "", false
+	}
+	facts, err := m.kernel.Query("execution_mode")
+	if err != nil {
+		logging.RoutingError("[derivedExecutionMode] query: %v", err)
+		return "", false
+	}
+	mode := ""
+	rows := 0
+	for _, fact := range facts {
+		asked, topology, ok := factHeadTail(fact)
+		if !ok || asked != verb {
+			continue
+		}
+		mode = topology
+		rows++
+	}
+	if rows != 1 {
+		logging.RoutingError("[derivedExecutionMode] execution_mode derived %d rows for %q, want 1", rows, verb)
+		return "", false
+	}
+	return mode, true
+}
+
+// factHeadTail reads a fact's first two arguments. The arity check is two
+// empty-slice tests: a literal 2 in an if condition is an executive-literal
+// knob (internal/core/defaults executive_literals_test.go), and this is arity.
+func factHeadTail(fact core.Fact) (string, string, bool) {
+	args := fact.Args
+	if len(args) == 0 {
+		return "", "", false
+	}
+	head := types.ExtractString(args[0])
+	args = args[1:]
+	if len(args) == 0 {
+		return "", "", false
+	}
+	return head, types.ExtractString(args[0]), true
 }
 
 // filterFindingsBySeverity filters findings to only include specified severities
@@ -736,11 +817,11 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 	}
 }
 
-// spawnShardWithSpecialists spawns a shard with specialist support based on execution mode.
-// Execution modes:
-//   - ModeParallel: All shards execute in parallel (for /review, /security)
-//   - ModeAdvisory: Specialists advise, then generic shard executes (for /create, /debug)
-//   - ModeAdvisoryWithCritique: Advise → Execute → Critique (for /fix, /refactor)
+// spawnShardWithSpecialists spawns a shard with specialist support based on
+// execution_mode (policy/delegation.mg):
+//   - /parallel: all shards execute in parallel (/review, /security, /test)
+//   - /advisory: specialists advise, then the generic shard executes (/create, /debug)
+//   - /advisory_with_critique: advise, execute, critique (/fix, /refactor)
 func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := m.sessionOperationContext()
@@ -778,14 +859,26 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 			return m.executeSpecialistDirectMode(ctx, verb, spec, task, target, complexity, startTime)
 		}
 
-		// 5. Route based on execution mode
-		mode := shards.GetExecutionMode(verb)
+		// 5. The topology is execution_mode. specialist_should_execute already
+		// returned above. An unrecognised atom, or a kernel that did not
+		// derive exactly one row, runs parallel: the branch this switch used
+		// for every mode it did not name. A verb the table does not list
+		// derives /parallel and takes that case.
+		mode, ok := m.derivedExecutionMode(verb)
+		if !ok {
+			logging.RoutingError("[spawnShardWithSpecialists] execution_mode did not derive for %q", verb)
+		}
 		switch mode {
-		case shards.ModeAdvisory:
+		case "/advisory":
 			return m.executeAdvisoryMode(ctx, verb, shardType, task, target, files, specialists, startTime)
-		case shards.ModeAdvisoryWithCritique:
+		case "/advisory_with_critique":
 			return m.executeAdvisoryWithCritiqueMode(ctx, verb, shardType, task, target, files, specialists, startTime)
-		default: // ModeParallel
+		case "/parallel":
+			return m.executeParallelMode(ctx, verb, shardType, task, target, specialists, startTime)
+		default:
+			if ok {
+				logging.RoutingError("[spawnShardWithSpecialists] execution_mode %q for %q is not a topology", mode, verb)
+			}
 			return m.executeParallelMode(ctx, verb, shardType, task, target, specialists, startTime)
 		}
 	}

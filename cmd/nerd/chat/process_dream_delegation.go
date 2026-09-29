@@ -215,7 +215,7 @@ func (m Model) buildResponseFromExecutions(ctx context.Context, input string, in
 			}
 		}
 
-		task := resolveDelegateTask(shardType, delegateFacts, intent, m.workspace, m.lastShardResult)
+		task := m.resolveDelegateTask(shardType, delegateFacts, intent, m.lastShardResult)
 		if task == "" {
 			task = exec.Target
 		}
@@ -241,7 +241,7 @@ func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, in
 			continue
 		}
 
-		task := resolveDelegateTask(shardType, delegateFacts, intent, m.workspace, m.lastShardResult)
+		task := m.resolveDelegateTask(shardType, delegateFacts, intent, m.lastShardResult)
 		if task == "" {
 			task = taskDesc
 		}
@@ -491,7 +491,7 @@ func (m Model) collectTraceShardTypes() []string {
 	return unique
 }
 
-func resolveDelegateTask(shardType string, delegateFacts []core.Fact, intent perception.Intent, workspace string, priorResult *ShardResult) string {
+func (m Model) resolveDelegateTask(shardType string, delegateFacts []core.Fact, intent perception.Intent, priorResult *ShardResult) string {
 	task := ""
 	for _, fact := range delegateFacts {
 		parsedShard, taskDesc, pending := parseDelegateFact(fact)
@@ -520,7 +520,7 @@ func resolveDelegateTask(shardType string, delegateFacts []core.Fact, intent per
 		return task
 	}
 
-	return formatShardTaskWithContext(verb, task, intent.Constraint, workspace, priorResult)
+	return m.formatShardTaskWithContext(verb, task, intent.Constraint, m.workspace, priorResult)
 }
 
 func defaultVerbForShard(shardType string) string {

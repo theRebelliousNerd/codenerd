@@ -837,8 +837,8 @@ func returnSeverityMarkerIn(line string) (string, bool) {
 // severityRank orders the reviewer's ladder so findings can be capped by
 // worst-first. An unrecognised word sorts below /low rather than above
 // /critical, because an unknown severity is missing information, not an
-// emergency — the same rule cmd/nerd/chat's findingSeverityRank applies when it
-// picks the file a fixer is dispatched to.
+// emergency — the same order policy's severity_rank facts give /unknown
+// (policy/delegation.mg) when the kernel picks the file a fixer is sent to.
 func severityRank(severity string) int {
 	switch strings.ToLower(strings.TrimSpace(severity)) {
 	case "critical":

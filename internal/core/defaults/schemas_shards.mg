@@ -86,6 +86,52 @@ Decl delegation_attempt_count(Root, N) bound [/string, /number].
 # delegation_move(Root, Attempt, Move) - derived: /accept, /retry or /escalate.
 Decl delegation_move(Root, Attempt, Move) bound [/string, /number, /name].
 
+# -----------------------------------------------------------------------------
+# 6.0.3 Which file a fixer is sent to, and which topology a verb runs
+# (policy/delegation.mg). Go asserts the citations and the verb being routed.
+# The rank order and the topology are facts and rules, not a Go switch.
+# -----------------------------------------------------------------------------
+
+# review_finding_citation(ReviewID, File, Severity, Index) - EDB. One row per
+# review finding that names a file. Index is that finding's position in the
+# review, so two files cannot share an index. Severity is /critical, /high,
+# /medium, /low, or /unknown.
+Decl review_finding_citation(ReviewID, File, Severity, Index) bound [/name, /string, /name, /number].
+
+# severity_rank(Severity, Rank) - the reviewer's ladder as numbers. /unknown
+# is 0, below /low: a word the ladder does not name is missing information.
+Decl severity_rank(Severity, Rank) bound [/name, /number].
+
+Decl citation_ranked(ReviewID, File, Rank, Index) bound [/name, /string, /number, /number].
+Decl file_citation_summary(ReviewID, File, Count, MaxRank, MinIndex) bound [/name, /string, /number, /number, /number].
+Decl citation_count_value(ReviewID, Count) bound [/name, /number].
+Decl best_citation_count(ReviewID, Best) bound [/name, /number].
+Decl count_winner(ReviewID, File, MaxRank, MinIndex) bound [/name, /string, /number, /number].
+Decl citation_rank_value(ReviewID, MaxRank) bound [/name, /number].
+Decl best_citation_rank(ReviewID, Best) bound [/name, /number].
+Decl rank_winner(ReviewID, File, MinIndex) bound [/name, /string, /number].
+Decl citation_index_value(ReviewID, MinIndex) bound [/name, /number].
+Decl best_citation_index(ReviewID, Best) bound [/name, /number].
+
+# delegation_target_file(ReviewID, File) - derived: the one file the fixer is
+# sent to. Most citations, then the worst severity among those, then the
+# earliest index. The index is unique per citation, so exactly one file wins.
+Decl delegation_target_file(ReviewID, File) bound [/name, /string].
+
+# configured_execution_mode(Verb, Mode) - the coordination topology for a verb
+# that has one. Mode: /parallel, /advisory, /advisory_with_critique.
+Decl configured_execution_mode(Verb, Mode) bound [/name, /name].
+Decl has_configured_execution_mode(Verb) bound [/name].
+
+# asked_delegation_verb(Verb) - EDB: the verb spawnShardWithSpecialists is
+# routing. Binds the default so a verb with no configured row still derives.
+Decl asked_delegation_verb(Verb) bound [/name].
+
+# execution_mode(Verb, Mode) - derived: the topology for Verb. A verb that was
+# asked and has no configured row derives /parallel, which is what the Go map
+# returned on a miss.
+Decl execution_mode(Verb, Mode) bound [/name, /name].
+
 # multi_step_lane() - derived: the turn decomposes (a multi-step mutation that
 # is not answered directly). Negated by the delegate and clarify lanes, so
 # route_decision holds for one lane at most.

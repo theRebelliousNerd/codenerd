@@ -145,24 +145,3 @@ func TestMatchSpecialistsForTask_Table(t *testing.T) {
 		})
 	}
 }
-
-func TestGetExecutionMode(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		verb string
-		want ExecutionMode
-	}{
-		{"/review", ModeParallel},
-		{"/fix", ModeAdvisoryWithCritique},
-		{"/create", ModeAdvisory},
-		{"/unknown", ModeParallel}, // default
-	}
-
-	for _, tt := range tests {
-		got := GetExecutionMode(tt.verb)
-		if got != tt.want {
-			t.Errorf("GetExecutionMode(%q) = %v, want %v", tt.verb, got, tt.want)
-		}
-	}
-}

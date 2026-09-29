@@ -127,11 +127,9 @@ func TestDelegationGetsAFileAndFindingsText(t *testing.T) {
 	// used to be "" and "".
 	findings := extractFindings(reviewerOutput)
 
-	// session.go and login.go both carry two findings, so this is a TIE, and
-	// the old assertion's stated reason ("the most-cited file") was simply
-	// false — it passed about half the time on Go's randomised map order.
-	// session.go wins because it holds the CRITICAL.
-	file := extractFileFromFindings(findings)
+	// session.go and login.go both carry two findings, so this is a tie.
+	// session.go wins because it holds the CRITICAL (delegation_target_file).
+	file := delegatedFile(t, findings)
 	if file != "internal/auth/session.go" {
 		t.Errorf("delegated file = %q, want the file holding the worst finding "+
 			"among those cited equally often", file)
@@ -222,25 +220,21 @@ func TestTesterSummaryFallsBackWhenOutputIsNotTestResults(t *testing.T) {
 	}
 }
 
-// The dispatch must not depend on Go's map iteration order.
+// The dispatch is a fixpoint over the citations.
 //
-// This is the property, not the instance: a review that cites two files
-// equally must send the fixer to the same one every time, or the agent's
-// behaviour changes run to run for no reason a reader could ever find.
+// Two retract-and-assert passes of the same review must name the same file.
+// The previous picker ranged a Go map, so this test drew 200 times to catch
+// the coin flip. The file is now delegation_target_file; repeating the facts
+// repeats the file.
 func TestDelegatedFileIsDeterministicOnATie(t *testing.T) {
 	findings := extractFindings(reviewerOutput)
 
-	first := extractFileFromFindings(findings)
+	first := delegatedFile(t, findings)
 	if first == "" {
 		t.Fatal("no file was selected at all")
 	}
-	// Enough iterations that a randomised map order would have shown itself:
-	// with two tied keys, 200 draws miss a 50/50 flip with probability 2^-199.
-	for i := 0; i < 200; i++ {
-		if got := extractFileFromFindings(findings); got != first {
-			t.Fatalf("iteration %d selected %q, first selected %q: the fixer is "+
-				"dispatched by coin flip", i, got, first)
-		}
+	if got := delegatedFile(t, findings); got != first {
+		t.Fatalf("second pass selected %q, first selected %q", got, first)
 	}
 }
 
@@ -258,7 +252,7 @@ func TestTiedFilesAreBrokenByWorstSeverity(t *testing.T) {
 	}
 	// first.go is mentioned first and both files are cited twice; second.go
 	// wins on the CRITICAL.
-	if got := extractFileFromFindings(findings); got != "b/second.go" {
+	if got := delegatedFile(t, findings); got != "b/second.go" {
 		t.Errorf("delegated file = %q, want b/second.go — equal citations, worse findings", got)
 	}
 }
@@ -272,7 +266,7 @@ func TestCitationCountOutranksSeverity(t *testing.T) {
 - [LOW] common/many.go:2: b
 - [LOW] common/many.go:3: c`)
 
-	if got := extractFileFromFindings(findings); got != "common/many.go" {
+	if got := delegatedFile(t, findings); got != "common/many.go" {
 		t.Errorf("delegated file = %q, want common/many.go — severity breaks ties, "+
 			"it does not override the count", got)
 	}

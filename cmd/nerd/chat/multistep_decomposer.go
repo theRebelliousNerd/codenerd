@@ -201,7 +201,7 @@ func decomposeVerbPairChain(input string, captures []string, pattern *MultiStepP
 		ShardType: perception.GetShardTypeForVerb(pair[1]),
 		DependsOn: []int{0},
 	}
-	step2.Task = formatShardTaskWithContext(step2.Verb, step2.Target, "none", workspace, nil)
+	step2.Task = formatShardTask(step2.Verb, step2.Target, "none", workspace)
 	steps = append(steps, step2)
 
 	return steps

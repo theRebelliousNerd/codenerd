@@ -100,7 +100,8 @@ func TestFormatShardTaskWithContext_ShouldKeepTheTaskGrammarTheExecutorParses(t 
 	t.Parallel()
 
 	transcript, _ := testerTurn()
-	task := formatShardTaskWithContext("/fix", "internal/widget/store.go", "none", t.TempDir(),
+	var m Model
+	task := m.formatShardTaskWithContext("/fix", "internal/widget/store.go", "none", t.TempDir(),
 		&ShardResult{ShardType: "tester", Task: "run_tests", RawOutput: transcript})
 
 	if !strings.HasPrefix(task, "fix file:internal/widget/store.go test_errors:[") {

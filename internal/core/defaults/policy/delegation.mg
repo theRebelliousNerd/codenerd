@@ -505,3 +505,117 @@ delegate_task(/tool_generator, Target, /pending) :-
 delegate_task(/tool_generator, Cap, /pending) :-
     missing_tool_for(_, Cap),
     !tool_generation_blocked(Cap).
+
+# -----------------------------------------------------------------------------
+# Which file a fixer is sent to after a review.
+#
+# Go used to rank findings in a map (delegation.go extractFileFromFindings):
+# most citations, then the worst severity, then the earliest index. The map
+# iteration was the bug the index exists to close — a count tie used to
+# dispatch the fixer to whichever key Go's randomised order reached first.
+#
+# Go now asserts one review_finding_citation per finding that names a file
+# and reads delegation_target_file. The severity word is parsed into an atom
+# in Go; the number it sorts as is severity_rank, not a Go switch.
+#
+# The three keys are applied as successive aggregates, not one comparison.
+# Count first: best_citation_count is the max count in the review, and only
+# files at that count survive. Among those, best_citation_rank is the max of
+# their worst ranks. Among those, best_citation_index is the min first index.
+# Checked on the pinned engine (nerd check-mangle --standalone --eval,
+# 2026-09-29): one group_by may bind fn:count, fn:max and fn:min together,
+# and this chain yields exactly one delegation_target_file per review for a
+# clear count winner, a count tie broken by severity, and a full tie broken
+# by index.
+#
+# The index is the finding's position in the review. Each citation has its
+# own, so two files cannot share one, and the minimum among the survivors is
+# a single file. A further tie on the path string is not available: the same
+# probe evaluated `A < B` on two strings and the engine rejected it ("value
+# "b" (1) is not a number").
+# -----------------------------------------------------------------------------
+
+severity_rank(/critical, 4).
+severity_rank(/high, 3).
+severity_rank(/medium, 2).
+severity_rank(/low, 1).
+severity_rank(/unknown, 0).
+
+citation_ranked(ReviewID, File, Rank, Index) :-
+    review_finding_citation(ReviewID, File, Sev, Index),
+    severity_rank(Sev, Rank).
+
+file_citation_summary(ReviewID, File, Count, MaxRank, MinIndex) :-
+    citation_ranked(ReviewID, File, Rank, Index)
+    |> do fn:group_by(ReviewID, File), let Count = fn:count(), let MaxRank = fn:max(Rank), let MinIndex = fn:min(Index).
+
+# Project before the next aggregate. A count that is not grouped and not
+# reduced is rejected, and collapsing to (ReviewID, Count) is safe: fn:max
+# does not care that two files with the same count became one row.
+citation_count_value(ReviewID, Count) :-
+    file_citation_summary(ReviewID, _, Count, _, _).
+
+best_citation_count(ReviewID, Best) :-
+    citation_count_value(ReviewID, Count)
+    |> do fn:group_by(ReviewID), let Best = fn:max(Count).
+
+count_winner(ReviewID, File, MaxRank, MinIndex) :-
+    file_citation_summary(ReviewID, File, Count, MaxRank, MinIndex),
+    best_citation_count(ReviewID, Count).
+
+citation_rank_value(ReviewID, MaxRank) :-
+    count_winner(ReviewID, _, MaxRank, _).
+
+best_citation_rank(ReviewID, Best) :-
+    citation_rank_value(ReviewID, MaxRank)
+    |> do fn:group_by(ReviewID), let Best = fn:max(MaxRank).
+
+rank_winner(ReviewID, File, MinIndex) :-
+    count_winner(ReviewID, File, MaxRank, MinIndex),
+    best_citation_rank(ReviewID, MaxRank).
+
+citation_index_value(ReviewID, MinIndex) :-
+    rank_winner(ReviewID, _, MinIndex).
+
+best_citation_index(ReviewID, Best) :-
+    citation_index_value(ReviewID, MinIndex)
+    |> do fn:group_by(ReviewID), let Best = fn:min(MinIndex).
+
+delegation_target_file(ReviewID, File) :-
+    rank_winner(ReviewID, File, MinIndex),
+    best_citation_index(ReviewID, MinIndex).
+
+# -----------------------------------------------------------------------------
+# Coordination topology per verb.
+#
+# This is the table DefaultVerbConfigs[verb].Mode held, including the two
+# rows an earlier audit sketch dropped: /test and /debug are /parallel and
+# /advisory. A verb that is not in the table used to take the map's miss
+# branch, ModeParallel (matching.go GetExecutionMode), and the chat switch's
+# default branch was the same topology. The miss is the second rule. It is
+# not a Go default.
+#
+# The negation goes through has_configured_execution_mode. Negating
+# configured_execution_mode(Verb, _) directly did not see the ground fact on
+# the pinned engine: asking /fix derived both /advisory_with_critique and
+# /parallel (same probe, 2026-09-29). The unary projection is what /fix
+# fails, so a configured verb keeps the one mode the table names.
+# -----------------------------------------------------------------------------
+
+configured_execution_mode(/review, /parallel).
+configured_execution_mode(/security, /parallel).
+configured_execution_mode(/test, /parallel).
+configured_execution_mode(/create, /advisory).
+configured_execution_mode(/debug, /advisory).
+configured_execution_mode(/fix, /advisory_with_critique).
+configured_execution_mode(/refactor, /advisory_with_critique).
+
+has_configured_execution_mode(Verb) :-
+    configured_execution_mode(Verb, _).
+
+execution_mode(Verb, Mode) :-
+    configured_execution_mode(Verb, Mode).
+
+execution_mode(Verb, /parallel) :-
+    asked_delegation_verb(Verb),
+    !has_configured_execution_mode(Verb).

@@ -442,7 +442,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			m.ReportStatus(fmt.Sprintf("Act: delegating to %s...", shardType))
 			// Format task based on verb and target, with prior shard context (blackboard pattern)
 			// This enables cross-shard context: reviewer findings -> coder, test errors -> debugger
-			task := formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult)
+			task := m.formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult)
 
 			// Build session context for shard injection (Blackboard Pattern)
 			sessionCtx := m.buildSessionContext(ctx)
