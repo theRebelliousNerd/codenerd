@@ -11,6 +11,14 @@ import (
 	"codenerd/internal/types"
 )
 
+// TODO: Missing test for Resolve handling a reference that is solely a codec extension.
+// TODO: Summarize test with facts containing empty Predicate strings.
+// TODO: Export and SanitizeName with an extremely long filename (e.g., 300+ characters).
+// TODO: Missing tests for DefaultName when the prefix is a string formatted exactly like the timestamp suffix.
+// TODO: List must be explicitly tested with multiple snapshots having the exact same ModTime to ensure fallback sorting.
+// TODO: Missing test for List when .nerd/snapshots is a file.
+// TODO: Resolve with identical bare names but different codec extensions to verify deterministic resolution order.
+
 var (
 	defaultNamePattern = regexp.MustCompile(`^snapshot-\d{8}-\d{6}$`)
 	kernelNamePattern  = regexp.MustCompile(`^kernel-\d{8}-\d{6}$`)
