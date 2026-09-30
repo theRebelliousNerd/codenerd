@@ -158,9 +158,19 @@ type Persistence interface {
 	GetFileStates(ctx context.Context) (map[string]string, error)
 }
 
+// newBaseStore indexes every argument position. The unindexed store answers a
+// premise with a bound argument by scanning every row of the predicate, so each
+// join is a nested loop: orientation spent over an hour in Evaluate on a
+// 4,000-document repository (2026-09-29). The engine's own semi-naive delta
+// stores and the core kernel's large evaluations use the same indexed store
+// (internal/core/kernel_eval.go, newEvaluationFactStore).
+func newBaseStore() factstore.FactStoreWithRemove {
+	return factstore.NewMultiIndexedArrayInMemoryStore()
+}
+
 // NewEngine creates a new Mangle engine instance.
 func NewEngine(cfg Config, persistence Persistence) (*Engine, error) {
-	baseStore := factstore.NewSimpleInMemoryStore()
+	baseStore := newBaseStore()
 	return &Engine{
 		config:         cfg,
 		baseStore:      baseStore,
@@ -1110,7 +1120,7 @@ func (e *Engine) GetStats() Stats {
 func (e *Engine) Clear() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.baseStore = factstore.NewSimpleInMemoryStore()
+	e.baseStore = newBaseStore()
 	e.store = factstore.NewConcurrentFactStore(e.baseStore)
 	e.factCount = 0
 	e.fileFacts = make(map[string][]ast.Atom)
@@ -1144,7 +1154,7 @@ func (e *Engine) Clear() {
 func (e *Engine) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.baseStore = factstore.NewSimpleInMemoryStore()
+	e.baseStore = newBaseStore()
 	e.store = factstore.NewConcurrentFactStore(e.baseStore)
 	e.factCount = 0
 	e.fileFacts = make(map[string][]ast.Atom)

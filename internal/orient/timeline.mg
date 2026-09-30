@@ -250,10 +250,16 @@ doc_birth_day(Path, Day) :-
 doc_birth_date(Day) :- doc_birth_day(_, Day).
 # Anchor short windows to actual births, so a calendar boundary cannot split
 # a deliberate act. Window-local components cannot chain across those windows.
+# A window is a birth date at most Days-1 before the document's own birth: the
+# offsets are generated and the date joined by equality. Comparing every birth
+# day with every birth date is a cross product (150 s vs 8 s on 4,400 docs).
+cohort_window_offset(0).
+cohort_window_offset(Next) :-
+    cohort_window_offset(K), config_param(/orient_cohort_window_days, Days),
+    Next = fn:plus(K, 1), Next < Days.
 doc_birth_window(Path, Window) :-
-    doc_birth_day(Path, Day), doc_birth_date(Window),
-    config_param(/orient_cohort_window_days, Days),
-    Day >= Window, End = fn:plus(Window, Days), Day < End.
+    doc_birth_day(Path, Day), cohort_window_offset(K),
+    Window = fn:minus(Day, K), doc_birth_date(Window).
 cohort_directory_member(Dir, Window, Path) :-
     doc_birth_window(Path, Window), doc_subtree(Path, Dir).
 cohort_directory_count(Dir, Window, N) :-

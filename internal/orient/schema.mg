@@ -198,6 +198,7 @@ Decl doc_origin_evidence(Path) bound [/string].
 Decl document_path(Path) bound [/string].
 Decl document_count(Count) bound [/number].
 Decl doc_birth_window(Path, Window) bound [/string, /number].
+Decl cohort_window_offset(K) bound [/number].
 Decl cohort_directory_member(Dir, Window, Path) bound [/string, /number, /string].
 Decl cohort_directory_count(Dir, Window, Count) bound [/string, /number, /number].
 Decl cohort_directory_good(Dir, Window) bound [/string, /number].

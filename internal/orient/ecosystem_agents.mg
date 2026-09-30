@@ -39,7 +39,6 @@ Decl imported_default_permission(Perm) bound [/string].
 Decl imported_agent_priority(Priority) bound [/number].
 Decl cluster_agent_priority(Priority) bound [/number].
 
-Decl cross_pair(A, B) bound [/string, /string].
 Decl name_duplicate(A, B) bound [/string, /string].
 Decl shared_topic(A, B, Topic) bound [/string, /string, /string].
 Decl shared_topic_count(A, B, N) bound [/string, /string, /number].
@@ -372,36 +371,33 @@ fallback_agent_permission("TestArchitect", "exec_cmd").
 
 # --- duplicates and which copy wins ---
 
-# A pair across tools, earlier ord first, different body. Same digest is the
-# same text. Same tool is two of one corpus, not a duplicate.
-cross_pair(A, B) :-
-    agent_source(A, ToolA, _, _, _, _),
-    agent_source(B, ToolB, _, _, _, _),
-    agent_source_ord(A, OrdA),
-    agent_source_ord(B, OrdB),
-    OrdA < OrdB,
-    ToolA != ToolB,
-    agent_source_digest(A, DigA),
-    agent_source_digest(B, DigB),
-    DigA != DigB.
-
+# A duplicate is a pair across tools, earlier ord first, different body. Same
+# digest is the same text; same tool is two of one corpus, not a duplicate.
+#
+# Candidates come only through a key the two sources share (normalized name,
+# topic), joined by equality, and the pair conditions are checked after. A
+# pair relation built first from every two sources is |sources|^2 candidates:
+# 3,112 sources on a large repository made 9.7M, kept 0.5%, and dominated
+# orientation's evaluation (2026-09-29).
 name_duplicate(A, B) :-
-    cross_pair(A, B),
-    agent_source_norm(A, Norm),
+    agent_source_norm(A, Norm), Norm != "",
     agent_source_norm(B, Norm),
-    Norm != "".
+    agent_source_ord(A, OrdA), agent_source_ord(B, OrdB), OrdA < OrdB,
+    agent_source(A, ToolA, _, _, _, _), agent_source(B, ToolB, _, _, _, _), ToolA != ToolB,
+    agent_source_digest(A, DigA), agent_source_digest(B, DigB), DigA != DigB.
 
 shared_topic(A, B, Topic) :-
-    cross_pair(A, B),
     agent_source_topic(A, Topic),
-    agent_source_topic(B, Topic).
+    agent_source_topic(B, Topic),
+    agent_source_ord(A, OrdA), agent_source_ord(B, OrdB), OrdA < OrdB,
+    agent_source(A, ToolA, _, _, _, _), agent_source(B, ToolB, _, _, _, _), ToolA != ToolB,
+    agent_source_digest(A, DigA), agent_source_digest(B, DigB), DigA != DigB.
 
 shared_topic_count(A, B, N) :-
     shared_topic(A, B, Topic)
     |> do fn:group_by(A, B), let N = fn:count().
 
 topic_duplicate(A, B) :-
-    cross_pair(A, B),
     shared_topic_count(A, B, N),
     config_param(/orient_topic_overlap_min, Min),
     N >= Min.
