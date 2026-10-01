@@ -18,6 +18,7 @@ func TestNewSchemaValidator(t *testing.T) {
 		t.Error("Expected predicateArities map to be initialized")
 	}
 	// TODO: TEST_GAP - Concurrent map access for declaredPredicates
+	// TODO: TEST_GAP - Concurrent reads and writes using HotLoadRule and ValidateRule to trigger race panic.
 }
 
 // TestLoadDeclaredPredicates tests predicate extraction from schemas.
@@ -46,12 +47,14 @@ Decl next_action(Action) bound [/name].
 	}
 
 	// TODO: Missing Test: Nil/Missing learned text. Verify behavior when learnedText is empty but schemasText is populated.
+	// TODO: TEST_GAP - Behavior when schemasText is empty but learnedText contains schemas.
 	// Check that undeclared predicate returns false
 	if sv.IsDeclared("nonexistent_predicate") {
 		t.Error("Expected nonexistent_predicate to not be declared")
 	}
 
 	// TODO: TEST_GAP - Conflicting schema declarations (multiple arities)
+	// TODO: TEST_GAP - Schema text containing embedded null bytes or binary payloads.
 }
 
 // TestGetArity tests arity extraction from declarations.
@@ -81,6 +84,7 @@ Decl diagnostic(File, Line, Col, Msg, Severity) bound [/string, /number, /number
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
+	// TODO: TEST_GAP - Extract arity from complex type bounds with nested commas (e.g., bound [fn(/a, /b)]).
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			arity := sv.GetArity(tt.predicate)
@@ -120,6 +124,7 @@ Decl file_topology(Path) bound [/string].
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
+	// TODO: TEST_GAP - Extract arity from complex type bounds with nested commas (e.g., bound [fn(/a, /b)]).
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := sv.CheckArity(tt.predicate, tt.actualArity)
@@ -202,10 +207,12 @@ Decl diagnostic(File, Line, Col, Msg, Severity) bound [/string, /number, /number
 			false,
 		},
 		// TODO: Missing Test: Empty rule body / Dangling operator. E.g., `candidate_action(/test) :- .`
+		// TODO: TEST_GAP - Empty rule body consisting only of whitespace `:-    .`
 		// The regex `([a-z_][a-z0-9_]*)\s*\(` will find no matches, passing validation incorrectly.
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
+	// TODO: TEST_GAP - Extract arity from complex type bounds with nested commas (e.g., bound [fn(/a, /b)]).
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := sv.ValidateRule(tt.rule)
@@ -315,16 +322,19 @@ Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, 
 			false,
 		},
 		// TODO: Missing Test: Whitespace/multiline coercion bypass. E.g., `  permitted(/dangerous) :- user_intent(_, _, _, _, _).`. The regex `(?m)^([a-z_][a-z0-9_]*)\s*\(` requires line start and misses indented forbidden heads.
+		// TODO: TEST_GAP - String/Atom Confusion in Rule Bodies. `some_pred("fake_pred(X)")`
 		{
 			"empty line is valid",
 			"",
 			false,
 		},
 		// TODO: TEST_GAP - Builtin redefinition attempts in learned rules
+		// TODO: TEST_GAP - ReDoS payload vector. Extreme length whitespace before parenthesis.
 		// TODO: TEST_GAP - Unicode/Case sensitivity in predicate names
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
+	// TODO: TEST_GAP - Extract arity from complex type bounds with nested commas (e.g., bound [fn(/a, /b)]).
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := sv.ValidateLearnedRule(tt.rule)
