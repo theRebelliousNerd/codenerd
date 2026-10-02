@@ -569,3 +569,8 @@ Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, 
 		})
 	}
 }
+
+// TODO: Null/Undefined/Empty: Test LoadDeclaredPredicates with completely empty string and empty array parameters.
+// TODO: Type Coercion: Test type coercion behavior when mangle syntax passes a string to an expected number argument.
+// TODO: User request Extremes: Test ValidateRule performance when rule body exceeds 50000 characters (extreme length campaigns).
+// TODO: State Conflicts: Test race conditions when ValidateRule is called concurrently with LoadDeclaredPredicates state changes.
