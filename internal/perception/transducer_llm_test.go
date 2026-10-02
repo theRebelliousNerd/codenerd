@@ -9,7 +9,12 @@ import (
 	"testing"
 )
 
+// TODO: Add test for completely empty or whitespace-only User Input strings to Understand().
+// Check fast-path rejection or fallback states (e.g., /unknown) when LLM returns nothing.
+// TODO: Add test for empty/nil history and context slices passed to Understand() to ensure no panics.
+// TODO: Add test for malformed/empty JSON from LLM (e.g., `{}`, `{"verb": ""}`) to verify normalizeLLMFields and Mangle's handling of empty atoms.
 func TestExtractJSON(t *testing.T) {
+
 	tests := []struct {
 		name     string
 		input    string
@@ -408,6 +413,9 @@ func (m *mockLLMClientForTest) CompleteWithTools(ctx context.Context, sys, user 
 	return &LLMToolResponse{Text: "", StopReason: "end_turn"}, nil
 }
 
+// TODO: Add test for Type Coercion: LLM hallucinates nested objects instead of strings for Verb, Target, Category fields.
+// TODO: Add test for Type Coercion: LLM hallucinates numbers instead of strings for string fields.
+// TODO: Add test for Extreme Unicode or Binary Data in User Input, verifying end-to-end flow from Understand() to Mangle insertion without panics or unescaped control chars.
 func TestParseResponse_TypeCoercion(t *testing.T) {
 	transducer := NewLLMTransducer(nil, nil, "")
 
@@ -420,6 +428,9 @@ func TestParseResponse_TypeCoercion(t *testing.T) {
 	}
 }
 
+// TODO: Add test for Token Limit Exhaustion (Extreme Length) where input + history + context exceeds the context window, simulating a 400 provider error and ensuring graceful fallback.
+// TODO: Add test for Massive JSON Response from LLM (e.g. 10MB) to ensure parsing timeout or memory limits prevent OOM.
+// TODO: Add test for Extreme Mangle Injection Attacks (e.g., user inputs `"); drop table users; --` or `), admin(User`) to verify cleanRoutingAtom and SanitizeFactArg defenses.
 func TestDeriveRouting_TiesAndAlphabetical(t *testing.T) {
 	mockKernel := &mockRoutingKernel{
 		queries: map[string][]RoutingMatch{
@@ -446,6 +457,8 @@ func TestDeriveRouting_TiesAndAlphabetical(t *testing.T) {
 	}
 }
 
+// TODO: Add test for Context Cancellation Mid-Flight. Verify that client execution stops and goroutines do not leak when context.WithCancel fires.
+// TODO: Enhance TestTransducer_Concurrency with explicit data race checks (-race) and high-load simulations to verify LLMTransducer statelessness.
 func TestTransducer_Concurrency(t *testing.T) {
 	mockClient := &mockLLMClientForTest{
 		completeWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
