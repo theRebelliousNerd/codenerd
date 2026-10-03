@@ -13,6 +13,10 @@
 
 ## 1. Overview
 
+### 2026-10-02 verification addendum
+
+**VERIFIED CURRENT:** GAP-MCP-06-001 has executable internal lifecycle fixtures and external parser/policy/kernel witnesses. The external parser fixture (`internal/mcp/facts_parse_external_test.go:12`) still calls `mangle.ParseAtom`, using `ToolFactsForTest` (`internal/mcp/export_test.go:30`) over the production serializer. Golden selections remain at `internal/mcp/policy_golden_test.go:145`; internal cache reuse and vector retraction remain at `internal/mcp/facts_lifecycle_test.go:63` and `internal/mcp/facts_lifecycle_test.go:310`. Root full-package sqlite_vec test receipt: `artifact:.corpus-build/runs/all-features-20261002/round2-mcp.log`, PASS on the modified `db1d4b7e` working tree. This test-only repair changes no runtime authority; resolved-effect authorization and remote/live acceptance remain separate obligations. This addendum does not reverify the rest of the older implemented-spec narrative.
+
 `internal/mcp` is codeNERD’s **Model Context Protocol client** and **JIT Tool Compiler**. It turns external MCP servers into a durable, selectable tool catalog that can be:
 
 1. **Connected** over HTTP, stdio, or SSE  

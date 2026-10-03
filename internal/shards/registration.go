@@ -161,8 +161,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// What each planned step's pass measured (turn_steps.mg).
 				// step_next_action and the coverage join read them; a
 				// catch-all home would split that join and the commit
-				// retry would never fire.
-				"step_execution", "step_no_change_evidence", "step_retried",
+				// retry would never fire. step_file_net is the same
+				// measurement at verdict time: step_reverted joins it
+				// with step_execution, and a split join would leave a
+				// reverted step complete on the shard that ships.
+				"step_execution", "step_no_change_evidence", "step_retried", "step_file_net",
 				// A repair episode's attempts (repair_episode.mg), with the
 				// turn facts they are cleaned up with.
 				"repair_attempt",

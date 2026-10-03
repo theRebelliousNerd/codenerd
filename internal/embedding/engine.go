@@ -96,6 +96,20 @@ func DefaultConfig() Config {
 
 // NewEngine creates an embedding engine based on configuration.
 func NewEngine(cfg Config) (EmbeddingEngine, error) {
+	return NewEngineWithContext(context.Background(), cfg)
+}
+
+func NewEngineWithContext(ctx context.Context, cfg Config) (EmbeddingEngine, error) {
+	return newEngineWithStartupTimeout(ctx, cfg, 8*time.Second)
+}
+
+func newEngineWithStartupTimeout(ctx context.Context, cfg Config, startupTimeout time.Duration) (EmbeddingEngine, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	timer := logging.StartTimer(logging.CategoryEmbedding, "NewEngine")
 	defer timer.Stop()
 
@@ -115,7 +129,7 @@ func NewEngine(cfg Config) (EmbeddingEngine, error) {
 			// Best-effort ensure at construction so first embed isn't the first
 			// time we discover a missing model. Short timeout so a down Ollama
 			// does not block boot; Embed will retry EnsureModel later.
-			ensureCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			ensureCtx, cancel := context.WithTimeout(ctx, startupTimeout)
 			if ensureErr := oe.EnsureModel(ensureCtx); ensureErr != nil {
 				logging.Get(logging.CategoryEmbedding).Warn(
 					"Ollama EnsureModel at init: %v (will retry on first Embed)", ensureErr)
@@ -127,13 +141,19 @@ func NewEngine(cfg Config) (EmbeddingEngine, error) {
 		}
 	case "genai":
 		logging.Embedding("Initializing GenAI embedding engine: model=%s, task_type=%s", cfg.GenAIModel, cfg.TaskType)
-		engine, err = NewGenAIEngine(cfg.GenAIAPIKey, cfg.GenAIModel, cfg.TaskType)
+		engine, err = NewGenAIEngineWithContext(ctx, cfg.GenAIAPIKey, cfg.GenAIModel, cfg.TaskType)
 	default:
 		err = fmt.Errorf("unsupported embedding provider: %s (use 'ollama' or 'genai')", cfg.Provider)
 		logging.Get(logging.CategoryEmbedding).Error("Unsupported embedding provider: %s", cfg.Provider)
 		return nil, err
 	}
 
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		if closer, ok := engine.(interface{ Close() error }); ok {
+			return nil, errors.Join(cancelErr, closer.Close())
+		}
+		return nil, cancelErr
+	}
 	if err != nil {
 		logging.Get(logging.CategoryEmbedding).Error("Failed to create embedding engine: %v", err)
 		return nil, err

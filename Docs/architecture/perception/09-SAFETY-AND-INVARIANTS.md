@@ -1,5 +1,9 @@
 # 09 — Safety and Invariants (perception)
 
+## Accepted constructor cancellation invariant
+
+**PROPOSED UPLIFT:** every context-aware classifier constructor distinguishes parent cancellation from optional service failure/local hydration cap. Failed or canceled constructors release owned stores/engines and never publish a partial shared classifier. Completed cache writes remain reusable; no timer or detached goroutine stands in for joining work. Compatibility constructors may use Background only when no caller context exists. GAP-PERCEPTION-BOOT-CONTEXT owns the pending exit controls.
+
 > Last verified: **2026-07-13**
 
 ## Constitutional boundary

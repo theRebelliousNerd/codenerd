@@ -120,3 +120,57 @@ func TestFilterAtomsForStructuredOutput_LeavesOtherShardsUntouched(t *testing.T)
 		t.Errorf("a conversational compile kept %d of %d protocol atoms; it needs all of them", len(got), len(atoms))
 	}
 }
+
+func TestFilterAtomsForStructuredOutput_PerceptionKeepsItsOwnerAndClosure(test *testing.T) {
+	atoms := []*PromptAtom{
+		{ID: "dependent/transitive", Category: CategoryMethodology, DependsOn: []string{"dependent/direct"}},
+		{ID: "dependent/direct", Category: CategoryIdentity, DependsOn: []string{"protocol/piggyback/envelope"}},
+		{ID: "system/perception/verb_categories", Category: CategoryDomain, DependsOn: []string{"system/perception/output_format"}},
+		{ID: "system/perception/output_format", Category: CategoryProtocol, DependsOn: []string{"system/perception/identity"}},
+		{ID: "system/perception/identity", Category: CategoryIdentity},
+		{ID: "system/perception/precision", Category: CategoryMethodology},
+		{ID: "perception_understanding", Category: CategoryIntent},
+		{ID: "protocol/piggyback/envelope", Category: CategoryProtocol},
+		{ID: "protocol/reasoning/trace", Category: CategoryProtocol},
+		{ID: "foreign/output_contract", Category: CategoryProtocol},
+		{ID: "perception/transducer/intent_library", Category: CategoryIdentity},
+		{ID: "dependent/legacy", Category: CategoryMethodology, DependsOn: []string{"perception/transducer/intent_library"}},
+		{ID: "safety/constitutional/default_deny", Category: CategorySafety},
+	}
+	for _, shard := range []string{"perception", "/perception", "perception_firewall", " /PERCEPTION_FIREWALL "} {
+		test.Run(shard, func(test *testing.T) {
+			cc := NewCompilationContext()
+			cc.ShardType = shard
+			kept := filterAtomsForStructuredOutput(atoms, cc)
+			ids := make(map[string]bool, len(kept))
+			for _, atom := range kept {
+				ids[atom.ID] = true
+			}
+			for _, id := range []string{"system/perception/identity", "system/perception/output_format", "system/perception/verb_categories", "system/perception/precision", "perception_understanding", "safety/constitutional/default_deny"} {
+				if !ids[id] {
+					test.Errorf("canonical perception support %q was removed", id)
+				}
+			}
+			for _, id := range []string{"protocol/piggyback/envelope", "protocol/reasoning/trace", "foreign/output_contract", "perception/transducer/intent_library", "dependent/direct", "dependent/transitive", "dependent/legacy"} {
+				if ids[id] {
+					test.Errorf("incompatible instruction or dependent %q survived", id)
+				}
+			}
+			if errs := NewDependencyResolver().ValidateDependencies(kept); len(errs) != 0 {
+				test.Fatalf("canonical dependency closure is broken: %v", errs)
+			}
+		})
+	}
+}
+
+func TestFilterAtomsForStructuredOutput_LegacyTransducerStillUsesPiggyback(test *testing.T) {
+	atoms := []*PromptAtom{
+		{ID: "perception/transducer/intent_library", Category: CategoryIdentity},
+		{ID: "protocol/piggyback/envelope", Category: CategoryProtocol},
+	}
+	cc := NewCompilationContext()
+	cc.ShardType = "/transducer"
+	if kept := filterAtomsForStructuredOutput(atoms, cc); len(kept) != len(atoms) {
+		test.Fatalf("legacy transducer lost its separate contract: got %d atoms, want %d", len(kept), len(atoms))
+	}
+}

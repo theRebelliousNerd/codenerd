@@ -1,5 +1,13 @@
 # 02 — Current State (perception)
 
+## Bounded current evidence (2026-10-02)
+
+**VERIFIED CURRENT — constructor lifetime:** `internal/perception/transducer.go#InitPerceptionLayerWithContext` (line405) and `semantic_classifier.go#NewSemanticClassifierFromConfigWithContext` (line173) carry boot context into embedding, cache traversal/SQL and hydration. Shared-classifier admission is caller-aware; canceled constructors close owned resources and never publish partial classifiers. Root strict constructor/cache preservation controls and focused race pass in `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and `round6-coldboot-race.receipt.json`. A real normal-entry cold20s probe exits21.6602s, retains448 cache rows with integrity OK and stops before the later prompt corpus (`round6-firstboot-idle.receipt.json`, `round6-firstboot-cache-witness.json`). This is not model-turn/world/CodeDOM acceptance or a universal database/shutdown deadline.
+
+**VERIFIED CURRENT — seed/production-bridge freshness:** full prompt/sync/perception/builder packages pass within `round5-prompt-perception-full.receipt.json`, whose aggregate failure was solely the stale validator golden; the independently refreshed strict validator passes in `round6-broker-auditor.receipt.json`. Reconciled seed rows and preservation are qualified by `round5-seed-retention.json`. These newer receipts supersede the older seed-parity-red sentence for the named seed and tests, not model namespace/ANN eligibility or provider/model-turn consumption.
+
+**VERIFIED CURRENT:** `internal/perception/perception_jit_contract_test.go#TestPerceptionJIT_ProductionBridgeUsesCanonicalContract` (`internal/perception/perception_jit_contract_test.go:196`) captures the actual production transducer request with the real compiler and full embedded atom corpus. Firewall closure, invalid-contract fallback and campaign/conversation controls also pass in `artifact:.corpus-build/runs/all-features-20261002/round4-perception.receipt.json` (10 PASS events including subtests). This is focused component evidence, not a live-provider or fresh-binary witness. Shipped seed parity remains red; the July inventory below is historical, not newly reverified.
+
 > Last verified: **2026-07-13**  
 > Source of truth: `internal/perception/` (+ `xaioauth/`)
 

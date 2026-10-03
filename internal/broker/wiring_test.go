@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/scanner"
@@ -167,7 +168,31 @@ func callsAny(fn *ast.FuncDecl, names ...string) bool {
 // ever filled. Leaving it in place "for compatibility" is how a codebase ends up
 // with two answers to one question and no way to tell which is authoritative.
 func TestNoCompetingTokenCounters(t *testing.T) {
-	root := repoRoot(t)
+	findings, err := scanCompetingTokenCounters(repoRoot(t))
+	if err != nil {
+		t.Fatalf("scan token-counter identifiers: %v", err)
+	}
+	for _, finding := range findings {
+		t.Errorf("%s reintroduces %q: %s", finding.position, finding.name, finding.why)
+	}
+}
+
+type tokenCounterFinding struct {
+	position token.Position
+	name     string
+	why      string
+}
+
+func scanTokenCounterSource(path string) ([]tokenCounterFinding, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, data, 0)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
 
 	banned := []struct {
 		needle string
@@ -177,22 +202,37 @@ func TestNoCompetingTokenCounters(t *testing.T) {
 		{"CharsPerTokenEstimator", "the heuristic estimator type was deleted; use broker.TextCounter"},
 		{"NewTokenCounterWithEstimator", "the unused estimator seam was replaced by broker-backed counting"},
 	}
+	var findings []tokenCounterFinding
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		identifier, ok := node.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		for _, forbidden := range banned {
+			if identifier.Name == forbidden.needle {
+				findings = append(findings, tokenCounterFinding{
+					position: fileSet.Position(identifier.Pos()),
+					name:     identifier.Name,
+					why:      forbidden.why,
+				})
+			}
+		}
+		return true
+	})
+	return findings, nil
+}
 
-	// internal/broker documents the removed names in prose; that is the record
-	// of why they are gone and must not be mistaken for their return.
-	// .claude/worktrees holds other checkouts of this same repository (agent
-	// worktrees); walking into them finds this very file again and reports the
-	// documented names as reintroduced.
+func scanCompetingTokenCounters(root string) ([]tokenCounterFinding, error) {
 	skipDirs := map[string]bool{
-		filepath.Join(root, "internal", "broker"):   true,
 		filepath.Join(root, "Docs"):                 true,
 		filepath.Join(root, ".git"):                 true,
 		filepath.Join(root, ".claude", "worktrees"): true,
 	}
 
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
+	var findings []tokenCounterFinding
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("walk %s: %w", path, walkErr)
 		}
 		if info.IsDir() {
 			for skip := range skipDirs {
@@ -206,22 +246,17 @@ func TestNoCompetingTokenCounters(t *testing.T) {
 			return nil
 		}
 
-		content, readErr := sourceWithoutComments(path)
-		if readErr != nil {
-			return nil
+		fileFindings, scanErr := scanTokenCounterSource(path)
+		if scanErr != nil {
+			return scanErr
 		}
-		rel, _ := filepath.Rel(root, path)
-
-		for _, b := range banned {
-			if strings.Contains(content, b.needle) {
-				t.Errorf("%s reintroduces %q: %s", rel, b.needle, b.why)
-			}
-		}
+		findings = append(findings, fileFindings...)
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walk: %v", err)
+		return nil, err
 	}
+	return findings, nil
 }
 
 // TestOrphanBudgetConstantsAreGone pins the specific magic numbers that used to

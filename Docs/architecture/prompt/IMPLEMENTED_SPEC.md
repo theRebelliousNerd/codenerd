@@ -1,5 +1,9 @@
 # prompt — Implemented Spec (Deep-Dive)
 
+## Verified preservation slice (2026-10-02)
+
+**VERIFIED CURRENT:** `internal/prompt/reconciler_preservation_test.go#TestReconcilePreservation_ExactNullableTasks` (`internal/prompt/reconciler_preservation_test.go:48`) and the other named real SQLite controls exercise production `ReconcilePromptCorpus`, not a shadow updater. Root gate `artifact:.corpus-build/runs/all-features-20261002/round5-reconciler-builder.receipt.json` and the full package gate establish exact vector/task retention, Go-whitespace project ownership, canonical precedence, changed-input invalidation and transactional rollback. Consumers include factory boot, init profile and the explicit maintenance helper (`internal/system/factory.go:1647`, `internal/init/profile.go:1018`, `cmd/tools/prompt_builder/main.go:197`). The 923-row generated seed and first-boot prompt database carry the current perception content. This does not claim legacy ANN/task/model eligibility, schema-migration rollback or a successful live turn; the native deadline counterexample keeps normal-entry acceptance open.
+
 > Last verified against codebase: **2026-07-13**  
 > Status: Living Reference Document  
 > Language: Go  

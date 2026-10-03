@@ -1,5 +1,9 @@
 # world — Current State
 
+## Bounded incomplete-scan evidence (2026-10-02)
+
+**VERIFIED CURRENT:** `internal/world/incremental_scan.go#Scanner.ScanWorkspaceIncremental` (`internal/world/incremental_scan.go:75`) and `internal/world/fs.go#Scanner.prepareDirectoryScan` (`internal/world/fs.go:184`) stage filesystem generations before publication. `artifact:.corpus-build/runs/all-features-20261002/round4-world.receipt.json` passes the focused incremental/full-fallback/canonical-path gate (101 PASS events including subtests). Seeded old database/manifest controls cover failed/canceled census, admitted hash/read failure, blocked admission, joined workers, sibling failure/retry and positive refresh/add/delete/migration. Focused delta race controls pass in `round4-world-perception-race.receipt.json`; restoring the ignored hash-error bug produces the expected regression failure in `round4-world-mutation.receipt.json`, after which the repaired source is restored byte-identically. Publication errors after the final barrier are not transactional; production ingestor consumption, other mutation controls and repository-scale performance remain separate witnesses. The July inventory below is historical, not newly reverified.
+
 > Last verified: **2026-07-13**  
 > Inventory of `internal/world/` as implemented.
 

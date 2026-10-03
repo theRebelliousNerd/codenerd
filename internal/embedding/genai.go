@@ -95,6 +95,16 @@ func retryableGenAIError(err error) bool {
 
 // NewGenAIEngine creates a new GenAI embedding engine.
 func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
+	return NewGenAIEngineWithContext(context.Background(), apiKey, model, taskType)
+}
+
+func NewGenAIEngineWithContext(ctx context.Context, apiKey, model, taskType string) (*GenAIEngine, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	timer := logging.StartTimer(logging.CategoryEmbedding, "NewGenAIEngine")
 	defer timer.Stop()
 
@@ -123,12 +133,14 @@ func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
 
 	logging.Embedding("Initializing GenAI client: model=%s, task_type=%s", model, taskType)
 
-	ctx := context.Background()
 	clientStart := time.Now()
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
 	})
 	clientLatency := time.Since(clientStart)
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		return nil, errors.Join(cancelErr, err)
+	}
 
 	if err != nil {
 		logging.Get(logging.CategoryEmbedding).Error("Failed to create GenAI client after %v: %v", clientLatency, err)

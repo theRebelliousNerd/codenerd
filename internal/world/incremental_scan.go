@@ -7,6 +7,8 @@ import (
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"context"
+	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -21,6 +23,9 @@ import (
 type IncrementalOptions struct {
 	// SkipWhenUnchanged returns Unchanged=true when no deltas detected.
 	SkipWhenUnchanged bool
+	walkDir           func(string, fs.WalkDirFunc) error
+	fullScan          fullScanOptions
+	runDeltaFile      func(string, func())
 }
 
 // IncrementalResult describes an incremental fast scan.
@@ -67,6 +72,9 @@ func isNonCanonicalWorldPath(p string) bool {
 // ScanWorkspaceIncremental performs a fast, cache-aware scan.
 // It uses FileCache for change detection and LocalStore (if provided) for per-file fact caching.
 func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db *store.LocalStore, opts IncrementalOptions) (*IncrementalResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	canonical, canonicalErr := tools.CanonicalWorkspaceRoot(root)
 	if canonicalErr != nil {
 		return nil, canonicalErr
@@ -75,42 +83,8 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 
 	start := time.Now()
 	logging.World("Starting incremental workspace scan: %s", root)
-
-	// Retire rows written by pre-canonicalisation scanners: absolute Windows
-	// paths (C:\...), backslash-laden keys, or anything that is not already
-	// types.SlashClean(path). An incremental scan with
-	// SkipWhenUnchanged keys by canonical path, so it would never touch these
-	// rows: they are immortal duplicates next to the canonical rows for the
-	// same files. Deleting them here lets this pass re-scan their canonical
-	// keys as new (no fingerprint yet) — the intended migration.
-	if db != nil {
-		if cachedPaths, listErr := db.ListWorldFilePaths(); listErr != nil {
-			logging.WorldWarn("world cache: failed to list cached paths for canonicalisation: %v", listErr)
-		} else {
-			nonCanonical := make([]string, 0)
-			for _, p := range cachedPaths {
-				if isNonCanonicalWorldPath(p) {
-					nonCanonical = append(nonCanonical, p)
-				}
-			}
-			if len(nonCanonical) > 0 {
-				if delErr := db.DeleteWorldFiles(nonCanonical); delErr != nil {
-					logging.WorldWarn("world cache: failed to retire %d non-canonical rows: %v", len(nonCanonical), delErr)
-				} else {
-					logging.World("world cache: retired %d non-canonical rows", len(nonCanonical))
-				}
-			}
-		}
-	}
-
 	cache := NewFileCache(root)
-	defer func() {
-		if err := cache.Save(); err != nil {
-			logging.Get(logging.CategoryWorld).Error("Failed to save file cache: %v", err)
-		}
-	}()
 
-	// Snapshot previous entries for diffing.
 	cache.mu.RLock()
 	prevEntries := make(map[string]CacheEntry, len(cache.Entries))
 	maps.Copy(prevEntries, cache.Entries)
@@ -127,53 +101,107 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	dirFacts := make([]core.Fact, 0)
 	var fileCount, dirCount int
 
-	// Lightweight walk: build current file set and directory facts.
-	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
+	walkDir := opts.walkDir
+	if walkDir == nil {
+		walkDir = filepath.WalkDir
+	}
+	if err := walkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		name := d.Name()
-		member, admErr := mem.Admit(path, d.IsDir())
-		if admErr != nil {
-			return admErr
+		if walkErr != nil {
+			return walkErr
+		}
+		member, admitErr := mem.Admit(path, entry.IsDir())
+		if admitErr != nil {
+			return admitErr
 		}
 		if !member {
 			return nil
 		}
-
-		if d.IsDir() {
+		if entry.IsDir() {
 			dirCount++
 			dirFacts = append(dirFacts, core.Fact{
 				Predicate: "directory",
-				Args:      []any{canonicalScanPath(root, path), name},
+				Args:      []any{canonicalScanPath(root, path), entry.Name()},
 			})
 			return nil
 		}
-
-		info, err := d.Info()
-		if err != nil {
-			return nil
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return infoErr
 		}
 		currentFiles[path] = info
 		currentStamps[path] = stampFromInfo(path, info, walkGens.of(filepath.Dir(path)))
 		fileCount++
 		return nil
 	}); err != nil {
-		logging.WorldWarn("ScanWorkspaceIncremental: walkdir failed for root %s: %v", root, err)
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	var prepared *preparedDirectoryScan
+	if len(prevEntries) == 0 {
+		var fullErr error
+		prepared, fullErr = s.prepareDirectoryScan(ctx, root, opts.fullScan)
+		if fullErr != nil {
+			return nil, fullErr
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		cache = prepared.cache
+	}
+
+	// Retire rows written by pre-canonicalisation scanners: absolute Windows
+	// paths (C:\...), backslash-laden keys, or anything that is not already
+	// types.SlashClean(path). An incremental scan with
+	// SkipWhenUnchanged keys by canonical path, so it would never touch these
+	// rows: they are immortal duplicates next to the canonical rows for the
+	// same files. Deleting them here lets this pass re-scan their canonical
+	// keys as new (no fingerprint yet) — the intended migration.
+	retireLegacyRows := func() {
+		if db != nil {
+			if cachedPaths, listErr := db.ListWorldFilePaths(); listErr != nil {
+				logging.WorldWarn("world cache: failed to list cached paths for canonicalisation: %v", listErr)
+			} else {
+				nonCanonical := make([]string, 0)
+				for _, p := range cachedPaths {
+					if isNonCanonicalWorldPath(p) {
+						nonCanonical = append(nonCanonical, p)
+					}
+				}
+				if len(nonCanonical) > 0 {
+					if delErr := db.DeleteWorldFiles(nonCanonical); delErr != nil {
+						logging.WorldWarn("world cache: failed to retire %d non-canonical rows: %v", len(nonCanonical), delErr)
+					} else {
+						logging.World("world cache: retired %d non-canonical rows", len(nonCanonical))
+					}
+				}
+			}
+		}
+	}
+
+	saveCache := func() {
+		if err := cache.Save(); err != nil {
+			logging.Get(logging.CategoryWorld).Error("Failed to save file cache: %v", err)
+		}
 	}
 
 	// If no prior cache, fall back to full scan (first run).
-	if len(prevEntries) == 0 {
-		fullFacts, err := s.ScanWorkspaceCtx(ctx, root)
-		if err != nil {
+	if prepared != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-
+		retireLegacyRows()
+		fullFacts := prepared.result.Facts
 		res := &IncrementalResult{
 			Full:            true,
 			NewFacts:        fullFacts,
-			FileCount:       fileCount,
-			DirectoryCount:  dirCount,
+			FileCount:       prepared.result.FileCount,
+			DirectoryCount:  prepared.result.DirectoryCount,
 			Duration:        time.Since(start),
 			ProjectLanguage: detectProjectLanguage(fullFacts),
 		}
@@ -192,6 +220,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			}
 		}
 
+		saveCache()
 		return res, nil
 	}
 
@@ -199,6 +228,9 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	newFiles := make([]string, 0)
 	now := time.Now().UnixNano()
 	for path, info := range currentFiles {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		prev, ok := prevEntries[path]
 		if !ok {
 			newFiles = append(newFiles, path)
@@ -214,8 +246,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		cur := currentStamps[path]
 		hash, contentChanged, hashErr := resolveContent(path, cur, stored, now)
 		if hashErr != nil {
-			logging.WorldWarn("incremental scan: leaving stored rows for %s: %v", path, hashErr)
-			continue
+			return nil, fmt.Errorf("incremental content %s: %w", path, hashErr)
 		}
 		if contentChanged {
 			changed = append(changed, path)
@@ -234,6 +265,11 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	}
 
 	if len(changed) == 0 && len(newFiles) == 0 && len(deleted) == 0 && opts.SkipWhenUnchanged {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		retireLegacyRows()
+		saveCache()
 		return &IncrementalResult{
 			Unchanged:      true,
 			FileCount:      fileCount,
@@ -293,6 +329,12 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var updates []store.FileUpdates
+	var workerFailures []error
+	recordFailure := func(path string, failure error) {
+		mu.Lock()
+		defer mu.Unlock()
+		workerFailures = append(workerFailures, fmt.Errorf("incremental file %s: %w", path, failure))
+	}
 	newFacts := make([]core.Fact, 0, len(dirFacts)+len(pathsToParse)*2)
 
 	// Always refresh directory facts on delta scans.
@@ -311,16 +353,33 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	}
 	importIndex := newRepoFileIndex(root, canonicalAll)
 
-	for _, p := range pathsToParse {
-		path := p
-		info := currentFiles[p]
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
+	var admissionErr error
+	for _, path := range pathsToParse {
+		if admissionErr = ctx.Err(); admissionErr != nil {
+			break
+		}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			admissionErr = ctx.Err()
+		}
+		if admissionErr != nil {
+			break
+		}
+		if admissionErr = ctx.Err(); admissionErr != nil {
+			<-sem
+			break
+		}
+		info := currentFiles[path]
+		processFile := func() {
+			if err := ctx.Err(); err != nil {
+				recordFailure(path, err)
+				return
+			}
 			// Compute new hash (cache miss by definition)
 			hash, err := calculateHash(path)
 			if err != nil {
+				recordFailure(path, err)
 				return
 			}
 
@@ -386,6 +445,9 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 				// and import tokens; resolution into edges happens below.
 				if content, readErr := os.ReadFile(path); readErr == nil {
 					additional = append(additional, goTestFileHeaderFacts(canonical, content)...)
+				} else {
+					recordFailure(path, readErr)
+					return
 				}
 			}
 			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {
@@ -424,11 +486,18 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 							additional = append(additional, facts...)
 						}
 					}
+				} else {
+					recordFailure(path, readErr)
+					return
 				}
 			}
 			// Resolve this file's imports into file->file edges while its facts
 			// are still a unit, so they are stored and retracted with it.
 			additional = append(additional, resolveDependencyLinksWithIndex(importIndex, additional)...)
+			if err := ctx.Err(); err != nil {
+				recordFailure(path, err)
+				return
+			}
 
 			// Update file cache entry.
 			cache.Update(path, info, hash)
@@ -460,11 +529,34 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 				})
 			}
 			mu.Unlock()
-
+		}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			if opts.runDeltaFile != nil {
+				opts.runDeltaFile(path, processFile)
+				return
+			}
+			processFile()
 		})
 	}
 
 	wg.Wait()
+	if generationErr := errors.Join(append(workerFailures, admissionErr, ctx.Err())...); generationErr != nil {
+		return nil, generationErr
+	}
+
+	deepRows, deepErr := prepareSiblingCallRows(ctx, root, db, currentFiles, callSiblings)
+	if deepErr != nil {
+		return nil, deepErr
+	}
+	newFacts = append(newFacts, deepRows.fresh...)
+	retractFacts = append(retractFacts, deepRows.old...)
+	globals := s.deriveSnapshotGlobals(root, currentFiles, newFacts)
+	newFacts = append(newFacts, globals.facts...)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	retireLegacyRows()
 
 	if db != nil {
 		if err := db.UpdateWorldFilesAndFacts("fast", updates); err != nil {
@@ -478,10 +570,12 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	// keyed by the file the cartographer mapped. Retract the sibling's previous
 	// deep rows and assert the fresh map, per file, the same owner-keyed
 	// replacement the fast loop above uses.
-	if len(callSiblings) > 0 {
-		deepNew, deepOld := refreshSiblingCallRows(ctx, root, db, currentFiles, callSiblings)
-		newFacts = append(newFacts, deepNew...)
-		retractFacts = append(retractFacts, deepOld...)
+	if db != nil {
+		for _, update := range deepRows.updates {
+			if err := db.ReplaceWorldFactsForFile(update.Meta.Path, "deep", update.Meta.Fingerprint, update.Facts); err != nil {
+				logging.WorldWarn("sibling call rows: store %s: %v", update.Meta.Path, err)
+			}
+		}
 	}
 
 	// Handle deletions: drop from DB and cache. DB rows are keyed canonically,
@@ -522,9 +616,8 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	}
 	cache.LogStats("incremental")
 
-	globals := s.deriveSnapshotGlobals(root, currentFiles, newFacts)
-	res.NewFacts = append(res.NewFacts, globals.facts...)
 	res.ProjectLanguage = globals.projectLanguage
+	saveCache()
 
 	return res, nil
 }
@@ -567,16 +660,6 @@ func (s *Scanner) deriveSnapshotGlobals(root string, currentFiles map[string]os.
 
 // goCallSiblings lists Go files in a touched directory whose call rows have to
 // be mapped again because a sibling's package-level declaration set changed.
-//
-// Detection is the declaration set, not the diff. In-process, peekPkgSymbols
-// still holds the set from the last map and loadSymbols recomputes it from
-// the bytes now on disk; sameDeclarations ignores line spans, so a body edit
-// compares equal and this returns nothing. A restarted process has an empty
-// cache. The previous set is then the code_defines rows already stored for
-// the package, and only when every pre-existing file of that package has a
-// deep row — a partial deep scan is not a declaration set, and treating it
-// as one would remap the package on a body edit. No stored rows and no cache
-// means there is nothing stale to repair, so the siblings stay put.
 func goCallSiblings(root string, db *store.LocalStore, current map[string]os.FileInfo, changed, added, deleted []string) []string {
 	type dirTouch struct {
 		live    []string
@@ -771,30 +854,20 @@ func notIn(paths []string, skip map[string]struct{}) []string {
 	return out
 }
 
-// packageDeclsChanged reports whether the on-disk declaration set differs
-// from the set this package was last mapped with. had-cache is the
-// in-process compare (peekPkgSymbols vs loadSymbols). Without a cache, the
-// stored code_defines rows are the previous set, and only when every
-// evidence file has a deep row. Returning false when that evidence is
-// missing is deliberate: a body edit must not fan out across the package
-// just because the previous set is unknown.
 func packageDeclsChanged(dir, pkg string, includeTests bool, db *store.LocalStore, root string, evidence []string) bool {
 	before, had := peekPkgSymbols(dir, pkg, includeTests)
 	after, ok := loadSymbols(dir, pkg, includeTests)
 	if !ok {
 		return false
 	}
-	if had {
-		return !before.sameDeclarations(after)
+	if had && !before.sameDeclarations(after) {
+		return true
 	}
-	keys, complete := storedDeclKeys(db, root, evidence)
-	if !complete {
-		return false
-	}
-	return !declKeyEqual(keys, after.declKeys(pkg))
+	keys, complete := storedDeclKeys(db, root, evidence, had)
+	return complete && !declKeyEqual(keys, after.declKeys(pkg))
 }
 
-func storedDeclKeys(db *store.LocalStore, root string, files []string) (map[string]struct{}, bool) {
+func storedDeclKeys(db *store.LocalStore, root string, files []string, requireCommittedContent bool) (map[string]struct{}, bool) {
 	if db == nil {
 		return nil, false
 	}
@@ -803,9 +876,18 @@ func storedDeclKeys(db *store.LocalStore, root string, files []string) (map[stri
 		return keys, true
 	}
 	for _, abs := range files {
-		inputs, _, err := db.LoadWorldFactsForFile(canonicalScanPath(root, abs), "deep")
+		canonical := canonicalScanPath(root, abs)
+		inputs, deepFingerprint, err := db.LoadWorldFactsForFile(canonical, "deep")
 		if err != nil || len(inputs) == 0 {
 			return nil, false
+		}
+		if requireCommittedContent {
+			_, fastFingerprint, loadErr := db.LoadWorldFactsForFile(canonical, "fast")
+			deepStamp, deepOK := parseContentFingerprint(deepFingerprint)
+			fastStamp, fastOK := parseContentFingerprint(fastFingerprint)
+			if loadErr != nil || !deepOK || !fastOK || deepStamp.hash != fastStamp.hash {
+				return nil, false
+			}
 		}
 		for _, in := range inputs {
 			k, ok := declKeyFromDefine(in.Predicate, in.Args)
@@ -853,59 +935,70 @@ func declKeyEqual(a, b map[string]struct{}) bool {
 	return true
 }
 
-// refreshSiblingCallRows remaps each sibling through the cartographer and
-// replaces its deep rows. The previous rows are returned for retraction and
-// the fresh map for assertion; both are the whole per-file deep set, because
-// that is the unit EnsureDeepFacts replaces.
-func refreshSiblingCallRows(ctx context.Context, root string, db *store.LocalStore, current map[string]os.FileInfo, siblings []string) (fresh, old []core.Fact) {
-	c := NewCartographer()
-	defer c.Close()
-	for _, p := range siblings {
+type stagedSiblingCallRows struct {
+	fresh   []core.Fact
+	old     []core.Fact
+	updates []store.FileUpdates
+}
+
+func prepareSiblingCallRows(ctx context.Context, root string, database *store.LocalStore, current map[string]os.FileInfo, siblings []string) (*stagedSiblingCallRows, error) {
+	staged := &stagedSiblingCallRows{}
+	if len(siblings) == 0 {
+		return staged, ctx.Err()
+	}
+	cartographer := NewCartographer()
+	defer cartographer.Close()
+	for _, path := range siblings {
 		if err := ctx.Err(); err != nil {
-			return fresh, old
+			return nil, err
 		}
-		info := current[p]
+		info := current[path]
 		if info == nil {
 			continue
 		}
-		canonical := canonicalScanPath(root, p)
+		canonical := canonicalScanPath(root, path)
 		var prior []core.Fact
-		if db != nil {
-			inputs, _, err := db.LoadWorldFactsForFile(canonical, "deep")
+		if database != nil {
+			inputs, _, err := database.LoadWorldFactsForFile(canonical, "deep")
 			if err != nil {
 				logging.WorldWarn("sibling call rows: load %s: %v", canonical, err)
 				continue
 			}
 			prior = make([]core.Fact, len(inputs))
-			for i, in := range inputs {
-				prior[i] = core.Fact{Predicate: in.Predicate, Args: in.Args}
+			for index, input := range inputs {
+				prior[index] = core.Fact{Predicate: input.Predicate, Args: input.Args}
 			}
 		}
-		mapped, err := c.MapFileAs(p, canonical)
+		mapped, err := cartographer.MapFileAs(path, canonical)
 		if err != nil {
+			var pathErr *os.PathError
+			if errors.As(err, &pathErr) {
+				return nil, fmt.Errorf("sibling call rows %s: %w", canonical, err)
+			}
 			logging.WorldWarn("sibling call rows: map %s: %v", canonical, err)
 			continue
 		}
-		if db != nil {
+		if database != nil {
 			inputs := make([]store.WorldFactInput, len(mapped))
-			for i, f := range mapped {
-				inputs[i] = store.WorldFactInput{Predicate: f.Predicate, Args: f.Args}
+			for index, fact := range mapped {
+				inputs[index] = store.WorldFactInput{Predicate: fact.Predicate, Args: fact.Args}
 			}
-			sum, sumErr := calculateHash(p)
+			sum, sumErr := calculateHash(path)
 			if sumErr != nil {
-				logging.WorldWarn("sibling call rows: hash %s: %v", canonical, sumErr)
-				sum = ""
+				return nil, fmt.Errorf("sibling call rows %s: %w", canonical, sumErr)
 			}
-			fp := formatContentFingerprint(stampFromInfo(p, info, nil), sum)
-			if err := db.ReplaceWorldFactsForFile(canonical, "deep", fp, inputs); err != nil {
-				logging.WorldWarn("sibling call rows: store %s: %v", canonical, err)
-				continue
-			}
+			fingerprint := formatContentFingerprint(stampFromInfo(path, info, nil), sum)
+			staged.updates = append(staged.updates, store.FileUpdates{
+				Meta: store.WorldFileMeta{Path: canonical, Fingerprint: fingerprint}, Facts: inputs,
+			})
 		}
-		old = append(old, prior...)
-		fresh = append(fresh, mapped...)
+		staged.old = append(staged.old, prior...)
+		staged.fresh = append(staged.fresh, mapped...)
 	}
-	return fresh, old
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return staged, nil
 }
 
 // groupFactsByPath buckets a scan's facts by the file each one belongs to, so

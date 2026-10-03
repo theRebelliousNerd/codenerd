@@ -96,6 +96,12 @@ type OrientConfig struct {
 	// is paged, never cut. It bounds a request, not a derivation run. No rule
 	// reads it, so it is not a Params row (orientRequestBounds).
 	DeriveRequestBytes int `json:"derive_request_bytes,omitempty"`
+	// DeriveAttempts is how many times one derivation exchange is sent when
+	// the reply cannot be parsed. A reasoning model occasionally emits
+	// malformed JSON for a request it answers cleanly on the next try; one
+	// such reply used to abort the whole classification. After the last
+	// attempt a classification batch is recorded unread and the rest go on.
+	DeriveAttempts int `json:"derive_attempts,omitempty"`
 }
 
 // LoadOrientConfig reads only the target workspace's orientation section.
@@ -182,6 +188,7 @@ func DefaultOrientConfig() OrientConfig {
 		VisionWeightCentral:        10,
 		VisionWeightLive:           15,
 		DeriveRequestBytes:         32 << 10,
+		DeriveAttempts:             3,
 	}
 }
 
@@ -318,6 +325,9 @@ func (c OrientConfig) WithDefaults() OrientConfig {
 	if c.DeriveRequestBytes == 0 {
 		c.DeriveRequestBytes = d.DeriveRequestBytes
 	}
+	if c.DeriveAttempts == 0 {
+		c.DeriveAttempts = d.DeriveAttempts
+	}
 	return c
 }
 
@@ -393,6 +403,7 @@ func (c OrientConfig) Check(prefix string) []Problem {
 	rangeOf("early_span_permille", c.EarlySpanPermille, 1, 999, "the early slice of a single-era span")
 	rangeOf("middle_span_permille", c.MiddleSpanPermille, 1, 999, "the middle slice of a single-era span")
 	rangeOf("derive_request_bytes", c.DeriveRequestBytes, 256, 1<<20, "a request must fit framing, carry-forward context and document bytes")
+	rangeOf("derive_attempts", c.DeriveAttempts, 1, 10, "each attempt is one model request for the same exchange")
 	if c.OriginSpanPermille < c.EarlySpanPermille && c.EarlySpanPermille < c.MiddleSpanPermille && c.MiddleSpanPermille < 1000 {
 		return out
 	}
@@ -409,7 +420,7 @@ func (c OrientConfig) Check(prefix string) []Problem {
 // orientRequestBounds are the orient fields Go reads as request bounds. They
 // are checked like every orient key but are not policy thresholds, so Params
 // leaves them out and no config_param_required row names them.
-var orientRequestBounds = map[string]bool{"DeriveRequestBytes": true}
+var orientRequestBounds = map[string]bool{"DeriveRequestBytes": true, "DeriveAttempts": true}
 
 // Params are the orient thresholds the policy reads, as config_param rows.
 // The keys are declared config_param_required(/orient, Key) beside the rules.

@@ -30,7 +30,17 @@ type PhasePrompt func(ctx context.Context, phase string) (string, error)
 // running summary. The system prompt and completion have separate budgets.
 type DeriveBudget struct {
 	MaxRequestBytes int
-	Source          string
+	// Attempts is how many times one exchange is sent when its reply cannot
+	// be parsed (orient.derive_attempts). Below 1 is one attempt.
+	Attempts int
+	Source   string
+}
+
+func (b DeriveBudget) attempts() int {
+	if b.Attempts < 1 {
+		return 1
+	}
+	return b.Attempts
 }
 
 // DerivedVisionFileName is the draft written when a vision is already stored.
@@ -204,7 +214,7 @@ func ResolveDeriveBudget(workspace string) (DeriveBudget, error) {
 	if err != nil {
 		return DeriveBudget{}, err
 	}
-	return DeriveBudget{MaxRequestBytes: cfg.DeriveRequestBytes, Source: "orient.derive_request_bytes"}, nil
+	return DeriveBudget{MaxRequestBytes: cfg.DeriveRequestBytes, Attempts: cfg.DeriveAttempts, Source: "orient.derive_request_bytes, orient.derive_attempts"}, nil
 }
 
 // ClassifyDocuments asks the model what each read-candidate is. A document
@@ -262,15 +272,27 @@ func ClassifyDocuments(ctx context.Context, client Completer, prompt PhasePrompt
 		}
 		pending = nil
 		pendingBytes = 0
-		resp, err := completeOne(ctx, client, system, buf.String())
-		if err != nil {
-			return err
+		// A reply that does not parse is sent again; applyClassification
+		// fails only while decoding, before it records anything. After the
+		// last attempt the batch is unread and classification goes on: one
+		// malformed reply must not cost the whole read set.
+		var lastErr error
+		for attempt := 0; attempt < budget.attempts(); attempt++ {
+			resp, err := completeOne(ctx, client, system, buf.String())
+			if err != nil {
+				return err
+			}
+			raw, err := finalJSON(resp)
+			if err == nil {
+				err = applyClassification(class, requested, raw, resp)
+			}
+			if err == nil {
+				return nil
+			}
+			lastErr = err
 		}
-		raw, err := finalJSON(resp)
-		if err != nil {
-			return err
-		}
-		return applyClassification(class, requested, raw, resp)
+		markUnread(class, requested, budget.attempts(), lastErr)
+		return nil
 	}
 
 	for _, doc := range docs {
@@ -283,7 +305,7 @@ func ClassifyDocuments(ctx context.Context, client Completer, prompt PhasePrompt
 			if err := flush(); err != nil {
 				return nil, err
 			}
-			if err := classifyPaged(ctx, client, system, class, doc, budget.MaxRequestBytes); err != nil {
+			if err := classifyPaged(ctx, client, system, class, doc, budget); err != nil {
 				return nil, err
 			}
 			continue
@@ -302,38 +324,66 @@ func ClassifyDocuments(ctx context.Context, client Completer, prompt PhasePrompt
 	return class, nil
 }
 
-func classifyPaged(ctx context.Context, client Completer, system string, class *Classification, doc SourceDocument, budget int) error {
+func classifyPaged(ctx context.Context, client Completer, system string, class *Classification, doc SourceDocument, budget DeriveBudget) error {
 	summary := ""
 	for start, index := 0, 1; ; index++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		pg, frame, err := nextFrame("page", doc.Path, doc.Body, start, summary, budget)
+		pg, frame, err := nextFrame("page", doc.Path, doc.Body, start, summary, budget.MaxRequestBytes)
 		if err != nil {
 			return err
 		}
-		resp, err := completeOne(ctx, client, system, frame)
-		if err != nil {
-			return err
-		}
-		if pg.End < len(doc.Body) {
-			summary, err = parseSummary(resp)
+		final := pg.End >= len(doc.Body)
+		// Each page is one exchange: a reply that does not parse is sent
+		// again, and after the last attempt the document is unread.
+		var lastErr error
+		done := false
+		for attempt := 0; attempt < budget.attempts() && !done; attempt++ {
+			resp, err := completeOne(ctx, client, system, frame)
 			if err != nil {
 				return err
 			}
-			if strings.TrimSpace(summary) == "" {
-				return fmt.Errorf("page %d of %s returned no summary; refusing to continue without it", index, doc.Path)
+			if !final {
+				next, perr := parseSummary(resp)
+				if perr == nil && strings.TrimSpace(next) == "" {
+					perr = fmt.Errorf("page %d of %s returned no summary", index, doc.Path)
+				}
+				if perr == nil {
+					summary, done = next, true
+				}
+				lastErr = perr
+				continue
 			}
-			start = pg.End
-			continue
+			raw, perr := finalJSON(resp)
+			if perr == nil {
+				perr = applyClassification(class, []SourceDocument{doc}, raw, resp)
+			}
+			if perr == nil {
+				class.Notes = append(class.Notes, fmt.Sprintf("%s read in %d ordered pages (%d document bytes)", doc.Path, index, len(doc.Body)))
+				return nil
+			}
+			lastErr = perr
 		}
-		raw, err := finalJSON(resp)
-		if err != nil {
-			return err
+		if !done {
+			markUnread(class, []SourceDocument{doc}, budget.attempts(), lastErr)
+			return nil
 		}
-		class.Notes = append(class.Notes, fmt.Sprintf("%s read in %d ordered pages (%d document bytes)", doc.Path, index, len(doc.Body)))
-		return applyClassification(class, []SourceDocument{doc}, raw, resp)
+		start = pg.End
 	}
+}
+
+// markUnread records documents whose exchange never produced a parseable
+// reply. The error, which carries the model's reply, is noted once.
+func markUnread(class *Classification, docs []SourceDocument, attempts int, err error) {
+	for _, doc := range docs {
+		class.Unread = append(class.Unread, UnreadDocument{
+			Path:   doc.Path,
+			Reason: fmt.Sprintf("no parseable classification after %d attempts", attempts),
+		})
+	}
+	class.Notes = append(class.Notes, fmt.Sprintf(
+		"%d document(s) unread after %d attempts; last reply error: %v", len(docs), attempts, err))
 }
 
 // DraftVision drafts a WizardDocument from the orientation brief. The brief
@@ -360,14 +410,22 @@ func DraftVision(ctx context.Context, client Completer, prompt PhasePrompt, budg
 	sources := sortedVision(brief.Vision)
 	brief.Vision = sources
 	text := renderBrief(brief)
-	resp, notes, err := completeBrief(ctx, client, system, "orientation brief", text, budget.MaxRequestBytes)
-	if err != nil {
-		return nil, err
-	}
 	allSources := append(append([]BriefSource(nil), brief.Origins...), sources...)
-	draft, err := parseDraft(resp, allSources)
-	if err != nil {
-		return nil, err
+	var draft *Draft
+	var notes []string
+	var lastErr error
+	for attempt := 0; attempt < budget.attempts() && draft == nil; attempt++ {
+		resp, pageNotes, err := completeBrief(ctx, client, system, "orientation brief", text, budget.MaxRequestBytes)
+		if err != nil {
+			return nil, err
+		}
+		if draft, lastErr = parseDraft(resp, allSources); lastErr != nil {
+			draft = nil
+		}
+		notes = pageNotes
+	}
+	if draft == nil {
+		return nil, fmt.Errorf("draft vision: no parseable reply after %d attempts: %w", budget.attempts(), lastErr)
 	}
 	if len(notes) > 0 {
 		draft.Notes = append(notes, draft.Notes...)
@@ -396,11 +454,19 @@ func DeriveRequirements(ctx context.Context, client Completer, prompt PhasePromp
 	if err != nil {
 		return nil, fmt.Errorf("encode requirements state: %w", err)
 	}
-	resp, _, err := completeBrief(ctx, client, system, "requirements state", string(text), budget.MaxRequestBytes)
-	if err != nil {
-		return nil, err
+	var lastErr error
+	for attempt := 0; attempt < budget.attempts(); attempt++ {
+		resp, _, err := completeBrief(ctx, client, system, "requirements state", string(text), budget.MaxRequestBytes)
+		if err != nil {
+			return nil, err
+		}
+		reqs, perr := parseRequirements(resp, state.ExistingRequirements)
+		if perr == nil {
+			return reqs, nil
+		}
+		lastErr = perr
 	}
-	return parseRequirements(resp, state.ExistingRequirements)
+	return nil, fmt.Errorf("derive requirements: no parseable reply after %d attempts: %w", budget.attempts(), lastErr)
 }
 
 func completeBrief(ctx context.Context, client Completer, system, label, text string, budget int) (string, []string, error) {

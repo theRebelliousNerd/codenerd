@@ -1,5 +1,9 @@
 # perception — Implemented Spec (Deep-Dive)
 
+## Root-qualified context-aware construction (2026-10-02)
+
+**VERIFIED CURRENT:** `internal/perception/transducer.go#InitPerceptionLayerWithContext` at line405 and `semantic_classifier.go#NewSemanticClassifierFromConfigWithContext` at line173 preserve caller cancellation through construction/hydration/cache access. Owned-resource failure cleanup, partial cache durability/retry, alive-parent optional fallback and shared admission/publication controls pass `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and focused race `round6-coldboot-race.receipt.json`. The normal-entry fresh binary exits21.6602s for20s and retains448 cache rows without reaching later prompt corpus initialization (`round6-firstboot-idle.receipt.json`, `round6-firstboot-cache-witness.json`). No model-turn/world/CodeDOM, semantic namespace or universal SQL/shutdown guarantee follows. Historical July inventory below is not globally reverified.
+
 > Last verified against codebase: **2026-07-13**  
 > Status: Living Reference Document  
 > Language: Go  

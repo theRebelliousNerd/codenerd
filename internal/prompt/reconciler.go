@@ -136,7 +136,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 		var embeddingTask any
 		if !isNew && embeddingInputEqual && hadEmbedding {
 			embeddingBlob = existingEmbedding
-			if existingTask.Valid && strings.TrimSpace(existingTask.String) != "" {
+			if existingTask.Valid {
 				embeddingTask = existingTask.String
 			} else {
 				embeddingTask = nil
@@ -240,16 +240,20 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 
 	// Remove obsolete rows owned by any non-empty source_file (legacy built-ins including YAML paths).
 	// Enumerate owned rows to avoid growing NOT IN placeholder list.
-	ownedRows, err := tx.QueryContext(ctx, "SELECT atom_id FROM prompt_atoms WHERE source_file IS NOT NULL AND TRIM(source_file) != ''")
+	ownedRows, err := tx.QueryContext(ctx, "SELECT atom_id, source_file FROM prompt_atoms WHERE source_file IS NOT NULL")
 	if err != nil {
 		return empty, fmt.Errorf("select owned atoms: %w", err)
 	}
 	var obsoleteIDs []string
 	for ownedRows.Next() {
 		var id string
-		if err := ownedRows.Scan(&id); err != nil {
+		var sourceFile string
+		if err := ownedRows.Scan(&id, &sourceFile); err != nil {
 			ownedRows.Close()
 			return empty, fmt.Errorf("scan owned atom: %w", err)
+		}
+		if strings.TrimSpace(sourceFile) == "" {
+			continue
 		}
 		if _, ok := embeddedSet[id]; !ok {
 			obsoleteIDs = append(obsoleteIDs, id)

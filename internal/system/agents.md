@@ -1,5 +1,12 @@
 # System wiring guidance
 
+- Cold bootstrap must carry the caller context through perception and embedding
+  constructors. Check cancellation before and after every stage, including a
+  stage returning nil, and roll back acquired handles before returning failure.
+- Cache admission uses a context-aware semaphore. Never wait on an uncancelable
+  bootstrap mutex, cache a canceled result, or detach boot work to meet a timer.
+  Release admission before closing a rejected Cortex; Close can evict the cache.
+
 - Keep the complete authorization envelope (`pending_action`, `permitted_action`,
   `permission_check_result`, and `permitted`) owned by the policy Cortex shard so
   Mangle can join one exact request.

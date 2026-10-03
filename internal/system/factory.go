@@ -53,6 +53,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for project corpus
+	"golang.org/x/sync/semaphore"
 )
 
 // SystemKernel extends core.Kernel with system-level lifecycle methods.
@@ -91,7 +92,7 @@ type BootConfig struct {
 // map, so a transient initialization failure cannot poison subsequent
 // boots for the same key.
 var (
-	cortexCacheMu sync.RWMutex
+	cortexCacheMu = semaphore.NewWeighted(1)
 	cortexCache   = make(map[string]*Cortex)
 )
 
@@ -222,6 +223,12 @@ func getOrBootCortex(
 	disableSystemShards []string,
 	boot cortexBootFunc,
 ) (*Cortex, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if boot == nil {
 		return nil, fmt.Errorf("cortex boot function is nil")
 	}
@@ -231,29 +238,33 @@ func getOrBootCortex(
 	disabled := normalizeDisableSystemShards(disableSystemShards)
 	key := cortexKey(ws, engine, provider, apiKey, model, disabled)
 
-	// Fast path: cache hit under read lock.
-	cortexCacheMu.RLock()
-	if existing, ok := cortexCache[key]; ok {
-		cortexCacheMu.RUnlock()
-		return existing, nil
+	if err := cortexCacheMu.Acquire(ctx, 1); err != nil {
+		return nil, err
 	}
-	cortexCacheMu.RUnlock()
-
-	// Slow path: hold the write lock across BootCortex. This serializes
-	// concurrent first-boots even across distinct keys, which is acceptable
-	// because boot is heavy and rare; the simpler invariant (no torn cache,
-	// no duplicate maintenance goroutines) is worth the contention.
-	cortexCacheMu.Lock()
-	defer cortexCacheMu.Unlock()
-
-	// Re-check under write lock in case a concurrent caller booted it first.
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			cortexCacheMu.Release(1)
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if existing, ok := cortexCache[key]; ok {
 		return existing, nil
 	}
 
 	cortex, err := boot(ctx, ws, apiKey, disabled)
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		err = errors.Join(cancelErr, err)
+	}
 	if err != nil {
 		// Do NOT cache failures.
+		cortexCacheMu.Release(1)
+		lockHeld = false
+		if cortex != nil {
+			err = errors.Join(err, cortex.Close())
+		}
 		return nil, err
 	}
 	if cortex == nil {
@@ -262,12 +273,26 @@ func getOrBootCortex(
 
 	cortex.cortexKey = key
 	cortexCache[key] = cortex
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		delete(cortexCache, key)
+		cortex.cortexKey = ""
+		cortexCacheMu.Release(1)
+		lockHeld = false
+		return nil, errors.Join(cancelErr, cortex.Close())
+	}
 
 	// Start background maintenance for archival, cleanup, and logging.
 	// Only spawned on a fresh boot so cache hits do not leak goroutines.
 	// Cancel is stored on Cortex and invoked from Close() so one-shot CLI
 	// (create/spawn) does not hang after Result while the loop holds DB work.
 	_ = cortex.StartMaintenanceSchedule(context.Background())
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		delete(cortexCache, key)
+		cortex.cortexKey = ""
+		cortexCacheMu.Release(1)
+		lockHeld = false
+		return nil, errors.Join(cancelErr, cortex.Close())
+	}
 
 	return cortex, nil
 }
@@ -278,8 +303,10 @@ func evictCortexByKey(key string) {
 	if key == "" {
 		return
 	}
-	cortexCacheMu.Lock()
-	defer cortexCacheMu.Unlock()
+	if err := cortexCacheMu.Acquire(context.Background(), 1); err != nil {
+		return
+	}
+	defer cortexCacheMu.Release(1)
 	delete(cortexCache, key)
 }
 
@@ -1243,10 +1270,16 @@ func initKernel(bctx *bootContext) error {
 		bctx.kernel = cortex
 	}
 
-	if err := perception.InitPerceptionLayer(bctx.kernel, bctx.appCfg); err != nil {
+	if err := perception.InitPerceptionLayerWithContext(bctx.ctx, bctx.kernel, bctx.appCfg); err != nil {
+		if bctx.ctx.Err() != nil {
+			return err
+		}
 		fmt.Fprintf(os.Stderr, "Warning: Perception init failed: %v\n", err)
 	} else {
 		bctx.perceptionInitialized = true
+	}
+	if err := bctx.ctx.Err(); err != nil {
+		return err
 	}
 
 	loadedWorld := false
@@ -1521,15 +1554,21 @@ func initIntelligenceLayer(bctx *bootContext) error {
 	if engineCfg.Provider == "genai" && engineCfg.GenAIAPIKey == "" && bctx.apiKey != "" {
 		engineCfg.GenAIAPIKey = bctx.apiKey
 	}
-	if engine, err := embedding.NewEngine(engineCfg); err == nil {
+	if engine, err := embedding.NewEngineWithContext(bctx.ctx, engineCfg); err == nil {
 		if checker, ok := engine.(embedding.HealthChecker); ok {
 			if err := checker.HealthCheck(bctx.ctx); err != nil {
 				logging.Get(logging.CategoryEmbedding).Warn("Embedding engine health check failed: %v", err)
 				fmt.Fprintf(os.Stderr, "Warning: Embedding engine unavailable: %v\n", err)
 				if closer, ok := engine.(interface{ Close() error }); ok {
 					if closeErr := closer.Close(); closeErr != nil {
+						if bctx.ctx.Err() != nil {
+							return errors.Join(bctx.ctx.Err(), err, closeErr)
+						}
 						logging.Get(logging.CategoryEmbedding).Warn("Failed to close unhealthy embedding engine: %v", closeErr)
 					}
+				}
+				if bctx.ctx.Err() != nil {
+					return errors.Join(bctx.ctx.Err(), err)
 				}
 			} else {
 				bctx.embeddingEngine = engine
@@ -1538,6 +1577,9 @@ func initIntelligenceLayer(bctx *bootContext) error {
 			bctx.embeddingEngine = engine
 		}
 	} else {
+		if bctx.ctx.Err() != nil {
+			return errors.Join(bctx.ctx.Err(), err)
+		}
 		fmt.Fprintf(os.Stderr, "Warning: Failed to init embedding engine: %v\n", err)
 	}
 
@@ -2617,13 +2659,23 @@ func bootCortexWithSteps(ctx context.Context, cfg BootConfig, steps []bootStep) 
 		if step.run == nil {
 			continue
 		}
-		if err := step.run(bctx); err != nil {
-			bootErr := fmt.Errorf("boot %s: %w", step.name, err)
+		stepErr := ctx.Err()
+		if stepErr == nil {
+			stepErr = step.run(bctx)
+			if cancelErr := ctx.Err(); cancelErr != nil {
+				stepErr = errors.Join(cancelErr, stepErr)
+			}
+		}
+		if stepErr != nil {
+			bootErr := fmt.Errorf("boot %s: %w", step.name, stepErr)
 			if rollbackErr := rollbackBootContext(bctx); rollbackErr != nil {
 				return nil, errors.Join(bootErr, fmt.Errorf("boot rollback: %w", rollbackErr))
 			}
 			return nil, bootErr
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, errors.Join(err, rollbackBootContext(bctx))
 	}
 
 	return cortexFromBootContext(bctx), nil

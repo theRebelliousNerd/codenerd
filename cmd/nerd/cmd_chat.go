@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -44,6 +45,8 @@ type chatTurnSource struct {
 	scanner     *bufio.Scanner
 	done        bool
 	errReported bool
+	errWriter   io.Writer
+	context     context.Context
 }
 
 // newChatTurnSource builds a chatTurnSource. When args is non-empty the
@@ -92,8 +95,12 @@ func (s *chatTurnSource) Next() (turn string, ok bool) {
 		return line, true
 	}
 	if err := s.scanner.Err(); err != nil && err != io.EOF {
-		if !s.errReported {
-			fmt.Fprintf(os.Stderr, "error: reading turns: %v\n", err)
+		if !s.errReported && (s.context == nil || s.context.Err() == nil) {
+			errWriter := s.errWriter
+			if errWriter == nil {
+				errWriter = os.Stderr
+			}
+			fmt.Fprintf(errWriter, "error: reading turns: %v\n", err)
 			s.errReported = true
 		}
 	}
@@ -105,73 +112,159 @@ func (s *chatTurnSource) Next() (turn string, ok bool) {
 // runChat boots the Cortex once and feeds successive turns to
 // cortex.SessionExecutor.Process, mirroring the TUI main-agent path.
 func runChat(cmd *cobra.Command, args []string) error {
-	// A conversation has no natural total length, so the session itself is
-	// not wrapped in the global --timeout. Each turn gets its own deadline
-	// below. Cancellation comes from SIGINT/SIGTERM, same as runInstruction.
-	// The Cortex is booted first, before any turn is pulled, so a driver
-	// holding the stdin pipe can decide turn N+1 after seeing turn N's
-	// result instead of having to close the pipe before any turn runs.
-	processCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		cancel()
-	}()
-	defer signal.Stop(sigCh)
+	return runChatWith(cmd, args, chatDependencies{
+		input: os.Stdin, output: os.Stdout, errOutput: os.Stderr,
+		boot: bootChatRuntime, heartbeat: heartbeatInterval,
+		notifySignals: func(notifications chan<- os.Signal) func() {
+			signal.Notify(notifications, syscall.SIGINT, syscall.SIGTERM)
+			return func() { signal.Stop(notifications) }
+		},
+	})
+}
 
+type chatRuntime struct {
+	process func(context.Context, string) (*session.ExecutionResult, error)
+	close   func() error
+}
+
+type chatDependencies struct {
+	input         io.ReadCloser
+	output        io.Writer
+	errOutput     io.Writer
+	boot          func(context.Context) (*chatRuntime, error)
+	heartbeat     time.Duration
+	notifySignals func(chan<- os.Signal) func()
+}
+
+func bootChatRuntime(processCtx context.Context) (*chatRuntime, error) {
 	key := resolveAPIKey(apiKey, workspace)
-
 	cortex, err := coresys.GetOrBootCortex(processCtx, workspace, key, disableSystemShards)
 	if err != nil {
-		return fmt.Errorf("failed to boot cortex: %w", err)
+		return nil, err
 	}
-	defer cortex.Close()
-
-	if cortex.UsageTracker != nil {
-		processCtx = usage.NewContext(processCtx, cortex.UsageTracker)
-	}
-
+	runtime := &chatRuntime{close: cortex.Close}
 	if cortex.VirtualStore != nil {
 		cortex.VirtualStore.DisableBootGuard()
 	}
-
+	if cortex.SessionExecutor == nil {
+		return runtime, fmt.Errorf("chat: session executor is not available (cortex boot did not provide one)")
+	}
 	// The session identity is minted once at boot (Cortex.SessionID) so every
 	// headless turn persists under the same identity as campaign tasks and
 	// sub-agents. Minting a second ID here used to fork the chat history away
 	// from the boot identity.
-	if cortex.SessionExecutor == nil {
-		return fmt.Errorf("chat: session executor is not available (cortex boot did not provide one)")
-	}
 	if sid := cortex.SessionID(); sid != "" {
 		cortex.SessionExecutor.SetSessionID(sid)
 	}
+	runtime.process = func(turnCtx context.Context, turn string) (*session.ExecutionResult, error) {
+		if cortex.UsageTracker != nil {
+			turnCtx = usage.NewContext(turnCtx, cortex.UsageTracker)
+		}
+		return cortex.SessionExecutor.Process(turnCtx, turn)
+	}
+	return runtime, nil
+}
 
-	fmt.Println("ready")
-	src := newChatTurnSource(args, os.Stdin)
+func runChatWith(cmd *cobra.Command, args []string, dependencies chatDependencies) (outcome error) {
+	processCtx, cancel := commandContext(cmd)
+	defer cancel()
+	if dependencies.notifySignals != nil {
+		notifications := make(chan os.Signal, 1)
+		stopSignals := dependencies.notifySignals(notifications)
+		signalsDone := make(chan struct{})
+		go func() {
+			defer close(signalsDone)
+			select {
+			case <-notifications:
+				cancel()
+			case <-processCtx.Done():
+			}
+		}()
+		defer func() {
+			cancel()
+			stopSignals()
+			<-signalsDone
+		}()
+	}
+
+	if err := processCtx.Err(); err != nil {
+		return fmt.Errorf("chat: %w", err)
+	}
+	runtime, err := dependencies.boot(processCtx)
+	if runtime != nil && runtime.close != nil {
+		defer func() {
+			cancel()
+			if closeErr := runtime.close(); closeErr != nil {
+				outcome = errors.Join(outcome, fmt.Errorf("chat cleanup: %w", closeErr))
+			}
+		}()
+	}
+	if err != nil {
+		return fmt.Errorf("failed to boot cortex: %w", err)
+	}
+	if err := processCtx.Err(); err != nil {
+		return fmt.Errorf("chat: %w", err)
+	}
+	if runtime == nil || runtime.process == nil {
+		return fmt.Errorf("chat: session executor is not available (cortex boot did not provide one)")
+	}
+
+	src := newChatTurnSource(args, dependencies.input)
+	src.errWriter = dependencies.errOutput
+	src.context = processCtx
+	if len(args) == 0 && dependencies.input != nil {
+		readerDone := make(chan struct{})
+		var readerCloseErr error
+		stopReader := context.AfterFunc(processCtx, func() {
+			defer close(readerDone)
+			readerCloseErr = dependencies.input.Close()
+		})
+		defer func() {
+			if !stopReader() {
+				<-readerDone
+				if readerCloseErr != nil && !errors.Is(readerCloseErr, os.ErrClosed) {
+					outcome = errors.Join(outcome, fmt.Errorf("chat input cleanup: %w", readerCloseErr))
+				}
+			}
+		}()
+	}
+	fmt.Fprintln(dependencies.output, "ready")
 	turnNum := 0
-	for turn, ok := src.Next(); ok; turn, ok = src.Next() {
+	for {
+		if err := processCtx.Err(); err != nil {
+			return fmt.Errorf("chat: %w", err)
+		}
+		turn, ok := src.Next()
+		if err := processCtx.Err(); err != nil {
+			return fmt.Errorf("chat: %w", err)
+		}
+		if !ok {
+			return nil
+		}
 		turnNum++
-		fmt.Printf("── turn %d ──\n%s\n", turnNum, turn)
+		fmt.Fprintf(dependencies.output, "── turn %d ──\n%s\n", turnNum, turn)
 		turnCtx, turnCancel := context.WithCancel(processCtx)
-		stopHeartbeat := startHeartbeat(os.Stdout, heartbeatInterval)
+		if err := turnCtx.Err(); err != nil {
+			turnCancel()
+			return fmt.Errorf("chat: %w", err)
+		}
+		stopHeartbeat := startHeartbeat(dependencies.output, dependencies.heartbeat)
 		start := time.Now()
-		result, procErr := cortex.SessionExecutor.Process(turnCtx, turn)
+		result, procErr := runtime.process(turnCtx, turn)
 		elapsed := time.Since(start)
 		stopHeartbeat()
 		turnCancel()
 		if procErr != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", procErr)
-			continue
+			fmt.Fprintf(dependencies.errOutput, "error: %v\n", procErr)
+		} else if result == nil {
+			fmt.Fprintf(dependencies.errOutput, "error: nil result for turn %d\n", turnNum)
+		} else {
+			renderChatTurn(dependencies.output, dependencies.errOutput, turnNum, result, elapsed)
 		}
-		if result == nil {
-			fmt.Fprintf(os.Stderr, "error: nil result for turn %d\n", turnNum)
-			continue
+		if err := processCtx.Err(); err != nil {
+			return fmt.Errorf("chat: %w", err)
 		}
-		renderChatTurn(os.Stdout, os.Stderr, turnNum, result, elapsed)
 	}
-	return nil
 }
 
 // renderChatTurn renders one completed chat turn to w (stdout) and surfaces

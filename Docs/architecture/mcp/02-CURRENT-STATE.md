@@ -5,6 +5,12 @@
 
 ## 1. Package identity
 
+### Selected contract reverified 2026-10-02
+
+**VERIFIED CURRENT — GAP-MCP-06-001, test boundary:** parser escaping now runs from `internal/mcp/facts_parse_external_test.go#TestFactEmitter_WhenValueNeedsEscaping_ShouldProduceParseableFacts` (`internal/mcp/facts_parse_external_test.go:12`) through the production serializer exported only for tests by `internal/mcp/export_test.go#ToolFactsForTest` (`internal/mcp/export_test.go:30`) and the serialized `mangle.ParseAtom` entry. Golden policy witnesses are external tests at `internal/mcp/policy_golden_test.go:145`; discovery, cache, retraction and vector cleanup remain internal fixtures at `internal/mcp/facts_lifecycle_test.go:63`. External real-kernel selection, disconnect and metadata replacement controls remain at `internal/mcp/kernel_integration_test.go:92`.
+
+Root command `go test -tags sqlite_vec ./internal/mcp -count=1 -timeout 5m` passes on the modified working tree based on `db1d4b7e`; receipt: `artifact:.corpus-build/runs/all-features-20261002/round2-mcp.log`. This verifies the previously broken import-cycle obligation without runtime or permission changes. It is not race, remote-server, full-portfolio or publication acceptance. The July inventory below remains historical unless separately reconciled; its broader claims are not current verification evidence.
+
 | Property | Value |
 |----------|-------|
 | Import path | `codenerd/internal/mcp` |

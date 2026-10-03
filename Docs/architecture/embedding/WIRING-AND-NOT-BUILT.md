@@ -1,5 +1,13 @@
 # embedding — WIRING-AND-NOT-BUILT
 
+## Accepted normal-entry lifetime repair
+
+**VERIFIED CURRENT — bounded wiring:** system boot now invokes context-aware perception and embedding constructors; strict default full-bootstrap blocked HTTP and focused race controls pass `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and `round6-coldboot-race.receipt.json`. Fresh sqlite_vec normal-entry cold timeout20s exits21.6602s without external termination (`round6-firstboot-idle.receipt.json`), within the stated5s allowance. This supersedes the contextless cold-construction observation below. It does not qualify GenAI live service, model namespace, ANN eligibility, Linux or world-model/model-turn consumption.
+
+**PARTIAL:** the cold perception constructor's contextless embedding initialization/hydration breaks the CLI lifetime contract; the root fresh-binary probe exited at 58.4495 seconds for a 20-second timeout. `artifact:.corpus-build/runs/all-features-20261002/02-execution/handoff-5.json` identifies source and phase evidence.
+
+**PROPOSED UPLIFT:** system boot -> perception initialization -> semantic classifier -> embedding/provider constructors carry one caller context. Legacy contextless wrappers remain only for callers without a supplied context. Validate parent-cancel abort versus alive-parent optional fallback and retry; then rebuild and repeat the fresh normal-entry probe. This packet does not qualify model namespace, ANN eligibility, Linux execution or world-model/model-turn consumption.
+
 > Verified 2026-09-21 against branch `main` working tree; the last two
 > sections re-verified 2026-09-25 against `fc857b3`. Anchors in "Wired and
 > reachable" are from the 2026-09-21 pass.

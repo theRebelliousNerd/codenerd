@@ -7,6 +7,8 @@
 
 ## P0 — Make Mangle selection real
 
+- [x] GAP-MCP-06-001: restore executable lifecycle, parser and golden-policy tests without a same-package mangle import cycle. External parser/policy fixtures are at `internal/mcp/facts_parse_external_test.go:12` and `internal/mcp/policy_golden_test.go:145`; real-kernel controls remain at `internal/mcp/kernel_integration_test.go:92`. Root full `internal/mcp` package gate passes with sqlite_vec; `artifact:.corpus-build/runs/all-features-20261002/round2-mcp.log`. Verified on the modified working tree, not a published revision; no broader authority, race or live-server closure.
+
 - [x] Include `policy_mcp.mg` in kernel policy load (or relocate under `internal/core/defaults/policy/`)
   closed by the relocate option: file is internal/core/defaults/policy/policy_mcp.mg, the //go:embed defaults/policy/*.mg directive covers it, kernel_init.go lines 354-373 sweep every .mg in that directory
 - [x] Emit EDB on discover/save: `mcp_server_*`, `mcp_tool_registered`, capability, category, domain, affinity, condensed, analyzed

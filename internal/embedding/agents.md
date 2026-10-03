@@ -1,5 +1,11 @@
 # Embedding package guidance
 
+- Caller-aware bootstrap uses NewEngineWithContext and NewGenAIEngineWithContext.
+  Startup ensure caps inherit that caller. Parent cancellation returns its typed
+  cause; an alive-parent local ensure timeout remains optional and permits retry.
+- Contextless constructors remain compatibility entries for callers without a
+  supplied context. Provider construction must not add a whole-task deadline.
+
 - Keep this package a semantic leaf. It may feed retrieval, perception, and JIT,
   but it must not own Mangle permission or action dispatch.
 - Treat provider responses as untrusted data. Reject empty or non-finite vectors,

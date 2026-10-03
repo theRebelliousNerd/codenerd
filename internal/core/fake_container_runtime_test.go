@@ -24,6 +24,31 @@ type fakeContainerRuntime struct {
 	failing   map[string]bool
 	ops       []string
 	audit     func(tactile.AuditEvent)
+	execCalls []tactile.ContainerExecOptions
+}
+
+const expectedPytestLauncher = `import os
+import sys
+virtualenv_bin = os.path.dirname(sys.executable)
+os.environ["PATH"] = virtualenv_bin + os.pathsep + os.environ.get("PATH", "")
+pytest_arguments = ["-xvs", *sys.argv[1:]]
+if os.name == "nt":
+    import runpy
+    sys.argv = ["pytest", *pytest_arguments]
+    runpy.run_module("pytest", run_name="__main__", alter_sys=True)
+else:
+    os.execv(sys.executable, [sys.executable, "-m", "pytest", *pytest_arguments])
+`
+
+func (recorder *fakeContainerRuntime) executions() []tactile.ContainerExecOptions {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	invocations := append([]tactile.ContainerExecOptions(nil), recorder.execCalls...)
+	for invocationIndex := range invocations {
+		invocations[invocationIndex].Arguments = append([]string(nil), invocations[invocationIndex].Arguments...)
+		invocations[invocationIndex].Environment = append([]string(nil), invocations[invocationIndex].Environment...)
+	}
+	return invocations
 }
 
 func newFakeContainerRuntime() *fakeContainerRuntime {
@@ -115,6 +140,10 @@ func (f *fakeContainerRuntime) ExecInContainer(_ context.Context, opts tactile.C
 	}
 	line := strings.TrimSpace(opts.Binary + " " + strings.Join(opts.Arguments, " "))
 	f.record("exec " + line)
+	invocation := opts
+	invocation.Arguments = append([]string(nil), opts.Arguments...)
+	invocation.Environment = append([]string(nil), opts.Environment...)
+	f.execCalls = append(f.execCalls, invocation)
 	exit := 0
 	out := "ok"
 	switch {
@@ -125,6 +154,17 @@ func (f *fakeContainerRuntime) ExecInContainer(_ context.Context, opts tactile.C
 	case opts.Binary == "git" && len(opts.Arguments) > 0 && opts.Arguments[0] == "apply":
 		if strings.Contains(f.patches[opts.ContainerID], "BROKEN") {
 			exit, out = 1, "error: patch does not apply"
+		}
+	case strings.HasSuffix(opts.Binary, "/venv/bin/python"):
+		if len(opts.Arguments) < 2 || opts.Arguments[0] != "-c" || opts.Arguments[1] != expectedPytestLauncher {
+			return nil, fmt.Errorf("unrecognized virtualenv pytest invocation: %q %q", opts.Binary, opts.Arguments)
+		}
+		out = "PASSED " + strings.Join(opts.Arguments[2:], " ")
+		for _, selectedTest := range opts.Arguments[2:] {
+			if f.failing[selectedTest] {
+				exit, out = 1, "FAILED "+selectedTest+" - AssertionError"
+				break
+			}
 		}
 	case opts.Binary == "sh" && len(opts.Arguments) == 2 && strings.Contains(opts.Arguments[1], "pytest -xvs"):
 		name := strings.TrimSpace(opts.Arguments[1][strings.Index(opts.Arguments[1], "pytest -xvs")+len("pytest -xvs"):])

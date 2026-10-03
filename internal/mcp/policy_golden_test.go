@@ -1,4 +1,4 @@
-package mcp
+package mcp_test
 
 import (
 	"os"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/mangle"
+	"codenerd/internal/mcp"
 )
 
 // mcpPolicyPath is the kernel-loaded location of the MCP selection rules.
@@ -222,16 +223,16 @@ func TestMCPPolicy_WhenUsageRecorded_ShouldDeriveSuccessRate(t *testing.T) {
 func TestMCPPolicy_WhenFactsComeFromEmitter_ShouldDriveSelection(t *testing.T) {
 	eng := newMCPPolicyEngine(t)
 
-	server := &MCPServer{
+	server := &mcp.MCPServer{
 		ID:           "octo",
 		Name:         "Octo MCP",
 		Endpoint:     "http://localhost:7777",
-		Protocol:     ProtocolHTTP,
-		Status:       ServerStatusConnected,
+		Protocol:     mcp.ProtocolHTTP,
+		Status:       mcp.ServerStatusConnected,
 		Capabilities: []string{"tools", "resources"},
 		DiscoveredAt: fixedTime(),
 	}
-	tool := &MCPTool{
+	tool := &mcp.MCPTool{
 		ToolID:          "octo/grep",
 		ServerID:        "octo",
 		Name:            "grep",
@@ -246,9 +247,9 @@ func TestMCPPolicy_WhenFactsComeFromEmitter_ShouldDriveSelection(t *testing.T) {
 	}
 
 	var emitted []string
-	emitted = append(emitted, serverFacts(server)...)
+	emitted = append(emitted, mcp.ServerFactsForTest(server)...)
 	emitted = append(emitted, `mcp_server_status("octo", /connected)`)
-	emitted = append(emitted, toolFacts(tool)...)
+	emitted = append(emitted, mcp.ToolFactsForTest(tool)...)
 
 	loadEDBLines(t, eng, strings.Join(emitted, ".\n")+".")
 

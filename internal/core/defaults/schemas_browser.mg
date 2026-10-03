@@ -50,6 +50,17 @@ Decl net_header(SessionID, ReqID, Direction, Key, Value) bound [/string, /string
 Decl request_initiator(SessionID, ReqID, InitType, ParentRef) bound [/string, /string, /string, /string].
 Decl net_failure(SessionID, ReqID, ErrorText, BlockedReason, Timestamp) bound [/string, /string, /string, /string, /number].
 
+# Capture shapes adapted from BrowserNERD's Apache-2.0 browser contract.
+# Bodies carry structural summaries, never response values or credentials.
+Decl net_http_error(SessionID, ReqID, URL, Status, ResourceType, Timestamp) bound [/string, /string, /string, /number, /string, /number].
+Decl net_loading_failed(SessionID, ReqID, ErrorText, Canceled, Timestamp) bound [/string, /string, /string, /string, /number].
+Decl net_failure_body(SessionID, ReqID, Shape) bound [/string, /string, /string].
+Decl ws_event(SessionID, WsID, URL, Event, Detail, Timestamp) bound [/string, /string, /string, /string, /string, /number].
+Decl browser_log(SessionID, Source, Level, Text, URL, Timestamp) bound [/string, /string, /string, /string, /string, /number].
+Decl js_dialog(SessionID, Type, Message, Accepted, HandledBy, Timestamp) bound [/string, /string, /string, /string, /string, /number].
+Decl download(SessionID, Guid, URL, SuggestedName, State, Timestamp) bound [/string, /string, /string, /string, /string, /number].
+Decl page_load_failed(SessionID, URL, ErrorText, Timestamp) bound [/string, /string, /string, /number].
+
 # Events
 Decl navigation_event(SessionID, URL, Timestamp) bound [/string, /string, /number].
 Decl current_url(SessionID, URL) bound [/string, /string].
@@ -71,6 +82,56 @@ Decl root_cause_at(SessionID, Message, Source, Cause, Timestamp) bound [/string,
 Decl user_visible_error(SessionID, Source, Message, Timestamp) bound [/string, /string, /string, /number].
 Decl interaction_blocked(SessionID, Reason) bound [/string, /string].
 Decl interaction_blocked_at(SessionID, Reason, Timestamp) bound [/string, /string, /number].
+
+# Response-time evidence is distinct from the existing request-time interface.
+Decl asset_resource_type(Type) bound [/string].
+Decl asset_http_error(SessionID, ReqID) bound [/string, /string].
+Decl failed_request_done(SessionID, ReqID, URL, Status, Timestamp) bound [/string, /string, /string, /number, /number].
+Decl network_failure(SessionID, ReqID, URL, ErrorText, Timestamp) bound [/string, /string, /string, /string, /number].
+Decl browser_has_request(SessionID, ReqID) bound [/string, /string].
+Decl browser_has_loading_failure(SessionID, ReqID) bound [/string, /string].
+Decl console_error_bucket(SessionID, Bucket, Message, Timestamp) bound [/string, /number, /string, /number].
+Decl request_failure_bucket(SessionID, Bucket, ReqID, Timestamp) bound [/string, /number, /string, /number].
+Decl caused_by_candidate(SessionID, ErrorTs, ConsoleErr, ReqID, FailTs) bound [/string, /number, /string, /string, /number].
+Decl caused_by_nearest(SessionID, ErrorTs, ConsoleErr, FailTs) bound [/string, /number, /string, /number].
+Decl caused_by(SessionID, ConsoleErr, ReqID) bound [/string, /string, /string].
+Decl browser_console_cause(SessionID, Message, Timestamp) bound [/string, /string, /number].
+
+# All browser clocks and expiry metadata use epoch milliseconds.
+Decl storage_entry(SessionID, Store, Key, Kind, Exp) bound [/string, /string, /string, /string, /number].
+Decl browser_observed_at(SessionID, Timestamp) bound [/string, /number].
+Decl browser_clock_sample(SessionID, Timestamp) bound [/string, /number].
+Decl browser_session_clock(SessionID, Timestamp) bound [/string, /number].
+Decl auth_expired(SessionID, Store, Key) bound [/string, /string, /string].
+Decl auth_failed_request(SessionID, ReqID, Store, Key) bound [/string, /string, /string, /string].
+
+# Go measures control ownership; policy decides eligibility and rank.
+Decl interactive(SessionID, Ref, Type, Label, Action) bound [/string, /string, /string, /string, /string].
+Decl element_enabled(SessionID, Ref, Enabled) bound [/string, /string, /string].
+Decl element_hydration(SessionID, Ref, State) bound [/string, /string, /string].
+Decl browser_control_attribute(SessionID, Ref, Key, Value) bound [/string, /string, /string, /string].
+Decl page_framework(SessionID, URL, StartedMs) bound [/string, /string, /number].
+Decl page_hydrated(SessionID, URL) bound [/string, /string].
+Decl dead_control(SessionID, Ref, Label) bound [/string, /string, /string].
+Decl foreign_control(SessionID, Ref, Label) bound [/string, /string, /string].
+Decl unhydrated_page(SessionID, URL) bound [/string, /string].
+Decl browser_dead_ref(SessionID, Ref) bound [/string, /string].
+Decl browser_disabled_ref(SessionID, Ref) bound [/string, /string].
+Decl browser_action_rank(Type, Action, ConfigKey, Reason) bound [/string, /string, /name, /string].
+Decl action_candidate(SessionID, Ref, Label, Action, Priority, Reason) bound [/string, /string, /string, /string, /number, /string].
+
+Decl act_batch(SessionID, Batch, StartedMs) bound [/string, /string, /number].
+Decl act_effect(SessionID, Batch, Kind, Subject, Detail, Timestamp) bound [/string, /string, /string, /string, /string, /number].
+Decl act_http_effect(SessionID, Batch, ReqID, URL, Status, Timestamp) bound [/string, /string, /string, /string, /number, /number].
+Decl dialog_policy(SessionID, Answer) bound [/string, /string].
+Decl browser_dialog_accept(SessionID) bound [/string].
+Decl browser_dialog_dismiss(SessionID) bound [/string].
+Decl dialog_answer(SessionID, Answer) bound [/string, /string].
+Decl attended(SessionID, Timestamp) bound [/string, /number].
+Decl browser_last_attended(SessionID, Timestamp) bound [/string, /number].
+Decl browser_has_attended(SessionID) bound [/string].
+Decl unattended_navigation(SessionID, URL, Timestamp) bound [/string, /string, /number].
+Decl failure_evidence_predicate(Predicate) bound [/string].
 
 # Interactive elements
 Decl interactable(ID, ElemType) bound [/string, /name].
@@ -106,9 +167,3 @@ Decl audit_finding(SessionID, Kind, Subject, Detail, Timestamp) bound [/string, 
 Decl audit_needle(SessionID, Needle) bound [/string, /string].
 Decl audit_source(SessionID, Subject, Path, Line) bound [/string, /string, /string, /number].
 Decl audit_hazard(SessionID, Subject) bound [/string, /string].
-
-
-# attended(Session, Ms): the last time a caller observed or acted on a session. The
-# lifecycle asserts it (internal/browser/session_lifecycle.go); the BrowserNERD 1.2 port
-# derives unattended navigation from it (Docs/architecture/browser/14-BROWSERNERD-1.2-PORT-SPEC.md).
-Decl attended(SessionID, Timestamp) bound [/string, /number].

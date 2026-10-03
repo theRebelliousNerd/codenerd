@@ -365,10 +365,10 @@ var hostWitnessPredicates = map[string]struct{}{
 	// could write the pass's writes could skip the commit retry or close a
 	// step it never edited; one that could write the projections or the
 	// verdict could declare the plan complete.
-	"step_execution": {}, "step_no_change_evidence": {}, "step_retried": {},
+	"step_execution": {}, "step_no_change_evidence": {}, "step_retried": {}, "step_file_net": {},
 	"step_cover_candidate": {}, "step_file_covered": {},
 	"step_has_retried": {}, "step_has_no_change": {}, "step_has_cover": {},
-	"step_unresolved": {}, "step_next_action": {},
+	"step_unresolved": {}, "step_reverted": {}, "step_next_action": {},
 	"turn_has_step": {}, "turn_has_unresolved_step": {}, "turn_steps_verdict": {},
 	// What a repair episode does next (repair_episode.mg): a model that
 	// could write repair_attempt could keep its own episode alive.

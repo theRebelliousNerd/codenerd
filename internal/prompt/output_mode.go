@@ -22,7 +22,7 @@ import "strings"
 // replan.go, analyzer in assault_tasks.go. The mapping from role to shard type
 // is campaign.GetShardTypeForRole.
 func IsStructuredOutputOnly(shardType string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(shardType, "/")))
+	normalized := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(shardType), "/"))
 	switch normalized {
 	case "mangle_repair", "legislator",
 		// Campaign roles (campaign.GetShardTypeForRole).
@@ -61,15 +61,50 @@ func imposesOutputContract(atom *PromptAtom) bool {
 }
 
 func filterAtomsForStructuredOutput(atoms []*PromptAtom, cc *CompilationContext) []*PromptAtom {
-	if len(atoms) == 0 || cc == nil || !IsStructuredOutputOnly(cc.ShardType) {
+	if len(atoms) == 0 || cc == nil {
+		return atoms
+	}
+	normalized := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(cc.ShardType), "/"))
+	perception := normalized == "perception" || normalized == "perception_firewall"
+	if !perception && !IsStructuredOutputOnly(cc.ShardType) {
 		return atoms
 	}
 	filtered := make([]*PromptAtom, 0, len(atoms))
+	removed := make(map[string]bool)
 	for _, atom := range atoms {
-		if imposesOutputContract(atom) {
+		if atom == nil {
+			continue
+		}
+		ownsContract := perception && atom.ID == "system/perception/output_format"
+		legacyTransducer := perception && strings.HasPrefix(atom.ID, "perception/transducer/")
+		if legacyTransducer || (imposesOutputContract(atom) && !ownsContract) {
+			removed[atom.ID] = true
 			continue
 		}
 		filtered = append(filtered, atom)
+	}
+	for {
+		kept := make([]*PromptAtom, 0, len(filtered))
+		changed := false
+		for _, atom := range filtered {
+			blocked := false
+			for _, dependency := range atom.DependsOn {
+				if removed[dependency] {
+					blocked = true
+					break
+				}
+			}
+			if blocked {
+				removed[atom.ID] = true
+				changed = true
+				continue
+			}
+			kept = append(kept, atom)
+		}
+		filtered = kept
+		if !changed {
+			break
+		}
 	}
 	return filtered
 }

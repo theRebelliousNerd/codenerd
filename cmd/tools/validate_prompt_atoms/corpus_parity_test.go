@@ -53,28 +53,8 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 		t.Fatal("validator and embedded runtime atom order differ")
 	}
 
-	// Includes tool-agnostic editing discipline alongside change evidence, and
-	// the working-context methodology atom (methodology/working_context).
-	// 920 at 8ebd7616, minus the 6 envelope-restating atoms deleted by
-	// f73362ff (piggyback, reasoning_trace, output_protocol,
-	// self_correction, tool_steering); plus
-	// language/mangle/engine_truths_pinned (2026-09-18), served when the kernel
-	// derives /authoring_mangle (policy/jit_needs.mg); minus
-	// language/mangle/docs/builtins_complete/aggregators (2026-09-18), a second
-	// reducer reference teaching fn:CountDistinct and fn:CollectToMap, which the
-	// pinned engine does not have; plus capability/structure_queries
-	// (2026-09-21), which teaches the five structural query tools over the
-	// world model's structure index and says raw search opens only after them;
-	// minus campaign/taxonomist/{output_protocol,reasoning_trace} (ca21c7e5,
-	// the planner is not told to answer in a Piggyback envelope); plus
-	// eval/delegation_judge/{implementation,review} (6cf5b177, the delegation
-	// judge's prompt compiled from atoms). The count held; the order did not.
-	// plus capability/run_check (812ba2a4, 2026-09-28), the campaign acceptance
-	// check; plus capability/codedom_whole_file, the edit_file/write_file
-	// teaching split out of capability/codedom_safety and
-	// capability/codedom_selection.
-	const wantCount = 917
-	const wantDigest = "58cb5a6d344eed99462cbecdeec44898465b6b3b91d6bcae1e346e7a1e2139bf"
+	const wantCount = 923
+	const wantDigest = "c7ede3ef1218e03ecc8f46ded51ba405eb1e55663e3a59704eadc7d76cad0b33"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}

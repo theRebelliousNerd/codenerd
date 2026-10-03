@@ -1,5 +1,11 @@
 # 03 — Gap Analysis: session
 
+## Accepted generated-tool feedback target (2026-10-02)
+
+**PARTIAL — GAP-SESSION-GENERATED-FEEDBACK:** `internal/session/executor_tools.go#Executor.executeToolCall` directly calls the generated registry at line 2597 after safety preflight. Root inspected this route and `internal/system/factory_tool_executor.go#orchestratorToolExecutor.ExecuteTool` at line 47: the factory's tool-quality feedback adapter is installed on VirtualStore, not this direct path. Raw execution counters are not automatic learning. Existing turn feedback through `#Executor.persistTurn` is distinct. Source audit: artifact:.corpus-build/runs/all-features-20261002/02-execution/handoff-3.json.
+
+**PROPOSED UPLIFT:** normal generated calls execute exactly once through the existing executive/feedback path, preserving the executive-issued action identity, exact canonical payload, JIT allowlist, default-deny permission, preflight, caller cancellation, binary protocol, true output/errors, validation and counters. Missing bridge or matching authorization must fail closed, never fall back to raw execution. Real successful and failed executions reach tool learning exactly once; refusals produce no effect or fabricated execution feedback. Root proves Process-to-effect-to-learning behavior with disconnected-route/feedback and refusal controls. Accepted, not yet wired or verified; no permission widening or shell access is implied. Companion GAP-SYSTEM-GENERATED-FEEDBACK owns factory/adapter lifecycle.
+
 > Wave-2 reconciliation 2026-09-25: see the table at the end of [TODO.md](TODO.md) for each item's current classification and evidence. Last full verification of the text below: 2026-08-09 — true-up for the 2026-08-09 task-integrity incident (prompt/03-GAP-ANALYSIS G9/G10, prompt/12-FAILURE-MODES FM17/FM18, world/03-GAP-ANALYSIS, session/09-SAFETY-AND-INVARIANTS). Section 7 records current reality as OPEN; do not mark G9/G10 closed until the canonical-precedence and temp-repo negative exams exist and pass.
 
 ## 1. Spec vs reality matrix

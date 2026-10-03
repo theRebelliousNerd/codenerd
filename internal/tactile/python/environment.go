@@ -637,6 +637,19 @@ func (e *Environment) GetDiff(ctx context.Context) (string, error) {
 // TEST EXECUTION
 // =============================================================================
 
+const pytestLauncher = `import os
+import sys
+virtualenv_bin = os.path.dirname(sys.executable)
+os.environ["PATH"] = virtualenv_bin + os.pathsep + os.environ.get("PATH", "")
+pytest_arguments = ["-xvs", *sys.argv[1:]]
+if os.name == "nt":
+    import runpy
+    sys.argv = ["pytest", *pytest_arguments]
+    runpy.run_module("pytest", run_name="__main__", alter_sys=True)
+else:
+    os.execv(sys.executable, [sys.executable, "-m", "pytest", *pytest_arguments])
+`
+
 // RunPytest runs pytest with the given arguments.
 func (e *Environment) RunPytest(ctx context.Context, args ...string) (*TestResult, error) {
 	logging.Tactile("Running pytest: %v", args)
@@ -644,13 +657,8 @@ func (e *Environment) RunPytest(ctx context.Context, args ...string) (*TestResul
 
 	startTime := time.Now()
 
-	// Build pytest command
-	command := "pytest -xvs"
-	if len(args) > 0 {
-		command = fmt.Sprintf("pytest -xvs %s", strings.Join(args, " "))
-	}
-
-	result, err := e.execInRepoVenv(ctx, e.config.TestTimeout, command)
+	pytestArgs := append([]string{"-c", pytestLauncher}, args...)
+	result, err := e.execInRepo(ctx, e.config.TestTimeout, e.venvPath+"/bin/python", pytestArgs...)
 
 	duration := time.Since(startTime)
 

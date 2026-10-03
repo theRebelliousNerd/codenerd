@@ -50,6 +50,7 @@ type LedgerConfig struct {
 
 // NewLedger builds a ledger from cfg.
 func NewLedger(cfg LedgerConfig) *Ledger {
+	outputReserve := max(cfg.OutputReserve, 0)
 	budgets := make(map[Purpose]int64, len(cfg.Budgets))
 	for p, b := range cfg.Budgets {
 		if b > 0 {
@@ -58,7 +59,7 @@ func NewLedger(cfg LedgerConfig) *Ledger {
 	}
 	return &Ledger{
 		window:        cfg.Window,
-		outputReserve: cfg.OutputReserve,
+		outputReserve: outputReserve,
 		budgets:       budgets,
 		accounts:      make(map[Purpose]*Spend),
 	}
@@ -76,11 +77,10 @@ func (l *Ledger) availableLocked() int {
 	if l.window <= 0 {
 		return 0
 	}
-	avail := l.window - l.outputReserve
-	if avail < 0 {
+	if l.outputReserve >= l.window {
 		return 0
 	}
-	return avail
+	return l.window - l.outputReserve
 }
 
 // Admit decides whether a counted request may proceed.
@@ -103,7 +103,7 @@ func (l *Ledger) Admit(p Purpose, count Count) Decision {
 	}
 
 	avail := l.availableLocked()
-	if avail > 0 {
+	if l.window > 0 {
 		decision.Headroom = avail - count.Tokens
 		if count.Tokens > avail {
 			decision.Code = DecisionWindowExceeded

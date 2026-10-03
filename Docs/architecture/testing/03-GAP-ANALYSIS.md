@@ -1,5 +1,13 @@
 # testing — Gap Analysis
 
+## Accepted pipeline acceptance target (2026-10-02)
+
+**PARTIAL — GAP-TESTING-08-01:** this corpus owns tests/e2e in corpus.toml, but `tests/e2e/Session_Executor_VirtualStore_Autopoiesis_integration_test.go` does not exercise its named pipeline. Root reproduced Scenario1 failure in artifact:.corpus-build/runs/all-features-20261002/baseline-e2e.log. Forty equivalent scenarios assert undeclared predicates and query them after a timer; `internal/core/kernel_undeclared.go` deliberately excludes them from ordinary schema queries. This does not prove kernel data loss. Ten named cases also contain unused cancellation, duplicate flood assertions, absent panic injection and logging-only bodies. The source-grounded obligation map is artifact:.corpus-build/runs/all-features-20261002/08-verification/handoff-3.json, not a passing receipt.
+
+**PROPOSED UPLIFT:** preserve smoke, malformed control, admitted-work cancellation/join, concurrent distinct state, actual resource bounds, articulation/pipeline panic isolation, failure/recovery, exact baseline integrity, five-turn state/isolation and partial-failure obligations. Replace synthetic repeats only after explicit mapping and decisive stronger receipts. A recorder panic is supplemental, not a substitute for articulation panic isolation. Pin missing resource/concurrency contracts and build required seams; do not invent thresholds, skip cases or silently narrow the target.
+
+Acceptance uses a temporary workspace, real Cortex/kernel/session/VirtualStore and production feedback adapters, deterministic model inputs, typed declared baselines, actual permitted effects and correlated receipts. Automatic generated-tool learning differs from turn/prompt learning; manual RecordExecution proves neither route. Disconnecting effects or feedback must fail the respective positive assertions. Runtime bridge prerequisites remain open. Preserve historical failures and meaningful original assertions until replacement coverage is verified. Root integration, race, suite and normal-entry receipts are required; this accepted target establishes no pipeline completion.
+
 > Last verified: 2026-07-13  
 > Against vision in `01-VISION.md` and package-local README claims
 

@@ -1,5 +1,25 @@
 # tools — Gap Analysis
 
+## Accepted existing-seed SQLite profile correction (2026-10-02)
+
+**PARTIAL — GAP-TOOLS-SEED-PRAGMAS:** dependent audit `artifact:.corpus-build/runs/all-features-20261002/round6-affected-full.receipt.json` finds the new `cmd/tools/prompt_builder/main.go#reconcilePromptSeed` SQL open at line219 lacks a centralized pragma profile. Complete embedding/perception/system/shards-system/CLI packages pass in that aggregate gate, but SQL profile inventory fails. The second site in unchanged `internal/init/phase_ecosystem.go` is separately preexisting and not owned by this correction.
+
+**PROPOSED UPLIFT:** after validating the existing target and before schema/reconciliation mutation, apply the centralized transactional existing-store profile. Do not reuse the destructive fresh bulk-build profile, tune an invalid target before validation, exempt the new site or weaken the inventory. Exit: independently observe the valid corpus profile; preserve exact vectors/task/project ownership, cancellation/rollback and invalid targets; complete builder tests pass; inventory no longer reports reconcilePromptSeed. Remaining baseline inventory failure stays visible.
+
+## Accepted prompt seed maintenance contract (2026-10-02)
+
+**PARTIAL — GAP-TOOLS-PROMPT-SEED-01:** `cmd/tools/prompt_builder/main.go#main` (`cmd/tools/prompt_builder/main.go:109`) now has an authored `-reconcile-embedded` branch; the root builder gate remains red because a valid-corpus fixture uses an illegal Windows filename. This helper belongs to the existing `tools` source roots, not `cli`. The initial operator target was accepted under GAP-CLI-PROMPT-SEED-01; implementation ownership is reconciled here before further source work. July claims below are historical, not new qualification.
+
+**PROPOSED UPLIFT:** explicit maintenance of an existing valid prompt corpus uses compiled canonical atoms and the production prompt schema/reconciler API without provider credentials, deletion/truncation/replacement or silently ignored custom input. Default generation remains unchanged. Report actual canonical upsert/delete and retained/cleared counts; preserve exact vector/task values for unchanged effective input and invalidate changed input. Missing, invalid or directory targets are refused without replacement. Project-owned rows and their tags/vector rows survive reconciliation under GAP-PROMPT-RECONCILE-PRESERVATION.
+
+Exit evidence is a root-run real SQLite builder gate covering legal Windows URI-sensitive paths, exact metadata/ownership, rollback and credential-free main; a guarded sqlite_vec build; and an owned candidate command receipt with integrity/content parity and per-atom retention checks. Those bounded maintenance controls now pass in `round5-reconciler-builder.receipt.json`; `round5-seed-retention.json` records 682 exact retained vectors and 29 changed-input invalidations across 923 rows before generated-asset publication. The first-boot prompt database carries the corrected perception row, but normal lifecycle remains red. Claiming semantic ANN parity additionally requires qualified vector namespace/task/index behavior; mixed legacy dimensions and unknown provenance are not made compatible by preserving bytes. See [operator contract and current receipts](../cli/07-PROMPT-SEED-MAINTENANCE.md). GAP-TOOLS-PROMPT-SEED-01 remains partial, not a global feature-completion claim.
+
+## Accepted ordered corpus oracle maintenance
+
+**PARTIAL — GAP-TOOLS-ATOM-GOLDEN-01:** the full root gate in `round5-prompt-perception-full.receipt.json` passes prompt/sync/perception/builder but fails `cmd/tools/validate_prompt_atoms/corpus_parity_test.go#TestCheckedInCorpusOrderedParity` (`cmd/tools/validate_prompt_atoms/corpus_parity_test.go:76`): its 917-ID golden predates six already-committed canonical atoms. Root independently reproduced the old 917-ID digest at 8c477797, then derived the current 923-ID digest and exact six additions with no removals in `round5-validator-golden-delta.json`. Added IDs are campaign/recurse/fix, campaign/recurse/improve and northstar/derive/classify, identity, requirements, vision. These are existing corpus additions, not newly introduced to satisfy the test.
+
+**PROPOSED UPLIFT:** refresh only the expected count/digest to the verified canonical corpus and retire the misleading inline count narrative. Preserve strict validation, no-migration assertions, independent filesystem/embedded route equality and ordered identity hashing. Do not derive the expected value from the runtime under test, skip entries, weaken assertions or change source atoms. Exit: the full validator package passes with the exact 923-ID oracle and the above verified provenance.
+
 > Last verified: **2026-08-15**
 
 ## Spec vs reality matrix

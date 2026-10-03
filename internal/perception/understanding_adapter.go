@@ -2,6 +2,7 @@ package perception
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -108,69 +109,176 @@ func (t *UnderstandingTransducer) initialize(ctx context.Context) {
 // getUnderstandingPrompt returns the system prompt for LLM classification.
 // Uses JIT compilation if available, otherwise falls back to embedded prompt.
 func getUnderstandingPrompt(ctx context.Context, pa PromptAssembler) string {
-	// Check if JIT is available
-	if pa == nil || !pa.JITReady() {
+	fallback := func(reason string) string {
+		logging.PerceptionDebug("Perception prompt: source=embedded contract=UnderstandingEnvelope reason=%s", reason)
 		return understandingSystemPrompt
+	}
+	if pa == nil || !pa.JITReady() {
+		return fallback("jit_unavailable")
 	}
 
 	// Attempt JIT compilation
 	prompt, err := pa.AssembleSystemPrompt(ctx, "perception-transducer", "perception")
 	if err != nil {
-		// Log the error and fall back to embedded prompt
-		return understandingSystemPrompt
+		return fallback("assembly_error")
 	}
 
 	// Validate the compiled prompt has reasonable content
 	if len(strings.TrimSpace(prompt)) < 100 {
-		return understandingSystemPrompt
+		return fallback("short_prompt")
 	}
-	if !isValidUnderstandingPromptContract(prompt) {
-		logging.PerceptionDebug("JIT perception prompt rejected: incompatible output contract, falling back to embedded prompt")
-		return understandingSystemPrompt
+	if reason := understandingPromptContractReason(prompt); reason != "" {
+		return fallback(reason)
 	}
 
+	logging.PerceptionDebug("Perception prompt: source=jit contract=UnderstandingEnvelope")
 	return prompt
 }
 
 func isValidUnderstandingPromptContract(prompt string) bool {
-	trimmed := strings.TrimSpace(prompt)
-	if trimmed == "" {
+	return understandingPromptContractReason(prompt) == ""
+}
+
+func understandingPromptContractReason(prompt string) string {
+	found := false
+	for offset := 0; offset < len(prompt); {
+		start := strings.IndexByte(prompt[offset:], '{')
+		if start < 0 {
+			break
+		}
+		start += offset
+		end := understandingObjectEnd(prompt, start)
+		if end < 0 {
+			if mentionsUnderstandingObject(prompt[start:]) {
+				return "malformed_contract"
+			}
+			break
+		}
+		object := prompt[start:end]
+		offset = end
+		var shape map[string]any
+		if err := json.Unmarshal([]byte(normalizeUnderstandingTemplate(object)), &shape); err != nil {
+			if mentionsUnderstandingObject(object) {
+				return "malformed_contract"
+			}
+			continue
+		}
+		if _, exists := shape["control_packet"]; exists {
+			return "conflicting_contract"
+		}
+		_, category := shape["category"]
+		_, verb := shape["verb"]
+		if category && verb {
+			return "conflicting_contract"
+		}
+		if _, exists := shape["understanding"]; exists {
+			if !isUnderstandingEnvelopeShape(shape) {
+				return "malformed_contract"
+			}
+			found = true
+		} else if _, exists := shape["surface_response"]; exists {
+			return "conflicting_contract"
+		}
+	}
+	if !found {
+		return "missing_contract"
+	}
+	return ""
+}
+
+func mentionsUnderstandingObject(object string) bool {
+	return strings.Contains(object, `"understanding"`) || strings.Contains(object, `"control_packet"`)
+}
+
+func isUnderstandingEnvelopeShape(shape map[string]any) bool {
+	if len(shape) != 2 {
 		return false
 	}
-
-	// Perception expects UnderstandingEnvelope JSON, not Piggyback.
-	if strings.Contains(trimmed, "\"control_packet\"") {
+	if _, ok := shape["surface_response"].(string); !ok {
 		return false
 	}
-
-	requiredSnippets := []string{
-		"\"understanding\"",
-		"\"surface_response\"",
-		"\"primary_intent\"",
-		"\"semantic_type\"",
-		"\"action_type\"",
-		"\"domain\"",
-		"\"suggested_approach\"",
+	understandingShape, ok := shape["understanding"].(map[string]any)
+	if !ok {
+		return false
 	}
-	for _, snippet := range requiredSnippets {
-		if !strings.Contains(trimmed, snippet) {
+	for _, key := range []string{"primary_intent", "semantic_type", "action_type", "domain"} {
+		if _, ok := understandingShape[key].(string); !ok {
 			return false
 		}
 	}
-
-	legacyFields := []string{
-		"\"category\"",
-		"\"verb\"",
-		"\"target\"",
-		"\"constraint\"",
+	scope, ok := understandingShape["scope"].(map[string]any)
+	if !ok {
+		return false
 	}
-	for _, snippet := range legacyFields {
-		if strings.Contains(trimmed, snippet) {
+	for _, key := range []string{"level", "target"} {
+		if _, ok := scope[key].(string); !ok {
 			return false
 		}
 	}
+	_, ok = understandingShape["suggested_approach"].(map[string]any)
+	return ok
+}
 
-	return true
+func understandingObjectEnd(text string, start int) int {
+	depth, quoted, escaped := 0, false, false
+	for index := start; index < len(text); index++ {
+		if quoted {
+			if escaped {
+				escaped = false
+			} else if text[index] == '\\' {
+				escaped = true
+			} else if text[index] == '"' {
+				quoted = false
+			}
+			continue
+		}
+		switch text[index] {
+		case '"':
+			quoted = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return index + 1
+			}
+		}
+	}
+	return -1
+}
+
+func normalizeUnderstandingTemplate(object string) string {
+	var out strings.Builder
+	quoted, escaped := false, false
+	for index := 0; index < len(object); index++ {
+		ch := object[index]
+		if quoted {
+			out.WriteByte(ch)
+			if escaped {
+				escaped = false
+			} else if ch == '\\' {
+				escaped = true
+			} else if ch == '"' {
+				quoted = false
+			}
+			continue
+		}
+		if ch == '"' {
+			quoted = true
+		} else if ch == '<' {
+			if end := strings.IndexByte(object[index:], '>'); end >= 0 {
+				out.WriteString("null")
+				index += end
+				continue
+			}
+		} else if strings.HasPrefix(object[index:], "0.0-1.0") {
+			out.WriteByte('0')
+			index += len("0.0-1.0") - 1
+			continue
+		}
+		out.WriteByte(ch)
+	}
+	return out.String()
 }
 
 // Compile-time proof that the canonical transducer exposes the kernel port

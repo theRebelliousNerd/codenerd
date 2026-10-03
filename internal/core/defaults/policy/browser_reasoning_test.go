@@ -13,7 +13,7 @@ func TestBrowserReasoningRulesAreSessionScopedAndTyped(t *testing.T) {
 		t.Fatalf("NewEngine: %v", err)
 	}
 	defer engine.Close()
-	for _, path := range []string{"../schemas_browser.mg", "browser.mg"} {
+	for _, path := range []string{"config_params.mg", "../schemas_browser.mg", "browser.mg"} {
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
 			t.Fatalf("read %s: %v", path, readErr)
@@ -24,6 +24,7 @@ func TestBrowserReasoningRulesAreSessionScopedAndTyped(t *testing.T) {
 	}
 
 	if err := engine.AddFacts([]mangle.Fact{
+		{Predicate: "config_param", Args: []any{"/browser_slow_api_ms", int64(1000)}},
 		{Predicate: "net_request", Args: []any{"session-a", "req-a", "GET", "/api/fail", "fetch", int64(1000)}},
 		{Predicate: "net_response", Args: []any{"session-a", "req-a", int64(503), int64(10), int64(1400)}},
 		{Predicate: "net_request", Args: []any{"session-b", "req-b", "GET", "/api/ok", "fetch", int64(1000)}},

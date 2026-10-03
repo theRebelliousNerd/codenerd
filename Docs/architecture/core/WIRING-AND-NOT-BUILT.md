@@ -1,5 +1,9 @@
 # core: wiring and what is NOT built
 
+## Accepted prompt-seed synchronization obligation (2026-10-02)
+
+**PARTIAL:** `internal/core/defaults/prompt_corpus.db` is the canonical prompt corpus's shipped first-boot consumable. GAP-PROMPT-PERCEPTION-CONTRACT cannot close with corrected YAML and stale seed content. Root reconciliation now preserves 682 exact unchanged-input vector/task values and invalidates 29 changed-input vectors, rather than discarding all vectors (`artifact:.corpus-build/runs/all-features-20261002/round5-seed-retention.json`). `round5-seed-publication.json` records generated-asset publication and a preserved backup; no Git publication occurred. The seed freshness test (`internal/prompt/prompt_corpus_seed_freshness_test.go:23`) and full prompt/perception/sync/builder suites pass in `round5-prompt-perception-full.receipt.json`; that combined gate remains red only in the validator's stale 917-ID oracle. A fresh sqlite_vec binary creates a 923-row first-boot prompt database with the corrected perception hash (`round5-firstboot-db-witness.json`), but its 20-second idle deadline exits after 58.4 seconds (`round5-firstboot-idle.receipt.json`). This proves seed synchronization, not successful boot lifecycle, a completed model turn, world/CodeDOM consumption or semantic namespace/ANN compatibility. No schema/policy, active user database or protected-file edits are authorized here.
+
 Re-verified 2026-09-25 (lane A build-out) against the working tree; first
 written 2026-09-21 against `3463477` from `kernel_facts.go`, `kernel_eval.go`,
 `kernel_provenance.go`, `kernel_validation.go`, `kernel_sysfacts.go`,
@@ -100,6 +104,12 @@ below with what the code does today.
   included.
 
 ## Closed in this pass (2026-09-25)
+
+## Accepted verification target (2026-10-02)
+
+**PROPOSED UPLIFT — GAP-CORE-PYTEST-ARGV:** the governed Python action route must preserve literal selectors and true subprocess verdicts through `internal/core/virtual_store_python.go#VirtualStore.handlePythonRunPytest` (`internal/core/virtual_store_python.go:285`) and the existing real-kernel route witness `internal/core/virtual_store_python_test.go#routeSWEBench` (`internal/core/virtual_store_python_test.go:217`). The test-only runtime `internal/core/fake_container_runtime_test.go#fakeContainerRuntime.ExecInContainer` at line 110 currently recognizes only the former shell invocation; root tests in artifact:.corpus-build/runs/all-features-20261002/wave1-python-wiring.log demonstrate that this mismatch fabricates passing results after the typed driver repair. Update the test double to recognize the literal invocation and capture argument boundaries, preserving the existing false-result and bad-instance non-resolution assertions. Add a governed real-kernel selector witness in planned:internal/core/virtual_store_python_argv_test.go. Do not change production authorization or widen permissions. Test-double parity and a route receipt do not replace a live-container negative sentinel and selected-test gate.
+
+## Historical closure table
 
 | Item (2026-09-21 wording) | Verdict | Evidence |
 |---|---|---|

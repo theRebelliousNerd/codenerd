@@ -2,11 +2,69 @@ package perception
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
+
+	"codenerd/internal/prompt"
 )
+
+func TestUnderstandingSupportingAtom_CanonicalSchemaAndExamples(test *testing.T) {
+	corpus, err := prompt.LoadEmbeddedCorpus()
+	if err != nil {
+		test.Fatalf("LoadEmbeddedCorpus: %v", err)
+	}
+	atom, exists := corpus.Get("perception_understanding")
+	if !exists {
+		test.Fatal("mandatory supporting understanding atom is missing")
+	}
+	blocks := strings.Split(atom.Content, "```json")
+	if len(blocks) != 7 {
+		test.Fatalf("got %d JSON blocks, want one schema and five examples", len(blocks)-1)
+	}
+	expected := []struct {
+		target     string
+		confidence float64
+		signals    Signals
+		mode       string
+		shard      string
+		support    string
+		tools      string
+		context    string
+	}{
+		{"TestValidateToken", 0.95, Signals{IsQuestion: true, Urgency: "normal"}, "tdd", "tester", "coder", "run_tests,read_file,ast_query", "test_output,test_source,function_under_test"},
+		{"API", 0.88, Signals{IsMultiStep: true, Urgency: "normal"}, "tdd", "coder", "tester", "edit_file,run_tests,ast_query", "api_handlers,middleware_patterns,existing_tests"},
+		{"LocalStore and semantic vector recall", 0.95, Signals{IsQuestion: true, Urgency: "normal"}, "normal", "researcher", "", "grep_search,read_file,ast_query", "LocalStore definition,vector recall implementation"},
+		{"caching layer", 0.92, Signals{IsQuestion: true, IsHypothetical: true, Urgency: "low"}, "dream", "reviewer", "", "ast_query,grep,read_file", "cache_usage,dependencies,performance_impact"},
+		{"user", 0.99, Signals{Urgency: "normal"}, "normal", "none", "", "", ""},
+	}
+	for index, block := range blocks[1:] {
+		object, _, closed := strings.Cut(block, "```")
+		if !closed || !isValidUnderstandingPromptContract(object) {
+			test.Fatalf("JSON block %d does not express the canonical nested envelope", index)
+		}
+		if index == 0 {
+			continue
+		}
+		var envelope UnderstandingEnvelope
+		decoder := json.NewDecoder(strings.NewReader(object))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&envelope); err != nil {
+			test.Fatalf("example %d does not decode into the production envelope: %v", index, err)
+		}
+		want := expected[index-1]
+		understanding := envelope.Understanding
+		if understanding.Scope.Target != want.target || understanding.Confidence != want.confidence || understanding.Signals != want.signals || envelope.SurfaceResponse == "" {
+			test.Errorf("example %d lost its target, confidence, signals, or response: %+v", index, envelope)
+		}
+		approach := understanding.SuggestedApproach
+		if approach.Mode != want.mode || approach.PrimaryShard != want.shard || strings.Join(approach.SupportingShards, ",") != want.support || strings.Join(approach.ToolsNeeded, ",") != want.tools || strings.Join(approach.ContextNeeded, ",") != want.context {
+			test.Errorf("example %d lost its suggested approach: %+v", index, approach)
+		}
+	}
+}
 
 // mockLLMClientUT implements LLMClient for understanding adapter tests.
 type mockLLMClientUT struct {
@@ -157,29 +215,82 @@ func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 }
 
 func TestIsValidUnderstandingPromptContract(t *testing.T) {
+	corpus, err := prompt.LoadEmbeddedCorpus()
+	if err != nil {
+		t.Fatalf("LoadEmbeddedCorpus: %v", err)
+	}
+	owner, ok := corpus.Get("system/perception/output_format")
+	if !ok {
+		t.Fatal("canonical perception output owner is missing")
+	}
+	valid := owner.Content
+	piggyback, ok := corpus.Get("protocol/piggyback/envelope")
+	if !ok {
+		t.Fatal("conversational Piggyback control is missing")
+	}
 	tests := []struct {
 		name   string
 		prompt string
 		want   bool
 	}{
 		{
-			name: "valid understanding envelope contract",
-			prompt: `Output JSON like:
-{
-  "understanding": {
-    "primary_intent": "debug",
-    "semantic_type": "causation",
-    "action_type": "investigate",
-    "domain": "testing",
-    "suggested_approach": {}
-  },
-  "surface_response": "I will investigate."
-}`,
-			want: true,
+			name:   "canonical owner with nested target and numeric template",
+			prompt: valid,
+			want:   true,
+		},
+		{
+			name:   "field names mentioned in prose are not a competing schema",
+			prompt: valid + ` Do not confuse "control_packet", "category", "verb", "target", or "constraint" with the owning envelope.`,
+			want:   true,
+		},
+		{
+			name:   "quoted braces and escaped quotes stay inside a value",
+			prompt: strings.Replace(valid, "<specific target>", `brace } and quote \" target`, 1),
+			want:   true,
 		},
 		{
 			name:   "piggyback contract is invalid for perception",
 			prompt: `{"control_packet": {}, "surface_response": "hi"}`,
+			want:   false,
+		},
+		{
+			name:   "valid owner plus competing Piggyback contract",
+			prompt: valid + "\n" + piggyback.Content,
+			want:   false,
+		},
+		{
+			name:   "valid owner plus legacy flat contract",
+			prompt: valid + ` {"category":"query","verb":"review","target":"file.go"}`,
+			want:   false,
+		},
+		{
+			name:   "missing nested scope",
+			prompt: strings.Replace(valid, `"scope":`, `"old_scope":`, 1),
+			want:   false,
+		},
+		{
+			name:   "missing nested approach",
+			prompt: strings.Replace(valid, `"suggested_approach":`, `"old_approach":`, 1),
+			want:   false,
+		},
+		{
+			name:   "malformed owning object",
+			prompt: strings.Replace(valid, `"action_type":`, `action_type:`, 1),
+			want:   false,
+		},
+		{
+			name:   "wrong understanding type",
+			prompt: `{"understanding":null,"surface_response":"hello"}`,
+			want:   false,
+		},
+		{
+			name:   "keys scattered in prose do not establish an envelope",
+			prompt: `"understanding" "surface_response" "primary_intent" "semantic_type" "action_type" "domain" "scope" "suggested_approach"`,
+			want:   false,
+		},
+		{
+			name:   "unclosed owning object",
+			prompt: `{"understanding": {"primary_intent":"debug"}`,
 			want:   false,
 		},
 		{

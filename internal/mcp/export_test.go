@@ -2,6 +2,11 @@ package mcp
 
 import "context"
 
+const (
+	mcpSchemaDir = "../core/defaults"
+	mcpPolicyRel = "policy/policy_mcp.mg"
+)
+
 // ServersForTest allows tests outside the mcp package to access the unexported servers map.
 func (m *MCPClientManager) ServersForTest() map[string]*MCPServerConnection {
 	m.mu.RLock()
@@ -15,4 +20,12 @@ func (m *MCPClientManager) ServersForTest() map[string]*MCPServerConnection {
 // why this wrapper exists.
 func (c *JITToolCompiler) MangleSelectForTest(ctx context.Context, shardType string) ([]SelectedTool, error) {
 	return c.mangleSelect(ctx, ToolCompilationContext{ShardType: shardType})
+}
+
+func ServerFactsForTest(server *MCPServer) []string {
+	return serverFacts(server)
+}
+
+func ToolFactsForTest(tool *MCPTool) []string {
+	return toolFacts(tool)
 }

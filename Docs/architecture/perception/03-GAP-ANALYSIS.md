@@ -1,6 +1,26 @@
 # 03 — Gap Analysis (perception)
 
-> Last verified: **2026-07-13**  
+## Accepted cold-classifier lifetime target (2026-10-02)
+
+**VERIFIED CURRENT — bounded implementation/live slice:** strict constructor ownership/cancellation, cache preservation/retry, optional fallback and shared admission controls plus focused race pass (`artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json`, `round6-coldboot-race.receipt.json`). Fresh normal-entry timeout20s now exits21.6602s and preserves448 cache rows with integrity OK, before later prompt initialization. This supersedes the contextless production constructor observation below. The learned-store backend constructor still has contextless SQL and requires a separate store-owned spec/packet; complete suites, global isolation and model-turn/world-model proof remain open.
+
+**PARTIAL — GAP-PERCEPTION-BOOT-CONTEXT:** `transducer.go#InitPerceptionLayer`, `semantic_classifier.go#InitSemanticClassifier` and `#NewSemanticClassifierFromConfig` lose the calling boot context; cold hydration uses a Background-derived cap. The root normal-entry 20-second probe continued hydration and exited after 58.4495 seconds. Evidence: `artifact:.corpus-build/runs/all-features-20261002/02-execution/handoff-5.json`.
+
+**PROPOSED UPLIFT:** introduce context-aware construction and keep compatibility wrappers. Derive optional hydration limits from the caller. Parent cancellation aborts construction and prevents shared-classifier publication; an optional local cap/service failure with a live parent may retain existing degraded behavior. Cache admission/traversal, SQL operations and embedding requests observe cancellation. Close constructor-owned handles on failure, preserve completed cache writes, and permit a later healthy retry. Do not introduce a detached hydration goroutine, change routing/permissions or discard the cache. Exit: real blocked embedding HTTP cancellation, typed parent cancellation, local-cap/outage fallback, partial-cache reopening/retry, constructor ownership and shared-publication controls, plus the system normal-entry discriminator. Shared-context isolation remains separately open.
+
+## Accepted JIT envelope target (2026-10-02)
+
+**PARTIAL — GAP-PERCEPTION-JIT-CONTRACT:** `internal/perception/understanding_adapter.go#UnderstandingTransducer.getSystemPrompt` compiles perception at line 117 but `#isValidUnderstandingPromptContract` at line 135 rejects any occurrence of legacy field names, including legitimate nested scope.target from `internal/prompt/atoms/system/perception.yaml#system/perception/output_format`. Root inspected the source; artifact:.corpus-build/runs/all-features-20261002/03-prompt/handoff-2.json records the normal-entry fallback observation. The July narrative below is historical and is not current implementation evidence.
+
+**PROPOSED UPLIFT:** the actual perception model request uses the canonical UnderstandingEnvelope JIT atoms, retains legitimate nested fields and methodology, and excludes competing Piggyback envelopes. Validate the owning output schema rather than blacklisting words anywhere in the complete prompt. Expose bounded fallback cause/actual contract diagnostics without leaking full prompts. Preserve intentional fallback on genuinely missing, malformed or conflicting contracts. Root tests require actual production assembly and captured model requests plus missing/conflicting negative controls; a mocked valid string or successful compile alone cannot close the gap. No routing/permission changes or new control fields are part of this packet. Companion GAP-PROMPT-PERCEPTION-CONTRACT owns atom selection. Accepted, not yet implemented or verified.
+
+The dependency contract also requires `perception/understanding.yaml` schema and examples to nest `signals` and `suggested_approach` under `understanding`. These fields remain meaningful typed input, not extra top-level envelopes. Capture a real full-corpus request and validate that shape without weakening missing/malformed/conflicting controls.
+
+**VERIFIED CURRENT — bounded production-bridge receipt:** `artifact:.corpus-build/runs/all-features-20261002/round4-perception.receipt.json` records a passing `TestPerceptionJIT_` gate on the modified checkout. Real compiler/assembler/transducer request captures cover canonical perception/firewall contracts, dependency closure, missing/malformed/conflicting fallback, planner campaign phases and ordinary conversational Piggyback. Fixtures use the production campaign context shape; no control assertion was weakened. This supersedes the accepted-not-implemented sentence for these named behaviors only. Full-package, shipped-seed parity, fresh binary and live provider/world-model consumption remain separate unclosed obligations.
+
+Focused production-bridge race controls also pass in `artifact:.corpus-build/runs/all-features-20261002/round4-world-perception-race.receipt.json`; this is not full-package race or live-provider qualification. The subsequent shared reconciler correction requires fresh gates before claiming its dependent paths qualified.
+
+> Last verified: **2026-07-13**
 > Compare vision/north star vs **actual code** in `internal/perception/`.
 
 ## Spec vs reality matrix

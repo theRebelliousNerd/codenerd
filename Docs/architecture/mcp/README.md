@@ -8,6 +8,8 @@
 
 ## Scope
 
+**2026-10-02 selected verification:** GAP-MCP-06-001's test import boundary is repaired; the full sqlite_vec MCP package gate passes. [Current state](02-CURRENT-STATE.md) and [implemented spec](IMPLEMENTED_SPEC.md) cite the preserved parser, lifecycle, policy and real-kernel witnesses. This narrow addendum does not reverify the July inventory or qualify live remote effects; broader corpus reconciliation remains open.
+
 This corpus documents codeNERD’s **Model Context Protocol (MCP) client stack** and **JIT Tool Compiler**: connect to external MCP servers (HTTP / stdio / SSE), discover and analyze tools, persist them with embeddings, select a context-aware tool set (Mangle + vector hybrid, with Go fallback), and render that set for LLM context. It also documents how VirtualStore and system boot wire MCP adapters into the OODA fact-flow.
 
 It is **not** the static tool runner (`internal/tools/`), not the Mangle engine (`internal/mangle/`), and not the prompt JIT (`internal/prompt/`) — though it deliberately mirrors the prompt compiler’s skeleton/flesh + budget patterns.

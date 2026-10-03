@@ -3,6 +3,7 @@ coverage_patterns = ["internal/*", "cmd/*", "scripts", "tools", "tests/e2e"]
 corpus_ids = [
   "articulation",
   "autopoiesis",
+  "broker",
   "browser",
   "build",
   "campaign",

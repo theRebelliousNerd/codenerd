@@ -1,5 +1,7 @@
 # cmd/nerd — the `nerd` CLI binary
 
+Adjacent deterministic maintenance tooling: [prompt seed maintenance](07-PROMPT-SEED-MAINTENANCE.md) specifies an accepted, unverified reconciliation mode for `cmd/tools/prompt_builder` that preserves valid first-boot vectors. It is a development utility, not a new model-facing shell surface.
+
 Verified 2026-09-20 against `main` (working tree up to date with
 `origin/main` at time of writing). `rootCmd` reports Cortex 1.5.0
 (`cmd/nerd/main.go:100`). No HEAD hash was captured in this pass —
@@ -91,6 +93,11 @@ Global (`main.go:180-198`): `--verbose`, `--yolo`, `--api-key`,
 (`main.go:224-229`, vars at `main.go:90-95`).
 
 ## What this corpus does not cover
+
+The active implementation queue is [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
+The accepted headless-chat deadline contract is
+[06-HEADLESS-CHAT-CONSTRAINTS.md](06-HEADLESS-CHAT-CONSTRAINTS.md).
+These distinguish measured gaps and target behavior from the historical inventory.
 
 - Registration and boot mechanics → `INTERNALS.md` (one question:
   how does a command get from a file to a running process?).

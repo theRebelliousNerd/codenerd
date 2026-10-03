@@ -1,5 +1,9 @@
 # Safety and invariants: system
 
+## Accepted caller-cancellation invariant
+
+**PROPOSED UPLIFT:** boot stage admission, constructor contexts, cache publication and maintenance startup share the caller's lifetime. Cancellation triggers the existing joined resource-transaction rollback; it is never treated as optional provider degradation. A timeout does not authorize detached construction or abandoned SQLite handles. Valid cached reuse and parent-alive optional service fallback remain distinct tested controls. See GAP-SYSTEM-BOOT-CONTEXT; source/live verification is pending.
+
 > System does not author constitutional rules. It is responsible for building
 > the one object graph in which those rules can actually govern effects.
 

@@ -71,3 +71,13 @@
 ## 5. Alignment to north star
 
 Gaps 1–2 are the difference between **“LLM-described tool lists with Go scoring”** and **“logic-determined tool reality.”** Closing them is the primary north-star work for this package.
+
+## 2026-10-02 accepted verification obligation
+
+The historical backlog above requires separate reconciliation against the live implementation; it is not current verification evidence. The following obligation is independently reproduced on db1d4b7e and accepted before implementation.
+
+| Gap ID | Capability | Current state | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-MCP-06-001 | Executable MCP lifecycle and policy verification | **VERIFIED CURRENT:** external parser fixture `internal/mcp/facts_parse_external_test.go:12` retains serialized mangle.ParseAtom; external golden policy controls are at `internal/mcp/policy_golden_test.go:145`, and lifecycle/cache/vector retraction fixtures remain internal at `internal/mcp/facts_lifecycle_test.go:63`. Root full sqlite_vec MCP package gate passes on the modified db1d4b7e working tree: `artifact:.corpus-build/runs/all-features-20261002/round2-mcp.log`. The original import-cycle failure remains in baseline-mcp.log as baseline evidence, not current state. | **PROPOSED UPLIFT:** parser and policy-engine witnesses run as external MCP tests, while internal discovery/cache/status/retraction fixtures retain their assertions. Minimal test-only accessors may expose the production fact serializers. Keep the process-wide serialized parser in `internal/mangle/parse_lock.go#ParseAtom` (`internal/mangle/parse_lock.go:45`). | High | Gate-verified test-only repair (working tree) | None for this bounded obligation; race/live-authority/portfolio acceptance remains separate | No in-package MCP test imports internal/mangle. Preserved lifecycle, golden-policy selections, escaping, vector-retraction, and external real-kernel witnesses pass, followed by the full MCP package. No assertion is removed, skipped, or weakened to obtain compiler success. |
+
+The initial implementation boundary is four test files: internal/mcp/facts_lifecycle_test.go, internal/mcp/policy_golden_test.go, planned:internal/mcp/export_test.go, and planned:internal/mcp/facts_parse_external_test.go. Runtime, config, and permission changes are outside this packet. The root closes the gap and reconciles current-state prose only after behavioral evidence exists.

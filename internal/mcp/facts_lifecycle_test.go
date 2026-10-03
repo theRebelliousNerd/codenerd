@@ -8,8 +8,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"codenerd/internal/mangle"
 )
 
 // countingAnalyzer records how many times a tool schema was analyzed, which is
@@ -183,25 +181,6 @@ func TestFactEmitter_WhenStatusChanges_ShouldRetractPreviousStatusExactly(t *tes
 	}
 	if got := emitter.EmittedFactCount(); got != 1 {
 		t.Errorf("emitter tracks %d status facts, want 1", got)
-	}
-}
-
-func TestFactEmitter_WhenValueNeedsEscaping_ShouldProduceParseableFacts(t *testing.T) {
-	tool := &MCPTool{
-		ToolID:       "srv/weird",
-		ServerID:     "srv",
-		Name:         "weird",
-		Description:  "quotes \" backslash \\ newline \n emoji ✅ " + strings.Repeat("x", 600),
-		Categories:   []string{"Code Analysis", "3d-render"},
-		Capabilities: []string{"/read"},
-		Domain:       "/general",
-		RegisteredAt: time.Unix(1700000000, 0),
-	}
-
-	for _, fact := range toolFacts(tool) {
-		if _, err := mangle.ParseAtom(fact); err != nil {
-			t.Errorf("emitted fact is not parseable: %s (%v)", fact, err)
-		}
 	}
 }
 

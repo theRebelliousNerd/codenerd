@@ -7,6 +7,115 @@ import (
 	"testing"
 )
 
+func TestLedgerReserveAdmissionContract(test *testing.T) {
+	maximumInt := int(^uint(0) >> 1)
+	minimumInt := -maximumInt - 1
+	cases := []struct {
+		name      string
+		window    int
+		reserve   int
+		tokens    int
+		budget    int64
+		available int
+		headroom  int
+		code      DecisionCode
+	}{
+		{name: "below capacity", window: 1000, reserve: 200, tokens: 799, available: 800, headroom: 1, code: DecisionAdmitted},
+		{name: "exact capacity", window: 1000, reserve: 200, tokens: 800, available: 800, code: DecisionAdmitted},
+		{name: "one over capacity", window: 1000, reserve: 200, tokens: 801, available: 800, headroom: -1, code: DecisionWindowExceeded},
+		{name: "reserve equals window", window: 1000, reserve: 1000, tokens: 1, headroom: -1, code: DecisionWindowExceeded},
+		{name: "reserve exceeds window", window: 1000, reserve: 1001, tokens: 1, headroom: -1, code: DecisionWindowExceeded},
+		{name: "maximum reserve", window: 1, reserve: maximumInt, tokens: 1, headroom: -1, code: DecisionWindowExceeded},
+		{name: "maximum window exhausted", window: maximumInt, reserve: maximumInt, tokens: maximumInt, headroom: -maximumInt, code: DecisionWindowExceeded},
+		{name: "maximum window one available", window: maximumInt, reserve: maximumInt - 1, tokens: 1, available: 1, code: DecisionAdmitted},
+		{name: "maximum window exact capacity", window: maximumInt, tokens: maximumInt, available: maximumInt, code: DecisionAdmitted},
+		{name: "minimum constructor reserve", window: maximumInt, reserve: minimumInt, tokens: maximumInt, available: maximumInt, code: DecisionAdmitted},
+		{name: "negative constructor reserve exact capacity", window: 1000, reserve: -1, tokens: 1000, available: 1000, code: DecisionAdmitted},
+		{name: "negative constructor reserve one over", window: 1000, reserve: -1, tokens: 1001, available: 1000, headroom: -1, code: DecisionWindowExceeded},
+		{name: "zero count precedes exhausted window", window: 1000, reserve: 1000, code: DecisionCountUnavailable},
+		{name: "negative count precedes exhausted window", window: 1000, reserve: 1001, tokens: minimumInt, code: DecisionCountUnavailable},
+		{name: "unknown window", reserve: maximumInt, tokens: maximumInt, code: DecisionAdmitted},
+		{name: "minimum unknown window", window: minimumInt, reserve: maximumInt, tokens: maximumInt, code: DecisionAdmitted},
+		{name: "unknown window exact purpose capacity", reserve: maximumInt, tokens: 5, budget: 20, code: DecisionAdmitted},
+		{name: "unknown window purpose exhausted", reserve: maximumInt, tokens: 6, budget: 20, code: DecisionBudgetExhausted},
+		{name: "negative window purpose exhausted", window: -1, reserve: maximumInt, tokens: 6, budget: 20, code: DecisionBudgetExhausted},
+		{name: "zero count precedes unknown purpose cap", budget: 15, code: DecisionCountUnavailable},
+		{name: "negative count with unknown window", window: -1, tokens: -1, code: DecisionCountUnavailable},
+		{name: "window refusal precedes purpose cap", window: 1000, reserve: 1000, tokens: 6, budget: 20, headroom: -6, code: DecisionWindowExceeded},
+	}
+	for _, testcase := range cases {
+		test.Run(testcase.name, func(test *testing.T) {
+			config := LedgerConfig{Window: testcase.window, OutputReserve: testcase.reserve}
+			if testcase.budget > 0 {
+				config.Budgets = map[Purpose]int64{PurposeSession: testcase.budget}
+			}
+			ledger := NewLedger(config)
+			seedSpend := Spend{InputTokens: 10, OutputTokens: 5, Calls: 1}
+			ledger.Record(PurposeSession, seedSpend)
+			if available := ledger.Available(); available != testcase.available {
+				test.Fatalf("available = %d, want %d", available, testcase.available)
+			}
+			count := Count{Tokens: testcase.tokens, Confidence: ConfidenceExact, Source: "reserve-contract", Model: "test-model"}
+			decision := ledger.Admit(PurposeSession, count)
+			if decision.Code != testcase.code || decision.Allowed != (testcase.code == DecisionAdmitted) {
+				test.Fatalf("admission = %+v, want code %s", decision, testcase.code)
+			}
+			if decision.Window != testcase.window || decision.Headroom != testcase.headroom || decision.Count != count {
+				test.Errorf("decision lost capacity or count provenance: %+v", decision)
+			}
+			if !decision.Allowed && decision.Reason == "" {
+				test.Error("refusal has no reason")
+			}
+			if ledger.Total() != seedSpend || ledger.Account(PurposeSession) != seedSpend {
+				test.Fatalf("admission changed recorded spend: total=%+v account=%+v", ledger.Total(), ledger.Account(PurposeSession))
+			}
+		})
+	}
+}
+
+func TestLedgerReserveSetWindowContract(test *testing.T) {
+	maximumInt := int(^uint(0) >> 1)
+	minimumInt := -maximumInt - 1
+	ledger := NewLedger(LedgerConfig{Window: 1000, OutputReserve: 200})
+	seedSpend := Spend{InputTokens: 10, OutputTokens: 5, Calls: 1}
+	ledger.Record(PurposeSession, seedSpend)
+	cases := []struct {
+		name           string
+		window         int
+		reserve        int
+		expectedWindow int
+		available      int
+		tokens         int
+		code           DecisionCode
+	}{
+		{name: "zero update retains known window", reserve: -1, expectedWindow: 1000, available: 800, tokens: 800, code: DecisionAdmitted},
+		{name: "negative update retains known limits", window: minimumInt, reserve: minimumInt, expectedWindow: 1000, available: 800, tokens: 801, code: DecisionWindowExceeded},
+		{name: "equal reserve exhausts retained window", reserve: 1000, expectedWindow: 1000, tokens: 1, code: DecisionWindowExceeded},
+		{name: "excess reserve exhausts retained window", window: -1, reserve: maximumInt, expectedWindow: 1000, tokens: 1, code: DecisionWindowExceeded},
+		{name: "positive update restores capacity", window: 2000, reserve: 500, expectedWindow: 2000, available: 1500, tokens: 1500, code: DecisionAdmitted},
+		{name: "negative reserve retains previous reserve", window: 1000, reserve: -1, expectedWindow: 1000, available: 500, tokens: 501, code: DecisionWindowExceeded},
+		{name: "zero reserve restores full capacity", expectedWindow: 1000, available: 1000, tokens: 1000, code: DecisionAdmitted},
+	}
+	for _, testcase := range cases {
+		test.Run(testcase.name, func(test *testing.T) {
+			ledger.SetWindow(testcase.window, testcase.reserve)
+			if available := ledger.Available(); available != testcase.available {
+				test.Fatalf("available = %d, want %d", available, testcase.available)
+			}
+			decision := ledger.Admit(PurposeSession, Count{Tokens: testcase.tokens, Confidence: ConfidenceExact})
+			if decision.Window != testcase.expectedWindow || decision.Code != testcase.code || decision.Allowed != (testcase.code == DecisionAdmitted) {
+				test.Fatalf("admission after update = %+v, want window %d and code %s", decision, testcase.expectedWindow, testcase.code)
+			}
+			if decision.Headroom != testcase.available-testcase.tokens {
+				test.Errorf("headroom = %d, want %d", decision.Headroom, testcase.available-testcase.tokens)
+			}
+			if ledger.Total() != seedSpend || ledger.Account(PurposeSession) != seedSpend {
+				test.Fatal("window update or admission changed recorded spend")
+			}
+		})
+	}
+}
+
 func TestLedgerAdmitsWithinWindow(t *testing.T) {
 	l := NewLedger(LedgerConfig{Window: 100000, OutputReserve: 8000})
 

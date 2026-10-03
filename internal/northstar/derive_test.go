@@ -195,11 +195,23 @@ func TestDerive_RoleParsing(t *testing.T) {
 }
 
 func TestDerive_PagingFailuresAndCancellation(t *testing.T) {
-	for _, response := range []string{`{}`, `{"summary":" "}`, `{"summary":"` + strings.Repeat("x", 1024) + `"}`, "refused"} {
-		client := &deriveScriptClient{complete: func(context.Context, string, string) (string, error) { return response, nil }}
-		if _, err := ClassifyDocuments(context.Background(), client, deriveTestPrompt, DeriveBudget{MaxRequestBytes: 256}, []SourceDocument{{"long.md", strings.Repeat("x", 1024)}}); err == nil {
-			t.Fatalf("accepted bad summary %q", response)
+	// A page whose reply never parses is sent Attempts times; then the
+	// document is unread and classification returns without error.
+	for _, response := range []string{`{}`, `{"summary":" "}`, "refused"} {
+		calls := 0
+		client := &deriveScriptClient{complete: func(context.Context, string, string) (string, error) { calls++; return response, nil }}
+		class, err := ClassifyDocuments(context.Background(), client, deriveTestPrompt, DeriveBudget{MaxRequestBytes: 256, Attempts: 3}, []SourceDocument{{"long.md", strings.Repeat("x", 1024)}})
+		if err != nil || len(class.Unread) != 1 || class.Unread[0].Path != "long.md" || calls != 3 || len(class.Claims) != 0 {
+			t.Fatalf("bad summary %q: err=%v unread=%v calls=%d", response, err, class, calls)
 		}
+	}
+	// A summary too large for the next frame is a framing violation, not a
+	// parse failure: it is not retried.
+	oversized := &deriveScriptClient{complete: func(context.Context, string, string) (string, error) {
+		return `{"summary":"` + strings.Repeat("x", 1024) + `"}`, nil
+	}}
+	if _, err := ClassifyDocuments(context.Background(), oversized, deriveTestPrompt, DeriveBudget{MaxRequestBytes: 256, Attempts: 3}, []SourceDocument{{"long.md", strings.Repeat("x", 1024)}}); err == nil {
+		t.Fatal("accepted a summary that cannot fit the next page")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	client := &deriveScriptClient{complete: func(context.Context, string, string) (string, error) { cancel(); return `{"summary":"carry"}`, nil }}
@@ -546,5 +558,43 @@ func TestDerive_DraftMarkerCannotBeEscapedByFieldCitation(t *testing.T) {
 	}
 	if !textMarksDraft(draft.Document.ToVision().VisionStmt) {
 		t.Fatal("model promoted a policy-selected draft source by citing another path")
+	}
+}
+
+// One malformed reply must not cost the read set: it is sent again, and a
+// batch that never parses is unread while the other batches are classified.
+func TestDerive_MalformedReplyIsRetriedThenSkipped(t *testing.T) {
+	reply := func(path, body string) string {
+		payload, _ := json.Marshal(map[string]any{"documents": []any{map[string]any{"path": path, "roles": []any{map[string]any{"role": "reference", "confidence_pct": 90, "evidence": body}}}}})
+		return string(payload)
+	}
+	docs := []SourceDocument{{"a.md", strings.Repeat("a", 200)}, {"b.md", strings.Repeat("b", 200)}}
+
+	calls := 0
+	flaky := &deriveScriptClient{complete: func(_ context.Context, _, user string) (string, error) {
+		calls++
+		f := readDeriveFrames(t, user)[0]
+		if calls == 1 {
+			return `{"documents":[{"path":"a.md","roles":[{"role":"reference"}] laws]}`, nil
+		}
+		return reply(f.path, f.body), nil
+	}}
+	class, err := ClassifyDocuments(context.Background(), flaky, deriveTestPrompt, DeriveBudget{MaxRequestBytes: 300, Attempts: 3}, docs)
+	if err != nil || len(class.Claims) != 2 || len(class.Unread) != 0 || calls != 3 {
+		t.Fatalf("retry: err=%v claims=%d unread=%v calls=%d", err, len(class.Claims), class.Unread, calls)
+	}
+
+	calls = 0
+	broken := &deriveScriptClient{complete: func(_ context.Context, _, user string) (string, error) {
+		calls++
+		f := readDeriveFrames(t, user)[0]
+		if f.path == "a.md" {
+			return "not json", nil
+		}
+		return reply(f.path, f.body), nil
+	}}
+	class, err = ClassifyDocuments(context.Background(), broken, deriveTestPrompt, DeriveBudget{MaxRequestBytes: 300, Attempts: 2}, docs)
+	if err != nil || len(class.Unread) != 1 || class.Unread[0].Path != "a.md" || len(class.Claims) != 1 || calls != 3 {
+		t.Fatalf("skip: err=%v claims=%d unread=%v calls=%d", err, len(class.Claims), class.Unread, calls)
 	}
 }

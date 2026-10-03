@@ -1,5 +1,9 @@
 # Prompt JIT current state
 
+## Bounded current receipts (2026-10-02)
+
+**VERIFIED CURRENT:** `internal/prompt/reconciler.go#ReconcilePromptCorpus` (`internal/prompt/reconciler.go:139`) retains exact nullable task metadata and uses Go whitespace ownership at line255. Named preservation/rollback controls and the complete prompt/sync/builder suites pass; full perception also passes in `artifact:.corpus-build/runs/all-features-20261002/round5-prompt-perception-full.receipt.json`. The aggregate gate is red only in the validator's old 917-ID oracle, whose verified six-ID delta is being reconciled independently. The generated923-row seed retains682 vectors byte-for-byte, invalidates29 changed-input vectors and passes seed freshness. A fresh first boot has the corrected perception row but overruns its command deadline and completes no user turn. Semantic namespaces/legacy indexes, successful provider requests and world/CodeDOM consumption remain unproved. These receipts supersede conflicting counts and accepted-not-implemented descriptions for their named slices only; the historical inventory below is not a whole-corpus re-audit.
+
 > Evidence snapshot: commit `cfc537e96495e1fbccd7efff8bb8e4001c93ca9c`,
 > post-repair dirty-tree fingerprint is recorded in [_progress](_progress.md),
 > inspected 2026-07-13. The shared worktree contains unrelated concurrent changes;

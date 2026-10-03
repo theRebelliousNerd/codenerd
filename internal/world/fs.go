@@ -9,6 +9,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -153,9 +155,36 @@ type dirScanResult struct {
 	fact core.Fact
 }
 
+type fullScanOptions struct {
+	walk    func(string, filepath.WalkFunc) error
+	runFile func(string, func())
+}
+
+type preparedDirectoryScan struct {
+	result *ScanResult
+	cache  *FileCache
+}
+
 // ScanDirectory performs a comprehensive scan of a directory with context support.
 // OPTIMIZATION: Uses channel-based result aggregation to eliminate mutex convoy (2-4x speedup).
 func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, error) {
+	prepared, err := s.prepareDirectoryScan(ctx, root, fullScanOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := prepared.cache.Save(); err != nil {
+		return nil, err
+	}
+	return prepared.result, nil
+}
+
+func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options fullScanOptions) (*preparedDirectoryScan, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	canonical, canonicalErr := tools.CanonicalWorkspaceRoot(root)
 	if canonicalErr != nil {
 		return nil, canonicalErr
@@ -171,11 +200,16 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 	timer := logging.StartTimer(logging.CategoryWorld, "ScanDirectory")
 
 	cache := NewFileCache(root)
-	defer func() {
-		if err := cache.Save(); err != nil {
-			logging.Get(logging.CategoryWorld).Error("Failed to save file cache: %v", err)
-		}
-	}()
+	if cache.Entries == nil {
+		cache.Entries = make(map[string]CacheEntry)
+	}
+	var failureMu sync.Mutex
+	var workerFailures []error
+	recordFailure := func(path string, failure error) {
+		failureMu.Lock()
+		defer failureMu.Unlock()
+		workerFailures = append(workerFailures, fmt.Errorf("scan file %s: %w", path, failure))
+	}
 
 	var wg sync.WaitGroup
 	maxConc := s.config.MaxConcurrency
@@ -231,7 +265,11 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		}
 	}()
 
-	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	walk := options.walk
+	if walk == nil {
+		walk = filepath.Walk
+	}
+	err = walk(root, func(path string, info os.FileInfo, err error) error {
 		// Check for context cancellation
 		select {
 		case <-ctx.Done():
@@ -241,16 +279,6 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		}
 
 		if err != nil {
-			// An entry listed and then gone before it could be stat'ed was
-			// deleted or replaced mid-walk -- a campaign writing into the tree
-			// while the scan walks it does this every run. It is skipped, not
-			// fatal: returning it aborted the whole workspace scan
-			// (2026-09-21, Docs/architecture/features/00-INDEX.md), and the
-			// campaign planned against no fresh world model at all.
-			if os.IsNotExist(err) && path != root {
-				logging.WorldDebug("Walk: %s vanished during the scan; skipped", path)
-				return nil
-			}
 			logging.Get(logging.CategoryWorld).Warn("Walk error at %s: %v", path, err)
 			return err
 		}
@@ -285,11 +313,13 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 
 		// CRITICAL FIX: Acquire semaphore BEFORE spawning goroutine
 		// This blocks filepath.Walk when worker pool is full, preventing unbounded goroutine spawning
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 
-		wg.Go(func() {
-			defer func() { <-sem }() // Release token
-
+		processFile := func() {
 			fileStart := time.Now()
 
 			// "Hash-Thrashing" Fix: Use Cache
@@ -303,7 +333,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			} else {
 				h, err := calculateHash(path)
 				if err != nil {
-					logging.Get(logging.CategoryWorld).Warn("Skipping file (hash error): %s - %v", path, err)
+					recordFailure(path, err)
 					return
 				}
 				hash = h
@@ -394,7 +424,8 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				if content, err := os.ReadFile(path); err == nil {
 					additionalFacts = append(additionalFacts, goTestFileHeaderFacts(canonical, content)...)
 				} else {
-					logging.Get(logging.CategoryWorld).Warn("Failed to read test file for header facts: %s - %v", path, err)
+					recordFailure(path, err)
+					return
 				}
 			}
 			// If not a test file and supported language, extract symbols
@@ -448,7 +479,8 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 						}
 					}
 				} else {
-					logging.Get(logging.CategoryWorld).Warn("Failed to read file for parsing: %s - %v", path, err)
+					recordFailure(path, err)
+					return
 				}
 			} else if !isTest && s.config.MaxASTFileBytes > 0 && info.Size() > s.config.MaxASTFileBytes {
 				logging.WorldDebug("Skipping fast AST parse for large file: %s (%d bytes)", filepath.Base(path), info.Size())
@@ -464,6 +496,14 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			}
 
 			logging.WorldDebug("Indexed file: %s (lang=%s, symbols=%d, took %v)", filepath.Base(path), lang, len(additionalFacts), time.Since(fileStart))
+		}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			if options.runFile != nil {
+				options.runFile(path, processFile)
+				return
+			}
+			processFile()
 		})
 
 		return nil
@@ -478,6 +518,9 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 
 	// Wait for aggregator to finish processing
 	<-aggregatorDone
+	if scanErr := errors.Join(append(workerFailures, err, ctx.Err())...); scanErr != nil {
+		return nil, scanErr
+	}
 
 	// Import edges are resolved after the walk because resolution needs the
 	// whole file set: an import path only becomes a file->file edge once we
@@ -510,7 +553,10 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		logging.WorldDebug("Language breakdown: %v", result.Languages)
 	}
 
-	return result, err
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return &preparedDirectoryScan{result: result, cache: cache}, nil
 }
 
 // detectLanguage determines the programming language from file extension and path.

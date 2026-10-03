@@ -399,6 +399,16 @@ func GetShardTypeForVerb(verb string) string {
 // initialized (e.g., no embedding config), the system continues with regex-only
 // classification. This ensures the perception layer is always functional.
 func InitPerceptionLayer(kernel core.Kernel, cfg *config.UserConfig) error {
+	return InitPerceptionLayerWithContext(context.Background(), kernel, cfg)
+}
+
+func InitPerceptionLayerWithContext(ctx context.Context, kernel core.Kernel, cfg *config.UserConfig) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	timer := logging.StartTimer(logging.CategoryPerception, "InitPerceptionLayer")
 	defer timer.Stop()
 
@@ -411,7 +421,10 @@ func InitPerceptionLayer(kernel core.Kernel, cfg *config.UserConfig) error {
 	embedCfg := cfg.GetEmbeddingConfig()
 	logging.PerceptionDebug("Embedding config: provider=%s", embedCfg.Provider)
 
-	if err := InitSemanticClassifier(kernel, cfg); err != nil {
+	if err := InitSemanticClassifierWithContext(ctx, kernel, cfg); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
 		// Non-fatal: classification works without semantic layer
 		logging.Get(logging.CategoryPerception).Warn("Semantic classifier init failed: %v (continuing with regex-only)", err)
 	} else {

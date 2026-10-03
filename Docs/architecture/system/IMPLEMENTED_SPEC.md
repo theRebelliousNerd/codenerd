@@ -1,5 +1,11 @@
 # system — Implemented Spec (Motherboard / Cortex Factory)
 
+## Bounded current implementation receipt (2026-10-02)
+
+**VERIFIED CURRENT:** caller-aware cache admission and stage-boundary cancellation/rollback in `internal/system/factory.go#GetOrBootCortex` at line210 and `#bootCortexWithSteps` at line2648 pass the real default-bootstrap blocked-embedding and lifecycle/cache controls in `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and focused race in `round6-coldboot-race.receipt.json`. Canceled construction cannot return/publish its partial Cortex; errors preserve cancellation and rollback causes. No-deadline callers and valid cache reuse retain their contracts.
+
+The fresh binary normal-entry deadline witness exits21.6602s for20s, output drained and no external kill (`round6-firstboot-idle.receipt.json`); this satisfies only that probe's5s allowance. No model-turn/world-model or universal cleanup guarantee follows. Learned-store backend SQL and worst-case kernel/legacy cleanup remain unqualified. Historical July counts/status/inventory below are retained as legacy context and are not current evidence.
+
 > Last verified against codebase: **2026-07-13**  
 > Status: Living reference — **code-grounded full corpus**  
 > Mode: 1:1 with `internal/system/`  

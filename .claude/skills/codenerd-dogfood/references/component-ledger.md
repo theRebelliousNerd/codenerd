@@ -1,5 +1,13 @@
 # codeNERD Component Ledger
 
+## 2026-10-02 cold-bootstrap lifetime repair witness
+
+Brief: repeat normal cold `nerd chat --timeout 20s`, stdin open, no submitted turns, on a new independent fixture after caller-context propagation. Root/delegated hand edits are intentional: cold boot is the broken prerequisite for using codeNERD to fix itself. Fresh sqlite_vec binary SHA25661820661540A43937CEB1AD04969A1BC5496B05FB94F56D703D0DE1DB77DC140. Runtime0.36min (21.6602s), exit1 with typed kernel/classifier deadline failure, no external kill, output drained; before repair58.4495s. Independent cache witness:448 durable rows, integrity OK, fixture source bytes unchanged, later prompt corpus absent. Strict actual default-bootstrap HTTP/cancellation/cache/ownership controls and focused race pass. This satisfies only the explicit20s-plus5s allowance, not successful chat/model-turn/world/CodeDOM or universal shutdown. Submitted turns/tool calls: none; boot work is not counted as model tool calls. Backend learned-store SQL and worst-case cleanup remain open. Receipts: `.corpus-build/runs/all-features-20261002/round6-firstboot-idle.receipt.json`, `round6-firstboot-cache-witness.json`, `round6-coldboot-corrected.receipt.json`, `round6-coldboot-race.receipt.json`. Source remains uncommitted; do not classify as UPGRADED under this ledger's commit rule.
+
+## 2026-10-02 fresh headless lifecycle probe
+
+Brief: normal `nerd chat --timeout 20s` in a fresh isolated fixture with stdin held open, no submitted turns and normal boot defaults; not a model-authored bug fix. Fresh sqlite_vec binary SHA256 E40032FED7D0F16432AA4F5CCA2579092546DC0FDCF6C086E6674EC346C6B69C. Runtime: 0.97 minutes, exit1, no external kill, output drained. Boot-generated prompt corpus has 923 rows and the corrected perception atom hash. Miss: command deadline exceeded by about38 seconds; embedding tags request reports deadline cancellation despite an earlier available-endpoint probe. Submitted chat turns/tool calls: none; internal boot work is not measured as model turns. No world/CodeDOM request or successful task verdict is claimed. Receipts: `.corpus-build/runs/all-features-20261002/round5-firstboot-idle.receipt.json` and `round5-firstboot-db-witness.json`. Root hand-edited the harness/specs; source repair still requires traced context/cleanup ownership. GAP-CLI-01 stays open.
+
 Living status matrix for the dogfood sweep: exercise each component through the
 CLI, then upgrade it. Update after every loop. `EXERCISED` = driven live through
 the CLI on the target path. `UPGRADED` = a real defect it surfaced was fixed +
@@ -5991,3 +5999,29 @@ streak that needed nothing from the root. Before -> after vs runs 6/7: with no p
 lands a one-file truncation fix and writes the regression test itself. **Miss:** the report says "Wrote 1
 file(s)" while the turn also created the test file -- the write count omits created files (or files outside the
 planned step set). No false red from concurrent lanes (third run in a row).
+
+## 2026-10-02 — production headless chat, calculator fixture
+
+Fresh sqlite_vec/CGO binary from db1d4b7e plus the protected existing local changes;
+SHA256 5DBC6324C1063E7048DBB9AC6F63DF8D95334952BFC5FC1ED17B381DD0241754.
+Independent fixture repository under .corpus-build/runs/all-features-20261002/dogfood-fixture;
+no Git worktree. Two normal `nerd chat` turns: inspect Sum and its tests using world-model/
+CodeDOM context, then repair the quoted failing single/multiple/negative cases without
+weakening tests. Initial root `go test` failed three cases. **Artifact landed:** calculator.go
+changed the loop to include every value; the original four table cases are intact and the
+root's post-run `go test ./... -count=1 -timeout 1m` passes. No root repair edit was made.
+
+**Harness did not finish:** the first turn returned only an intention to inspect, with zero
+executed tools. The repair turn never produced its final footer before the root stopped the
+owned process at 616 seconds despite `--timeout 6m`. runChat uses WithCancel for process and
+turn contexts and never applies the global timeout; GAP-CLI-01 now pins the accepted fix.
+First-turn tool calls: 0; repair-turn and total tool counts: unavailable from the final footer.
+This is a verified repair artifact and a failed command-lifecycle receipt, not end-to-end
+closure. Captures: dogfood-seed.log, dogfood-chat.log, dogfood-stop.json, dogfood-after.log.
+
+Setup findings: the first init scanned zero files because the fixture inherited Git-ignored
+parent membership; an independent fixture Git boundary corrected that setup. Init stopped
+at its explicit four-minute deadline during agent knowledge creation. Chat boot lacked the
+configured Ollama embedding service. The root restored the already installed service/model
+and measured a 2560-dimensional embedding response; this chat had booted before restoration
+and cannot qualify vector-enabled JIT behavior. Further live validation remains required.

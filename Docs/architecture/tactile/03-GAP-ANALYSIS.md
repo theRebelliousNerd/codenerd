@@ -1,5 +1,11 @@
 # tactile — Gap Analysis
 
+## Bounded argv evidence (2026-10-02)
+
+**VERIFIED CURRENT:** `internal/tactile/python/environment.go#Environment.RunPytest` (`internal/tactile/python/environment.go:654`) now sends a constant Python launcher and separate literal selectors through the runtime, preserving the inherited PATH with the running virtualenv interpreter directory prepended. `artifact:.corpus-build/runs/all-features-20261002/round4-python.receipt.json` passes the complete Python and SWE-bench package gate (61 PASS events including subtests): actual host selector/failure status, sentinel absence, helper execution, PATH/environment inheritance and cancellation controls remain intact. Prior core governed-routing/verdict controls pass in `round3-python-wiring.receipt.json`; those use a strict runtime fake. GAP-TACTILE-PYTHON-ARGV is partial, not closed: a genuine Linux container and normal production action witness remain required. This current evidence supersedes the old shell-joining description in the historical accepted row below, not the broader July audit.
+
+**PROPOSED UPLIFT — Python argv host-probe boundary:** preserve literal arguments, exact inherited venv PATH prefix/tail, genuine helper execution, failing-test status, cancellation and sentinel absence. Supported production Linux/container helper lookup remains unqualified and must be live-verified. A Windows host probe must explicitly resolve a helper through that inherited PATH and assert the selected venv executable before launching it: Windows `subprocess` executable resolution does not let the supplied environment override PATH. This platform distinction does not authorize a shell, an expected base-interpreter substitution, or removal of Linux/container coverage. [Python subprocess documentation](https://docs.python.org/3/library/subprocess.html), [PATH lookup documentation](https://docs.python.org/3/library/shutil.html#shutil.which).
+
 > Last verified: **2026-08-09**
 
 ## Method
@@ -124,3 +130,13 @@ Compare vision ([01-VISION.md](01-VISION.md)) and north star to living code. Dis
 | Boot wiring | Moderate |
 | Platform depth | Strong (code), uneven (selection) |
 | Benchmark stack | Strong library / weak productization |
+
+## 2026-10-02 accepted typed-Python execution obligation
+
+| Gap ID | Capability | Current state | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-TACTILE-PYTHON-ARGV | Literal pytest argument execution | **PARTIAL:** `internal/core/virtual_store_python.go#VirtualStore.handlePythonRunPytest` (`internal/core/virtual_store_python.go:285`) forwards test_args to `internal/tactile/python/environment.go#Environment.RunPytest` (`internal/tactile/python/environment.go:641`). The driver joins arguments into command text and sends it through `#Environment.execInRepoVenv` at line 778, which invokes sh -c. This is source-confirmed shell interpretation; no exploit has been executed in this audit. | **PROPOSED UPLIFT:** invoke the virtualenv Python/pytest executable through ContainerRuntime with separate literal argv, retaining working directory, caller context, configured timeout, output, and true test exit status. | Critical | Accepted, not implemented | Root regression and governed production-route gates | Capturing-runtime tests prove selectors with metacharacters, spaces, quotes, and command-substitution text remain literal arguments or receive typed refusal; no sh -c invocation occurs. Failure status and cancellation are preserved. A root-run governed action cannot create a shell sentinel, while a valid selected test still executes. |
+
+The initial packet owns internal/tactile/python/environment.go and planned:internal/tactile/python/pytest_argv_test.go. It must not widen permissions, modify the protected kernel policies, or convert other setup commands into a new model-facing shell surface. Production routing and test-result derivation remain separate root verification obligations; a recording-runtime test alone cannot close the gap.
+
+**PROPOSED UPLIFT — compatibility requirement:** literal execution must preserve the inherited container PATH with the virtualenv bin directory prepended, including when selected tests spawn virtualenv-installed commands. Do not substitute the host PATH or a fixed container PATH. A constant typed Python launcher may establish that environment before invoking pytest, but caller selectors must remain separate literal arguments; no caller-derived shell command is allowed. Root acceptance includes a real subprocess lookup witness in addition to invocation-structure assertions.

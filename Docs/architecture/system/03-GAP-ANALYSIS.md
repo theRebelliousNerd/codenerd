@@ -1,5 +1,19 @@
 # Gap analysis: system
 
+## Accepted cold-bootstrap cancellation target (2026-10-02)
+
+**VERIFIED CURRENT — bounded implementation/live exit:** default full-bootstrap HTTP cancellation, stage/cache/rollback controls and focused race pass in `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and `round6-coldboot-race.receipt.json`. Fresh normal-entry cold20s probe exits21.6602s with typed deadline failure and drained output (`round6-firstboot-idle.receipt.json`), within the specified5s allowance. This supersedes the unimplemented observation below for these exact behaviors. Backend learned-store SQL, worst-case cleanup, complete affected suites and model-turn/world context remain separate obligations; GAP-CLI-01 is not globally closed.
+
+**PARTIAL — GAP-SYSTEM-BOOT-CONTEXT:** normal-entry `chat --timeout 20s` on a cold fixture exited after 58.4495 seconds, without an external kill. `factory.go#initKernel` reaches contextless perception/classifier construction, and boot continues constructing JIT/session and starting maintenance after cancellation. The measured cold hydration consumed about 47.922 seconds; cleanup was subsecond in this probe, not the cause. Evidence: `artifact:.corpus-build/runs/all-features-20261002/round5-firstboot-idle.receipt.json` and `02-execution/handoff-5.json`.
+
+**PROPOSED UPLIFT:** carry the caller context through classifier/embedding construction; check it before and after each boot stage; rollback every owned resource on cancellation even when a stage returns nil. Canceled boots must not publish a cached Cortex or start maintenance. Cache admission must be cancellation-aware without detached boot work; valid cached reuse and no-deadline boot remain supported. Preserve joined cleanup errors and typed cancellation identity. Exit requires deterministic default-path blocked embedding, staged cancellation/rollback and retry/cache controls, then a rebuilt sqlite_vec binary with a fresh normal-entry 20-second probe that exits within a stated five-second cleanup allowance and drains output. This is not model-turn/world-model acceptance, and GAP-CLI-01 stays open until its full contract is proved.
+
+## Accepted generated-session bridge target (2026-10-02)
+
+**PARTIAL — GAP-SYSTEM-GENERATED-FEEDBACK:** `internal/system/factory.go#initAutopoiesisAndBrowser` installs the feedback adapter at line 1770; `#initFinalExecutors` supplies the session its raw registry at line 2350. `internal/system/factory_tool_executor.go#orchestratorToolExecutor.ExecuteTool` at line 47 owns automatic tool learning, but generated session execution bypasses it. Root source inspection and artifact:.corpus-build/runs/all-features-20261002/02-execution/handoff-3.json establish this distinction, not passing behavior.
+
+**PROPOSED UPLIFT:** bridge admitted generated calls through the existing executive/feedback route without replacement action IDs, permission widening, duplicate effects or fabricated receipts. Factory ownership carries configured request/lifetime contexts and restores tools consistently. Missing adapter/authorization visibly refuses. Real tool failures retain output and learning exactly once. Pin refinement/recording admission, cancellation and join before claiming shutdown completion. Root acceptance uses actual boot and Process with deterministic model inputs, effects and learning snapshots, plus disconnected-route, feedback-free, refusal, cancellation and recovery controls. Shared core bridge changes require their own accepted spec and path ownership first. Target remains unimplemented/unverified; companion session/testing gaps own consumer and acceptance obligations.
+
 > The rows below compare the reviewed live tree with [01-VISION.md](01-VISION.md).
 > Feature decisions and acceptance contracts live only in [TODO.md](TODO.md).
 

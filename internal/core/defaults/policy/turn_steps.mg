@@ -47,6 +47,19 @@ turn_needs_step_plan(Turn) :-
 # unresolved, and the plan's verdict is /incomplete. The error text stays in
 # Go; the verdict is the rule.
 #
+# step_file_net is the host's comparison, after every repair round, of the
+# file's bytes to what it held before the turn: /changed or /unchanged.
+# A step that wrote, whose file is /unchanged, and that has no no-change
+# evidence was edited and then put back (step_reverted). That is unresolved
+# for the same reason a step that never wrote is: the plan's change is not
+# in the workspace the verdict is taken from. A missing step_file_net is
+# not /unchanged — the host asserts nothing when the preimage is unknown,
+# and step_reverted does not fire.
+#
+# The comparison is per file, not per hunk. Two steps on one file share one
+# step_file_net, so a later step's surviving edit masks an earlier step's
+# revert. Per-hunk attribution is not this predicate.
+#
 # Negation goes through a projection. !step_execution(Turn, Step, _, 0, _)
 # does not see the ground row (the same failure as !turn_failing_test in
 # coder_safety.mg), and a wildcard in the negated atom is the same class of
@@ -55,6 +68,7 @@ turn_needs_step_plan(Turn) :-
 Decl step_execution(Turn, Step, File, Writes, Calls) bound [/name, /number, /string, /number, /number].
 Decl step_no_change_evidence(Turn, Step, Evidence) bound [/name, /number, /string].
 Decl step_retried(Turn, Step) bound [/name, /number].
+Decl step_file_net(Turn, Step, File, Net) bound [/name, /number, /string, /name].
 
 Decl step_cover_candidate(Turn, Step, By) bound [/name, /number, /number].
 Decl step_file_covered(Turn, Step, By) bound [/name, /number, /number].
@@ -62,6 +76,7 @@ Decl step_has_retried(Turn, Step) bound [/name, /number].
 Decl step_has_no_change(Turn, Step) bound [/name, /number].
 Decl step_has_cover(Turn, Step) bound [/name, /number].
 Decl step_unresolved(Turn, Step, File) bound [/name, /number, /string].
+Decl step_reverted(Turn, Step, File) bound [/name, /number, /string].
 Decl step_next_action(Turn, Step, Action) bound [/name, /number, /name].
 Decl turn_has_step(Turn) bound [/name].
 Decl turn_has_unresolved_step(Turn) bound [/name].
@@ -94,9 +109,23 @@ step_unresolved(Turn, Step, File) :-
     !step_has_no_change(Turn, Step),
     !step_has_cover(Turn, Step).
 
+# Writes is the pass's count. The file's bytes at verdict time are
+# step_file_net. Both have to hold: a write that the later rounds put back
+# is not a change that survived.
+step_reverted(Turn, Step, File) :-
+    step_execution(Turn, Step, File, Writes, _),
+    Writes > 0,
+    step_file_net(Turn, Step, File, /unchanged),
+    !step_has_no_change(Turn, Step).
+
 turn_has_step(Turn) :- step_execution(Turn, _, _, _, _).
 turn_has_unresolved_step(Turn) :- step_unresolved(Turn, _, _).
+turn_has_unresolved_step(Turn) :- step_reverted(Turn, _, _).
 
+# One incomplete rule. step_reverted joins the same projection an unresolved
+# step does, so a reverted edit blocks /complete the way a step that never
+# wrote does. A second turn_steps_verdict(/incomplete) rule would be a
+# second source for the same verdict.
 turn_steps_verdict(Turn, /incomplete) :- turn_has_unresolved_step(Turn).
 turn_steps_verdict(Turn, /complete) :-
     turn_has_step(Turn),

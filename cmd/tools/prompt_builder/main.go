@@ -17,15 +17,19 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"codenerd/internal/embedding"
+	"codenerd/internal/prompt"
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -92,6 +96,7 @@ func main() {
 	inputDir := flag.String("input", "internal/prompt/atoms", "Input directory with YAML atom definitions")
 	outputDB := flag.String("output", "internal/core/defaults/prompt_corpus.db", "Output SQLite database")
 	skipEmbeddings := flag.Bool("skip-embeddings", false, "Skip embedding generation (faster for testing)")
+	reconcileEmbedded := flag.Bool("reconcile-embedded", false, "Reconcile an existing corpus with compiled canonical atoms without generating embeddings")
 	flag.Parse()
 
 	fmt.Println("=================================================")
@@ -101,6 +106,19 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+
+	if *reconcileEmbedded {
+		counts, err := reconcileEmbeddedSeed(ctx, *inputDir, *outputDB)
+		if err != nil {
+			fmt.Printf("ERROR: Failed to reconcile embedded corpus: %v\n", err)
+			os.Exit(1)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(counts); err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: Failed to report reconciliation: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// Step 1: Get API key (unless skipping embeddings)
 	var engine embedding.EmbeddingEngine
@@ -168,6 +186,99 @@ func main() {
 	fmt.Println("=================================================")
 	fmt.Println("  PROMPT CORPUS BUILD COMPLETE")
 	fmt.Println("=================================================")
+}
+
+func reconcileEmbeddedSeed(ctx context.Context, inputDir, outputPath string) (prompt.ReconcileCounts, error) {
+	if filepath.Clean(inputDir) != filepath.FromSlash("internal/prompt/atoms") {
+		return prompt.ReconcileCounts{}, fmt.Errorf("-reconcile-embedded uses compiled canonical atoms and conflicts with custom -input %q", inputDir)
+	}
+	return reconcilePromptSeed(ctx, outputPath, nil)
+}
+
+func reconcilePromptSeed(ctx context.Context, outputPath string, atoms []*prompt.PromptAtom) (counts prompt.ReconcileCounts, outcome error) {
+	if err := ctx.Err(); err != nil {
+		return counts, err
+	}
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		return counts, fmt.Errorf("existing corpus required: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return counts, fmt.Errorf("existing corpus must be a regular file: %s", outputPath)
+	}
+	absolutePath, err := filepath.Abs(outputPath)
+	if err != nil {
+		return counts, fmt.Errorf("resolve corpus path: %w", err)
+	}
+	databasePath := filepath.ToSlash(absolutePath)
+	if !strings.HasPrefix(databasePath, "/") {
+		databasePath = "/" + databasePath
+	}
+	databaseURL := url.URL{Scheme: "file", Path: databasePath}
+	parameters := url.Values{"mode": {"rw"}, "_foreign_keys": {"on"}}
+	databaseURL.RawQuery = parameters.Encode()
+	database, err := sql.Open("sqlite3", databaseURL.String())
+	if err != nil {
+		return counts, fmt.Errorf("open existing corpus: %w", err)
+	}
+	database.SetMaxOpenConns(1)
+	defer func() {
+		if closeErr := database.Close(); closeErr != nil {
+			outcome = errors.Join(outcome, fmt.Errorf("close corpus: %w", closeErr))
+		}
+	}()
+	var integrity string
+	if err := database.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&integrity); err != nil {
+		return counts, fmt.Errorf("validate existing corpus: %w", err)
+	}
+	if integrity != "ok" {
+		return counts, fmt.Errorf("invalid corpus integrity: %s", integrity)
+	}
+	var corpusTables int
+	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('prompt_atoms', 'atom_context_tags')").Scan(&corpusTables); err != nil {
+		return counts, fmt.Errorf("validate corpus tables: %w", err)
+	}
+	if corpusTables != 2 {
+		return counts, fmt.Errorf("existing database is not a prompt corpus: required tables are missing")
+	}
+	for _, schemaQuery := range []string{
+		"SELECT atom_id, version, content, token_count, content_hash, category, subcategory, priority, is_mandatory, is_exclusive, source_file, embedding, embedding_task FROM prompt_atoms LIMIT 0",
+		"SELECT atom_id, dimension, tag, is_exclusion FROM atom_context_tags LIMIT 0",
+	} {
+		columns, err := database.QueryContext(ctx, schemaQuery)
+		if err != nil {
+			return counts, fmt.Errorf("invalid corpus schema: %w", err)
+		}
+		if err := columns.Close(); err != nil {
+			return counts, fmt.Errorf("close schema validation: %w", err)
+		}
+	}
+	var uniqueAtomIdentity bool
+	if err := database.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM pragma_index_list('prompt_atoms') AS key_index
+		WHERE key_index."unique" = 1 AND key_index.partial = 0
+		AND (SELECT COUNT(*) FROM pragma_index_info(key_index.name)) = 1
+		AND EXISTS (SELECT 1 FROM pragma_index_info(key_index.name) WHERE name = 'atom_id')
+	)`).Scan(&uniqueAtomIdentity); err != nil {
+		return counts, fmt.Errorf("validate corpus identity: %w", err)
+	}
+	if !uniqueAtomIdentity {
+		return counts, fmt.Errorf("invalid corpus schema: atom_id must have a unique key")
+	}
+	if err := ctx.Err(); err != nil {
+		return counts, err
+	}
+	sqlpragmas.ApplyDefaultPragmas(database, sqlpragmas.ProfileHot)
+	if err := prompt.NewAtomLoader(nil).EnsureSchema(ctx, database); err != nil {
+		return counts, fmt.Errorf("ensure corpus schema: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return counts, err
+	}
+	if atoms == nil {
+		return prompt.ReconcileEmbeddedCorpus(ctx, database)
+	}
+	return prompt.ReconcilePromptCorpus(ctx, database, atoms)
 }
 
 // getAPIKey retrieves the Gemini API key from environment or config file.

@@ -1,5 +1,11 @@
 # Current state: the live Cortex composition root
 
+## Root-qualified cold-bootstrap lifetime slice (2026-10-02)
+
+**VERIFIED CURRENT — bounded checkout evidence:** `internal/system/factory.go#GetOrBootCortex` (line210) uses caller-aware cache admission; `#bootCortexWithSteps` (line2648) checks cancellation around every stage and joins transaction rollback. Kernel and intelligence initialization use context-aware perception/embedding construction. `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and `round6-coldboot-race.receipt.json` pass the default full-bootstrap blocked-HTTP, parent cancellation, rollback error, cache publication/reuse and constructor/cache preservation controls. The original invalid-provider fixture failure remains recorded separately, not erased.
+
+Fresh sqlite_vec binary SHA256 61820661540A43937CEB1AD04969A1BC5496B05FB94F56D703D0DE1DB77DC140 exits the normal cold `chat --timeout 20s` probe in21.6602s, versus58.4495s before repair, with typed kernel/classifier deadline failure, no external termination and drained output. `round6-firstboot-idle.receipt.json` qualifies this explicit20s-plus5s-allowance discriminator, not a universal shutdown bound. `round6-firstboot-cache-witness.json` independently records448 retained cache rows, integrity OK, unchanged fixture sources and absence of the later prompt corpus. No submitted model turn/world-model/CodeDOM or maintenance acceptance is claimed. Contextless learned-store backend SQL and worst-case kernel/legacy cleanup contention remain open. The inherited July inventory below is historical, not globally reverified by this slice.
+
 > **VERIFIED CURRENT** on 2026-07-13 at
 > `c8f21b46ec4b28529953094e0c18dac4dfd0c8eb`. The worktree was dirty; the
 > final fingerprint and commands are recorded in [_progress.md](_progress.md).

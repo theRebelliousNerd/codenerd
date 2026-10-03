@@ -1,5 +1,11 @@
 # embedding — INTERNALS
 
+## Accepted bootstrap context extension (2026-10-02)
+
+**VERIFIED CURRENT — bounded implementation:** `internal/embedding/engine.go#NewEngineWithContext` at line102 and `genai.go#NewGenAIEngineWithContext` at line101 preserve legacy wrappers while using parent-derived constructor/readiness contexts. Real blocked HTTP parent cancellation, optional local-cap/outage fallback and request-scoped retry controls pass `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and focused race `round6-coldboot-race.receipt.json`. These supersede the proposed-not-implemented paragraph for those constructors; full provider qualification and semantic namespace/vector eligibility are not inferred.
+
+**PROPOSED UPLIFT — GAP-EMBEDDING-BOOT-CONTEXT:** add caller-context construction for `engine.go#NewEngine` and provider client creation while preserving compatibility wrappers. Startup readiness/ensure caps inherit the parent; parent cancellation must return its typed cause and close partially acquired owned clients. An alive-parent unavailable optional service may still degrade as documented, and a short local ensure cap must not disable future request-scoped readiness/pulls. Existing model/readiness locking and vector validation stay unchanged. Tests require blocked real HTTP request cancellation, alive-parent fallback, later retry and resource ownership. No live-provider qualification is implied.
+
 > Verified 2026-09-21 against branch `main` working tree.
 
 How the five source files of `internal/embedding` work. For who calls them,

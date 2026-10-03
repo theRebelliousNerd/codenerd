@@ -1,5 +1,12 @@
 # Perception contributor guidance
 
+- Bootstrap uses the WithContext constructors and strict LoadFromKernelWithContext
+  path. Hydration caps inherit the parent; only an alive parent permits optional
+  degradation. The legacy LoadFromKernel retains its partial-cache flush contract.
+- Constructors own engines and stores until successful publication. On parent
+  cancellation close those handles and retain cleanup errors; shared admission
+  observes cancellation and must not publish a failed classifier.
+
 - Preserve the boundary: models propose `Understanding`; Go normalizes it; Mangle
   and session policy remain the authority for `next_action` and `permitted/3`.
 - Treat `Intent.ToFact` and routing-fact writers as hostile-input boundaries.

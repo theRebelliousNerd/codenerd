@@ -40,6 +40,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 )
 
 // intentHydrateTimeout bounds boot-time embedding of intent_definition texts.
@@ -166,6 +167,34 @@ type SemanticClassifier struct {
 // NewSemanticClassifierFromConfig creates a classifier using config settings.
 // This is the main constructor for production use.
 func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig) (*SemanticClassifier, error) {
+	return NewSemanticClassifierFromConfigWithContext(context.Background(), kernel, cfg)
+}
+
+func NewSemanticClassifierFromConfigWithContext(ctx context.Context, kernel core.Kernel, cfg *config.UserConfig) (*SemanticClassifier, error) {
+	return newSemanticClassifierWithContext(ctx, kernel, cfg, intentHydrateTimeout)
+}
+
+func newSemanticClassifierWithContext(ctx context.Context, kernel core.Kernel, cfg *config.UserConfig, hydrateTimeout time.Duration) (classifier *SemanticClassifier, outcome error) {
+	return newSemanticClassifierFromFactory(ctx, kernel, cfg, hydrateTimeout, embedding.NewEngineWithContext)
+}
+
+func newSemanticClassifierFromFactory(ctx context.Context, kernel core.Kernel, cfg *config.UserConfig, hydrateTimeout time.Duration, createEngine func(context.Context, embedding.Config) (embedding.EmbeddingEngine, error)) (classifier *SemanticClassifier, outcome error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ownedClassifier := &SemanticClassifier{kernel: kernel, config: DefaultSemanticConfig()}
+	defer func() {
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			outcome = errors.Join(cancelErr, outcome)
+		}
+		if outcome != nil {
+			outcome = errors.Join(outcome, ownedClassifier.Close())
+			classifier = nil
+		}
+	}()
 	timer := logging.StartTimer(logging.CategoryPerception, "NewSemanticClassifierFromConfig")
 	defer timer.Stop()
 
@@ -178,17 +207,21 @@ func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig)
 	engineCfg := embedCfg.EngineConfig()
 	engineCfg.TaskType = "RETRIEVAL_QUERY" // classification queries, not similarity
 
-	embedEngine, err := embedding.NewEngine(engineCfg)
+	embedEngine, err := createEngine(ctx, engineCfg)
+	ownedClassifier.embedEngine = embedEngine
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
 		logging.Get(logging.CategoryPerception).Warn("Failed to create embedding engine: %v (semantic classification disabled)", err)
+		if closeErr := ownedClassifier.Close(); closeErr != nil {
+			return nil, errors.Join(err, closeErr)
+		}
 		// Return classifier without embedding engine (graceful degradation)
-		return &SemanticClassifier{
-			kernel:        kernel,
-			embeddedStore: nil,
-			learnedStore:  nil,
-			embedEngine:   nil,
-			config:        DefaultSemanticConfig(),
-		}, nil
+		return ownedClassifier, nil
+	}
+	if embedEngine == nil {
+		return nil, errors.New("embedding constructor returned no engine")
 	}
 
 	logging.PerceptionDebug("Embedding engine created: %s (dimensions=%d)", embedEngine.Name(), embedEngine.Dimensions())
@@ -201,43 +234,46 @@ func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig)
 
 	var embeddedStore *EmbeddedCorpusStore
 	if cachePath != "" {
-		embeddedStore, err = NewEmbeddedCorpusStoreWithCache(embedEngine.Dimensions(), cachePath)
+		embeddedStore, err = NewEmbeddedCorpusStoreWithCacheWithContext(ctx, embedEngine.Dimensions(), cachePath)
 	} else {
 		embeddedStore, err = NewEmbeddedCorpusStore(embedEngine.Dimensions())
 	}
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
 		logging.Get(logging.CategoryPerception).Warn("Failed to load embedded corpus: %v", err)
 		embeddedStore = nil
 	}
+	ownedClassifier.embeddedStore = embeddedStore
 	if embeddedStore != nil && embedEngine != nil {
 		// Bound hydrate so a cold cache (hundreds of Ollama embeds) cannot freeze
 		// TUI/CLI boot indefinitely. Partial progress is cached for the next boot.
-		hydrateCtx, cancelHydrate := context.WithTimeout(context.Background(), intentHydrateTimeout)
-		if err := embeddedStore.LoadFromKernel(hydrateCtx, kernel, embedEngine); err != nil {
+		hydrateCtx, cancelHydrate := context.WithTimeout(ctx, hydrateTimeout)
+		if err := embeddedStore.LoadFromKernelWithContext(hydrateCtx, kernel, embedEngine); err != nil {
 			logging.Get(logging.CategoryPerception).Warn("Failed to hydrate embedded intent corpus from kernel: %v", err)
 		}
 		cancelHydrate()
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Initialize learned corpus store
-	learnedStore, err := NewLearnedCorpusStore(cfg, embedEngine.Dimensions(), embedEngine)
+	learnedStore, err := NewLearnedCorpusStoreWithContext(ctx, cfg, embedEngine.Dimensions(), embedEngine)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
 		logging.Get(logging.CategoryPerception).Warn("Failed to load learned corpus: %v", err)
 		learnedStore = nil
 	}
-
-	sc := &SemanticClassifier{
-		kernel:        kernel,
-		embeddedStore: embeddedStore,
-		learnedStore:  learnedStore,
-		embedEngine:   embedEngine,
-		config:        DefaultSemanticConfig(),
-	}
+	ownedClassifier.learnedStore = learnedStore
 
 	logging.Perception("SemanticClassifier initialized successfully (embedded=%v, learned=%v)",
 		embeddedStore != nil, learnedStore != nil)
 
-	return sc, nil
+	return ownedClassifier, nil
 }
 
 // Classify performs semantic classification and injects facts into kernel.
@@ -610,11 +646,16 @@ func (sc *SemanticClassifier) Close() error {
 			errs = append(errs, fmt.Errorf("failed to close learned store: %w", err))
 		}
 	}
-
-	if len(errs) > 0 {
-		return errs[0]
+	if closer, ok := sc.embedEngine.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close classifier embedding engine: %w", err))
+		}
 	}
-	return nil
+	sc.embeddedStore = nil
+	sc.learnedStore = nil
+	sc.embedEngine = nil
+
+	return errors.Join(errs...)
 }
 
 // =============================================================================
@@ -645,6 +686,16 @@ func NewEmbeddedCorpusStore(dimensions int) (*EmbeddedCorpusStore, error) {
 // are not re-embedded on every startup. If cachePath is empty, behaves identically
 // to NewEmbeddedCorpusStore (no cache).
 func NewEmbeddedCorpusStoreWithCache(dimensions int, cachePath string) (*EmbeddedCorpusStore, error) {
+	return NewEmbeddedCorpusStoreWithCacheWithContext(context.Background(), dimensions, cachePath)
+}
+
+func NewEmbeddedCorpusStoreWithCacheWithContext(ctx context.Context, dimensions int, cachePath string) (corpus *EmbeddedCorpusStore, outcome error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	timer := logging.StartTimer(logging.CategoryPerception, "NewEmbeddedCorpusStoreWithCache")
 	defer timer.Stop()
 
@@ -656,6 +707,15 @@ func NewEmbeddedCorpusStoreWithCache(dimensions int, cachePath string) (*Embedde
 		dimensions: dimensions,
 		cachePath:  cachePath,
 	}
+	defer func() {
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			outcome = errors.Join(cancelErr, outcome)
+		}
+		if outcome != nil {
+			outcome = errors.Join(outcome, store.Close())
+			corpus = nil
+		}
+	}()
 
 	if cachePath != "" {
 		// Ensure parent directory exists
@@ -664,15 +724,18 @@ func NewEmbeddedCorpusStoreWithCache(dimensions int, cachePath string) (*Embedde
 			return store, nil
 		}
 
-		db, err := sql.Open("sqlite3", cachePath)
+		db, err := sqlpragmas.OpenWithPragmas("sqlite3", cachePath, sqlpragmas.ProfileHot)
 		if err != nil {
 			logging.Get(logging.CategoryEmbedding).Warn("Failed to open embedding cache DB: %v (cache disabled)", err)
 			return store, nil
 		}
-		sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
+		store.cacheDB = db
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 
 		// Create cache table
-		_, err = db.Exec(`CREATE TABLE IF NOT EXISTS embedding_cache (
+		_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS embedding_cache (
 			text_hash   TEXT NOT NULL,
 			model_name  TEXT NOT NULL,
 			embedding   BLOB NOT NULL,
@@ -681,7 +744,12 @@ func NewEmbeddedCorpusStoreWithCache(dimensions int, cachePath string) (*Embedde
 			PRIMARY KEY (text_hash, model_name)
 		)`)
 		if err != nil {
-			db.Close()
+			if ctx.Err() != nil {
+				return nil, errors.Join(ctx.Err(), err)
+			}
+			if closeErr := store.Close(); closeErr != nil {
+				return nil, errors.Join(err, closeErr)
+			}
 			logging.Get(logging.CategoryEmbedding).Warn("Failed to create cache table: %v (cache disabled)", err)
 			return store, nil
 		}
@@ -740,11 +808,15 @@ func bytesToFloat32(buf []byte) []float32 {
 // cacheGet retrieves a cached embedding by text hash and model name.
 // Returns nil if not found or on error.
 func (s *EmbeddedCorpusStore) cacheGet(textHash, modelName string) []float32 {
-	if s.cacheDB == nil {
+	return s.cacheGetWithContext(context.Background(), textHash, modelName)
+}
+
+func (store *EmbeddedCorpusStore) cacheGetWithContext(ctx context.Context, textHash, modelName string) []float32 {
+	if store.cacheDB == nil {
 		return nil
 	}
 	var blob []byte
-	err := s.cacheDB.QueryRow(
+	err := store.cacheDB.QueryRowContext(ctx,
 		"SELECT embedding FROM embedding_cache WHERE text_hash = ? AND model_name = ?",
 		textHash, modelName,
 	).Scan(&blob)
@@ -756,17 +828,22 @@ func (s *EmbeddedCorpusStore) cacheGet(textHash, modelName string) []float32 {
 
 // cachePut stores an embedding in the cache.
 func (s *EmbeddedCorpusStore) cachePut(textHash, modelName string, vec []float32) {
-	if s.cacheDB == nil {
-		return
+	_ = s.cachePutWithContext(context.Background(), textHash, modelName, vec)
+}
+
+func (store *EmbeddedCorpusStore) cachePutWithContext(ctx context.Context, textHash, modelName string, vec []float32) error {
+	if store.cacheDB == nil {
+		return nil
 	}
 	blob := float32ToBytes(vec)
-	_, err := s.cacheDB.Exec(
+	_, err := store.cacheDB.ExecContext(ctx,
 		"INSERT OR REPLACE INTO embedding_cache (text_hash, model_name, embedding, dimensions) VALUES (?, ?, ?, ?)",
 		textHash, modelName, blob, len(vec),
 	)
 	if err != nil {
 		logging.Get(logging.CategoryEmbedding).Warn("Failed to cache embedding: %v", err)
 	}
+	return err
 }
 
 // LoadFromKernel hydrates the embedded corpus from intent_definition facts in the kernel.
@@ -776,15 +853,33 @@ func (s *EmbeddedCorpusStore) cachePut(textHash, modelName string, vec []float32
 // When a SQLite cache is configured, embeddings are looked up by content hash + model
 // name before falling back to the embedding engine. Only cache misses require API calls.
 func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Kernel, engine embedding.EmbeddingEngine) error {
-	if s == nil || kernel == nil || engine == nil {
+	return s.loadFromKernel(ctx, kernel, engine, false)
+}
+
+func (store *EmbeddedCorpusStore) LoadFromKernelWithContext(ctx context.Context, kernel core.Kernel, engine embedding.EmbeddingEngine) error {
+	return store.loadFromKernel(ctx, kernel, engine, true)
+}
+
+func (store *EmbeddedCorpusStore) loadFromKernel(ctx context.Context, kernel core.Kernel, engine embedding.EmbeddingEngine, strictCancellation bool) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strictCancellation && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	cacheCtx := ctx
+	if !strictCancellation {
+		cacheCtx = context.Background()
+	}
+	if store == nil || kernel == nil || engine == nil {
 		return nil
 	}
 
 	// Prevent ghost duplication
-	s.mu.Lock()
-	s.entries = make([]CorpusEntry, 0)
-	s.embeddings = make(map[string][]float32)
-	s.mu.Unlock()
+	store.mu.Lock()
+	store.entries = make([]CorpusEntry, 0)
+	store.embeddings = make(map[string][]float32)
+	store.mu.Unlock()
 
 	facts, err := kernel.Query("intent_definition")
 	if err != nil {
@@ -797,6 +892,9 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 	entries := make([]CorpusEntry, 0, len(facts))
 	texts := make([]string, 0, len(facts))
 	for _, f := range facts {
+		if strictCancellation && ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if len(f.Args) < 2 {
 			continue
 		}
@@ -829,10 +927,13 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 	var missIndices []int
 	hits := 0
 
-	if s.cacheDB != nil {
+	if store.cacheDB != nil {
 		for i, text := range texts {
+			if strictCancellation && ctx.Err() != nil {
+				return ctx.Err()
+			}
 			h := hashText(text)
-			if cached := s.cacheGet(h, modelName); cached != nil && len(cached) == s.dimensions {
+			if cached := store.cacheGetWithContext(cacheCtx, h, modelName); cached != nil && len(cached) == store.dimensions {
 				allEmbeds[i] = cached
 				hits++
 			} else {
@@ -916,9 +1017,14 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 				}
 				vec := chunkEmbeds[j]
 				allEmbeds[idx] = vec
-				if vec != nil && s.cacheDB != nil {
-					s.cachePut(hashText(chunkTexts[j]), modelName, vec)
-					cachedMisses++
+				if vec != nil && store.cacheDB != nil {
+					if cacheErr := store.cachePutWithContext(cacheCtx, hashText(chunkTexts[j]), modelName, vec); cacheErr != nil {
+						if strictCancellation {
+							return cacheErr
+						}
+					} else {
+						cachedMisses++
+					}
 				}
 			}
 			if end < len(missTexts) {
@@ -930,8 +1036,8 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 	}
 
 	// ─── Populate in-memory store ────────────────────────────────────────
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	store.mu.Lock()
+	defer store.mu.Unlock()
 
 	added := 0
 	for i, entry := range entries {
@@ -939,15 +1045,18 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 			break
 		}
 		vec := allEmbeds[i]
-		if len(vec) != s.dimensions {
+		if len(vec) != store.dimensions {
 			continue
 		}
-		s.entries = append(s.entries, entry)
-		s.embeddings[entry.TextContent] = vec
+		store.entries = append(store.entries, entry)
+		store.embeddings[entry.TextContent] = vec
 		added++
 	}
 
 	logging.PerceptionDebug("Hydrated embedded intent corpus from kernel: added=%d", added)
+	if strictCancellation {
+		return ctx.Err()
+	}
 	return nil
 }
 
@@ -1049,6 +1158,16 @@ func (s *EmbeddedCorpusStore) Search(queryEmbed []float32, topK int) ([]Semantic
 // NewLearnedCorpusStore initializes the learned patterns store.
 // In production this is backed by `.nerd/learned_patterns.db`; tests/dev fall back to memory.
 func NewLearnedCorpusStore(cfg *config.UserConfig, dimensions int, embedEngine embedding.EmbeddingEngine) (*LearnedCorpusStore, error) {
+	return NewLearnedCorpusStoreWithContext(context.Background(), cfg, dimensions, embedEngine)
+}
+
+func NewLearnedCorpusStoreWithContext(ctx context.Context, cfg *config.UserConfig, dimensions int, embedEngine embedding.EmbeddingEngine) (corpus *LearnedCorpusStore, outcome error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	timer := logging.StartTimer(logging.CategoryPerception, "NewLearnedCorpusStore")
 	defer timer.Stop()
 
@@ -1059,6 +1178,15 @@ func NewLearnedCorpusStore(cfg *config.UserConfig, dimensions int, embedEngine e
 		entries:    make([]CorpusEntry, 0),
 		dimensions: dimensions,
 	}
+	defer func() {
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			outcome = errors.Join(cancelErr, outcome)
+		}
+		if outcome != nil {
+			outcome = errors.Join(outcome, store.Close())
+			corpus = nil
+		}
+	}()
 
 	// If no config or embedding engine, fall back to in-memory store (tests/dev).
 	if cfg == nil || embedEngine == nil {
@@ -1179,12 +1307,24 @@ func (s *LearnedCorpusStore) Close() error {
 var SharedSemanticClassifier *SemanticClassifier
 
 // sharedClassifierMu protects SharedSemanticClassifier initialization.
-var sharedClassifierMu sync.Mutex
+var sharedClassifierMu = semaphore.NewWeighted(1)
 
 // InitSemanticClassifier initializes the shared classifier.
 func InitSemanticClassifier(kernel core.Kernel, cfg *config.UserConfig) error {
-	sharedClassifierMu.Lock()
-	defer sharedClassifierMu.Unlock()
+	return InitSemanticClassifierWithContext(context.Background(), kernel, cfg)
+}
+
+func InitSemanticClassifierWithContext(ctx context.Context, kernel core.Kernel, cfg *config.UserConfig) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := sharedClassifierMu.Acquire(ctx, 1); err != nil {
+		return err
+	}
+	defer sharedClassifierMu.Release(1)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if SharedSemanticClassifier != nil {
 		logging.PerceptionDebug("SemanticClassifier already initialized, skipping")
@@ -1193,11 +1333,14 @@ func InitSemanticClassifier(kernel core.Kernel, cfg *config.UserConfig) error {
 
 	logging.Perception("Initializing shared SemanticClassifier")
 
-	var err error
-	SharedSemanticClassifier, err = NewSemanticClassifierFromConfig(kernel, cfg)
+	classifier, err := NewSemanticClassifierFromConfigWithContext(ctx, kernel, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize semantic classifier: %w", err)
 	}
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		return errors.Join(cancelErr, classifier.Close())
+	}
+	SharedSemanticClassifier = classifier
 
 	logging.Perception("Shared SemanticClassifier initialized successfully")
 	return nil
@@ -1205,8 +1348,10 @@ func InitSemanticClassifier(kernel core.Kernel, cfg *config.UserConfig) error {
 
 // CloseSemanticClassifier closes the shared classifier and releases resources.
 func CloseSemanticClassifier() error {
-	sharedClassifierMu.Lock()
-	defer sharedClassifierMu.Unlock()
+	if err := sharedClassifierMu.Acquire(context.Background(), 1); err != nil {
+		return err
+	}
+	defer sharedClassifierMu.Release(1)
 
 	if SharedSemanticClassifier == nil {
 		return nil
