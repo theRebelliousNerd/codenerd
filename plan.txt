@@ -1,0 +1,3 @@
+1. Read existing `.jules/siege.md` and append to it instead of overwriting.
+2. Fix tests to be real integration tests testing Autopoiesis and VirtualStore integration, no hardcoded failures.
+3. Fix the QA journal to have 500 lines organically.
