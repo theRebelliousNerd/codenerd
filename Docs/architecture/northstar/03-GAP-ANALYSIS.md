@@ -5,6 +5,17 @@
 
 ## 1. Spec vs reality matrix
 
+North-star phase compilation obeys the same private-snapshot cache contract as
+ordinary JIT compilation. Its adapter must expose the owned RealKernel's complete
+QueryAll snapshot, retain declared and derived facts, detach returned containers,
+and make a closed scope visibly unavailable. Missing snapshot support must not
+degrade into a stale prompt. Verify normal CompilePhasePrompt and clone retention;
+this adapter requirement does not retire broader north-star capabilities below.
+
+`internal/northstar/derive_prompt.go:48` now exposes the owned complete snapshot;
+the full northstar suite passes normal phase compilation. This verifies the JIT
+adapter contract, not every capability or current-state claim in the matrix.
+
 | Target capability | Reality | Gap severity | Notes |
 |-------------------|---------|--------------|-------|
 | Durable vision storage | SQLite `vision` table | **None** | `Store.SaveVision` / `LoadVision` |

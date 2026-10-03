@@ -6,6 +6,9 @@
 - Write, execute and external effects require the installed executive gate on
   production registry paths. Tests executing effectful fixtures must supply a
   real gate or an explicit test adapter, never a production fallback.
+- Impacted-test subprocesses use the shared process-tree ownership helper.
+  Cancellation must drain descendants and collectors while preserving partial
+  output. A start or collection failure cannot produce a passing exit receipt.
 - Use `CanonicalWorkspaceRoot`, `WorkspaceRoot` and `ResolveWorkspacePath` as
   one identity contract. Do not compute `filepath.Rel` across unresolved and
   resolved roots; preserve containment across symlinks and Windows aliases.

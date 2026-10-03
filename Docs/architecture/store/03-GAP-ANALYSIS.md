@@ -72,3 +72,28 @@
 2. Expand `GetStats` (P2)  
 3. Optional thin interfaces at consumer edges only if tests demand (P2)  
 4. Keep horizon remote cold store off the critical path
+
+## Learned-corpus constructor cancellation
+
+**GAP-STORE-LEARNED-CONSTRUCTOR-CONTEXT:** learned-corpus startup must inherit
+the caller's context through connection readiness, profile application, and
+schema creation. The contextless `NewLearnedCorpusStore` remains a compatibility
+wrapper, not the production cold-bootstrap path. Checks before and after a
+contextless constructor do not cancel its connection readiness or schema work.
+Use context-aware SQL on the actual constructor path, with the shared hot profile
+on every connection. Failed construction closes owned handles, joins cleanup
+errors, preserves typed cancellation/deadline causes, and publishes no successful
+store. Do not detach blocked constructor work into an orphan goroutine.
+
+Acceptance requires synchronized real SQL contention/driver blocking, cancellation
+and drain, successful retry/reopen, unchanged schema and existing vector data,
+legacy wrapper compatibility, and no filesystem effects for pre-canceled calls.
+The normal perception path must call the context-aware backend. Optional backend
+outage with a live parent may degrade visibly; parent cancellation may not.
+
+The production constructor is `internal/store/learned_store.go:58`. Focused
+acceptance in `internal/store/learned_constructor_context_test.go:230` and
+`internal/perception/learned_constructor_context_test.go:139` passes real SQL
+contention, cancellation/drain, unchanged-data, retry, and perception-path
+controls. This establishes the named bootstrap contract, not all storage or
+whole-session acceptance.

@@ -97,3 +97,12 @@ Against what production still lacks.
 4. Defer config until a real host-class failure is reported.
 
 See [TODO.md](TODO.md).
+
+## Ecosystem persistence integration requirement
+
+The initializer's `persistEcosystemAtoms` is a production corpus writer and must
+use `ProfileHot` through the shared per-connection connector. A marker found by
+the source audit is not sufficient: initializer behavior must persist atoms,
+preserve existing row metadata and embeddings, and retain WAL across reopen.
+Keep the audit exhaustive and exemptions empty; verify the actual route alongside
+the package's existing pooled-connection and profile contracts.

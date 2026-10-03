@@ -6,6 +6,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -19,6 +22,30 @@ func (o *Orchestrator) RecordExecution(ctx context.Context, feedback *ExecutionF
 	if o == nil || feedback == nil || strings.TrimSpace(feedback.ToolName) == "" {
 		return
 	}
+	copyFeedback := *feedback
+	if copyFeedback.ExecutionID == "" {
+		copyFeedback.ExecutionID = fmt.Sprintf("legacy-%d", time.Now().UnixNano())
+	}
+	if copyFeedback.RequestFingerprint == "" {
+		copyFeedback.RequestFingerprint = copyFeedback.ExecutionID
+	}
+	if _, err := o.RecordExecutionDurable(ctx, &copyFeedback); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Execution feedback delivery failed: %v", err)
+	}
+}
+
+func (o *Orchestrator) RecordExecutionDurable(ctx context.Context, feedback *ExecutionFeedback) (ack types.GeneratedLearningAck, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("execution feedback panic: %v", recovered)
+		}
+	}()
+	if o == nil || feedback == nil || strings.TrimSpace(feedback.ToolName) == "" || o.learnings == nil {
+		return ack, fmt.Errorf("execution feedback store unavailable")
+	}
+	if feedback.ExecutionID == "" || feedback.RequestFingerprint == "" {
+		return ack, fmt.Errorf("feedback identity missing")
+	}
 
 	if feedback.Timestamp.IsZero() {
 		feedback.Timestamp = time.Now()
@@ -29,20 +56,18 @@ func (o *Orchestrator) RecordExecution(ctx context.Context, feedback *ExecutionF
 		feedback.Quality = o.evaluator.Evaluate(ctx, feedback)
 	}
 
-	// Record in pattern detector
-	if o.patterns != nil {
-		o.patterns.RecordExecution(*feedback)
-	}
-
 	// Get patterns for this tool
 	var patterns []*DetectedPattern
 	if o.patterns != nil {
 		patterns = o.patterns.GetToolPatterns(feedback.ToolName)
 	}
 
-	// Update learning store
-	if o.learnings != nil {
-		o.learnings.RecordLearning(feedback.ToolName, feedback, patterns)
+	ack, err = o.learnings.RecordLearningDurable(ctx, feedback.ToolName, feedback, patterns)
+	if err != nil {
+		return ack, err
+	}
+	if !ack.Replayed && o.patterns != nil {
+		o.patterns.RecordExecution(*feedback)
 	}
 
 	// Wire to kernel: Assert learning facts for logic-driven refinement
@@ -67,6 +92,7 @@ func (o *Orchestrator) RecordExecution(ctx context.Context, feedback *ExecutionF
 	// Keep the active generation loop hot with the latest learnings instead of
 	// waiting for the next explicit refresh call.
 	o.RefreshLearningsContext()
+	return ack, nil
 }
 
 // EvaluateToolQuality assesses the quality of a tool execution

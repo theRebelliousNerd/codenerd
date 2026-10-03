@@ -382,6 +382,16 @@ type sessionVirtualStoreAdapter struct {
 	vs *core.VirtualStore
 }
 
+var _ types.GeneratedToolExecutor = (*sessionVirtualStoreAdapter)(nil)
+
+func (a *sessionVirtualStoreAdapter) ExecuteGeneratedToolCall(ctx context.Context, request types.GeneratedToolRequest) (types.GeneratedToolReceipt, error) {
+	if a == nil || a.vs == nil {
+		receipt := types.GeneratedToolReceipt{Request: request, ExitCode: -1, BackendError: fmt.Errorf("generated VirtualStore disconnected")}
+		return receipt, &types.GeneratedExecutionError{Receipt: receipt}
+	}
+	return a.vs.ExecuteGeneratedToolCall(ctx, request)
+}
+
 // errSessionAdapterWrite is the refusal WriteFile returns.
 var errSessionAdapterWrite = errors.New("session VirtualStore adapter does not write files: route the write through the executive (/write_file) so policy, Dreamer preflight and validation apply")
 

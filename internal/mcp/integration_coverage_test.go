@@ -43,6 +43,7 @@ func TestIntegrationAdapter_CallTool_WhenSuccess_ShouldReturnOutput(t *testing.T
 		},
 	}
 
+	installRemoteAuthorityFixture(t, mgr, map[string]RemoteEffect{"srv/tool1": RemoteRead})
 	adapter := NewIntegrationAdapter(mgr, "srv")
 	result, err := adapter.CallTool(context.Background(), "tool1", nil)
 	if err != nil {
@@ -65,6 +66,7 @@ func TestIntegrationAdapter_CallTool_WhenTransportError_ShouldError(t *testing.T
 		Transport: &mockTransport{connected: true, callErr: fmt.Errorf("transport broken")},
 	}
 
+	installRemoteAuthorityFixture(t, mgr, map[string]RemoteEffect{"srv/tool1": RemoteRead})
 	adapter := NewIntegrationAdapter(mgr, "srv")
 	_, err := adapter.CallTool(context.Background(), "tool1", nil)
 	if err == nil {
@@ -93,6 +95,7 @@ func TestIntegrationAdapter_CallTool_WhenNilResult_ShouldError(t *testing.T) {
 		connected:  true,
 		callResult: &MCPCallResult{Success: false, Error: "permission denied"},
 	}
+	installRemoteAuthorityFixture(t, mgr, map[string]RemoteEffect{"srv/tool1": RemoteRead})
 	_, err := adapter.CallTool(context.Background(), "tool1", nil)
 	if err == nil {
 		t.Fatal("expected error for failed result")

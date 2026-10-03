@@ -2,7 +2,11 @@ package core
 
 import (
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,22 +25,96 @@ import (
 
 // Tool represents a registered tool with metadata
 type Tool struct {
-	Name          string    `json:"name"`
-	Command       string    `json:"command"`        // Path to binary or command to execute
-	ShardAffinity string    `json:"shard_affinity"` // /coder, /tester, /reviewer, /researcher, /generalist, /all
-	Description   string    `json:"description"`
-	Capabilities  []string  `json:"capabilities"`
-	Hash          string    `json:"hash"` // Binary hash for change detection
-	RegisteredAt  time.Time `json:"registered_at"`
-	ExecuteCount  int64     `json:"execute_count"`
+	Name          string                      `json:"name"`
+	Command       string                      `json:"command"`        // Path to binary or command to execute
+	ShardAffinity string                      `json:"shard_affinity"` // /coder, /tester, /reviewer, /researcher, /generalist, /all
+	Description   string                      `json:"description"`
+	Capabilities  []string                    `json:"capabilities"`
+	Hash          string                      `json:"hash"` // Binary hash for change detection
+	RegisteredAt  time.Time                   `json:"registered_at"`
+	ExecuteCount  int64                       `json:"execute_count"`
+	Protocol      types.GeneratedToolProtocol `json:"protocol,omitempty"`
+	AttemptCount  int64                       `json:"attempt_count"`
+	StartedCount  int64                       `json:"started_count"`
+	SuccessCount  int64                       `json:"success_count"`
 }
 
 // ToolRegistry manages registered tools and their integration with the kernel
 type ToolRegistry struct {
-	mu      sync.RWMutex
-	tools   map[string]*Tool
-	kernel  Kernel
-	workDir string
+	mu         sync.RWMutex
+	tools      map[string]*Tool
+	kernel     Kernel
+	workDir    string
+	identities map[string]types.GeneratedToolIdentity
+}
+
+func pinRegisteredBinary(tool *Tool) error {
+	path, err := exec.LookPath(tool.Command)
+	if err != nil {
+		return err
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(data)
+	hash := hex.EncodeToString(digest[:])
+	if tool.Hash != "" && tool.Hash != hash {
+		return fmt.Errorf("registered binary hash mismatch")
+	}
+	tool.Command, tool.Hash = path, hash
+	return nil
+}
+
+func (tr *ToolRegistry) GeneratedToolIdentity(name string) (types.GeneratedToolIdentity, error) {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	tool, exists := tr.tools[name]
+	if !exists {
+		return types.GeneratedToolIdentity{}, fmt.Errorf("tool not registered: %s", name)
+	}
+	identity, pinned := tr.identities[name]
+	if !pinned || identity.Name != tool.Name || identity.BinaryPath != tool.Command || identity.BinaryHash != tool.Hash || identity.Protocol != tool.Protocol {
+		return identity, fmt.Errorf("registered tool identity changed or was never pinned")
+	}
+	if identity.Protocol != types.GeneratedStdinV1 && identity.Protocol != types.LegacyArgvV1 {
+		return identity, fmt.Errorf("unknown host protocol for %s", name)
+	}
+	if identity.BinaryHash == "" || !filepath.IsAbs(identity.BinaryPath) {
+		return identity, fmt.Errorf("missing pinned binary for %s", name)
+	}
+	return identity, nil
+}
+
+func (tr *ToolRegistry) rememberIdentity(tool *Tool) {
+	if tr.identities == nil {
+		tr.identities = make(map[string]types.GeneratedToolIdentity)
+	}
+	tr.identities[tool.Name] = types.GeneratedToolIdentity{Name: tool.Name, BinaryPath: tool.Command,
+		BinaryHash: tool.Hash, Protocol: tool.Protocol, Workspace: tr.workDir}
+}
+
+func (tr *ToolRegistry) recordGeneratedReceipt(receipt types.GeneratedToolReceipt) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	tool := tr.tools[receipt.Request.Tool.Name]
+	if tool == nil || receipt.Replayed {
+		return
+	}
+	if receipt.Attempted {
+		tool.AttemptCount++
+	}
+	if receipt.ProcessStarted {
+		tool.StartedCount++
+		tool.ExecuteCount++
+	}
+	if receipt.ProcessStarted && receipt.BackendError == nil && receipt.ValidationPassed {
+		tool.SuccessCount++
+	}
 }
 
 // NewToolRegistry creates a new tool registry
@@ -89,9 +167,14 @@ func (tr *ToolRegistry) RegisterTool(name, command, shardAffinity string) error 
 		Command:       command,
 		ShardAffinity: shardAffinity,
 		RegisteredAt:  time.Now(),
+		Protocol:      types.LegacyArgvV1,
 	}
+	// Preserve legacy catalogue registration for command names that are not
+	// installed yet. The typed execution route requires a resolved digest.
+	_ = pinRegisteredBinary(tool)
 
 	tr.tools[name] = tool
+	tr.rememberIdentity(tool)
 
 	// Inject facts into kernel (single tool, immediate evaluate)
 	if err := tr.injectToolFacts(tool); err != nil {
@@ -108,7 +191,7 @@ func (tr *ToolRegistry) RegisterToolWithInfo(tool *Tool) error {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 
-	if tool.Name == "" {
+	if tool == nil || tool.Name == "" {
 		return fmt.Errorf("tool name cannot be empty")
 	}
 
@@ -116,10 +199,18 @@ func (tr *ToolRegistry) RegisterToolWithInfo(tool *Tool) error {
 		tool.RegisteredAt = time.Now()
 	}
 
-	tr.tools[tool.Name] = tool
+	copyTool := *tool
+	copyTool.Capabilities = append([]string(nil), tool.Capabilities...)
+	if copyTool.Protocol != "" {
+		if err := pinRegisteredBinary(&copyTool); err != nil {
+			return err
+		}
+	}
+	tr.tools[tool.Name] = &copyTool
+	tr.rememberIdentity(&copyTool)
 
 	// Inject facts into kernel
-	return tr.injectToolFacts(tool)
+	return tr.injectToolFacts(&copyTool)
 }
 
 // GetTool retrieves a registered tool by name
@@ -138,7 +229,9 @@ func (tr *ToolRegistry) GetToolsForShard(shardType string) []*Tool {
 	tools := make([]*Tool, 0)
 	for _, tool := range tr.tools {
 		if tool.ShardAffinity == "/all" || tool.ShardAffinity == shardType {
-			tools = append(tools, tool)
+			copyTool := *tool
+			copyTool.Capabilities = append([]string(nil), tool.Capabilities...)
+			tools = append(tools, &copyTool)
 		}
 	}
 	return tools
@@ -151,7 +244,9 @@ func (tr *ToolRegistry) ListTools() []*Tool {
 
 	tools := make([]*Tool, 0, len(tr.tools))
 	for _, tool := range tr.tools {
-		tools = append(tools, tool)
+		copyTool := *tool
+		copyTool.Capabilities = append([]string(nil), tool.Capabilities...)
+		tools = append(tools, &copyTool)
 	}
 	return tools
 }
@@ -220,6 +315,7 @@ func (tr *ToolRegistry) UnregisterTool(name string) error {
 	}
 
 	delete(tr.tools, name)
+	delete(tr.identities, name)
 
 	// Retract only facts for this specific tool (not all tool facts)
 	if tr.kernel != nil {
@@ -321,6 +417,12 @@ func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
 			RegisteredAt:  toolInfo.RegisteredAt,
 			ExecuteCount:  toolInfo.ExecuteCount,
 		}
+		if identities, ok := toolExecutor.(types.GeneratedIdentityProvider); ok {
+			if identity, err := identities.GeneratedToolIdentity(toolInfo.Name); err == nil &&
+				identity.BinaryPath == toolInfo.BinaryPath && identity.BinaryHash == toolInfo.Hash {
+				tool.Protocol = identity.Protocol
+			}
+		}
 
 		if tool.Name == "" {
 			continue
@@ -328,8 +430,15 @@ func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
 		if tool.RegisteredAt.IsZero() {
 			tool.RegisteredAt = time.Now()
 		}
+		if previous := tr.tools[tool.Name]; previous != nil && previous.Command == tool.Command && previous.Hash == tool.Hash && previous.Protocol == tool.Protocol {
+			tool.AttemptCount, tool.StartedCount, tool.SuccessCount = previous.AttemptCount, previous.StartedCount, previous.SuccessCount
+			if previous.ExecuteCount > tool.ExecuteCount {
+				tool.ExecuteCount = previous.ExecuteCount
+			}
+		}
 
 		tr.tools[tool.Name] = tool
+		tr.rememberIdentity(tool)
 		allFacts = append(allFacts, collectToolFacts(tool)...)
 		syncedCount++
 	}
@@ -371,6 +480,9 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 		if entry.IsDir() {
 			continue
 		}
+		if strings.HasSuffix(entry.Name(), ".identity.json") {
+			continue
+		}
 
 		name := entry.Name()
 		if ext := filepath.Ext(name); ext == ".exe" {
@@ -386,8 +498,15 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 			Description:   "Restored from disk",
 			RegisteredAt:  now,
 		}
+		if data, err := os.ReadFile(binaryPath + ".identity.json"); err == nil {
+			var identity types.GeneratedToolIdentity
+			if json.Unmarshal(data, &identity) == nil && identity.Name == name && identity.BinaryPath == binaryPath {
+				tool.Protocol, tool.Hash = identity.Protocol, identity.BinaryHash
+			}
+		}
 
 		tr.tools[tool.Name] = tool
+		tr.rememberIdentity(tool)
 		allFacts = append(allFacts, collectToolFacts(tool)...)
 		restoredCount++
 	}
@@ -442,13 +561,17 @@ func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
 			Description:   def.Description,
 			Capabilities:  []string{def.Category},
 			RegisteredAt:  now,
+			Protocol:      types.LegacyArgvV1,
 		}
+		// Unresolvable static definitions remain visible but cannot be admitted.
+		_ = pinRegisteredBinary(tool)
 
 		if tool.Name == "" {
 			continue
 		}
 
 		tr.tools[tool.Name] = tool
+		tr.rememberIdentity(tool)
 		allFacts = append(allFacts, collectToolFacts(tool)...)
 		restoredCount++
 	}

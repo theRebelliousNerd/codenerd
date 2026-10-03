@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -30,12 +31,13 @@ type FactEmitter struct {
 	mu      sync.Mutex
 	kernel  KernelInterface
 	emitted map[string][]string
+	failure error
 }
 
 // NewFactEmitter returns an emitter bound to kernel. A nil kernel yields a nil
 // emitter; every method is nil-safe so callers need no branch.
 func NewFactEmitter(kernel KernelInterface) *FactEmitter {
-	if kernel == nil {
+	if nilKernel(kernel) {
 		return nil
 	}
 	return &FactEmitter{
@@ -44,7 +46,16 @@ func NewFactEmitter(kernel KernelInterface) *FactEmitter {
 	}
 }
 
-func serverKey(serverID string) string       { return "server:" + serverID }
+func serverKey(serverID string) string { return "server:" + serverID }
+
+func (e *FactEmitter) Error() error {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.failure
+}
 func serverStatusKey(serverID string) string { return "server_status:" + serverID }
 func toolKey(toolID string) string           { return "tool:" + toolID }
 func toolUsageKey(toolID string) string      { return "tool_usage:" + toolID }
@@ -71,7 +82,8 @@ func (e *FactEmitter) replaceLocked(key string, facts []string) {
 
 	for _, old := range e.emitted[key] {
 		if err := e.kernel.Retract(old); err != nil {
-			logging.Get(logging.CategoryTools).Debug("MCP fact retract failed (%s): %v", old, err)
+			e.failure = errors.Join(e.failure, fmt.Errorf("MCP fact retract failed (%s): %w", old, err))
+			logging.Get(logging.CategoryTools).Error("MCP fact retract failed (%s): %v", old, err)
 		}
 	}
 	delete(e.emitted, key)
@@ -82,6 +94,7 @@ func (e *FactEmitter) replaceLocked(key string, facts []string) {
 	asserted := make([]string, 0, len(facts))
 	for _, f := range facts {
 		if err := e.kernel.Assert(f); err != nil {
+			e.failure = errors.Join(e.failure, fmt.Errorf("MCP fact assert failed (%s): %w", f, err))
 			logging.Get(logging.CategoryTools).Warn("MCP fact assert failed (%s): %v", f, err)
 			continue
 		}
@@ -112,7 +125,7 @@ func (e *FactEmitter) EmitServerStatus(serverID string, status ServerStatus) {
 		status = ServerStatusUnknown
 	}
 	e.replace(serverStatusKey(serverID), []string{
-		fmt.Sprintf("mcp_server_status(%s, %s)", mangleString(serverID), mangleAtom(string(status))),
+		fmt.Sprintf("mcp_server_status(%s, %s)", exactMangleString(serverID), mangleAtom(string(status))),
 	})
 }
 
@@ -159,14 +172,16 @@ func (e *FactEmitter) EmitResources(serverID string, resources []MCPResource) {
 			continue
 		}
 		facts = append(facts, fmt.Sprintf("mcp_resource_registered(%s, %s)",
-			mangleString(serverID), mangleString(r.URI)))
+			exactMangleString(serverID), exactMangleString(r.URI)))
+		subject := ResourceAuthorityTool(serverID, r)
+		facts = append(facts, fmt.Sprintf("mcp_remote_resource(%s, %s, %s, %s)", exactMangleString(serverID), exactMangleString(subject.ToolID), exactMangleString(r.URI), exactMangleString(subject.SchemaHash)))
 		if mime := strings.TrimSpace(r.MimeType); mime != "" {
 			facts = append(facts, fmt.Sprintf("mcp_resource_mime(%s, %s)",
-				mangleString(r.URI), mangleString(mime)))
+				exactMangleString(r.URI), mangleString(mime)))
 		}
 		if name := strings.TrimSpace(r.Name); name != "" {
 			facts = append(facts, fmt.Sprintf("mcp_resource_name(%s, %s)",
-				mangleString(r.URI), mangleString(name)))
+				exactMangleString(r.URI), mangleString(name)))
 		}
 	}
 	e.replace("resources:"+serverID, facts)
@@ -179,12 +194,14 @@ func (e *FactEmitter) EmitPrompts(serverID string, prompts []MCPPrompt) {
 	}
 	facts := make([]string, 0, len(prompts)*2)
 	for _, p := range prompts {
-		name := strings.TrimSpace(p.Name)
-		if name == "" {
+		name := p.Name
+		if strings.TrimSpace(name) == "" {
 			continue
 		}
 		facts = append(facts, fmt.Sprintf("mcp_prompt_registered(%s, %s)",
-			mangleString(serverID), mangleString(name)))
+			exactMangleString(serverID), exactMangleString(name)))
+		subject := PromptAuthorityTool(serverID, p)
+		facts = append(facts, fmt.Sprintf("mcp_remote_prompt(%s, %s, %s, %s)", exactMangleString(serverID), exactMangleString(subject.ToolID), exactMangleString(name), exactMangleString(subject.SchemaHash)))
 		for _, arg := range p.Arguments {
 			argName := strings.TrimSpace(arg.Name)
 			if argName == "" {
@@ -195,7 +212,7 @@ func (e *FactEmitter) EmitPrompts(serverID string, prompts []MCPPrompt) {
 				required = "/true"
 			}
 			facts = append(facts, fmt.Sprintf("mcp_prompt_argument(%s, %s, %s)",
-				mangleString(name), mangleString(argName), required))
+				exactMangleString(name), exactMangleString(argName), required))
 		}
 	}
 	e.replace("prompts:"+serverID, facts)
@@ -214,7 +231,7 @@ func (e *FactEmitter) EmitHandle(handle, toolID string, bytes int) {
 	}
 	e.replace("handle:"+handle, []string{
 		fmt.Sprintf("mcp_result_handle(%s, %s, %d)",
-			mangleString(handle), mangleString(toolID), bytes),
+			exactMangleString(handle), exactMangleString(toolID), bytes),
 	})
 }
 
@@ -321,15 +338,15 @@ func serverFacts(server *MCPServer) []string {
 
 	facts := []string{
 		fmt.Sprintf("mcp_server_registered(%s, %s, %s, %d)",
-			mangleString(server.ID), mangleString(endpoint), mangleAtom(protocol), registeredAt.Unix()),
+			exactMangleString(server.ID), exactMangleString(endpoint), mangleAtom(protocol), registeredAt.Unix()),
 	}
 	if name := strings.TrimSpace(server.Name); name != "" {
 		facts = append(facts, fmt.Sprintf("mcp_server_name(%s, %s)",
-			mangleString(server.ID), mangleString(name)))
+			exactMangleString(server.ID), mangleString(name)))
 	}
 	for _, capability := range dedupe(server.Capabilities) {
 		facts = append(facts, fmt.Sprintf("mcp_server_capabilities(%s, %s)",
-			mangleString(server.ID), mangleAtom(capability)))
+			exactMangleString(server.ID), mangleAtom(capability)))
 	}
 	return facts
 }
@@ -343,31 +360,31 @@ func toolFacts(tool *MCPTool) []string {
 
 	facts := []string{
 		fmt.Sprintf("mcp_tool_registered(%s, %s, %d)",
-			mangleString(tool.ToolID), mangleString(tool.ServerID), registeredAt.Unix()),
+			exactMangleString(tool.ToolID), exactMangleString(tool.ServerID), registeredAt.Unix()),
 	}
-	if name := strings.TrimSpace(tool.Name); name != "" {
+	if name := tool.Name; strings.TrimSpace(name) != "" {
 		facts = append(facts, fmt.Sprintf("mcp_tool_name(%s, %s)",
-			mangleString(tool.ToolID), mangleString(name)))
+			exactMangleString(tool.ToolID), exactMangleString(name)))
 	}
 	if desc := strings.TrimSpace(tool.Description); desc != "" {
 		facts = append(facts, fmt.Sprintf("mcp_tool_description(%s, %s)",
-			mangleString(tool.ToolID), mangleString(desc)))
+			exactMangleString(tool.ToolID), mangleString(desc)))
 	}
 	if condensed := strings.TrimSpace(tool.Condensed); condensed != "" {
 		facts = append(facts, fmt.Sprintf("mcp_tool_condensed(%s, %s)",
-			mangleString(tool.ToolID), mangleString(condensed)))
+			exactMangleString(tool.ToolID), mangleString(condensed)))
 	}
 	for _, capability := range dedupe(tool.Capabilities) {
 		facts = append(facts, fmt.Sprintf("mcp_tool_capability(%s, %s)",
-			mangleString(tool.ToolID), mangleAtom(capability)))
+			exactMangleString(tool.ToolID), mangleAtom(capability)))
 	}
 	for _, category := range dedupe(tool.Categories) {
 		facts = append(facts, fmt.Sprintf("mcp_tool_category(%s, %s)",
-			mangleString(tool.ToolID), mangleAtom(category)))
+			exactMangleString(tool.ToolID), mangleAtom(category)))
 	}
 	if domain := strings.TrimSpace(tool.Domain); domain != "" {
 		facts = append(facts, fmt.Sprintf("mcp_tool_domain(%s, %s)",
-			mangleString(tool.ToolID), mangleAtom(domain)))
+			exactMangleString(tool.ToolID), mangleAtom(domain)))
 	}
 
 	shards := make([]string, 0, len(tool.ShardAffinities))
@@ -377,7 +394,7 @@ func toolFacts(tool *MCPTool) []string {
 	sort.Strings(shards)
 	for _, shard := range shards {
 		facts = append(facts, fmt.Sprintf("mcp_tool_shard_affinity(%s, %s, %d)",
-			mangleString(tool.ToolID), mangleAtom(shard), tool.ShardAffinities[shard]))
+			exactMangleString(tool.ToolID), mangleAtom(shard), tool.ShardAffinities[shard]))
 	}
 
 	// Control-plane classification. These are emitted unconditionally when
@@ -386,11 +403,14 @@ func toolFacts(tool *MCPTool) []string {
 	// tool missing them is a tool the executive cannot reason about at all.
 	if tool.Facet.Valid() {
 		facts = append(facts, fmt.Sprintf("mcp_tool_facet(%s, %s)",
-			mangleString(tool.ToolID), tool.Facet.Atom()))
+			exactMangleString(tool.ToolID), tool.Facet.Atom()))
 	}
 	if tool.Risk.Valid() {
 		facts = append(facts, fmt.Sprintf("mcp_tool_risk(%s, %s)",
-			mangleString(tool.ToolID), tool.Risk.Atom()))
+			exactMangleString(tool.ToolID), tool.Risk.Atom()))
+	}
+	if tool.SchemaHash != "" {
+		facts = append(facts, fmt.Sprintf("mcp_tool_schema_hash(%s, %s)", exactMangleString(tool.ToolID), exactMangleString(tool.SchemaHash)))
 	}
 	// The provenance of a risk class changes how much weight policy should give
 	// it: a server that declared itself read-only is evidence, a name-prefix
@@ -398,11 +418,11 @@ func toolFacts(tool *MCPTool) []string {
 	// a guess should be able to say so.
 	if tool.RiskSource != "" {
 		facts = append(facts, fmt.Sprintf("mcp_tool_risk_source(%s, %s)",
-			mangleString(tool.ToolID), mangleAtom(string(tool.RiskSource))))
+			exactMangleString(tool.ToolID), mangleAtom(string(tool.RiskSource))))
 	}
 
 	if !tool.AnalyzedAt.IsZero() {
-		facts = append(facts, fmt.Sprintf("mcp_tool_analyzed(%s)", mangleString(tool.ToolID)))
+		facts = append(facts, fmt.Sprintf("mcp_tool_analyzed(%s)", exactMangleString(tool.ToolID)))
 	}
 	return facts
 }
@@ -416,15 +436,15 @@ func toolUsageFacts(tool *MCPTool) []string {
 	}
 	facts := []string{
 		fmt.Sprintf("mcp_tool_usage(%s, %d, %d)",
-			mangleString(tool.ToolID), tool.UsageCount, tool.SuccessCount),
+			exactMangleString(tool.ToolID), tool.UsageCount, tool.SuccessCount),
 	}
 	if !tool.LastUsed.IsZero() {
 		facts = append(facts, fmt.Sprintf("mcp_tool_last_used(%s, %d)",
-			mangleString(tool.ToolID), tool.LastUsed.Unix()))
+			exactMangleString(tool.ToolID), tool.LastUsed.Unix()))
 	}
 	if tool.AvgLatencyMs > 0 {
 		facts = append(facts, fmt.Sprintf("mcp_tool_avg_latency(%s, %d)",
-			mangleString(tool.ToolID), tool.AvgLatencyMs))
+			exactMangleString(tool.ToolID), tool.AvgLatencyMs))
 	}
 	return facts
 }

@@ -109,6 +109,33 @@ below with what the code does today.
 
 **PROPOSED UPLIFT — GAP-CORE-PYTEST-ARGV:** the governed Python action route must preserve literal selectors and true subprocess verdicts through `internal/core/virtual_store_python.go#VirtualStore.handlePythonRunPytest` (`internal/core/virtual_store_python.go:285`) and the existing real-kernel route witness `internal/core/virtual_store_python_test.go#routeSWEBench` (`internal/core/virtual_store_python_test.go:217`). The test-only runtime `internal/core/fake_container_runtime_test.go#fakeContainerRuntime.ExecInContainer` at line 110 currently recognizes only the former shell invocation; root tests in artifact:.corpus-build/runs/all-features-20261002/wave1-python-wiring.log demonstrate that this mismatch fabricates passing results after the typed driver repair. Update the test double to recognize the literal invocation and capture argument boundaries, preserving the existing false-result and bad-instance non-resolution assertions. Add a governed real-kernel selector witness in planned:internal/core/virtual_store_python_argv_test.go. Do not change production authorization or widen permissions. Test-double parity and a route receipt do not replace a live-container negative sentinel and selected-test gate.
 
+## Required generated-tool executive route
+
+**GAP-CORE-GENERATED-EXECUTION:** session-generated calls must pass through a
+typed VirtualStore route retaining the existing pending authorization tuple until
+execution finishes. Preserve named action, target, canonical arguments, CallID,
+and AuthorizationID; do not translate them to `/exec_tool` or issue a second
+`next_action`. Verify registered host identity and protocol before dispatch.
+Absent bridge, unknown protocol, conflicting duplicate identity, and payload
+mutation refuse before an effect. Identical live duplicates share one outcome.
+
+The route dispatches through the factory adapter, runs the real interactive
+result validator, and returns a typed receipt including process start, partial
+output, backend/validation errors, and durable learning acknowledgment. It must
+not fabricate host acceptance or widen permissions to make generated names fit.
+Acceptance couples real boot/Process, a literal effect, reopened learning data,
+exact authorization controls, no-double-route controls, and cancellation/drain.
+
+## First-read snapshot fidelity
+
+**GAP-CORE-CLONE-FIRST-SNAPSHOT:** a clone of an already evaluated parent must
+materialize its fresh fact store before its first read, even when no new fact
+has been asserted. Copying the parent's clean dirty flag into an empty store
+cannot establish snapshot fidelity. QueryAll and ordinary reads must preserve
+the parent's declared and derived evidence while subsequent private mutations
+remain isolated. Acceptance starts with a clean parent and reads the clone
+before any assertion; the production prompt adapter exercises the same path.
+
 ## Historical closure table
 
 | Item (2026-09-21 wording) | Verdict | Evidence |

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	nerdconfig "codenerd/internal/config"
@@ -2354,6 +2355,53 @@ const toolTimeoutGrace = 30 * time.Second
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (string, error) {
 	executorCfg := e.configSnapshot()
+	e.mu.RLock()
+	generatedRegistry := e.ouroborosRegistry
+	e.mu.RUnlock()
+	generated := false
+	if generatedRegistry != nil && !tools.Global().Has(call.Name) {
+		_, generated = generatedRegistry.GetTool(call.Name)
+	}
+	canonicalArgs := ""
+	var generatedRequest types.GeneratedToolRequest
+	var generatedBridge types.GeneratedToolExecutor
+	if generated {
+		bridge, ok := e.virtualStore.(types.GeneratedToolExecutor)
+		if !ok || bridge == nil {
+			return "", fmt.Errorf("mandatory generated execution bridge disconnected")
+		}
+		generatedBridge = bridge
+		var err error
+		canonicalArgs, err = types.CanonicalGeneratedArgs(call.Args)
+		if err != nil {
+			return "", fmt.Errorf("canonical generated args: %w", err)
+		}
+		// Freeze a private copy before guards or authorization can observe it.
+		generatedRequest.CanonicalArgs = canonicalArgs
+		call.Args, err = generatedRequest.Args()
+		if err != nil {
+			return "", err
+		}
+		identity, err := generatedRegistry.GeneratedToolIdentity(call.Name)
+		if err != nil {
+			return "", err
+		}
+		scope := types.GeneratedCallScope(ctx)
+		if scope == "" {
+			scope = e.generatedScope()
+		}
+		generatedRequest = types.GeneratedToolRequest{ScopeID: scope, CallID: call.ID, AuthorizationID: "exec-" + call.ID,
+			Action: types.MangleAtom("/" + strings.TrimPrefix(call.Name, "/")), Target: e.extractTarget(call.Args), CanonicalArgs: canonicalArgs, Tool: identity}
+		if err := generatedRequest.Validate(); err != nil {
+			return "", err
+		}
+	}
+	var releaseAuthorization func()
+	defer func() {
+		if releaseAuthorization != nil {
+			releaseAuthorization()
+		}
+	}()
 	// The effective JIT allowlist is authoritative for every execution backend.
 	// Registry membership only proves that a handler exists; it does not grant
 	// the current agent the capability to invoke that handler.
@@ -2374,8 +2422,12 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	}
 
 	// Safety check via Constitutional Gate
-	if executorCfg.EnableSafetyGate {
-		if ok, reason := e.checkSafetyWithGate(call, true); !ok {
+	if executorCfg.EnableSafetyGate || generated {
+		var lease *func()
+		if generated {
+			lease = &releaseAuthorization
+		}
+		if ok, reason := e.checkSafetyWithLease(call, true, canonicalArgs, lease); !ok {
 			// DENY PATH ONLY: ask the kernel whether this action atom
 			// requires explicit human permission. Hot path (allowed) is
 			// unaffected.
@@ -2496,7 +2548,10 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	if effectErr != nil {
 		return "", effectErr
 	}
-	if gate, ok := e.interactiveGate(); ok {
+	if generated {
+		// VirtualStore owns generated preflight, validation and feedback around
+		// its single backend admission; no second action router is involved.
+	} else if gate, ok := e.interactiveGate(); ok {
 		if blockErr := gate.PreflightDestructiveToolCall(ctx, call.ID, call.Name, call.Args); blockErr != nil {
 			logging.Get(logging.CategorySession).Warn("Interactive executive gate BLOCKED tool %s: %v", call.Name, blockErr)
 			return "", fmt.Errorf("tool call blocked by executive gate: %w", blockErr)
@@ -2588,18 +2643,22 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 
 	if ouroborosReg != nil {
 		if _, exists := ouroborosReg.GetTool(call.Name); exists {
-			logging.Session("Executing Ouroboros tool: %s with %d args", call.Name, len(call.Args))
-			// Convert args map to JSON string for binary execution
-			argsJSON, err := json.Marshal(call.Args)
-			if err != nil {
-				return "", fmt.Errorf("failed to marshal Ouroboros tool args: %w", err)
+			if generatedBridge == nil {
+				return "", fmt.Errorf("generated bridge unavailable; raw execution refused")
 			}
-			result, err := ouroborosReg.ExecuteRegisteredTool(toolCtx, call.Name, []string{string(argsJSON)})
+			receipt, err := generatedBridge.ExecuteGeneratedToolCall(toolCtx, generatedRequest)
 			if err != nil {
-				return "", fmt.Errorf("Ouroboros tool execution failed: %w", err)
+				return receipt.Output, err
+			}
+			if receipt.Err() != nil {
+				return receipt.Output, &types.GeneratedExecutionError{Receipt: receipt}
+			}
+			if receipt.Request != generatedRequest || !receipt.ProcessStarted || !receipt.ValidationCompleted || !receipt.ValidationPassed || !receipt.Feedback.Durable ||
+				receipt.Feedback.ExecutionID != generatedRequest.Key() || receipt.Feedback.Fingerprint != generatedRequest.Fingerprint() || receipt.Feedback.Path == "" || receipt.Feedback.CommittedAt.IsZero() {
+				return receipt.Output, fmt.Errorf("generated execution returned incomplete validation or durable feedback receipt")
 			}
 			e.recordGoFileCreations(preGoExistence, canonicalToPhys)
-			return result, nil
+			return receipt.Output, nil
 		}
 	}
 
@@ -2653,6 +2712,51 @@ func (e *Executor) assertSecurityViolation(actionAtom types.MangleAtom, reason s
 const MaxActionPayloadBytes = 100 * 1024 // 100 KB
 
 func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (bool, string) {
+	return e.checkSafetyWithLease(call, safetyGateEnabled, "", nil)
+}
+
+func (e *Executor) checkSafetyWithLease(call ToolCall, safetyGateEnabled bool, canonicalPayload string, lease *func()) (allowed bool, reason string) {
+	if lease != nil {
+		e.generatedAuthorizationMu.Lock()
+		defer e.generatedAuthorizationMu.Unlock()
+	}
+	var cleanup []func()
+	release := func() {
+		for index := len(cleanup) - 1; index >= 0; index-- {
+			cleanup[index]()
+		}
+	}
+	var authorizationIdentity string
+	defer func() {
+		if allowed && lease != nil {
+			if e.generatedAuthorizations == nil {
+				e.generatedAuthorizations = make(map[string]*generatedAuthorizationLease)
+			}
+			shared := e.generatedAuthorizations[call.ID]
+			if shared == nil {
+				shared = &generatedAuthorizationLease{identity: authorizationIdentity}
+				e.generatedAuthorizations[call.ID] = shared
+			}
+			shared.references++
+			shared.cleanup = append(shared.cleanup, cleanup...)
+			var once sync.Once
+			*lease = func() {
+				once.Do(func() {
+					e.generatedAuthorizationMu.Lock()
+					defer e.generatedAuthorizationMu.Unlock()
+					shared.references--
+					if shared.references == 0 {
+						delete(e.generatedAuthorizations, call.ID)
+						for index := len(shared.cleanup) - 1; index >= 0; index-- {
+							shared.cleanup[index]()
+						}
+					}
+				})
+			}
+		} else {
+			release()
+		}
+	}()
 	// Categorically reject empty tool names — they would assert "/" as the
 	// action atom, which is meaningless and bypasses meaningful policy match.
 	if strings.TrimSpace(call.Name) == "" {
@@ -2698,7 +2802,11 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 
 	// Extract target and serialize payload
 	target := e.extractTarget(call.Args)
-	payloadBytes, err := json.Marshal(call.Args)
+	payloadBytes := []byte(canonicalPayload)
+	var err error
+	if canonicalPayload == "" {
+		payloadBytes, err = json.Marshal(call.Args)
+	}
 	if err != nil {
 		logging.Get(logging.CategorySession).Error("Safety check failed: cannot marshal args: %v", err)
 		e.assertSecurityViolation(actionAtom, "cannot marshal args")
@@ -2715,6 +2823,17 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 		return false, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), MaxActionPayloadBytes)
 	}
 	payload := string(payloadBytes)
+	if lease != nil {
+		authorizationIdentity = actionName + "\x00" + target + "\x00" + payload
+		if shared := e.generatedAuthorizations[call.ID]; shared != nil {
+			if shared.identity != authorizationIdentity {
+				return false, "conflicting live generated authorization identity"
+			}
+			// VirtualStore still checks the current exact permitted tuple before
+			// admitting this duplicate to the factory's retained live result.
+			return true, ""
+		}
+	}
 	timestamp := time.Now().Unix()
 
 	// 2. Assert pending_action
@@ -2737,11 +2856,11 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 	}
 
 	// Ensure cleanup of pending_action
-	defer func() {
+	cleanup = append(cleanup, func() {
 		if err := e.kernel.RetractFact(pendingFact); err != nil {
 			logging.Get(logging.CategorySession).Warn("Failed to retract pending_action: %v", err)
 		}
-	}()
+	})
 
 	// 2b. A delete git can undo is not the irreversible act the permission
 	// gate guards, so the constitution is told when that is the case and can
@@ -2752,11 +2871,11 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 		if err := e.kernel.Assert(recoverable); err != nil {
 			logging.Get(logging.CategorySession).Warn("Failed to assert file_recoverable: %v", err)
 		} else {
-			defer func() {
+			cleanup = append(cleanup, func() {
 				if err := e.kernel.RetractFact(recoverable); err != nil {
 					logging.Get(logging.CategorySession).Warn("Failed to retract file_recoverable: %v", err)
 				}
-			}()
+			})
 		}
 	}
 
@@ -2771,11 +2890,11 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 			e.assertSecurityViolation(actionAtom, "failed to assert the secret-path measurement")
 			return false, "failed to assert the secret-path measurement"
 		}
-		defer func() {
+		cleanup = append(cleanup, func() {
 			if err := e.kernel.RetractFact(secret); err != nil {
 				logging.Get(logging.CategorySession).Warn("Failed to retract %s: %v", secretPathPredicate, err)
 			}
-		}()
+		})
 	}
 
 	// 3. Query permitted(Action, Target, Payload) using the kernel's grounded
@@ -2831,7 +2950,7 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 	}
 
 	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
-	reason := fmt.Sprintf("action not permitted: target=%s", target)
+	reason = fmt.Sprintf("action not permitted: target=%s", target)
 	if touchesSecret {
 		// Say why, so the model does not try the same content another way.
 		reason = fmt.Sprintf("action not permitted: %s is a secret file (execution.secret_paths); no tool may read, write, copy or search its contents", target)

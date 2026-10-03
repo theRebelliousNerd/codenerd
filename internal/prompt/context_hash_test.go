@@ -9,6 +9,20 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestCompilationContext_DynamicSnapshotHash(test *testing.T) {
+	base := NewCompilationContext()
+	first := base.Clone()
+	first.kernelSnapshotFingerprint = "snapshot-A"
+	second := base.Clone()
+	second.kernelSnapshotFingerprint = "snapshot-B"
+	if first.Hash() == second.Hash() || first.Hash() == base.Hash() {
+		test.Fatal("dynamic snapshot content did not distinguish cache identity")
+	}
+	if first.Clone().Hash() != first.Hash() || base.kernelSnapshotFingerprint != "" {
+		test.Fatal("snapshot identity was lost by cloning or mutated caller state")
+	}
+}
+
 func TestCompilationContext_Hash(t *testing.T) {
 	t.Run("nil context returns nil string", func(t *testing.T) {
 		var cc *CompilationContext

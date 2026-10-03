@@ -78,3 +78,19 @@ user input → perception → user_intent (types.StructuredIntent)
 ```
 
 `types` owns the **shapes and interfaces** of that flow; it does not execute them.
+
+## Required generated-tool execution contract
+
+The generated-tool route requires a typed request and receipt shared by session,
+VirtualStore, and factory execution. The request retains CallID, the existing
+AuthorizationID, named action, exact target, once-canonicalized arguments, and
+host-resolved registered binary/hash and protocol identity. Backend routing must
+not rewrite the authorization tuple. Conflicting identities or mutated arguments
+are refused before an effect.
+
+The receipt distinguishes pre-execution refusal, attempted dispatch, process
+start, backend outcome, partial output, actual validation, and durable feedback
+acknowledgment/error. Cancellation and persistence failures retain typed causes.
+One live call identity may produce one execution; identical concurrent admissions
+share that receipt and conflicting reuse refuses. This is not a crash/restart
+exactly-once guarantee. Types express these contracts; policy remains executive.

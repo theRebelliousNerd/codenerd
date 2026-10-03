@@ -279,6 +279,7 @@ tentative(Atom) :- candidate_selection(Atom, _), !suppressed(Atom).
 # candidate_atom/mandatory_atom/atom_conflicts/prompt_atom. Nothing in either
 # chain reads this file's prohibited or suppressed.
 prohibited(Atom) :- prohibited_atom(Atom).
+prohibited(Atom) :- blocked_by_context(Atom).
 suppressed(Atom) :- conflict_loser(Atom).
 
 # Recursive dependency inclusion: If A is selected, Dep must be selected.

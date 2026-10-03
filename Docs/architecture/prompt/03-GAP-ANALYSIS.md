@@ -241,3 +241,38 @@ preservation are implemented.
 | Short term | Implement or remove cache TTL; make cached results immutable/copy-on-read | Clear process cache and restore prior ownership contract |
 | Short term | Add durable redacted receipt and inspector diff | Disable persistence while preserving in-memory manifest |
 | Strategic | Shadow compiler and bounded replay lab | Shadow off switch; never replay tools; atom promotion remains manual |
+
+## Dynamic evidence is part of prompt cache identity
+
+**GAP-PROMPT-DYNAMIC-CACHE-IDENTITY:** compilation must take a private kernel
+snapshot before admitting a cache hit. Injectable context, specialist knowledge,
+and other kernel-derived prompt inputs must contribute a canonical fingerprint
+to the cache identity; selection and assembly use that same snapshot. Changed or
+retracted evidence cannot survive as current truth merely because the caller's
+CompilationContext is unchanged. An unavailable snapshot must not reuse a stale
+successful prompt. Release scope ownership on hits, misses, cancellation, and
+errors, preserving existing JIT dependencies, capability filtering, budgeting,
+private results, and cache metrics. Identical evidence may reuse cached work.
+
+Acceptance uses the real production kernel scope: compile A, replace it with B,
+recompile the same context, and require B without A; then retract evidence and
+repeat. Include specialist knowledge, unchanged-snapshot reuse, isolation between
+concurrent scopes, query failures, and cancellation. A fake-only cache test does
+not establish the production snapshot contract.
+
+Snapshot-sensitive context vetoes must also survive dependency expansion. A
+blocked atom cannot return as a dependency of a selected atom, regardless of its
+mandatory flag. Propagate the veto through the existing Mangle prohibition and
+missing-dependency closure; do not substitute a Go-only filter. Acceptance checks
+the actual compiled atom set before, during, and after a non-injection context
+veto, including dependent atoms and cache identity.
+
+`internal/prompt/compiler.go:626` acquires the private scope before cache lookup;
+`internal/system/factory_adapter_snapshot.go:16` exposes that scope's complete
+snapshot. Focused real-kernel tests at
+`internal/prompt/dynamic_cache_snapshot_test.go:186` pass replacement,
+retraction, reuse, concurrency, failure, and shutdown controls. Context vetoes
+also propagate through Mangle dependency prohibition. Clean-parent first-read
+fidelity is separately pinned by `internal/core/kernel_clone_snapshot_test.go:8`.
+This is component acceptance, not proof of every prompt source or production
+model workflow.

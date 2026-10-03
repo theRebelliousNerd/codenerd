@@ -93,8 +93,8 @@ func (s *MCPClientIntegrationSuite) SetupTest() {
 			if err := json.Unmarshal(req.Params, &params); err != nil {
 				resp.Error = map[string]interface{}{"code": -32700, "message": "Parse error"}
 			} else if params.Name == "calculator" {
-				a := params.Arguments["a"].(float64)
-				b := params.Arguments["b"].(float64)
+				a, _ := params.Arguments["a"].(float64)
+				b, _ := params.Arguments["b"].(float64)
 				resp.Result = map[string]interface{}{
 					"sum": a + b,
 				}
@@ -132,6 +132,20 @@ func (s *MCPClientIntegrationSuite) SetupTest() {
 
 	// nil analyzer for integration test (we don't test LLM part)
 	s.client = mcp.NewMCPClientManager(s.store, nil, config)
+	s.client.SetFactEmitter(mcp.NewFactEmitter(bootKernel(s.T())))
+}
+
+func (s *MCPClientIntegrationSuite) reviewCalculator(ctx context.Context) {
+	s.Require().NoError(s.client.DiscoverTools(ctx, "test-server"))
+	for _, tool := range s.client.GetAllTools() {
+		if tool.ToolID == "test-server/calculator" {
+			s.Require().NoError(s.client.SetReviewedToolEffect(mcp.ReviewedToolEffect{
+				ToolID: tool.ToolID, SchemaHash: tool.SchemaHash, Effect: mcp.RemoteRead, RiskOverride: mcp.RiskSafe,
+			}))
+			return
+		}
+	}
+	s.T().Fatal("calculator registration missing")
 }
 
 func (s *MCPClientIntegrationSuite) TearDownTest() {
@@ -173,6 +187,7 @@ func (s *MCPClientIntegrationSuite) TestConnectAndUseTools() {
 	s.Equal("test-server/calculator", tools[0].ToolID)
 
 	// 3. Call Tool
+	s.reviewCalculator(ctx)
 	result, err := s.client.CallTool(ctx, "test-server/calculator", map[string]interface{}{
 		"a": 5.0,
 		"b": 3.0,
@@ -218,13 +233,13 @@ func (s *MCPClientIntegrationSuite) TestCallTool_NilArgs() {
 	ctx := context.Background()
 	s.Require().NoError(s.client.Connect(ctx, "test-server"))
 
-	result, err := s.client.CallTool(ctx, "test-server/ping", nil) // ping doesn't take args
-	// Wait, the mock server doesn't have a "ping" tool, it has a "ping" method.
-	// We'll call a non-existent tool with nil args, it should fail with "Method not found" from server,
-	// but it shouldn't crash our client.
+	s.reviewCalculator(ctx)
+	result, err := s.client.CallTool(ctx, "test-server/calculator", nil)
 	s.Require().NoError(err)
-	s.False(result.Success)
-	s.Contains(result.Error, "Method not found")
+	s.Require().True(result.Success)
+	var output map[string]any
+	s.Require().NoError(json.Unmarshal(result.Output, &output))
+	s.Equal(0.0, output["sum"])
 }
 
 // TODO: TEST_GAP: [User Request Extremes] Verify DiscoverTools behaves safely and aborts gracefully when given an extremely large list of tools or malformed empty responses.

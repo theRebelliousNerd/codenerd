@@ -7,6 +7,10 @@
   reflection owns descriptor migration and re-embedding.
 - Use context-aware recall from runtime paths. Keep borrowed database ownership,
   query limits, provenance, cancellation, and missing-result behavior explicit.
+- Learned-store bootstrap carries the caller context through connection
+  admission, per-connection pragmas, readiness, schema transactions, and vector
+  backfill. Failure rolls back and joins owned cleanup before returning; no
+  partially initialized store or detached native open may be published.
 - Test fresh reopen, unembedded and legacy records, and negative queries. A row
   count or an embedding-worker test alone does not establish runtime recall.
 - `RecallLearningContentContext` hydrates one ranked fact with a bounded,

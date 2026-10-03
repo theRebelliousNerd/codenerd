@@ -86,3 +86,22 @@ Many “tool safety” gaps are **session/core contracts**, not pure tools bugs.
 - `internal/session` (allowlist closed default)  
 - `internal/mangle` (catalog)  
 - `internal/jit/config` (AllowedTools population)
+
+## Impacted-test subprocess ownership
+
+**GAP-TOOLS-IMPACTED-CANCELLATION:** the production impacted-test runner must
+use the shared `processutil` ownership path rather than direct `CombinedOutput`.
+Keep the host environment, literal argv, working directory, output, and true test
+verdict. Caller cancellation must stop owned descendants and bound pipe collection;
+failure or cancellation cannot publish a passing verification receipt. Acceptance
+requires the actual runGoTests route with a descendant-holding-pipe fixture,
+synchronized cancellation, observed descendant exit, bounded return, and both
+normal-success and nonzero-exit controls on Windows and Linux where available.
+Auxiliary browser/Docker subprocesses remain separate lifecycle obligations.
+
+The native Windows route is covered by
+`internal/tools/codedom/run_impacted_tests_cancellation_test.go:315`: cancellation
+drains the admitted descendant, and retained-pipe collection failure cannot
+produce a passing receipt. Positive and nonzero controls also pass. Linux
+execution is still unverified; do not generalize the Windows receipt to another
+host or to unrelated process owners.

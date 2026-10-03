@@ -104,3 +104,39 @@ DiscoverTools (post-connect), RecordToolUsage, UpdateServerStatus: `defer recove
 - CallTool: unserializable args, disconnected server.  
 - E2E VS: panic client, non-primitive args, concurrent access, client replacement.  
 See `10-TESTING-ALIGNMENT.md`.
+
+## Positive per-call executive authority
+
+**GAP-MCP-REMOTE-EFFECT-AUTHORITY:** every remote execution route, including
+ControlPlane.Call, MCPClientManager.CallTool, and IntegrationAdapter.CallTool,
+requires positive current kernel authority for the resolved server/tool identity,
+host-resolved effect, and canonical argument payload. Risk metadata and a model's
+`confirm_risk` flag are not authority. Neither absence of `mcp_tool_gated` facts,
+nil kernel, query failure, missing classification, nor a risk override may admit
+a remote effect. Confirmation requirements remain a separate policy obligation.
+
+Reuse the existing pending-action/permitted-action constitutional semantics with
+scoped request ownership; exact call identity, target, and canonical arguments
+must remain bound through dispatch. Resolve effect from reviewed host metadata
+and policy, not model prose or tool-name heuristics. Unknown effect fails closed.
+Read-only classified requests may derive existing read authority; write, delete,
+and execution effects must obtain their corresponding actual permissions, not
+the outer control-plane verb's blanket read classification. Keep requests isolated
+and retract transient facts on every exit. Do not issue a second executable action.
+
+Acceptance uses a real kernel and counted transport: positive exact authorization
+executes once through each entry route; nil/empty/error authority, unknown effect,
+missing metadata, mismatched server/tool/args, revoked permission, and model-supplied
+confirmation/override controls execute zero times. Preserve schema validation,
+catalog/discovery, escaping, output retention, and telemetry assertions. Update
+fixtures to establish actual positive authority, never relax the production gate.
+
+The authored boundary is shared in `internal/mcp/remote_authority.go:172` and
+joined to the constitutional permission in
+`internal/core/defaults/policy/policy_mcp.mg:111`. Production acceptance remains
+open: configured discovery must install schema-pinned host reviews, and the
+session must propagate its scope/call identity into remote dispatch. Until that
+wiring exists, unreviewed configured calls intentionally refuse; do not infer a
+review from server annotations, model confirmation, or discovery success. The
+real-kernel route tests are component evidence, not proof of configured boot or
+model-facing end-to-end delivery.

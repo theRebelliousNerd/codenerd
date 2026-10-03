@@ -115,12 +115,12 @@ func (cp *ControlPlane) Call(ctx context.Context, opts CallOptions) *CallResult 
 		return &CallResult{
 			Success: false, ToolID: tool.ToolID, Facet: tool.Facet, Risk: tool.Risk,
 			View: view, Error: err.Error(), Summary: "refused by risk gate",
-			NextStep: "pass confirm_risk=true if this effect is intended, or choose a safer tool",
+			NextStep: "inspect the policy refusal; confirmation cannot supply missing kernel authority",
 		}
 	}
 
 	started := time.Now()
-	raw, err := cp.manager.CallTool(ctx, tool.ToolID, opts.Args)
+	raw, err := cp.manager.CallTool(WithRiskConfirmation(ctx, opts.ConfirmRisk), tool.ToolID, opts.Args)
 	latency := time.Since(started).Milliseconds()
 
 	switch {
@@ -216,19 +216,24 @@ func (cp *ControlPlane) checkRisk(ctx context.Context, tool *MCPTool, confirmed 
 // one outcome that must never happen quietly.
 func KernelRiskGate(kernel KernelInterface) RiskGate {
 	return func(_ context.Context, tool *MCPTool, confirmed bool) error {
-		if kernel == nil || tool == nil {
-			return nil
+		if nilKernel(kernel) || tool == nil {
+			return fmt.Errorf("MCP risk gate unavailable: kernel or tool is nil")
 		}
-		results, err := kernel.Query(fmt.Sprintf("mcp_tool_gated(%s)", mangleString(tool.ToolID)))
+		if !tool.Risk.Valid() {
+			return fmt.Errorf("MCP tool %s has unknown risk", tool.ToolID)
+		}
+		classification, classificationErr := kernel.Query(fmt.Sprintf("mcp_tool_risk(%s, %s)", exactMangleString(tool.ToolID), tool.Risk.Atom()))
+		if classificationErr != nil {
+			return fmt.Errorf("MCP risk lookup failed: %w", classificationErr)
+		}
+		if len(classification) != 1 {
+			return fmt.Errorf("MCP tool %s has no unique current risk classification", tool.ToolID)
+		}
+		results, err := kernel.Query(fmt.Sprintf("mcp_tool_gated(%s)", exactMangleString(tool.ToolID)))
 		if err != nil {
 			logging.Get(logging.CategoryTools).Warn(
 				"MCP risk gate: kernel query failed for %s, treating as gated: %v", tool.ToolID, err)
-			if !confirmed {
-				return fmt.Errorf(
-					"%s could not be checked against policy (%v); pass confirm_risk=true to proceed anyway",
-					tool.ToolID, err)
-			}
-			return nil
+			return fmt.Errorf("%s could not be checked against policy: %w", tool.ToolID, err)
 		}
 		if len(results) == 0 || confirmed {
 			return nil

@@ -6,6 +6,8 @@
 - Constructors own engines and stores until successful publication. On parent
   cancellation close those handles and retain cleanup errors; shared admission
   observes cancellation and must not publish a failed classifier.
+- Learned-corpus initialization uses the context-aware store constructor itself,
+  not just cancellation checks around an uncancelable database constructor.
 
 - Preserve the boundary: models propose `Understanding`; Go normalizes it; Mangle
   and session policy remain the authority for `next_action` and `permitted/3`.

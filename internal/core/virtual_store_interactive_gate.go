@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 )
 
 // This file wires the VirtualStore executive (Dreamer destructive-action gate
@@ -330,3 +331,70 @@ type InteractiveGateError struct {
 }
 
 func (e *InteractiveGateError) Error() string { return e.Reason }
+
+// generatedNamedValidator opts one host-registered executable into the real
+// interactive validator registry, without changing its authorization action.
+type generatedNamedValidator struct {
+	name      string
+	execution *ExecutionValidator
+	resolve   func(string) string
+}
+
+func (g *generatedNamedValidator) Name() string  { return "generated:" + g.name }
+func (g *generatedNamedValidator) Priority() int { return 10 }
+func (g *generatedNamedValidator) CanValidate(action ActionType) bool {
+	return string(action) == g.name
+}
+func (g *generatedNamedValidator) Validate(ctx context.Context, request ActionRequest, result ActionResult) ValidationResult {
+	validation := g.execution.Validate(ctx, request, result)
+	if !validation.Verified {
+		return validation
+	}
+	// A declared literal write is checked against the actual file, using the
+	// existing file validator. Other tools receive mechanical output validation.
+	if _, literal := request.Payload["content"].(string); literal && request.Target != "unknown" {
+		request.Target = g.resolve(request.Target)
+		return NewFileWriteValidator().Validate(ctx, request, result)
+	}
+	return validation
+}
+
+func (v *VirtualStore) ensureGeneratedValidator(name string) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.validators == nil {
+		return fmt.Errorf("generated interactive validators disconnected")
+	}
+	for _, validator := range v.validators.Validators() {
+		if validator.Name() == "generated:"+name {
+			return nil
+		}
+	}
+	v.validators.Register(&generatedNamedValidator{name: name, execution: NewExecutionValidator(), resolve: v.resolvePath})
+	return nil
+}
+
+func (v *VirtualStore) validateNamedGeneratedResult(ctx context.Context, request types.GeneratedToolRequest, args map[string]any, receipt types.GeneratedToolReceipt) error {
+	v.mu.RLock()
+	validators := v.validators
+	v.mu.RUnlock()
+	if validators == nil {
+		return fmt.Errorf("generated validators disconnected")
+	}
+	action := ActionRequest{ActionID: request.AuthorizationID, Type: ActionType(request.Tool.Name), Target: request.Target, Payload: args}
+	result := ActionResult{Success: receipt.BackendError == nil, Output: receipt.Output, Metadata: map[string]any{"exit_code": receipt.ExitCode}}
+	if receipt.BackendError != nil {
+		result.Error = receipt.BackendError.Error()
+	}
+	validations := validators.Validate(ctx, action, result)
+	v.processValidationResults(action, result, validations)
+	if len(validations) == 0 {
+		return fmt.Errorf("generated validation produced no result")
+	}
+	for _, validation := range validations {
+		if validation.Method == ValidationMethodSkipped || !validation.Verified {
+			return fmt.Errorf("generated validation failed: %s (%s)", validation.Error, validation.Method)
+		}
+	}
+	return nil
+}

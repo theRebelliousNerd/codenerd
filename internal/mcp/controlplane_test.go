@@ -207,7 +207,28 @@ func newTestControlPlane(t *testing.T, rows int) (*ControlPlane, *fatMCPServer) 
 		t.Fatalf("WaitForDiscovery: %v", err)
 	}
 
-	return NewControlPlane(manager, store, nil), server
+	effects := make(map[string]RemoteEffect)
+	for _, noun := range []string{"issue", "repo", "branch", "user", "comment", "release", "label", "milestone"} {
+		effects["fat/get_"+noun] = RemoteRead
+		effects["fat/search_"+noun+"s"] = RemoteRead
+		effects["fat/update_"+noun] = RemoteWrite
+	}
+	effects["fat/delete_repo"] = RemoteDelete
+	effects["fat/run_workflow"] = RemoteExecute
+	kernel := installRemoteAuthorityFixture(t, manager, effects)
+	resources, err := manager.DiscoverResources(ctx, "fat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, resource := range resources {
+		switch resource.URI {
+		case "docs://query-dialect", "docs://webhooks":
+			reviewRemoteFixtureSubject(t, manager, RemoteResource, ResourceAuthorityTool("fat", resource))
+		}
+	}
+	plane := NewControlPlane(manager, store, manager.factEmitter())
+	plane.SetRiskGate(KernelRiskGate(kernel))
+	return plane, server
 }
 
 // naiveCatalogBytes is the baseline: what a client that injects every
@@ -417,6 +438,12 @@ func TestControlPlane_CallShouldGateDestructiveToolsUntilConfirmed(t *testing.T)
 	}
 	if refused.Risk != RiskDestructive {
 		t.Errorf("risk = %q, want %q", refused.Risk, RiskDestructive)
+	}
+	if err := plane.manager.factEmitter().kernel.Assert("signed_approval(/delete_file)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := plane.manager.factEmitter().kernel.Assert("admin_override(\"fixture-human\")"); err != nil {
+		t.Fatal(err)
 	}
 
 	confirmed := plane.Call(ctx, CallOptions{

@@ -128,7 +128,11 @@ var catalogBuilderPool = sync.Pool{
 // Executor implements the clean execution loop.
 // It replaces all hardcoded shard logic with JIT-driven behavior.
 type Executor struct {
-	mu sync.RWMutex
+	mu                       sync.RWMutex
+	generatedAuthorizationMu sync.Mutex
+	generatedAuthorizations  map[string]*generatedAuthorizationLease
+	generatedLiveScope       string
+	generatedScopeSession    string
 	// unlearnedExchanges counts the turns finished since the taxonomy critic
 	// last read a window (learningWindowDue). Guarded by mu.
 	unlearnedExchanges int
@@ -252,6 +256,24 @@ type Executor struct {
 	// available. Both under mu.
 	contextFeedbackRecorder ContextFeedbackRecorder
 	pendingContextFeedback  *articulation.ContextFeedback
+}
+
+// Generated duplicates retain one exact pending authorization until the last
+// admitted caller leaves, even if another caller disconnects while it runs.
+type generatedAuthorizationLease struct {
+	identity   string
+	references int
+	cleanup    []func()
+}
+
+func (e *Executor) generatedScope() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.generatedLiveScope == "" || e.generatedScopeSession != e.sessionID {
+		e.generatedScopeSession = e.sessionID
+		e.generatedLiveScope = fmt.Sprintf("%s/live-%d-%p", e.sessionID, time.Now().UnixNano(), e)
+	}
+	return e.generatedLiveScope
 }
 
 // ExecutorConfig holds configuration for the executor.
@@ -997,6 +1019,9 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("context error before processing: %w", err)
+	}
+	if types.GeneratedCallScope(ctx) == "" {
+		ctx = types.WithGeneratedCallScope(ctx, e.generatedScope())
 	}
 	ctx = e.withSessionContext(ctx)
 	ctx = withDiagnosticTimeout(ctx, e.diagnosticTimeout())

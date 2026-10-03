@@ -4,7 +4,9 @@ import (
 	"container/list"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -57,6 +59,12 @@ type KernelCompilationScope interface {
 // never share selector facts.
 type KernelScopeProvider interface {
 	NewCompilationScope() (KernelCompilationScope, error)
+}
+
+// KernelFactSnapshotQuerier exposes the complete evaluated facts of an owned
+// compilation scope, including inputs to selection outside the injection rows.
+type KernelFactSnapshotQuerier interface {
+	QueryAll() (map[string][]Fact, error)
 }
 
 var promptEphemeralPredicates = []string{
@@ -337,6 +345,11 @@ func privateResult(res *CompilationResult, cacheHit bool) *CompilationResult {
 type promptCacheEntry struct {
 	key    string
 	result *CompilationResult
+}
+
+type promptCompilationOutcome struct {
+	result   *CompilationResult
+	cacheHit bool
 }
 
 type JITPromptCompiler struct {
@@ -644,6 +657,39 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 	// (for example, by resolving available specialists), but caller-owned state
 	// and the cache identity remain stable and race-free.
 	cc = cc.Clone()
+	selectionKernel, releaseKernel, err := acquireCompilationKernel(c.kernel)
+	if err != nil {
+		return nil, fmt.Errorf("create isolated prompt compilation scope: %w", err)
+	}
+	releaseAtReturn := true
+	defer func() {
+		if releaseAtReturn {
+			releaseKernel()
+		}
+	}()
+	cc.Kernel = selectionKernel
+	cc.SessionContext = nil
+	cc.UserIntent = nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	snapshotStart := time.Now()
+	if selectionKernel != nil {
+		if err := selectionKernel.AssertBatch(cc.ToContextFacts()); err != nil {
+			return nil, fmt.Errorf("assert private prompt context: %w", err)
+		}
+	}
+	snapshotCollectStart := time.Now()
+	dynamicAtoms, fingerprint, err := c.collectDynamicKernelSnapshot(selectionKernel, cc)
+	snapshotCollectDuration := time.Since(snapshotCollectStart)
+	snapshotDuration := time.Since(snapshotStart)
+	if err != nil {
+		return nil, fmt.Errorf("capture dynamic prompt snapshot: %w", err)
+	}
+	cc.kernelSnapshotFingerprint = fingerprint
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(cc.AvailableSpecialists) == "" {
 		if err := InjectAvailableSpecialists(cc, ""); err != nil {
 			logging.Get(logging.CategoryJIT).Debug("Failed to resolve specialists before cache lookup: %v", err)
@@ -657,6 +703,9 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		c.cacheList.MoveToFront(elem)
 		cached := elem.Value.(*promptCacheEntry).result
 		c.cacheMu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		atomic.AddInt64(&c.cacheHits, 1)
 		logging.Get(logging.CategoryJIT).Info("Prompt cache HIT for %s (hash=%s, hits=%d)",
 			cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheHits))
@@ -664,15 +713,26 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 	}
 	c.cacheMu.Unlock()
 	// Singleflight to prevent Thundering Herd
-	v, err, shared := c.compileGroup.Do(cacheKey, func() (any, error) {
+	c.wg.Add(1)
+	releaseAtReturn = false
+	resultChannel := c.compileGroup.DoChan(cacheKey, func() (any, error) {
+		ctx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
+		stopWorkCancellation := context.AfterFunc(c.stopContext, cancelWork)
+		defer stopWorkCancellation()
+		defer cancelWork()
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("prompt compilation canceled before cache recheck: %w", err)
+		}
+		c.cacheMu.Lock()
+		if elem, ok := c.cache[cacheKey]; ok {
+			c.cacheList.MoveToFront(elem)
+			cached := elem.Value.(*promptCacheEntry).result
+			c.cacheMu.Unlock()
+			return promptCompilationOutcome{result: cached, cacheHit: true}, nil
+		}
+		c.cacheMu.Unlock()
 		atomic.AddInt64(&c.cacheMiss, 1)
 		c.totalCompilations.Add(1)
-
-		selectionKernel, releaseKernel, err := acquireCompilationKernel(c.kernel)
-		if err != nil {
-			return nil, fmt.Errorf("create isolated prompt compilation scope: %w", err)
-		}
-		defer releaseKernel()
 
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("prompt compilation canceled before selection: %w", err)
@@ -687,7 +747,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		// counted only successes would get better the more often compilation
 		// broke.
 		defer func() {
-			atomic.AddInt64(&c.compileNanos, int64(time.Since(compileStart)))
+			atomic.AddInt64(&c.compileNanos, int64(time.Since(compileStart)+snapshotDuration))
 		}()
 		stats := &CompilationStats{
 			ShardID:         cc.ShardID,
@@ -698,21 +758,6 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		logging.Get(logging.CategoryJIT).Info("Compiling prompt (cache MISS): %s (hash=%s, misses=%d)",
 			cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheMiss))
 
-		// Step 1: Assert context facts to kernel for Mangle-based selection
-		// We do this first so that context is available for kernel injection and Mangle-based selection.
-		// This enables the jit_compiler.mg / policy/jit_selection.mg rules to boost atoms matching current context.
-		if selectionKernel != nil {
-			contextFacts := cc.ToContextFacts()
-			if len(contextFacts) > 0 {
-				if err := selectionKernel.AssertBatch(contextFacts); err != nil {
-					logging.Get(logging.CategoryJIT).Warn("Failed to assert context facts: %v", err)
-					// Non-fatal - continue without context-based boosting
-				} else {
-					logging.Get(logging.CategoryJIT).Debug("Asserted %d context facts to kernel", len(contextFacts))
-				}
-			}
-		}
-
 		// Step 1.5: Collect all candidate atoms from all sources concurrently
 		collectStart := time.Now()
 
@@ -721,7 +766,6 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		var candidates []*PromptAtom
 		var sourceBreakdown sourceBreakdown
 
-		var dynamicAtoms []*PromptAtom
 		var knowledgeAtoms []*PromptAtom
 		var learningAtoms []*PromptAtom
 
@@ -733,16 +777,6 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 				return fmt.Errorf("failed to collect atoms: %w", err)
 			}
 			return nil
-		})
-
-		// 1.5b: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
-		g.Go(func() error {
-			var dynErr error
-			dynamicAtoms, dynErr = c.collectKernelInjectedAtoms(cc)
-			if dynErr != nil {
-				logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
-			}
-			return nil // Non-fatal
 		})
 
 		// 1.5c: Collect semantic knowledge atoms (Semantic Knowledge Bridge)
@@ -780,7 +814,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 			logging.Get(logging.CategoryJIT).Debug("Appended %d learning atoms to candidates", len(learningAtoms))
 		}
 
-		stats.CollectAtomsMs = time.Since(collectStart).Milliseconds()
+		stats.CollectAtomsMs = (time.Since(collectStart) + snapshotCollectDuration).Milliseconds()
 		stats.AtomsCandidates = len(candidates)
 		stats.EmbeddedAtoms = sourceBreakdown.embedded
 		stats.ProjectAtoms = sourceBreakdown.project
@@ -805,9 +839,6 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		}
 		stats.SelectAtomsMs = time.Since(selectStart).Milliseconds()
 		stats.VectorQueryMs = vectorMs
-
-		// NOTE: compile_context retraction is now handled by defer (see Step 1.5 above).
-		// This ensures cleanup even if SelectAtomsWithTiming fails.
 
 		logging.Get(logging.CategoryJIT).Debug(
 			"Selected %d atoms after scoring in %dms (vector=%dms)",
@@ -875,7 +906,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		stats.AssembleMs = time.Since(assembleStart).Milliseconds()
 
 		// Finalize timing
-		stats.Duration = time.Since(compileStart)
+		stats.Duration = time.Since(compileStart) + snapshotDuration
 
 		// Build result with comprehensive stats
 		result := c.buildResultWithStats(candidates, scored, fitted, prompt, budget, stats)
@@ -917,18 +948,36 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 			c.logCompilationManifest(stats, result)
 		}
 
-		return result, nil
+		return promptCompilationOutcome{result: result}, nil
 	})
 
-	if err != nil {
+	completion := make(chan singleflight.Result, 1)
+	go func() {
+		defer c.wg.Done()
+		outcome := <-resultChannel
+		releaseKernel()
+		completion <- outcome
+	}()
+	var outcome singleflight.Result
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case outcome = <-completion:
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-
-	res := v.(*CompilationResult)
-	if shared {
+	if outcome.Err != nil {
+		return nil, outcome.Err
+	}
+	compiled := outcome.Val.(promptCompilationOutcome)
+	if compiled.cacheHit {
+		atomic.AddInt64(&c.cacheHits, 1)
+	}
+	if outcome.Shared {
 		logging.Get(logging.CategoryJIT).Info("Prompt compilation joined via singleflight for hash=%s", cacheKey[:8])
 	}
-	return privateResult(res, false), nil
+	return privateResult(compiled.result, compiled.cacheHit), nil
 }
 
 func acquireCompilationKernel(base KernelQuerier) (KernelQuerier, func(), error) {
@@ -1080,8 +1129,69 @@ func renderKernelContextBlock(rows []string, lim kernelInjectionLimits) string {
 	return types.ClampText(sb.String(), lim.injectedAtomChars, "injectable_context")
 }
 
+func (c *JITPromptCompiler) collectDynamicKernelSnapshot(kernel KernelQuerier, cc *CompilationContext) (atoms []*PromptAtom, fingerprint string, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			atoms = nil
+			fingerprint = ""
+			err = fmt.Errorf("dynamic prompt snapshot panic: %v", recovered)
+		}
+	}()
+	atoms, err = c.collectKernelInjectedAtomsFrom(kernel, cc)
+	if err != nil {
+		return nil, "", err
+	}
+	records := make([]string, 0, len(atoms))
+	if snapshot, available := kernel.(KernelFactSnapshotQuerier); available {
+		facts, queryErr := snapshot.QueryAll()
+		if queryErr != nil {
+			return nil, "", fmt.Errorf("query complete kernel snapshot: %w", queryErr)
+		}
+		for predicate, rows := range facts {
+			encodedPredicate, encodeErr := json.Marshal([]string{"predicate", predicate})
+			if encodeErr != nil {
+				return nil, "", encodeErr
+			}
+			records = append(records, string(encodedPredicate))
+			for _, fact := range rows {
+				arguments := make([]any, 0, len(fact.Args))
+				for _, argument := range fact.Args {
+					value := argument
+					if printable, supported := argument.(fmt.Stringer); supported {
+						value = printable.String()
+					}
+					arguments = append(arguments, []any{fmt.Sprintf("%T", argument), value})
+				}
+				encoded, encodeErr := json.Marshal([]any{"fact", predicate, fact.Predicate, arguments})
+				if encodeErr != nil {
+					return nil, "", fmt.Errorf("encode kernel snapshot %s: %w", predicate, encodeErr)
+				}
+				records = append(records, string(encoded))
+			}
+		}
+	} else if _, scoped := c.kernel.(KernelScopeProvider); scoped {
+		return nil, "", fmt.Errorf("isolated kernel scope must expose QueryAll for dynamic cache identity")
+	}
+	for _, atom := range atoms {
+		encoded, encodeErr := json.Marshal([]string{"injection", atom.ID, atom.Content})
+		if encodeErr != nil {
+			return nil, "", encodeErr
+		}
+		records = append(records, string(encoded))
+	}
+	encoded, err := json.Marshal(canonicalStringSet(records))
+	if err != nil {
+		return nil, "", err
+	}
+	return atoms, HashContent(string(encoded)), nil
+}
+
 func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) ([]*PromptAtom, error) {
-	if c.kernel == nil || cc == nil {
+	return c.collectKernelInjectedAtomsFrom(c.kernel, cc)
+}
+
+func (c *JITPromptCompiler) collectKernelInjectedAtomsFrom(kernel KernelQuerier, cc *CompilationContext) ([]*PromptAtom, error) {
+	if kernel == nil || cc == nil {
 		return nil, nil
 	}
 	lim := c.config.kernelInjectionLimits()
@@ -1104,7 +1214,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 	dynamic := make([]*PromptAtom, 0, 2)
 
 	// Injectable context atoms
-	ctxFacts, err := c.kernel.Query("injectable_context")
+	ctxFacts, err := kernel.Query("injectable_context")
 	if err != nil {
 		return nil, err
 	}
@@ -1124,6 +1234,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		}
 	}
 	if len(ctxAtoms) > 0 {
+		ctxAtoms = canonicalStringSet(ctxAtoms)
 		content := renderKernelContextBlock(ctxAtoms, lim)
 		id := "kernel/context/" + HashContent(content)[:8]
 		pa := NewPromptAtom(id, CategoryContext, content)
@@ -1135,8 +1246,11 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 	}
 
 	// Specialist knowledge blocks
-	knowledgeFacts, err := c.kernel.Query("specialist_knowledge")
-	if err == nil {
+	knowledgeFacts, err := kernel.Query("specialist_knowledge")
+	if err != nil {
+		return nil, fmt.Errorf("query specialist_knowledge: %w", err)
+	}
+	{
 		type block struct {
 			topic   string
 			content string
@@ -1157,6 +1271,19 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			}
 		}
 		if len(blocks) > 0 {
+			sort.Slice(blocks, func(left, right int) bool {
+				if blocks[left].topic != blocks[right].topic {
+					return blocks[left].topic < blocks[right].topic
+				}
+				return blocks[left].content < blocks[right].content
+			})
+			uniqueBlocks := blocks[:0]
+			for _, knowledgeBlock := range blocks {
+				if len(uniqueBlocks) == 0 || uniqueBlocks[len(uniqueBlocks)-1] != knowledgeBlock {
+					uniqueBlocks = append(uniqueBlocks, knowledgeBlock)
+				}
+			}
+			blocks = uniqueBlocks
 			var sb strings.Builder
 			sb.WriteString("// SPECIALIST KNOWLEDGE (Type B/U expertise)\n")
 			shown := len(blocks)

@@ -218,7 +218,8 @@ type CompilationContext struct {
 
 	// Kernel holds a reference to the Mangle kernel for queries
 	// Type: *core.RealKernel
-	Kernel any
+	Kernel                    any
+	kernelSnapshotFingerprint string
 
 	// =========================================================================
 	// Activation Scores (from Compression System)
@@ -675,7 +676,8 @@ func (cc *CompilationContext) Hash() string {
 		}
 	}
 
-	write("schema", "compilation-context-v4")
+	write("schema", "compilation-context-v5")
+	write("kernel_snapshot", cc.kernelSnapshotFingerprint)
 	write("operational_mode", cc.OperationalMode)
 	write("campaign_phase", cc.CampaignPhase)
 	write("campaign_id", cc.CampaignID)

@@ -9,6 +9,10 @@
 - Canonicalize and bound the exact payload before asserting `pending_action/5`.
   Reject empty names, oversize payloads, wrong arity, mismatched targets/payloads,
   stale facts, and missing kernel/gates.
+- Generated tools carry typed scope, call, authorization, named action, target,
+  canonical arguments, and host binary/protocol identity into VirtualStore.
+  Preserve separate process, validation, and durable-feedback outcomes; never
+  replay an effect merely to repair publication or synthesize a success receipt.
 - Treat `nerd.md` write protection as fail closed: recognized write tools need a
   target and a live kernel authority before any executor, VirtualStore, or
   registry path may mutate.

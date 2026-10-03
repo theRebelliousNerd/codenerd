@@ -110,3 +110,20 @@
 2. Force `permitted` deny → `GetRecentViolations` non-empty without manual Report call.  
 3. Set `JITExplain=true` → observable JIT explanation path or flag removed from status.  
 4. Bus under artificial full channel → Stats.Drops increments (once implemented).
+
+## Event bus lock and shutdown obligations
+
+**GAP-TRANSPARENCY-LOCK-ORDER:** Stats, buffered Flush, subscription/category
+mutations, and Close must not acquire the event-bus and buffer locks in opposing
+order. Opposing Stats and flush acquisitions let a queued writer turn contention
+into deadlock. Establish one order or independent
+snapshots without weakening buffer, subscriber, delivery/drop, or sink semantics.
+Acceptance requires synchronized overlap of Stats, buffered flush, and a writer,
+bounded completion, correct counters, and concurrent emit/stats/close race tests.
+Close must not report completion while an owned worker or sink remains live.
+
+`internal/transparency/event_bus.go:370` now takes the buffer lock before the
+subscriber lock; `internal/transparency/event_bus.go:344` owns terminal shutdown.
+The full package suite passes, including deterministic contention and timer-join
+controls in `internal/transparency/event_bus_lock_order_test.go:99`. This does
+not close unrelated visibility, shard-observation, or external sink obligations.

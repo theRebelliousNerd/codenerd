@@ -359,6 +359,7 @@ type Cortex struct {
 	mcpDone               <-chan struct{}
 	ouroborosCancel       context.CancelFunc
 	ouroborosDone         <-chan struct{}
+	generatedExecutor     *orchestratorToolExecutor
 	onDemandStop          func()
 	perceptionInitialized bool
 
@@ -815,6 +816,7 @@ type bootContext struct {
 	ouroborosCtx                 context.Context
 	ouroborosCancel              context.CancelFunc
 	ouroborosDone                <-chan struct{}
+	generatedExecutor            *orchestratorToolExecutor
 	ouroborosQueue               chan core.ToolNeed
 	projectDB                    *sql.DB
 	atomLoader                   *prompt.AtomLoader
@@ -1809,7 +1811,8 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	// Refinement outlives the tool call and stops when Cortex.Close cancels
 	// this context. Created here so the executor and the dream-queue loop
 	// share one lifetime.
-	bctx.virtualStore.SetToolExecutor(newOrchestratorToolExecutor(bctx.poiesis, ensureOuroborosLifetime(bctx)))
+	bctx.generatedExecutor = newOrchestratorToolExecutor(bctx.poiesis, ensureOuroborosLifetime(bctx))
+	bctx.virtualStore.SetToolExecutor(bctx.generatedExecutor)
 
 	browserCfg := browser.DefaultConfig()
 	configuredBrowser := bctx.appCfg.GetBrowserConfig()
@@ -2742,6 +2745,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		mcpDone:               bctx.mcpDone,
 		ouroborosCancel:       bctx.ouroborosCancel,
 		ouroborosDone:         bctx.ouroborosDone,
+		generatedExecutor:     bctx.generatedExecutor,
 		onDemandStop:          bctx.onDemandStop,
 		perceptionInitialized: bctx.perceptionInitialized,
 		sessionID:             bctx.sessionID,

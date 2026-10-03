@@ -3,7 +3,6 @@ package init
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/orient"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
 
@@ -672,7 +672,7 @@ func (i *Initializer) persistEcosystemAtoms(ctx context.Context, atoms []*store.
 	if _, err := os.Stat(corpus); err != nil {
 		return
 	}
-	db, err := sql.Open("sqlite3", corpus)
+	db, err := sqlpragmas.OpenWithPragmas("sqlite3", corpus, sqlpragmas.ProfileHot)
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("prompt corpus was not opened: %v", err))
 		return

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"codenerd/internal/atomicfile"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -24,14 +28,16 @@ import (
 
 // RuntimeRegistry manages registered tools
 type RuntimeRegistry struct {
-	mu    sync.RWMutex
-	tools map[string]*RuntimeTool
+	mu         sync.RWMutex
+	tools      map[string]*RuntimeTool
+	identities map[string]types.GeneratedToolIdentity
 }
 
 // NewRuntimeRegistry creates a new registry
 func NewRuntimeRegistry() *RuntimeRegistry {
 	return &RuntimeRegistry{
-		tools: make(map[string]*RuntimeTool),
+		tools:      make(map[string]*RuntimeTool),
+		identities: make(map[string]types.GeneratedToolIdentity),
 	}
 }
 
@@ -48,6 +54,21 @@ func (r *RuntimeRegistry) Register(tool *GeneratedTool, compiled *CompileResult)
 		Schema:       tool.Schema,
 		RegisteredAt: time.Now(),
 	}
+	identity := types.GeneratedToolIdentity{Name: rt.Name, BinaryPath: rt.BinaryPath, BinaryHash: rt.Hash, Protocol: types.GeneratedStdinV1}
+	if err := verifyGeneratedBinary(identity); err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		return nil, err
+	}
+	if err := atomicfile.WriteFile(rt.BinaryPath+".identity.json", encoded, 0600); err != nil {
+		return nil, err
+	}
+	if r.identities == nil {
+		r.identities = make(map[string]types.GeneratedToolIdentity)
+	}
+	r.identities[tool.Name] = identity
 
 	r.tools[tool.Name] = rt
 	return rt, nil
@@ -68,7 +89,8 @@ func (r *RuntimeRegistry) List() []*RuntimeTool {
 
 	tools := make([]*RuntimeTool, 0, len(r.tools))
 	for _, tool := range r.tools {
-		tools = append(tools, tool)
+		tools = append(tools, &RuntimeTool{Name: tool.Name, Description: tool.Description, BinaryPath: tool.BinaryPath,
+			Hash: tool.Hash, Schema: tool.Schema, RegisteredAt: tool.RegisteredAt, ExecuteCount: atomic.LoadInt64(&tool.ExecuteCount)})
 	}
 	return tools
 }
@@ -86,6 +108,9 @@ func (r *RuntimeRegistry) Restore(toolsDir, compiledDir string) {
 
 	for _, entry := range entries {
 		if entry.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), ".identity.json") {
 			continue
 		}
 
@@ -142,75 +167,176 @@ func (r *RuntimeRegistry) Restore(toolsDir, compiledDir string) {
 		}
 
 		r.tools[name] = rt
+		delete(r.identities, name)
+		data, err := os.ReadFile(binaryPath + ".identity.json")
+		var identity types.GeneratedToolIdentity
+		if err == nil && json.Unmarshal(data, &identity) == nil && identity.Name == name &&
+			identity.BinaryPath == binaryPath && verifyGeneratedBinary(identity) == nil {
+			if r.identities == nil {
+				r.identities = make(map[string]types.GeneratedToolIdentity)
+			}
+			r.identities[name] = identity
+		}
 	}
 }
 
 // Execute runs the tool with the given input
 func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error) {
-	cleanPath := filepath.Clean(rt.BinaryPath)
-	if !filepath.IsAbs(cleanPath) {
-		return "", fmt.Errorf("tool binary path must be absolute for security: %s", cleanPath)
+	identity := types.GeneratedToolIdentity{Name: rt.Name, BinaryPath: rt.BinaryPath, BinaryHash: rt.Hash, Protocol: types.GeneratedStdinV1}
+	// The legacy wrapper still accepts arbitrary input strings.
+	if identity.BinaryHash == "" {
+		data, err := os.ReadFile(identity.BinaryPath)
+		if err != nil {
+			return "", err
+		}
+		digest := sha256.Sum256(data)
+		identity.BinaryHash = hex.EncodeToString(digest[:])
 	}
-
-	// Verify binary still exists
-	if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("tool binary not found: %s", cleanPath)
+	receipt := executeGeneratedBinary(ctx, identity, input)
+	if receipt.BackendError == nil {
+		atomic.AddInt64(&rt.ExecuteCount, 1)
 	}
+	return receipt.Output, receipt.BackendError
+}
 
-	// Prepare input
-	inputJSON, err := json.Marshal(map[string]string{"input": input})
+func (r *RuntimeRegistry) GeneratedToolIdentity(name string) (types.GeneratedToolIdentity, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	identity, exists := r.identities[name]
+	if !exists {
+		return identity, fmt.Errorf("tool %s has no host protocol identity", name)
+	}
+	tool := r.tools[name]
+	if tool == nil || tool.Name != identity.Name || tool.BinaryPath != identity.BinaryPath || tool.Hash != identity.BinaryHash {
+		return identity, fmt.Errorf("runtime registration identity changed")
+	}
+	return identity, nil
+}
+
+func (r *RuntimeRegistry) recordGeneratedSuccess(identity types.GeneratedToolIdentity) {
+	if r == nil {
+		return
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	tool, ok := r.tools[identity.Name]
+	if ok && tool.BinaryPath == identity.BinaryPath && tool.Hash == identity.BinaryHash {
+		atomic.AddInt64(&tool.ExecuteCount, 1)
+	}
+}
+
+func verifyGeneratedBinary(identity types.GeneratedToolIdentity) error {
+	if !filepath.IsAbs(identity.BinaryPath) {
+		return fmt.Errorf("tool binary must be absolute")
+	}
+	if identity.Protocol != types.GeneratedStdinV1 && identity.Protocol != types.LegacyArgvV1 {
+		return fmt.Errorf("unknown tool protocol %q", identity.Protocol)
+	}
+	data, err := os.ReadFile(identity.BinaryPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal input: %w", err)
+		return err
 	}
+	digest := sha256.Sum256(data)
+	if identity.BinaryHash != hex.EncodeToString(digest[:]) {
+		return fmt.Errorf("registered binary digest changed")
+	}
+	return nil
+}
 
-	// Execute the tool binary
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd := exec.CommandContext(ctx, cleanPath)
-	cmd.Stdin = strings.NewReader(string(inputJSON))
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+type generatedOutputBuffer struct {
+	bytes.Buffer
+	truncated bool
+}
+
+func (b *generatedOutputBuffer) Write(data []byte) (int, error) {
+	const maximum = 10 * 1024 * 1024
+	length := len(data)
+	remaining := maximum - b.Len()
+	if len(data) > remaining {
+		data = data[:remaining]
+		b.truncated = true
+	}
+	_, _ = b.Buffer.Write(data)
+	return length, nil
+}
+
+// RunGeneratedBinary launches only the immutable, host-resolved registration.
+// Start and Wait are separate so a launch refusal cannot masquerade as execution.
+func RunGeneratedBinary(ctx context.Context, request types.GeneratedToolRequest) types.GeneratedToolReceipt {
+	if err := request.Validate(); err != nil {
+		return types.GeneratedToolReceipt{Request: request, BackendError: err, ExitCode: -1}
+	}
+	receipt := executeGeneratedBinary(ctx, request.Tool, request.CanonicalArgs)
+	receipt.Request = request
+	return receipt
+}
+
+func executeGeneratedBinary(ctx context.Context, identity types.GeneratedToolIdentity, input string) types.GeneratedToolReceipt {
+	receipt := types.GeneratedToolReceipt{Attempted: true, ExitCode: -1}
+	if err := ctx.Err(); err != nil {
+		receipt.BackendError = err
+		return receipt
+	}
+	if err := verifyGeneratedBinary(identity); err != nil {
+		receipt.BackendError = err
+		return receipt
+	}
+	arguments := []string{}
+	if identity.Protocol == types.LegacyArgvV1 {
+		arguments = []string{input}
+	}
+	cmd := exec.CommandContext(ctx, identity.BinaryPath, arguments...)
+	if identity.Protocol == types.GeneratedStdinV1 {
+		encoded, err := json.Marshal(map[string]string{"input": input})
+		if err != nil {
+			receipt.BackendError = err
+			return receipt
+		}
+		cmd.Stdin = bytes.NewReader(encoded)
+	}
+	cmd.Dir = identity.Workspace
 	cmd.Env = toolExecutionEnv()
-
-	err = cmd.Run()
-	if err != nil {
-		if ctx.Err() != nil {
-			return "", fmt.Errorf("tool execution canceled: %w (process: %v)", ctx.Err(), err)
+	cmd.WaitDelay = 2 * time.Second
+	var stdout, stderr generatedOutputBuffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	receipt.StartedAt = time.Now()
+	if err := cmd.Start(); err != nil {
+		receipt.BackendError = errors.Join(ctx.Err(), err)
+		return receipt
+	}
+	receipt.ProcessStarted = true
+	waitErr := cmd.Wait()
+	receipt.Duration = time.Since(receipt.StartedAt)
+	receipt.ExitCode = cmd.ProcessState.ExitCode()
+	receipt.Stdout, receipt.Stderr = stdout.String(), stderr.String()
+	receipt.OutputTruncated = stdout.truncated || stderr.truncated
+	receipt.Output = receipt.Stdout
+	if identity.Protocol == types.GeneratedStdinV1 {
+		var envelope struct {
+			Output json.RawMessage `json:"output"`
+			Error  string          `json:"error"`
 		}
-		stderrStr := strings.TrimSpace(stderrBuf.String())
-		if stderrStr != "" {
-			return "", fmt.Errorf("tool execution failed (stderr: %s): %w", stderrStr, err)
+		if err := json.Unmarshal([]byte(receipt.Stdout), &envelope); err != nil {
+			receipt.BackendError = fmt.Errorf("invalid generated output envelope: %w", err)
+		} else if envelope.Output == nil && envelope.Error == "" {
+			receipt.BackendError = fmt.Errorf("generated output envelope has neither output nor error")
+		} else {
+			receipt.Output = decodeToolOutput(envelope.Output)
+			if envelope.Error != "" {
+				receipt.BackendError = fmt.Errorf("tool error: %s", envelope.Error)
+			}
 		}
-		return "", fmt.Errorf("tool execution failed: %w", err)
+	} else if receipt.Stderr != "" {
+		receipt.Output += receipt.Stderr
 	}
-	output := stdoutBuf.Bytes()
-
-	// Parse output.
-	//
-	// The wrapper this pipeline generates (tool_compiler.writeWrapper) declares
-	// Output as json.RawMessage and passes the tool's return value through
-	// verbatim whenever it is already valid JSON. Reading it back as a Go
-	// string therefore failed for every tool whose output happened to parse as
-	// JSON — a number, a bool, an object, an array — with "cannot unmarshal
-	// number into Go struct field .output of type string". A tool that counts
-	// something and returns "3" compiled, passed safety, survived the
-	// Thunderdome, registered, and then could never be called successfully.
-	var result struct {
-		Output json.RawMessage `json:"output"`
-		Error  string          `json:"error,omitempty"`
+	if waitErr != nil {
+		receipt.BackendError = errors.Join(receipt.BackendError, ctx.Err(), waitErr)
 	}
-
-	if err := json.Unmarshal(output, &result); err != nil {
-		return "", fmt.Errorf("failed to parse tool output: %w", err)
+	if receipt.OutputTruncated {
+		receipt.BackendError = errors.Join(receipt.BackendError, fmt.Errorf("generated output exceeds capture bound"))
 	}
-
-	text := decodeToolOutput(result.Output)
-
-	if result.Error != "" {
-		return text, fmt.Errorf("tool error: %s", result.Error)
-	}
-
-	atomic.AddInt64(&rt.ExecuteCount, 1)
-	return text, nil
+	receipt.PartialOutput = receipt.BackendError != nil && (receipt.Stdout != "" || receipt.Stderr != "")
+	return receipt
 }
 
 // decodeToolOutput renders the wrapper's raw output field as text.

@@ -23,6 +23,8 @@ const (
 
 // mcpPolicySchemas are the Decl modules the MCP rules join against.
 var mcpPolicySchemas = []string{
+	"schemas_safety.mg",
+	"schemas_shards.mg",
 	"schemas_mcp.mg",   // MCP predicates
 	"schemas_tools.mg", // intent_requires_capability, shard_capability_affinity
 	"schemas_intent.mg",

@@ -35,6 +35,14 @@ func (c *Cortex) Close() error {
 	c.closed = true
 
 	var errs []error
+	// Stop generated admission and join execution, recording and refinement
+	// before releasing any of their kernel, prompt or persistence dependencies.
+	if c.generatedExecutor != nil {
+		if err := c.generatedExecutor.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		c.generatedExecutor = nil
+	}
 
 	// Stop maintenance BEFORE closing LocalDB — the loop calls
 	// LocalDB.MaintenanceCleanup and can block process exit if left running.

@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // LLMTimeouts centralizes the timeouts that bound a single LLM request.
 // This ensures consistency across the codebase and prevents timeout conflicts.
@@ -111,14 +114,19 @@ func AggressiveLLMTimeouts() LLMTimeouts {
 
 // Global singleton for consistent timeout access.
 var globalLLMTimeouts = DefaultLLMTimeouts()
+var globalLLMTimeoutsMu sync.RWMutex
 
 // GetLLMTimeouts returns the global LLM timeout configuration.
 func GetLLMTimeouts() LLMTimeouts {
+	globalLLMTimeoutsMu.RLock()
+	defer globalLLMTimeoutsMu.RUnlock()
 	return globalLLMTimeouts
 }
 
 // SetLLMTimeouts updates the global LLM timeout configuration.
 // This should be called early in application startup.
 func SetLLMTimeouts(t LLMTimeouts) {
+	globalLLMTimeoutsMu.Lock()
+	defer globalLLMTimeoutsMu.Unlock()
 	globalLLMTimeouts = t
 }

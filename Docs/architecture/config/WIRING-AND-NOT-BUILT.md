@@ -111,3 +111,35 @@ reason inline (`issueForKey` :101-112). Table order follows the four maps
 *Verified 2026-09-20 against `b63e848`. "Untraced" means no caller was found
 inside `internal/config` and callers outside it were not re-traced for this
 rewrite — not that none exist.*
+
+## Coherent default policy on missing configuration
+
+**GAP-CONFIG-DEFAULT-INSTALL:** loading an absent configuration file must install
+the same effective default policy that the returned empty UserConfig resolves,
+including feature flags and LLM timeouts. A previously accepted workspace's
+nondefault settings must not survive that load as invisible process-global state.
+Explicit malformed, removed-key, or invalid files return errors without partially
+installing new policy. Preserve environment override precedence and user-owned
+files; loading an absent file does not create it.
+
+Acceptance loads explicit nondefault features/timeouts, then an absent file in
+another workspace, and compares returned accessors with all installed readers.
+Invalid explicit configuration preserves the prior accepted settings. Repeated
+default/explicit transitions, environment overrides, race-safe readers, and no
+filesystem effects are required. This compatibility repair does not claim that
+process-global policy is fully isolated between concurrently active workspaces.
+
+LLM timeout publication and reads must be race-safe, including repeated accepted
+loads and default installation while workers read their request limits. Return
+an owned value snapshot; readers cannot mutate installed policy. This does not
+make installation of all independent process-global policy families an atomic
+multi-workspace transaction. Verify concurrent setters/readers and detached
+returned values without changing timeout defaults or environment precedence.
+
+`internal/config/user_config.go:586` installs accepted default policy for the
+missing-file path. The full configuration suite passes its coherent-default,
+rejected-file, and environment-precedence controls. Timeout readers and writers
+at `internal/config/llm_timeouts.go:120` use synchronized value snapshots;
+`internal/config/llm_timeout_publication_test.go:12` passes under the race
+detector. Independent policy families and simultaneous workspaces still lack a
+single atomic ownership/publication transaction.

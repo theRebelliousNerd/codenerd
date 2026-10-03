@@ -11,6 +11,10 @@
 - Normal chat, campaign, and factory boot paths must consume the same execution
   and provider settings. An invalid explicit config fails closed before ambient
   environment detection.
+- Missing-file defaults and validated files use the same global policy
+  publication path. Invalid files publish nothing. Timeout singleton readers
+  receive detached, synchronized values; normalization preserves explicit zero
+  semantics rather than allowing concurrent loads to expose partial profiles.
 - A removed key stays removed. `rejectRemovedKeys` (`removed_keys.go`) fails
   the load and names the key and why it went: the tool loop is not bounded by
   counts (the working policy stops a stall) and runs are not bounded by wall

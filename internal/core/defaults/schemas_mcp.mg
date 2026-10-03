@@ -270,6 +270,20 @@ Decl mcp_tool_browsable(ToolID) bound [/string].
 # Derived: this server currently offers at least one reachable tool in Facet.
 Decl mcp_server_facet_available(ServerID, Facet) bound [/string, /name].
 
+Decl mcp_remote_reviewed(RequestID, ServerID, ToolID, SchemaHash, Effect) bound [/string, /string, /string, /string, /name].
+Decl mcp_remote_operation(RequestID, Operation) bound [/string, /name].
+Decl mcp_remote_subject_current(ServerID, ToolID, SchemaHash, Operation) bound [/string, /string, /string, /name].
+Decl mcp_remote_resource(ServerID, SubjectID, URI, SchemaHash) bound [/string, /string, /string, /string].
+Decl mcp_remote_prompt(ServerID, SubjectID, PromptName, SchemaHash) bound [/string, /string, /string, /string].
+Decl mcp_tool_schema_hash(ToolID, SchemaHash) bound [/string, /string].
+Decl mcp_remote_metadata_conflict(ToolID) bound [/string].
+Decl mcp_remote_server_conflict(ServerID) bound [/string].
+Decl mcp_remote_request(RequestID, Scope, CallID, ServerID, ToolID, SchemaHash, Effect, Action, Target, Payload, ArgsDigest, Risk, Confirmed) bound [/string, /string, /string, /string, /string, /string, /name, /name, /string, /string, /string, /name, /name].
+Decl mcp_remote_effect_action(Effect, Action) bound [/name, /name].
+Decl mcp_remote_confirmation_required(RequestID) bound [/string].
+Decl mcp_remote_confirmation_satisfied(RequestID) bound [/string].
+Decl mcp_remote_permitted(RequestID, Scope, CallID, ServerID, ToolID, SchemaHash, ArgsDigest) bound [/string, /string, /string, /string, /string, /string, /string].
+
 # =============================================================================
 # END SECTION 50
 # =============================================================================

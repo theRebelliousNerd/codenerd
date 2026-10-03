@@ -123,7 +123,7 @@ func CallTool() *tools.Tool {
 				"args":         {Type: "object", Description: "Arguments for the MCP tool, per its schema"},
 				"view":         {Type: "string", Description: "Result disclosure depth", Default: "compact", Enum: []any{"summary", "compact", "full"}},
 				"max_items":    {Type: "integer", Description: "Narrow list results below the view's own ceiling"},
-				"confirm_risk": {Type: "boolean", Description: "Acknowledge a destructive or arbitrary-execution effect", Default: false},
+				"confirm_risk": {Type: "boolean", Description: "Acknowledge risk; host-reviewed effects and corresponding positive kernel permission remain required", Default: false},
 			},
 		},
 	}

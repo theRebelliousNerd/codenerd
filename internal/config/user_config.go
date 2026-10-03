@@ -589,6 +589,8 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			features.SetActive(cfg.Features)
+			SetLLMTimeouts(DefaultLLMTimeouts())
 			SetExecutionFileLimits(*DefaultExecutionConfig())
 			SetResearchPolicy(mustResolveResearchDefaults())
 			installDefaultEmbeddingRequestTimeout()
@@ -639,6 +641,28 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		logging.Get(logging.CategoryBoot).Warn("config %s: %s", path, p.String())
 	}
 
+	timeouts, terr := cfg.LLMTimeouts.Resolve()
+	if terr != nil {
+		return nil, fmt.Errorf("failed to parse user config: %w", terr)
+	}
+	researchPolicy, rerr := cfg.GetResearchConfig().Resolve()
+	if rerr != nil {
+		return nil, fmt.Errorf("failed to parse user config: %w", rerr)
+	}
+	embCfg := cfg.GetEmbeddingConfig()
+	embTimeout, eerr := embCfg.ResolvedRequestTimeout()
+	if eerr != nil {
+		return nil, fmt.Errorf("failed to parse user config: %w", eerr)
+	}
+	pullTimeout, perr := embCfg.ResolvedPullTimeout()
+	if perr != nil {
+		return nil, fmt.Errorf("failed to parse user config: %w", perr)
+	}
+	integFallback, ierr := cfg.GetIntegrations().ResolveDefaultTimeout()
+	if ierr != nil {
+		return nil, fmt.Errorf("failed to parse user config: %w", ierr)
+	}
+
 	// Make feature toggles visible to leaf packages (internal/core,
 	// internal/observability, internal/world, ...) that cannot import
 	// internal/config. Nil is fine: SetActive(nil) resets the registry
@@ -666,44 +690,17 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	// GetLLMTimeouts() call sites read. Same install-on-load pattern as
 	// features above, and for the same reason: those call sites live in
 	// packages that cannot import internal/config's UserConfig.
-	timeouts, terr := cfg.LLMTimeouts.Resolve()
-	if terr != nil {
-		// A malformed timeout is a config error the user can fix, and running
-		// on a silently-wrong 30-minute default is the failure this replaced.
-		return nil, fmt.Errorf("failed to parse user config: %w", terr)
-	}
 	SetLLMTimeouts(timeouts)
 	SetExecutionFileLimits(cfg.GetExecution())
 	// The research tools, the file-read projection and the MCP transports
 	// read these without opening the config file themselves.
-	researchPolicy, rerr := cfg.GetResearchConfig().Resolve()
-	if rerr != nil {
-		// Unreachable: Check refused the file above when these were wrong.
-		return nil, fmt.Errorf("failed to parse user config: %w", rerr)
-	}
 	SetResearchPolicy(researchPolicy)
-	embCfg := cfg.GetEmbeddingConfig()
-	embTimeout, eerr := embCfg.ResolvedRequestTimeout()
-	if eerr != nil {
-		// Unreachable: Check refused the file above when this was wrong.
-		return nil, fmt.Errorf("failed to parse user config: %w", eerr)
-	}
 	SetEmbeddingRequestTimeout(embTimeout)
-	pullTimeout, perr := embCfg.ResolvedPullTimeout()
-	if perr != nil {
-		// Unreachable: Check refused the file above when this was wrong.
-		return nil, fmt.Errorf("failed to parse user config: %w", perr)
-	}
 	SetEmbeddingPullTimeout(pullTimeout)
 	SetImageRequestTimeout(imageTimeoutDuration(cfg.GetImageLLMConfig()))
 	SetObservationLimits(cfg.GetObservationConfig().Resolve())
 	SetClassificationHistory(cfg.GetClassificationConfig().Resolve())
 	SetArticulationConfig(cfg.GetArticulationConfig())
-	integFallback, ierr := cfg.GetIntegrations().ResolveDefaultTimeout()
-	if ierr != nil {
-		// Unreachable for the same reason.
-		return nil, fmt.Errorf("failed to parse user config: %w", ierr)
-	}
 	mcp.SetTransportTimeoutFallback(integFallback)
 	if cfg.LLMTimeouts != nil {
 		logging.Get(logging.CategoryBoot).Info(
@@ -1478,18 +1475,18 @@ func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 // BrowserAutomationConfig controls codeNERD's native Rod browser manager.
 type BrowserAutomationConfig struct {
 	Reaper              BrowserReaperConfig `json:"reaper,omitempty"`
-	DebuggerURL         string   `json:"debugger_url,omitempty"`
-	Launch              []string `json:"launch,omitempty"`
-	Headless            bool     `json:"headless,omitempty"`
-	ViewportWidth       int      `json:"viewport_width,omitempty"`
-	ViewportHeight      int      `json:"viewport_height,omitempty"`
-	NavigationTimeoutMs int      `json:"navigation_timeout_ms,omitempty"`
-	MultiTabDefault     *bool    `json:"multi_tab_default,omitempty"`
-	MaxTabs             int      `json:"max_tabs,omitempty"`
-	MaxBrowsers         int      `json:"max_browsers,omitempty"`
-	IdleTabTimeoutMs    int      `json:"idle_tab_timeout_ms,omitempty"`
-	ExtraSensitiveKeys  []string `json:"extra_sensitive_keys,omitempty"`
-	WritableRoots       []string `json:"writable_roots,omitempty"`
+	DebuggerURL         string              `json:"debugger_url,omitempty"`
+	Launch              []string            `json:"launch,omitempty"`
+	Headless            bool                `json:"headless,omitempty"`
+	ViewportWidth       int                 `json:"viewport_width,omitempty"`
+	ViewportHeight      int                 `json:"viewport_height,omitempty"`
+	NavigationTimeoutMs int                 `json:"navigation_timeout_ms,omitempty"`
+	MultiTabDefault     *bool               `json:"multi_tab_default,omitempty"`
+	MaxTabs             int                 `json:"max_tabs,omitempty"`
+	MaxBrowsers         int                 `json:"max_browsers,omitempty"`
+	IdleTabTimeoutMs    int                 `json:"idle_tab_timeout_ms,omitempty"`
+	ExtraSensitiveKeys  []string            `json:"extra_sensitive_keys,omitempty"`
+	WritableRoots       []string            `json:"writable_roots,omitempty"`
 	// CorrelationContainers names Docker containers whose logs are correlated
 	// with browser runtime errors during diagnosis (BP-25). Empty disables
 	// correlation. Correlation additionally requires "docker" in
@@ -1506,7 +1503,7 @@ type BrowserAutomationConfig struct {
 func DefaultBrowserAutomationConfig() BrowserAutomationConfig {
 	sharedTabs := true
 	return BrowserAutomationConfig{
-		Reaper:              DefaultBrowserReaperConfig(),
+		Reaper:               DefaultBrowserReaperConfig(),
 		ViewportWidth:        1920,
 		ViewportHeight:       1080,
 		NavigationTimeoutMs:  30000,

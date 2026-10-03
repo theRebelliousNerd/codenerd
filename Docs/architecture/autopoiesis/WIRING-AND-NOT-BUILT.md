@@ -105,6 +105,38 @@ subpackage.
 
 ## Wave 2 reconciliation (2026-09-25, verified against the code)
 
+## Required generated execution and durable feedback
+
+Generated wrapper binaries use explicit host-owned stdin JSON protocol metadata;
+legacy registered command binaries retain argv semantics. Unknown or inconsistent
+protocol/identity refuses before start, and transport fallback never retries an
+already-started process. Preserve partial output, typed errors, attempts, starts,
+and successes as distinct evidence.
+
+The normal session/VirtualStore/factory path must evaluate and automatically record
+one correlated learning outcome for every started live execution, including failed
+and canceled executions; pre-execution refusal records none. An acknowledged
+receipt means synchronous atomic publication of actual LearningStore data, proven
+by reopening it. Existing void/best-effort feedback is not that acknowledgment.
+Persistence failure is visible without rerunning the binary. Keep legacy feedback
+APIs as wrappers while adding error-returning production receipt behavior.
+
+Factory lifetime owns execution and refinement admission, cancellation, and join.
+Close stops admission and drains both before dependencies close. Tests must prove
+this with blocked execution/refinement, failed durability, duplicate admission,
+actual quality validation, and real boot/Process. Live-call deduplication does not
+claim durable replay or crash/restart exactly-once; those remain separate gaps.
+
+Typed execution and publication are implemented across
+`internal/types/generated_tool.go:31`,
+`internal/core/virtual_store_generated.go:14`, and
+`internal/system/factory_tool_executor.go:66`. Focused native and factory tests
+pass process/feedback failures, publication-only retry, live deduplication, and
+shutdown drain. `internal/system/factory_generated_feedback_test.go:500` also
+passes normal Boot/Process with an observed effect and reopened learning.
+This does not establish the ten broader production pipeline obligations, live
+model dogfooding, or durable crash/restart exactly-once.
+
 | Claim above | Classification | Evidence |
 |---|---|---|
 | `autopoiesis.go` is a stub whose modularization note is stale | fixed | Commit bdf2213: the per-file line counts and the `var _ = time.Now` import keeper are gone; the package doc names the files by concern and says where policy decisions cross the kernel. |

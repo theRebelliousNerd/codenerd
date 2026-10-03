@@ -465,8 +465,7 @@ func (k *RealKernel) Clone() *RealKernel {
 		// recorder (sharing it would race), lastEvaluation, undeclared
 		// warnings (re-warn on the clone is benign).
 	}
-	// Mirror atomic factsDirty state onto the clone (atomic.Bool can't be copied).
-	clone.factsDirty.Store(k.factsDirty.Load())
+	clone.factsDirty.Store(true)
 
 	// Deep copy facts
 	for i, f := range k.facts {

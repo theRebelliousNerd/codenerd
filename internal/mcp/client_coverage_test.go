@@ -384,6 +384,7 @@ func TestCallTool_WhenTransportFails_ShouldReturnError(t *testing.T) {
 		Server:    &MCPServer{ID: "srv"},
 		Transport: &mockTransport{connected: true, callErr: fmt.Errorf("transport error")},
 	}
+	installRemoteAuthorityFixture(t, mgr, map[string]RemoteEffect{"srv/tool": RemoteRead})
 
 	_, err := mgr.CallTool(context.Background(), "srv/tool", nil)
 	if err == nil {

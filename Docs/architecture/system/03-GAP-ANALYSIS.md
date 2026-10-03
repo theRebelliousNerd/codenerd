@@ -72,3 +72,22 @@ path as exact reverse-order ownership metadata.
 - Global boot serialization is acceptable until measured multi-workspace
   contention proves otherwise.
 - System should not absorb Mangle policy, prompt atoms, tool handlers, or UI.
+
+## Prompt snapshot adapter obligation
+
+The production KernelAdapter and its owned compilation scopes must expose a
+complete `QueryAll` fact snapshot in prompt types for dynamic cache identity.
+Delegate to the adapter's kernel, propagate errors, and detach returned map,
+row, and argument-slice ownership. A scope queries its cloned kernel, not the
+live executive. This closes the factory-side dependency of
+GAP-PROMPT-DYNAMIC-CACHE-IDENTITY; a compiler-only test cannot prove this wiring.
+Verify nil/error behavior, real declared facts, returned-slice isolation, and an
+existing scope retaining its original evidence after the live kernel changes.
+
+The adapter is implemented in `internal/system/factory_adapter_snapshot.go:16`.
+Real-kernel acceptance in `internal/system/factory_adapter_snapshot_test.go:101`
+passes clone retention, detached ownership, private mutation, closed-scope, and
+fresh-scope controls. A clean parent requires first-read materialization in
+`internal/core/kernel_eval.go:428`; copying its clean flag into an empty clone
+store loses evidence. Neither this adapter nor the component tests establish
+all factory integrations or multi-workspace policy isolation.

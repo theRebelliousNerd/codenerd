@@ -14,18 +14,21 @@ import (
 // GlassBoxEventBus collects events from multiple sources and dispatches to subscribers.
 // It uses batching to reduce UI churn and sequence numbers for proper ordering.
 type GlassBoxEventBus struct {
+	// Operations needing both locks take bufferMu before mu.
 	mu          sync.RWMutex
 	subscribers []chan<- GlassBoxEvent
 	enabled     atomic.Bool
+	closed      bool
 
 	// Batching configuration
 	batchWindow time.Duration // Time window for collecting events before dispatch
 	batchLimit  int           // Max events per batch
 
 	// Event buffer for batching
-	buffer     []GlassBoxEvent
-	bufferMu   sync.Mutex
-	flushTimer *time.Timer
+	buffer       []GlassBoxEvent
+	bufferMu     sync.Mutex
+	flushTimer   *time.Timer
+	flushWorkers sync.WaitGroup
 
 	// Temporal ordering
 	sequence atomic.Uint64
@@ -83,6 +86,13 @@ func (b *GlassBoxEventBus) AddSink(sink EventSink) {
 		return
 	}
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		if closer, ok := sink.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		return
+	}
 	b.sinks = append(b.sinks, sink)
 	b.mu.Unlock()
 }
@@ -106,14 +116,21 @@ func (b *GlassBoxEventBus) dispatchLocked(event GlassBoxEvent) {
 
 // Enable activates the event bus.
 func (b *GlassBoxEventBus) Enable() {
-	b.enabled.Store(true)
+	b.bufferMu.Lock()
+	b.mu.RLock()
+	if !b.closed {
+		b.enabled.Store(true)
+	}
+	b.mu.RUnlock()
+	b.bufferMu.Unlock()
 }
 
 // Disable deactivates the event bus.
 func (b *GlassBoxEventBus) Disable() {
+	b.bufferMu.Lock()
 	b.enabled.Store(false)
-	// Flush any pending events
-	b.Flush()
+	b.flushLocked()
+	b.bufferMu.Unlock()
 }
 
 // IsEnabled returns true if the event bus is active.
@@ -190,7 +207,11 @@ func (b *GlassBoxEventBus) ToggleCategory(c GlassBoxCategory) []GlassBoxCategory
 func (b *GlassBoxEventBus) Subscribe() <-chan GlassBoxEvent {
 	ch := make(chan GlassBoxEvent, 512)
 	b.mu.Lock()
-	b.subscribers = append(b.subscribers, ch)
+	if b.closed {
+		close(ch)
+	} else {
+		b.subscribers = append(b.subscribers, ch)
+	}
 	b.mu.Unlock()
 	return ch
 }
@@ -217,71 +238,57 @@ func (b *GlassBoxEventBus) Unsubscribe(ch <-chan GlassBoxEvent) {
 // When verbose (full debug stream) is on, events dispatch immediately so
 // the chat shows live activity with no batch delay.
 func (b *GlassBoxEventBus) Emit(event GlassBoxEvent) {
+	b.emit(event, false)
+}
+
+func (b *GlassBoxEventBus) emit(event GlassBoxEvent, immediate bool) {
 	if !b.enabled.Load() {
 		return
 	}
-
-	// Verbose full-stream: skip batching — user wants live chat telemetry.
-	if b.IsVerbose() {
-		b.EmitImmediate(event)
-		return
-	}
-
-	// Apply category filter
+	b.bufferMu.Lock()
+	defer b.bufferMu.Unlock()
 	b.mu.RLock()
-	if len(b.categories) > 0 && !b.categories[event.Category] {
+	if b.closed || !b.enabled.Load() || (len(b.categories) > 0 && !b.categories[event.Category]) {
 		b.mu.RUnlock()
 		return
 	}
-	b.mu.RUnlock()
-
-	// Assign sequence number for ordering
 	event.ID = b.sequence.Add(1)
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
 	}
-
-	b.bufferMu.Lock()
+	if immediate || b.verbose {
+		b.dispatchLocked(event)
+		b.mu.RUnlock()
+		return
+	}
+	b.mu.RUnlock()
 	b.buffer = append(b.buffer, event)
-
-	// Flush if batch limit reached, else start timer
 	if len(b.buffer) >= b.batchLimit {
 		b.flushLocked()
 	} else if b.flushTimer == nil {
-		b.flushTimer = time.AfterFunc(b.batchWindow, func() {
-			b.bufferMu.Lock()
-			b.flushLocked()
-			b.bufferMu.Unlock()
-		})
+		b.startFlushTimerLocked()
 	}
-	b.bufferMu.Unlock()
+}
+
+func (b *GlassBoxEventBus) startFlushTimerLocked() {
+	b.flushWorkers.Add(1)
+	var timer *time.Timer
+	timer = time.AfterFunc(b.batchWindow, func() {
+		defer b.flushWorkers.Done()
+		b.bufferMu.Lock()
+		defer b.bufferMu.Unlock()
+		if b.flushTimer == timer {
+			b.flushTimer = nil
+			b.flushLocked()
+		}
+	})
+	b.flushTimer = timer
 }
 
 // EmitImmediate sends an event immediately without batching.
 // Use for high-priority events that should appear instantly.
 func (b *GlassBoxEventBus) EmitImmediate(event GlassBoxEvent) {
-	if !b.enabled.Load() {
-		return
-	}
-
-	// Apply category filter
-	b.mu.RLock()
-	if len(b.categories) > 0 && !b.categories[event.Category] {
-		b.mu.RUnlock()
-		return
-	}
-	b.mu.RUnlock()
-
-	// Assign sequence number
-	event.ID = b.sequence.Add(1)
-	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now()
-	}
-
-	// Dispatch directly
-	b.mu.RLock()
-	b.dispatchLocked(event)
-	b.mu.RUnlock()
+	b.emit(event, true)
 }
 
 // Flush dispatches all buffered events immediately.
@@ -293,13 +300,14 @@ func (b *GlassBoxEventBus) Flush() {
 
 // flushLocked sends buffered events (must hold bufferMu).
 func (b *GlassBoxEventBus) flushLocked() {
+	if b.flushTimer != nil {
+		if b.flushTimer.Stop() {
+			b.flushWorkers.Done()
+		}
+		b.flushTimer = nil
+	}
 	if len(b.buffer) == 0 {
 		return
-	}
-
-	if b.flushTimer != nil {
-		b.flushTimer.Stop()
-		b.flushTimer = nil
 	}
 
 	// Sort by sequence number for proper ordering
@@ -334,10 +342,11 @@ func (b *GlassBoxEventBus) ClearTurn(turnID int) {
 
 // Close shuts down the event bus and all subscriber channels.
 func (b *GlassBoxEventBus) Close() {
-	b.Disable()
-
+	b.bufferMu.Lock()
+	b.enabled.Store(false)
+	b.flushLocked()
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.closed = true
 
 	for _, sub := range b.subscribers {
 		close(sub)
@@ -352,12 +361,15 @@ func (b *GlassBoxEventBus) Close() {
 		}
 	}
 	b.sinks = nil
+	b.mu.Unlock()
+	b.bufferMu.Unlock()
+	b.flushWorkers.Wait()
 }
 
 // Stats returns current event bus statistics.
 func (b *GlassBoxEventBus) Stats() GlassBoxBusStats {
-	b.mu.RLock()
 	b.bufferMu.Lock()
+	b.mu.RLock()
 	defer b.bufferMu.Unlock()
 	defer b.mu.RUnlock()
 

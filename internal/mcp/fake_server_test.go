@@ -409,6 +409,9 @@ func TestManager_WhenServerExposesResources_ShouldDiscoverAndEmitFacts(t *testin
 		t.Fatalf("unexpected resources: %+v", resources)
 	}
 
+	authority := installRemoteAuthorityFixture(t, manager, nil)
+	manager.factEmitter().kernel = &observedAuthorityKernel{KernelInterface: authority, recorder: kernel}
+	reviewRemoteFixtureSubject(t, manager, RemoteResource, ResourceAuthorityTool("fake", resources[0]))
 	contents, err := manager.ReadResource(ctx, "fake", resources[0].URI)
 	if err != nil {
 		t.Fatalf("ReadResource: %v", err)
@@ -430,6 +433,7 @@ func TestManager_WhenServerExposesResources_ShouldDiscoverAndEmitFacts(t *testin
 
 	// The wire format allows string or typed-block content; both must
 	// normalize to text.
+	reviewRemoteFixtureSubject(t, manager, RemotePrompt, PromptAuthorityTool("fake", prompts[0]))
 	messages, err := manager.GetPrompt(ctx, "fake", "summarize", map[string]string{"path": "main.go"})
 	if err != nil {
 		t.Fatalf("GetPrompt: %v", err)

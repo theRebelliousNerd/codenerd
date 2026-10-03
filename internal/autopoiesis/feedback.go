@@ -20,6 +20,9 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/atomicfile"
+	"codenerd/internal/types"
+
 	"codenerd/internal/logging"
 )
 
@@ -30,14 +33,25 @@ import (
 // ExecutionFeedback captures everything about a tool execution
 type ExecutionFeedback struct {
 	// Identity
-	ToolName    string    `json:"tool_name"`
-	ExecutionID string    `json:"execution_id"`
-	Timestamp   time.Time `json:"timestamp"`
+	ToolName           string    `json:"tool_name"`
+	ExecutionID        string    `json:"execution_id"`
+	RequestFingerprint string    `json:"request_fingerprint,omitempty"`
+	Timestamp          time.Time `json:"timestamp"`
 
 	// Input/Output
-	Input      string `json:"input"`
-	Output     string `json:"output"`
-	OutputSize int    `json:"output_size"`
+	Input               string `json:"input"`
+	Output              string `json:"output"`
+	OutputSize          int    `json:"output_size"`
+	ProcessStarted      bool   `json:"process_started,omitempty"`
+	ExitCode            int    `json:"exit_code,omitempty"`
+	Stdout              string `json:"stdout,omitempty"`
+	Stderr              string `json:"stderr,omitempty"`
+	PartialOutput       bool   `json:"partial_output,omitempty"`
+	OutputTruncated     bool   `json:"output_truncated,omitempty"`
+	BackendError        string `json:"backend_error,omitempty"`
+	ValidationError     string `json:"validation_error,omitempty"`
+	ValidationCompleted bool   `json:"validation_completed,omitempty"`
+	ValidationPassed    bool   `json:"validation_passed,omitempty"`
 
 	// Performance
 	Duration   time.Duration `json:"duration"`
@@ -351,9 +365,19 @@ Fix root causes without inventing unrelated features. Return clean, idiomatic Go
 
 // LearningStore persists tool learnings for future reference
 type LearningStore struct {
-	mu        sync.RWMutex
-	storePath string
-	learnings map[string]*ToolLearning
+	mu         sync.RWMutex
+	storePath  string
+	learnings  map[string]*ToolLearning
+	executions map[string]types.GeneratedLearningAck
+	feedback   map[string]ExecutionFeedback
+	loadErr    error
+}
+
+type durableLearningSnapshot struct {
+	Version    int                                   `json:"version"`
+	Learnings  map[string]*ToolLearning              `json:"learnings"`
+	Executions map[string]types.GeneratedLearningAck `json:"executions"`
+	Feedback   map[string]ExecutionFeedback          `json:"feedback"`
 }
 
 // ToolLearning contains all learnings about a tool
@@ -374,8 +398,10 @@ type ToolLearning struct {
 func NewLearningStore(storePath string) *LearningStore {
 	logging.AutopoiesisDebug("Creating LearningStore: path=%s", storePath)
 	store := &LearningStore{
-		storePath: storePath,
-		learnings: make(map[string]*ToolLearning),
+		storePath:  storePath,
+		learnings:  make(map[string]*ToolLearning),
+		executions: make(map[string]types.GeneratedLearningAck),
+		feedback:   make(map[string]ExecutionFeedback),
 	}
 	store.load()
 	logging.Autopoiesis("LearningStore initialized with %d existing learnings", len(store.learnings))
@@ -389,23 +415,65 @@ const maxLearningListLen = 100
 
 // RecordLearning updates learnings for a tool
 func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeedback, patterns []*DetectedPattern) {
+	if feedback == nil || strings.TrimSpace(toolName) == "" {
+		return
+	}
+	copyFeedback := *feedback
+	if copyFeedback.ExecutionID == "" {
+		copyFeedback.ExecutionID = fmt.Sprintf("legacy-%d", time.Now().UnixNano())
+	}
+	if copyFeedback.RequestFingerprint == "" {
+		copyFeedback.RequestFingerprint = copyFeedback.ExecutionID
+	}
+	if _, err := ls.RecordLearningDurable(context.Background(), toolName, &copyFeedback, patterns); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Tool learning was not acknowledged: %v", err)
+	}
+}
+
+// RecordLearningDurable serializes mutation and publication in one transaction.
+// Its receipt survives reopen; an unsuccessful publication never updates memory.
+func (ls *LearningStore) RecordLearningDurable(ctx context.Context, toolName string, feedback *ExecutionFeedback, patterns []*DetectedPattern) (ack types.GeneratedLearningAck, err error) {
 	// Guard: nil feedback would panic on feedback.Success below.
 	if feedback == nil {
 		logging.AutopoiesisDebug("RecordLearning: nil feedback, skipping (tool=%q)", toolName)
-		return
+		return ack, fmt.Errorf("nil execution feedback")
 	}
 	// Guard: empty toolName produces useless empty-key entries.
 	if strings.TrimSpace(toolName) == "" {
 		logging.AutopoiesisDebug("RecordLearning: empty toolName, skipping")
-		return
+		return ack, fmt.Errorf("empty feedback tool name")
+	}
+	if feedback.ExecutionID == "" || feedback.RequestFingerprint == "" {
+		return ack, fmt.Errorf("missing feedback identity")
+	}
+	if err := ctx.Err(); err != nil {
+		return ack, err
 	}
 
 	logging.AutopoiesisDebug("Recording learning for tool: %s (success=%v)", toolName, feedback.Success)
 
 	ls.mu.Lock()
-	// Lock is manually unlocked before disk I/O, so NO defer ls.mu.Unlock() here!
-
-	learning, exists := ls.learnings[toolName]
+	defer ls.mu.Unlock()
+	if ls.loadErr != nil {
+		return ack, ls.loadErr
+	}
+	if prior, ok := ls.executions[feedback.ExecutionID]; ok {
+		if prior.Fingerprint != feedback.RequestFingerprint {
+			return ack, fmt.Errorf("conflicting feedback identity")
+		}
+		prior.Replayed = true
+		return prior, nil
+	}
+	previous := ls.learnings
+	encodedPrevious, err := json.Marshal(previous)
+	if err != nil {
+		return ack, err
+	}
+	staged := make(map[string]*ToolLearning)
+	if err := json.Unmarshal(encodedPrevious, &staged); err != nil {
+		return ack, err
+	}
+	learning, exists := staged[toolName]
 	if !exists {
 		logging.AutopoiesisDebug("Creating new learning record for tool: %s", toolName)
 		learning = &ToolLearning{
@@ -416,7 +484,7 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 			BestPractices: []string{},
 			AntiPatterns:  []string{},
 		}
-		ls.learnings[toolName] = learning
+		staged[toolName] = learning
 	}
 
 	// Update statistics
@@ -456,7 +524,7 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 	// Extract anti-patterns from patterns (capped to prevent unbounded growth)
 	newPatterns := 0
 	for _, p := range patterns {
-		if p.Confidence > 0.7 {
+		if p != nil && p.Confidence > 0.7 {
 			antiPattern := fmt.Sprintf("%s: %s", p.IssueType, p.PatternID)
 			if !contains(learning.AntiPatterns, antiPattern) {
 				if len(learning.AntiPatterns) >= maxLearningListLen {
@@ -474,24 +542,93 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 
 	learning.UpdatedAt = time.Now()
 
-	// Marshal data while holding the lock
-	data, err := json.MarshalIndent(ls.learnings, "", "  ")
-	ls.mu.Unlock()
-
-	// Write to disk without holding the lock
-	if err == nil {
-		ls.saveBytes(data)
+	ack = types.GeneratedLearningAck{ExecutionID: feedback.ExecutionID, Fingerprint: feedback.RequestFingerprint,
+		Path: filepath.Join(ls.storePath, "tool_learnings.json"), CommittedAt: time.Now(), Durable: true}
+	executions := make(map[string]types.GeneratedLearningAck, len(ls.executions)+1)
+	for key, value := range ls.executions {
+		executions[key] = value
 	}
+	executions[feedback.ExecutionID] = ack
+	records := make(map[string]ExecutionFeedback, len(ls.feedback)+1)
+	for key, value := range ls.feedback {
+		records[key] = value
+	}
+	record := *feedback
+	if record.Quality != nil && (math.IsNaN(record.Quality.Score) || math.IsInf(record.Quality.Score, 0)) {
+		record.Quality = nil
+	}
+	recordBytes, err := json.Marshal(record)
+	if err != nil {
+		return types.GeneratedLearningAck{}, err
+	}
+	record = ExecutionFeedback{}
+	if err = json.Unmarshal(recordBytes, &record); err != nil {
+		return types.GeneratedLearningAck{}, err
+	}
+	records[feedback.ExecutionID] = record
+	data, err := json.MarshalIndent(durableLearningSnapshot{Version: 2, Learnings: staged, Executions: executions, Feedback: records}, "", "  ")
+	if err != nil {
+		return types.GeneratedLearningAck{}, err
+	}
+	if err = ctx.Err(); err != nil {
+		return types.GeneratedLearningAck{}, err
+	}
+	if err = ls.saveBytes(data); err != nil {
+		return types.GeneratedLearningAck{}, err
+	}
+	ls.learnings, ls.executions, ls.feedback = staged, executions, records
 
 	logging.Autopoiesis("Learning recorded for %s: executions=%d, successRate=%.2f, avgQuality=%.2f",
 		toolName, learning.TotalExecutions, learning.SuccessRate, learning.AverageQuality)
+	return ack, nil
 }
 
 // GetLearning retrieves learnings for a tool
 func (ls *LearningStore) GetLearning(toolName string) *ToolLearning {
 	ls.mu.RLock()
 	defer ls.mu.RUnlock()
-	return ls.learnings[toolName]
+	learning := ls.learnings[toolName]
+	if learning == nil {
+		return nil
+	}
+	clone := *learning
+	clone.KnownIssues = slices.Clone(learning.KnownIssues)
+	clone.AppliedFixes = slices.Clone(learning.AppliedFixes)
+	clone.BestPractices = slices.Clone(learning.BestPractices)
+	clone.AntiPatterns = slices.Clone(learning.AntiPatterns)
+	return &clone
+}
+
+func (ls *LearningStore) ExecutionAcknowledgment(id string) (types.GeneratedLearningAck, bool) {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+	ack, ok := ls.executions[id]
+	return ack, ok
+}
+
+func (ls *LearningStore) DurabilityError() error {
+	if ls == nil {
+		return fmt.Errorf("learning store unavailable")
+	}
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+	return ls.loadErr
+}
+
+func (ls *LearningStore) ExecutionFeedback(id string) (ExecutionFeedback, bool) {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+	record, ok := ls.feedback[id]
+	// Return a deep copy so recall cannot mutate the durable snapshot.
+	data, err := json.Marshal(record)
+	if err != nil {
+		return ExecutionFeedback{}, false
+	}
+	var clone ExecutionFeedback
+	if json.Unmarshal(data, &clone) != nil {
+		return ExecutionFeedback{}, false
+	}
+	return clone, ok
 }
 
 // GetAllLearnings returns all tool learnings
@@ -551,16 +688,31 @@ func (ls *LearningStore) load() {
 	path := filepath.Join(ls.storePath, "tool_learnings.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return // File doesn't exist yet
+		if !os.IsNotExist(err) {
+			ls.loadErr = err
+		}
+		return
 	}
 
 	loaded := make(map[string]*ToolLearning)
-	if err := json.Unmarshal(data, &loaded); err != nil {
+	var snapshot durableLearningSnapshot
+	decodeErr := json.Unmarshal(data, &snapshot)
+	if decodeErr == nil && snapshot.Version == 2 {
+		loaded = snapshot.Learnings
+		if loaded == nil || snapshot.Executions == nil || snapshot.Feedback == nil {
+			decodeErr = fmt.Errorf("incomplete durable learning snapshot")
+		}
+	} else {
+		decodeErr = json.Unmarshal(data, &loaded)
+	}
+	if decodeErr != nil {
+		ls.loadErr = fmt.Errorf("durable learning requires recovery: %w", decodeErr)
 		quarantine := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
 		logging.Get(logging.CategoryAutopoiesis).Error(
 			"Tool learning store %s is corrupt (%d bytes); everything learned about every tool would be silently forgotten, so it is preserved at %s: %v",
-			path, len(data), quarantine, err)
+			path, len(data), quarantine, decodeErr)
 		if renameErr := os.Rename(path, quarantine); renameErr != nil {
+			ls.loadErr = fmt.Errorf("durable learning recovery failed: %v: %w", decodeErr, renameErr)
 			logging.Get(logging.CategoryAutopoiesis).Error(
 				"Could not preserve the corrupt learning store %s; the next save will overwrite it: %v", path, renameErr)
 		}
@@ -568,28 +720,23 @@ func (ls *LearningStore) load() {
 	}
 
 	for name, learning := range loaded {
+		if learning == nil {
+			ls.loadErr = fmt.Errorf("nil tool learning %q", name)
+			return
+		}
 		ls.learnings[name] = learning
+	}
+	if snapshot.Version == 2 {
+		ls.executions, ls.feedback = snapshot.Executions, snapshot.Feedback
 	}
 }
 
 // saveBytes writes the pre-marshaled learnings to disk
-func (ls *LearningStore) saveBytes(data []byte) {
+func (ls *LearningStore) saveBytes(data []byte) error {
 	if err := os.MkdirAll(ls.storePath, 0755); err != nil {
-		return
+		return err
 	}
-
-	path := filepath.Join(ls.storePath, "tool_learnings.json")
-	tmpPath := path + ".tmp"
-
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return
-	}
-
-	// Best-effort atomic swap.
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(path)
-		_ = os.Rename(tmpPath, path)
-	}
+	return atomicfile.WriteFile(filepath.Join(ls.storePath, "tool_learnings.json"), data, 0600)
 }
 
 // =============================================================================

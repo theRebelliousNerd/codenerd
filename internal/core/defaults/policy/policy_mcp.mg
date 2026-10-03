@@ -38,6 +38,91 @@ mcp_shard_type(/researcher).
 mcp_shard_type(/generalist).
 mcp_shard_type(/specialist).
 
+mcp_remote_effect_action(/read, /read_file).
+mcp_remote_effect_action(/write, /write_file).
+mcp_remote_effect_action(/delete, /delete_file).
+mcp_remote_effect_action(/execute, /run_arbitrary_command).
+
+mcp_remote_subject_current(ServerID, ToolID, SchemaHash, /tool) :-
+    mcp_tool_registered(ToolID, ServerID, _),
+    mcp_tool_name(ToolID, _),
+    mcp_tool_risk(ToolID, _),
+    mcp_tool_risk_source(ToolID, _),
+    mcp_tool_schema_hash(ToolID, SchemaHash),
+    !mcp_remote_metadata_conflict(ToolID).
+mcp_remote_subject_current(ServerID, SubjectID, SchemaHash, /resource) :-
+    mcp_remote_resource(ServerID, SubjectID, URI, SchemaHash),
+    mcp_resource_registered(ServerID, URI).
+mcp_remote_subject_current(ServerID, SubjectID, SchemaHash, /prompt) :-
+    mcp_remote_prompt(ServerID, SubjectID, PromptName, SchemaHash),
+    mcp_prompt_registered(ServerID, PromptName).
+
+mcp_remote_metadata_conflict(ToolID) :-
+    mcp_tool_registered(ToolID, ServerID, _),
+    mcp_tool_registered(ToolID, OtherServerID, _),
+    ServerID != OtherServerID.
+mcp_remote_metadata_conflict(ToolID) :-
+    mcp_tool_risk(ToolID, Risk),
+    mcp_tool_risk(ToolID, OtherRisk),
+    Risk != OtherRisk.
+mcp_remote_metadata_conflict(ToolID) :-
+    mcp_tool_schema_hash(ToolID, SchemaHash),
+    mcp_tool_schema_hash(ToolID, OtherSchemaHash),
+    SchemaHash != OtherSchemaHash.
+mcp_remote_metadata_conflict(ToolID) :-
+    mcp_tool_name(ToolID, Name),
+    mcp_tool_name(ToolID, OtherName),
+    Name != OtherName.
+mcp_remote_metadata_conflict(ToolID) :-
+    mcp_tool_risk_source(ToolID, Source),
+    mcp_tool_risk_source(ToolID, OtherSource),
+    Source != OtherSource.
+mcp_remote_server_conflict(ServerID) :-
+    mcp_server_status(ServerID, Status),
+    mcp_server_status(ServerID, OtherStatus),
+    Status != OtherStatus.
+mcp_remote_server_conflict(ServerID) :-
+    mcp_server_registered(ServerID, Endpoint, _, _),
+    mcp_server_registered(ServerID, OtherEndpoint, _, _),
+    Endpoint != OtherEndpoint.
+mcp_remote_server_conflict(ServerID) :-
+    mcp_server_registered(ServerID, _, Protocol, _),
+    mcp_server_registered(ServerID, _, OtherProtocol, _),
+    Protocol != OtherProtocol.
+
+mcp_remote_confirmation_required(RequestID) :-
+    mcp_remote_request(RequestID, _, _, _, _, _, /delete, _, _, _, _, _, _).
+mcp_remote_confirmation_required(RequestID) :-
+    mcp_remote_request(RequestID, _, _, _, _, _, /execute, _, _, _, _, _, _).
+mcp_remote_confirmation_required(RequestID) :-
+    mcp_remote_request(RequestID, _, _, _, _, _, _, _, _, _, _, /destructive, _).
+mcp_remote_confirmation_required(RequestID) :-
+    mcp_remote_request(RequestID, _, _, _, _, _, _, _, _, _, _, /arbitrary, _).
+mcp_remote_confirmation_required(RequestID) :-
+    mcp_remote_request(RequestID, _, _, _, ToolID, _, _, _, _, _, _, /mutating, _),
+    mcp_tool_risk_source(ToolID, /default).
+
+mcp_remote_confirmation_satisfied(RequestID) :-
+    mcp_remote_request(RequestID, _, _, _, _, _, _, _, _, _, _, _, /true).
+mcp_remote_confirmation_satisfied(RequestID) :-
+    mcp_remote_request(RequestID, _, _, _, _, _, _, _, _, _, _, _, _),
+    !mcp_remote_confirmation_required(RequestID).
+
+mcp_remote_permitted(RequestID, Scope, CallID, ServerID, ToolID, SchemaHash, ArgsDigest) :-
+    mcp_remote_request(RequestID, Scope, CallID, ServerID, ToolID, SchemaHash, Effect, Action, Target, Payload, ArgsDigest, _, _),
+    mcp_remote_reviewed(RequestID, ServerID, ToolID, SchemaHash, Effect),
+    mcp_remote_effect_action(Effect, Action),
+    mcp_server_registered(ServerID, _, _, _),
+    mcp_server_status(ServerID, /connected),
+    !mcp_remote_server_conflict(ServerID),
+    mcp_remote_operation(RequestID, Operation),
+    mcp_remote_subject_current(ServerID, ToolID, SchemaHash, Operation),
+    pending_action(RequestID, Action, Target, Payload, _),
+    permitted(Action, Target, Payload),
+    mcp_remote_confirmation_satisfied(RequestID).
+
+exec_sink(/mcp_remote_permitted).
+
 # Any shard the static tool-routing table knows about is also a valid MCP
 # selection target, so a new shard type only has to be declared in one place.
 mcp_shard_type(ShardType) :-

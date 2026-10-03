@@ -1201,7 +1201,7 @@ func NewLearnedCorpusStoreWithContext(ctx context.Context, cfg *config.UserConfi
 	}
 
 	dbPath := SharedTaxonomy.nerdPath("learned_patterns.db")
-	backend, err := storepkg.NewLearnedCorpusStore(dbPath, embedEngine)
+	backend, err := storepkg.NewLearnedCorpusStoreWithContext(ctx, dbPath, embedEngine)
 	if err != nil {
 		return nil, err
 	}

@@ -13,7 +13,13 @@
 - `/init --force` preserves curated `.nerd/agents/*/prompts.yaml` files even when their knowledge database is absent. Invalid existing atoms produce an actionable error.
 - Specialist generation uses the configured provider deadline, bounded by the caller context. Keep task metadata separate from JIT system guidance and count actual provider calls, including failures.
 - The initializer owns one cached JIT compiler backed by its Mangle kernel. Each compilation uses an isolated scope; close the compiler with the initializer.
+- The initializer's adapter and scopes expose QueryAll against their owned
+  kernel, with detached fact containers. Keep this contract aligned with the
+  system and north-star adapters when prompt cache identity changes.
 - Disk-discovered experts need the unified knowledge schema before prompt synchronization. Empty knowledge remains explicitly empty; do not create synthetic research to satisfy population counts.
+- Ecosystem atom persistence opens through the shared hot SQLite pragma profile
+  and uses that same handle for AtomLoader. Verify the actual persisted file and
+  preserved atom identity, not a separately configured inspection connection.
 - No-documentation responses are failures, never knowledge atoms. Prompt synchronization errors must reach the initialization result.
 - Validate with focused generation, kernel, discovery and prompt-reload regressions; root owns the complete repository integration gate after concurrent authors finish.
 

@@ -103,4 +103,37 @@ Tracer logs look production-like but are simulator-generated. Document as **synt
 | README lists 6 integration scenarios | Code has **7** (includes feedback learning) |
 | CLI Long lists 6 integration scenarios | Omits `context-feedback-learning` |
 
-Architecture corpus should track **code**, not the older README sample report.
+Current-state inventories must track actual source rather than older sample
+reports. Intended testing capabilities remain specification obligations even
+when no current source exercises them.
+
+## Production pipeline witnesses, without retiring unproved obligations
+
+GAP-TESTING-08-01 requires real BootCortexWithConfig and Executor.Process tests,
+with actual kernel, VirtualStore, generated execution, validation, and factory
+learning persistence. A deterministic injected model is acceptable; replacing
+those product components or manually recording feedback is not. Keep the ten
+original obligations and their existing assertions until replacement behavior is
+independently accepted. Forty duplicate undeclared-fact cases do not substitute
+for actual turn execution. Check exact declared baseline tuples before and after.
+
+Prove successful literal effect plus reopened learning, malformed-control refusal,
+admitted cancellation and drain, distinct concurrent request isolation, actual
+oversized-input refusal, panic containment at a real component seam, failure then
+recovery, exact data integrity, five distinct turns, and partial failure preserving
+baseline. Count effects and acknowledgments; disconnect execution/feedback to
+prove the witness fails rather than passing vacuously. Do not weaken schemas,
+permissions, production limits, or existing assertions. Unproved concurrency,
+oversize, and articulation-panic contracts stay open instead of being replaced by
+easier recorder/component tests. Test authoring alone does not close this gap.
+
+The production witnesses in
+`tests/e2e/production_generated_pipeline_test.go:722` remain red. The normal
+write-intent turn omits the registered generated tool from its compiled catalog,
+so the positive process/effect/learning witness does not execute. Cancellation
+and concurrency cases cannot reach native admission, and the articulation panic
+injection is not reached. This is an upstream reachability gap, not evidence
+that those downstream contracts passed or failed after admission. Preserve all
+obligations and controls; repair the real catalog path before judging downstream
+behavior. Component Boot/Process acceptance with an explicitly configured
+analysis persona does not substitute for this write-intent entry path.

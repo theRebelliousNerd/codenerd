@@ -49,6 +49,7 @@ func TestConcurrentDiscoverAndCall_WhenRacing_ShouldNotCorruptState(t *testing.T
 	if err := manager.DiscoverTools(ctx, "srv"); err != nil {
 		t.Fatalf("initial DiscoverTools: %v", err)
 	}
+	installRemoteAuthorityFixture(t, manager, map[string]RemoteEffect{"srv/alpha": RemoteRead})
 
 	var wg sync.WaitGroup
 

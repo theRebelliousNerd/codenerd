@@ -29,10 +29,12 @@ type initJITKernelAdapter struct {
 }
 
 var (
-	_ prompt.KernelQuerier          = (*initJITKernelAdapter)(nil)
-	_ prompt.KernelRetracter        = (*initJITKernelAdapter)(nil)
-	_ prompt.KernelScopeProvider    = (*initJITKernelAdapter)(nil)
-	_ prompt.KernelCompilationScope = (*initJITCompilationScope)(nil)
+	_ prompt.KernelFactSnapshotQuerier = (*initJITKernelAdapter)(nil)
+	_ prompt.KernelFactSnapshotQuerier = (*initJITCompilationScope)(nil)
+	_ prompt.KernelQuerier             = (*initJITKernelAdapter)(nil)
+	_ prompt.KernelRetracter           = (*initJITKernelAdapter)(nil)
+	_ prompt.KernelScopeProvider       = (*initJITKernelAdapter)(nil)
+	_ prompt.KernelCompilationScope    = (*initJITCompilationScope)(nil)
 )
 
 // newInitJITKernelAdapter wraps a non-nil *core.RealKernel.
@@ -41,6 +43,27 @@ func newInitJITKernelAdapter(kernel *core.RealKernel) *initJITKernelAdapter {
 }
 
 // Query converts []core.Fact to []prompt.Fact.
+func (adapter *initJITKernelAdapter) QueryAll() (map[string][]prompt.Fact, error) {
+	if adapter == nil || adapter.kernel == nil {
+		return nil, fmt.Errorf("init JIT kernel adapter has nil kernel")
+	}
+	facts, err := adapter.kernel.QueryAll()
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string][]prompt.Fact, len(facts))
+	for predicate, rows := range facts {
+		converted := make([]prompt.Fact, len(rows))
+		for index, fact := range rows {
+			arguments := make([]any, len(fact.Args))
+			copy(arguments, fact.Args)
+			converted[index] = prompt.Fact{Predicate: fact.Predicate, Args: arguments}
+		}
+		result[predicate] = converted
+	}
+	return result, nil
+}
+
 func (a *initJITKernelAdapter) Query(predicate string) ([]prompt.Fact, error) {
 	if a == nil || a.kernel == nil {
 		return nil, fmt.Errorf("init JIT kernel adapter has nil kernel")

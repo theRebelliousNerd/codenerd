@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/build"
 	"codenerd/internal/logging"
+	"codenerd/internal/processutil"
 	"codenerd/internal/tools"
 )
 
@@ -441,12 +442,19 @@ func runGoTests(ctx context.Context, projectRoot string, packages []string, time
 	cmd.Dir = projectRoot
 	cmd.Env = env
 
-	output, err := cmd.CombinedOutput()
+	output, err := processutil.CombinedOutput(cmd)
+	if err == nil && ctx.Err() != nil {
+		err = ctx.Err()
+	}
 	// The only place this tool runs a test: a dry run, an empty selection
 	// and a call with no known edit return before here, and none of them is
 	// a test execution.
 	if cmd.ProcessState != nil {
-		tools.RecordTestRun(ctx, tools.TestRun{Argv: cmd.Args, ExitCode: cmd.ProcessState.ExitCode()})
+		exitCode := cmd.ProcessState.ExitCode()
+		if err != nil && exitCode == 0 {
+			exitCode = -1
+		}
+		tools.RecordTestRun(ctx, tools.TestRun{Argv: cmd.Args, ExitCode: exitCode})
 	}
 
 	var result strings.Builder

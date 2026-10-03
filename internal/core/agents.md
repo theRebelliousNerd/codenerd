@@ -6,6 +6,9 @@
 - Per-shard trace statistics must come from one exact shard-filtered aggregate. Do not reconstruct them from global averages, top-N maps, success rates, or minimum-sample reports.
 - `HydrateSessionContext` requires `types.KernelTransactor`. Query failures commit the fresh partial snapshot to clear stale context and return a warning with the committed count; commit failures return count zero.
 - Keep dynamic context replacement atomic and fail closed at constitutional action boundaries.
+- A clone's fresh fact store must evaluate on its first read, even when its
+  parent is clean. Test QueryAll before any private assertion; asserting first
+  hides a missing initial materialization.
 - RuleCourt candidate kernels must carry the sandbox marker: a rejected proposed
   rule must not overwrite the production corpus crash dump. Test the real
   ratification entry path as well as direct sandbox compilation.
@@ -13,6 +16,10 @@
   that can persist state or reject malformed programs need a temporary workspace.
 - Dreamer evaluates each exact request against current state. Do not restore authorization caching without a complete policy, fact, payload, and external-state identity; cancellation precedes evaluation.
 - Every executable tool declares an effect in `../tools/effects.go` or its registered `Tool`. Unknown effects and absent mandatory executive gates fail closed, including registry entry paths.
+- Generated execution uses the typed bridge, not raw registry execution or a
+  second RouteAction envelope. Require the exact pending action and current
+  permission, immutable registration identity, Dreamer preflight, and the actual
+  named-result validator. Execution success does not acknowledge durable learning.
 - `turn_executed` means an action passed mechanical hollow-success guards. Only host-issued, current `turn_acceptance` evidence permits `turn_done`; control packets cannot assert either conclusion or its witnesses.
 - Keep large-world delta routing bounded before evaluation (`differentialFactCeiling`), expose `LastEvaluation`, and check semantic equivalence against full fixpoint evaluation.
 

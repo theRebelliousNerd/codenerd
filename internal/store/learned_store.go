@@ -7,9 +7,12 @@ import (
 	"bytes"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/sqlpragmas"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -47,8 +50,35 @@ type LearnedCorpusStore struct {
 //   - dbPath: Path to the SQLite database file (e.g., ".nerd/learned_corpus.db")
 //   - engine: Embedding engine for generating pattern embeddings
 func NewLearnedCorpusStore(dbPath string, engine embedding.EmbeddingEngine) (*LearnedCorpusStore, error) {
+	return NewLearnedCorpusStoreWithContext(context.Background(), dbPath, engine)
+}
+
+// NewLearnedCorpusStoreWithContext admits and initializes the SQL backend with
+// the caller's context. Failed admission drains SQL and closes owned handles.
+func NewLearnedCorpusStoreWithContext(ctx context.Context, dbPath string, engine embedding.EmbeddingEngine) (*LearnedCorpusStore, error) {
+	return newLearnedCorpusStoreWithDriver(ctx, dbPath, engine, nil)
+}
+
+func newLearnedCorpusStoreWithDriver(ctx context.Context, dbPath string, engine embedding.EmbeddingEngine, backendDriver driver.Driver) (corpus *LearnedCorpusStore, outcome error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	timer := logging.StartTimer(logging.CategoryStore, "NewLearnedCorpusStore")
 	defer timer.Stop()
+	var database *sql.DB
+	defer func() {
+		outcome = errors.Join(outcome, ctx.Err())
+		if outcome != nil {
+			if database != nil {
+				outcome = errors.Join(outcome, database.Close())
+			}
+			outcome = errors.Join(outcome, ctx.Err())
+			corpus = nil
+		}
+	}()
 
 	if dbPath == "" {
 		return nil, fmt.Errorf("database path required")
@@ -63,42 +93,132 @@ func NewLearnedCorpusStore(dbPath string, engine embedding.EmbeddingEngine) (*Le
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Open database
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to open learned corpus database: %v", err)
-		return nil, fmt.Errorf("failed to open database: %w", err)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	ApplyDefaultPragmas(db, ProfileHot)
+	if backendDriver == nil {
+		probe, err := sql.Open("sqlite3", dbPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database driver: %w", err)
+		}
+		backendDriver = probe.Driver()
+		if err := probe.Close(); err != nil {
+			return nil, fmt.Errorf("failed to close database driver probe: %w", err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	connector, err := sqlpragmas.NewConnector(learnedAdmissionDriver{Driver: backendDriver}, dbPath, ProfileHot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database connector: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	database = sql.OpenDB(learnedAdmissionConnector{Connector: connector})
 
 	// Verify connection
-	if err := db.Ping(); err != nil {
-		db.Close()
+	if err := database.PingContext(ctx); err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to ping learned corpus database: %v", err)
 		return nil, fmt.Errorf("failed to verify database connection: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	store := &LearnedCorpusStore{
-		db:          db,
+		db:          database,
 		embedEngine: engine,
 		dbPath:      dbPath,
 	}
 
 	// Initialize schema
-	if err := store.initializeSchema(); err != nil {
-		db.Close()
+	if err := store.initializeSchemaWithContext(ctx); err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to initialize learned corpus schema: %v", err)
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	logging.Store("Learned corpus store initialized successfully")
 	return store, nil
 }
 
-// initializeSchema creates the required tables for learned patterns.
-func (s *LearnedCorpusStore) initializeSchema() error {
+type learnedAdmissionConnector struct {
+	driver.Connector
+}
+
+type learnedAdmissionDriver struct {
+	driver.Driver
+}
+
+func (backend learnedAdmissionDriver) OpenConnector(path string) (driver.Connector, error) {
+	var connector driver.Connector
+	if contextual, ok := backend.Driver.(driver.DriverContext); ok {
+		var err error
+		connector, err = contextual.OpenConnector(path)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		connector = learnedDSNConnector{backend: backend.Driver, path: path}
+	}
+	return learnedAdmissionConnector{Connector: connector}, nil
+}
+
+type learnedDSNConnector struct {
+	backend driver.Driver
+	path    string
+}
+
+func (connector learnedDSNConnector) Driver() driver.Driver { return connector.backend }
+
+func (connector learnedDSNConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return connector.backend.Open(connector.path)
+}
+
+func (connector learnedAdmissionConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	connection, err := connector.Connector.Connect(ctx)
+	if admissionErr := errors.Join(err, ctx.Err()); admissionErr != nil {
+		if connection != nil {
+			admissionErr = errors.Join(admissionErr, connection.Close())
+		}
+		return nil, errors.Join(admissionErr, ctx.Err())
+	}
+	return connection, nil
+}
+
+func (s *LearnedCorpusStore) initializeSchemaWithContext(ctx context.Context) (outcome error) {
 	timer := logging.StartTimer(logging.CategoryStore, "LearnedCorpusStore.initializeSchema")
 	defer timer.Stop()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	connection, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { outcome = errors.Join(outcome, connection.Close()) }()
+	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return errors.Join(err, ctx.Err())
+	}
+	transactionOpen := true
+	defer func() {
+		if transactionOpen {
+			// Rollback stays on the constructor's call stack and must complete
+			// even after the caller cancels the schema operation.
+			_, rollbackErr := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+			outcome = errors.Join(outcome, rollbackErr)
+		}
+	}()
 
 	logging.StoreDebug("Initializing learned corpus schema")
 
@@ -120,8 +240,11 @@ func (s *LearnedCorpusStore) initializeSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_learned_created ON learned_patterns(created_at);
 	`
 
-	if _, err := s.db.Exec(patternsTable); err != nil {
+	if _, err := connection.ExecContext(ctx, patternsTable); err != nil {
 		return fmt.Errorf("failed to create patterns table: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// Create sqlite-vec virtual table for ANN search only if engine is provided.
@@ -131,7 +254,10 @@ func (s *LearnedCorpusStore) initializeSchema() error {
 		logging.StoreDebug("Initializing learned store vec_learned with vector dimensions: %d", dims)
 
 		// Drop first to ensure dimension enforcement if user changed models
-		_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_learned")
+		_, dropErr := connection.ExecContext(ctx, "DROP TABLE IF EXISTS vec_learned")
+		if err := ctx.Err(); err != nil {
+			return errors.Join(err, dropErr)
+		}
 
 		vecTable := fmt.Sprintf(`
 		CREATE VIRTUAL TABLE vec_learned USING vec0(
@@ -141,35 +267,55 @@ func (s *LearnedCorpusStore) initializeSchema() error {
 		);
 		`, dims)
 
-		if _, err := s.db.Exec(vecTable); err != nil {
+		if _, err := connection.ExecContext(ctx, vecTable); err != nil {
+			if ctx.Err() != nil {
+				return errors.Join(err, ctx.Err())
+			}
 			// Log warning but don't fail - vec extension might not be available
 			logging.Get(logging.CategoryStore).Warn("Failed to create vec_learned table (sqlite-vec may not be available): %v", err)
 		} else {
 			logging.StoreDebug("sqlite-vec table created with %d dimensions", dims)
 			// The drop above wiped the ANN index; restore it from the durable
 			// table or every previously learned pattern is unsearchable
-			// until re-added. See backfillVecLearned.
-			s.backfillVecLearned()
+			// until re-added. See backfillVecLearnedWithContext.
+			if err := s.backfillVecLearnedWithContext(ctx, connection); err != nil {
+				return err
+			}
 		}
 	} else {
 		logging.StoreDebug("Skipping vec_learned creation during init (no embedding engine provided, deferred to SetEmbeddingEngine)")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := connection.ExecContext(ctx, "COMMIT"); err != nil {
+		return errors.Join(err, ctx.Err())
+	}
+	transactionOpen = false
 
 	logging.StoreDebug("Learned corpus schema initialized")
 	return nil
 }
 
-// backfillVecLearned restores the ANN index from learned_patterns after a
+// backfillVecLearnedWithContext restores the ANN index from learned_patterns after a
 // drop-and-recreate. Rows are inserted one at a time: a pattern whose
 // embedding no longer matches the recreated dimensions (model switch) fails
 // its own insert and is skipped, not the whole backfill.
-func (s *LearnedCorpusStore) backfillVecLearned() {
-	rows, err := s.db.Query("SELECT embedding, pattern, verb FROM learned_patterns")
+func (s *LearnedCorpusStore) backfillVecLearnedWithContext(ctx context.Context, connection *sql.Conn) error {
+	rows, err := connection.QueryContext(ctx, "SELECT embedding, pattern, verb FROM learned_patterns")
 	if err != nil {
+		if ctx.Err() != nil {
+			return errors.Join(err, ctx.Err())
+		}
 		logging.Get(logging.CategoryStore).Warn("vec_learned backfill query failed: %v", err)
-		return
+		return nil
 	}
-	defer rows.Close()
+	type learnedVectorRow struct {
+		blob    []byte
+		pattern string
+		verb    string
+	}
+	var entries []learnedVectorRow
 	backfilled, skipped := 0, 0
 	for rows.Next() {
 		var blob []byte
@@ -178,18 +324,33 @@ func (s *LearnedCorpusStore) backfillVecLearned() {
 			skipped++
 			continue
 		}
-		if _, err := s.db.Exec("INSERT INTO vec_learned (embedding, pattern, verb) VALUES (?, ?, ?)", blob, pattern, verb); err != nil {
+		entries = append(entries, learnedVectorRow{blob: blob, pattern: pattern, verb: verb})
+	}
+	iterationErr := rows.Err()
+	closeErr := rows.Close()
+	if err := errors.Join(ctx.Err(), closeErr); err != nil {
+		return errors.Join(err, iterationErr)
+	}
+	if iterationErr != nil {
+		logging.Get(logging.CategoryStore).Warn("vec_learned backfill iteration failed: %v", iterationErr)
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := connection.ExecContext(ctx, "INSERT INTO vec_learned (embedding, pattern, verb) VALUES (?, ?, ?)", entry.blob, entry.pattern, entry.verb); err != nil {
+			if ctx.Err() != nil {
+				return errors.Join(err, ctx.Err())
+			}
 			skipped++
 			continue
 		}
 		backfilled++
 	}
-	if err := rows.Err(); err != nil {
-		logging.Get(logging.CategoryStore).Warn("vec_learned backfill iteration failed: %v", err)
-	}
 	if backfilled > 0 || skipped > 0 {
 		logging.Store("vec_learned backfilled: %d patterns restored, %d skipped", backfilled, skipped)
 	}
+	return ctx.Err()
 }
 
 // AddPattern adds a learned pattern with its embedding.

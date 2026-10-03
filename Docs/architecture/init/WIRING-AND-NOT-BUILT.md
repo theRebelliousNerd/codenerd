@@ -105,6 +105,33 @@ commit `34634770970153e78c1e250fdab7abd888dcce6f` (2026-09-21).
   `internal/init/jit_integration.go`; this corpus pins their existence and
   order, not their effect — that handoff is JIT territory.
 
+## Required ecosystem persistence profile
+
+**GAP-INIT-ECOSYSTEM-SQL-PROFILE:** `persistEcosystemAtoms` must apply the
+shared hot SQLite profile to every corpus connection before atom persistence.
+The current raw `sql.Open` in `internal/init/phase_ecosystem.go:675` leaves this
+production route untuned. Use the existing `sqlpragmas` connector, preserving
+caller cancellation, missing-corpus behavior, visible warnings, and atom identity,
+metadata, and embeddings. Do not exempt this route from the open-site audit.
+Acceptance requires the actual initializer method against a file-backed corpus
+starting in DELETE mode, persisted new atoms, unchanged preexisting rows, durable
+WAL/reopen evidence, error/cancellation controls, and the full open-site audit.
+
+`internal/init/phase_ecosystem.go:675` now opens the actual AtomLoader handle
+through ProfileHot. File-backed acceptance in
+`internal/init/ecosystem_persistence_profile_test.go:21` passes persistence,
+WAL header, preserved-row, repeated-identity, error, and cancellation controls;
+the full sqlpragmas suite passes its open-site audit. Broader initialization and
+LLM enrichment obligations remain separate from this persistence repair.
+
+## Initializer JIT snapshot obligations
+
+Every initializer JIT scope also exposes the complete owned kernel snapshot for
+GAP-PROMPT-DYNAMIC-CACHE-IDENTITY. Expert initialization and orientation must not
+fail because only the system factory adapter implements QueryAll. Preserve
+private scope ownership, detached result containers, and visible nil/backend
+errors; acceptance uses the normal expert-phase compiler, not an unscoped stub.
+
 ## What the old corpus got wrong (why this rewrite exists)
 
 - It described research as key-gated and shared-pool-level

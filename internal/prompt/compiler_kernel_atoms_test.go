@@ -4,8 +4,65 @@ import (
 	"context"
 	"testing"
 
+	"codenerd/internal/core"
+
 	"github.com/stretchr/testify/require"
 )
+
+func (querier *realKernelQuerier) QueryAll() (map[string][]Fact, error) {
+	return promptSnapshotFacts(querier.k)
+}
+
+func promptSnapshotFacts(kernel *core.RealKernel) (map[string][]Fact, error) {
+	rows, err := kernel.QueryAll()
+	if err != nil {
+		return nil, err
+	}
+	snapshot := make(map[string][]Fact, len(rows))
+	for predicate, facts := range rows {
+		snapshot[predicate] = make([]Fact, 0, len(facts))
+		for _, fact := range facts {
+			snapshot[predicate] = append(snapshot[predicate], Fact{Predicate: fact.Predicate, Args: fact.Args})
+		}
+	}
+	return snapshot, nil
+}
+
+func TestDynamicKernelFingerprint_CanonicalContent(test *testing.T) {
+	contextRows := []Fact{
+		{Predicate: "injectable_context", Args: []any{"coder", "context B"}},
+		{Predicate: "injectable_context", Args: []any{"coder", "context A"}},
+	}
+	knowledgeRows := []Fact{
+		{Predicate: "specialist_knowledge", Args: []any{"coder", "topic B", "knowledge B"}},
+		{Predicate: "specialist_knowledge", Args: []any{"coder", "topic A", "knowledge A"}},
+	}
+	kernel := &snapshotPredicateKernel{&predicateKernel{facts: map[string][]Fact{"injectable_context": contextRows, "specialist_knowledge": knowledgeRows}}}
+	compiler, err := NewJITPromptCompiler(WithKernel(kernel))
+	require.NoError(test, err)
+	test.Cleanup(func() { require.NoError(test, compiler.Close()) })
+	caller := NewCompilationContext().WithShard("/coder", "coder", "")
+	firstAtoms, firstHash, err := compiler.collectDynamicKernelSnapshot(kernel, caller)
+	require.NoError(test, err)
+	kernel.facts["injectable_context"] = []Fact{contextRows[1], contextRows[0], contextRows[1]}
+	kernel.facts["specialist_knowledge"] = []Fact{knowledgeRows[1], knowledgeRows[0], knowledgeRows[1]}
+	secondAtoms, secondHash, err := compiler.collectDynamicKernelSnapshot(kernel, caller)
+	require.NoError(test, err)
+	require.Equal(test, firstHash, secondHash)
+	require.Equal(test, firstAtoms, secondAtoms)
+	kernel.facts["specialist_knowledge"] = []Fact{{Predicate: "specialist_knowledge", Args: []any{"coder", "topic A", "knowledge changed"}}}
+	_, changedHash, err := compiler.collectDynamicKernelSnapshot(kernel, caller)
+	require.NoError(test, err)
+	require.NotEqual(test, firstHash, changedHash)
+}
+
+type snapshotPredicateKernel struct {
+	*predicateKernel
+}
+
+func (kernel *snapshotPredicateKernel) QueryAll() (map[string][]Fact, error) {
+	return kernel.facts, nil
+}
 
 // predicateKernel is a minimal kernel mock that returns facts by predicate.
 type predicateKernel struct {

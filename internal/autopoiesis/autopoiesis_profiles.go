@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -70,6 +71,90 @@ func (o *Orchestrator) ExecuteAndEvaluateWithProfile(ctx context.Context, toolNa
 	o.RecordExecution(ctx, feedback)
 
 	return output, feedback.Quality, err
+}
+
+func (o *Orchestrator) GeneratedToolIdentity(name string) (types.GeneratedToolIdentity, error) {
+	if o == nil {
+		return types.GeneratedToolIdentity{}, fmt.Errorf("generated registry unavailable")
+	}
+	loop, native := o.ouroboros.(*OuroborosLoop)
+	if !native || loop == nil || loop.registry == nil {
+		return types.GeneratedToolIdentity{}, fmt.Errorf("generated registry unavailable")
+	}
+	return loop.registry.GeneratedToolIdentity(name)
+}
+
+// ExecuteGeneratedBackend does not evaluate or record: the executive validates
+// its joined process receipt before RecordGeneratedExecution acknowledges it.
+func (o *Orchestrator) ExecuteGeneratedBackend(ctx context.Context, request types.GeneratedToolRequest) types.GeneratedToolReceipt {
+	refused := types.GeneratedToolReceipt{Request: request, ExitCode: -1}
+	if o == nil || o.ouroboros == nil || o.learnings == nil || o.evaluator == nil || o.profiles == nil {
+		refused.BackendError = fmt.Errorf("generated backend or durable learning disconnected")
+		return refused
+	}
+	loop, native := o.ouroboros.(*OuroborosLoop)
+	if !native || loop == nil || loop.registry == nil || loop.config.ExecutionMode != ExecuteCompiled {
+		refused.BackendError = fmt.Errorf("generated process route requires compiled backend; no transport fallback")
+		return refused
+	}
+	if err := o.learnings.DurabilityError(); err != nil {
+		refused.BackendError = err
+		return refused
+	}
+	if _, recorded := o.learnings.ExecutionAcknowledgment(request.Key()); recorded {
+		refused.BackendError = fmt.Errorf("persisted execution exists but its live receipt is unavailable; crash replay requires reconciliation")
+		return refused
+	}
+	if request.Tool.Protocol == types.GeneratedStdinV1 {
+		identity, err := o.GeneratedToolIdentity(request.Tool.Name)
+		if err != nil || identity.BinaryPath != request.Tool.BinaryPath || identity.BinaryHash != request.Tool.BinaryHash || identity.Protocol != request.Tool.Protocol {
+			refused.BackendError = fmt.Errorf("runtime/catalog generated identity mismatch: %v", err)
+			return refused
+		}
+	}
+	receipt := RunGeneratedBinary(ctx, request)
+	if receipt.ProcessStarted {
+		loop.mu.Lock()
+		loop.stats.ExecutionCount++
+		loop.mu.Unlock()
+		if receipt.BackendError == nil {
+			loop.registry.recordGeneratedSuccess(request.Tool)
+		}
+	}
+	return receipt
+}
+
+func (o *Orchestrator) RecordGeneratedExecution(ctx context.Context, receipt types.GeneratedToolReceipt) (ack types.GeneratedLearningAck, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("generated recording panic: %v", recovered)
+		}
+	}()
+	if !receipt.ProcessStarted {
+		return types.GeneratedLearningAck{}, fmt.Errorf("cannot record a process that never started")
+	}
+	feedback := &ExecutionFeedback{
+		ToolName: receipt.Request.Tool.Name, ExecutionID: receipt.Request.Key(), RequestFingerprint: receipt.Request.Fingerprint(),
+		Timestamp: receipt.StartedAt, Input: receipt.Request.CanonicalArgs, Output: receipt.Output, OutputSize: len(receipt.Output),
+		Duration: receipt.Duration, Success: receipt.BackendError == nil && receipt.ValidationCompleted && receipt.ValidationPassed,
+		ProcessStarted: receipt.ProcessStarted, ExitCode: receipt.ExitCode, Stdout: receipt.Stdout, Stderr: receipt.Stderr,
+		PartialOutput: receipt.PartialOutput, OutputTruncated: receipt.OutputTruncated,
+		ValidationCompleted: receipt.ValidationCompleted, ValidationPassed: receipt.ValidationPassed,
+		TaskContext: map[string]string{"call_id": receipt.Request.CallID, "authorization_id": receipt.Request.AuthorizationID,
+			"action": string(receipt.Request.Action), "target": receipt.Request.Target, "binary_hash": receipt.Request.Tool.BinaryHash,
+			"protocol": string(receipt.Request.Tool.Protocol)},
+	}
+	if err := receipt.Err(); err != nil {
+		feedback.ErrorMsg = err.Error()
+	}
+	if receipt.BackendError != nil {
+		feedback.BackendError = receipt.BackendError.Error()
+	}
+	if receipt.ValidationError != nil {
+		feedback.ValidationError = receipt.ValidationError.Error()
+	}
+	feedback.Quality = o.EvaluateWithProfile(ctx, feedback)
+	return o.RecordExecutionDurable(ctx, feedback)
 }
 
 // GenerateToolProfile uses LLM to generate a quality profile during tool creation

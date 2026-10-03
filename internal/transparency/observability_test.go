@@ -95,6 +95,9 @@ func TestToolEventBus_WhenGlassBoxDisabled_ShouldStillDeliver(t *testing.T) {
 
 func TestGlassBoxEventBus_WhenConcurrentEmitAndDrain_ShouldNotRace(t *testing.T) {
 	t.Parallel()
+	if !runGlassBoxConcurrencyChild(t) {
+		return
+	}
 	bus := NewGlassBoxEventBus()
 	bus.batchWindow = time.Millisecond
 	bus.Enable()

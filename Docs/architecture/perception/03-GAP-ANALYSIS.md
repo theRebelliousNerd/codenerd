@@ -110,3 +110,14 @@ Gemini's sentinel, and optional Go interfaces are not yet a typed capability or
 workspace-ownership contract.
 
 See [TODO.md](TODO.md) for actionable backlog.
+
+### Learned-corpus startup context reaches SQL
+
+The cold-bootstrap cancellation requirement includes the actual writable learned
+corpus, not just the wrapper in `semantic_classifier.go`. Its context-aware
+constructor must call a context-aware store backend through readiness, profile,
+and schema operations. Couple GAP-STORE-LEARNED-CONSTRUCTOR-CONTEXT to this route:
+parent cancellation escapes optional degradation, closes owned resources, and
+does not publish a successful classifier. Prove actual blocked SQL cancellation,
+drain, preserved existing data, and successful retry alongside existing coldboot
+and optional-outage controls.

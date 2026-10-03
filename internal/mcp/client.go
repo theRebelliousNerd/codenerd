@@ -3,8 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,7 +15,11 @@ import (
 
 // MCPClientManager manages connections to multiple MCP servers.
 type MCPClientManager struct {
-	mu sync.RWMutex
+	mu              sync.RWMutex
+	authorityMu     sync.Mutex
+	reviewedEffects map[string]ReviewedToolEffect
+	resources       map[string][]MCPResource
+	prompts         map[string][]MCPPrompt
 
 	servers  map[string]*MCPServerConnection
 	store    *MCPToolStore
@@ -58,9 +62,12 @@ func NewMCPClientManager(store *MCPToolStore, analyzer ToolAnalyzerInterface, co
 // mirrored into Mangle only when this is set; without it the MCP predicates
 // stay empty and policy_mcp.mg cannot decide anything.
 func (m *MCPClientManager) SetFactEmitter(emitter *FactEmitter) {
+	m.authorityMu.Lock()
+	defer m.authorityMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.facts = emitter
+	m.reviewedEffects = make(map[string]ReviewedToolEffect)
 }
 
 // factEmitter returns the emitter under the read lock.
@@ -117,7 +124,7 @@ func (m *MCPClientManager) WaitForDiscovery(ctx context.Context) error {
 	}()
 	select {
 	case <-done:
-		return nil
+		return m.factEmitter().Error()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -249,13 +256,28 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 		Transport: transport,
 	}
 
+	m.authorityMu.Lock()
 	m.mu.Lock()
 	m.servers[serverID] = conn
+	delete(m.resources, serverID)
+	delete(m.prompts, serverID)
+	for toolID := range m.reviewedEffects {
+		if boundServer, _ := parseToolID(toolID); boundServer == serverID {
+			delete(m.reviewedEffects, toolID)
+		}
+	}
 	m.mu.Unlock()
+	m.authorityMu.Unlock()
 
 	// Publish the server to the kernel before status, so the availability rule
 	// in policy_mcp.mg sees a registration to join against.
 	m.factEmitter().EmitServer(server)
+	if err := m.factEmitter().Error(); err != nil {
+		m.mu.Lock()
+		delete(m.servers, serverID)
+		m.mu.Unlock()
+		return errors.Join(fmt.Errorf("publish MCP server %s: %w", serverID, err), transport.Disconnect())
+	}
 
 	m.updateServerStatus(serverID, ServerStatusConnected)
 
@@ -293,22 +315,29 @@ func (m *MCPClientManager) Disconnect(serverID string) error {
 		return fmt.Errorf("server ID cannot be empty")
 	}
 
+	m.authorityMu.Lock()
 	m.mu.Lock()
 	conn, ok := m.servers[serverID]
 	if !ok {
 		m.mu.Unlock()
+		m.authorityMu.Unlock()
 		return fmt.Errorf("server not connected: %s", serverID)
 	}
 	delete(m.servers, serverID)
-	m.mu.Unlock()
-
-	if err := conn.Transport.Disconnect(); err != nil {
-		return err
+	delete(m.resources, serverID)
+	delete(m.prompts, serverID)
+	for toolID := range m.reviewedEffects {
+		if boundServer, _ := parseToolID(toolID); boundServer == serverID {
+			delete(m.reviewedEffects, toolID)
+		}
 	}
+	m.mu.Unlock()
+	m.authorityMu.Unlock()
 
+	disconnectErr := conn.Transport.Disconnect()
 	m.updateServerStatus(serverID, ServerStatusDisconnected)
 	logging.Get(logging.CategoryTools).Info("Disconnected from MCP server %s", serverID)
-	return nil
+	return errors.Join(disconnectErr, m.factEmitter().Error())
 }
 
 // DisconnectAll closes all server connections.
@@ -340,10 +369,15 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 	// List tools from server
 	schemas, err := conn.Transport.ListTools(ctx)
 	if err != nil {
+		m.invalidateRemoteCatalog(RemoteTool, serverID)
 		return fmt.Errorf("failed to list tools: %w", err)
 	}
 	if len(schemas) == 0 {
-		return nil
+		m.invalidateRemoteCatalog(RemoteTool, serverID)
+		return m.factEmitter().Error()
+	}
+	if err := m.beginRemoteToolRefresh(serverID, conn, schemas); err != nil {
+		return err
 	}
 
 	logging.Get(logging.CategoryTools).Info("Discovered %d tools from %s", len(schemas), serverID)
@@ -370,9 +404,12 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 	// Update connection's tool cache
 	m.mu.Lock()
 	previous := make([]*MCPTool, 0)
-	if conn, ok := m.servers[serverID]; ok {
-		previous = append(previous, conn.Tools...)
-		conn.Tools = tools
+	if current, ok := m.servers[serverID]; ok && current == conn {
+		previous = append(previous, current.Tools...)
+		current.Tools = tools
+	} else {
+		m.mu.Unlock()
+		return fmt.Errorf("MCP connection changed during discovery")
 	}
 	m.mu.Unlock()
 
@@ -393,6 +430,9 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 		}
 	}
 
+	if err := m.factEmitter().Error(); err != nil {
+		return fmt.Errorf("publish MCP discovery for %s: %w", serverID, err)
+	}
 	return nil
 }
 
@@ -419,6 +459,9 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 					}
 				}
 				m.factEmitter().EmitTool(existing)
+				if err := m.factEmitter().Error(); err != nil {
+					return nil, fmt.Errorf("publish cached MCP tool %s: %w", toolID, err)
+				}
 				return existing, nil
 			}
 			logging.Get(logging.CategoryTools).Info("Tool %s schema changed, re-analyzing", toolID)
@@ -443,7 +486,10 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 	if m.analyzer != nil {
 		var err error
 		analysis, err = m.analyzer.Analyze(ctx, schema)
-		if err != nil {
+		if err != nil || analysis == nil {
+			if err == nil {
+				err = fmt.Errorf("analyzer returned no metadata")
+			}
 			logging.Get(logging.CategoryTools).Warn("Failed to analyze tool %s: %v", toolID, err)
 			analysis = nil
 		} else {
@@ -486,23 +532,18 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 	}
 
 	m.factEmitter().EmitTool(tool)
+	if err := m.factEmitter().Error(); err != nil {
+		return nil, fmt.Errorf("publish MCP tool %s: %w", toolID, err)
+	}
 
 	return tool, nil
 }
 
 // CallTool invokes a tool on an MCP server.
 func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map[string]any) (*MCPCallResult, error) {
-	if args == nil {
-		args = make(map[string]any)
-	}
-
-	// Deep copy/clone arguments map before transport call to prevent map race conditions
-	clonedArgs := make(map[string]any, len(args))
-	maps.Copy(clonedArgs, args)
-
-	// Ensure args are serializable to prevent transport panic/error later
-	if _, err := json.Marshal(clonedArgs); err != nil {
-		return nil, fmt.Errorf("invalid arguments: cannot serialize to JSON: %w", err)
+	canonical, frozen, err := canonicalRemoteArgs(args)
+	if err != nil {
+		return nil, err
 	}
 
 	serverID, toolName := parseToolID(toolID)
@@ -511,7 +552,7 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 	}
 
 	// Sanitize MCP tool names against directory traversal
-	if strings.Contains(toolName, "..") || strings.ContainsAny(toolName, "/\\") {
+	if toolName == "" || strings.Contains(toolName, "..") || strings.ContainsAny(toolName, "/\\") {
 		return nil, fmt.Errorf("invalid tool name: directory traversal detected")
 	}
 
@@ -519,7 +560,7 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 	conn, ok := m.servers[serverID]
 	m.mu.RUnlock()
 
-	if !ok || !conn.Transport.IsConnected() {
+	if !ok || conn == nil || conn.Transport == nil || !conn.Transport.IsConnected() {
 		// Return cached offline status
 		return &MCPCallResult{
 			Success: false,
@@ -527,7 +568,9 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 		}, nil
 	}
 
-	result, err := conn.Transport.CallTool(ctx, toolName, clonedArgs)
+	result, err := m.dispatchRemoteCall(ctx, RemoteTool, serverID, toolID, args, canonical, frozen, func(transport MCPTransport, outbound map[string]any) (*MCPCallResult, error) {
+		return transport.CallTool(ctx, toolName, outbound)
+	})
 	if err != nil {
 		// Map unhandled protocol errors cleanly
 		if err == context.DeadlineExceeded {
@@ -578,6 +621,7 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 // already answers this?" is a question the executive should be able to ask
 // before it spends a tool call.
 func (m *MCPClientManager) DiscoverResources(ctx context.Context, serverID string) ([]MCPResource, error) {
+	m.invalidateRemoteCatalog(RemoteResource, serverID)
 	transport, err := m.transportFor(serverID)
 	if err != nil {
 		return nil, err
@@ -592,25 +636,54 @@ func (m *MCPClientManager) DiscoverResources(ctx context.Context, serverID strin
 		return nil, err
 	}
 	m.factEmitter().EmitResources(serverID, resources)
+	m.mu.Lock()
+	if connection := m.servers[serverID]; connection == nil || connection.Transport != transport {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("MCP connection changed during resource discovery")
+	}
+	if m.resources == nil {
+		m.resources = make(map[string][]MCPResource)
+	}
+	m.resources[serverID] = append([]MCPResource(nil), resources...)
+	m.mu.Unlock()
+	if err := m.factEmitter().Error(); err != nil {
+		return nil, fmt.Errorf("publish MCP resources: %w", err)
+	}
 	logging.Get(logging.CategoryTools).Info("Discovered %d resources from %s", len(resources), serverID)
 	return resources, nil
 }
 
 // ReadResource fetches one resource's contents from a server.
 func (m *MCPClientManager) ReadResource(ctx context.Context, serverID, uri string) ([]MCPResourceContent, error) {
-	transport, err := m.transportFor(serverID)
+	args := map[string]any{"uri": uri}
+	canonical, frozen, err := canonicalRemoteArgs(args)
 	if err != nil {
 		return nil, err
 	}
-	provider, ok := transport.(ResourceCapableTransport)
-	if !ok {
-		return nil, fmt.Errorf("transport for %s does not support resources", serverID)
+	subject := ResourceAuthorityTool(serverID, MCPResource{URI: uri})
+	result, err := m.dispatchRemoteCall(ctx, RemoteResource, serverID, subject.ToolID, args, canonical, frozen, func(transport MCPTransport, outbound map[string]any) (*MCPCallResult, error) {
+		provider, supported := transport.(ResourceCapableTransport)
+		if !supported {
+			return nil, fmt.Errorf("transport for %s does not support resources", serverID)
+		}
+		contents, callErr := provider.ReadResource(ctx, outbound["uri"].(string))
+		if callErr != nil {
+			return nil, callErr
+		}
+		encoded, encodeErr := json.Marshal(contents)
+		return &MCPCallResult{Success: encodeErr == nil, Output: encoded}, encodeErr
+	})
+	if err != nil {
+		return nil, err
 	}
-	return provider.ReadResource(ctx, uri)
+	var contents []MCPResourceContent
+	err = json.Unmarshal(result.Output, &contents)
+	return contents, err
 }
 
 // DiscoverPrompts lists a server's prompt templates and publishes them.
 func (m *MCPClientManager) DiscoverPrompts(ctx context.Context, serverID string) ([]MCPPrompt, error) {
+	m.invalidateRemoteCatalog(RemotePrompt, serverID)
 	transport, err := m.transportFor(serverID)
 	if err != nil {
 		return nil, err
@@ -625,21 +698,56 @@ func (m *MCPClientManager) DiscoverPrompts(ctx context.Context, serverID string)
 		return nil, err
 	}
 	m.factEmitter().EmitPrompts(serverID, prompts)
+	m.mu.Lock()
+	if connection := m.servers[serverID]; connection == nil || connection.Transport != transport {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("MCP connection changed during prompt discovery")
+	}
+	if m.prompts == nil {
+		m.prompts = make(map[string][]MCPPrompt)
+	}
+	m.prompts[serverID] = append([]MCPPrompt(nil), prompts...)
+	m.mu.Unlock()
+	if err := m.factEmitter().Error(); err != nil {
+		return nil, fmt.Errorf("publish MCP prompts: %w", err)
+	}
 	logging.Get(logging.CategoryTools).Info("Discovered %d prompts from %s", len(prompts), serverID)
 	return prompts, nil
 }
 
 // GetPrompt renders a server-side prompt template.
 func (m *MCPClientManager) GetPrompt(ctx context.Context, serverID, name string, args map[string]string) ([]MCPPromptMessage, error) {
-	transport, err := m.transportFor(serverID)
+	if args == nil {
+		args = map[string]string{}
+	}
+	request := map[string]any{"name": name, "arguments": args}
+	canonical, frozen, err := canonicalRemoteArgs(request)
 	if err != nil {
 		return nil, err
 	}
-	provider, ok := transport.(PromptCapableTransport)
-	if !ok {
-		return nil, fmt.Errorf("transport for %s does not support prompts", serverID)
+	subject := PromptAuthorityTool(serverID, MCPPrompt{Name: name})
+	result, err := m.dispatchRemoteCall(ctx, RemotePrompt, serverID, subject.ToolID, request, canonical, frozen, func(transport MCPTransport, outbound map[string]any) (*MCPCallResult, error) {
+		provider, supported := transport.(PromptCapableTransport)
+		if !supported {
+			return nil, fmt.Errorf("transport for %s does not support prompts", serverID)
+		}
+		promptArgs := make(map[string]string)
+		for key, value := range outbound["arguments"].(map[string]any) {
+			promptArgs[key] = value.(string)
+		}
+		messages, callErr := provider.GetPrompt(ctx, outbound["name"].(string), promptArgs)
+		if callErr != nil {
+			return nil, callErr
+		}
+		encoded, encodeErr := json.Marshal(messages)
+		return &MCPCallResult{Success: encodeErr == nil, Output: encoded}, encodeErr
+	})
+	if err != nil {
+		return nil, err
 	}
-	return provider.GetPrompt(ctx, name, args)
+	var messages []MCPPromptMessage
+	err = json.Unmarshal(result.Output, &messages)
+	return messages, err
 }
 
 // transportFor returns the live transport for a connected server.
