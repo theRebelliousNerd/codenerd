@@ -121,6 +121,18 @@ func normalizeArg(v any) any {
 }
 
 func TestRoundTripGzip(t *testing.T) {
+	// TODO: Test WriteCodec with an empty/nil fact slice.
+	// TODO: Test WriteCodec with facts containing empty string predicates.
+	// TODO: Test WriteCodec with facts containing unmapped Go types (e.g., chan int) to verify rejection/coercion safely.
+	// TODO: Test facts with string arguments containing null bytes (\x00).
+	// TODO: Test facts with floating point edge cases (math.NaN(), math.Inf(1)).
+	// TODO: Test numeric bounds/overflows (math.MaxInt64, large uint64).
+	// TODO: Test extremely large arities (e.g., 100,000 args) to check memory/column safety.
+	// TODO: Test very long strings (e.g., 50MB) to ensure memory limits don't panic the system.
+	// TODO: Test streaming/batching behavior with extreme volume (e.g., 50 million facts).
+	// TODO: Test extreme concurrency (10,000 goroutines) calling Write to identical paths to expose FD exhaustion or pathLocks contention.
+	// TODO: Test TOCTOU vulnerability where sidecar is deleted after file read but before verifyChecksum.
+	// TODO: Test reading corrupted Zstd/Gzip streams to ensure graceful failure rather than crashes.
 	facts := sampleFacts(1000)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "snap")
