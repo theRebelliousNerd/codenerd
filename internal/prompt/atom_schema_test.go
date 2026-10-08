@@ -98,6 +98,20 @@ func TestParsePromptAtomYAML_FailsWholeDocument(t *testing.T) {
 			yaml: "id: test/unknown\ncategory: identity\npriority: 1\nis_mandatory: false\ncontent: body\ntyop: true\n",
 			want: "field tyop not found",
 		},
+		// TODO: Test Null/Undefined/Empty: ID field empty/whitespace
+		// TODO: Test Null/Undefined/Empty: Category field empty
+		// TODO: Test Null/Undefined/Empty: Missing Priority
+		// TODO: Test Null/Undefined/Empty: Whitespace-only Content
+		// TODO: Test Null/Undefined/Empty: Empty string in requires_tools array
+		// TODO: Test Type Coercion/Boundary: Priority below 0 (-1)
+		// TODO: Test Type Coercion/Boundary: Priority above 100 (101)
+		// TODO: Test Type Coercion/Boundary: Version 0
+		// TODO: Test Type Coercion/Boundary: Version -1
+		// TODO: Test State/Conflicts: Both content and content_file provided
+		// TODO: Test State/Conflicts: Neither content nor content_file provided
+		// TODO: Test State/Conflicts: content_file uses absolute path
+		// TODO: Test State/Conflicts: Duplicate entries in requires_tools
+		// TODO: Test User Request Extremes: Invalid tool format in requires_tools (e.g. /grep)
 		{
 			name: "future schema",
 			yaml: "schema_version: 2\nid: test/future\ncategory: identity\npriority: 1\nis_mandatory: false\ncontent: body\n",

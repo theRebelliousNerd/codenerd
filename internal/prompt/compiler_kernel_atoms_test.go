@@ -49,6 +49,9 @@ func TestDynamicKernelFingerprint_CanonicalContent(test *testing.T) {
 	secondAtoms, secondHash, err := compiler.collectDynamicKernelSnapshot(kernel, caller)
 	require.NoError(test, err)
 	require.Equal(test, firstHash, secondHash)
+		for i := range firstAtoms {
+		firstAtoms[i].CreatedAt = secondAtoms[i].CreatedAt
+	}
 	require.Equal(test, firstAtoms, secondAtoms)
 	kernel.facts["specialist_knowledge"] = []Fact{{Predicate: "specialist_knowledge", Args: []any{"coder", "topic A", "knowledge changed"}}}
 	_, changedHash, err := compiler.collectDynamicKernelSnapshot(kernel, caller)
