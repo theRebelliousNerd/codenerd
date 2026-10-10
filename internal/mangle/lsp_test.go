@@ -86,3 +86,14 @@ func TestLSPServer_OpenCloseDocument(t *testing.T) {
 		t.Errorf("Expected document with URI %s to be removed after CloseDocument", uri)
 	}
 }
+
+// TODO: Add Negative Test - GoToDefinition with line < 0 or line >= len(doc.Lines) to catch slice panics.
+// TODO: Add Negative Test - GetHover with col < 0 or col > len(line) bounds checking.
+// TODO: Add Negative Test - OpenDocument with empty string content and empty URI.
+// TODO: Add Boundary Test - Symbol extraction involving multibyte UTF-8 characters and emojis.
+// TODO: Add Boundary Test - Extreme line lengths (e.g., 500,000 chars) to check for ReDoS in indexDocumentLocked.
+// TODO: Add Boundary Test - Deeply nested and unbalanced parentheses in countArity.
+// TODO: Add State Conflict Test - Calling GetDiagnostics on a URI immediately after CloseDocument is called.
+// TODO: Add State Conflict Test - Out-of-order version numbers in OpenDocument to ensure stale data doesn't overwrite new data.
+// TODO: Add Concurrency Test - 100+ goroutines reading (FindReferences) while writing (OpenDocument) to trigger race conditions.
+// TODO: Add Edge Case Test - Ensure LSPServer handles nil engine gracefully during GetHover and IndexWorkspace.
