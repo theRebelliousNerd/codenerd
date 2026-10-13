@@ -865,3 +865,11 @@ func TestIsValidVariable(t *testing.T) {
 		})
 	}
 }
+
+// TODO: QA Gap - Add tests for Boundary Value Analysis: verify behavior with invalid unicode characters in string expressions and exactly empty strings passed as valid input for ExprSpec.
+// TODO: QA Gap - Add tests for Negative Testing: verify handling of missing vs nil arrays.
+// TODO: QA Gap - Add tests for Boundary Value Analysis: extreme string lengths for variables (>10,000 chars).
+// TODO: QA Gap - Add tests for Negative Testing: extremely deeply nested ExprSpec structures causing stack overflows.
+// TODO: QA Gap - Add tests for Boundary Value Analysis: extreme values for validateArity including MaxInt32 and negative numbers.
+// TODO: QA Gap - Add tests for State Conflict: verify variable binding overlaps and shadowing within TransformStmtSpec let transforms.
+// TODO: QA Gap - Add tests for Negative Testing: verify exactly 'fn:' as function name with no suffix in ExprSpec.
