@@ -29,6 +29,13 @@ func TestValidateAtomDef(t *testing.T) {
 		t.Errorf("a valid atom produced errors: %s", msg)
 	}
 
+	// TODO: Test Null/Undefined/Empty Fields - test pointers being nil versus explicitly pointing to zero values
+	// TODO: Test Null/Undefined/Empty Fields - test what happens when Priority or IsMandatory are nil pointers
+	// TODO: Test Type Coercion - simulate YAML parser injecting string instead of int for Priority
+	// TODO: Test Type Coercion - simulate YAML parser injecting integer instead of string for ID
+	// TODO: Test User Request Extremes - test Content string payload of 50MB to evaluate OOM safety
+	// TODO: Test State Conflicts - test DependsOn and ConflictsWith simultaneously referencing the same atom
+	// TODO: Test State Conflicts - test ContentFile pointing to a directory or broken symlink instead of regular file
 	checks := []struct {
 		name   string
 		mutate func(d *atomDefinition)
@@ -79,6 +86,11 @@ func TestValidateAtomDef_RequiresToolsUnknown(t *testing.T) {
 }
 
 func TestValidateRequiresToolsList_UnknownTool(t *testing.T) {
+	// TODO: Test Null/Undefined/Empty Fields - test RequiresTools slice containing explicit nil or empty slice vs uninitialized nil slice
+	// TODO: Test Null/Undefined/Empty Fields - test RequiresTools list containing mix of null, empty strings, and valid values
+	// TODO: Test User Request Extremes - test RequiresTools containing 100,000 duplicated tool names to check performance
+	// TODO: Test Type Coercion - simulate YAML parser injecting bool into RequiresTools list
+	// TODO: Test Type Coercion - simulate YAML parser injecting struct/map into RequiresTools list
 	cases := []struct {
 		name       string
 		tools      []string
