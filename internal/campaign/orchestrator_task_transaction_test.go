@@ -1116,3 +1116,9 @@ func (o *Orchestrator) computeCampaignRiskDecision() *CampaignRiskDecision {
 	}
 	return buildCampaignRiskDecision(o.campaign, o.config, o.riskGateState, collectCampaignRiskPaths(o.campaign), nil)
 }
+
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify expandSnapshotPaths behavior when called with an array containing only empty strings (e.g., []string{""}).
+// TODO: TEST_GAP: [Type Coercion] Verify expandSnapshotPaths handles path traversal attempts gracefully without resolving outside the workspace (e.g., "../../../etc/passwd").
+// TODO: TEST_GAP: [User request Extremes] Verify performance of listNewBroadGlobMatches when evaluating deeply nested, explosive glob patterns (e.g., "*/*/*/*/") on a large mock directory structure.
+// TODO: TEST_GAP: [State Conflicts] Verify validateFileModifyOutcome handles concurrent file deletion or permission changes (e.g., os.ReadFile failing with permission denied mid-flight) accurately and without panicking.
