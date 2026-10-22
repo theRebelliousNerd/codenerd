@@ -574,3 +574,18 @@ Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, 
 // TODO: Type Coercion: Test type coercion behavior when mangle syntax passes a string to an expected number argument.
 // TODO: User request Extremes: Test ValidateRule performance when rule body exceeds 50000 characters (extreme length campaigns).
 // TODO: State Conflicts: Test race conditions when ValidateRule is called concurrently with LoadDeclaredPredicates state changes.
+
+// TODO: Null/Undefined/Empty: Test NewSchemaValidator with completely empty schema and learned text strings.
+// TODO: Null/Undefined/Empty: Test ValidateRule with empty strings or only whitespace.
+// TODO: Null/Undefined/Empty: Test empty rule bodies `head() :- .` vs `head() .`
+// TODO: Null/Undefined/Empty: Test zero-arity predicates `trigger()` and their parsing.
+// TODO: Null/Undefined/Empty: Test empty slices passed to ValidateRules([]string{}).
+// TODO: Type Coercion: Test parsing string literals containing commas `pred("a,b")` which might miscount arguments.
+// TODO: Type Coercion: Test commas within type bounds `Decl map(Map) bound [/string, /int]`.
+// TODO: Type Coercion: Test validateHeadArity exiting early on malformed inputs like `pred(A, B, C`.
+// TODO: User request Extremes: Test for Catastrophic Regex Backtracking (ReDoS) by injecting massive amounts of whitespace before parentheses.
+// TODO: User request Extremes: Test extreme arity with predicates having 10,000+ arguments.
+// TODO: User request Extremes: Test deep nesting of function bounds `fn(fn(fn(...)))` to ensure no stack overflow.
+// TODO: User request Extremes: Test massive rule sizes exceeding 50,000 characters.
+// TODO: State Conflicts: Test race conditions with concurrent calls to ValidateRule (read) and HotLoadRule or SetPredicateArity (write).
+// TODO: State Conflicts: Test phantom state across evaluations when instantiating, validating, and mutating state simultaneously.
