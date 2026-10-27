@@ -21,6 +21,10 @@ import (
 // Marathon 19: Task Handler Gaps (Gaps 1-14)
 // -----------------------------------------------------------------------------
 
+// TODO: Add negative test case for Null/Empty inputs: empty string, string containing only spaces, and string containing only a null byte ("\x00").
+// TODO: Add negative test case for Type/Data Coercion: invalid UTF-8 sequences and unprintable characters simulating binary data being passed as a string.
+// TODO: Add negative test case for User Request Extremes: open fence without closing fence in massive 50MB string, extremely long language name (e.g., 100,000 characters), and completely fabricated language names with unusual characters.
+// TODO: Add negative test case for State Conflicts: orchestrator resource exhaustion during parallel extraction of extremely large malformed documents without closing fences.
 func TestExtractCodeBlock_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name     string
