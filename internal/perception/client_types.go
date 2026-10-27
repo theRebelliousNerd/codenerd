@@ -243,7 +243,10 @@ type ZAIResponse struct {
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
 		// Thinking mode tokens
-		ThinkingTokens int `json:"thinking_tokens,omitzero"`
+		ThinkingTokens      int `json:"thinking_tokens,omitzero"`
+		PromptTokensDetails struct {
+			CachedTokens int `json:"cached_tokens,omitzero"`
+		} `json:"prompt_tokens_details,omitzero"`
 	} `json:"usage"`
 	Error *struct {
 		Message string       `json:"message"`
@@ -626,6 +629,11 @@ type OpenAIResponse struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
+		// CachedTokens is the cache-read subset of PromptTokens, reported
+		// by OpenAI and compatible routers that return prompt_tokens_details.
+		PromptTokensDetails struct {
+			CachedTokens int `json:"cached_tokens,omitzero"`
+		} `json:"prompt_tokens_details,omitzero"`
 	} `json:"usage"`
 	Error *struct {
 		Message string       `json:"message"`

@@ -145,3 +145,17 @@ func TestNormalizeModelName(t *testing.T) {
 		}
 	}
 }
+
+// The planner tier names its model with a provider route prefix; the opus
+// 5-5 rate must resolve through it, and a bare CLI alias must NOT be priced
+// as a different generation (that alias fabricated opus-4 costs for opus
+// 5-5 runs — the CLI's actual model id now comes from modelUsage).
+func TestLookupPrice_OpusRoutesAndAlias(t *testing.T) {
+	p, ok := LookupPrice("anthropic/claude-opus-5-5")
+	if !ok || p.InputPerMTok != 4.00 || p.CacheReadPerMTok != 0.40 || p.CacheWritePerMTok != 5.00 {
+		t.Fatalf("anthropic/claude-opus-5-5 price = %+v ok=%v, want 4.00 in / 0.40 cache-read / 5.00 cache-write", p, ok)
+	}
+	if _, ok := LookupPrice("opus"); ok {
+		t.Error("bare \"opus\" resolved to a price; an unresolvable CLI alias must stay unpriced rather than borrow another generation's rate")
+	}
+}

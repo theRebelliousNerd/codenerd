@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/campaign"
 	"codenerd/internal/transparency"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -158,10 +160,12 @@ func assertFrameSane(t *testing.T, m Model, probe FrameProbe) {
 		}
 	}
 
-	// 9. Line overflow is exempt when campaign panel or split pane adds horizontal content
-	if m.showCampaignPanel && m.activeCampaign != nil {
-		// Campaign panel intentionally extends beyond chat width — skip overflow
-	} else if probe.Width >= 20 {
+	// 9. No line may overflow the terminal, whatever sidebar is open:
+	// applyLayout reserves sidebar width (or stacks the campaign panel),
+	// so an overflowing line is a layout defect, never intentional.
+	// Until 2026-10-27 the campaign panel was exempted here, which is how
+	// a 150-column frame at a 120-column terminal shipped unnoticed.
+	if probe.Width >= 20 {
 		assertNoLineOverflow(t, probe.View, probe.Width)
 	}
 
@@ -276,6 +280,24 @@ func seedContinuationPaused() Model {
 	return m
 }
 
+func seedLogicSplitModel() Model {
+	m := NewTestModel(WithHistory(
+		Message{Role: "user", Content: "explain the routing arbitration policy in detail please"},
+		Message{Role: "assistant", Content: "Routing is derived by the kernel from perception facts, with one lane at most per turn."},
+	))
+	sp := ui.NewSplitPaneViewWithRatio(m.styles, 80, 24, ui.DefaultSplitRatio)
+	m.splitPane = &sp
+	m.logicPane = sp.RightPane
+	m.list = list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	m.usagePage = ui.NewUsagePageModel(nil, m.styles)
+	m.campaignPage = ui.NewCampaignPageModel()
+	m.autoPage = ui.NewAutopoiesisPageModel()
+	m.showLogic = true
+	m.paneMode = ui.ModeSplitPane
+	m.splitPane.SetMode(ui.ModeSplitPane)
+	return m
+}
+
 func seedCampaignPanelModel() Model {
 	m := NewTestModel()
 	m.showCampaignPanel = true
@@ -347,6 +369,7 @@ func TestE2E_TUI_FrameContract_AllCoreStates(t *testing.T) {
 		{"clarification", seedClarificationModel},
 		{"continuation_paused", seedContinuationPaused},
 		{"campaign_panel", seedCampaignPanelModel},
+		{"logic_split", seedLogicSplitModel},
 		{"long_history", seedLongHistory},
 		{"markdown_bomb", seedMarkdownBomb},
 		{"tool_event", seedToolEventModel},

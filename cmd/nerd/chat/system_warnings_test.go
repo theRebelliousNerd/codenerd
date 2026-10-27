@@ -49,6 +49,12 @@ func TestRenderSystemWarnings_WritesEveryWarningToTheLog(t *testing.T) {
 			t.Errorf("rendered block missing %q", want)
 		}
 	}
+	// The block also names where warnings live, with session totals: this
+	// text enters the conversation history, which is how the model learns
+	// its own log path instead of claiming it has no access to it.
+	if !strings.Contains(rendered, "_problems.log") || !strings.Contains(rendered, "Session log so far:") {
+		t.Errorf("rendered block does not name the session problems log:\n%s", rendered)
+	}
 
 	// What survives the turn.
 	logging.CloseAll()

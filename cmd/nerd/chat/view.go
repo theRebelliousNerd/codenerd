@@ -56,8 +56,10 @@ func (m *Model) renderHistory() string {
 	for idx := startIdx; idx < len(m.history); idx++ {
 		msg := m.history[idx]
 
-		// Check cache first - use cached render if available and valid
-		if m.renderedCache != nil && m.cacheInvalidFrom >= 0 && idx < m.cacheInvalidFrom {
+		// Check cache first - use cached render if available and valid.
+		// Validity includes the width: a message rendered for a wider
+		// column would be clipped by the viewport, not rewrapped.
+		if m.renderedCache != nil && m.renderedCacheWidth == m.wrapWidth && m.cacheInvalidFrom >= 0 && idx < m.cacheInvalidFrom {
 			if cached, exists := m.renderedCache[idx]; exists {
 				sb.WriteString(cached)
 				continue
@@ -81,12 +83,14 @@ func (m *Model) renderSingleMessage(msg Message) string {
 
 	switch msg.Role {
 	case RoleUser:
-		// Render user message
+		// Render user message. Width-bound like every other role: user
+		// text is not markdown-rendered, so without a width a long pasted
+		// paragraph or file dump stayed one viewport-clipped line.
 		userStyle := m.styles.Text.Bold.
 			Foreground(m.styles.Theme.Primary()).
 			MarginTop(1)
 		rendered.WriteString(userStyle.Render(LabelUser) + "\n")
-		rendered.WriteString(m.styles.Interactive.UserInput.Render(msg.Content))
+		rendered.WriteString(m.styles.Interactive.UserInput.Width(m.wrapWidth).Render(msg.Content))
 		rendered.WriteString("\n\n")
 
 	case RoleSystem:
@@ -117,7 +121,7 @@ func (m *Model) renderSingleMessage(msg Message) string {
 
 		// Render reasoning trace if present
 		if msg.ThoughtSummary != "" {
-			thoughtStyle := m.styles.Text.Muted.Italic(true)
+			thoughtStyle := m.styles.Text.Muted.Italic(true).Width(m.wrapWidth)
 			// Prefix with a thinking indicator, e.g., 🤔
 			rendered.WriteString(thoughtStyle.Render("🤔 "+msg.ThoughtSummary) + "\n\n")
 		}
@@ -139,7 +143,7 @@ func (m *Model) renderSingleMessage(msg Message) string {
 	// Either layer alone (or both together) is rendered when present.
 	if m.isStreaming {
 		if strings.TrimSpace(m.currentThought) != "" {
-			thoughtStyle := m.styles.Text.Muted.Italic(true)
+			thoughtStyle := m.styles.Text.Muted.Italic(true).Width(m.wrapWidth)
 			// While streaming, append the same █ cursor we use on
 			// surface output, so users can see thoughts are still
 			// arriving even before any visible answer text begins.
@@ -202,6 +206,16 @@ func (m Model) glassBoxLabelStyle(c transparency.GlassBoxCategory) lipgloss.Styl
 	}
 }
 
+// detailWidth is the width available to a Glass Box detail line after its
+// "  │   " prefix; 0 (no layout yet) stays 0, which lipgloss reads as
+// unbounded rather than one column.
+func detailWidth(wrapWidth int) int {
+	if wrapWidth <= 0 {
+		return 0
+	}
+	return max(wrapWidth-6, 1)
+}
+
 // renderGlassBoxMessage formats a Glass Box system event for display.
 // Timeline-style chrome: "  │ ◎ PERCEPTION  summary" so the stream reads
 // as a living log rather than flat system spam.
@@ -229,7 +243,14 @@ func (m Model) renderGlassBoxMessage(msg Message) string {
 
 	rail := m.styles.Text.Muted.Render("│")
 	pill := labelStyle.Bold(true).Render(fmt.Sprintf("%s %s", icon, label))
-	body := m.styles.Text.Muted.Render(summary)
+	// The summary shares its line with the rail, pill and timestamp; wrap
+	// it inside what is left of the column. Width 0 (no layout yet) is
+	// lipgloss for unbounded and must stay that way, not collapse to 1.
+	summaryStyle := m.styles.Text.Muted
+	if m.wrapWidth > 0 {
+		summaryStyle = summaryStyle.Width(max(m.wrapWidth-lipgloss.Width(pill)-16, 1))
+	}
+	body := summaryStyle.Render(summary)
 
 	var b strings.Builder
 	if ts != "" {
@@ -247,7 +268,7 @@ func (m Model) renderGlassBoxMessage(msg Message) string {
 			}
 			b.WriteString(fmt.Sprintf("  %s   %s\n",
 				m.styles.Text.Muted.Render("│"),
-				m.styles.Text.Muted.Italic(true).Render(dl),
+				m.styles.Text.Muted.Italic(true).Width(detailWidth(m.wrapWidth)).Render(dl),
 			))
 		}
 	} else if details != "" && msg.IsCollapsed {
@@ -326,12 +347,14 @@ func (m Model) renderErrorPanel() string {
 		Render("Error") +
 		m.styles.Text.Muted.Render("  Alt+E: scroll  Alt+Shift+E: hide")
 
+	// Width is the box's content width: viewport minus border (2) and
+	// padding (2), so the bordered panel spans exactly the viewport.
 	panelStyle := lipgloss.NewStyle().
 		Border(border).
 		BorderForeground(m.styles.Theme.Destructive()).
 		Padding(0, 1).
-		Width(m.viewport.Width).
-		MaxWidth(m.viewport.Width)
+		Width(max(m.viewport.Width-4, 1)).
+		MaxWidth(max(m.viewport.Width-4, 1))
 
 	return panelStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, m.errorVP.View()))
 }
@@ -563,10 +586,19 @@ func (m Model) renderChatView() string {
 		chatView = m.splitPane.Render(chatView)
 	}
 
-	// Show campaign panel if active
+	// Show campaign panel if active. applyLayout reserved its width when
+	// it fits beside the chat (m.campaignBeside); on a narrow frame it
+	// stacks below instead of widening the frame past the terminal.
 	if m.showCampaignPanel && m.activeCampaign != nil {
 		campaignPanel := m.renderCampaignPanel()
-		chatView = lipgloss.JoinHorizontal(lipgloss.Top, chatView, "  ", campaignPanel)
+		if m.campaignBeside {
+			chatView = lipgloss.JoinHorizontal(lipgloss.Top, chatView, "  ", campaignPanel)
+		} else {
+			// The panel's ASCII frame is fixed-width; clamp it to the
+			// frame when stacked on a terminal narrower than the panel.
+			campaignPanel = lipgloss.NewStyle().MaxWidth(max(m.width, 1)).Render(campaignPanel)
+			chatView = lipgloss.JoinVertical(lipgloss.Left, chatView, campaignPanel)
+		}
 	}
 
 	// Input area

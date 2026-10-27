@@ -73,7 +73,10 @@ const (
 // what the other enabled. A config still carrying `json_format` is refused
 // at load by rejectRemovedLoggingKeys, naming `format` as the replacement.
 type loggingConfig struct {
-	DebugMode  bool            `json:"debug_mode"`
+	DebugMode bool `json:"debug_mode"`
+	// DebugSelf turns codenerd on its own logs. It implies DebugMode:
+	// without debug mode no log files exist to watch.
+	DebugSelf  bool            `json:"debug_self"`
 	TraceLLMIO bool            `json:"trace_llm_io"` // Dump full LLM prompt/response to llm_io log
 	Categories map[string]bool `json:"categories"`
 	Level      string          `json:"level"`
@@ -259,7 +262,9 @@ func BoundWorkspace() string {
 // source of truth" problem. internal/config imports this package, so the flow
 // has to be config -> logging.ApplyConfig, never logging -> config.
 type Config struct {
-	DebugMode               bool
+	DebugMode bool
+	// DebugSelf implies DebugMode wherever the effective config is used.
+	DebugSelf               bool
 	TraceLLMIO              bool
 	TraceLLMIORaw           bool
 	Categories              map[string]bool
@@ -280,6 +285,7 @@ func ApplyConfig(c Config) {
 	configMu.Lock()
 	config = loggingConfig{
 		DebugMode:               c.DebugMode,
+		DebugSelf:               c.DebugSelf,
 		TraceLLMIO:              c.TraceLLMIO,
 		TraceLLMIORaw:           c.TraceLLMIORaw,
 		Categories:              c.Categories,
@@ -325,6 +331,7 @@ func initializeInternal(ws string) error {
 		fmt.Fprintf(os.Stderr, "[logging] Warning: could not load config: %v\n", err)
 		// Default to disabled (production mode)
 		config.DebugMode = false
+		config.DebugSelf = false
 	}
 
 	runPrefixMu.Lock()
@@ -333,7 +340,7 @@ func initializeInternal(ws string) error {
 	clearOrdinaryLogs(logsDir)
 
 	// Only create logs directory if debug mode is enabled
-	if !config.DebugMode {
+	if !effectiveDebugMode(config) {
 		return nil // Silent no-op in production mode
 	}
 
@@ -350,7 +357,7 @@ func initializeInternal(ws string) error {
 	bootLogger.Info("=== codeNERD Logging System Initialized ===")
 	bootLogger.Info("Workspace: %s", workspace)
 	bootLogger.Info("Logs directory: %s", logsDir)
-	bootLogger.Info("Debug mode: %v", config.DebugMode)
+	bootLogger.Info("Debug mode: %v (debug_self: %v)", effectiveDebugMode(config), config.DebugSelf)
 	bootLogger.Info("Log level: %s", config.Level)
 
 	// Log enabled categories
@@ -477,11 +484,24 @@ func applyLevelLocked(level string) {
 	}
 }
 
-// IsDebugMode returns whether debug logging is enabled
+// effectiveDebugMode is the single place debug_self's implication is
+// computed: debug_self without debug mode would have no log files at all.
+func effectiveDebugMode(c loggingConfig) bool {
+	return c.DebugMode || c.DebugSelf
+}
+
+// IsDebugMode returns whether debug logging is enabled. DebugSelf implies it.
 func IsDebugMode() bool {
 	configMu.RLock()
 	defer configMu.RUnlock()
-	return config.DebugMode
+	return effectiveDebugMode(config)
+}
+
+// IsDebugSelf returns whether debug-self mode is enabled in the effective config.
+func IsDebugSelf() bool {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return config.DebugSelf
 }
 
 // IsCategoryEnabled returns whether a specific category is enabled
@@ -489,7 +509,7 @@ func IsCategoryEnabled(category Category) bool {
 	configMu.RLock()
 	defer configMu.RUnlock()
 
-	if !config.DebugMode {
+	if !effectiveDebugMode(config) {
 		return false
 	}
 
@@ -683,12 +703,34 @@ var (
 	problemsLogger *log.Logger
 	problemsFile   *rotatingFile
 	problemsFailed bool
+	problemsPath   string
+	problemsWarns  atomic.Int64
+	problemsErrs   atomic.Int64
 )
+
+// ProblemsSnapshot returns the aggregated problems log's path ("" until the
+// first WARN/ERROR opens it) and how many warnings and errors have been
+// mirrored to it in this process. Callers that report an operation's result
+// (init's summary, a chat turn's System Warnings block) diff two snapshots
+// or print the totals so the log's contents are visible where the user is
+// already looking, instead of only in a file nobody opens.
+func ProblemsSnapshot() (path string, warnings, errors int64) {
+	problemsMu.Lock()
+	path = problemsPath
+	problemsMu.Unlock()
+	return path, problemsWarns.Load(), problemsErrs.Load()
+}
 
 // mirrorToProblems appends one line to the aggregated problems log, tagged with
 // the category it came from. Failures are silent after the first: logging must
 // never take down the process it is observing.
 func mirrorToProblems(category Category, level, msg string) {
+	switch level {
+	case "WARN":
+		problemsWarns.Add(1)
+	case "ERROR":
+		problemsErrs.Add(1)
+	}
 	problemsMu.Lock()
 	defer problemsMu.Unlock()
 
@@ -712,6 +754,7 @@ func mirrorToProblems(category Category, level, msg string) {
 			return
 		}
 		problemsFile = f
+		problemsPath = path
 		problemsLogger = log.New(f, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 	}
 	problemsLogger.Printf("[%s] [%s] %s", level, category, msg)
@@ -725,6 +768,7 @@ func closeProblemsLog() {
 		_ = problemsFile.Close()
 		problemsFile = nil
 		problemsLogger = nil
+		problemsPath = ""
 		problemsFailed = false // a fresh workspace/rebind deserves a fresh attempt
 	}
 }

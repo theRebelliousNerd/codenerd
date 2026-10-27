@@ -275,10 +275,21 @@ type Model struct {
 	ready     bool
 	Config    *config.UserConfig
 
+	// Layout (see layout.go): wrapWidth is the text width every renderer
+	// wraps to, derived by applyLayout from the frame size and open
+	// sidebars. campaignBeside records whether the campaign sidebar sits
+	// beside the chat column (width reserved) or stacks below it.
+	wrapWidth      int
+	campaignBeside bool
+
 	// Rendering Performance Cache
-	// Caches rendered markdown for messages to avoid O(N) re-renders
-	renderedCache    map[int]string // Maps message index to rendered output
-	cacheInvalidFrom int            // Index from which cache needs refresh (-1 = all valid)
+	// Caches rendered markdown for messages to avoid O(N) re-renders.
+	// renderedCacheWidth is the wrapWidth the cached renders were made at:
+	// glamour wraps at render time, so a cache entry is only valid at the
+	// width it was rendered for.
+	renderedCache      map[int]string // Maps message index to rendered output
+	renderedCacheWidth int
+	cacheInvalidFrom   int // Index from which cache needs refresh (-1 = all valid)
 
 	// JIT Compiler — compiles this turn's chat skeleton (see persona.go).
 	jitCompiler *prompt.JITPromptCompiler
@@ -321,10 +332,18 @@ type Model struct {
 	workspace           string
 	DisableSystemShards []string
 	// yoloFlag and apiKeyFlag are the launch flags (Config.Yolo, Config.APIKey).
-	yoloFlag         bool
-	apiKeyFlag       string
-	browserMgr       *browser.SessionManager // Browser automation manager
-	browserCtxCancel context.CancelFunc      // Cancels browser manager goroutine
+	yoloFlag   bool
+	apiKeyFlag string
+	// Debug-self (self_debug.go): watcher is a pointer so its offset survives
+	// Model value copies across turns. yoloViaDebugSelf records that session
+	// yolo came (also) from debug_self; debugSelfOwnsYolo means debug_self
+	// was the sole reason yoloFlag was set, so /debug-self off may clear it.
+	// Neither ever persists yolo:true.
+	selfDebug         *selfDebugWatcher
+	yoloViaDebugSelf  bool
+	debugSelfOwnsYolo bool
+	browserMgr        *browser.SessionManager // Browser automation manager
+	browserCtxCancel  context.CancelFunc      // Cancels browser manager goroutine
 
 	// Campaign Orchestration
 	activeCampaign       *campaign.Campaign

@@ -559,7 +559,7 @@ func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaR
 		// Reasoning tokens are billed as output, so they are folded in here
 		// rather than dropped — Muse Spark turns are mostly reasoning.
 		in, out, _ := reply.Usage.resolved()
-		trackUsage(ctx, c.model, c.vendor, in, out, op)
+		trackUsageDetailed(ctx, c.model, c.vendor, in, out, reply.Usage.InputTokensDetails.CachedTokens, 0, op)
 
 		logging.Get(logging.CategoryAPI).Debug(
 			"meta responses: in=%d out=%d reasoning=%d cached=%d status=%s in %v",

@@ -62,10 +62,20 @@ func usageProviderID(p Provider) string {
 // constructed in tests and one-shot tools, and metering must never be a reason
 // a completion path fails.
 func trackUsage(ctx context.Context, model string, provider Provider, input, output int, operation string) {
+	trackUsageDetailed(ctx, model, provider, input, output, 0, 0, operation)
+}
+
+// trackUsageDetailed is trackUsage with the cache sub-counts of input:
+// cacheRead/cacheWrite tokens already included in input by each producer
+// (Anthropic folds them via promptTokens; OpenAI/Gemini prompt counts
+// include their cached subset). They are recorded so usage.json can show
+// cache traffic from every provider that reports it, priced at the
+// provider's cache rate where the price table has one.
+func trackUsageDetailed(ctx context.Context, model string, provider Provider, input, output, cacheRead, cacheWrite int, operation string) {
 	if input <= 0 && output <= 0 {
 		return
 	}
-	usage.TrackFromContext(ctx, model, usageProviderID(provider), input, output, operation)
+	usage.TrackDetailedFromContext(ctx, model, usageProviderID(provider), input, output, cacheRead, cacheWrite, operation)
 }
 
 // usageOpFor picks the operation id for a request by whether it offered tools.

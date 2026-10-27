@@ -134,3 +134,37 @@ func TestCredentialUsagePersistsAndMergesAcrossWriters(t *testing.T) {
 		t.Fatalf("credential usage merge lost counts: %+v", stats)
 	}
 }
+
+// Cache sub-counts ride along as part of Input: they are aggregated for
+// visibility and priced at cache rates, but never double-counted in Total.
+func TestTrackDetailedFromContext_CacheSubCounts(t *testing.T) {
+	tracker, err := NewTracker(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+	ctx := NewContext(context.Background(), tracker)
+	ctx = WithSessionID(ctx, "session-42")
+	// 1000 input of which 600 cache-read and 100 cache-write, 100 output,
+	// on claude-opus-5-5 (input 4.00, output 20.00, read 0.40, write 5.00).
+	TrackDetailedFromContext(ctx, "anthropic/claude-opus-5-5", "anthropic", 1000, 100, 600, 100, "chat")
+
+	stats := tracker.Stats()
+	tot := stats.TotalProject
+	if tot.Input != 1000 || tot.Output != 100 || tot.Total != 1100 {
+		t.Errorf("totals = %+v, want input 1000 output 100 total 1100 (cache not double-counted)", tot)
+	}
+	if tot.CacheRead != 600 || tot.CacheWrite != 100 {
+		t.Errorf("cache counts = read %d write %d, want 600/100", tot.CacheRead, tot.CacheWrite)
+	}
+	// 300 uncached*4 + 600 read*0.4 + 100 write*5 + 100 out*20, per MTok.
+	wantCost := (300*4.00 + 600*0.40 + 100*5.00 + 100*20.00) / 1e6
+	if diff := tot.Cost - wantCost; diff > 1e-12 || diff < -1e-12 {
+		t.Errorf("cost = %v, want %v", tot.Cost, wantCost)
+	}
+	if got := stats.ByModel["anthropic/claude-opus-5-5"].CacheRead; got != 600 {
+		t.Errorf("ByModel cache read = %d, want 600", got)
+	}
+	if got := stats.BySession["session-42"].Input; got != 1000 {
+		t.Errorf("BySession[session-42].Input = %d, want 1000", got)
+	}
+}

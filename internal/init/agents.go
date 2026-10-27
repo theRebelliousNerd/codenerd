@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -67,6 +68,20 @@ func (i *Initializer) generateAgentPromptsYAMLWithContext(ctx context.Context, a
 	// A missing research DB does not authorize replacing curated prompt atoms.
 	if existing, err := os.ReadFile(promptsPath); err == nil {
 		if err := validatePromptsYAML(existing, strings.ToLower(agent.Name)); err != nil {
+			// A prompts.yaml written before the atom cap holds oversize
+			// atoms the embedding model refuses and selection can only
+			// take whole. Re-atomizing preserves every word and field —
+			// it only cuts content at heading boundaries into capped
+			// sub-atoms — so it does not replace curation, it makes the
+			// curated text usable. Anything else wrong stays an error.
+			fixed, changed, ferr := resplitPromptsYAML(existing)
+			if ferr == nil && changed && validatePromptsYAML(fixed, strings.ToLower(agent.Name)) == nil {
+				if werr := os.WriteFile(promptsPath, fixed, 0644); werr != nil {
+					return fmt.Errorf("existing agent prompts: %w (re-atomized form could not be written: %v)", err, werr)
+				}
+				logging.Boot("Re-atomized oversize prompt atoms in %s to the %d-character cap", promptsPath, maxAgentAtomContentChars)
+				return nil
+			}
 			return fmt.Errorf("existing agent prompts: %w", err)
 		}
 		return nil
@@ -174,121 +189,118 @@ func indentForYAMLBlock(content, indent string) string {
 	return strings.Join(lines, "\n")
 }
 
-// validatePromptsYAML parses the assembled YAML and confirms it contains exactly
-// the expected atom ids. Any parse failure or missing id is treated as corruption.
+// validatePromptsYAML parses the assembled YAML and confirms it holds a
+// usable atom set: the base identity/methodology/domain atoms exist (each
+// possibly followed by capped sub-atoms under the same prefix), ids are
+// unique, contents are non-empty, and no atom exceeds
+// maxAgentAtomContentChars. Any failure is treated as corruption.
 func validatePromptsYAML(data []byte, agentNameLower string) error {
 	var atoms []struct {
-		ID string `yaml:"id"`
+		ID      string `yaml:"id"`
+		Content string `yaml:"content"`
 	}
 	if err := yaml.Unmarshal(data, &atoms); err != nil {
 		return fmt.Errorf("yaml parse failed: %w", err)
 	}
-	expected := []string{
-		agentNameLower + "/identity",
-		agentNameLower + "/methodology",
-		agentNameLower + "/domain",
-	}
-	if len(atoms) != len(expected) {
-		return fmt.Errorf("expected %d atoms, got %d", len(expected), len(atoms))
+	if len(atoms) == 0 {
+		return fmt.Errorf("no prompt atoms found")
 	}
 	found := make(map[string]bool, len(atoms))
 	for _, a := range atoms {
+		if strings.TrimSpace(a.ID) == "" {
+			return fmt.Errorf("prompt atom with an empty id")
+		}
+		if found[a.ID] {
+			return fmt.Errorf("duplicate prompt atom id %q", a.ID)
+		}
 		found[a.ID] = true
+		if strings.TrimSpace(a.Content) == "" {
+			return fmt.Errorf("prompt atom %q has empty content", a.ID)
+		}
+		if n := utf8.RuneCountInString(a.Content); n > maxAgentAtomContentChars {
+			return fmt.Errorf("prompt atom %q content is %d characters, over the %d-character atom cap: split it into smaller atoms under the same prefix", a.ID, n, maxAgentAtomContentChars)
+		}
 	}
-	for _, exp := range expected {
-		if !found[exp] {
-			return fmt.Errorf("missing expected atom %q", exp)
+	for _, base := range []string{"/identity", "/methodology", "/domain"} {
+		if !found[agentNameLower+base] {
+			return fmt.Errorf("missing expected atom %q", agentNameLower+base)
 		}
 	}
 	return nil
 }
 
 // buildPromptsYAML assembles the full prompts.yaml document from its pieces.
-// methodologyContent and domainContent are raw markdown; they are indented inside
-// the YAML literal block scalars before interpolation. The remaining atom fields
-// (ids, categories, priorities, is_mandatory, content_concise/min) are kept
-// exactly as in the static template.
+// methodologyContent and domainContent are raw markdown; each body is
+// atomized at its heading boundaries into capped atoms (atomizeContent), so
+// no atom exceeds maxAgentAtomContentChars however long the generated
+// markdown is. The first piece of each body keeps the base id
+// (<agent>/methodology, <agent>/domain), so depends_on references and the
+// atom counts callers expect are unchanged for short content.
 func buildPromptsYAML(agentNameLower, displayName, description, domainExpertise, topicsStr, methodologyContent, domainContent string) string {
-	methIndented := indentForYAMLBlock(methodologyContent, "    ")
-	domainIndented := indentForYAMLBlock(domainContent, "    ")
-	return fmt.Sprintf(`# Prompt atoms for %[2]s
-# These are loaded into the JIT prompt compiler when the agent is spawned.
-# Edit this file to customize the agent's identity, methodology, and domain knowledge.
+	// domainExpertise arrives pre-indented for the old block-scalar template
+	// (formatDomainExpertise); the identity body is plain markdown here.
+	expertiseLines := strings.Split(domainExpertise, "\n")
+	for i, line := range expertiseLines {
+		expertiseLines[i] = strings.TrimPrefix(line, "    ")
+	}
+	identityContent := fmt.Sprintf(`You are %s, a specialist agent in the codeNERD ecosystem.
 
-- id: "%[1]s/identity"
-  category: "identity"
-  subcategory: "%[1]s"
-  priority: 100
-  is_mandatory: true
-  description: "Identity and mission for %[2]s"
-  content_concise: |
-    You are %[2]s, a specialist agent in the codeNERD ecosystem.
-    Role: %[3]s
-    Topics: %[5]s
-  content_min: |
-    You are %[2]s (%[3]s). Operate under the codeNERD kernel.
-  content: |
-    You are %[2]s, a specialist agent in the codeNERD ecosystem.
+## Role
+%s
 
-    ## Role
-    %[3]s
+## Domain Expertise
+%s
 
-    ## Domain Expertise
-%[4]s
+## Research Topics
+%s
 
-    ## Research Topics
-    %[5]s
+## Core Responsibilities
+- Provide expert guidance in your domain
+- Follow best practices and established patterns
+- Maintain high code quality standards
+- Integrate seamlessly with the codeNERD architecture
 
-    ## Core Responsibilities
-    - Provide expert guidance in your domain
-    - Follow best practices and established patterns
-    - Maintain high code quality standards
-    - Integrate seamlessly with the codeNERD architecture
+## Execution Mode
+You operate under the control of the codeNERD kernel. You receive structured tasks
+with clear objectives, focus patterns, and success criteria. Execute precisely.`,
+		displayName, description, strings.Join(expertiseLines, "\n"), topicsStr)
 
-    ## Execution Mode
-    You operate under the control of the codeNERD kernel. You receive structured tasks
-    with clear objectives, focus patterns, and success criteria. Execute precisely.
+	var atoms []agentPromptAtom
+	atoms = append(atoms, atomizeContent(
+		agentNameLower+"/identity", "identity", agentNameLower, 100, true, nil,
+		"Identity and mission for "+displayName,
+		fmt.Sprintf("You are %s, a specialist agent in the codeNERD ecosystem.\nRole: %s\nTopics: %s", displayName, description, topicsStr),
+		fmt.Sprintf("You are %s (%s). Operate under the codeNERD kernel.", displayName, description),
+		identityContent)...)
+	// Identity sub-atoms stay mandatory (atomizeContent propagates the
+	// flag): the identity was one mandatory atom before the cap existed,
+	// and splitting it must not make pieces of who the agent is optional.
+	atoms = append(atoms, atomizeContent(
+		agentNameLower+"/methodology", "methodology", agentNameLower, 80, false,
+		[]string{agentNameLower + "/identity"},
+		"Methodology and quality bar for "+displayName,
+		"- Understand context before acting\n- Consider edge cases and failure modes\n- Write clear, maintainable code\n- Verify with tests when feasible",
+		"Be precise, verify assumptions, and preserve correctness.",
+		methodologyContent)...)
+	atoms = append(atoms, atomizeContent(
+		agentNameLower+"/domain", "domain", agentNameLower, 70, false,
+		[]string{agentNameLower + "/identity", agentNameLower + "/methodology"},
+		"Domain knowledge, pitfalls, and references for "+displayName,
+		fmt.Sprintf("Domain focus: %s\nTopics: %s", description, topicsStr),
+		fmt.Sprintf("Apply domain best practices for: %s", topicsStr),
+		domainContent)...)
 
-- id: "%[1]s/methodology"
-  category: "methodology"
-  subcategory: "%[1]s"
-  priority: 80
-  is_mandatory: false
-  depends_on: ["%[1]s/identity"]
-  description: "Methodology and quality bar for %[2]s"
-  content_concise: |
-    - Understand context before acting
-    - Consider edge cases and failure modes
-    - Write clear, maintainable code
-    - Verify with tests when feasible
-  content_min: |
-    Be precise, verify assumptions, and preserve correctness.
-  content: |
-%[6]s
-
-- id: "%[1]s/domain"
-  category: "domain"
-  subcategory: "%[1]s"
-  priority: 70
-  is_mandatory: false
-  depends_on: ["%[1]s/identity", "%[1]s/methodology"]
-  description: "Domain knowledge, pitfalls, and references for %[2]s"
-  content_concise: |
-    Domain focus: %[3]s
-    Topics: %[5]s
-  content_min: |
-    Apply domain best practices for: %[5]s
-  content: |
-%[7]s
-`,
-		agentNameLower,
-		displayName,
-		description,
-		domainExpertise,
-		topicsStr,
-		methIndented,
-		domainIndented,
-	)
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Prompt atoms for %s\n", displayName)
+	b.WriteString("# These are loaded into the JIT prompt compiler when the agent is spawned.\n")
+	b.WriteString("# Edit this file to customize the agent's identity, methodology, and domain knowledge.\n\n")
+	for i, atom := range atoms {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(renderAgentPromptAtom(atom))
+	}
+	return b.String()
 }
 
 // generateAgentAtomContent runs one per-atom generation on the planner route
@@ -328,7 +340,7 @@ func (i *Initializer) generateAgentAtomContent(ctx context.Context, agent Recomm
 // The prompt is deliberately specific to this agent's domain and forbids generic advice.
 func (i *Initializer) generateMethodologyContent(ctx context.Context, agent RecommendedAgent) (string, error) {
 	topicsStr := strings.Join(agent.Topics, ", ")
-	task := fmt.Sprintf("You are generating the methodology prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the methodology atom. Explain how THIS specialist approaches problems in its domain: its analysis approach, implementation standards, and quality assurance practices, tailored specifically to %s.\n\nRequirements:\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist (for example, a Go concurrency expert vs a Cobra CLI expert vs a Mangle/Datalog logic expert).\n- Do NOT include YAML front matter or atom headers; only output the markdown body that will be placed inside the YAML 'content: |' block.\n- Keep it concise but thorough, using markdown headings and bullet points.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
+	task := fmt.Sprintf("You are generating the methodology prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the methodology atom. Explain how THIS specialist approaches problems in its domain: its analysis approach, implementation standards, and quality assurance practices, tailored specifically to %s.\n\nRequirements:\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist (for example, a Go concurrency expert vs a Cobra CLI expert vs a Mangle/Datalog logic expert).\n- Do NOT include YAML front matter or atom headers; only output the markdown body that will be placed inside the YAML 'content: |' block.\n- Keep it concise but thorough, using markdown headings and bullet points.\n- Structure it as several short '## ' sections, one idea per section, each section at most 1800 characters: every section becomes its own prompt atom and is selected and embedded independently, so each must make sense on its own and none may be a monolith.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
 	return i.generateAgentAtomContent(ctx, agent, "methodology", task)
 }
 
@@ -336,7 +348,7 @@ func (i *Initializer) generateMethodologyContent(ctx context.Context, agent Reco
 // The prompt demands concrete concepts, real pitfalls and practices for this specialist.
 func (i *Initializer) generateDomainContent(ctx context.Context, agent RecommendedAgent) (string, error) {
 	topicsStr := strings.Join(agent.Topics, ", ")
-	task := fmt.Sprintf("You are generating the domain prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the domain atom. Describe the concrete concepts, real pitfalls, and best practices that matter for those specific topics: %s.\n\nRequirements:\n- Cover Key Concepts (specific patterns, frameworks, or language features for this domain), Common Pitfalls (real gotchas and anti-patterns for these topics), Best Practices (domain-specific guidelines), and Resources.\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist.\n- Do NOT include YAML front matter or atom headers; only output the markdown body for the YAML 'content: |' block.\n- Use markdown headings and bullet points.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
+	task := fmt.Sprintf("You are generating the domain prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the domain atom. Describe the concrete concepts, real pitfalls, and best practices that matter for those specific topics: %s.\n\nRequirements:\n- Cover Key Concepts (specific patterns, frameworks, or language features for this domain), Common Pitfalls (real gotchas and anti-patterns for these topics), Best Practices (domain-specific guidelines), and Resources.\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist.\n- Do NOT include YAML front matter or atom headers; only output the markdown body for the YAML 'content: |' block.\n- Use markdown headings and bullet points.\n- Write many short '## ' or '### ' sections, one concept, pitfall, or practice per section, each section at most 1800 characters: every section becomes its own prompt atom and is selected and embedded independently, so each must make sense on its own and none may be a monolith. Prefer twenty small sections over four large ones.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
 	return i.generateAgentAtomContent(ctx, agent, "domain", task)
 }
 

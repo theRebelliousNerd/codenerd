@@ -508,13 +508,16 @@ func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent
 	}
 
 	return Intent{
-		Category:   category,
-		Verb:       verb,
-		Target:     target,
-		Constraint: constraint,
-		Confidence: u.Confidence,
-		Response:   u.SurfaceResponse,
-		IsQuestion: u.Signals.IsQuestion || isBackupQuestionSignal(u.SemanticType, u.ActionType),
+		Category:    category,
+		Verb:        verb,
+		Target:      target,
+		Constraint:  constraint,
+		Confidence:  u.Confidence,
+		Response:    u.SurfaceResponse,
+		IsQuestion:  u.Signals.IsQuestion || isBackupQuestionSignal(u.SemanticType, u.ActionType),
+		ScopeLevel:  u.Scope.Level,
+		ScopeFile:   u.Scope.File,
+		ToolsNeeded: u.SuggestedApproach.ToolsNeeded,
 
 		// Preserve Understanding in Ambiguity for debugging
 		Ambiguity: ambiguityInfo,

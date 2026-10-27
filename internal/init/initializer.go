@@ -241,6 +241,13 @@ type InitResult struct {
 	LLMMetrics     InitLLMMetrics     `json:"llm_metrics"`
 	Validation     *ValidationSummary `json:"validation,omitempty"`
 
+	// LogProblems counts the warnings and errors logged while this run
+	// executed (every category, mirrored to the session problems log) and
+	// names that file. Until 2026-10-27 the run reported only its own
+	// curated Warnings: a cold start logged 44 embedding/store errors to
+	// the problems log and its summary showed none of them.
+	LogProblems InitLogProblems `json:"log_problems"`
+
 	// Type 3 Agent Creation Results
 	RecommendedAgents []RecommendedAgent `json:"recommended_agents,omitzero"`
 	CreatedAgents     []CreatedAgent     `json:"created_agents,omitzero"`
@@ -249,6 +256,15 @@ type InitResult struct {
 	// ProjectTools names the project command tools phase 7e chose from the
 	// repository's own commands; phase 10 writes them to available_tools.json.
 	ProjectTools []string `json:"project_tools,omitzero"`
+}
+
+// InitLogProblems is the delta of the session problems log across one
+// Initialize run: how many warnings and errors were logged during it, and
+// the file they were mirrored to ("" when logging never opened it).
+type InitLogProblems struct {
+	Path     string `json:"path,omitzero"`
+	Warnings int64  `json:"warnings"`
+	Errors   int64  `json:"errors"`
 }
 
 // CreatedAgent represents a Type 3 agent that was created during init.
@@ -308,6 +324,32 @@ type Initializer struct {
 	// research shares fetched topics across the agents of one run, so a topic
 	// two specialists both need is fetched once.
 	research topicCache
+
+	// problemsAtStart / embeddingFailuresAtStart snapshot the process-wide
+	// counters captureLogProblems diffs into InitResult.LogProblems.
+	problemsStartWarns, problemsStartErrs int64
+	embeddingFailuresAtStart              int64
+	embeddingFailureWarningRecorded       bool
+}
+
+// captureLogProblems records, on result, what this run logged: the
+// problems-log delta since Initialize began, and — once — a warning naming
+// how many knowledge atoms were stored without an embedding (each of those
+// is stored but semantically unsearchable, and the store only logs it).
+// Called by finalizeInitialization before the summary prints and again from
+// Initialize's defer so early cancellation returns carry it too.
+func (i *Initializer) captureLogProblems(result *InitResult) {
+	path, warns, errs := logging.ProblemsSnapshot()
+	result.LogProblems = InitLogProblems{
+		Path:     path,
+		Warnings: warns - i.problemsStartWarns,
+		Errors:   errs - i.problemsStartErrs,
+	}
+	if n := store.KnowledgeEmbeddingFailures() - i.embeddingFailuresAtStart; n > 0 && !i.embeddingFailureWarningRecorded {
+		i.embeddingFailureWarningRecorded = true
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"%d knowledge atom(s) were stored without a semantic embedding (embedding failed — see the session problems log); those atoms are not reachable by semantic search until a re-embed succeeds", n))
+	}
 }
 
 // NewInitializer creates a new initializer.
@@ -455,6 +497,9 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		AgentKBs:      make(map[string]int),
 		CreatedAgents: make([]CreatedAgent, 0),
 	}
+	_, i.problemsStartWarns, i.problemsStartErrs = logging.ProblemsSnapshot()
+	i.embeddingFailuresAtStart = store.KnowledgeEmbeddingFailures()
+	defer func() { i.captureLogProblems(result) }()
 	checkContext := func(stage string) error {
 		if err := ctx.Err(); err != nil {
 			wrapped := fmt.Errorf("initialization stopped during %s: %w", stage, err)

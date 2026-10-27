@@ -308,9 +308,10 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 		// loop above keeps overwriting. Both select arms below wait for
 		// scanDone, so lastUsage is safe to read here.
 		defer func() {
-			trackUsage(ctx, c.model, ProviderGemini,
+			trackUsageDetailed(ctx, c.model, ProviderGemini,
 				lastUsage.promptTokens,
 				geminiOutputTokens(lastUsage.outputTokens, lastUsage.thoughtsTokens),
+				lastUsage.cachedTokens, 0,
 				usageOpChat)
 		}()
 

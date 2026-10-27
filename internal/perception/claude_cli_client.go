@@ -90,6 +90,17 @@ type claudeCLIResponse struct {
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitzero"`
 		CacheReadInputTokens     int `json:"cache_read_input_tokens,omitzero"`
 	} `json:"usage,omitzero"`
+	// ModelUsage breaks the same accounting down by the ACTUAL model id the
+	// CLI ran. It is the only place that id appears: the configured model
+	// may be a CLI alias ("opus") or empty (CLI's own default), and
+	// metering under the alias priced an opus-5-5 run as generic opus —
+	// or recorded it under an empty/"unknown" model entirely.
+	ModelUsage map[string]struct {
+		InputTokens              int `json:"inputTokens"`
+		OutputTokens             int `json:"outputTokens"`
+		CacheCreationInputTokens int `json:"cacheCreationInputTokens,omitzero"`
+		CacheReadInputTokens     int `json:"cacheReadInputTokens,omitzero"`
+	} `json:"modelUsage,omitzero"`
 }
 
 // claudeCLIResultObject is the structured result when tools are enabled.
@@ -472,14 +483,26 @@ func (c *ClaudeCodeCLIClient) parseResponse(ctx context.Context, data []byte) (s
 	// cache reads (internal/broker/broker.go settle), and the API client folds
 	// them the same way (anthropicUsage.promptTokens), so the two engines' rows
 	// stay reconcilable.
-	if resp.Usage != nil {
+	if len(resp.ModelUsage) > 0 {
+		// Per-model accounting with real model ids: strictly better than
+		// the aggregate block under the configured alias.
+		for model, mu := range resp.ModelUsage {
+			u := anthropicUsage{
+				InputTokens:              mu.InputTokens,
+				OutputTokens:             mu.OutputTokens,
+				CacheCreationInputTokens: mu.CacheCreationInputTokens,
+				CacheReadInputTokens:     mu.CacheReadInputTokens,
+			}
+			trackUsageDetailed(ctx, model, ProviderAnthropic, u.promptTokens(), u.OutputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens, usageOpChat)
+		}
+	} else if resp.Usage != nil {
 		u := anthropicUsage{
 			InputTokens:              resp.Usage.InputTokens,
 			OutputTokens:             resp.Usage.OutputTokens,
 			CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
 			CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
 		}
-		trackUsage(ctx, c.model, ProviderAnthropic, u.promptTokens(), u.OutputTokens, usageOpChat)
+		trackUsageDetailed(ctx, c.model, ProviderAnthropic, u.promptTokens(), u.OutputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens, usageOpChat)
 	}
 
 	// Priority 1: Check for structured_output (JSON Schema mode)

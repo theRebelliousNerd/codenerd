@@ -321,11 +321,15 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 	}
 
 	usage := parsed.Usage.groundedUsage()
+	cachedTokens := 0
+	if parsed.Usage != nil {
+		cachedTokens = parsed.Usage.InputTokensDetails.CachedTokens
+	}
 	// A grounded search is a billed model turn like any other; it just does not
 	// go through executeChat, so it needs its own Track. executeResponses is
 	// not used here: its errors include the response body, and this path must
 	// not.
-	trackUsage(ctx, model, c.vendor, usage.InputTokens, usage.OutputTokens, usageOpSearch)
+	trackUsageDetailed(ctx, model, c.vendor, usage.InputTokens, usage.OutputTokens, cachedTokens, 0, usageOpSearch)
 	c.recordGroundingSources(captured.Sources)
 
 	result := &types.GroundedWebSearchResult{

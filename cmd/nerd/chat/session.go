@@ -151,6 +151,10 @@ func InitChat(cfg Config) Model {
 	transparencyCfg := appCfg.GetTransparencyConfig()
 	transparencyMgr := transparency.NewTransparencyManager(transparencyCfg)
 
+	// Debug-self implies session yolo (never persisted as yolo:true) and,
+	// via the effective logging config, debug logging at boot.
+	debugSelfOn := appCfg.DebugSelfMode()
+
 	// Return the model in "Booting" state
 	return Model{
 		textarea:     ta,
@@ -174,7 +178,7 @@ func InitChat(cfg Config) Model {
 		showError:    true,
 		focusError:   false,
 		// System action summaries are noisy; default to showing them only in debug mode.
-		showSystemActions: appCfg != nil && appCfg.Logging != nil && appCfg.Logging.DebugMode,
+		showSystemActions: appCfg.GetLogging().DebugMode,
 		history:           []Message{},
 		Config:            appCfg,
 		// Rendering cache for performance
@@ -189,8 +193,11 @@ func InitChat(cfg Config) Model {
 		statusChan:          make(chan string, 10),
 		workspace:           workspace,
 		DisableSystemShards: cfg.DisableSystemShards,
-		yoloFlag:            cfg.Yolo,
+		yoloFlag:            cfg.Yolo || debugSelfOn,
 		apiKeyFlag:          cfg.APIKey,
+		selfDebug:           newSelfDebugWatcher(),
+		yoloViaDebugSelf:    debugSelfOn,
+		debugSelfOwnsYolo:   debugSelfOn && !cfg.Yolo && !appCfg.YoloMode(),
 		// Mouse capture enabled by default (Alt+M to toggle for text selection)
 		mouseEnabled: true,
 		// Shutdown coordination (pointer to sync.Once to allow Model copy without noCopy violation)

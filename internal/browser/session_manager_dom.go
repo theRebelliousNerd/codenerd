@@ -442,12 +442,25 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				mainFrameMu.RLock()
 				isMainFrame := tracked && state.frameID != "" && state.frameID == mainFrameID
 				mainFrameMu.RUnlock()
-				if !ev.Canceled && tracked && state.resource == string(proto.NetworkResourceTypeDocument) && isMainFrame {
+				mainDocFailed := !ev.Canceled && tracked && state.resource == string(proto.NetworkResourceTypeDocument) && isMainFrame
+				if mainDocFailed {
 					facts = append(facts, mangle.Fact{
 						Predicate: "page_load_failed",
 						Args:      []any{sessionID, m.redactor.SanitizeString(state.url), m.redactor.SanitizeString(ev.ErrorText), eventTime.UnixMilli()},
 						Timestamp: eventTime,
 					})
+					// A failed main navigation replaces the page with an
+					// error document, but Page.frameNavigated for it is
+					// dropped by handleNavigation's stale-event guard (the
+					// live target reports the error page, not the failed
+					// URL), so the epoch would never roll and the prior
+					// page's facts would outlive it. Retire the old epoch
+					// here, before asserting the failure facts into the new
+					// one, and drop element refs to the dead page.
+					if registry := m.Registry(sessionID); registry != nil && registry.Count() > 0 {
+						registry.Clear()
+					}
+					m.RollSessionEpoch(sessionID)
 				}
 				if err := m.addStreamFacts(sessionID, facts); err != nil {
 					logging.BrowserError("[session:%s] net_failure fact error: %v", sessionID, err)

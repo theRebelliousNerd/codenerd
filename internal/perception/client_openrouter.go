@@ -196,8 +196,8 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		trackUsage(ctx, c.model, ProviderOpenRouter,
-			orResp.Usage.PromptTokens, orResp.Usage.CompletionTokens, usageOpChat)
+		trackUsageDetailed(ctx, c.model, ProviderOpenRouter,
+			orResp.Usage.PromptTokens, orResp.Usage.CompletionTokens, orResp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpChat)
 
 		response := strings.TrimSpace(orResp.Choices[0].Message.Content)
 		if finish := orResp.Choices[0].FinishReason; types.LengthStop(finish) {
@@ -353,7 +353,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			// include_usage makes OpenRouter send a trailing chunk with the
 			// final billed counts and no choices; recorded once after the
 			// stream ends rather than per delta.
-			var billed struct{ input, output int }
+			var billed struct{ input, output, cached int }
 
 			go func() {
 				defer close(scanDone)
@@ -381,6 +381,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 					if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 						billed.input = chunk.Usage.PromptTokens
 						billed.output = chunk.Usage.CompletionTokens
+						billed.cached = chunk.Usage.PromptTokensDetails.CachedTokens
 					}
 					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
 						delta := chunk.Choices[0].Delta.Content
@@ -399,7 +400,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			}()
 
 			defer func() {
-				trackUsage(ctx, c.model, ProviderOpenRouter, billed.input, billed.output, usageOpChat)
+				trackUsageDetailed(ctx, c.model, ProviderOpenRouter, billed.input, billed.output, billed.cached, 0, usageOpChat)
 			}()
 
 			select {
@@ -456,8 +457,8 @@ func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 	if err != nil {
 		return nil, err
 	}
-	trackUsage(ctx, c.model, ProviderOpenRouter,
-		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
+	trackUsageDetailed(ctx, c.model, ProviderOpenRouter,
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(tools)))
 	return c.toToolResponse(resp, "CompleteWithTools")
 }
 
@@ -486,8 +487,8 @@ func (c *OpenRouterClient) CompleteWithToolResults(ctx context.Context, systemPr
 	if err != nil {
 		return nil, err
 	}
-	trackUsage(ctx, c.model, ProviderOpenRouter,
-		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
+	trackUsageDetailed(ctx, c.model, ProviderOpenRouter,
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(tools)))
 	return c.toToolResponse(resp, "CompleteWithToolResults")
 }
 

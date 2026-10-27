@@ -533,6 +533,7 @@ func (i *Initializer) finalizeInitialization(runner *phaseRunner, result *InitRe
 			strings.Join(phases, ", ")))
 	}
 	result.Warnings = append(result.Warnings, degradedEnrichmentWarnings(result.LLMMetrics)...)
+	i.captureLogProblems(result)
 	validation, validationErr := ValidateAllAgentDBs(result.NerdDir)
 	result.Validation = validation
 	recordValidationOutcome(result, validation, validationErr)

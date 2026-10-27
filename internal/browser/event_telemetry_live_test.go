@@ -148,7 +148,12 @@ setTimeout(() => { window.__dialogResult = confirm('access_token=dialog-secret-m
 			hasFactMatching(facts, "js_dialog", 1, "confirm") &&
 			hasFactMatching(facts, "ws_event", 3, "error") &&
 			hasFactMatching(facts, "ws_event", 3, "handshake_response") &&
-			hasFactMatching(facts, "browser_log", 3, "access_token")
+			// console.error arrives via Runtime.consoleAPICalled as a
+			// console_event; the Log domain (browser_log) carries
+			// network/security entries, not console API calls, in this
+			// Chrome build — waiting for it as browser_log never
+			// satisfied and timed the test out at 45s.
+			hasFactMatching(facts, "console_event", 2, "access_token")
 	})
 	select {
 	case <-canceledStarted:

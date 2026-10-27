@@ -266,6 +266,16 @@ func (m Model) renderInitComplete(result *nerdinit.InitResult) string {
 		sb.WriteString("\n")
 	}
 
+	// Everything the run logged, not only the warnings it curated: the
+	// problems log is where this session's WARN/ERROR lines all land.
+	if p := result.LogProblems; p.Warnings+p.Errors > 0 {
+		sb.WriteString(fmt.Sprintf("**Logged During Init**: %d error(s), %d warning(s)", p.Errors, p.Warnings))
+		if p.Path != "" {
+			sb.WriteString(fmt.Sprintf(" — `%s`", p.Path))
+		}
+		sb.WriteString("\n\n")
+	}
+
 	sb.WriteString(fmt.Sprintf("**Duration**: %.2fs\n\n", result.Duration.Seconds()))
 
 	sb.WriteString("### Next Steps\n\n")

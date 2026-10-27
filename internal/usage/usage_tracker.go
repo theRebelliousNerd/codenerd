@@ -629,10 +629,16 @@ func (t *tracker) saveLocked() error {
 // a bad cast, and letting them through silently corrupts every aggregate they
 // touch with no way to reconstruct the truth.
 func (t *tracker) Track(ctx context.Context, model, provider string, input, output int, operation string) {
-	if input < 0 || output < 0 {
+	t.TrackDetailed(ctx, model, provider, input, output, 0, 0, operation)
+}
+
+// TrackDetailed is Track with the cache sub-counts of input (cache-read and
+// cache-write tokens, already included in input by every producer).
+func (t *tracker) TrackDetailed(ctx context.Context, model, provider string, input, output, cacheRead, cacheWrite int, operation string) {
+	if input < 0 || output < 0 || cacheRead < 0 || cacheWrite < 0 {
 		logging.Get(logging.CategorySession).Warn(
-			"usage: rejecting negative token counts for model=%q provider=%q input=%d output=%d",
-			model, provider, input, output)
+			"usage: rejecting negative token counts for model=%q provider=%q input=%d output=%d cache_read=%d cache_write=%d",
+			model, provider, input, output, cacheRead, cacheWrite)
 		return
 	}
 	if input == 0 && output == 0 {
@@ -643,7 +649,7 @@ func (t *tracker) Track(ctx context.Context, model, provider string, input, outp
 	shardType := shardMetaFromContext(ctx, shardTypeKey)
 	sessionID := shardMetaFromContext(ctx, sessionIDKey)
 
-	cost, priced := EstimateCost(model, int64(input), int64(output))
+	cost, priced := EstimateCostDetailed(model, int64(input), int64(output), int64(cacheRead), int64(cacheWrite))
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -654,20 +660,20 @@ func (t *tracker) Track(ctx context.Context, model, provider string, input, outp
 	t.ensureMapsLocked()
 
 	a := &t.data.Aggregate
-	a.TotalProject.AddCost(input, output, cost)
+	a.TotalProject.AddDetailed(input, output, cacheRead, cacheWrite, cost)
 
 	if alias := CredentialAliasFromContext(ctx); alias != "" {
-		addToMap(a.ByCredential, alias, input, output, cost)
+		addDetailedToMap(a.ByCredential, alias, input, output, cacheRead, cacheWrite, cost)
 	}
-	addToMap(a.ByProvider, provider, input, output, cost)
-	addToMap(a.ByModel, model, input, output, cost)
-	addToMap(a.ByShardType, shardType, input, output, cost)
-	addToMap(a.ByShardName, shardName, input, output, cost)
-	addToMap(a.ByOperation, operation, input, output, cost)
-	addToMap(a.BySession, sessionID, input, output, cost)
+	addDetailedToMap(a.ByProvider, provider, input, output, cacheRead, cacheWrite, cost)
+	addDetailedToMap(a.ByModel, model, input, output, cacheRead, cacheWrite, cost)
+	addDetailedToMap(a.ByShardType, shardType, input, output, cacheRead, cacheWrite, cost)
+	addDetailedToMap(a.ByShardName, shardName, input, output, cacheRead, cacheWrite, cost)
+	addDetailedToMap(a.ByOperation, operation, input, output, cacheRead, cacheWrite, cost)
+	addDetailedToMap(a.BySession, sessionID, input, output, cacheRead, cacheWrite, cost)
 
 	if turnID := shardMetaFromContext(ctx, turnIDKey); turnID != "unknown" {
-		t.recordTurnLocked(turnID, input, output, cost)
+		t.recordTurnLocked(turnID, input, output, cacheRead, cacheWrite, cost)
 	}
 
 	if !priced {
@@ -678,17 +684,19 @@ func (t *tracker) Track(ctx context.Context, model, provider string, input, outp
 
 	if t.keepEvents {
 		t.appendEventLocked(UsageEvent{
-			CredentialAlias: CredentialAliasFromContext(ctx),
-			Timestamp:       time.Now().UTC(),
-			Model:           model,
-			Provider:        provider,
-			InputTokens:     input,
-			OutputTokens:    output,
-			ShardType:       shardType,
-			ShardName:       shardName,
-			SessionID:       sessionID,
-			OperationType:   operation,
-			CostUSD:         cost,
+			CredentialAlias:  CredentialAliasFromContext(ctx),
+			Timestamp:        time.Now().UTC(),
+			Model:            model,
+			Provider:         provider,
+			InputTokens:      input,
+			OutputTokens:     output,
+			CacheReadTokens:  cacheRead,
+			CacheWriteTokens: cacheWrite,
+			ShardType:        shardType,
+			ShardName:        shardName,
+			SessionID:        sessionID,
+			OperationType:    operation,
+			CostUSD:          cost,
 		})
 	}
 
@@ -739,6 +747,8 @@ func (t *tracker) pruneSessionsLocked() {
 		bucket.Input += v.Input
 		bucket.Output += v.Output
 		bucket.Total += v.Total
+		bucket.CacheRead += v.CacheRead
+		bucket.CacheWrite += v.CacheWrite
 		bucket.Cost += v.Cost
 		delete(sessions, rows[i].key)
 	}
@@ -882,11 +892,15 @@ func copyTokenCountsMap(src map[string]TokenCounts) map[string]TokenCounts {
 }
 
 func addToMap(m map[string]TokenCounts, key string, input, output int, cost float64) {
+	addDetailedToMap(m, key, input, output, 0, 0, cost)
+}
+
+func addDetailedToMap(m map[string]TokenCounts, key string, input, output, cacheRead, cacheWrite int, cost float64) {
 	if key == "" {
 		key = "unknown"
 	}
 	entry := m[key]
-	entry.AddCost(input, output, cost)
+	entry.AddDetailed(input, output, cacheRead, cacheWrite, cost)
 	m[key] = entry
 }
 
@@ -946,7 +960,7 @@ func WithSessionID(ctx context.Context, sessionID string) context.Context {
 const maxTurns = 1024
 
 // recordTurnLocked accumulates a turn's counts. Caller holds t.mu.
-func (t *tracker) recordTurnLocked(turnID string, input, output int, cost float64) {
+func (t *tracker) recordTurnLocked(turnID string, input, output, cacheRead, cacheWrite int, cost float64) {
 	if t.turns == nil {
 		t.turns = make(map[string]TokenCounts)
 	}
@@ -958,7 +972,7 @@ func (t *tracker) recordTurnLocked(turnID string, input, output int, cost float6
 		}
 	}
 	tc := t.turns[turnID]
-	tc.AddCost(input, output, cost)
+	tc.AddDetailed(input, output, cacheRead, cacheWrite, cost)
 	t.turns[turnID] = tc
 }
 
@@ -1012,8 +1026,14 @@ func (h *Tracker) SessionTokens(sessionID string) TokenCounts {
 // Every LLM client should call this rather than reaching for a tracker field,
 // so a client used outside a tracked session simply records nothing.
 func TrackFromContext(ctx context.Context, model, provider string, input, output int, operation string) {
+	TrackDetailedFromContext(ctx, model, provider, input, output, 0, 0, operation)
+}
+
+// TrackDetailedFromContext is TrackFromContext with the cache sub-counts of
+// input. The observer still receives whole input/output totals.
+func TrackDetailedFromContext(ctx context.Context, model, provider string, input, output, cacheRead, cacheWrite int, operation string) {
 	if t := FromContext(ctx); t != nil {
-		t.Track(ctx, model, provider, input, output, operation)
+		t.TrackDetailed(ctx, model, provider, input, output, cacheRead, cacheWrite, operation)
 	}
 	// Deliver the same report to an in-flight observer, if one is installed.
 	// This is what lets the broker learn the provider's actual token counts for

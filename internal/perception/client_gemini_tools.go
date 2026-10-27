@@ -114,9 +114,10 @@ func (c *GeminiClient) mapToolsResponse(ctx context.Context, geminiResp *GeminiR
 		CachedContentTokens: geminiResp.UsageMetadata.CachedContentTokenCount,
 	}
 
-	trackUsage(ctx, c.model, ProviderGemini,
+	trackUsageDetailed(ctx, c.model, ProviderGemini,
 		geminiResp.UsageMetadata.PromptTokenCount,
 		geminiOutputTokens(geminiResp.UsageMetadata.CandidatesTokenCount, geminiResp.UsageMetadata.ThoughtsTokenCount),
+		geminiResp.UsageMetadata.CachedContentTokenCount, 0,
 		usageOpFor(toolsLen))
 
 	if len(geminiResp.Candidates) > 0 {

@@ -13,9 +13,7 @@ import (
 	"codenerd/internal/transparency"
 	"codenerd/internal/ux"
 
-	"charm.land/glamour/v2"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -241,8 +239,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logging.Get(logging.CategorySession).Error("TUI error: %v", msg)
 		m.recordUXMetric("errors_encountered")
 		logging.AuditWithSession(m.sessionID).Error("chat", msg, false)
-		// Trigger resize so the error panel reserves space immediately.
-		return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }
+		// Refit so the error panel reserves space immediately.
+		return m.applyLayout(), nil
 
 	case campaignErrorMsg:
 		m.isLoading = false
@@ -268,6 +266,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.campaignEventChan = msg.eventChan
 		m.showCampaignPanel = true
 		m = m.pushAssistantMsg(m.renderCampaignStarted(msg.campaign))
+		m = m.applyLayout()
 
 		// Start orchestrator execution in background and return both listeners
 		if m.campaignOrch != nil {
@@ -312,6 +311,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.campaignProgressChan = nil
 				m.campaignEventChan = nil
 				m.showCampaignPanel = false
+				m = m.applyLayout()
 			}
 		}
 		if m.campaignEventChan != nil && m.activeCampaign != nil {
@@ -334,6 +334,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.campaignEventChan = nil
 		m.showCampaignPanel = false
 		m = m.pushAssistantMsg(m.renderCampaignCompleted(msg))
+		m = m.applyLayout()
 
 	// =========================================================================
 	// CONTINUATION PROTOCOL MESSAGE HANDLERS
@@ -527,6 +528,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 				Category: transparency.CategoryControl,
 				At:       m.activityAt,
 			})
+			m = m.applyLayout()
 		}
 		return m, m.waitForStatus() // Listen for next update
 
@@ -534,7 +536,9 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		// Full stream: fold the waking event plus any already-buffered
 		// events into one frame so multi-shard bursts keep up with chat.
 		m.drainGlassBoxEvents(transparency.GlassBoxEvent(msg))
-		m.viewport.SetContent(m.renderHistory())
+		// The activity trail may have grown lines; refit so its height is
+		// reserved instead of pushing the input off-frame.
+		m = m.applyLayout()
 		m.viewport.GotoBottom()
 		return m, m.listenGlassBoxEvents() // Listen for next event
 
@@ -809,80 +813,6 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 	// and Glass Box events (the latter is no-op if the bus is disabled).
 	return m, tea.Batch(m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents())
 
-}
-
-// handleWindowSizeMsg processes the windowSizeMsg.
-func (m Model) handleWindowSizeMsg(msg windowSizeMsg) Model {
-	m.width = msg.Width
-	m.height = msg.Height
-
-	headerHeight := 4
-	footerHeight := 3
-	inputHeight := 3   // Smaller input height for textinput
-	paddingHeight := 2 // Extra padding for safety
-
-	// Calculate layout
-	chatWidth := msg.Width - 4
-	if m.showLogic {
-		logicWidth := msg.Width / 3
-		chatWidth = msg.Width - logicWidth - 4 // minus padding/borders
-	}
-	if chatWidth < 1 {
-		chatWidth = 1
-	}
-
-	errorPanelHeight := 0
-	if m.err != nil && m.showError {
-		// 1 header line + viewport height + 2 border lines
-		errorPanelHeight = 1 + errorPanelViewportHeight + 2
-	}
-
-	calcHeight := max(msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight-errorPanelHeight, 1)
-
-	if !m.ready {
-		m.viewport = viewport.New(chatWidth, calcHeight)
-		m.ready = true
-	} else {
-		m.viewport.Width = chatWidth
-		m.viewport.Height = calcHeight
-	}
-
-	// Error viewport lives inside a bordered box within the content area.
-	// Box uses 1-col padding left/right plus 1-col border left/right => total 4 cols.
-	m.errorVP.Width = max(chatWidth-4, 1)
-	m.errorVP.Height = errorPanelViewportHeight
-	if m.err != nil {
-		m.refreshErrorViewport()
-	}
-
-	// Reduce input width to accommodate border (2) + padding (2) + safety margin
-	m.textarea.SetWidth(chatWidth - 4)
-
-	// Update split pane dimensions
-	if m.splitPane != nil {
-		m.list.SetSize(msg.Width, msg.Height)
-		m.filepicker.SetHeight(msg.Height - 15)
-		m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight)
-		m.usagePage.SetSize(msg.Width, msg.Height-headerHeight)
-		m.campaignPage.SetSize(msg.Width, msg.Height-headerHeight)
-		m.autoPage.SetSize(msg.Width, msg.Height-headerHeight)
-
-	}
-	if m.logicPane != nil {
-		m.logicPane.SetSize(msg.Width/3, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
-	}
-
-	// Update renderer word wrap
-	if m.renderer != nil {
-		m.renderer, _ = glamour.NewTermRenderer(
-			glamour.WithStandardStyle("dark"),
-			glamour.WithWordWrap(chatWidth-4),
-		)
-		// Re-render history with new wrapping
-		m.viewport.SetContent(m.renderHistory())
-	}
-
-	return m
 }
 
 // handleKnowledgeGatheredMsg processes the knowledgeGatheredMsg.

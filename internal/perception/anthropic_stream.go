@@ -51,7 +51,7 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, system, use
 		defer resp.Body.Close()
 		var usage anthropicUsage
 		defer func() {
-			trackUsage(ctx, req.Model, ProviderAnthropic, usage.promptTokens(), usage.OutputTokens, usageOpChat)
+			trackUsageDetailed(ctx, req.Model, ProviderAnthropic, usage.promptTokens(), usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens, usageOpChat)
 		}()
 		err = readAnthropicStream(ctx, resp.Body, req, &usage, func(text string) error {
 			select {

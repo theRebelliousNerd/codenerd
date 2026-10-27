@@ -8,6 +8,7 @@ type LoggingConfig struct {
 	Format     string          `yaml:"format" json:"format,omitempty"`             // json, text
 	File       string          `yaml:"file" json:"file,omitempty"`                 // legacy single file
 	DebugMode  bool            `yaml:"debug_mode" json:"debug_mode,omitempty"`     // Master toggle - false = no logging (production)
+	DebugSelf  bool            `yaml:"debug_self" json:"debug_self,omitempty"`     // Watch own problems log per chat turn; implies DebugMode + session yolo
 	TraceLLMIO bool            `yaml:"trace_llm_io" json:"trace_llm_io,omitempty"` // Dump full LLM prompt packages and responses to llm_io log
 	Categories map[string]bool `yaml:"categories" json:"categories,omitempty"`     // Per-category toggles
 	// PerformanceSampling controls sampling rate for non-slow performance logs (0.0-1.0).
@@ -16,14 +17,25 @@ type LoggingConfig struct {
 	PerformanceThresholdsMs map[string]int64 `yaml:"performance_thresholds_ms" json:"performance_thresholds_ms,omitempty"`
 }
 
+// EffectiveDebugMode reports whether logging is effectively on. DebugSelf
+// implies DebugMode: without debug mode no log files exist to watch.
+// Nil-safe.
+func (c *LoggingConfig) EffectiveDebugMode() bool {
+	return c != nil && (c.DebugMode || c.DebugSelf)
+}
+
 // ToLoggingConfig converts these settings into the injectable view
 // internal/logging accepts, so boot can hand over the config it already
 // parsed instead of internal/logging re-reading .nerd/config.json.
 func (c *LoggingConfig) ToLoggingConfig() logging.Config {
+	if c == nil {
+		return logging.Config{}
+	}
 	// TraceLLMIORaw, MaxLogFileMB, MaxLogFileMinutes and MaxRotatedFiles have
 	// no source on this side and remain at their zero values.
 	return logging.Config{
-		DebugMode:               c.DebugMode,
+		DebugMode:               c.EffectiveDebugMode(),
+		DebugSelf:               c.DebugSelf,
 		TraceLLMIO:              c.TraceLLMIO,
 		Categories:              c.Categories,
 		Level:                   c.Level,
@@ -37,7 +49,7 @@ func (c *LoggingConfig) ToLoggingConfig() logging.Config {
 // Returns false if debug_mode is false (production mode).
 // Returns true if debug_mode is true and category is enabled (or not specified).
 func (c *LoggingConfig) IsCategoryEnabled(category string) bool {
-	if !c.DebugMode {
+	if !c.EffectiveDebugMode() {
 		return false
 	}
 	if c.Categories == nil {

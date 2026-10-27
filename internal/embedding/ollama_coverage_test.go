@@ -548,12 +548,15 @@ func TestOllamaEngine_Embed_WhenForciblyClosedMessage_ShouldRetry(t *testing.T) 
 	}
 }
 
-// An input longer than the model's context fails the same way every time. It
-// is refused once, by name, and never retried.
+// An input longer than the model's context fails the same way every time, so
+// the same text is never sent twice: a refused text is split, and a model that
+// refuses even the smallest piece is an error naming the model.
 func TestOllamaEngine_Embed_WhenInputExceedsContext_ShouldNotRetry(t *testing.T) {
-	calls := 0
+	seen := map[string]int{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		var req ollamaEmbedRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		seen[req.Prompt]++
 		http.Error(w, `{"error":"the input length exceeds the context length"}`, http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -568,7 +571,9 @@ func TestOllamaEngine_Embed_WhenInputExceedsContext_ShouldNotRetry(t *testing.T)
 	if err == nil || !strings.Contains(err.Error(), "exceeds the context length") || !strings.Contains(err.Error(), "test-model") {
 		t.Fatalf("err = %v, want a context-length error naming the model", err)
 	}
-	if calls != 1 {
-		t.Errorf("the server was called %d times; an input that cannot fit is not retried", calls)
+	for prompt, n := range seen {
+		if n != 1 {
+			t.Errorf("a %d-character text was sent %d times; a text that cannot fit is not retried", len(prompt), n)
+		}
 	}
 }

@@ -94,20 +94,42 @@ func (q *unixProcessQuerier) QueryChromeProcesses(ctx context.Context) ([]Proces
 				continue
 			}
 		}
-		// Linux's cmdline preserves argument boundaries. ps flattens paths with
-		// spaces, which must not become permission to kill a different profile.
+		// Linux's cmdline usually preserves argument boundaries. ps flattens
+		// paths with spaces, which must not become permission to kill a
+		// different profile.
 		if raw, readErr := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", process.PID)); readErr == nil {
 			var args []string
-			for _, arg := range strings.Split(string(raw), "\x00") {
-				if arg != "" {
-					args = append(args, strconv.Quote(arg))
-				}
+			for _, arg := range procCmdlineArgs(raw) {
+				args = append(args, strconv.Quote(arg))
 			}
 			process.CommandLine = strings.Join(args, " ")
 		}
 		chrome = append(chrome, process)
 	}
 	return chrome, nil
+}
+
+// procCmdlineArgs splits /proc/<pid>/cmdline into arguments. Chrome
+// rewrites its own cmdline (SetProcessTitle) into ONE space-joined string
+// with no NUL separators, for the main process as well as children.
+// Splitting that on NUL alone yielded a single giant argument, so
+// extractUserDataDir never matched, cleanupBrowserProcess refused every
+// shutdown as "PID no longer carries its recorded profile", and Chrome
+// processes leaked by the hundreds. A single chunk containing spaces is
+// therefore split on whitespace instead: a profile path containing spaces
+// then extracts truncated and mismatches the recorded profile, which
+// fails safe (refusal), never into killing a different profile.
+func procCmdlineArgs(raw []byte) []string {
+	var args []string
+	for _, arg := range strings.Split(string(raw), "\x00") {
+		if arg != "" {
+			args = append(args, arg)
+		}
+	}
+	if len(args) == 1 && strings.Contains(args[0], " ") {
+		args = strings.Fields(args[0])
+	}
+	return args
 }
 
 func (q *unixProcessQuerier) IsProcessAlive(pid int) bool {

@@ -101,6 +101,51 @@ func TestDecideRoute_QuestionAnswersDirectly(t *testing.T) {
 	}
 }
 
+// A question whose answer lives in a named file is not a prose question.
+// 2026-10-27 live: "how many problems are in <..._problems.log>?" parsed as
+// /query /analyze, IsQuestion, scope level=file with the full path, tools
+// [read_file count_lines], candidate reviewer at 0.96 -- and routed
+// respond_directly, so a tool-less completion answered "I don't have
+// filesystem access wired up this turn" and told the user to paste the log.
+// Perception's evidence signals (file scope, suggested tools) must keep the
+// turn out of the direct-answer lane; it delegates to a shard with tools.
+func TestDecideRoute_FileScopeQuestionDelegates(t *testing.T) {
+	cases := []struct {
+		name  string
+		extra func(*perception.Intent)
+	}{
+		{"file scope", func(i *perception.Intent) {
+			i.ScopeLevel = "file"
+			i.ScopeFile = "/home/u/proj/.nerd/logs/run_problems.log"
+		}},
+		{"suggested tools only", func(i *perception.Intent) {
+			i.ToolsNeeded = []string{"read_file", "count_lines"}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newRoundtripModel(t)
+			intent := perception.Intent{
+				Category:   "/query",
+				Verb:       "/analyze",
+				Target:     "run_problems.log",
+				Confidence: 0.96,
+				IsQuestion: true,
+			}
+			tc.extra(&intent)
+			assertRouteIntent(t, m, intent)
+
+			route := m.decideRoute("how many problems are in /home/u/proj/.nerd/logs/run_problems.log", intent, "reviewer")
+			if route.Kind == RouteRespondDirectly {
+				t.Fatalf("route = respond_directly, want a lane that can read the file")
+			}
+			if route.Kind != RouteDelegate || route.Shard != "reviewer" {
+				t.Errorf("route = %s/%q, want delegate/reviewer", route.Kind, route.Shard)
+			}
+		})
+	}
+}
+
 func TestDecideRoute_ConversationalVerbAlwaysDirect(t *testing.T) {
 	// /greet is conversational even without the is_question signal.
 	m := newRoundtripModel(t)

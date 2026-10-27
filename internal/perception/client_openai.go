@@ -197,8 +197,8 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		trackUsage(ctx, c.model, c.provider,
-			openaiResp.Usage.PromptTokens, openaiResp.Usage.CompletionTokens, usageOpChat)
+		trackUsageDetailed(ctx, c.model, c.provider,
+			openaiResp.Usage.PromptTokens, openaiResp.Usage.CompletionTokens, openaiResp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpChat)
 
 		response := strings.TrimSpace(openaiResp.Choices[0].Message.Content)
 		if finish := openaiResp.Choices[0].FinishReason; types.LengthStop(finish) {
@@ -354,7 +354,7 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			// include_usage makes the vendor send one trailing chunk carrying
 			// the final billed counts and no choices. Recorded once below,
 			// after the stream ends — never per delta.
-			var billed struct{ input, output int }
+			var billed struct{ input, output, cached int }
 
 			go func() {
 				defer close(scanDone)
@@ -382,6 +382,7 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 					if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 						billed.input = chunk.Usage.PromptTokens
 						billed.output = chunk.Usage.CompletionTokens
+						billed.cached = chunk.Usage.PromptTokensDetails.CachedTokens
 					}
 					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
 						delta := chunk.Choices[0].Delta.Content
@@ -400,7 +401,7 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			}()
 
 			defer func() {
-				trackUsage(ctx, c.model, c.provider, billed.input, billed.output, usageOpChat)
+				trackUsageDetailed(ctx, c.model, c.provider, billed.input, billed.output, billed.cached, 0, usageOpChat)
 			}()
 
 			select {
@@ -513,8 +514,8 @@ func (c *OpenAIClient) completeNonStreaming(ctx context.Context, reqBody OpenAIR
 	// Tracked here rather than at each caller: this is the single
 	// non-streaming HTTP path on this client, so every billed request is
 	// counted exactly once even when a caller retries at a higher level.
-	trackUsage(ctx, reqBody.Model, c.provider,
-		openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, usageOpFor(len(reqBody.Tools)))
+	trackUsageDetailed(ctx, reqBody.Model, c.provider,
+		openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, openAIResp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(reqBody.Tools)))
 
 	return openAIResp, nil
 }

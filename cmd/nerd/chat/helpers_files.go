@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // openMembership is the workspace member set. An empty root means the
@@ -103,6 +104,72 @@ func readFileContent(workspace, path string, maxBytes int) (string, error) {
 		data = data[:maxBytes]
 	}
 	return string(data), nil
+}
+
+// readFileRange reads lines [startLine, endLine] (1-based, inclusive;
+// endLine <= 0 means to end of file) up to maxBytes, counting every line in
+// the file. truncated reports that the byte cap cut the requested range —
+// readFileContent's silent cap is how /read once handed the user (and the
+// history) 16000 of a 24857-byte problems log with no sign the tail, where
+// the newest errors were, was missing.
+func readFileRange(workspace, path string, startLine, endLine, maxBytes int) (content string, first, last, totalLines int, truncated bool, err error) {
+	root := workspace
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	full, err := tools.ResolveWorkspacePath(context.Background(), root, path)
+	if err != nil {
+		return "", 0, 0, 0, false, err
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		return "", 0, 0, 0, false, err
+	}
+	defer f.Close()
+	if startLine < 1 {
+		startLine = 1
+	}
+	first = startLine
+
+	reader := bufio.NewReaderSize(f, 256*1024)
+	var out strings.Builder
+	lineNo := 0
+	for {
+		chunk, readErr := reader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			lineNo++
+			inRange := lineNo >= startLine && (endLine <= 0 || lineNo <= endLine)
+			if inRange && !truncated {
+				if out.Len()+len(chunk) > maxBytes {
+					remaining := maxBytes - out.Len()
+					if remaining > 0 {
+						out.Write(chunk[:remaining])
+					}
+					truncated = true
+					last = lineNo
+				} else {
+					out.Write(chunk)
+					last = lineNo
+				}
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			return "", 0, 0, 0, false, readErr
+		}
+	}
+	totalLines = lineNo
+	if last < first {
+		// The range starts past the end of the file.
+		last = first - 1
+	}
+	content = out.String()
+	for len(content) > 0 && !utf8.ValidString(content) {
+		content = content[:len(content)-1]
+	}
+	return content, first, last, totalLines, truncated, nil
 }
 
 func countFileLines(workspace, path string) (int64, error) {

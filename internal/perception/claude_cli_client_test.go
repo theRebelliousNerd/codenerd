@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/usage"
 )
 
 func TestNewClaudeCodeCLIClient(t *testing.T) {
@@ -454,4 +455,37 @@ func TestClaudeCodeCLIClient_parseResponse_Usage(t *testing.T) {
 // TestClaudeCodeCLIClient_LLMClientInterface verifies the client implements LLMClient.
 func TestClaudeCodeCLIClient_LLMClientInterface(t *testing.T) {
 	var _ LLMClient = (*ClaudeCodeCLIClient)(nil)
+}
+
+// The CLI may be configured with an alias ("opus") or no model at all; usage
+// must still be recorded under the actual model id from modelUsage, with
+// cache sub-counts, never under the alias.
+func TestClaudeCodeCLIClient_parseResponse_TracksActualModelFromModelUsage(t *testing.T) {
+	tracker, err := usage.NewTracker(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+	client := NewClaudeCodeCLIClient(&config.ClaudeCLIConfig{Model: "opus"})
+	ctx := usage.NewContext(context.Background(), tracker)
+	payload := []byte(`{
+		"type": "result", "subtype": "success", "is_error": false, "result": "ok",
+		"usage": {"input_tokens": 2, "output_tokens": 5, "cache_creation_input_tokens": 67857, "cache_read_input_tokens": 1000},
+		"modelUsage": {
+			"claude-opus-5-5": {"inputTokens": 2, "outputTokens": 5, "cacheCreationInputTokens": 67857, "cacheReadInputTokens": 1000}
+		}
+	}`)
+	if _, err := client.parseResponse(ctx, payload); err != nil {
+		t.Fatalf("parseResponse: %v", err)
+	}
+	stats := tracker.Stats()
+	got, ok := stats.ByModel["claude-opus-5-5"]
+	if !ok {
+		t.Fatalf("ByModel has no claude-opus-5-5 row: %v", stats.ByModel)
+	}
+	if _, alias := stats.ByModel["opus"]; alias {
+		t.Errorf("usage recorded under the \"opus\" alias: %v", stats.ByModel)
+	}
+	if got.Input != 2+67857+1000 || got.CacheRead != 1000 || got.CacheWrite != 67857 {
+		t.Errorf("opus-5-5 counts = %+v, want input 68859 (incl. cache), cache read 1000, cache write 67857", got)
+	}
 }

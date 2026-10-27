@@ -651,8 +651,8 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 		// Metering lives on the funnel, not on its callers: CompleteWithSystem's
 		// thinking-retry and CompleteWithTools both come through here, and each
 		// pass that reached the vendor was billed.
-		trackUsage(ctx, reqBody.Model, c.vendor,
-			parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens, usageOpFor(len(reqBody.Tools)))
+		trackUsageDetailed(ctx, reqBody.Model, c.vendor,
+			parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens, parsed.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(reqBody.Tools)))
 
 		return &parsed, nil
 	}
@@ -984,7 +984,7 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 	// Final billed counts ride a trailing usage-only chunk (include_usage).
 	// Written by the scanner goroutine, read only after scanDone. The finish
 	// reason arrives on the last content chunk the same way.
-	var billed struct{ input, output int }
+	var billed struct{ input, output, cached int }
 	var finish string
 
 	go func() {
@@ -1013,6 +1013,7 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 			if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 				billed.input = chunk.Usage.PromptTokens
 				billed.output = chunk.Usage.CompletionTokens
+				billed.cached = chunk.Usage.PromptTokensDetails.CachedTokens
 			}
 			if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
 				finish = chunk.Choices[0].FinishReason
@@ -1035,7 +1036,7 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 	}()
 
 	defer func() {
-		trackUsage(ctx, c.model, c.vendor, billed.input, billed.output, usageOpChat)
+		trackUsageDetailed(ctx, c.model, c.vendor, billed.input, billed.output, billed.cached, 0, usageOpChat)
 	}()
 
 	select {

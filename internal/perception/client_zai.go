@@ -515,8 +515,8 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		trackUsage(ctx, c.model, ProviderZAI,
-			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, usageOpChat)
+		trackUsageDetailed(ctx, c.model, ProviderZAI,
+			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, zaiResp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpChat)
 
 		totalDuration := time.Since(startTime)
 		log.StructuredLog("info", "ZAI request completed successfully", map[string]any{
@@ -898,8 +898,8 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			return "", fmt.Errorf("no choices in response")
 		}
 
-		trackUsage(ctx, c.model, ProviderZAI,
-			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, usageOpChat)
+		trackUsageDetailed(ctx, c.model, ProviderZAI,
+			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, zaiResp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpChat)
 
 		totalDuration := time.Since(startTime)
 		log.StructuredLog("info", "ZAI structured request completed successfully", map[string]any{
@@ -1044,8 +1044,8 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 		}
 
 		stopReason := choice.FinishReason
-		trackUsage(ctx, c.model, ProviderZAI,
-			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, usageOpToolGen)
+		trackUsageDetailed(ctx, c.model, ProviderZAI,
+			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, zaiResp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpToolGen)
 		if lengthStop(stopReason) {
 			return nil, outputTruncated(ProviderZAI, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
 				c.maxOutputTokens, zaiResp.Usage.CompletionTokens)

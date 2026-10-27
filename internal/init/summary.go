@@ -59,6 +59,13 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 			fmt.Fprintf(i.output(), "   - %s\n", w)
 		}
 	}
+	if p := result.LogProblems; p.Warnings+p.Errors > 0 {
+		fmt.Fprintf(i.output(), "\n🪵 Logged during this run: %d error(s), %d warning(s)", p.Errors, p.Warnings)
+		if p.Path != "" {
+			fmt.Fprintf(i.output(), " — %s", p.Path)
+		}
+		fmt.Fprintln(i.output())
+	}
 	if len(result.Failures) > 0 {
 		fmt.Fprintln(i.output(), "\n❌ Required initialization failures:")
 		for _, failure := range result.Failures {

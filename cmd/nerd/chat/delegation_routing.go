@@ -159,6 +159,18 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	if intent.IsQuestion {
 		signals = append(signals, "/is_question")
 	}
+	// Perception's evidence signals, ferried for the policy's
+	// needs_workspace_evidence rule: the turn names a concrete file, or
+	// perception said tools are needed to answer it.
+	if strings.TrimSpace(intent.ScopeFile) != "" || intent.ScopeLevel == "file" || intent.ScopeLevel == "line" {
+		signals = append(signals, "/scope_is_file")
+	}
+	for _, tool := range intent.ToolsNeeded {
+		if strings.TrimSpace(tool) != "" {
+			signals = append(signals, "/suggests_tools")
+			break
+		}
+	}
 	if trimmed := strings.TrimSpace(input); trimmed != "" && strings.EqualFold(trimmed, strings.TrimSpace(m.lastClarifyInput)) {
 		signals = append(signals, "/clarified_already")
 	}

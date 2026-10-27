@@ -257,6 +257,20 @@ type Intent struct {
 	// a request for action (false); "what is the JIT system?" is a question
 	// (true).
 	IsQuestion bool
+
+	// ScopeLevel and ScopeFile carry the Understanding's scope (level
+	// "file", the file path it named). Routing arbitration receives them as
+	// intent_signal rows: a question whose answer lives in a named file
+	// cannot be answered from prose knowledge, and sending it down the
+	// direct-answer lane made the model reply that it had no filesystem
+	// access (2026-10-27: "how many problems are in <problems.log>?").
+	ScopeLevel string
+	ScopeFile  string
+
+	// ToolsNeeded carries the Understanding's suggested tools (read_file,
+	// search, ...). A non-empty list is perception stating the turn needs
+	// workspace evidence; routing treats it the same as a file scope.
+	ToolsNeeded []string
 }
 
 // ConversationTurn represents a single turn in conversation history.

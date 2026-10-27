@@ -76,6 +76,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)
 		}
+		ctx = usage.WithSessionID(ctx, m.sessionID)
 		defer cancel()
 
 		oodaStart := time.Now()
@@ -93,6 +94,11 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		var warnings []string
 		workspaceScanned := false
+
+		// Debug-self: collect codenerd's own new log problems at the start
+		// of the turn. The batch is delivered (and consumed) at articulation
+		// below; zero new problems injects and announces nothing.
+		selfProblems := pendingSelfProblemsForTurn(m)
 
 		// Baseline counts for system action facts so we can surface new ones.
 		baseRoutingCount, baseExecCount := 0, 0
@@ -819,6 +825,10 @@ func (m Model) processInput(input string) tea.Cmd {
 			ShardHistory:    m.shardResultHistory, // Blackboard: all recent shard results
 			CompressedCtx:   compressedCtx,        // Infinite context: compressed session (empty if not active)
 		}
+		if !selfProblems.Empty() {
+			convCtx.DebugSelfReport = selfProblems.Render()
+			m.consumeSelfProblems()
+		}
 
 		// Use full articulation output to capture MemoryOperations
 		// Now with conversation context for fluid follow-up handling
@@ -898,6 +908,13 @@ func (m Model) processInput(input string) tea.Cmd {
 			// already-applied-controls path and does not repeat any effect.
 			controlWarnings, recordedUpdates := m.applyArticulationControlPacket(artOutput)
 			warnings = append(warnings, controlWarnings...)
+			if !selfProblems.Empty() {
+				// One visible line via the system-warnings path. Appended
+				// here, not before articulation, so it is not also fed to
+				// the model as a generic warning; the watcher filters the
+				// WARN line this rendering logs (selfDebugMarker).
+				warnings = append(warnings, selfProblems.SummaryLine())
+			}
 			response += renderSystemWarnings(warnings)
 
 			// Semantic compression records every completed articulation turn.

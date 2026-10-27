@@ -21,11 +21,17 @@ type UsageEvent struct {
 	Provider        string    `json:"provider"`
 	InputTokens     int       `json:"input_tokens"`
 	OutputTokens    int       `json:"output_tokens"`
-	ShardType       string    `json:"shard_type"` // ephemeral, specialist, system, user
-	ShardName       string    `json:"shard_name"`
-	SessionID       string    `json:"session_id"`
-	OperationType   string    `json:"operation_type"`     // chat, embedding, tool_gen
-	CostUSD         float64   `json:"cost_usd,omitempty"` // estimate; 0 when the model is unpriced
+	// CacheReadTokens/CacheWriteTokens are sub-counts of InputTokens: every
+	// provider's input figure here already includes cached prompt tokens
+	// (Anthropic's is folded by anthropicUsage.promptTokens), so they are
+	// recorded for visibility and pricing, never added to Total.
+	CacheReadTokens  int     `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int     `json:"cache_write_tokens,omitempty"`
+	ShardType        string  `json:"shard_type"` // ephemeral, specialist, system, user
+	ShardName        string  `json:"shard_name"`
+	SessionID        string  `json:"session_id"`
+	OperationType    string  `json:"operation_type"`     // chat, embedding, tool_gen
+	CostUSD          float64 `json:"cost_usd,omitempty"` // estimate; 0 when the model is unpriced
 }
 
 // AggregatedStats holds counters broken down by various dimensions.
@@ -50,6 +56,10 @@ type TokenCounts struct {
 	Output int64   `json:"output"`
 	Total  int64   `json:"total"`
 	Cost   float64 `json:"cost_est_usd,omitempty"` // USD estimate, not billing truth
+	// CacheRead/CacheWrite are sub-counts of Input (see UsageEvent), kept
+	// so a reader can tell how much of the prompt spend was cache traffic.
+	CacheRead  int64 `json:"cache_read,omitempty"`
+	CacheWrite int64 `json:"cache_write,omitempty"`
 }
 
 // Add accumulates tokens without cost attribution.
@@ -59,8 +69,16 @@ func (tc *TokenCounts) Add(input, output int) {
 
 // AddCost accumulates tokens and an estimated USD cost.
 func (tc *TokenCounts) AddCost(input, output int, cost float64) {
+	tc.AddDetailed(input, output, 0, 0, cost)
+}
+
+// AddDetailed is AddCost with the cache sub-counts of input. They are not
+// added to Total: input already contains them.
+func (tc *TokenCounts) AddDetailed(input, output, cacheRead, cacheWrite int, cost float64) {
 	tc.Input += int64(input)
 	tc.Output += int64(output)
 	tc.Total += int64(input + output)
+	tc.CacheRead += int64(cacheRead)
+	tc.CacheWrite += int64(cacheWrite)
 	tc.Cost += cost
 }

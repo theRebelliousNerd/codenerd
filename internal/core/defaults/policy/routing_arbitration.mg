@@ -15,6 +15,8 @@
 #   intent_signal(/clarified_already)      — the input the last clarification
 #                                            asked about, sent again
 #   intent_signal(/has_surface_response)   — perception already wrote a reply
+#   intent_signal(/scope_is_file)          — the turn names a concrete file
+#   intent_signal(/suggests_tools)         — perception named tools it needs
 #   delegation_candidate(/current_intent, Shard, Conf)
 #   multi_step_signal(Signal)
 #   multi_step_plan_step(Index, Shard)     — the decomposition /multi_step
@@ -91,10 +93,24 @@ workhorse_verb(/generate_tool).
 # Direct answer detection
 # =============================================================================
 
+# A question whose answer lives in the workspace -- perception named a
+# concrete file as the scope, or named tools it needs (read_file, search)
+# -- cannot be answered from prose knowledge. Sending it down the
+# direct-answer lane asks a tool-less completion, which truthfully-for-
+# that-call replies that it has no filesystem access and tells the user to
+# paste the file (2026-10-27: "how many problems are in <problems.log>?"
+# classified /analyze, scope=file, tools=[read_file count_lines], answered
+# directly). Evidence questions delegate like work instead.
+needs_workspace_evidence() :-
+    intent_signal(/scope_is_file).
+needs_workspace_evidence() :-
+    intent_signal(/suggests_tools).
+
 # Conversational verbs always answer directly, question or not.
 wants_direct_answer() :-
     user_intent(/current_intent, _, Verb, _, _),
-    conversational_verb(Verb).
+    conversational_verb(Verb),
+    !needs_workspace_evidence().
 
 # Questions answer directly unless the verb is an explicit workhorse request.
 # This is the rule that stops "what is the JIT system?" from becoming a
@@ -103,7 +119,8 @@ wants_direct_answer() :-
 wants_direct_answer() :-
     user_intent(/current_intent, /query, Verb, _, _),
     intent_signal(/is_question),
-    !workhorse_verb(Verb).
+    !workhorse_verb(Verb),
+    !needs_workspace_evidence().
 
 # =============================================================================
 # Lanes

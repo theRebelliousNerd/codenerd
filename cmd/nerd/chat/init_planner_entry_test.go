@@ -205,6 +205,30 @@ func TestRenderInitComplete_ReportsRequiredFailures(t *testing.T) {
 	}
 }
 
+// The init summary must show what the run logged, not only the warnings it
+// curated. 2026-10-27 live: 44 embedding/store errors sat in the problems
+// log while this message showed planner metrics and research warnings.
+func TestRenderInitComplete_ShowsLoggedProblems(t *testing.T) {
+	m := NewTestModel()
+	rendered := m.renderInitComplete(&nerdinit.InitResult{
+		Success: true,
+		LogProblems: nerdinit.InitLogProblems{
+			Path:     "/ws/.nerd/logs/run_problems.log",
+			Warnings: 118,
+			Errors:   44,
+		},
+	})
+	for _, want := range []string{"44 error(s)", "118 warning(s)", "run_problems.log"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered summary missing %q:\n%s", want, rendered)
+		}
+	}
+	quiet := m.renderInitComplete(&nerdinit.InitResult{Success: true})
+	if strings.Contains(quiet, "Logged During Init") {
+		t.Fatalf("a run that logged nothing must not claim a log line:\n%s", quiet)
+	}
+}
+
 func TestInitProgressStatus_ShowsMeasuredPositionOnly(t *testing.T) {
 	got := initProgressStatus(nerdinit.InitProgress{Message: "Scanning codebase...", CurrentPhaseNo: 3, TotalPhases: 17})
 	if !strings.HasPrefix(got, "[init 3/17, ") || !strings.HasSuffix(got, "] Scanning codebase...") {

@@ -176,8 +176,8 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		trackUsage(ctx, c.model, ProviderXAI,
-			xaiResp.Usage.PromptTokens, xaiResp.Usage.CompletionTokens, usageOpChat)
+		trackUsageDetailed(ctx, c.model, ProviderXAI,
+			xaiResp.Usage.PromptTokens, xaiResp.Usage.CompletionTokens, xaiResp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpChat)
 
 		response := strings.TrimSpace(xaiResp.Choices[0].Message.Content)
 		if finish := xaiResp.Choices[0].FinishReason; types.LengthStop(finish) {
@@ -223,8 +223,8 @@ func (c *XAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 	if err != nil {
 		return nil, err
 	}
-	trackUsage(ctx, c.model, ProviderXAI,
-		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
+	trackUsageDetailed(ctx, c.model, ProviderXAI,
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(tools)))
 	return OpenAIToolResponseFromResponse(resp)
 }
 
@@ -253,8 +253,8 @@ func (c *XAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt st
 	if err != nil {
 		return nil, err
 	}
-	trackUsage(ctx, c.model, ProviderXAI,
-		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
+	trackUsageDetailed(ctx, c.model, ProviderXAI,
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(tools)))
 	return OpenAIToolResponseFromResponse(resp)
 }
 

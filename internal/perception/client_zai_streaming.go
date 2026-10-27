@@ -236,7 +236,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			// stream ends, never per delta: tracking a delta would multiply one
 			// turn's cost by its chunk count.
 			var billed struct {
-				input, output int
+				input, output, cached int
 			}
 
 			go func() {
@@ -262,6 +262,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 					if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 						billed.input = chunk.Usage.PromptTokens
 						billed.output = chunk.Usage.CompletionTokens
+						billed.cached = chunk.Usage.PromptTokensDetails.CachedTokens
 					}
 
 					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
@@ -284,7 +285,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 
 			// Wait for either scanner completion or context cancellation
 			defer func() {
-				trackUsage(ctx, c.model, ProviderZAI, billed.input, billed.output, usageOpChat)
+				trackUsageDetailed(ctx, c.model, ProviderZAI, billed.input, billed.output, billed.cached, 0, usageOpChat)
 			}()
 
 			select {

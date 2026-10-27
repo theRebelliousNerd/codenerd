@@ -2,6 +2,7 @@ package chat
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -216,35 +217,103 @@ func (m Model) handleCmdScanDir(input string, parts []string) (tea.Model, tea.Cm
 	return m, tea.Batch(m.spinner.Tick, m.runDirScan(dir))
 }
 
-// handleCmdRead handles the corresponding chat slash-command.
+// parseReadRange reports whether s is a /read line range ("10:50", ":50",
+// "10:") and its bounds (0 = open).
+func parseReadRange(s string) (start, end int, ok bool) {
+	lo, hi, found := strings.Cut(s, ":")
+	if !found || (lo == "" && hi == "") {
+		return 0, 0, false
+	}
+	for _, part := range []string{lo, hi} {
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return 0, 0, false
+			}
+		}
+	}
+	if lo != "" {
+		start, _ = strconv.Atoi(lo)
+	}
+	if hi != "" {
+		end, _ = strconv.Atoi(hi)
+	}
+	return start, end, true
+}
+
+// handleCmdRead supplies a file's contents to the conversation and asks the
+// question in the same motion: `/read <path> [start:end] [question...]`.
+//
+// Until 2026-10-27 this only rendered the file (silently capped at 16000
+// bytes, the documented range ignored) as an *assistant* message and
+// returned no command, so no turn ever ran: the model that had just told
+// the user "drop it in with /read and I'll tally the problems fast" never
+// saw a reason to speak again, and the file entered history mislabeled as
+// the assistant's own words. Now the contents land as a user message —
+// evidence supplied by the user — and a turn runs on the question (the
+// earlier unanswered one about this file, when none is given).
 func (m Model) handleCmdRead(input string, parts []string) (tea.Model, tea.Cmd) {
+	m.textarea.Reset()
 	if len(parts) < 2 {
 		m = m.addMessage(Message{
 			Role:    "assistant",
-			Content: "Usage: `/read <path>`",
+			Content: "Usage: `/read <path> [start:end] [question...]`",
 			Time:    time.Now(),
 		})
-	} else {
-		path := parts[1]
-		content, err := readFileContent(m.workspace, path, 16000)
-		if err != nil {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("Failed to read file: %v", err),
-				Time:    time.Now(),
-			})
-		} else {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("**Contents of %s:**\n\n```\n%s\n```", path, content),
-				Time:    time.Now(),
-			})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	path := parts[1]
+	rest := parts[2:]
+	start, end := 1, 0
+	if len(rest) > 0 {
+		if lo, hi, ok := parseReadRange(rest[0]); ok {
+			start, end = lo, hi
+			if start < 1 {
+				start = 1
+			}
+			rest = rest[1:]
 		}
 	}
+	const maxReadBytes = 16000
+	content, first, last, totalLines, truncated, err := readFileRange(m.workspace, path, start, end, maxReadBytes)
+	if err != nil {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Failed to read file: %v", err),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	header := fmt.Sprintf("[Contents of %s supplied via /read: lines %d-%d of %d]", path, first, last, totalLines)
+	if truncated {
+		header += fmt.Sprintf("\n[Truncated at %d bytes: the supplied range continues past line %d — re-run with /read %s %d:%d for the next part]",
+			maxReadBytes, last, path, last+1, totalLines)
+	}
+	m = m.addMessage(Message{
+		Role:    "user",
+		Content: header + "\n\n```\n" + content + "\n```",
+		Time:    time.Now(),
+	})
+
+	question := strings.Join(rest, " ")
+	if question == "" {
+		question = fmt.Sprintf("I supplied the contents of %s above because you asked for them. Answer my earlier question about this file from its actual contents.", path)
+	}
+	m = m.addMessage(Message{
+		Role:    "user",
+		Content: question,
+		Time:    time.Now(),
+	})
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
-	m.textarea.Reset()
-	return m, nil
+	m.isLoading = true
+	m.beginLiveTurn("Thinking...")
+	return m, tea.Batch(m.spinner.Tick, m.processInput(question))
 }
 
 // handleCmdMkdir handles the corresponding chat slash-command.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"codenerd/internal/logging"
 )
@@ -37,6 +38,10 @@ type OllamaEngine struct {
 	ensureMu      sync.Mutex
 	modelReady    bool
 	pullAttempted bool
+
+	// ceiling is the model's input window as learned from its refusals; a
+	// longer text is split and pooled (long_input.go).
+	ceiling inputCeiling
 }
 
 // NewOllamaEngine creates a new Ollama embedding engine.
@@ -81,7 +86,9 @@ func NewOllamaEngine(endpoint, model string, dimensions int) (*OllamaEngine, err
 	return engine, nil
 }
 
-// Embed generates an embedding for a single text.
+// Embed generates an embedding for a single text of any length. A text longer
+// than the model's input window is split at natural boundaries and its pieces'
+// vectors pooled (embedLong), so no caller has to know the window.
 func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error) {
 	timer := logging.StartTimer(logging.CategoryEmbedding, "Ollama.Embed")
 	defer timer.Stop()
@@ -89,6 +96,12 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 	if err := checkEmbeddable(text); err != nil {
 		return nil, err
 	}
+	return embedLong(ctx, text, &e.ceiling, e.embedOnce)
+}
+
+// embedOnce is one embed request. An input the model refuses as too long is
+// an *InputTooLongError, which embedLong answers by splitting.
+func (e *OllamaEngine) embedOnce(ctx context.Context, text string) ([]float32, error) {
 
 	// Best-effort: make sure the model is installed before first use.
 	// Non-fatal if Ollama is briefly unreachable — the request loop still runs.
@@ -188,8 +201,8 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 			// caller has to change. Observed 2026-09-21: a campaign task brief
 			// sent as a recall query, retried three times on every task.
 			if strings.Contains(bodyStr, "exceeds the context length") {
-				logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: %d characters exceed model %s's context; not retried", len(text), model)
-				return nil, fmt.Errorf("embedding input of %d characters exceeds the context length of model %q: embed a shorter text or configure a model with a longer context", len(text), model)
+				logging.EmbeddingDebug("Ollama.Embed: %d characters exceed model %s's context; splitting", utf8.RuneCountInString(text), model)
+				return nil, &InputTooLongError{Chars: utf8.RuneCountInString(text), Model: model}
 			}
 			retryable := resp.StatusCode >= 500 && resp.StatusCode <= 599
 			if !retryable && strings.Contains(bodyStr, "connection was forcibly closed") {

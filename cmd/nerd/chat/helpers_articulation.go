@@ -105,6 +105,9 @@ type ConversationContext struct {
 	TurnNumber      int            // Current turn number
 	ShardHistory    []*ShardResult // Sliding window of past shard results (blackboard)
 	CompressedCtx   string         // Semantically compressed session context from compressor
+	// DebugSelfReport is the rendered new-problem set for this turn
+	// (self_debug.go); empty unless debug-self is on and something is new.
+	DebugSelfReport string
 }
 
 // articulateWithConversation performs articulation with full conversation context.
@@ -226,6 +229,13 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		sb.WriteString("(Semantic compression of prior turns - use for long-range context)\n\n")
 		sb.WriteString(convCtx.CompressedCtx)
 		sb.WriteString("\n\n")
+	}
+
+	// Debug-self: codenerd's own new log problems since the last turn,
+	// rendered as its own section (PendingProblems.Render).
+	if convCtx != nil && convCtx.DebugSelfReport != "" {
+		sb.WriteString(convCtx.DebugSelfReport)
+		sb.WriteString("\n")
 	}
 
 	// The kernel's contribution to this prompt used to be rendered here, from a

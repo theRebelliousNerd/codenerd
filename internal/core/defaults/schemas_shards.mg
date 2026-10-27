@@ -53,6 +53,11 @@ Decl route_verifies() bound [].
 # conversation), so the turn must terminate in prose, not shard work.
 Decl wants_direct_answer() bound [].
 
+# needs_workspace_evidence() - derived: the turn names a concrete file or
+# perception named tools it needs, so the answer must be read from the
+# workspace, not produced from prose knowledge.
+Decl needs_workspace_evidence() bound [].
+
 # -----------------------------------------------------------------------------
 # 6.0.2 Chat delegation attempts (policy/delegation.mg)
 # A chat request handed to a persona runs attempts until the kernel accepts

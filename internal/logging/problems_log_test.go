@@ -91,6 +91,38 @@ func TestProblemsLog_DoesNotStealFromCategoryFiles(t *testing.T) {
 	}
 }
 
+// ProblemsSnapshot is how a result surface (init summary, chat warnings)
+// learns what the run logged without opening the file: counts diff around
+// an operation, and the path names the file. 2026-10-27: an init logged 44
+// errors here while its summary showed curated warnings only.
+func TestProblemsSnapshot_CountsAndPath(t *testing.T) {
+	resetLoggingState(t)
+	defer resetLoggingState(t)
+	ws := setupDebugWorkspace(t)
+
+	if err := Initialize(ws); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	logLevel = LevelDebug
+
+	_, warns0, errs0 := ProblemsSnapshot()
+	Get(CategoryKernel).Warn("counted warning")
+	Get(CategoryKernel).Warn("another counted warning")
+	Get(CategorySession).Error("counted error")
+	path, warns1, errs1 := ProblemsSnapshot()
+	CloseAll()
+
+	if warns1-warns0 != 2 || errs1-errs0 != 1 {
+		t.Errorf("snapshot delta = %d warnings, %d errors; want 2, 1", warns1-warns0, errs1-errs0)
+	}
+	if !strings.HasSuffix(path, "_problems.log") {
+		t.Errorf("snapshot path = %q, want the problems log", path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("snapshot path does not name a written file: %v", err)
+	}
+}
+
 // Logging must never take down the process it observes, so a WARN before
 // Initialize() (no logs dir yet) has to be a silent no-op rather than a panic.
 func TestProblemsLog_NoPanicBeforeInitialize(t *testing.T) {

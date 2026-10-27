@@ -14,11 +14,49 @@ import (
 type Price struct {
 	InputPerMTok  float64
 	OutputPerMTok float64
+	// CacheReadPerMTok/CacheWritePerMTok price the cached sub-counts of
+	// input. Zero means "no separate cache rate on record": those tokens
+	// are then priced at the plain input rate, which overestimates rather
+	// than silently dropping spend.
+	CacheReadPerMTok  float64
+	CacheWritePerMTok float64
 }
 
 // Cost returns the estimated USD cost of the given token counts.
 func (p Price) Cost(input, output int64) float64 {
-	return (float64(input)/1e6)*p.InputPerMTok + (float64(output)/1e6)*p.OutputPerMTok
+	return p.CostDetailed(input, output, 0, 0)
+}
+
+// CostDetailed prices input split into uncached, cache-read and cache-write
+// parts. cacheRead/cacheWrite are sub-counts of input; any excess over
+// input is clamped so a provider miscount can never price negative tokens.
+func (p Price) CostDetailed(input, output, cacheRead, cacheWrite int64) float64 {
+	if cacheRead < 0 {
+		cacheRead = 0
+	}
+	if cacheWrite < 0 {
+		cacheWrite = 0
+	}
+	if cacheRead+cacheWrite > input {
+		cacheWrite = max(input-cacheRead, 0)
+		if cacheRead > input {
+			cacheRead = input
+			cacheWrite = 0
+		}
+	}
+	readRate := p.CacheReadPerMTok
+	if readRate == 0 {
+		readRate = p.InputPerMTok
+	}
+	writeRate := p.CacheWritePerMTok
+	if writeRate == 0 {
+		writeRate = p.InputPerMTok
+	}
+	uncached := input - cacheRead - cacheWrite
+	return (float64(uncached)/1e6)*p.InputPerMTok +
+		(float64(cacheRead)/1e6)*readRate +
+		(float64(cacheWrite)/1e6)*writeRate +
+		(float64(output)/1e6)*p.OutputPerMTok
 }
 
 // priceTable maps a lowercase model-name prefix to its price. Lookup picks the
@@ -31,24 +69,24 @@ func (p Price) Cost(input, output int64) float64 {
 var priceTable = map[string]Price{
 	// Anthropic (Haiku 5.5's rate holds for prompts up to 100K tokens; above
 	// that it is $0.50/$2.50, which this table does not model)
-	"claude-fable-5":   {InputPerMTok: 10.00, OutputPerMTok: 50.00},
-	"claude-opus-5-5":  {InputPerMTok: 4.00, OutputPerMTok: 20.00},
-	"claude-opus-5":    {InputPerMTok: 5.00, OutputPerMTok: 25.00},
-	"claude-opus-4-8":  {InputPerMTok: 5.00, OutputPerMTok: 25.00},
-	"claude-opus-4-7":  {InputPerMTok: 5.00, OutputPerMTok: 25.00},
-	"claude-opus-4-6":  {InputPerMTok: 5.00, OutputPerMTok: 25.00},
-	"claude-sonnet-5":  {InputPerMTok: 2.00, OutputPerMTok: 10.00},
-	"claude-haiku-5-5": {InputPerMTok: 0.10, OutputPerMTok: 0.50},
-	"claude-opus-4":    {InputPerMTok: 15.00, OutputPerMTok: 75.00},
-	"claude-opus":      {InputPerMTok: 15.00, OutputPerMTok: 75.00},
-	"claude-sonnet-4":  {InputPerMTok: 3.00, OutputPerMTok: 15.00},
-	"claude-sonnet":    {InputPerMTok: 3.00, OutputPerMTok: 15.00},
-	"claude-haiku-4":   {InputPerMTok: 1.00, OutputPerMTok: 5.00},
-	"claude-haiku":     {InputPerMTok: 0.80, OutputPerMTok: 4.00},
-	"claude-3-5-haiku": {InputPerMTok: 0.80, OutputPerMTok: 4.00},
-	"claude-3-opus":    {InputPerMTok: 15.00, OutputPerMTok: 75.00},
-	"claude-3-sonnet":  {InputPerMTok: 3.00, OutputPerMTok: 15.00},
-	"claude-3-haiku":   {InputPerMTok: 0.25, OutputPerMTok: 1.25},
+	"claude-fable-5":   {InputPerMTok: 10, OutputPerMTok: 50.00, CacheReadPerMTok: 1, CacheWritePerMTok: 12.5},
+	"claude-opus-5-5":  {InputPerMTok: 4, OutputPerMTok: 20.00, CacheReadPerMTok: 0.4, CacheWritePerMTok: 5},
+	"claude-opus-5":    {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},
+	"claude-opus-4-8":  {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},
+	"claude-opus-4-7":  {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},
+	"claude-opus-4-6":  {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},
+	"claude-sonnet-5":  {InputPerMTok: 2, OutputPerMTok: 10.00, CacheReadPerMTok: 0.2, CacheWritePerMTok: 2.5},
+	"claude-haiku-5-5": {InputPerMTok: 0.1, OutputPerMTok: 0.50, CacheReadPerMTok: 0.01, CacheWritePerMTok: 0.125},
+	"claude-opus-4":    {InputPerMTok: 15, OutputPerMTok: 75.00, CacheReadPerMTok: 1.5, CacheWritePerMTok: 18.75},
+	"claude-opus":      {InputPerMTok: 15, OutputPerMTok: 75.00, CacheReadPerMTok: 1.5, CacheWritePerMTok: 18.75},
+	"claude-sonnet-4":  {InputPerMTok: 3, OutputPerMTok: 15.00, CacheReadPerMTok: 0.3, CacheWritePerMTok: 3.75},
+	"claude-sonnet":    {InputPerMTok: 3, OutputPerMTok: 15.00, CacheReadPerMTok: 0.3, CacheWritePerMTok: 3.75},
+	"claude-haiku-4":   {InputPerMTok: 1, OutputPerMTok: 5.00, CacheReadPerMTok: 0.1, CacheWritePerMTok: 1.25},
+	"claude-haiku":     {InputPerMTok: 0.8, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1},
+	"claude-3-5-haiku": {InputPerMTok: 0.8, OutputPerMTok: 4.00, CacheReadPerMTok: 0.08, CacheWritePerMTok: 1},
+	"claude-3-opus":    {InputPerMTok: 15, OutputPerMTok: 75.00, CacheReadPerMTok: 1.5, CacheWritePerMTok: 18.75},
+	"claude-3-sonnet":  {InputPerMTok: 3, OutputPerMTok: 15.00, CacheReadPerMTok: 0.3, CacheWritePerMTok: 3.75},
+	"claude-3-haiku":   {InputPerMTok: 0.25, OutputPerMTok: 1.25, CacheReadPerMTok: 0.025, CacheWritePerMTok: 0.3125},
 
 	// OpenAI
 	"gpt-4o-mini": {InputPerMTok: 0.15, OutputPerMTok: 0.60},
@@ -67,11 +105,10 @@ var priceTable = map[string]Price{
 	"gemini-1.5-pro":   {InputPerMTok: 1.25, OutputPerMTok: 5.00},
 	"gemini-1.5-flash": {InputPerMTok: 0.075, OutputPerMTok: 0.30},
 
-	// Meta. The contributor tier's cached input is $0.002/MTok; this table
-	// prices every input token at the uncached rate, so a cache-heavy session
-	// is overestimated. The standard tier (muse-spark-1.3) is unpriced: no
-	// source for its rate is on record.
-	"muse-spark-1.3-contributor": {InputPerMTok: 0.10, OutputPerMTok: 0.20},
+	// Meta. The contributor tier's cached input is $0.002/MTok (recorded as
+	// CacheReadPerMTok below). The standard tier (muse-spark-1.3) is
+	// unpriced: no source for its rate is on record.
+	"muse-spark-1.3-contributor": {InputPerMTok: 0.10, OutputPerMTok: 0.20, CacheReadPerMTok: 0.002},
 
 	// DeepSeek / Z.AI / open-weight hosted
 	"deepseek-chat":     {InputPerMTok: 0.27, OutputPerMTok: 1.10},
@@ -179,9 +216,14 @@ func normalizeModelName(model string) string {
 // EstimateCost returns the estimated USD cost for a model and token counts, and
 // whether the model was priced at all.
 func EstimateCost(model string, input, output int64) (float64, bool) {
+	return EstimateCostDetailed(model, input, output, 0, 0)
+}
+
+// EstimateCostDetailed is EstimateCost with the cache sub-counts of input.
+func EstimateCostDetailed(model string, input, output, cacheRead, cacheWrite int64) (float64, bool) {
 	p, ok := LookupPrice(model)
 	if !ok {
 		return 0, false
 	}
-	return p.Cost(input, output), true
+	return p.CostDetailed(input, output, cacheRead, cacheWrite), true
 }

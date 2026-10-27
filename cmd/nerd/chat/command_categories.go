@@ -297,6 +297,13 @@ var CommandRegistry = []CommandInfo{
 		ShowInHelp:  true,
 	},
 	{
+		Name:        "/debug-self",
+		Description: "Toggle debug-self: surface codenerd's own new log errors/warnings each turn (implies debug logging + session yolo)",
+		Usage:       "/debug-self [on|off|status]",
+		Category:    CategoryExpert,
+		ShowInHelp:  true,
+	},
+	{
 		Name:        "/campaign",
 		Description: "Manage campaigns",
 		Usage:       "/campaign <start|assault|recurse|add|status|pause|resume|list> [args]",

@@ -6,10 +6,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
 )
+
+// knowledgeEmbeddingFailures counts knowledge atoms stored without a vector
+// because embedding them failed, across every LocalStore in this process
+// (the project store and each agent KB are separate stores over one engine).
+var knowledgeEmbeddingFailures atomic.Int64
+
+// KnowledgeEmbeddingFailures returns the count above. An operation that
+// stores knowledge in bulk (init) diffs it around its run and reports atoms
+// that were stored unsearchable instead of only logging each one.
+func KnowledgeEmbeddingFailures() int64 {
+	return knowledgeEmbeddingFailures.Load()
+}
 
 // =============================================================================
 // KNOWLEDGE ATOMS
@@ -387,7 +400,11 @@ func (s *LocalStore) StoreKnowledgeAtomWithEmbedding(ctx context.Context, concep
 			"confidence":   confidence,
 		}
 		if err := s.StoreVectorWithEmbedding(ctx, content, metadata); err != nil {
-			// Log but don't fail - the knowledge atom is still stored
+			// Log but don't fail - the knowledge atom is still stored. The
+			// count is kept because a swallowed failure per atom is how an
+			// entire init run stored its largest documents unsearchable
+			// while reporting success (2026-10-27).
+			knowledgeEmbeddingFailures.Add(1)
 			logging.Get(logging.CategoryStore).Warn(
 				"Failed to store embedding for knowledge atom %s: %v (atom still stored)",
 				concept, err)

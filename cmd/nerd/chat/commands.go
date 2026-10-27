@@ -227,6 +227,8 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		return m.handleCampaignCommand(input, append([]string{"/campaign", "recurse"}, parts[1:]...))
 	case "/yolo":
 		return m.handleCmdYolo(input, parts)
+	case "/debug-self":
+		return m.handleCmdDebugSelf(input, parts)
 	case "/tool":
 		return m.handleToolCommand(input, parts)
 	case "/jit":

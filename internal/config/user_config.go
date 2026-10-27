@@ -360,6 +360,11 @@ func (c *UserConfig) YoloMode() bool {
 	return c != nil && c.Yolo
 }
 
+// DebugSelfMode reports whether logging.debug_self is enabled. Nil-safe.
+func (c *UserConfig) DebugSelfMode() bool {
+	return c != nil && c.Logging != nil && c.Logging.DebugSelf
+}
+
 // GetContextWindowConfig returns the context window config with defaults.
 func (c *UserConfig) GetContextWindowConfig() ContextWindowConfig {
 	def := DefaultContextWindowConfig()
@@ -1633,6 +1638,11 @@ func (c *UserConfig) GetLogging() LoggingConfig {
 		}
 		if cfg.Format == "" {
 			cfg.Format = "text"
+		}
+		// debug_self implies debug mode in the effective config: without
+		// debug mode no log files exist for it to watch.
+		if cfg.DebugSelf {
+			cfg.DebugMode = true
 		}
 		// Note: DebugMode defaults to false (production mode) unless explicitly set
 		return cfg

@@ -573,15 +573,15 @@ func TestView_ErrorPanelRendering(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
 	m = updated.(Model)
 
-	updated, cmd := m.Update(errorMsg(errors.New("kernel refused the turn")))
+	heightBefore := m.viewport.Height
+	updated, _ = m.Update(errorMsg(errors.New("kernel refused the turn")))
 	m = updated.(Model)
 
-	if cmd == nil {
-		t.Fatalf("errorMsg Update returned nil cmd, want WindowSizeMsg so the error panel reserves space")
-	}
-	if msg := cmd(); msg != nil {
-		updated, _ = m.Update(msg)
-		m = updated.(Model)
+	// The error panel's space is reserved synchronously by applyLayout:
+	// the chat viewport is already shorter in the returned model, with no
+	// follow-up resize message to wait for.
+	if m.viewport.Height >= heightBefore {
+		t.Fatalf("errorMsg did not reserve error-panel space: viewport height %d -> %d", heightBefore, m.viewport.Height)
 	}
 
 	view := m.View()
@@ -601,15 +601,12 @@ func TestView_ErrorPanelHiddenWhenDismissed(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
 	m = updated.(Model)
 
-	updated, cmd := m.Update(errorMsg(errors.New("kernel refused the turn")))
+	heightBefore := m.viewport.Height
+	updated, _ = m.Update(errorMsg(errors.New("kernel refused the turn")))
 	m = updated.(Model)
 
-	if cmd == nil {
-		t.Fatalf("errorMsg Update returned nil cmd, want WindowSizeMsg so the error panel reserves space")
-	}
-	if msg := cmd(); msg != nil {
-		updated, _ = m.Update(msg)
-		m = updated.(Model)
+	if m.viewport.Height >= heightBefore {
+		t.Fatalf("errorMsg did not reserve error-panel space: viewport height %d -> %d", heightBefore, m.viewport.Height)
 	}
 
 	if view := m.View(); !strings.Contains(view, "kernel refused the turn") {

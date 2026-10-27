@@ -132,7 +132,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.focusError = false
 			m.refreshErrorViewport()
 			m.errorVP.GotoTop()
-			return m, cmd, true
+			return m.applyLayout(), cmd, true
 		}
 
 		return m, cmd, true
@@ -323,7 +323,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 					if !m.showError {
 						m.focusError = false
 					}
-					return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }, true
+					return m.applyLayout(), nil, true
 				}
 
 				if m.showError {
@@ -331,7 +331,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				} else {
 					m.showError = true
 					m.focusError = true
-					return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }, true
+					return m.applyLayout(), nil, true
 				}
 			}
 			return m, nil, true
@@ -348,11 +348,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				m.paneMode = ui.ModeSinglePane
 				m.splitPane.SetMode(ui.ModeSinglePane)
 			}
-			// Trigger resize to update viewport width
-			cmd = tea.Batch(cmd, func() tea.Msg {
-				return tea.WindowSizeMsg{Width: m.width, Height: m.height}
-			})
-			return m, cmd, true
+			// The sidebar changed the chat column: refit synchronously so
+			// this very frame is already wrapped to the new width.
+			return m.applyLayout(), cmd, true
 
 		case 'g':
 			// Cycle through pane modes (Alt+G)
@@ -367,7 +365,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				m.showLogic = false
 			}
 			m.splitPane.SetMode(m.paneMode)
-			return m, nil, true
+			return m.applyLayout(), nil, true
 
 		case 'w':
 			// Toggle focus (Alt+W)
@@ -379,7 +377,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		case 'c':
 			// Toggle campaign progress panel (Alt+C)
 			m.showCampaignPanel = !m.showCampaignPanel
-			return m, nil, true
+			return m.applyLayout(), nil, true
 
 		case 'm':
 			// Toggle mouse capture (Alt+M) - disable to allow text selection
