@@ -295,7 +295,7 @@ func TestIntegrateEcosystem_MaterializesAgentsKnowledgeAndReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validatePromptsYAML(prompts, "reviewer"); err != nil {
+	if err := validatePromptsYAML(prompts, "reviewer", testAtomCap); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(prompts), "REVIEWER_BODY_DISTINCTIVE") {

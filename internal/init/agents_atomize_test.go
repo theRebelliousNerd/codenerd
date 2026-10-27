@@ -27,10 +27,10 @@ func longSectionedMarkdown() string {
 
 func TestBuildPromptsYAML_LongBodiesAreAtomizedUnderCap(t *testing.T) {
 	long := longSectionedMarkdown()
-	require.Greater(t, utf8.RuneCountInString(long), 4*maxAgentAtomContentChars)
+	require.Greater(t, utf8.RuneCountInString(long), 4*testAtomCap)
 
-	yml := buildPromptsYAML("goexpert", "GoExpert", "Go specialist", "    - concurrency", "concurrency", long, long)
-	require.NoError(t, validatePromptsYAML([]byte(yml), "goexpert"))
+	yml := buildPromptsYAML("goexpert", "GoExpert", "Go specialist", "    - concurrency", "concurrency", long, long, testAtomCap)
+	require.NoError(t, validatePromptsYAML([]byte(yml), "goexpert", testAtomCap))
 
 	var atoms []struct {
 		ID      string `yaml:"id"`
@@ -40,7 +40,7 @@ func TestBuildPromptsYAML_LongBodiesAreAtomizedUnderCap(t *testing.T) {
 	ids := make([]string, len(atoms))
 	for i, a := range atoms {
 		ids[i] = a.ID
-		assert.LessOrEqual(t, utf8.RuneCountInString(a.Content), maxAgentAtomContentChars, "atom %s over cap", a.ID)
+		assert.LessOrEqual(t, utf8.RuneCountInString(a.Content), testAtomCap, "atom %s over cap", a.ID)
 	}
 	// Base ids survive as the first piece; sub-atoms hang under them.
 	assert.Contains(t, ids, "goexpert/identity")
@@ -54,8 +54,8 @@ func TestBuildPromptsYAML_LongBodiesAreAtomizedUnderCap(t *testing.T) {
 
 func TestBuildPromptsYAML_ShortBodiesStayThreeAtoms(t *testing.T) {
 	yml := buildPromptsYAML("goexpert", "GoExpert", "Go specialist", "    - concurrency", "concurrency",
-		"## Method\nWork carefully.", "## Domain\nKnow things.")
-	require.NoError(t, validatePromptsYAML([]byte(yml), "goexpert"))
+		"## Method\nWork carefully.", "## Domain\nKnow things.", testAtomCap)
+	require.NoError(t, validatePromptsYAML([]byte(yml), "goexpert", testAtomCap))
 	assert.Equal(t,
 		[]string{"goexpert/identity", "goexpert/methodology", "goexpert/domain"},
 		parseAtomIDs(t, []byte(yml)))
@@ -63,9 +63,9 @@ func TestBuildPromptsYAML_ShortBodiesStayThreeAtoms(t *testing.T) {
 
 func TestValidatePromptsYAML_RejectsOversizeAtom(t *testing.T) {
 	yml := buildPromptsYAML("goexpert", "GoExpert", "Go specialist", "    - concurrency", "concurrency",
-		"short method", "short domain")
-	bloated := strings.Replace(yml, "short domain", strings.Repeat("x", maxAgentAtomContentChars+1), 1)
-	err := validatePromptsYAML([]byte(bloated), "goexpert")
+		"short method", "short domain", testAtomCap)
+	bloated := strings.Replace(yml, "short domain", strings.Repeat("x", testAtomCap+1), 1)
+	err := validatePromptsYAML([]byte(bloated), "goexpert", testAtomCap)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "over the")
 	assert.Contains(t, err.Error(), "goexpert/domain")
@@ -98,10 +98,10 @@ func TestResplitPromptsYAML_SplitsOversizeAndPreservesFields(t *testing.T) {
   content: |
 %s`, indentForYAMLBlock(long, "    "))
 
-	fixed, changed, err := resplitPromptsYAML([]byte(original))
+	fixed, changed, err := resplitPromptsYAML([]byte(original), testAtomCap)
 	require.NoError(t, err)
 	require.True(t, changed)
-	require.NoError(t, validatePromptsYAML(fixed, "goexpert"))
+	require.NoError(t, validatePromptsYAML(fixed, "goexpert", testAtomCap))
 
 	text := string(fixed)
 	// Unknown fields survive on the pieces; the concise variant stays only
@@ -113,19 +113,19 @@ func TestResplitPromptsYAML_SplitsOversizeAndPreservesFields(t *testing.T) {
 	}
 
 	// Nothing oversize => unchanged.
-	_, changed, err = resplitPromptsYAML(fixed)
+	_, changed, err = resplitPromptsYAML(fixed, testAtomCap)
 	require.NoError(t, err)
 	assert.False(t, changed)
 }
 
 func TestSplitMarkdownSections_UnbrokenTextStillSplits(t *testing.T) {
 	body := strings.Repeat("word ", 2000) // 10000 chars, no headings or paragraphs
-	pieces := splitMarkdownSections(body, maxAgentAtomContentChars)
+	pieces := splitMarkdownSections(body, testAtomCap)
 	require.Greater(t, len(pieces), 1)
 	total := 0
 	for _, p := range pieces {
 		assert.NotEmpty(t, strings.TrimSpace(p.Body))
-		assert.LessOrEqual(t, utf8.RuneCountInString(p.Body), maxAgentAtomContentChars)
+		assert.LessOrEqual(t, utf8.RuneCountInString(p.Body), testAtomCap)
 		total += len(strings.Fields(p.Body))
 	}
 	assert.Equal(t, 2000, total, "no words may be lost or duplicated")

@@ -281,6 +281,10 @@ type CreatedAgent struct {
 
 // Initializer handles the cold-start initialization process.
 type Initializer struct {
+	// atomCapOnce resolves jit.atom_max_chars once (atomMaxChars).
+	atomCapOnce sync.Once
+	atomCap     int
+
 	config              InitConfig
 	out                 io.Writer
 	scanner             *world.Scanner

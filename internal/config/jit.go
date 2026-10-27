@@ -73,6 +73,12 @@ type JITConfig struct {
 	// model sees the cut instead of a silently short identity.
 	FallbackIdentityMaxBytes int `yaml:"fallback_identity_max_bytes" json:"fallback_identity_max_bytes"`
 
+	// AtomMaxChars caps one shard-agent prompt atom's content (default:
+	// 1500). An atom is the unit the JIT compiler selects and embeds whole,
+	// so it holds one idea: init asks the planner for sections of at most this
+	// size and splits anything longer at its headings.
+	AtomMaxChars int `yaml:"atom_max_chars" json:"atom_max_chars"`
+
 	enabledSet         bool
 	fallbackEnabledSet bool
 }
@@ -122,6 +128,7 @@ func DefaultJITConfig() JITConfig {
 		PredicateLimit:              100,
 		PredicateVecLimit:           200,
 		FallbackIdentityMaxBytes:    1024 * 1024,
+		AtomMaxChars:                1500,
 	}
 }
 
@@ -156,6 +163,14 @@ func (c JITConfig) Check(prefix string) []Problem {
 				Fix:      "a count of at least 1, or remove the key for the default",
 			})
 		}
+	}
+	if atomCap := c.AtomMaxChars; atomCap != 0 && (atomCap < 400 || atomCap > 8000) {
+		out = append(out, Problem{
+			Severity: SeverityError,
+			Path:     prefix + ".atom_max_chars",
+			Message:  fmt.Sprintf("%d is outside 400..8000: an atom must hold a whole idea and still embed in one request", atomCap),
+			Fix:      "a value from 400 to 8000, or remove the key for the default",
+		})
 	}
 	return out
 }

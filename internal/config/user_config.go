@@ -1843,6 +1843,9 @@ func (c *UserConfig) GetJITConfig() JITConfig {
 		if c.JIT.FallbackIdentityMaxBytes != 0 {
 			cfg.FallbackIdentityMaxBytes = c.JIT.FallbackIdentityMaxBytes
 		}
+		if c.JIT.AtomMaxChars != 0 {
+			cfg.AtomMaxChars = c.JIT.AtomMaxChars
+		}
 	}
 	return cfg
 }

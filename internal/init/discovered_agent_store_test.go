@@ -20,7 +20,7 @@ func TestDiscoveredPromptOnlyExpertGetsDurableKnowledgeSchema(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(nerdDir, "shards"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	data := buildPromptsYAML("customexpert", "CustomExpert", "custom", "    - custom", "custom", "curated method", "curated domain")
+	data := buildPromptsYAML("customexpert", "CustomExpert", "custom", "    - custom", "custom", "curated method", "curated domain", testAtomCap)
 	if err := os.WriteFile(filepath.Join(agentDir, "prompts.yaml"), []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}

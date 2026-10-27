@@ -72,7 +72,7 @@ func TestAgentInitializationPreservesCuratedPromptsWithoutKnowledgeDB(t *testing
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatal(err)
 	}
-	original := buildPromptsYAML("tokenexpert", "TokenExpert", "efficiency", "    - accounting", "accounting", "curated methodology witness", "curated domain witness")
+	original := buildPromptsYAML("tokenexpert", "TokenExpert", "efficiency", "    - accounting", "accounting", "curated methodology witness", "curated domain witness", testAtomCap)
 	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
 		t.Fatal(err)
 	}

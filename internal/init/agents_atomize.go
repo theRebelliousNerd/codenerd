@@ -2,7 +2,10 @@ package init
 
 import (
 	"bytes"
+	"codenerd/internal/config"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -10,15 +13,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
-
-// maxAgentAtomContentChars caps one generated agent prompt atom. An atom is
-// the unit the JIT compiler selects and embeds whole: the pre-cap files held
-// one methodology and one domain atom of 10-23k characters each, which the
-// embedding model refused outright (embeddinggemma's window is ~2048 tokens)
-// and which selection could only take or leave entire. 2000 characters
-// (~500 tokens) keeps an atom to one embeddable idea; the shipped corpus'
-// median atom is ~1150 characters.
-const maxAgentAtomContentChars = 2000
 
 // agentPromptAtom is one prompts.yaml entry as buildPromptsYAML renders it.
 type agentPromptAtom struct {
@@ -245,8 +239,8 @@ func sectionTitle(s mdSection) string {
 // The first piece keeps baseID (and the concise/min variants, which describe
 // the whole), so existing depends_on references to baseID keep resolving;
 // later pieces get baseID/<slug> ids.
-func atomizeContent(baseID, category, subcategory string, priority int, mandatory bool, dependsOn []string, description, concise, min, content string) []agentPromptAtom {
-	pieces := splitMarkdownSections(content, maxAgentAtomContentChars)
+func atomizeContent(baseID, category, subcategory string, priority int, mandatory bool, dependsOn []string, description, concise, min, content string, atomCap int) []agentPromptAtom {
+	pieces := splitMarkdownSections(content, atomCap)
 	if len(pieces) == 0 {
 		pieces = []mdSection{{Body: strings.TrimSpace(content)}}
 	}
@@ -316,7 +310,7 @@ func renderAgentPromptAtom(atom agentPromptAtom) string {
 // capped sub-atoms (the first keeps the id). Returns changed=false when no
 // atom needed splitting. Node-level editing preserves fields this package
 // does not know about (intent_verbs, operational_modes, hand edits).
-func resplitPromptsYAML(data []byte) ([]byte, bool, error) {
+func resplitPromptsYAML(data []byte, atomCap int) ([]byte, bool, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, false, fmt.Errorf("yaml parse failed: %w", err)
@@ -336,11 +330,11 @@ func resplitPromptsYAML(data []byte) ([]byte, bool, error) {
 	for _, item := range seq.Content {
 		content := mappingScalar(item, "content")
 		id := mappingScalar(item, "id")
-		if id == "" || utf8.RuneCountInString(content) <= maxAgentAtomContentChars {
+		if id == "" || utf8.RuneCountInString(content) <= atomCap {
 			out = append(out, item)
 			continue
 		}
-		pieces := splitMarkdownSections(content, maxAgentAtomContentChars)
+		pieces := splitMarkdownSections(content, atomCap)
 		if len(pieces) <= 1 {
 			out = append(out, item)
 			continue
@@ -435,4 +429,29 @@ func deepCopyNode(node *yaml.Node) (*yaml.Node, error) {
 		return nil, fmt.Errorf("copy prompt atom: empty document")
 	}
 	return doc.Content[0], nil
+}
+
+// atomMaxChars is the shard-agent prompt atom cap, jit.atom_max_chars from
+// the workspace config (default 1500). An atom is the unit the JIT compiler
+// selects and embeds whole: the first generated files held one methodology
+// and one domain atom of 10-23k characters each, which the embedding model
+// refused outright and selection could only take or leave entire. The value
+// is read once per initializer; an unreadable config falls back to the
+// default, because config load errors are reported where the config loads.
+func (i *Initializer) atomMaxChars() int {
+	i.atomCapOnce.Do(func() {
+		i.atomCap = config.DefaultJITConfig().AtomMaxChars
+		path := filepath.Join(i.config.Workspace, ".nerd", "config.json")
+		if _, err := os.Stat(path); err != nil {
+			return
+		}
+		uc, err := config.LoadUserConfig(path)
+		if err != nil || uc == nil {
+			return
+		}
+		if n := uc.GetJITConfig().AtomMaxChars; n > 0 {
+			i.atomCap = n
+		}
+	})
+	return i.atomCap
 }
