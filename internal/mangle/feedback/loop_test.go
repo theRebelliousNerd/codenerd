@@ -10,6 +10,7 @@ import (
 )
 
 func TestNewFeedbackLoop(t *testing.T) {
+	// TODO: Add test for zero-value config (MaxRetries: 0, SessionBudget: 0) to ensure IsBudgetExhausted returns correctly and gracefully handles empty settings.
 	config := RetryConfig{
 		MaxRetries:          5,
 		SessionBudget:       10,
@@ -93,16 +94,21 @@ func TestSetSynthMode(t *testing.T) {
 }
 
 func TestFeedbackLoop_GetBudgetAndReset(t *testing.T) {
+	// TODO: Add test for empty string rule hashes (e.g. hashPrompt("")) to verify it doesn't cause unexpected nil dereferences or infinite loops.
 	fl := NewFeedbackLoop(RetryConfig{SessionBudget: 2})
 
 	// record attempts
 	fl.budget.RecordAttempt("hash1")
 	fl.budget.RecordAttempt("hash2")
+	// TODO: Add concurrent test suite (go test -race) with 100+ goroutines concurrently calling TryRecord to ensure atomic thread safety and prevent over-claiming budget.
+	// TODO: Verify documentation warning by interleaving CanRetry and RecordAttempt in a highly concurrent scenario to prove they over-claim if not using TryRecord.
 
 	if !fl.IsBudgetExhausted() {
 		t.Error("expected budget to be exhausted")
 	}
 
+	// TODO: Test for hash collisions in hashPrompt() when storing in ValidationBudget.ruleAttempts.
+	// TODO: Explicitly test type coercion when string inputs fail to parse as AST atoms (e.g. strings containing malformed Mangle syntax).
 	b := fl.GetBudget()
 	if b == nil {
 		t.Error("GetBudget returned nil")
@@ -115,6 +121,7 @@ func TestFeedbackLoop_GetBudgetAndReset(t *testing.T) {
 }
 
 func TestBuildEnhancedSystemPrompt(t *testing.T) {
+	// TODO: Test with massive predicate lists (e.g., 50,000+ predicates) to ensure strings.Builder doesn't cause buffer overflow or excessive memory allocation.
 	base := "You are a helpful AI."
 	preds := []string{"pred1(X)", "pred2(X, Y)"}
 
@@ -135,6 +142,7 @@ func TestBuildEnhancedSystemPrompt(t *testing.T) {
 	// The heading says "use ONLY these", so every declared predicate is
 	// listed -- a cut would forbid predicates the kernel accepts -- and in a
 	// stable order whatever order the caller's map produced.
+	// TODO: Test hashPrompt behavior with gigantically large prompt strings (e.g. >500MB) to ensure memory constraints aren't violated and it processes gracefully.
 	manyPreds := make([]string, 0, 50)
 	for i := 49; i >= 0; i-- {
 		manyPreds = append(manyPreds, fmt.Sprintf("pred_%02d/1", i))
