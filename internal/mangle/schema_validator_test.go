@@ -328,6 +328,43 @@ Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, 
 			"",
 			false,
 		},
+		// TODO: Null/Undefined/Empty: Test ValidateLearnedRule with completely empty string and empty array parameters.
+		// TODO: Null/Undefined/Empty: Test resilience against null byte (\x00) injections in predicate names and strings.
+		// TODO: Null/Undefined/Empty: Test Regex Denial of Service (ReDoS) with extreme whitespace density before parenthesis.
+		// TODO: Null/Undefined/Empty: Test uninitialized state handling by calling LoadDeclaredPredicates on a nil map instance.
+		// TODO: Null/Undefined/Empty: Test behavior when processing empty type bounds like `bound []`.
+		// TODO: Null/Undefined/Empty: Test parser resilience against the 'Nothing' Rule (missing bodies or heads).
+		// TODO: Null/Undefined/Empty: Test validation logic when schema file or learned rules file is completely empty.
+		// TODO: Null/Undefined/Empty: Test handling of empty predicate arguments like `predicate() :- .`.
+
+		// TODO: Type Coercion: Test type coercion behavior when mangle syntax passes a string to an expected number argument.
+		// TODO: Type Coercion: Test regex bypass attempts by embedding fake rule definitions within string literals.
+		// TODO: Type Coercion: Test unbalanced parentheses handling in validateHeadArity to ensure it errors instead of silently coercing.
+		// TODO: Type Coercion: Test multiline coercion bypass by indenting forbidden heads to evade the ^ regex anchor.
+		// TODO: Type Coercion: Test explicit prevention of redefining built-in predicates like `count` or `sum`.
+		// TODO: Type Coercion: Test accurate tracking of escaped quotes (\") within strings during splitRuleBody.
+		// TODO: Type Coercion: Test strict enforcement of Atom vs. String bindings to prevent silent disjoint joins.
+
+		// TODO: User request Extremes: Test ValidateRule performance when rule body exceeds 50000 characters (extreme length campaigns).
+		// TODO: User request Extremes: Test extreme arity handling by defining a Decl with 10,000 arguments.
+		// TODO: User request Extremes: Test deep nesting limits to ensure stack exhaustion panics are prevented or recovered.
+		// TODO: User request Extremes: Test memory usage during ValidateRule when processing a rule body with 1,000+ premises.
+		// TODO: User request Extremes: Test case sensitivity and Unicode handling in predicate names.
+		// TODO: User request Extremes: Test ValidateProgram execution time on multi-megabyte `learned.mg` files.
+		// TODO: User request Extremes: Test memory stability when parsing extremely long (5MB+) string literals.
+		// TODO: User request Extremes: Test infinite loop prevention with mutually recursive circular rule dependencies.
+		// TODO: User request Extremes: Test processing limits for massive disjunctions (OR logic).
+		// TODO: User request Extremes: Test rules that continuously bind thousands of distinct variables.
+
+		// TODO: State Conflicts: Test race conditions when ValidateRule is called concurrently with LoadDeclaredPredicates state changes.
+		// TODO: State Conflicts: Test for phantom state by sequentially loading contradictory schemas and verifying stale data is cleared.
+		// TODO: State Conflicts: Test concurrent safety of HotLoadRule execution under heavy agent load.
+		// TODO: State Conflicts: Ensure no data races exist when accessing the package-level mangleBuiltins map.
+		// TODO: State Conflicts: Verify that ValidateProgram maintains shared AST state safety across concurrent evaluations.
+		// TODO: State Conflicts: Ensure concurrent writes to error slices within validation functions are properly synchronized.
+		// TODO: State Conflicts: Test that Read-Only validation operations do not inadvertently mutate internal map states.
+		// TODO: State Conflicts: Simulate concurrent reloading of schemas.mg from disk while actively validating rules.
+		// TODO: State Conflicts: Verify the thread-safety of the shared learnedAtomValidator instance during ValidateAtom.
 		// TODO: TEST_GAP - Builtin redefinition attempts in learned rules
 		// TODO: TEST_GAP - ReDoS payload vector. Extreme length whitespace before parenthesis.
 		// TODO: TEST_GAP - Unicode/Case sensitivity in predicate names
