@@ -874,3 +874,12 @@ func TestCacheGetPut_RoundTrip(t *testing.T) {
 		t.Errorf("expected nil for different model, got %v", got)
 	}
 }
+
+// TODO: Test gap - Mock an engine that returns []float32{0,0,0} and verify searchInMemory ignores it or scores it 0 without a NaN sorting panic.
+// TODO: Test gap - Run SetConfig and Classify in parallel goroutines to trigger the race detector and verify struct tearing does not occur.
+// TODO: Test gap - Send null bytes into Classify and verify the cache hash handles it and no panic occurs.
+// TODO: Test gap - Ensure Target values without the / prefix are gracefully handled or rejected during MangleAtom coercion.
+// TODO: Test gap - Write a truncated byte array to the cache DB and verify it is treated as a miss, not a panic.
+// TODO: Test gap - Test extreme TopK values (e.g. math.MaxInt64) to ensure mergeResults does not integer overflow and panic.
+// TODO: Test gap - Test massive amount of facts returning from kernel.Query to ensure memory exhaustion does not occur in loadFromKernel.
+// TODO: Test gap - Verify state isn't wiped if kernel.Query fails in EmbeddedCorpusStore.LoadFromKernel.
