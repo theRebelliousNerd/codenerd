@@ -965,6 +965,17 @@ func TestConcurrentAccess(t *testing.T) {
 	// TODO: TEST_GAP - Add test for Post-Close Operations (calling methods after engine.Close())
 	// TODO: TEST_GAP - Add test for Context Cancellation during massive Fact Insertion (Atomicity rollback)
 	// TODO: TEST_GAP - Add test for Ghost Facts (ensure Clear() truly resets all state between tasks)
+	// TODO: TEST_GAP - Add test for Empty schema string loading (e.g. LoadSchemaString(""))
+	// TODO: TEST_GAP - Add test for Evaluating queries with empty strings or pure whitespace
+	// TODO: TEST_GAP - Add test for Adding a fact with an empty argument list to a predicate that expects arguments
+	// TODO: TEST_GAP - Add test for Extreme type coercion (Strings to Numbers/Names with massive/invalid inputs)
+	// TODO: TEST_GAP - Add test for Implicit type changes in queries (ensuring strict match across numeric/string forms)
+	// TODO: TEST_GAP - Add test for Extreme Arity (models inventing predicates with 10,000+ args)
+	// TODO: TEST_GAP - Add test for Extreme Query Length/Complexity (timeout/fail-fast testing)
+	// TODO: TEST_GAP - Add test for Massive Schema/Rule Explosions (testing defaultDerivedFactLimit aborts correctly)
+	// TODO: TEST_GAP - Add test for Read-Modify-Read Race Conditions (Query vs Clear race condition)
+	// TODO: TEST_GAP - Add test for Concurrent schema mutations (multiple LoadSchemaStrings concurrently)
+	// TODO: TEST_GAP - Add test for Deletion of active predicates (Reset during active Query)
 
 	cfg := DefaultConfig()
 	cfg.AutoEval = false
