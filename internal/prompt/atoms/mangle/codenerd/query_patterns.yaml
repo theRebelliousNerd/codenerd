@@ -676,10 +676,13 @@
     ### Unresolved Ambiguities
     
     ```mangle
-    # References with low confidence
+    # References with low confidence. Even in a query, a negated literal
+    # takes no wildcards: project "is flagged" first.
+    flagged_ref(Ref) :- ambiguity_flag(Ref, Kind, Note).
+
     ? focus_resolution(Ref, _, _, Score),
       Score < 85,
-      !ambiguity_flag(Ref, _, _).  # Not yet flagged
+      !flagged_ref(Ref).  # Not yet flagged
     ```
     
     ---

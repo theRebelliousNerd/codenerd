@@ -50,7 +50,7 @@
         reports_to(Employee, Manager).
     has_manager(Employee, /none) :-
         employee(Employee),
-        !reports_to(Employee, _).  # Don't use /none for "no manager"
+        !reports_to(Employee, _).  # WRONG twice: /none for "no manager", and the wildcard deletes this negation
     ```
     
     ## Correct Code
@@ -67,7 +67,8 @@
     # CORRECT - Binary classification
     active(X) :- status(X, /active).
     inactive(X) :- status(X, /inactive).
-    unknown_status(X) :- entity(X), !status(X, _).
+    has_status(X) :- status(X, S).
+    unknown_status(X) :- entity(X), !has_status(X).
     # Explicitly derive "unknown status" from absence
     
     # CORRECT - Derive "missing" from closed world
@@ -77,15 +78,16 @@
     # CORRECT - Default values using separate rule
     actual_value(X, Val) :- data(X, Val).
     effective_value(X, Val) :- actual_value(X, Val).
+    has_actual_value(X) :- actual_value(X, Val).
     effective_value(X, /default_val) :-
         expected(X),
-        !actual_value(X, _).
+        !has_actual_value(X).
     
     # CORRECT - Employees without managers
-    has_manager(Emp, Mgr) :- reports_to(Emp, Mgr).
+    has_manager(Emp) :- reports_to(Emp, Mgr).
     no_manager(Emp) :-
         employee(Emp),
-        !has_manager(Emp, _).
+        !has_manager(Emp).
     ```
     
     ## Detection
@@ -169,9 +171,10 @@
     effective_config(ID, Val) :-
         explicit_config(ID, Val).  # Use explicit if exists
     
+    has_explicit_config(ID) :- explicit_config(ID, Val).
     effective_config(ID, 100) :-
         item(ID),
-        !explicit_config(ID, _).  # Default 100 if missing
+        !has_explicit_config(ID).  # Default 100 if missing
     ```
     
     ### Pattern 3: Three-State Logic
@@ -266,9 +269,10 @@
         current_date(Now),
         Now >= Until.
     
+    ever_activated(ID) :- active_until(ID, Until).
     is_never_activated(ID) :-
         user(ID),
-        !active_until(ID, _),
+        !ever_activated(ID),
         !is_banned(ID).
     
     # Query: What's charlie's status?
@@ -384,7 +388,7 @@
     | SQL Pattern | Mangle Equivalent |
     |-------------|-------------------|
     | `WHERE col IS NOT NULL` | `predicate(X, _)` (fact exists) |
-    | `WHERE col IS NULL` | `entity(X), !predicate(X, _)` (fact absent) |
+    | `WHERE col IS NULL` | `has_pred(X) :- predicate(X, V).` then `entity(X), !has_pred(X)` (fact absent) |
     | `COALESCE(col, default)` | Two rules: explicit + default |
     | `CASE WHEN ... ELSE` | Multiple rules with different conditions |
     | `LEFT JOIN` (nullable) | Optional relationship via negation |

@@ -44,7 +44,7 @@
     adult(Name) :- person(Name, Age), :gt(Age, 18).
     
     # Negation with proper binding: project first, so the negated atom has no wildcard
-    # (`!parent(_, X)` is rejected: "variable X1 is not bound")
+    # (`!parent(_, X)` is silently deleted from the clause on the pinned v0.7 engine, no error)
     has_parent(X) :- parent(_, X).
     orphan(X) :- person(X, _), !has_parent(X).
     

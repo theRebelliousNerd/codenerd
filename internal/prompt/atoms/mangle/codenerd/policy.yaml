@@ -375,8 +375,10 @@
         test_result(_, _, /failed, _, _).
     
     # Commit allowed only when no blockers
+    commit_blocked() :- block_commit(Reason).
+
     git_commit_allowed() :-
-        !block_commit(_).
+        !commit_blocked().
     ```
     
     ### Network Policy
@@ -548,12 +550,20 @@
     ### Archival Criteria
     
     ```mangle
-    # Archive old facts with low activation
-    to_archive(Fact) :-
+    # Archive old facts with low activation. Arithmetic goes through a
+    # let-transform (no infix arithmetic), and the negated test is a bound
+    # projection (a negated literal takes no wildcard).
+    has_activation(Fact) :- activation(Fact, Score).
+
+    fact_age(Fact, Age) :-
         last_accessed(Fact, Time),
-        current_time(Now),
-        Now - Time > 3600,
-        !activation(Fact, _).
+        current_time(Now)
+        |> let Age = fn:minus(Now, Time).
+
+    to_archive(Fact) :-
+        fact_age(Fact, Age),
+        Age > 3600,
+        !has_activation(Fact).
     ```
     
     ---
@@ -756,9 +766,11 @@
         known_cause(Symptom, RootCause).
     
     # Generate hypothesis when cause unknown
+    has_known_cause(Symptom) :- known_cause(Symptom, Cause).
+
     missing_hypothesis(Symptom) :-
         symptom(_, Symptom),
-        !known_cause(Symptom, _).
+        !has_known_cause(Symptom).
     
     # Trigger clarification for unknown symptoms
     clarification_needed(Symptom) :-

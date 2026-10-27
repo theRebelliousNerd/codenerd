@@ -152,9 +152,10 @@
     
     **SAFE** (corrected):
     ```mangle
-    orphan(X) :- person(X), !parent(_, X).
+    has_parent(X) :- parent(P, X).
+    orphan(X) :- person(X), !has_parent(X).
     ```
-    Use `_` (anonymous variable) when you don't care about the value.
+    Project the column you don't care about away in a positive rule, then negate the projection. A negated literal takes no `_`: the pinned engine silently deletes a negation that contains one, so `!parent(_, X)` would exclude nothing.
     
     ## Equality Safety
     

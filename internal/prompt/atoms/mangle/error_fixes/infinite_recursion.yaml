@@ -112,14 +112,17 @@
     
     ### 2. Use Monotonic Progress
     ```mangle
-    # Each step must make measurable progress
+    # Each step must make measurable progress. No "only new paths" negation
+    # is needed or possible here: facts are a set (re-deriving path(X,Z,N)
+    # adds nothing), and negating the predicate being defined — let alone
+    # with a wildcard — is unstratifiable and rejected at analysis. The
+    # depth bound is what terminates cyclic graphs, because N keeps growing.
     path(X, Y, 1) :- edge(X, Y).
     path(X, Z, N) :-
         path(X, Y, M),
         edge(Y, Z),
-        N = fn:plus(M, 1),
-        M < 20,       # Depth limit
-        !path(X, Z, _).  # Only new paths
+        M < 20
+        |> let N = fn:plus(M, 1).
     ```
     
     ### 3. Filter Before Join

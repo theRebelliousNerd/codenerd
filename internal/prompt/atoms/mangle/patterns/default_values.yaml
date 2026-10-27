@@ -338,21 +338,29 @@
     # Schema
     Decl time_point(T) bound [/number].
     Decl measurement(T, Value) bound [/number, /number].
+    Decl has_measurement(T) bound [/number].
+    Decl latest_prior(T, PrevT) bound [/number, /number].
     Decl filled_value(T, Value) bound [/number, /number].
-    
+
+    has_measurement(T) :- measurement(T, Value).
+
     # Use actual measurement if exists
     filled_value(T, Value) :- measurement(T, Value).
-    
-    # Forward fill: use most recent previous value
-    filled_value(T, Value) :-
+
+    # Forward fill: first find each gap's most recent measured time (the
+    # extreme VALUE, one stratum), then join back for that row's value.
+    latest_prior(T, MaxPrevT) :-
       time_point(T),
-      !measurement(T, _),
-      # Find max time before T that has a measurement
-      measurement(PrevT, Value),
+      measurement(PrevT, PriorValue),
       PrevT < T
       |> do fn:group_by(T),
-         let MaxPrevT = fn:max(PrevT),
-      PrevT = MaxPrevT.
+         let MaxPrevT = fn:max(PrevT).
+
+    filled_value(T, Value) :-
+      time_point(T),
+      !has_measurement(T),
+      latest_prior(T, MaxPrevT),
+      measurement(MaxPrevT, Value).
     ```
     
     ### Example
@@ -403,9 +411,11 @@
       Price = fn:to_float(IntPrice).
     
     # Use category average as default
+    has_actual_price(Id) :- actual_price(Id, P).
+
     effective_price(Id, AvgPrice) :-
       item(Id, Category),
-      !actual_price(Id, _),
+      !has_actual_price(Id),
       category_avg_price(Category, AvgPrice).
     ```
     
@@ -579,8 +589,9 @@
     ### WRONG: Overlapping Rules (Ambiguous Defaults)
     ```mangle
     # Bad - both rules can match!
-    result(X, "default1") :- entity(X), !data(X, _).
-    result(X, "default2") :- entity(X), !data(X, _).
+    has_data(X) :- data(X, V).
+    result(X, "default1") :- entity(X), !has_data(X).
+    result(X, "default2") :- entity(X), !has_data(X).
     
     # Result: Both facts are derived! Confusing.
     # Fix: Use mutually exclusive conditions
@@ -589,24 +600,27 @@
     ### WRONG: Infinite Default Chain
     ```mangle
     # Bad - circular dependency
+    has_primary(X) :- primary(X, V).
     value(X, V) :- primary(X, V).
-    value(X, V) :- !primary(X, _), value(X, V).  # Circular!
+    value(X, V) :- candidate(X), !has_primary(X), value(X, V).  # Circular!
     
     # Fix: Break the cycle with explicit base case
     ```
     
     ### WRONG: Ignoring Stratification
     ```mangle
-    # Bad - negation requires stratification
-    result(X, Default) :- !result(X, _), Default = "default".
-    
+    # Bad - negation of the predicate being defined (and X unbound)
+    has_result(X) :- result(X, V).
+    result(X, "default") :- candidate(X), !has_result(X).
+
     # This asks: "Give me X with default if result(X) doesn't exist"
-    # But result is being defined BY this rule!
-    
+    # But result is being defined BY this rule — unstratifiable.
+
     # Fix: Use separate predicates
     actual(X, V) :- data(X, V).
+    has_actual(X) :- actual(X, V).
     result(X, V) :- actual(X, V).
-    result(X, "default") :- candidate(X), !actual(X, _).
+    result(X, "default") :- candidate(X), !has_actual(X).
     ```
     
     ## Performance Tips
@@ -626,9 +640,14 @@
     Decl effective_config(UserId, Key, Value) bound [/string, /string, /string].
     
     effective_config(UserId, Key, Value) :- user_config(UserId, Key, Value).
+    Decl user(UserId) bound [/string].
+    Decl has_user_config(UserId, Key) bound [/string, /string].
+    has_user_config(UserId, Key) :- user_config(UserId, Key, Value).
+    # UserId must be bound positively: in the negation alone it is unsafe.
     effective_config(UserId, Key, Value) :-
+      user(UserId),
       config_key(Key),
-      !user_config(UserId, Key, _),
+      !has_user_config(UserId, Key),
       system_default(Key, Value).
     ```
     
@@ -639,7 +658,9 @@
     Decl effective_timeout(TestId, TimeoutMs) bound [/string, /number].
     
     effective_timeout(TestId, TimeoutMs) :- custom_timeout(TestId, TimeoutMs).
-    effective_timeout(TestId, 5000) :- test(TestId, _), !custom_timeout(TestId, _).
+    Decl has_custom_timeout(TestId) bound [/string].
+    has_custom_timeout(TestId) :- custom_timeout(TestId, TimeoutMs).
+    effective_timeout(TestId, 5000) :- test(TestId, _), !has_custom_timeout(TestId).
     ```
     
     ### File Metadata Defaults

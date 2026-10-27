@@ -311,7 +311,7 @@
     ```mangle
     # Manually compose:
     Decl expensive_core(X, Y) bound [/number, /number].
-    expensive_core(X, Y) :- Y = fn:times(X, 2).
+    expensive_core(X, Y) :- input_value(X) |> let Y = fn:mult(X, 2).
     
     # Validation wrapper:
     Decl validated_expensive(X, Y) bound [/number, /number].
@@ -323,10 +323,12 @@
     Decl cached_expensive(X, Y) bound [/number, /number].
     
     cached_expensive(X, Y) :- cache_entry(/expensive, X, Y).
-    
+
+    has_cache_entry(X) :- cache_entry(/expensive, X, Y).
+
     cached_expensive(X, Y) :-
-        !cache_entry(/expensive, X, _),
-        validated_expensive(X, Y).
+        validated_expensive(X, Y),
+        !has_cache_entry(X).
         # In Go: store the result as cache_entry
     ```
     

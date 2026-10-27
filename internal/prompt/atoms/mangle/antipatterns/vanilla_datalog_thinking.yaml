@@ -1,0 +1,112 @@
+# Anti-pattern: textbook (vanilla) Datalog habits that the pinned mangle-go
+# (v0.7) does not honour. One habit per atom, so the selector can serve the
+# one a turn needs. Every behaviour below was run on the pinned engine with
+# `nerd check-mangle --standalone --eval`, 2026-10-27.
+
+- id: "language/mangle/antipatterns/vanilla_datalog/negated_wildcard"
+  category: "language"
+  subcategory: "mangle"
+  description: "Vanilla Datalog habit: a wildcard inside a negation"
+  priority: 40
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## Vanilla Datalog habit, wrong here: `!p(X, _)` means "no p row for X"
+    In textbook Datalog it does. On the pinned engine a negated literal that holds a `_`
+    is deleted from the clause, with no error:
+    ```mangle
+    q(X) :- p(X), !r(X, _).   # evaluates as q(X) :- p(X).
+    ```
+    Project the column away in a positive rule, then negate the fully bound projection:
+    ```mangle
+    has_r(X) :- r(X, Y).
+    q(X) :- p(X), !has_r(X).
+    ```
+
+- id: "language/mangle/antipatterns/vanilla_datalog/negation_only_variable"
+  category: "language"
+  subcategory: "mangle"
+  description: "Vanilla Datalog habit: a variable that only a negation mentions"
+  priority: 40
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## Vanilla Datalog habit, wrong here: a named variable bound only inside the negation
+    `q(X) :- p(X), !r(X, Y).` reads as "no Y with r(X, Y)", but Y is bound by no positive atom,
+    so the engine deletes the negation exactly as it deletes a `_`. Every variable in a negated
+    literal must already be bound by a positive atom; anything else is projected away first:
+    ```mangle
+    has_r(X) :- r(X, Y).
+    q(X) :- p(X), !has_r(X).
+    ```
+
+- id: "language/mangle/antipatterns/vanilla_datalog/any_rows"
+  category: "language"
+  subcategory: "mangle"
+  description: "Vanilla Datalog habit: testing whether a relation has any row"
+  priority: 38
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## Vanilla Datalog habit, wrong here: `!p(_)` means "p is empty"
+    A wildcard-only negation is deleted like any other. Use a zero-arity projection. A nullary
+    predicate is written with `()` in its Decl, its head and its uses; a bare `p :- ...` does
+    not parse.
+    ```mangle
+    Decl blocked() bound [].
+    blocked() :- block_commit(Reason).
+    commit_allowed() :- !blocked().
+    ```
+
+- id: "language/mangle/antipatterns/vanilla_datalog/disjunction"
+  category: "language"
+  subcategory: "mangle"
+  description: "Vanilla Datalog habit: disjunction inside a rule body"
+  priority: 36
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## Vanilla Datalog habit, wrong here: `;` for "or" in a body
+    The pinned parser rejects `;`. An "or" is two rules with the same head:
+    ```mangle
+    q(X) :- a(X).
+    q(X) :- b(X).
+    ```
+
+- id: "language/mangle/antipatterns/vanilla_datalog/aggregate_then_filter"
+  category: "language"
+  subcategory: "mangle"
+  description: "Vanilla Datalog habit: filtering rows after an aggregation in the same rule"
+  priority: 38
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## Vanilla Datalog habit, wrong here: aggregate, then pick the matching row in the same rule
+    Aggregation is a `|> do fn:group_by(...), let V = fn:max(...)` transform at the end of a
+    rule, and nothing may follow the `let` bindings: `..., let MaxT = fn:max(T), T = MaxT.`
+    does not parse. Aggregate in one rule, then join the result back in a second:
+    ```mangle
+    latest(Key, MaxT) :- reading(Key, T, Value)
+        |> do fn:group_by(Key), let MaxT = fn:max(T).
+    latest_value(Key, Value) :- latest(Key, T), reading(Key, T, Value).
+    ```
+    One aggregation per rule. An aggregate over no rows derives nothing (not zero), so the
+    empty case is its own rule with a negated projection.
+
+- id: "language/mangle/antipatterns/vanilla_datalog/default_value"
+  category: "language"
+  subcategory: "mangle"
+  description: "Vanilla Datalog habit: a default value written against the predicate being defined"
+  priority: 36
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## Vanilla Datalog habit, wrong here: `v(X, D) :- !v(X, _), ...` for "default when missing"
+    Negating the predicate the rule defines is unstratifiable, and the wildcard deletes the
+    negation anyway. Keep the actual values in their own predicate, project it, and bind the
+    entity positively before negating:
+    ```mangle
+    has_actual(X) :- actual(X, V).
+    value(X, V) :- actual(X, V).
+    value(X, /default) :- entity(X), !has_actual(X).
+    ```

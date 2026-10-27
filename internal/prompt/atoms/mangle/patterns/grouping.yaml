@@ -154,16 +154,21 @@
       withdrawals(AccountId, With),
       Balance = fn:minus(Dep, With).
     
+    # "Has any row" tests are bound projections: a negated literal takes no
+    # wildcard argument.
+    has_withdrawals(AccountId) :- withdrawals(AccountId, Amount).
+    has_deposits(AccountId) :- deposits(AccountId, Amount).
+
     # Handle accounts with only deposits
     account_balance(AccountId, Balance) :-
       deposits(AccountId, Balance),
-      !withdrawals(AccountId, _).
-    
+      !has_withdrawals(AccountId).
+
     # Handle accounts with only withdrawals
     account_balance(AccountId, Balance) :-
       withdrawals(AccountId, With),
-      !deposits(AccountId, _),
-      Balance = fn:times(With, -1).
+      !has_deposits(AccountId),
+      Balance = fn:mult(With, -1).
     ```
     
     ### Example

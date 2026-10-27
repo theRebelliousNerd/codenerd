@@ -225,8 +225,12 @@
     total_or_zero(Sum) :-
       total(Sum).
     
+    # "No total at all" is a negated nullary projection: a negated
+    # literal takes no wildcard.
+    any_total() :- total(Sum).
+
     total_or_zero(0) :-
-      !total(_).
+      !any_total().
     
     # Query: total_or_zero(?Sum)
     # Result: total_or_zero(0)

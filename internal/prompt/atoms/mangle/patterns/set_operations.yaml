@@ -450,8 +450,9 @@
     # Not explicitly represented - handled by closed world assumption
     
     # For practical use, you'd enumerate specific subsets:
-    Decl subset_empty.
-    subset_empty :- !element(_).  # Empty set exists if no elements
+    Decl subset_empty() bound [].
+    any_element() :- element(X).
+    subset_empty() :- !any_element().  # Empty set exists if no elements
     
     # Better: Define specific subsets based on properties
     Decl subset_by_property(Elem, Property) bound [/string, /name].

@@ -259,8 +259,9 @@
     value(X) :-
         override_value(X).
     
+    any_override() :- override_value(V).
     value(X) :-
-        !override_value(_),  # Only if no override
+        !any_override(),  # Only if no override
         base_value(X).
     
     # Or use single rule with conditional logic:
@@ -269,7 +270,7 @@
     
     value(X) :-
         base_value(X),
-        !override_value(_).
+        !any_override().
     ```
     
     ---
@@ -306,8 +307,9 @@
     best_match(X) :-
         condition1(X).  # Highest priority
     
+    any_condition1() :- condition1(Y).
     best_match(X) :-
-        !condition1(_),  # Only if condition1 has no matches
+        !any_condition1(),  # Only if condition1 has no matches
         condition2(X).
     
     # Or explicitly rank:
@@ -395,19 +397,21 @@
     # For true fallback (only use option2 if option1 fails):
     result(R) :- option1(R).
     
+    any_option1() :- option1(O).
     result(R) :-
-        !option1(_),  # No results from option1
+        !any_option1(),  # No results from option1
         option2(R).
     
     # Or use priority:
     result(R, /primary) :- option1(R).
-    result(R, /fallback) :- option2(R), !option1(_).
+    result(R, /fallback) :- option2(R), !any_option1().
     
     preferred_result(R) :-
         result(R, /primary).
     
+    has_primary() :- result(P, /primary).
     preferred_result(R) :-
-        !result(_, /primary),
+        !has_primary(),
         result(R, /fallback).
     ```
     

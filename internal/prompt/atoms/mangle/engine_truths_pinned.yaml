@@ -17,7 +17,7 @@
   content: |
     ## THE PINNED MANGLE ENGINE: WHAT WAS VERIFIED BY RUNNING IT
 
-    The kernel runs TauCeti's canonical mangle-go (v0.5.1 line), not the frozen Google 0.4.0
+    The kernel runs TauCeti's canonical mangle-go (v0.7 line), not the frozen Google 0.4.0
     snapshot. Where a document and this list disagree, this list was run on the engine.
 
     ### A negation can vanish without an error

@@ -256,12 +256,14 @@
     ```mangle
     # Model success/failure as predicates:
     safe_result(R) :- success(R).
-    safe_result(/default) :- !success(_).
+    any_success() :- success(R).
+    safe_result(/default) :- !any_success().
     
     # Or use optional pattern:
     result_or_default(R) :- risky(R).
+    any_risky() :- risky(R).
     result_or_default(/default) :-
-        !risky(_),
+        !any_risky(),
         default(/default).
     ```
     

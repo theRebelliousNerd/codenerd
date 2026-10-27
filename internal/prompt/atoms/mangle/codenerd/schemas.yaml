@@ -249,8 +249,10 @@
     block_commit("Build Broken") :-
         diagnostic(/error, _, _, _, _).
     
+    commit_blocked() :- block_commit(Reason).
+
     git_commit_allowed() :-
-        !block_commit(_).
+        !commit_blocked().
     ```
     
     ### test_result/5

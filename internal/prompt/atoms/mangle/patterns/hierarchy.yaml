@@ -64,9 +64,11 @@
     Decl parent(Parent, Child) bound [/string, /string].
     Decl depth(Node, Level) bound [/string, /number].
     Decl root(Node) bound [/string].
+    Decl has_parent(Node) bound [/string].
     
     # Root nodes have depth 0
-    root(X) :- parent(X, _), !parent(_, X).
+    has_parent(X) :- parent(P, X).
+    root(X) :- parent(X, _), !has_parent(X).
     depth(X, 0) :- root(X).
     
     # Children are one level deeper
@@ -210,7 +212,8 @@
     common_ancestor(A, B, Anc) :- ancestor(Anc, A), ancestor(Anc, B).
     
     # Calculate depths (from earlier pattern)
-    root(X) :- parent(X, _), !parent(_, X).
+    has_parent(X) :- parent(P, X).
+    root(X) :- parent(X, _), !has_parent(X).
     depth(X, 0) :- root(X).
     depth(Child, D) :-
       parent(Parent, Child),
@@ -252,9 +255,11 @@
     Decl parent(Parent, Child) bound [/string, /string].
     Decl path_to_root(Node, Ancestor, Distance) bound [/string, /string, /number].
     Decl root(Node) bound [/string].
+    Decl has_parent(Node) bound [/string].
     
     # Root definition
-    root(X) :- parent(X, _), !parent(_, X).
+    has_parent(X) :- parent(P, X).
+    root(X) :- parent(X, _), !has_parent(X).
     
     # Node is distance 0 from itself
     path_to_root(X, X, 0).

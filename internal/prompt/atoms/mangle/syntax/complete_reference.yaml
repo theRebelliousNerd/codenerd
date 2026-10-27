@@ -626,10 +626,11 @@
     
     adult(P) :- person(P, Age), Age >= 18.
     
-    # Complex rule with negation
+    # Complex rule with negation: project, then negate a fully bound literal
+    has_parent(P) :- parent(Q, P).
     orphan(P) :-
         person(P, _),
-        !parent(_, P).
+        !has_parent(P).
     
     # Aggregation
     total_age(Total) :-

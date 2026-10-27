@@ -429,8 +429,8 @@
     
     ### WRONG: Negating Without Checking Existence
     ```mangle
-    # Misleading — and the wildcard inside the negation is itself an
-    # unbound-variable analysis error on the pinned engine.
+    # WRONG: misleading, and it derives nothing useful, because the pinned
+    # engine silently deletes a negation that holds a wildcard:
     no_orders(UserId) :- !order(UserId, _).
 
     # Better: bind the user, project "has an order", negate the projection.

@@ -312,10 +312,12 @@
     Decl order(OrderId, UserId) bound [/string, /string].
     Decl users_without_orders(UserId, Name) bound [/string, /string].
     
-    # Users with no orders
+    # Users with no orders: project "has an order", negate the projection
+    Decl has_order(UserId) bound [/string].
+    has_order(UserId) :- order(OrderId, UserId).
     users_without_orders(UserId, Name) :-
       user(UserId, Name),
-      !order(_, UserId).
+      !has_order(UserId).
     ```
     
     ### Example

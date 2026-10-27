@@ -255,10 +255,10 @@
     
     ## Negation and the Anonymous Variable
 
-    A negated literal must be FULLY bound. A wildcard inside it
-    (`!parent(P, _)`) is an unbound-variable analysis error on the pinned
-    TauCeti v0.7 engine — it is neither an existential test nor silently
-    ignored. Project to a bound helper first, then negate the helper.
+    A negated literal must be FULLY bound. On the pinned TauCeti v0.7 engine a
+    wildcard inside it (`!parent(P, _)`) is silently deleted from the clause, with no
+    error: it is NOT an existential test. `q(X) :- p(X), !r(X, _).` evaluates as
+    `q(X) :- p(X).` Project to a bound helper first, then negate the helper.
     
     ### Example: "Has at least one child"
     ```mangle

@@ -443,10 +443,11 @@
     display_name(Id, "Guest") :- no_user(Id).
     
     # Option 2: Always derive a value
+    known_user(Id) :- user(Id, Name).
     user_or_guest(Id, Name) :- user(Id, Name).
     user_or_guest(Id, "Guest") :-
         requested_id(Id),
-        !user(Id, _).
+        !known_user(Id).
     ```
     
     ---
